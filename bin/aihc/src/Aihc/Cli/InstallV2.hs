@@ -7,6 +7,7 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
+import Aihc.Cli.ArtifactCache (ArtifactCache, artifactCache, loadArtifact)
 import Aihc.Cli.Install
   ( DependencyResolver (..),
     PackagePlan (..),
@@ -75,7 +76,7 @@ import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Exception (IOException, SomeException, bracket, bracket_, throwIO, try)
+import Control.Exception (SomeException, bracket, bracket_, throwIO, try)
 import Control.Monad (filterM, foldM, unless, when)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
@@ -160,6 +161,16 @@ data PendingCompile = PendingCompile
     pendingModules :: ![Module]
   }
 
+data InstallConfig = InstallConfig
+  { installKeepGrin :: !Bool,
+    installKeepNative :: !Bool,
+    installLint :: !Bool,
+    installNoCode :: !Bool,
+    installTarget :: !NativeTarget,
+    installVerbose :: String -> IO (),
+    installArtifactCache :: !ArtifactCache
+  }
+
 type InstallUnitState =
   ( ModuleExports,
     Map.Map Text Text,
@@ -185,9 +196,19 @@ installV2 options = do
       verbose message = when (installV2Verbose options) (putStrLn message)
       fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
+      config =
+        InstallConfig
+          { installKeepGrin = installV2KeepGrin options,
+            installKeepNative = installV2KeepNative options,
+            installLint = installV2Lint options,
+            installNoCode = installV2NoCode options,
+            installTarget = target,
+            installVerbose = verbose,
+            installArtifactCache = artifactCache (not (installV2NoCache options))
+          }
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
-  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) (installV2Lint options) target verbose targetStoreRoot plan
+  installedV2Result <$> installPackagePlanV2 config targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -200,13 +221,15 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot) (planDependencyPlans plan)
-  installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: InstallConfig -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 config storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 config storeRoot) (planDependencyPlans plan)
+  installPackageV2 config storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies root = do
+installPackageV2 :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 config storeRoot dependencies root = do
+  let target = installTarget config
+      verbose = installVerbose config
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -247,20 +270,21 @@ installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies 
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, allTypes, allTypeHashes, written, reused, pendingCompiles, packageInstances) <-
     foldM
-      (installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root)
+      (installUnit config storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty, [], dependencyInstances)
       units
   let completeTypes = mergeTypeInterfaces (Map.elems allTypes)
   writePackageInstanceArtifact verbose storePath allTypeHashes completeTypes (ownInstanceFacts resolvePackage packageInstances)
-  compilePendingModules keepGrin keepNative lint target verbose primIdentity completeTypes (moduleOutputPaths storePath target) pendingCompiles
-  let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
-      moduleObjects =
-        sortOn
-          id
-          [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
-          | source <- parsed
-          ]
-  buildLibraryArchive target verbose archive moduleObjects
+  unless (installNoCode config) $ do
+    compilePendingModules config primIdentity completeTypes (moduleOutputPaths storePath target) pendingCompiles
+    let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
+        moduleObjects =
+          sortOn
+            id
+            [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
+            | source <- parsed
+            ]
+    buildLibraryArchive target verbose archive moduleObjects
   writePackageManifest
     (packageManifestPath storePath)
     PackageManifest
@@ -371,9 +395,12 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> InstallUnitState -> [SourceModule] -> IO InstallUnitState
-installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused, pendingCompiles, globalInstances) unit = do
-  let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
+installUnit :: InstallConfig -> FilePath -> Package -> PackageId -> FilePath -> InstallUnitState -> [SourceModule] -> IO InstallUnitState
+installUnit config storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused, pendingCompiles, globalInstances) unit = do
+  let target = installTarget config
+      verbose = installVerbose config
+      cache = installArtifactCache config
+      packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
       dependencyNames = nub (importedNames <> wiredTypeModules)
@@ -393,7 +420,7 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
                 Just interface <- [Map.lookup name dependencyTypes]
               ]
           )
-  cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
+  cachedExports <- readUnitArtifacts cache hashes resolvePackage resolvePath unit
   (diskExports, resolveResult, resolveChanged) <- case cachedExports of
     Just exports -> do
       mapM_ (verbose . ("Reuse resolve context: " <>) . T.unpack) unitNames
@@ -403,9 +430,8 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
       unless (null (resolveErrors result)) (ioError (userError (renderResolveErrors unit (resolveErrors result))))
       let exports = extractInterfaceWithDeps dependencyExports result
       mapM_ (\source -> writeArtifact verbose hashes exports resolvePackage (resolvePath source) source) unit
-      storedExports <- readUnitArtifacts hashes resolvePackage resolvePath unit
-      pure (storedExports, Just result, True)
-  updatedScopeHashes <- updateScopeHashes resolvePath scopeHashes unit
+      pure (exports, Just result, True)
+  let updatedScopeHashes = updateScopeHashes resolvePackage diskExports scopeHashes unit
   let typeInputs =
         sortOn fst $
           sourceHashes
@@ -425,7 +451,7 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
                 (map snd (resolvedModules resolved))
         unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))
         pure checked
-  cachedTypes <- tryReadTypeArtifacts typeInputs typePath unit
+  cachedTypes <- readTypeArtifacts cache typeInputs typePath unit
   (unitTypes, typeChanged, checkedResult) <- case cachedTypes of
     Just interfaces -> do
       mapM_ (verbose . ("Reuse type interface: " <>) . T.unpack) unitNames
@@ -436,30 +462,33 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
       mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip unit interfaces)
       pure (interfaces, True, Just checked)
   let updatedTypeHashes = updateTypeHashes typeHashes (zip unitNames unitTypes)
-  fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) unit
-  grinStagesExist <-
-    and
-      <$> mapM
-        ( \source -> do
-            let paths = outputPaths (sourceName source)
-            and <$> mapM doesFileExist [outputGrinPath paths, outputCpsGrinPath paths, outputGcGrinPath paths]
-        )
-        unit
-  objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) unit
-  nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) unit
   (fcChanged, generatedOutputChanged, pendingCompile) <-
-    if typeChanged || not fcExists
-      then do
-        (checkedModules, _) <- maybe checkUnit pure checkedResult
-        pure (True, keepGrin, Just (PendingCompile True unitSourceSize checkedModules))
-      else
-        if lint || repairRequired grinStagesExist nativeExists objectExists
+    if installNoCode config
+      then pure (False, False, Nothing)
+      else do
+        if typeChanged
           then do
             (checkedModules, _) <- maybe checkUnit pure checkedResult
-            pure (False, repairRequired grinStagesExist nativeExists objectExists, Just (PendingCompile False unitSourceSize checkedModules))
+            pure (True, installKeepGrin config, Just (PendingCompile True unitSourceSize checkedModules))
           else do
-            mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
-            pure (False, False, Nothing)
+            fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) unit
+            grinStagesExist <-
+              and
+                <$> mapM
+                  ( \source -> do
+                      let paths = outputPaths (sourceName source)
+                      and <$> mapM doesFileExist [outputGrinPath paths, outputCpsGrinPath paths, outputGcGrinPath paths]
+                  )
+                  unit
+            objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) unit
+            nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) unit
+            if not fcExists || installLint config || repairRequired grinStagesExist nativeExists objectExists
+              then do
+                (checkedModules, _) <- maybe checkUnit pure checkedResult
+                pure (not fcExists, repairRequired grinStagesExist nativeExists objectExists, Just (PendingCompile (not fcExists) unitSourceSize checkedModules))
+              else do
+                mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
+                pure (False, False, Nothing)
   let changed = resolveChanged || typeChanged || fcChanged || generatedOutputChanged
       unitSet = Set.fromList unitNames
       localUnitTypes = Map.fromList (zip unitNames unitTypes)
@@ -484,7 +513,7 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
     unitSourceSize = sum (map sourceModuleSize unit)
     repairRequired grinStagesExist nativeExists objectExists =
-      (keepGrin && not grinStagesExist) || (keepNative && not nativeExists) || not objectExists
+      (installKeepGrin config && not grinStagesExist) || (installKeepNative config && not nativeExists) || not objectExists
 
 mergeTypeInterfaces :: [TcInterface] -> TcInterface
 mergeTypeInterfaces = mergeTcInterfaces
@@ -528,8 +557,8 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
 
-compilePendingModules :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [PendingCompile] -> IO ()
-compilePendingModules keepGrin keepNative lint target verbose primIdentity interface outputPaths pending = do
+compilePendingModules :: InstallConfig -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [PendingCompile] -> IO ()
+compilePendingModules config primIdentity interface outputPaths pending = do
   prepared <- either (ioError . userError . ("FC environment generation failed: " <>)) pure (Fc.prepareDesugar (DesugarConfig primIdentity) interface)
   capabilities <- getNumCapabilities
   semaphore <- newQSem (max 1 (capabilities * 3))
@@ -544,11 +573,8 @@ compilePendingModules keepGrin keepNative lint target verbose primIdentity inter
       let saveMessage message = modifyIORef' messages (message :)
           action =
             compileCheckedModules
+              config
               (pendingWriteFc item)
-              keepGrin
-              keepNative
-              lint
-              target
               saveMessage
               prepared
               outputPaths
@@ -557,12 +583,16 @@ compilePendingModules keepGrin keepNative lint target verbose primIdentity inter
       saved <- reverse <$> readIORef messages
       pure (pendingNames item, (result :: Either SomeException (), saved))
     report (result, messages) = do
-      mapM_ verbose messages
+      mapM_ (installVerbose config) messages
       either throwIO pure result
 
-compileCheckedModules :: Bool -> Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
-compileCheckedModules writeFc keepGrin keepNative lint target verbose prepared outputPaths checkedModules = do
-  let bindings = concatMap tcModuleBindings checkedModules
+compileCheckedModules :: InstallConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
+compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do
+  let keepGrin = installKeepGrin config
+      keepNative = installKeepNative config
+      lint = installLint config
+      target = installTarget config
+      bindings = concatMap tcModuleBindings checkedModules
       desugarResults = map desugar checkedModules
       desugar checked
         | null (Syntax.moduleDecls checked) =
@@ -608,11 +638,11 @@ compileCheckedModules writeFc keepGrin keepNative lint target verbose prepared o
           paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
       BS.writeFile (outputObjectPath paths) ""
-      when keepGrin $ do
+      when (installKeepGrin config) $ do
         writeFile (outputGrinPath paths) ""
         writeFile (outputCpsGrinPath paths) ""
         writeFile (outputGcGrinPath paths) ""
-      when keepNative (writeFile (outputNativePath paths) "")
+      when (installKeepNative config) (writeFile (outputNativePath paths) "")
       verbose ("Write empty object: " <> T.unpack name)
 
     writeFcModule fcModule = do
@@ -628,12 +658,12 @@ compileCheckedModules writeFc keepGrin keepNative lint target verbose prepared o
 
     lowerGrinModule fcModule = do
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
-      when lint $ do
+      when (installLint config) $ do
         let plainErrors = Grin.lintProgram plainProgram
         unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
       let gcProgram = Grin.lowerGc cpsProgram
-      when lint $ do
+      when (installLint config) $ do
         let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       pure
@@ -672,7 +702,7 @@ compileCheckedModules writeFc keepGrin keepNative lint target verbose prepared o
     compileNativeSourceFile nativeModule = do
       let name = nativeModuleName nativeModule
           paths = outputPaths name
-      (compiler, compilerArguments) <- backendCompiler target
+      (compiler, compilerArguments) <- backendCompiler (installTarget config)
       runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 
@@ -916,20 +946,12 @@ writeTypeArtifact verbose hashes artifactPath source interface = do
   BL.writeFile path (encodeTypeArtifact (TypeArtifact name hashes interface))
   verbose ("Write type interface: " <> T.unpack name)
 
-tryReadTypeArtifacts :: [(Text, Text)] -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe [TcInterface])
-tryReadTypeArtifacts expected artifactPath unit = do
-  result <- try (readTypeArtifacts expected artifactPath unit) :: IO (Either IOException [TcInterface])
-  pure (either (const Nothing) Just result)
-
-readTypeArtifacts :: [(Text, Text)] -> (SourceModule -> FilePath) -> [SourceModule] -> IO [TcInterface]
-readTypeArtifacts expected artifactPath = mapM readOne
+readTypeArtifacts :: ArtifactCache -> [(Text, Text)] -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe [TcInterface])
+readTypeArtifacts cache expected artifactPath unit = fmap sequence (mapM readOne unit)
   where
     readOne source = do
       let path = artifactPath source
-      bytes <- BS.readFile path
-      artifact <- either (\message -> ioError (userError ("Invalid type artifact " <> path <> ": " <> message))) pure (decodeTypeArtifact bytes)
-      unless (typeArtifactInputHashes artifact == expected) (ioError (userError ("Invalid type artifact " <> path <> ": input hashes do not match")))
-      pure (typeArtifactInterface artifact)
+      fmap typeArtifactInterface <$> loadArtifact cache path decodeTypeArtifact ((== expected) . typeArtifactInputHashes)
 
 updateTypeHashes :: Map.Map Text Text -> [(Text, TcInterface)] -> Map.Map Text Text
 updateTypeHashes = foldl' insertHash
@@ -937,16 +959,14 @@ updateTypeHashes = foldl' insertHash
     insertHash result (name, interface) =
       Map.insert name (T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) result
 
-updateScopeHashes :: (SourceModule -> FilePath) -> Map.Map Text Text -> [SourceModule] -> IO (Map.Map Text Text)
-updateScopeHashes artifactPath previous unit = do
-  scopeHashes <- mapM artifactScopeHash unit
-  pure (foldl' (\hashes (name, digest) -> Map.insert name digest hashes) previous scopeHashes)
+updateScopeHashes :: Package -> ModuleExports -> Map.Map Text Text -> [SourceModule] -> Map.Map Text Text
+updateScopeHashes package exports = foldl' update
   where
-    artifactScopeHash source = do
-      bytes <- BS.readFile (artifactPath source)
-      artifact <- either (\message -> ioError (userError ("Invalid resolve artifact while hashing scope: " <> message))) pure (decodeResolveArtifact bytes)
-      let scopeBytes = BL.toStrict (encodeResolveScope (resolveArtifactScope artifact))
-      pure (resolveArtifactModuleName artifact, T.pack (stableHash [scopeBytes]))
+    update hashes source =
+      let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
+          scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
+          scopeBytes = BL.toStrict (encodeResolveScope scope)
+       in Map.insert name (T.pack (stableHash [scopeBytes])) hashes
 
 moduleDirectory :: Module -> FilePath
 moduleDirectory = moduleNameDirectory . fromMaybe "Main" . moduleName
@@ -962,22 +982,15 @@ writeArtifact verbose hashes exports package path source = do
   BL.writeFile path (encodeResolveArtifact (ResolveArtifact name hashes scope))
   verbose ("Write resolve context: " <> T.unpack name)
 
-tryReadUnitArtifacts :: [(Text, Text)] -> Package -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe ModuleExports)
-tryReadUnitArtifacts expected package artifactPath unit = do
-  result <- try (readUnitArtifacts expected package artifactPath unit) :: IO (Either IOException ModuleExports)
-  pure (either (const Nothing) Just result)
-
-readUnitArtifacts :: [(Text, Text)] -> Package -> (SourceModule -> FilePath) -> [SourceModule] -> IO ModuleExports
-readUnitArtifacts expected package artifactPath unit = do
+readUnitArtifacts :: ArtifactCache -> [(Text, Text)] -> Package -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe ModuleExports)
+readUnitArtifacts cache expected package artifactPath unit = do
   entries <- mapM readOne unit
-  pure (Map.fromList entries)
+  pure (Map.fromList <$> sequence entries)
   where
     readOne source = do
       let path = artifactPath source
-      bytes <- BS.readFile path
-      artifact <- either (\message -> ioError (userError ("Invalid resolve artifact " <> path <> ": " <> message))) pure (decodeResolveArtifact bytes)
-      unless (resolveArtifactInputHashes artifact == expected) (ioError (userError ("Invalid resolve artifact " <> path <> ": input hashes do not match")))
-      pure (ModuleKey package (resolveArtifactModuleName artifact), resolveArtifactScope artifact)
+      artifact <- loadArtifact cache path decodeResolveArtifact ((== expected) . resolveArtifactInputHashes)
+      pure ((\value -> (ModuleKey package (resolveArtifactModuleName value), resolveArtifactScope value)) <$> artifact)
 
 stableHash :: [BS.ByteString] -> String
 stableHash chunks = replicate (16 - length rendered) '0' <> rendered

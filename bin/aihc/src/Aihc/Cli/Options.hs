@@ -50,6 +50,8 @@ data InstallV2Options = InstallV2Options
     installV2KeepGrin :: !Bool,
     installV2KeepNative :: !Bool,
     installV2Lint :: !Bool,
+    installV2NoCache :: !Bool,
+    installV2NoCode :: !Bool,
     installV2Verbose :: !Bool,
     installV2Target :: !NativeTarget
   }
@@ -215,6 +217,14 @@ installV2OptionsParser =
           <> OA.help "Retain native source files"
       )
     <*> lintOption
+    <*> OA.switch
+      ( OA.long "no-cache"
+          <> OA.help "Do not read cached artifacts for the package"
+      )
+    <*> OA.switch
+      ( OA.long "no-code"
+          <> OA.help "Do not generate compiler or native code"
+      )
     <*> OA.switch
       ( OA.long "verbose"
           <> OA.short 'v'
