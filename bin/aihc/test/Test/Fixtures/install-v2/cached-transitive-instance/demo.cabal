@@ -4,11 +4,9 @@ version: 0.1.0.0
 
 library
   exposed-modules:
-    Aardvark
-    Alpha
-    ParseAlpha
-    ParseZulu
-    Zulu
+    Demo.A
+    Demo.B
+    Demo.C
 
   hs-source-dirs: src
   default-language: Haskell2010

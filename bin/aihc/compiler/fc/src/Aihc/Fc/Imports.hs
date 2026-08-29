@@ -3,6 +3,7 @@ module Aihc.Fc.Imports
   ( emptyImports,
     importsForProgram,
     importsForProgramPrepared,
+    mergePreparedImports,
     prepareImports,
     PreparedImports,
     unusedImports,
@@ -32,6 +33,24 @@ importsForProgram available = importsForProgramPrepared (prepareImports availabl
 
 prepareImports :: TypeEnv -> PreparedImports
 prepareImports available = PreparedImports available (namesInTypeEnv available)
+
+mergePreparedImports :: [PreparedImports] -> PreparedImports
+mergePreparedImports prepared =
+  PreparedImports
+    { preparedAvailable = mergeTypeEnvs (map preparedAvailable prepared),
+      preparedAvailableNames = Set.unions (map preparedAvailableNames prepared)
+    }
+
+mergeTypeEnvs :: [TypeEnv] -> TypeEnv
+mergeTypeEnvs [] = error "cannot merge an empty list of type environments"
+mergeTypeEnvs environments@(first : _) =
+  TypeEnv
+    { tePrimPackage = tePrimPackage first,
+      teHeaders = Map.unions (map teHeaders environments),
+      teSynonyms = Map.unions (map teSynonyms environments),
+      teAxioms = Map.unions (map teAxioms environments),
+      teBinders = Map.unions (map teBinders environments)
+    }
 
 importsForProgramPrepared :: PreparedImports -> Program -> Imports
 importsForProgramPrepared prepared program = mergeImports selectedImports existingImports

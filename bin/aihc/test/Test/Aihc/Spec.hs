@@ -12,6 +12,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
+import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
@@ -21,7 +22,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory
-  ( createDirectory,
+  ( copyFile,
+    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
@@ -54,11 +56,13 @@ tests =
         [ testCase "writes Core files and reuses equal SCC inputs" test_installV2ResolveArtifacts,
           testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
+          testCase "keeps transitive instances after cached type interfaces" test_installV2CachedTransitiveInstances,
+          testCase "accepts type-check warnings" test_installV2TypeWarning,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
-          testCase "reports resolve errors with source locations" test_installV2ResolveError,
+          testCase "reports all frontend errors in stable dependency order" test_installV2ResolveError,
           testCase "writes Core for a ccall import" test_installV2FcCcall,
           testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
           testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
@@ -258,15 +262,17 @@ test_installV2ResolveError = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/resolve-error"
   expected <- readFile (fixtureRoot </> "expected.txt")
   withTempDir "aihc-install-v2-resolve-error" $ \root -> do
-    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False False False AppleArm64
-    result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
-    case result of
-      Right _ -> assertFailure "expected name resolution to fail"
-      Left err ->
-        assertEqual
-          "formatted name resolution error"
-          expected
-          (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
+    actual <-
+      bracket getNumCapabilities setNumCapabilities $ \_ ->
+        forM [1, 2, 4] $ \workers -> do
+          setNumCapabilities workers
+          let options = InstallV2Options fixtureRoot (Just (root </> "store-" <> show workers)) False False False False False False AppleArm64
+          result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+          case result of
+            Right _ -> assertFailure "expected frontend compilation to fail"
+            Left err ->
+              pure (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
+    mapM_ (assertEqual "formatted frontend errors" expected) actual
 
 findFixtureRoot :: FilePath -> IO FilePath
 findFixtureRoot fixture = do
@@ -579,6 +585,31 @@ test_installV2TypeDependencies =
     changed <- installV2 options
     assertEqual "type change and direct dependent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
     assertEqual "no reused dependent after type change" [] (installV2ReusedModules changed)
+
+test_installV2CachedTransitiveInstances :: Assertion
+test_installV2CachedTransitiveInstances = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/cached-transitive-instance"
+  withTempDir "aihc-install-v2-cached-transitive-instance" $ \root -> do
+    let sourceRoot = root </> "source"
+        sourceDir = sourceRoot </> "src" </> "Demo"
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False True False AppleArm64
+    createDirectoryIfMissing True sourceDir
+    copyFile (fixtureRoot </> "demo.cabal") (sourceRoot </> "demo.cabal")
+    mapM_ (\name -> copyFile (fixtureRoot </> "src" </> "Demo" </> name) (sourceDir </> name)) ["A.hs", "B.hs", "C.hs"]
+    first <- installV2 options
+    assertEqual "first install writes all modules" ["Demo.A", "Demo.B", "Demo.C"] (sort (installV2WrittenModules first))
+    copyFile (fixtureRoot </> "updated" </> "Demo" </> "C.hs") (sourceDir </> "C.hs")
+    second <- installV2 options
+    assertEqual "changed dependent uses the transitive instance" ["Demo.C"] (sort (installV2WrittenModules second))
+    assertEqual "instance providers use cached interfaces" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules second))
+
+test_installV2TypeWarning :: Assertion
+test_installV2TypeWarning = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/type-warning"
+  withTempDir "aihc-install-v2-type-warning" $ \root -> do
+    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False True False AppleArm64
+    result <- installV2 options
+    assertEqual "warning does not prevent installation" ["Demo"] (installV2WrittenModules result)
 
 test_installV2TypeReexports :: Assertion
 test_installV2TypeReexports =

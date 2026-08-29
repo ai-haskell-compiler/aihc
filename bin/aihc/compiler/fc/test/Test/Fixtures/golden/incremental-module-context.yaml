@@ -1,0 +1,88 @@
+extensions: []
+modules:
+  - |
+    module Base where
+    data Token = Token
+  - |
+    module Middle where
+    import Base
+    newtype Box = Box Token
+  - |
+    module Test where
+    import Base
+    import Middle
+    unwrap :: Box -> Token
+    unwrap (Box value) = value
+expected: |-
+  scope 1 = "" Base
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tToken :: 2.tType {
+      pub 1.vToken :: 1.tToken
+  }
+  scope 1 = "" Base
+  scope 2 = "" Middle
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    1.tToken :: 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 2.tBox :: 3.tType {}
+
+  axiom 2.$ax$Box : 2.tBox ~R 1.tToken
+  scope 1 = "" Base
+  scope 2 = "" Middle
+  scope 3 = "" Test
+  scope 4 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBox :: 4.tType;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    1.tToken :: 4.tType;
+    4.tType :: 4.tType;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.vLifted :: 4.tLevity
+
+  import synonyms
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
+
+  import axioms
+    2.$ax$Box : 2.tBox ~R 1.tToken
+
+  pub val 3.vunwrap :: 2.tBox 4.→ 1.tToken
+   = λ(x : 2.tBox).
+    let {
+        value : 1.tToken =
+            x ▷ axiom-co 2.$ax$Box
+    } in
+        value
+status: pass
+reason: An incremental FC context retains imported type and newtype facts.

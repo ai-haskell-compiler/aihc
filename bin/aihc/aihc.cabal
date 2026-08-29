@@ -26,7 +26,11 @@ extra-source-files:
   test/Test/Fixtures/install-v2/keep-grin/src/Demo.hs
   test/Test/Fixtures/install-v2/resolve-error/demo.cabal
   test/Test/Fixtures/install-v2/resolve-error/expected.txt
-  test/Test/Fixtures/install-v2/resolve-error/src/Demo.hs
+  test/Test/Fixtures/install-v2/resolve-error/src/Aardvark.hs
+  test/Test/Fixtures/install-v2/resolve-error/src/Alpha.hs
+  test/Test/Fixtures/install-v2/resolve-error/src/ParseAlpha.hs
+  test/Test/Fixtures/install-v2/resolve-error/src/ParseZulu.hs
+  test/Test/Fixtures/install-v2/resolve-error/src/Zulu.hs
 
 data-files:
   compiler/native/runtime/aihc_gc_calloc.c
@@ -108,6 +112,7 @@ library compiler
     Aihc.Amd64.Codegen.Runtime
     Aihc.Arm64.Codegen.Function
     Aihc.Arm64.Codegen.Runtime
+    Aihc.Cli.TaskGraph
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
     Paths_aihc
@@ -145,6 +150,7 @@ library compiler
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process >=1.6 && <1.8,
+    stm >=2.5 && <2.6,
     text >=2.1.4 && <2.2,
     transformers,
     unix >=2.7 && <2.9,

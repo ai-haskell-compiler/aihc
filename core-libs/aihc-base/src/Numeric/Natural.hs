@@ -6,6 +6,7 @@ where
 
 import Data.Bits (Bits (..))
 import GHC.Exception (Exception, throw)
+import GHC.Read ()
 import Prelude
 
 newtype Natural = Natural Integer

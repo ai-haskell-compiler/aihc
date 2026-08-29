@@ -31,6 +31,7 @@ module Aihc.Cli.Install
     packagePlanFailureShouldBeReportedForPackage,
     packageVariantLibraryId,
     renderInstallFailure,
+    renderHumanDiagnostic,
     writeInstallScaffold,
   )
 where
@@ -1163,7 +1164,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
   gpd <- readPlanPackageDescription plan
   files <- HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
-  let parsedModules = [modu | ParsedFileOk _ modu _ _ <- parsedFiles]
+  let parsedModules = [modu | ParsedInterfaceFile _ modu _ diagnostics _ <- parsedFiles, null diagnostics]
       sourceLinesByFile = Map.unionsWith Map.union (map parsedFileSourceLines parsedFiles)
       enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
@@ -1282,26 +1283,16 @@ typecheckTimeoutDiagnostic modu =
         ]
 
 data ParsedInterfaceFile
-  = ParsedFileOk !FilePath !Module !DiagnosticSourceMap ![Aeson.Value]
-  | ParsedFileFailed !FilePath !DiagnosticSourceMap ![Aeson.Value] ![Aeson.Value]
+  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value]
 
 parsedFileSourceLines :: ParsedInterfaceFile -> DiagnosticSourceMap
-parsedFileSourceLines parsed =
-  case parsed of
-    ParsedFileOk _ _ sourceLines _ -> sourceLines
-    ParsedFileFailed _ sourceLines _ _ -> sourceLines
+parsedFileSourceLines (ParsedInterfaceFile _ _ sourceLines _ _) = sourceLines
 
 parsedFileParseDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
-parsedFileParseDiagnostics parsed =
-  case parsed of
-    ParsedFileOk {} -> []
-    ParsedFileFailed _ _ parseDiagnostics _ -> parseDiagnostics
+parsedFileParseDiagnostics (ParsedInterfaceFile _ _ _ parseDiagnostics _) = parseDiagnostics
 
 parsedFileCppDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
-parsedFileCppDiagnostics parsed =
-  case parsed of
-    ParsedFileOk _ _ _ cppDiagnostics -> cppDiagnostics
-    ParsedFileFailed _ _ _ cppDiagnostics -> cppDiagnostics
+parsedFileCppDiagnostics (ParsedInterfaceFile _ _ _ _ cppDiagnostics) = cppDiagnostics
 
 readPlanPackageDescription :: PackagePlan -> IO GenericPackageDescription
 readPlanPackageDescription plan = do
@@ -1331,10 +1322,7 @@ parseInterfaceFile packageRoot fileInfo = do
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
       sourceLines = diagnosticSourceMap path source
-  pure $
-    if null parseErrs
-      then ParsedFileOk path modu sourceLines cppDiagnostics
-      else ParsedFileFailed path sourceLines parseDiagnostics cppDiagnostics
+  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics)
   where
     path = HackageCabal.fileInfoPath fileInfo
 

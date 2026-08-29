@@ -6,6 +6,8 @@ module Aihc.Fc.Desugar
   ( desugarModuleFc,
     desugarModuleFcPrepared,
     prepareDesugar,
+    prepareDesugarIncremental,
+    prepareDesugarIncrementalWithAvailable,
     PreparedDesugar,
     typeEnvFromTcInterface,
     DesugarConfig (..),
@@ -14,8 +16,8 @@ module Aihc.Fc.Desugar
 where
 
 import Aihc.Fc.Convert
-import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, prepareValueInterface)
-import Aihc.Fc.Imports (PreparedImports, emptyImports, importsForProgramPrepared, prepareImports)
+import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, mergePreparedValueInterfaces, prepareValueInterface)
+import Aihc.Fc.Imports (PreparedImports, emptyImports, importsForProgramPrepared, mergePreparedImports, prepareImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
@@ -59,6 +61,7 @@ import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
     TcType (..),
+    TyCon,
     TyVarId,
     TypeScheme (..),
     Unique (..),
@@ -74,6 +77,7 @@ import Control.Monad (zipWithM)
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -88,9 +92,20 @@ data PreparedDesugar = PreparedDesugar
   { preparedConfig :: !DesugarConfig,
     preparedInterface :: !TcInterface,
     preparedImports :: !PreparedImports,
-    preparedBindings :: ![TcBindingResult],
+    preparedBindings :: !(Map.Map Text TcBindingResult),
     preparedValues :: !PreparedValueInterface,
-    preparedConversion :: !ConvertEnv
+    preparedConversion :: !ConvertEnv,
+    preparedFacts :: !PreparedFacts
+  }
+
+data PreparedFacts = PreparedFacts
+  { preparedTermKeys :: !(Set.Set TcTermKey),
+    preparedTyConKeys :: !(Set.Set TyCon),
+    preparedDataTypeKeys :: !(Set.Set TyCon),
+    preparedClassKeys :: !(Set.Set TyCon),
+    preparedInstanceKeys :: !(Set.Set ((Text, Text), Text)),
+    preparedDataFamilyKeys :: !(Set.Set Text),
+    preparedTypeFamilyKeys :: !(Set.Set Text)
   }
 
 newtype DesugarConfig = DesugarConfig
@@ -99,7 +114,11 @@ newtype DesugarConfig = DesugarConfig
   deriving (Eq, Show)
 
 typeEnvFromTcInterface :: DesugarConfig -> TcInterface -> Either String TypeOf.TypeEnv
-typeEnvFromTcInterface config interface = do
+typeEnvFromTcInterface config interface =
+  typeEnvFromTcInterfaceWith (interfaceConvertEnv config interface) config interface
+
+typeEnvFromTcInterfaceWith :: ConvertEnv -> DesugarConfig -> TcInterface -> Either String TypeOf.TypeEnv
+typeEnvFromTcInterfaceWith conversionEnv config interface = do
   declarations <- interfaceTypeDeclarations conversionEnv interface
   typeHeaders <- mapM (convertTyConHeader conversionEnv) (tcInterfaceTyCons interface)
   termHeaders <- mapMaybeM (convertTermHeader conversionEnv) (tcInterfaceTerms interface)
@@ -110,8 +129,6 @@ typeEnvFromTcInterface config interface = do
     declarationEnv
       { TypeOf.teHeaders = TypeOf.teHeaders declarationEnv <> Map.fromList (typeHeaders <> termHeaders <> instanceHeaders <> defaultMethodHeaders)
       }
-  where
-    conversionEnv = interfaceConvertEnv config interface
 
 interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
 interfaceConvertEnv config interface =
@@ -225,18 +242,78 @@ desugarModuleFc config bindings interface checked =
     Right prepared -> desugarModuleFcPrepared prepared bindings checked
 
 prepareDesugar :: DesugarConfig -> TcInterface -> Either String PreparedDesugar
-prepareDesugar config interface = do
-  available <- tidyTypeEnv <$> typeEnvFromTcInterface config interface
-  let bindings = tcInterfaceBindings interface
+prepareDesugar config = prepareDesugarIncremental config []
+
+prepareDesugarIncremental :: DesugarConfig -> [PreparedDesugar] -> TcInterface -> Either String PreparedDesugar
+prepareDesugarIncremental config dependencies interface =
+  prepareDesugarIncrementalWithAvailable config dependencies interface interface
+
+prepareDesugarIncrementalWithAvailable :: DesugarConfig -> [PreparedDesugar] -> TcInterface -> TcInterface -> Either String PreparedDesugar
+prepareDesugarIncrementalWithAvailable config dependencies localInterface availableInterface = do
+  let inheritedFacts = mergePreparedFacts (map preparedFacts dependencies)
+      newInterface = removePreparedFacts inheritedFacts availableInterface
+      newFacts = preparedFactsFromInterface newInterface
+      localConversion = interfaceConvertEnv config newInterface
+      conversion = mergeConvertEnvs config (localConversion : map preparedConversion dependencies)
+      localBindings = tcInterfaceBindings newInterface
+      bindings = Map.unions (Map.fromList [(tbName binding, binding) | binding <- localBindings] : map preparedBindings dependencies)
+  available <- tidyTypeEnv <$> typeEnvFromTcInterfaceWith conversion config newInterface
   pure
     PreparedDesugar
       { preparedConfig = config,
-        preparedInterface = interface,
-        preparedImports = prepareImports available,
+        preparedInterface = localInterface,
+        preparedImports = mergePreparedImports (prepareImports available : map preparedImports dependencies),
         preparedBindings = bindings,
-        preparedValues = prepareValueInterface bindings interface,
-        preparedConversion = interfaceConvertEnv config interface
+        preparedValues = mergePreparedValueInterfaces (prepareValueInterface localBindings newInterface : map preparedValues dependencies),
+        preparedConversion = conversion,
+        preparedFacts = mergePreparedFacts [newFacts, inheritedFacts]
       }
+
+preparedFactsFromInterface :: TcInterface -> PreparedFacts
+preparedFactsFromInterface interface =
+  PreparedFacts
+    { preparedTermKeys = Set.fromList (map fst (tcInterfaceTerms interface)),
+      preparedTyConKeys = Set.fromList (map tciTyCon (tcInterfaceTyCons interface)),
+      preparedDataTypeKeys = Set.fromList (map dtiTyCon (tcInterfaceDataTypes interface)),
+      preparedClassKeys = Set.fromList (map ciTyCon (tcInterfaceClasses interface)),
+      preparedInstanceKeys = Set.fromList (map (\info -> (iiDictOrigin info, iiDictName info)) (tcInterfaceInstances interface)),
+      preparedDataFamilyKeys = Set.fromList (map dfiiAxiomName (tcInterfaceDataFamilyInstances interface)),
+      preparedTypeFamilyKeys = Set.fromList (map tfiiAxiomName (tcInterfaceTypeFamilyInstances interface))
+    }
+
+mergePreparedFacts :: [PreparedFacts] -> PreparedFacts
+mergePreparedFacts facts =
+  PreparedFacts
+    { preparedTermKeys = Set.unions (map preparedTermKeys facts),
+      preparedTyConKeys = Set.unions (map preparedTyConKeys facts),
+      preparedDataTypeKeys = Set.unions (map preparedDataTypeKeys facts),
+      preparedClassKeys = Set.unions (map preparedClassKeys facts),
+      preparedInstanceKeys = Set.unions (map preparedInstanceKeys facts),
+      preparedDataFamilyKeys = Set.unions (map preparedDataFamilyKeys facts),
+      preparedTypeFamilyKeys = Set.unions (map preparedTypeFamilyKeys facts)
+    }
+
+removePreparedFacts :: PreparedFacts -> TcInterface -> TcInterface
+removePreparedFacts prepared interface =
+  TcInterface
+    { tcInterfaceTerms = filter ((`Set.notMember` preparedTermKeys prepared) . fst) (tcInterfaceTerms interface),
+      tcInterfaceTyCons = filter ((`Set.notMember` preparedTyConKeys prepared) . tciTyCon) (tcInterfaceTyCons interface),
+      tcInterfaceDataTypes = filter ((`Set.notMember` preparedDataTypeKeys prepared) . dtiTyCon) (tcInterfaceDataTypes interface),
+      tcInterfaceClasses = filter ((`Set.notMember` preparedClassKeys prepared) . ciTyCon) (tcInterfaceClasses interface),
+      tcInterfaceInstances = filter ((`Set.notMember` preparedInstanceKeys prepared) . (\info -> (iiDictOrigin info, iiDictName info))) (tcInterfaceInstances interface),
+      tcInterfaceDataFamilyInstances = filter ((`Set.notMember` preparedDataFamilyKeys prepared) . dfiiAxiomName) (tcInterfaceDataFamilyInstances interface),
+      tcInterfaceTypeFamilyInstances = filter ((`Set.notMember` preparedTypeFamilyKeys prepared) . tfiiAxiomName) (tcInterfaceTypeFamilyInstances interface)
+    }
+
+mergeConvertEnvs :: DesugarConfig -> [ConvertEnv] -> ConvertEnv
+mergeConvertEnvs config environments =
+  ConvertEnv
+    { cePrimPackage = primPackageId config,
+      ceTyVars = Map.unions (map ceTyVars environments),
+      ceKindEnv = Map.unions (map ceKindEnv environments),
+      ceClassTyCons = Set.unions (map ceClassTyCons environments),
+      ceAxioms = Map.unions (map ceAxioms environments)
+    }
 
 desugarModuleFcPrepared :: PreparedDesugar -> [TcBindingResult] -> Module -> FcDesugarResult
 desugarModuleFcPrepared prepared bindings checked =
@@ -244,7 +321,7 @@ desugarModuleFcPrepared prepared bindings checked =
     then failedDesugar (map show (tcModuleDiagnostics checked))
     else case desugarCheckedWithAvailable
       (preparedConfig prepared)
-      (preparedBindings prepared)
+      (Map.elems (preparedBindings prepared))
       bindings
       (preparedInterface prepared)
       (preparedImports prepared)

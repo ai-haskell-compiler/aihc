@@ -4,6 +4,7 @@
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
   ( desugarValues,
+    mergePreparedValueInterfaces,
     prepareValueInterface,
     PreparedValueInterface,
   )
@@ -136,6 +137,7 @@ prepareValueInterface bindings interface =
           constructor <- dtiConstructors dataType,
           let (package, moduleName') = dciOrigin constructor
         ]
+
     constructorInfos =
       Map.fromListWith
         (<>)
@@ -151,6 +153,17 @@ prepareValueInterface bindings interface =
           constructor <- dtiConstructors dataType,
           let (package, moduleName') = dciOrigin constructor
         ]
+
+mergePreparedValueInterfaces :: [PreparedValueInterface] -> PreparedValueInterface
+mergePreparedValueInterfaces interfaces =
+  PreparedValueInterface
+    { preparedTypes = Map.unions (map preparedTypes interfaces),
+      preparedConstructors = Map.unionsWith mergeCandidates (map preparedConstructors interfaces),
+      preparedConstructorInfos = Map.unionsWith mergeCandidates (map preparedConstructorInfos interfaces),
+      preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces)
+    }
+  where
+    mergeCandidates left right = List.nub (left <> right)
 
 desugarValues :: ConvertEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv bindings interface moduleOrigin checked = do
