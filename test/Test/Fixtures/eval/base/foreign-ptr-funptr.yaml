@@ -1,0 +1,45 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import Foreign.Ptr (FunPtr (..), Ptr (..))
+    import GHC.Prim (Addr#)
+
+    class NFData a where
+      rnf :: a -> ()
+
+    rwhnf :: a -> ()
+    rwhnf value = seq value ()
+
+    instance NFData (Ptr a) where
+      rnf = rwhnf
+
+    instance NFData (FunPtr a) where
+      rnf = rwhnf
+
+    nullAddr :: Addr#
+    nullAddr = "\0"#
+
+    pointer :: Ptr ()
+    pointer = Ptr nullAddr
+
+    functionPointer :: FunPtr ()
+    functionPointer = FunPtr nullAddr
+
+    result :: Bool
+    result =
+      case rnf pointer of
+        () ->
+          case rnf functionPointer of
+            () -> True
+output: |
+  True
+expression: result
+status: pass
+reason: Foreign.Ptr exports FunPtr with the same address representation as Ptr
