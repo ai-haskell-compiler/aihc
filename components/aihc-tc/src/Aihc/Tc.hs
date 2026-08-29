@@ -126,7 +126,6 @@ import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
-import Data.Bifunctor qualified as Bifunctor
 import Data.Data (Data, gmapM, gmapQ)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -244,19 +243,6 @@ interfaceSchemeType (ForAll [] [] ty) = ty
 interfaceSchemeType (ForAll variables [] ty) = foldr TcForAllTy ty variables
 interfaceSchemeType (ForAll [] predicates ty) = TcQualTy predicates ty
 interfaceSchemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualTy predicates ty) variables
-
-importedTermEntries :: [(Text, TypeScheme)] -> [(TcTermKey, TypeScheme)]
-importedTermEntries = map (Bifunctor.first unqualifiedTermKey)
-
-exportedTermEntries :: TcInterface -> [(Text, TypeScheme)]
-exportedTermEntries interface =
-  Map.toList $
-    mapFromListNoDuplicates
-      "exported term"
-      [ (name, scheme)
-      | (key, scheme) <- tcInterfaceTerms interface,
-        Just name <- [tcTermKeyIdentifier key]
-      ]
 
 -- | Type-check a single expression in an empty environment.
 --
