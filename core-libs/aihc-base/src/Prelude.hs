@@ -13,6 +13,8 @@ module Prelude
     Functor (..),
     Fractional (..),
     Floating (..),
+    Float,
+    Double,
     IO,
     Int,
     Integral (..),
@@ -37,6 +39,7 @@ module Prelude
     (&&),
     (.),
     (++),
+    foldr,
     (=<<),
     (/=),
     (==),
@@ -87,7 +90,7 @@ import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Enum (Bounded (..), Enum (..))
-import GHC.Float (Floating (..), RealFloat (..))
+import GHC.Float (Double, Float, Floating (..), RealFloat (..))
 import GHC.IO (IO (..))
 import GHC.IO.Handle.Text (hPutStr)
 import GHC.IO.StdHandles (stdout)
@@ -232,11 +235,7 @@ pfail :: ReadPrec a
 pfail = ReadPrec (\_ _ -> [])
 
 choice :: [ReadPrec a] -> ReadPrec a
-choice = foldrRead (+++) pfail
-
-foldrRead :: (a -> b -> b) -> b -> [a] -> b
-foldrRead _ initial [] = initial
-foldrRead combine initial (value : values) = combine value (foldrRead combine initial values)
+choice = foldr (+++) pfail
 
 class Read a where
   readsPrec :: Int -> ReadS a
@@ -680,6 +679,10 @@ print value = putStrLn (show value)
 (++) :: [a] -> [a] -> [a]
 (++) [] ys = ys
 (++) (x : xs) ys = x : (xs ++ ys)
+
+foldr :: (a -> b -> b) -> b -> [a] -> b
+foldr _ initial [] = initial
+foldr combine initial (value : values) = combine value (foldr combine initial values)
 
 instance Functor List where
   fmap = fmapList

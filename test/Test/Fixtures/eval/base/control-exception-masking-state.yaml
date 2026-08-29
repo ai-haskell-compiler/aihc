@@ -1,0 +1,41 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (MaskingState (..))
+
+    class NFData a where
+      rnf :: a -> ()
+
+    rwhnf :: a -> ()
+    rwhnf value = seq value ()
+
+    instance NFData MaskingState where
+      rnf = rwhnf
+
+    isUnmasked :: MaskingState -> Bool
+    isUnmasked Unmasked = True
+    isUnmasked _ = False
+
+    isInterruptible :: MaskingState -> Bool
+    isInterruptible MaskedInterruptible = True
+    isInterruptible _ = False
+
+    isUninterruptible :: MaskingState -> Bool
+    isUninterruptible MaskedUninterruptible = True
+    isUninterruptible _ = False
+
+    result :: Bool
+    result =
+      isUnmasked Unmasked
+        && isInterruptible MaskedInterruptible
+        && isUninterruptible MaskedUninterruptible
+        && case rnf Unmasked of
+          () -> True
+output: |
+  True
+expression: result
+status: pass
+reason: Control.Exception exports the MaskingState constructors used by deepseq
