@@ -1,0 +1,50 @@
+annotated:
+- |-
+  module A where
+  data First a = First a
+       │         └─ type: ∀ a. a → First a
+       └─ type: Type → Type
+- |-
+  module B where
+  data First a = First a
+       │         └─ type: ∀ a. a → First a
+       └─ type: Type → Type
+- |-
+  module Test where
+  import A as A (First (..))
+  import B as B (First (..))
+  import GHC.Types (Bool (..))
+  class Tag a where
+  └─ class methods: tag ∷ ∀ a. (Tag a) ⇒ a → Bool
+    tag :: a -> Bool
+  instance Tag (A.First a) where
+  └─ $fTagFirsta ∷ ∀ a. () ⇒ Tag (First a)
+    tag _ = True
+    │   └─ type: A.First a
+    └─ tag ∷ First a → Bool
+  instance Tag (B.First a) where
+  └─ $fTagFirsta$B ∷ ∀ a. () ⇒ Tag (First a)
+    tag _ = False
+    │   └─ type: B.First a
+    └─ tag ∷ First a → Bool
+extensions: []
+modules:
+- |
+  module A where
+  data First a = First a
+- |
+  module B where
+  data First a = First a
+- |
+  module Test where
+  import A as A (First (..))
+  import B as B (First (..))
+  import GHC.Types (Bool (..))
+  class Tag a where
+    tag :: a -> Bool
+  instance Tag (A.First a) where
+    tag _ = True
+  instance Tag (B.First a) where
+    tag _ = False
+reason: Same-module instances for distinct First types keep distinct dictionary names.
+status: pass

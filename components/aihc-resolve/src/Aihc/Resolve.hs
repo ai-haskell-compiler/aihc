@@ -419,10 +419,9 @@ resolveDeclCore termDefinition decl =
     DeclForeign foreignDecl ->
       DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPragma pragma ->
-      case pragmaType pragma of
-        PragmaInline "NOINLINE" _ -> pure decl
-        _ -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPragma pragma
+      | ignoredInlinePragma (pragmaType pragma) -> pure decl
+      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclInstance instanceDecl ->
@@ -437,6 +436,20 @@ resolveDeclCore termDefinition decl =
       DeclTypeFamilyInst <$> resolveTypeFamilyInst familyInst
     DeclDataFamilyInst dataFamilyInst ->
       DeclDataFamilyInst <$> resolveDataFamilyInst dataFamilyInst
+
+ignoredInlinePragma :: PragmaType -> Bool
+ignoredInlinePragma pragma =
+  case pragma of
+    PragmaInline kind _
+      | kind == "INLINE"
+          || kind == "INLINABLE"
+          || kind == "INLINEABLE"
+          || kind == "NOINLINE"
+          || kind == "NOINLINEABLE"
+          || kind == "NOINLINABLE"
+          || kind == "CONLIKE" ->
+          True
+    _ -> False
 
 resolveValueDecl :: TermDefinition -> ValueDecl -> ResolveM ValueDecl
 resolveValueDecl termDefinition valueDecl =
@@ -490,7 +503,9 @@ resolveClassDeclItem classDeclItem =
       scope <- currentScope
       ClassItemDefault <$> withLocalSupply 0 (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
     ClassItemFixity {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemPragma {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemPragma pragma
+      | ignoredInlinePragma (pragmaType pragma) -> pure classDeclItem
+      | otherwise -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
@@ -523,7 +538,9 @@ resolveInstanceDeclItem instanceDeclItem =
     InstanceItemFixity {} -> pure instanceDeclItem
     InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
-    InstanceItemPragma {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemPragma pragma
+      | ignoredInlinePragma (pragmaType pragma) -> pure instanceDeclItem
+      | otherwise -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
 
 resolveStandaloneDerivingDecl :: StandaloneDerivingDecl -> ResolveM StandaloneDerivingDecl
 resolveStandaloneDerivingDecl derivingDecl = do
