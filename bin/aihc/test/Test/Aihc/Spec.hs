@@ -75,7 +75,7 @@ test_buildExeSourceDirectories = do
   withTempDir "aihc-build-exe" $ \root -> do
     let storeRoot = root </> "store"
         output = root </> "program"
-    installed <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False False target)
+    installed <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False False False False target)
     manifestResult <- readPackageManifest (packageManifestPath (installV2StorePath installed))
     manifest <- either assertFailure pure manifestResult
     assertBool "package manifest contains Prelude" ("Prelude" `elem` packageManifestModules manifest)
@@ -205,7 +205,7 @@ test_installV2ResolveArtifacts =
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -234,6 +234,11 @@ test_installV2ResolveArtifacts =
     assertEqual "stable package directory" (installV2StorePath first) (installV2StorePath second)
     assertCoreFile (installV2StorePath second </> "Demo" </> "A" </> "core")
     assertCoreFile (installV2StorePath second </> "Demo" </> "B" </> "core")
+    BS.writeFile (installV2StorePath second </> "Demo" </> "A" </> "resolve.cbor") "invalid resolve artifact"
+    BS.writeFile (installV2StorePath second </> "Demo" </> "B" </> "type.cbor") "invalid type artifact"
+    uncached <- installV2 options {installV2NoCache = True}
+    assertEqual "no-cache rebuilds all modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules uncached))
+    assertEqual "no-cache reuses no modules" [] (installV2ReusedModules uncached)
     removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
     coreRepaired <- installV2 options
     assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
@@ -253,7 +258,7 @@ test_installV2ResolveError = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/resolve-error"
   expected <- readFile (fixtureRoot </> "expected.txt")
   withTempDir "aihc-install-v2-resolve-error" $ \root -> do
-    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False AppleArm64
+    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False False False AppleArm64
     result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     case result of
       Right _ -> assertFailure "expected name resolution to fail"
@@ -283,12 +288,12 @@ test_installV2KeepGrin :: Assertion
 test_installV2KeepGrin = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
   withTempDir "aihc-install-v2-keep-grin" $ \root -> do
-    withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False False AppleArm64)
+    withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False False False False AppleArm64)
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
-    retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False AppleArm64)
+    retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False False False AppleArm64)
     let corePath = installV2StorePath retained </> "Demo" </> "core"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
         cpsGrinPath = installV2StorePath retained </> "Demo" </> "cps.grin"
@@ -299,13 +304,26 @@ test_installV2KeepGrin = do
     originalCore <- readFile corePath
     removeFile cpsGrinPath
     removeFile gcGrinPath
-    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False AppleArm64)
+    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False False False AppleArm64)
     assertFileExists grinPath
     assertFileExists cpsGrinPath
     assertFileExists gcGrinPath
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
+    noCode <-
+      installV2
+        (InstallV2Options fixtureRoot (Just (root </> "no-code")) True True True False True False AppleArm64)
+    let noCodeRoot = installV2StorePath noCode
+    assertFileExists (noCodeRoot </> "Demo" </> "resolve.cbor")
+    assertFileExists (noCodeRoot </> "Demo" </> "type.cbor")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "core")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "grin")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "cps.grin")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "gc.grin")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.s")
+    assertFileDoesNotExist (noCodeRoot </> "lib" </> "libdemo.a")
 
 test_installV2TargetArchives :: Assertion
 test_installV2TargetArchives = do
@@ -320,7 +338,7 @@ test_installV2TargetArchives = do
             <> [(LinuxAmd64, "amd64-linux-gnu", ".s") | foreignArchivesSupported]
             <> [(Wasm32Wasip3, "wasm32-wasip3", ".s") | wasmSupported && foreignArchivesSupported]
     results <- forM targets $ \(target, directory, nativeExtension) -> do
-      result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False target)
+      result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False False False target)
       let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
           corePath = installV2StorePath result </> "Demo" </> "core"
@@ -333,7 +351,7 @@ test_installV2TargetArchives = do
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
-      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False target)
+      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native source repair keeps Core" originalCore repairedCore
@@ -377,7 +395,7 @@ test_installV2FcCcall =
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -404,7 +422,7 @@ test_installV2AihcPrim = do
   withTempDir "aihc-install-v2-aihc-prim" $ \root -> do
     let storeRoot = root </> "store"
         targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        options = InstallV2Options aihcPrimRoot (Just storeRoot) True False True False AppleArm64
+        options = InstallV2Options aihcPrimRoot (Just storeRoot) True False True False False False AppleArm64
     createDirectoryIfMissing True storeRoot
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     result <- case caught of
@@ -540,7 +558,7 @@ test_installV2TypeDependencies =
   withTempDir "aihc-install-v2-type-dependencies" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -567,7 +585,7 @@ test_installV2TypeReexports =
   withTempDir "aihc-install-v2-type-reexports" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -597,7 +615,7 @@ test_installV2LocalDependencies =
     let sourceRoot = root </> "demo"
         dependencyRoot = root </> "dep"
         storeRoot = root </> "store"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False AppleArm64
     createDirectoryIfMissing True (sourceRoot </> "src")
     createDirectoryIfMissing True (dependencyRoot </> "src")
     writeFile
@@ -642,7 +660,7 @@ test_installV2StaleTypeArtifact =
   withTempDir "aihc-install-v2-stale-type" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -669,7 +687,7 @@ test_installV2ResolveDependencies =
   withTempDir "aihc-install-v2-dependencies" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -700,7 +718,7 @@ test_installV2StopsAtEqualScope =
   withTempDir "aihc-install-v2-scope-boundary" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
