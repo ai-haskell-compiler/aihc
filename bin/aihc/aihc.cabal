@@ -61,6 +61,7 @@ library compiler
     Aihc.Arm64.Codegen
     Aihc.Arm64.RegisterAllocate
     Aihc.Cli
+    Aihc.Cli.ArtifactCache
     Aihc.Cli.BuildExe
     Aihc.Cli.Install
     Aihc.Cli.InstallV2
