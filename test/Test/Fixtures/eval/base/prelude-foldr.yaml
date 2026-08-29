@@ -1,0 +1,20 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+output: |
+  True
+expression: |
+  allTrue
+    [ foldr (:) [] [True, False] == [True, False],
+      foldr (&&) True [True, False] == False,
+      foldr (||) False [] == False
+    ]
+status: pass
+reason: Prelude foldr reduces a list from the right

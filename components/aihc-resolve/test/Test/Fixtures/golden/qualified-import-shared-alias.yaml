@@ -1,0 +1,34 @@
+---
+extensions: []
+modules:
+- |
+  module First where
+  data FirstType = FirstCon
+- |
+  module Second where
+  data SecondType = SecondCon
+- |
+  module Main where
+  import qualified First as Shared
+  import qualified Second as Shared
+  firstValue = Shared.FirstCon
+  secondValue = Shared.SecondCon
+annotated:
+- |
+  module First where
+  data FirstType = FirstCon
+       └─ t First  └─ v First
+- |
+  module Main where
+  import qualified First as Shared
+  import qualified Second as Shared
+  firstValue = Shared.FirstCon
+  └─ v Main    └─ v First
+  secondValue = Shared.SecondCon
+  └─ v Main     └─ v Second
+- |
+  module Second where
+  data SecondType = SecondCon
+       └─ t Second  └─ v Second
+status: pass
+reason: A shared qualified import alias keeps names from both modules

@@ -1,5 +1,7 @@
 module GHC.Float
-  ( Floating (..),
+  ( Double (..),
+    Float (..),
+    Floating (..),
     RealFloat (..),
   )
 where
@@ -8,6 +10,7 @@ import Data.Bool (Bool)
 import GHC.Int (Int)
 import GHC.Integer (Integer)
 import GHC.Real (Fractional, RealFrac)
+import GHC.Types (Double (..), Float (..))
 
 -- | Trigonometric and transcendental operations.
 class (Fractional a) => Floating a where

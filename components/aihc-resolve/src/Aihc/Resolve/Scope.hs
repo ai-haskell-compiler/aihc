@@ -566,9 +566,13 @@ insertTerm name resolved scope = scope {scopeTerms = Map.insert name resolved (s
 insertType :: Text -> ResolvedName -> Scope -> Scope
 insertType name resolved scope = scope {scopeTypes = Map.insert name resolved (scopeTypes scope)}
 
+-- | Add names from one qualified import. Combine scopes that share an alias.
 insertQualifiedModule :: Text -> Scope -> Scope -> Scope
 insertQualifiedModule qualifier imported scope =
-  scope {scopeQualifiedModules = Map.insert qualifier imported (scopeQualifiedModules scope)}
+  scope
+    { scopeQualifiedModules =
+        Map.insertWith unionScope qualifier imported (scopeQualifiedModules scope)
+    }
 
 lookupTerm :: Text -> Scope -> ResolvedName
 lookupTerm name scope =

@@ -1,0 +1,31 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    class NFData a where
+      rnf :: a -> ()
+
+    rwhnf :: a -> ()
+    rwhnf value = seq value ()
+
+    instance NFData Float where
+      rnf = rwhnf
+
+    instance NFData Double where
+      rnf = rwhnf
+
+    ignoreFloat :: Float -> Bool
+    ignoreFloat _ = True
+
+    ignoreDouble :: Double -> Bool
+    ignoreDouble _ = True
+
+    result :: Bool
+    result = True
+output: |
+  True
+expression: result
+status: pass
+reason: Prelude exports the Float and Double types used by deepseq NFData instances

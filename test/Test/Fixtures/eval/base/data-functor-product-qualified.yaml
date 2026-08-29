@@ -1,0 +1,31 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import qualified Data.Functor.Product as Functor
+    import qualified Data.Functor.Sum as Functor
+
+    isPair :: Functor.Product Maybe [] Bool -> Bool
+    isPair (Functor.Pair (Just True) [False]) = True
+    isPair _ = False
+
+    isLeft :: Functor.Sum Maybe [] Bool -> Bool
+    isLeft (Functor.InL (Just True)) = True
+    isLeft _ = False
+
+    isRight :: Functor.Sum Maybe [] Bool -> Bool
+    isRight (Functor.InR [True]) = True
+    isRight _ = False
+
+    result :: Bool
+    result =
+      isPair (Functor.Pair (Just True) [False])
+        && isLeft (Functor.InL (Just True))
+        && isRight (Functor.InR [True])
+output: |
+  True
+expression: result
+status: pass
+reason: A shared qualified import alias keeps Product and Pair with Sum
