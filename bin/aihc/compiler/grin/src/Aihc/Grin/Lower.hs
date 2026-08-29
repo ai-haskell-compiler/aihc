@@ -521,10 +521,7 @@ bindExpression env hint expression continuation = do
   variables <- freshVars hint representation
   valueExpression <- lowerExpr env expression
   rest <- continuation (map GrinVarValue variables)
-  pure $
-    if null variables
-      then valueExpression
-      else GrinBind variables valueExpression rest
+  pure (bindIfNeeded variables valueExpression rest)
 
 lowerLet :: LowerEnv -> Fc.Bind -> Fc.Expr -> LowerM GrinExpr
 lowerLet env binding body = do
@@ -533,16 +530,13 @@ lowerLet env binding body = do
   variables <- freshVars (Fc.nameText (Fc.binderName binder)) representation
   let bodyEnv = bindLocal env binder variables
   loweredBody <- lowerExpr bodyEnv body
-  if isLiftedRuntimeRep representation
-    then do
-      node <- makeThunk env (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
-      pure (GrinBind variables (GrinStore node) loweredBody)
-    else do
-      loweredRhs <- lowerExpr env (Fc.bindRhs binding)
-      pure $
-        if null variables
-          then loweredRhs
-          else GrinBind variables loweredRhs loweredBody
+    if isLiftedRuntimeRep representation
+      then do
+        node <- makeThunk env (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
+        pure (GrinBind variables (GrinStore node) loweredBody)
+      else do
+        loweredRhs <- lowerExpr env (Fc.bindRhs binding)
+        pure (bindIfNeeded variables loweredRhs loweredBody)
 
 lowerRec :: LowerEnv -> [Fc.Bind] -> Fc.Expr -> LowerM GrinExpr
 lowerRec env bindings body = do
@@ -587,10 +581,7 @@ lowerTupleCase env scrutinee binder _fields alternatives = do
       alternativeEnv = foldl bindPair binderEnv (zip (Fc.altBinders alternative) fieldVariables)
   loweredRhs <- lowerExpr alternativeEnv (Fc.altRhs alternative)
   loweredScrutinee <- lowerExpr env scrutinee
-  pure $
-    if null values
-      then loweredScrutinee
-      else GrinBind values loweredScrutinee loweredRhs
+  pure (bindIfNeeded values loweredScrutinee loweredRhs)
   where
     bindPair current (fieldBinder, vars) = bindLocal current fieldBinder vars
 
@@ -993,6 +984,9 @@ freshFunction hint = do
 
 emitFunction :: GrinFunction -> LowerM ()
 emitFunction function = modify' (\state -> state {lowerFunctionsRev = function : lowerFunctionsRev state})
+
+bindIfNeeded :: [GrinVar] -> GrinExpr -> GrinExpr -> GrinExpr
+bindIfNeeded variables valueExpression body = GrinBind variables valueExpression body
 
 liftEither :: Either String value -> LowerM value
 liftEither = either throwLower pure
