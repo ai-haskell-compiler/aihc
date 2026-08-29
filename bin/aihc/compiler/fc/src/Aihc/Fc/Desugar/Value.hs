@@ -1710,29 +1710,32 @@ desugarTypeableArgument origin ty evidence = do
   dictionary <- desugarEvidence evidence
   convertedType <- convertCheckedType ty
   selector <- typeableName origin "Type.Reflection" "typeRep" SortValue
+  someTypeRepConstructor <- typeableName origin "Type.Reflection" "SomeTypeRep" SortDataConstructor
   proxyConstructor <- typeableName origin "Data.Proxy" "Proxy" SortDataConstructor
   let proxy = ExTyApp (ExVar proxyConstructor) convertedType
-  pure (ExApp (ExApp (ExTyApp (ExVar selector) convertedType) dictionary) proxy)
+      typeRepValue = ExApp (ExApp (ExTyApp (ExVar selector) convertedType) dictionary) proxy
+  pure (ExApp (ExTyApp (ExVar someTypeRepConstructor) convertedType) typeRepValue)
 
 desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> [Expr] -> ValueM Expr
 desugarTypeRepresentation origin ty arguments = do
   (typeName, _) <- typeableTypeView ty
-  typeRepName <- typeableName origin "Type.Reflection" "TypeRep" SortTypeConstructor
+  convertedType <- convertCheckedType ty
+  someTypeRepName <- typeableName origin "Type.Reflection" "SomeTypeRep" SortTypeConstructor
   typeRepConstructor <- typeableName origin "Type.Reflection" "TypeRep" SortDataConstructor
   tyConAxiom <- typeableName origin "Type.Reflection" "$ax$TyCon" SortAxiom
   charName <- typeableName origin "GHC.Internal.Char" "Char" SortTypeConstructor
   charConstructor <- typeableName origin "GHC.Internal.Char" "C#" SortDataConstructor
   wordRep <- convertRuntimeRep WordRep
-  let typeRepType = TyCon typeRepName
+  let someTypeRepType = TyCon someTypeRepName
       charType = TyCon charName
       typeNameChars =
         [ ExApp (ExVar charConstructor) (ExLit (LitChar wordRep character))
         | character <- T.unpack typeName
         ]
   nameList <- desugarFcList charType typeNameChars
-  argumentList <- desugarFcList typeRepType arguments
+  argumentList <- desugarFcList someTypeRepType arguments
   let tyCon = ExCast nameList (CoSym (CoAxiom tyConAxiom []))
-  pure (ExApp (ExApp (ExVar typeRepConstructor) tyCon) argumentList)
+  pure (ExApp (ExApp (ExTyApp (ExVar typeRepConstructor) convertedType) tyCon) argumentList)
 
 desugarFcList :: Type -> [Expr] -> ValueM Expr
 desugarFcList elementType elements = do

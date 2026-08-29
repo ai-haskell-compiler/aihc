@@ -1,53 +1,69 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MagicHash #-}
+
+{-# HLINT ignore "Use newtype instead of data" #-}
 
 module Type.Reflection
   ( Typeable (..),
     TypeRep,
-    TyCon,
+    SomeTypeRep (..),
+    TyCon (..),
+    Module (..),
     eqTypeRep,
     typeOf,
     typeRepArgs,
     typeRepTyCon,
     tyConName,
+    rnfTypeRep,
+    rnfSomeTypeRep,
+    rnfTyCon,
+    rnfModule,
   )
 where
 
 import Data.Proxy (Proxy (..))
 import GHC.Prim (ord#, (==#))
-import Prelude (Bool (..), Char (..), List (..), String, (&&))
+import Prelude (Bool (..), Char (..), List (..), String, foldr, seq, (&&), (.))
 
 newtype TyCon = TyCon String
 
-data TypeRep = TypeRep TyCon [TypeRep]
+data Module = Module String String
+
+data TypeRep a = TypeRep TyCon [SomeTypeRep]
+
+data SomeTypeRep = forall a. SomeTypeRep (TypeRep a)
 
 class Typeable a where
   -- Both projections are compiler supplied until imported class selectors
   -- retain enough metadata for typeOf to be an ordinary wrapper around typeRep.
-  typeRep :: Proxy a -> TypeRep
-  typeOf :: a -> TypeRep
+  typeRep :: Proxy a -> TypeRep a
+  typeOf :: a -> TypeRep a
 
-typeRepTyCon :: TypeRep -> TyCon
+typeRepTyCon :: TypeRep a -> TyCon
 typeRepTyCon (TypeRep tyCon _) = tyCon
 
-typeRepArgs :: TypeRep -> [TypeRep]
+typeRepArgs :: TypeRep a -> [SomeTypeRep]
 typeRepArgs (TypeRep _ arguments) = arguments
 
 tyConName :: TyCon -> String
 tyConName (TyCon name) = name
 
-eqTypeRep :: TypeRep -> TypeRep -> Bool
+eqTypeRep :: TypeRep a -> TypeRep b -> Bool
 eqTypeRep (TypeRep leftTyCon leftArgs) (TypeRep rightTyCon rightArgs) =
   eqTyCon leftTyCon rightTyCon && sameTypeReps leftArgs rightArgs
+
+eqSomeTypeRep :: SomeTypeRep -> SomeTypeRep -> Bool
+eqSomeTypeRep (SomeTypeRep left) (SomeTypeRep right) = eqTypeRep left right
 
 eqTyCon :: TyCon -> TyCon -> Bool
 eqTyCon (TyCon leftName) (TyCon rightName) = sameString leftName rightName
 
-sameTypeReps :: [TypeRep] -> [TypeRep] -> Bool
+sameTypeReps :: [SomeTypeRep] -> [SomeTypeRep] -> Bool
 sameTypeReps [] [] = True
 sameTypeReps [] (_ : _) = False
 sameTypeReps (_ : _) [] = False
 sameTypeReps (left : lefts) (right : rights) =
-  eqTypeRep left right && sameTypeReps lefts rights
+  eqSomeTypeRep left right && sameTypeReps lefts rights
 
 sameString :: String -> String -> Bool
 sameString [] [] = True
@@ -60,3 +76,21 @@ sameChar (C# left) (C# right) =
   case (==#) (ord# left) (ord# right) of
     0# -> False
     _ -> True
+
+rnfTyCon :: TyCon -> ()
+rnfTyCon (TyCon name) = rnfString name
+
+rnfModule :: Module -> ()
+rnfModule (Module package name) = rnfString package `seq` rnfString name
+
+rnfSomeTypeRep :: SomeTypeRep -> ()
+rnfSomeTypeRep (SomeTypeRep representation) = rnfTypeRep representation
+
+rnfTypeRep :: TypeRep a -> ()
+rnfTypeRep (TypeRep tyCon arguments) = rnfTyCon tyCon `seq` rnfSomeTypeRepList arguments
+
+rnfSomeTypeRepList :: [SomeTypeRep] -> ()
+rnfSomeTypeRepList = foldr (seq . rnfSomeTypeRep) ()
+
+rnfString :: String -> ()
+rnfString = foldr seq ()

@@ -1,0 +1,70 @@
+extensions:
+  - TypeOperators
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import GHC.Generics
+
+    unitValue :: U1 p
+    unitValue = U1
+
+    parValue :: Par1 Bool
+    parValue = Par1 True
+
+    recValue :: Rec1 Maybe Bool
+    recValue = Rec1 (Just False)
+
+    constValue :: K1 R Bool p
+    constValue = K1 True
+
+    metaValue :: M1 D () U1 p
+    metaValue = M1 U1
+
+    leftValue :: (U1 :+: Par1) Bool
+    leftValue = L1 U1
+
+    rightValue :: (U1 :+: Par1) Bool
+    rightValue = R1 (Par1 True)
+
+    productValue :: (Par1 :*: Par1) Bool
+    productValue = Par1 True :*: Par1 False
+
+    composeValue :: (Maybe :.: Par1) Bool
+    composeValue = Comp1 (Just (Par1 True))
+
+    isUnit :: U1 p -> Bool
+    isUnit U1 = True
+
+    isTrue :: Par1 Bool -> Bool
+    isTrue (Par1 True) = True
+    isTrue _ = False
+
+    result :: Bool
+    result =
+      isUnit unitValue
+        && isTrue parValue
+        && unRec1 recValue == Just False
+        && unK1 constValue
+        && isUnit (unM1 metaValue)
+        && case leftValue of
+          L1 U1 -> True
+          R1 _ -> False
+        && case rightValue of
+          L1 _ -> False
+          R1 value -> isTrue value
+        && case productValue of
+          Par1 True :*: Par1 False -> True
+          _ -> False
+        && case unComp1 composeValue of
+          Just value -> isTrue value
+          Nothing -> False
+output: |
+  True
+expression: result
+status: pass
+reason: GHC.Generics exports the representation types used by deepseq generic NFData instances

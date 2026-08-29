@@ -1,3 +1,7 @@
-module Foreign.Ptr (Ptr (..)) where
+module Foreign.Ptr
+  ( Ptr (..),
+    FunPtr (..),
+  )
+where
 
-import GHC.Ptr (Ptr (..))
+import GHC.Ptr (FunPtr (..), Ptr (..))

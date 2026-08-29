@@ -1,0 +1,45 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import Data.Typeable qualified as Typeable
+    import Type.Reflection (Module (..), TypeRep, typeRep)
+    import Type.Reflection qualified as Reflection
+
+    class NFData a where
+      rnf :: a -> ()
+
+    instance NFData Typeable.TypeRep where
+      rnf value = Typeable.rnfTypeRep value
+
+    instance NFData Reflection.TyCon where
+      rnf value = Reflection.rnfTyCon value
+
+    instance NFData (TypeRep a) where
+      rnf value = Reflection.rnfTypeRep value
+
+    instance NFData Module where
+      rnf value = Reflection.rnfModule value
+
+    moduleValue :: Module
+    moduleValue = Module "base" "Type.Reflection"
+
+    boolRep :: TypeRep Bool
+    boolRep = typeRep (Proxy :: Proxy Bool)
+
+    result :: Bool
+    result =
+      case rnf moduleValue of
+        () ->
+          case rnf boolRep of
+            () ->
+              case rnf (Typeable.typeRep (Proxy :: Proxy Bool)) of
+                () -> True
+output: |
+  True
+expression: result
+status: pass
+reason: Type.Reflection exports Module and parameterized TypeRep with rnf helpers used by deepseq
