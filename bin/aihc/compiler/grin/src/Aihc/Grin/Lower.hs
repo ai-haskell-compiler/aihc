@@ -111,9 +111,9 @@ lowerTypeDecl env declaration = do
         then pure ([], [])
         else do
           fieldTypes <- liftEither (constructorArgumentTypes monotype)
-          fieldLayouts <- mapM (runtimeComponents constructorEnv) fieldTypes
+          fieldLayouts <- mapM (liftEither . runtimeComponents constructorEnv) fieldTypes
           resultType <- liftEither (constructorResultType monotype)
-          resultRep <- runtimeRep constructorEnv resultType
+          resultRep <- liftEither (runtimeRep constructorEnv resultType)
           case resultRep of
             TupleRep {} -> pure ([], [])
             _ -> do
@@ -123,7 +123,7 @@ lowerTypeDecl env declaration = do
 
 lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
-  representation <- runtimeRep env (Fc.valType declaration)
+  representation <- liftEither (runtimeRep env (Fc.valType declaration))
   if representation /= liftedGrinRep
     then throwLower ("GRIN does not support an unlifted top-level value: " <> show (Fc.valName declaration))
     else do
@@ -144,7 +144,7 @@ lowerForeignDecl env declaration = do
     mapM
       (\(index, argumentType) -> freshVarsForType foreignEnv ("foreign_argument_" <> T.pack (show index), argumentType))
       (zip [0 :: Int ..] argumentTypes)
-  resultRep <- runtimeRep foreignEnv resultType
+  resultRep <- liftEither (runtimeRep foreignEnv resultType)
   functionName <- freshFunction (Fc.nameText name <> "_foreign")
   globalName <- lookupGlobalName env name
   let parameters = concat argumentGroups
@@ -231,7 +231,7 @@ sourceValues env sourceType values = do
 
 sourceValueTypes :: LowerEnv -> Fc.Type -> LowerM [(Fc.Type, GrinRep)]
 sourceValueTypes env sourceType = do
-  representation <- runtimeRep env sourceType
+  representation <- liftEither (runtimeRep env sourceType)
   case representation of
     TupleRep fields -> do
       let (_, arguments) = collectTypeApplications (reduce env sourceType)
@@ -302,8 +302,8 @@ findUnaryConstructor env axioms constructors resultType expectedRep =
           fieldTypes <- instantiateConstructorFields env axioms constructorType resultType
           case fieldTypes of
             [fieldType] ->
-              case runStateT (runtimeRep env fieldType) (LowerState 0 0 []) of
-                Right (fieldRep, _)
+              case runtimeRep env fieldType of
+                Right fieldRep
                   | fieldRep == expectedRep -> Just (constructorTag name, fieldRep)
                 _ -> Nothing
             _ -> Nothing
@@ -370,7 +370,7 @@ lowerExpr env expression =
 lowerVariable :: LowerEnv -> Fc.Name -> LowerM GrinExpr
 lowerVariable env name = do
   ty <- lookupNameType env name
-  representation <- runtimeRep env ty
+  representation <- liftEither (runtimeRep env ty)
   let components = runtimeRepComponents representation
   case Map.lookup name (lowerLocals env) of
     Just variables ->
@@ -390,7 +390,7 @@ lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
   let application = Fc.ExApp function argument
   resultType <- expressionType env application
-  resultRep <- runtimeRep env resultType
+  resultRep <- liftEither (runtimeRep env resultType)
   case (resultRep, collectApplications application) of
     (_, (Fc.ExVar name, arguments))
       | Just arity <- Map.lookup (Fc.nameText name) specialPrimitiveArities,
@@ -526,7 +526,7 @@ bindExpression env hint expression continuation = do
 lowerLet :: LowerEnv -> Fc.Bind -> Fc.Expr -> LowerM GrinExpr
 lowerLet env binding body = do
   let binder = Fc.bindBinder binding
-  representation <- runtimeRep env (applySubstitution env (Fc.binderType binder))
+  representation <- liftEither (runtimeRep env (applySubstitution env (Fc.binderType binder)))
   variables <- freshVars (Fc.nameText (Fc.binderName binder)) representation
   let bodyEnv = bindLocal env binder variables
   loweredBody <- lowerExpr bodyEnv body
@@ -548,7 +548,7 @@ lowerRec env bindings body = do
   where
     makeVariables binding = do
       let binder = Fc.bindBinder binding
-      representation <- runtimeRep env (applySubstitution env (Fc.binderType binder))
+      representation <- liftEither (runtimeRep env (applySubstitution env (Fc.binderType binder)))
       if isLiftedRuntimeRep representation
         then (: []) <$> freshVar (Fc.nameText (Fc.binderName binder)) representation
         else throwLower ("GRIN does not support an unlifted recursive binding: " <> show (Fc.binderName binder))
@@ -696,7 +696,7 @@ expressionRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
 expressionRuntimeRep env expression =
   case expression of
     Fc.ExLit literal -> literalRep env literal
-    _ -> expressionType env expression >>= runtimeRep env
+    _ -> expressionType env expression >>= liftEither . runtimeRep env
 
 expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type
 expressionType env expression =
@@ -727,19 +727,16 @@ expressionType env expression =
         Just (_, target) -> pure (applySubstitution env target)
         Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
 
-runtimeRep :: LowerEnv -> Fc.Type -> LowerM GrinRep
-runtimeRep env sourceType = directRuntimeRep env appliedType
-  where
-    appliedType = applySubstitution env sourceType
-
-directRuntimeRep :: LowerEnv -> Fc.Type -> LowerM GrinRep
-directRuntimeRep env sourceType = do
+runtimeRep :: LowerEnv -> Fc.Type -> Either String GrinRep
+runtimeRep env sourceType = do
   representation <-
     maybe
-      (throwLower ("GRIN cannot find a runtime representation for type: " <> show sourceType))
+      (Left ("GRIN cannot find a runtime representation for type: " <> show appliedType))
       pure
-      (TypeOf.repOf (lowerTypes env) sourceType)
+      (TypeOf.repOf (lowerTypes env) appliedType)
   convertRep env representation
+  where
+    appliedType = applySubstitution env sourceType
 
 repType :: LowerEnv -> Fc.Type -> LowerM Fc.Type
 repType env sourceType =
@@ -748,13 +745,13 @@ repType env sourceType =
     pure
     (TypeOf.repOf (lowerTypes env) (applySubstitution env sourceType))
 
-runtimeComponents :: LowerEnv -> Fc.Type -> LowerM [GrinRep]
+runtimeComponents :: LowerEnv -> Fc.Type -> Either String [GrinRep]
 runtimeComponents env sourceType = runtimeRepComponents <$> runtimeRep env sourceType
 
-convertRep :: LowerEnv -> Fc.Type -> LowerM GrinRep
+convertRep :: LowerEnv -> Fc.Type -> Either String GrinRep
 convertRep env sourceRep =
   case reduce env sourceRep of
-    Fc.TyVar name -> throwLower ("GRIN does not support a variable runtime representation: " <> show name)
+    Fc.TyVar name -> Left ("GRIN does not support a variable runtime representation: " <> show name)
     Fc.TyCon name -> simpleRep (Fc.nameText name)
     Fc.TyApp (Fc.TyCon name) levity
       | Fc.nameText name == "BoxedRep" -> BoxedRep <$> convertLevity levity
@@ -763,9 +760,9 @@ convertRep env sourceRep =
       | Fc.nameText name == "SumRep" -> SumRep <$> convertRepList env fields
     Fc.TyApp (Fc.TyApp (Fc.TyCon name) count) element
       | Fc.nameText name == "VecRep" -> VecRep <$> readNamed "vector count" count <*> readNamed "vector element" element
-    other -> throwLower ("GRIN does not support runtime representation: " <> show other)
+    other -> Left ("GRIN does not support runtime representation: " <> show other)
 
-simpleRep :: Text -> LowerM GrinRep
+simpleRep :: Text -> Either String GrinRep
 simpleRep name =
   case name of
     "LiftedRep" -> pure liftedGrinRep
@@ -783,44 +780,44 @@ simpleRep name =
     "AddrRep" -> pure AddrRep
     "FloatRep" -> pure FloatRep
     "DoubleRep" -> pure DoubleRep
-    _ -> throwLower ("GRIN does not know runtime representation: " <> T.unpack name)
+    _ -> Left ("GRIN does not know runtime representation: " <> T.unpack name)
 
-convertLevity :: Fc.Type -> LowerM GrinLevity
+convertLevity :: Fc.Type -> Either String GrinLevity
 convertLevity levity =
   case levity of
     Fc.TyCon name
       | Fc.nameText name == "Lifted" -> pure Lifted
       | Fc.nameText name == "Unlifted" -> pure Unlifted
-    _ -> throwLower ("GRIN does not support levity: " <> show levity)
+    _ -> Left ("GRIN does not support levity: " <> show levity)
 
-convertRepList :: LowerEnv -> Fc.Type -> LowerM [GrinRep]
+convertRepList :: LowerEnv -> Fc.Type -> Either String [GrinRep]
 convertRepList env list =
   case reduce env list of
     Fc.TyApp (Fc.TyCon name) _
       | Fc.nameText name == "[]" -> pure []
     Fc.TyApp (Fc.TyApp (Fc.TyApp (Fc.TyCon name) _) item) rest
       | Fc.nameText name == ":" -> (:) <$> convertRep env item <*> convertRepList env rest
-    other -> throwLower ("GRIN does not support this runtime representation list: " <> show other)
+    other -> Left ("GRIN does not support this runtime representation list: " <> show other)
 
-readNamed :: (Read value) => String -> Fc.Type -> LowerM value
+readNamed :: (Read value) => String -> Fc.Type -> Either String value
 readNamed label ty =
   case ty of
     Fc.TyCon name ->
-      maybe (throwLower ("GRIN does not know " <> label <> ": " <> T.unpack (Fc.nameText name))) pure (readMaybe (T.unpack (Fc.nameText name)))
-    _ -> throwLower ("GRIN does not support " <> label <> ": " <> show ty)
+      maybe (Left ("GRIN does not know " <> label <> ": " <> T.unpack (Fc.nameText name))) pure (readMaybe (T.unpack (Fc.nameText name)))
+    _ -> Left ("GRIN does not support " <> label <> ": " <> show ty)
 
 literalRep :: LowerEnv -> Fc.Literal -> LowerM GrinRep
 literalRep env literal =
   case literal of
-    Fc.LitInt representation _ -> convertRep env representation
-    Fc.LitChar representation _ -> convertRep env representation
+    Fc.LitInt representation _ -> liftEither (convertRep env representation)
+    Fc.LitChar representation _ -> liftEither (convertRep env representation)
     Fc.LitAddr {} -> pure AddrRep
 
 lowerLiteral :: LowerEnv -> Fc.Literal -> LowerM GrinLiteral
 lowerLiteral env literal =
   case literal of
-    Fc.LitInt representation value -> GrinLitInt <$> convertRep env representation <*> pure value
-    Fc.LitChar representation value -> GrinLitChar <$> convertRep env representation <*> pure value
+    Fc.LitInt representation value -> GrinLitInt <$> liftEither (convertRep env representation) <*> pure value
+    Fc.LitChar representation value -> GrinLitChar <$> liftEither (convertRep env representation) <*> pure value
     Fc.LitAddr _ value -> pure (GrinLitAddr value)
 
 lowerForeignCall :: Fc.Name -> Fc.CCallSpec -> GrinForeignCall
@@ -963,7 +960,7 @@ freshVarsForBinder :: LowerEnv -> Fc.Binder -> LowerM [GrinVar]
 freshVarsForBinder env binder = freshVarsForType env (Fc.nameText (Fc.binderName binder), applySubstitution env (Fc.binderType binder))
 
 freshVarsForType :: LowerEnv -> (Text, Fc.Type) -> LowerM [GrinVar]
-freshVarsForType env (hint, sourceType) = runtimeRep env sourceType >>= freshVars hint
+freshVarsForType env (hint, sourceType) = liftEither (runtimeRep env sourceType) >>= freshVars hint
 
 freshVars :: Text -> GrinRep -> LowerM [GrinVar]
 freshVars hint representation = mapM (freshVar hint) (runtimeRepComponents representation)
