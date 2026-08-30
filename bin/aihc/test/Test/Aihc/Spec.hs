@@ -16,7 +16,8 @@ import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, finally, try)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
-import Data.List (isInfixOf, isPrefixOf, sort)
+import Data.ByteString.Lazy qualified as BL
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -29,6 +30,7 @@ import System.Directory
     doesFileExist,
     findExecutable,
     getCurrentDirectory,
+    getFileSize,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
@@ -270,7 +272,8 @@ test_installV2TimingOutput = do
     assertBool "verbose output does not contain timings" (not ("Compile time:" `isInfixOf` verboseOutput))
     assertBool
       "timing output contains the stage symbols"
-      ("▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
+      ("*=IO ▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
+    assertBool "timing output contains the IO total" ("* total:" `isInfixOf` timingOutput)
     assertBool "timing output contains frontend time" ("Frontend time:" `isInfixOf` timingOutput)
     assertBool "timing output does not contain verbose output" (not ("Read Cabal package:" `isInfixOf` timingOutput))
     assertBool "redirected timing output does not contain colors" ('\ESC' `notElem` timingOutput)
@@ -474,6 +477,8 @@ test_installV2AihcPrim = do
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
         loader = Fc.storeModuleLoader targetStoreRoot
+    assertBool "artifact version sets the package hash" ("4472358042b0f972" `isSuffixOf` packageDir)
+    mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"
     mapM_ assertCoreFile coreFiles
@@ -484,6 +489,12 @@ test_installV2AihcPrim = do
     assertEqual "GHC.Types lint errors" [] (Fc.lintProgram types)
     assertEqual "GHC.Prim lint errors" [] (Fc.lintProgram prim)
     mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
+
+assertTypeArtifactSize :: FilePath -> Text -> Assertion
+assertTypeArtifactSize packageDir name = do
+  let path = foldl (</>) packageDir (map T.unpack (T.splitOn "." name) ++ ["type.cbor"])
+  size <- getFileSize path
+  assertBool ("type artifact is less than 1 MiB: " <> path) (size < 1024 * 1024)
 
 aihcPrimLibraryModules :: [Text]
 aihcPrimLibraryModules =
@@ -637,8 +648,8 @@ test_installV2TypeReexports =
       "module Demo.A where\ndata Box a = Box a\nclass Identity a where\n  identity :: a -> a\nfn x = x\n"
     writeFile (sourceDir </> "B.hs") "module Demo.B (module Demo.A) where\nimport Demo.A\n"
     result <- installV2 options
-    bytes <- BS.readFile (installV2StorePath result </> "Demo" </> "B" </> "type.cbor")
-    artifact <- either assertFailure pure (decodeTypeArtifact bytes)
+    bytes <- BL.readFile (installV2StorePath result </> "Demo" </> "B" </> "type.cbor")
+    let artifact = decodeTypeArtifact bytes
     let termNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms (typeArtifactInterface artifact))
     assertBool "re-exported signature" ("fn" `elem` termNames)
 

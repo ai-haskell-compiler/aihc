@@ -25,7 +25,7 @@ import Aihc.Cli.TaskGraph
   ( Task (..),
     TaskId (..),
     TaskKind (..),
-    TaskTiming,
+    TaskTiming (..),
     renderTaskTimeline,
     runTaskGraph,
   )
@@ -105,6 +105,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
+import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -117,6 +118,7 @@ import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
+import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
@@ -342,17 +344,17 @@ installPackageV2Direct config storeRoot dependencies root = do
   verbose ("Parse " <> show (length files) <> " library modules")
   capabilities <- getNumCapabilities
   (parsed, importTimings) <- loadSourceModules (max 1 capabilities) root files
-  loadedDependencies <- loadRequiredDependencies parsed dependencies
+  (loadedDependencies, dependencyIOTiming) <- measureIOTiming (loadRequiredDependencies parsed dependencies)
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
-      packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : dependencyIdentities))
+      packageHash = stableHash (map TE.encodeUtf8 (artifactCacheVersion : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
       units = sourceModuleUnits parsed
       dependencyExports = Map.unions (map installedV2Exports loadedDependencies)
-      dependencyTypes = Map.unions (map installedV2Types loadedDependencies)
+      dependencyTypes = LazyMap.unions (map installedV2Types loadedDependencies)
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
-      dependencyTypeHashes = Map.unions (map installedV2TypeHashes loadedDependencies)
+      dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
       primIdentity =
         fromMaybe (PackageId "aihc-prim") $
           if packageName resolvePackage == "aihc-prim"
@@ -389,7 +391,7 @@ installPackageV2Direct config storeRoot dependencies root = do
       (max 1 capabilities)
       units
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> taskTimings))
+  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> [dependencyIOTiming] <> taskTimings))
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
@@ -402,8 +404,8 @@ installPackageV2Direct config storeRoot dependencies root = do
       localTypeHashes = Map.unions (map typeUnitHashes typeResults)
       allExports = localExports `Map.union` dependencyExports
       allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
-      allTypes = localTypes `Map.union` dependencyTypes
-      allTypeHashes = localTypeHashes `Map.union` dependencyTypeHashes
+      allTypes = localTypes `LazyMap.union` dependencyTypes
+      allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
       written = Set.unions (map typeUnitWritten typeResults)
       reused = Set.unions (map typeUnitReused typeResults)
       completeTypes = mergeTcInterfaces (Map.elems allTypes)
@@ -460,7 +462,7 @@ packageStoreDirectory dependencies root = do
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
       dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
-      packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : dependencyIdentities))
+      packageHash = stableHash (map TE.encodeUtf8 (artifactCacheVersion : dependencyIdentities))
   pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash)
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -491,6 +493,13 @@ loadRequiredDependencies sources = mapM loadDependency
     requirements = requiredDependencyModules sources
     loadDependency dependency = loadInstalledV2Package requirements (installV2StorePath (installedV2Result dependency))
 
+measureIOTiming :: IO value -> IO (value, TaskTiming)
+measureIOTiming action = do
+  started <- getMonotonicTimeNSec
+  result <- action
+  ended <- getMonotonicTimeNSec
+  pure (result, TaskTiming 1 (TaskId "dependency-artifacts") TaskIO started ended)
+
 requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
 requiredDependencyModules sources =
   Set.fromList
@@ -517,12 +526,12 @@ loadInstalledV2Package requirements storePath = do
   instances <- if null selectedModules then pure mempty else loadPackageInstances
   let package = Package (packageManifestName manifest) (PackageId (packageManifestIdentity manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
-      moduleTypes = Map.fromList [(name, interface) | (name, _, interface) <- entries]
+      moduleTypes = LazyMap.fromList [(name, interface) | (name, _, interface) <- entries]
       types
         | null selectedModules = Map.empty
-        | otherwise = Map.insert ("$package-instances:" <> packageManifestIdentity manifest) instances moduleTypes
+        | otherwise = LazyMap.insert ("$package-instances:" <> packageManifestIdentity manifest) instances moduleTypes
       scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
-      typeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
+      typeHashes = LazyMap.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
   pure
     InstalledV2Package
       { installedV2Result = InstallV2Result storePath [] (packageManifestModules manifest),
@@ -543,8 +552,8 @@ loadInstalledV2Package requirements storePath = do
           typePath = root </> "type.cbor"
       resolveBytes <- BS.readFile resolvePath
       resolveArtifact <- either (ioError . userError . (("Invalid resolve artifact " <> resolvePath <> ": ") <>)) pure (decodeResolveArtifact resolveBytes)
-      typeBytes <- BS.readFile typePath
-      typeArtifact <- either (ioError . userError . (("Invalid type artifact " <> typePath <> ": ") <>)) pure (decodeTypeArtifact typeBytes)
+      typeBytes <- BL.readFile typePath
+      let typeArtifact = decodeTypeArtifact typeBytes
       unless (resolveArtifactModuleName resolveArtifact == name) (ioError (userError ("Resolve artifact module name does not match " <> resolvePath)))
       unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
       pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
@@ -555,8 +564,8 @@ loadInstalledV2Package requirements storePath = do
       if not exists
         then pure mempty
         else do
-          bytes <- BS.readFile path
-          artifact <- either (ioError . userError . (("Invalid package instance artifact " <> path <> ": ") <>)) pure (decodeTypeArtifact bytes)
+          bytes <- BL.readFile path
+          let artifact = decodeTypeArtifact bytes
           unless (typeArtifactModuleName artifact == "$package-instances") (ioError (userError ("Package instance artifact name does not match " <> path)))
           pure (typeArtifactInterface artifact)
 
@@ -943,8 +952,8 @@ runTypeUnit context runtimes runtime = do
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredTypeModules)
-      availableTypes = Map.unions (map typeUnitTypes dependencyResults) `Map.union` dependencyTypes
-      availableTypeHashes = Map.unions (map typeUnitHashes dependencyResults) `Map.union` dependencyTypeHashes
+      availableTypes = LazyMap.unions (map typeUnitTypes dependencyResults) `LazyMap.union` dependencyTypes
+      availableTypeHashes = LazyMap.unions (map typeUnitHashes dependencyResults) `LazyMap.union` dependencyTypeHashes
       availableExports = Map.unions (map resolveUnitExports dependencyResolveResults) `Map.union` dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResolveResults) `Map.union` dependencyScopeHashes
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
@@ -1495,3 +1504,6 @@ stableHash chunks = replicate (16 - length rendered) '0' <> rendered
     rendered = showHex (foldl' hashChunk (14695981039346656037 :: Word64) chunks) ""
     hashChunk :: Word64 -> BS.ByteString -> Word64
     hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * 1099511628211)
+
+artifactCacheVersion :: Text
+artifactCacheVersion = "aihc-artifacts-9"
