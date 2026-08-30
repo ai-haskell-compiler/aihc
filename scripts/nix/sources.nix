@@ -98,6 +98,11 @@ in rec {
     ".cabal"
   ];
 
+  templateHaskellSrc = mkComponentSrc "/core-libs/aihc-template-haskell" [
+    ".hs"
+    ".cabal"
+  ];
+
   resolveToolingCommonSrc = pkgs:
     pkgs.lib.cleanSourceWith {
       src = root;

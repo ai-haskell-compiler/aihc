@@ -365,6 +365,7 @@ test-suite dev-spec
     aihc-resolve,
     aihc-tc,
     aihc-tc:fuzz,
+    aihc-template-haskell,
     async,
     base >=4.16 && <5,
     bytestring,

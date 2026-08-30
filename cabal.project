@@ -2,6 +2,7 @@ packages:
   core-libs/aihc-base
   core-libs/aihc-internal
   core-libs/aihc-prim
+  core-libs/aihc-template-haskell
   bin/aihc
   components/aihc-resolve
   components/aihc-tc
