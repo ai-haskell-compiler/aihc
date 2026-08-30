@@ -286,7 +286,9 @@
     fi
   '';
 
-  aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
+  aihcExe = pkgs.writeShellScript "aihc-with-memory-limit" ''
+    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M2G -RTS "$@"
+  '';
 
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
