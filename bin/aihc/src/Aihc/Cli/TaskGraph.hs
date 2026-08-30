@@ -22,7 +22,7 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, throwIO, try)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
-import Data.List (intercalate, sortOn)
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -30,6 +30,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
+import Numeric (showFFloat)
 
 newtype TaskId = TaskId String
   deriving (Eq, Ord, Show)
@@ -182,14 +183,15 @@ completeTask taskMap stateVar (ReadyTask _ _ identifier) =
               Nothing -> error "missing dependent task"
             else (nextWaitCounts, ready)
 
-renderTaskTimeline :: [TaskTiming] -> String
-renderTaskTimeline [] = "Compile time: 0 ms"
-renderTaskTimeline timings =
+renderTaskTimeline :: Bool -> [TaskTiming] -> String
+renderTaskTimeline _ [] = unlines ["Frontend time: 0.000 ns", "Compile time: 0.000 ns"]
+renderTaskTimeline useColor timings =
   unlines
     ( map renderWorker workers
         <> [ axis,
-             "P=parse R=resolve T=type-check B=backend .=idle",
-             "Compile time: " <> renderMilliseconds total
+             renderLegend,
+             "Frontend time: " <> renderDuration frontend,
+             "Compile time: " <> renderDuration total
            ]
         <> map renderKindTotal [TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
     )
@@ -197,6 +199,10 @@ renderTaskTimeline timings =
     start = minimum (map timingStart timings)
     end = maximum (map timingEnd timings)
     total = max 1 (end - start)
+    frontend =
+      case [timingEnd timing | timing <- timings, timingKind timing == TaskTypeCheck] of
+        [] -> 0
+        typeCheckEnds -> max 1 (maximum typeCheckEnds - start)
     width = 60
     workers = [1 .. maximum (map timingWorker timings)]
     labelWidth = length (show (maximum workers))
@@ -204,7 +210,7 @@ renderTaskTimeline timings =
       "Worker "
         <> padLeft labelWidth (show worker)
         <> " |"
-        <> [symbolAt worker column | column <- [0 .. width - 1]]
+        <> concat [symbolAt worker column | column <- [0 .. width - 1]]
         <> "|"
     symbolAt worker column =
       case [ timingKind timing
@@ -212,36 +218,65 @@ renderTaskTimeline timings =
              timingWorker timing == worker,
              containsColumn column timing
            ] of
-        kind : _ -> kindSymbol kind
-        [] -> '.'
+        kind : _ -> kindSymbol useColor kind
+        [] -> "."
     containsColumn column timing =
       let columnStart = start + (fromIntegral column * total) `div` fromIntegral width
           columnEnd = start + (fromIntegral (column + 1) * total) `div` fromIntegral width
        in timingStart timing <= columnEnd && columnStart <= timingEnd timing
-    axis = replicate (7 + labelWidth + 2) ' ' <> "0" <> replicate (width - 2) ' ' <> renderMilliseconds total
+    axis = replicate (7 + labelWidth + 2) ' ' <> "0" <> replicate (width - 2) ' ' <> renderDuration total
+    renderLegend =
+      unwords
+        [ kindSymbol useColor TaskParse <> "=parse",
+          kindSymbol useColor TaskResolve <> "=resolve",
+          kindSymbol useColor TaskTypeCheck <> "=type-check",
+          kindSymbol useColor TaskBackend <> "=backend",
+          ".=idle"
+        ]
     renderKindTotal kind =
-      [kindSymbol kind]
+      kindSymbol useColor kind
         <> " total: "
-        <> renderMilliseconds (sum [timingEnd timing - timingStart timing | timing <- timings, timingKind timing == kind])
+        <> renderDuration (sum [timingEnd timing - timingStart timing | timing <- timings, timingKind timing == kind])
 
-kindSymbol :: TaskKind -> Char
-kindSymbol kind =
+kindSymbol :: Bool -> TaskKind -> String
+kindSymbol useColor kind = colorize useColor (kindColor kind) [kindGlyph kind]
+
+kindGlyph :: TaskKind -> Char
+kindGlyph kind =
   case kind of
-    TaskParse -> 'P'
-    TaskResolve -> 'R'
-    TaskTypeCheck -> 'T'
-    TaskBackend -> 'B'
+    TaskParse -> '▁'
+    TaskResolve -> '▂'
+    TaskTypeCheck -> '▄'
+    TaskBackend -> '█'
 
-renderMilliseconds :: Word64 -> String
-renderMilliseconds nanoseconds =
-  let milliseconds = fromIntegral nanoseconds / 1000000 :: Double
-   in showFFloatOne milliseconds <> " ms"
+kindColor :: TaskKind -> String
+kindColor kind =
+  case kind of
+    TaskParse -> "37"
+    TaskResolve -> "32"
+    TaskTypeCheck -> "34"
+    TaskBackend -> "35"
 
-showFFloatOne :: Double -> String
-showFFloatOne value =
-  let scaled = round (value * 10) :: Integer
-      (whole, fraction) = scaled `divMod` 10
-   in intercalate "." [show whole, show fraction]
+colorize :: Bool -> String -> String -> String
+colorize useColor color value
+  | useColor = "\ESC[" <> color <> "m" <> value <> "\ESC[0m"
+  | otherwise = value
+
+renderDuration :: Word64 -> String
+renderDuration nanoseconds
+  | nanoseconds >= 60000000000 = renderScaledDuration 60000000000 "min"
+  | nanoseconds >= 1000000000 = renderScaledDuration 1000000000 "s"
+  | nanoseconds >= 1000000 = renderScaledDuration 1000000 "ms"
+  | nanoseconds >= 1000 = renderScaledDuration 1000 "µs"
+  | otherwise = renderScaledDuration 1 "ns"
+  where
+    renderScaledDuration divisor unit =
+      let value = fromIntegral nanoseconds / divisor :: Double
+          decimalPlaces
+            | value >= 100 = 1
+            | value >= 10 = 2
+            | otherwise = 3
+       in showFFloat (Just decimalPlaces) value "" <> " " <> unit
 
 padLeft :: Int -> String -> String
 padLeft width value = replicate (max 0 (width - length value)) ' ' <> value

@@ -53,6 +53,7 @@ data InstallV2Options = InstallV2Options
     installV2NoCache :: !Bool,
     installV2NoCode :: !Bool,
     installV2Verbose :: !Bool,
+    installV2PrintTimings :: !Bool,
     installV2Target :: !NativeTarget
   }
   deriving (Eq, Show)
@@ -229,5 +230,9 @@ installV2OptionsParser =
       ( OA.long "verbose"
           <> OA.short 'v'
           <> OA.help "Print each installation step"
+      )
+    <*> OA.switch
+      ( OA.long "print-timings"
+          <> OA.help "Print compiler stage timings"
       )
     <*> nativeTargetOption

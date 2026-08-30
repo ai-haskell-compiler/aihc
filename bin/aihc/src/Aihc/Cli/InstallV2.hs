@@ -125,6 +125,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist, getFileSize, r
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
+import System.IO (hIsTerminalDevice, stdout)
 import System.Process (readProcessWithExitCode)
 
 data InstallV2Result = InstallV2Result
@@ -229,6 +230,8 @@ data InstallConfig = InstallConfig
     installNoCode :: !Bool,
     installTarget :: !NativeTarget,
     installVerbose :: String -> IO (),
+    installPrintTimings :: String -> IO (),
+    installUseColor :: !Bool,
     installArtifactCache :: !ArtifactCache
   }
 
@@ -253,10 +256,12 @@ runInstallV2 options = do
 installV2 :: InstallV2Options -> IO InstallV2Result
 installV2 options = do
   storeRoot <- maybe defaultStoreRoot pure (installV2StoreRoot options)
+  useColor <- hIsTerminalDevice stdout
   let target = installV2Target options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
   let root = installV2PackageDirectory options
       verbose message = when (installV2Verbose options) (putStrLn message)
+      printTimings message = when (installV2PrintTimings options) (putStrLn message)
       fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
@@ -267,6 +272,8 @@ installV2 options = do
             installNoCode = installV2NoCode options,
             installTarget = target,
             installVerbose = verbose,
+            installPrintTimings = printTimings,
+            installUseColor = useColor,
             installArtifactCache = artifactCache (not (installV2NoCache options))
           }
   spec <- packageSpecFromSource root
@@ -355,7 +362,7 @@ installPackageV2 config storeRoot dependencies root = do
       (max 1 capabilities)
       units
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  verbose (renderTaskTimeline (importTimings <> taskTimings))
+  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> taskTimings))
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
