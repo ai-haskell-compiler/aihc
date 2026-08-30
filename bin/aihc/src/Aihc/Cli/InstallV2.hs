@@ -1,5 +1,9 @@
 module Aihc.Cli.InstallV2
   ( InstallV2Result (..),
+    ModuleCompileConfig (..),
+    ModuleCompileRequest (..),
+    ModuleCompileResult (..),
+    compileModules,
     installV2,
     runInstallV2,
   )
@@ -222,20 +226,42 @@ data UnitRuntime = UnitRuntime
     runtimePreparedDesugar :: !(TMVar (Maybe Fc.PreparedDesugar))
   }
 
-data InstallConfig = InstallConfig
-  { installKeepGrin :: !Bool,
-    installKeepNative :: !Bool,
-    installLint :: !Bool,
-    installNoCode :: !Bool,
-    installTarget :: !NativeTarget,
-    installVerbose :: String -> IO (),
-    installPrintTimings :: String -> IO (),
-    installUseColor :: !Bool,
-    installReinstall :: !Bool
+data ModuleCompileConfig = ModuleCompileConfig
+  { compileKeepGrin :: !Bool,
+    compileKeepNative :: !Bool,
+    compileLint :: !Bool,
+    compileNoCode :: !Bool,
+    compileTarget :: !NativeTarget,
+    compileVerbose :: String -> IO (),
+    compilePrintTimings :: String -> IO (),
+    compileUseColor :: !Bool
+  }
+
+data ModuleCompileRequest = ModuleCompileRequest
+  { compileOutputRoot :: !FilePath,
+    compilePackageRoot :: !FilePath,
+    compilePackage :: !Package,
+    compileSourceFiles :: ![HackageCabal.FileInfo],
+    compileDependencyRoots :: ![FilePath]
+  }
+
+newtype ModuleCompileResult = ModuleCompileResult
+  { compileObjectPaths :: [FilePath]
+  }
+  deriving (Eq, Show)
+
+data CompiledPackageModules = CompiledPackageModules
+  { compiledSources :: ![SourceModule],
+    compiledExports :: !ModuleExports,
+    compiledTypes :: !(Map.Map Text TcInterface),
+    compiledScopeHashes :: !(Map.Map Text Text),
+    compiledTypeHashes :: !(Map.Map Text Text),
+    compiledWritten :: !(Set.Set Text),
+    compiledReused :: !(Set.Set Text)
   }
 
 data PackageTaskContext = PackageTaskContext
-  { taskInstallConfig :: !InstallConfig,
+  { taskModuleCompileConfig :: !ModuleCompileConfig,
     taskStorePath :: !FilePath,
     taskResolvePackage :: !Package,
     taskPrimIdentity :: !PackageId,
@@ -264,20 +290,19 @@ installV2 options = do
       fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
-        InstallConfig
-          { installKeepGrin = installV2KeepGrin options,
-            installKeepNative = installV2KeepNative options,
-            installLint = installV2Lint options,
-            installNoCode = installV2NoCode options,
-            installTarget = target,
-            installVerbose = verbose,
-            installPrintTimings = printTimings,
-            installUseColor = useColor,
-            installReinstall = installV2Reinstall options
+        ModuleCompileConfig
+          { compileKeepGrin = installV2KeepGrin options,
+            compileKeepNative = installV2KeepNative options,
+            compileLint = installV2Lint options,
+            compileNoCode = installV2NoCode options,
+            compileTarget = target,
+            compileVerbose = verbose,
+            compilePrintTimings = printTimings,
+            compileUseColor = useColor
           }
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver spec
-  installedV2Result <$> installPackagePlanV2 config targetStoreRoot plan
+  installedV2Result <$> installPackagePlanV2 config (installV2Reinstall options) targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -290,18 +315,17 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: InstallConfig -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 config storeRoot plan = do
-  let dependencyConfig = config {installReinstall = False}
-  dependencies <- mapM (installPackagePlanV2 dependencyConfig storeRoot) (planDependencyPlans plan)
-  installPackageV2 config storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: ModuleCompileConfig -> Bool -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 config reinstall storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 config False storeRoot) (planDependencyPlans plan)
+  installPackageV2 config reinstall storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 config storeRoot dependencies root = do
+installPackageV2 :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 config reinstall storeRoot dependencies root = do
   packageDirectory <- packageStoreDirectory dependencies root
   let storePath = storeRoot </> packageDirectory
   exists <- doesDirectoryExist storePath
-  if exists && not (installReinstall config)
+  if exists && not reinstall
     then loadInstalledV2Package Set.empty storePath
     else do
       createDirectoryIfMissing True storeRoot
@@ -313,7 +337,7 @@ installPackageV2 config storeRoot dependencies root = do
     buildAndPublish storePath temporaryRoot = do
       built <- installPackageV2Direct config temporaryRoot dependencies root
       exists <- doesDirectoryExist storePath
-      when (exists && installReinstall config) (removeDirectoryRecursive storePath)
+      when (exists && reinstall) (removeDirectoryRecursive storePath)
       publishResult <- try (renameDirectory (installV2StorePath (installedV2Result built)) storePath)
       case publishResult of
         Right () -> pure (setInstalledStorePath storePath built)
@@ -323,10 +347,10 @@ installPackageV2 config storeRoot dependencies root = do
             then loadInstalledV2Package Set.empty storePath
             else throwIO (err :: IOException)
 
-installPackageV2Direct :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2Direct :: ModuleCompileConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
 installPackageV2Direct config storeRoot dependencies root = do
-  let target = installTarget config
-      verbose = installVerbose config
+  let target = compileTarget config
+      verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -340,77 +364,20 @@ installPackageV2Direct config storeRoot dependencies root = do
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
-  verbose ("Parse " <> show (length files) <> " library modules")
-  capabilities <- getNumCapabilities
-  (parsed, importTimings) <- loadSourceModules (max 1 capabilities) root files
-  loadedDependencies <- loadRequiredDependencies parsed dependencies
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
       packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
-      units = sourceModuleUnits parsed
-      dependencyExports = Map.unions (map installedV2Exports loadedDependencies)
-      dependencyTypes = LazyMap.unions (map installedV2Types loadedDependencies)
-      dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
-      dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
-      primIdentity =
-        fromMaybe (PackageId "aihc-prim") $
-          if packageName resolvePackage == "aihc-prim"
-            then Just resolvePackageIdentity
-            else
-              listToMaybe
-                [ dependencyIdentity
-                | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
-                  dependencyName == "aihc-prim"
-                ]
-      resolvePackageIdentity = case resolvePackage of Package _ identity -> identity
-  dependencyPreparedDesugar <-
-    either (ioError . userError . ("FC environment generation failed: " <>)) pure $
-      Fc.prepareDesugar
-        (DesugarConfig primIdentity)
-        (if installNoCode config then mempty else mergeTcInterfaces (Map.elems dependencyTypes))
-  let taskContext =
-        PackageTaskContext
-          { taskInstallConfig = config,
-            taskStorePath = storePath,
-            taskResolvePackage = resolvePackage,
-            taskPrimIdentity = primIdentity,
-            taskPackageRoot = root,
-            taskDependencyExports = dependencyExports,
-            taskDependencyScopeHashes = dependencyScopeHashes,
-            taskDependencyTypes = dependencyTypes,
-            taskDependencyTypeHashes = dependencyTypeHashes,
-            taskDependencyPreparedDesugar = dependencyPreparedDesugar
-          }
-  verbose ("Compute " <> show (length units) <> " SCC units")
-  (runtimes, taskTimings) <-
-    runPackageTasks
-      taskContext
-      (max 1 capabilities)
-      units
-  resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> taskTimings))
-  typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
-  let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
-      resolveDiagnostics = concatMap resolveUnitErrors resolveResults
-      typeDiagnostics = concatMap (filter ((== TcError) . diagSeverity) . typeUnitDiagnostics) typeResults
-      frontendFailure = renderFrontendFailure parsed parseDiagnostics resolveDiagnostics typeDiagnostics
-  unless (null frontendFailure) (ioError (userError frontendFailure))
-  let localExports = Map.unions (map resolveUnitExports resolveResults)
-      localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
-      localTypes = Map.unions (map typeUnitTypes typeResults)
-      localTypeHashes = Map.unions (map typeUnitHashes typeResults)
-      allExports = localExports `Map.union` dependencyExports
-      allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
-      allTypes = localTypes `LazyMap.union` dependencyTypes
-      allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
-      written = Set.unions (map typeUnitWritten typeResults)
-      reused = Set.unions (map typeUnitReused typeResults)
-      completeTypes = mergeTcInterfaces (Map.elems allTypes)
-      packageInstances = mergeTcInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
-  writePackageInstanceArtifact verbose storePath allTypeHashes completeTypes (ownInstanceFacts resolvePackage packageInstances)
-  unless (installNoCode config) $ do
+  compiled <- compileModulesWithDependencies config storePath root resolvePackage files dependencies
+  let parsed = compiledSources compiled
+      allExports = compiledExports compiled
+      allTypes = compiledTypes compiled
+      allScopeHashes = compiledScopeHashes compiled
+      allTypeHashes = compiledTypeHashes compiled
+      written = compiledWritten compiled
+      reused = compiledReused compiled
+  unless (compileNoCode config) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
         moduleObjects =
           sortOn
@@ -446,6 +413,102 @@ installPackageV2Direct config storeRoot dependencies root = do
         installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
         installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
       }
+
+compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
+compileModules config request = do
+  dependencies <- mapM (loadInstalledV2Package Set.empty) (compileDependencyRoots request)
+  compiled <-
+    compileModulesWithDependencies
+      config
+      (compileOutputRoot request)
+      (compilePackageRoot request)
+      (compilePackage request)
+      (compileSourceFiles request)
+      dependencies
+  pure
+    ModuleCompileResult
+      { compileObjectPaths =
+          sortOn
+            id
+            [ outputObjectPath (moduleOutputPaths (compileOutputRoot request) (compileTarget config) (sourceName source))
+            | source <- compiledSources compiled
+            ]
+      }
+
+compileModulesWithDependencies :: ModuleCompileConfig -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledV2Package] -> IO CompiledPackageModules
+compileModulesWithDependencies config outputRoot packageRoot resolvePackage files dependencies = do
+  let verbose = compileVerbose config
+  verbose ("Parse " <> show (length files) <> " modules")
+  capabilities <- getNumCapabilities
+  (parsed, importTimings) <- loadSourceModules (max 1 capabilities) packageRoot files
+  loadedDependencies <- loadRequiredDependencies parsed dependencies
+  let units = sourceModuleUnits parsed
+      dependencyExports = Map.unions (map installedV2Exports loadedDependencies)
+      dependencyTypes = LazyMap.unions (map installedV2Types loadedDependencies)
+      dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
+      dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
+      primIdentity = packagePrimIdentity resolvePackage dependencyExports
+  dependencyPreparedDesugar <-
+    either (ioError . userError . ("FC environment generation failed: " <>)) pure $
+      Fc.prepareDesugar
+        (DesugarConfig primIdentity)
+        (if compileNoCode config then mempty else mergeTcInterfaces (Map.elems dependencyTypes))
+  let taskContext =
+        PackageTaskContext
+          { taskModuleCompileConfig = config,
+            taskStorePath = outputRoot,
+            taskResolvePackage = resolvePackage,
+            taskPrimIdentity = primIdentity,
+            taskPackageRoot = packageRoot,
+            taskDependencyExports = dependencyExports,
+            taskDependencyScopeHashes = dependencyScopeHashes,
+            taskDependencyTypes = dependencyTypes,
+            taskDependencyTypeHashes = dependencyTypeHashes,
+            taskDependencyPreparedDesugar = dependencyPreparedDesugar
+          }
+  verbose ("Compute " <> show (length units) <> " SCC units")
+  (runtimes, taskTimings) <- runPackageTasks taskContext (max 1 capabilities) units
+  resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
+  compilePrintTimings config (renderTaskTimeline (compileUseColor config) (importTimings <> taskTimings))
+  typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
+  let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
+      resolveDiagnostics = concatMap resolveUnitErrors resolveResults
+      typeDiagnostics = concatMap (filter ((== TcError) . diagSeverity) . typeUnitDiagnostics) typeResults
+      frontendFailure = renderFrontendFailure parsed parseDiagnostics resolveDiagnostics typeDiagnostics
+  unless (null frontendFailure) (ioError (userError frontendFailure))
+  let localExports = Map.unions (map resolveUnitExports resolveResults)
+      localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
+      localTypes = Map.unions (map typeUnitTypes typeResults)
+      localTypeHashes = Map.unions (map typeUnitHashes typeResults)
+      allExports = localExports `Map.union` dependencyExports
+      allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
+      allTypes = localTypes `LazyMap.union` dependencyTypes
+      allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
+      completeTypes = mergeTcInterfaces (Map.elems allTypes)
+      packageInstances = mergeTcInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
+  writePackageInstanceArtifact verbose outputRoot allTypeHashes completeTypes (ownInstanceFacts resolvePackage packageInstances)
+  pure
+    CompiledPackageModules
+      { compiledSources = parsed,
+        compiledExports = allExports,
+        compiledTypes = allTypes,
+        compiledScopeHashes = allScopeHashes,
+        compiledTypeHashes = allTypeHashes,
+        compiledWritten = Set.unions (map typeUnitWritten typeResults),
+        compiledReused = Set.unions (map typeUnitReused typeResults)
+      }
+
+packagePrimIdentity :: Package -> ModuleExports -> PackageId
+packagePrimIdentity resolvePackage dependencyExports =
+  fromMaybe (PackageId "aihc-prim") $
+    if packageName resolvePackage == "aihc-prim"
+      then Just (packageId resolvePackage)
+      else
+        listToMaybe
+          [ dependencyIdentity
+          | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
+            dependencyName == "aihc-prim"
+          ]
 
 packageStoreDirectory :: [InstalledV2Package] -> FilePath -> IO FilePath
 packageStoreDirectory dependencies root = do
@@ -772,7 +835,7 @@ runPackageTasks context workers units = do
     unitTasks runtimeMap runtime =
       map (parseTask runtime) (sourceUnitSources unit)
         <> [resolveTask runtimeMap runtime, typeTask runtimeMap runtime]
-        <> if installNoCode config
+        <> if compileNoCode config
           then []
           else [prepareTask runtimeMap runtime, backendTask runtime]
       where
@@ -842,7 +905,7 @@ runPackageTasks context workers units = do
               ),
           taskAction = runPrepareUnit context runtimeMap runtime
         }
-    config = taskInstallConfig context
+    config = taskModuleCompileConfig context
 
 parseTaskId :: SourceModule -> TaskId
 parseTaskId = TaskId . ("parse:" <>) . sourceModulePath
@@ -891,7 +954,7 @@ runResolveUnit context runtimes runtime = do
       root = taskPackageRoot context
       dependencyExports = taskDependencyExports context
       dependencyScopeHashes = taskDependencyScopeHashes context
-      verbose = installVerbose config
+      verbose = compileVerbose config
       sources = sourceUnitSources unit
       packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
       unitNames = map sourceName sources
@@ -923,7 +986,7 @@ runResolveUnit context runtimes runtime = do
           resolveUnitSuccess = success
         }
   where
-    config = taskInstallConfig context
+    config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
 
 runTypeUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
@@ -939,7 +1002,7 @@ runTypeUnit context runtimes runtime = do
       dependencyScopeHashes = taskDependencyScopeHashes context
       dependencyTypes = taskDependencyTypes context
       dependencyTypeHashes = taskDependencyTypeHashes context
-      verbose = installVerbose config
+      verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
@@ -995,7 +1058,7 @@ runTypeUnit context runtimes runtime = do
     mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip sources unitTypes)
   let ownTypeHashes = updateTypeHashes Map.empty (zip unitNames unitTypes)
   pendingCompile <-
-    if installNoCode config || not success
+    if compileNoCode config || not success
       then pure Nothing
       else do
         let (checkedModules, _) = initialChecked
@@ -1023,7 +1086,7 @@ runTypeUnit context runtimes runtime = do
           typeUnitSuccess = success
         }
   where
-    config = taskInstallConfig context
+    config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
 
 runPrepareUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
@@ -1057,14 +1120,14 @@ runBackendUnit context runtime = do
   prepared <- atomically (readTMVar (runtimePreparedDesugar runtime))
   case (typeUnitPendingCompile result, prepared) of
     (Just pending, Just preparedDesugar) -> do
-      let config = taskInstallConfig context
+      let config = taskModuleCompileConfig context
           storePath = taskStorePath context
       compileCheckedModules
         config
         (pendingWriteFc pending)
-        (installVerbose config)
+        (compileVerbose config)
         preparedDesugar
-        (moduleOutputPaths storePath (installTarget config))
+        (moduleOutputPaths storePath (compileTarget config))
         (pendingModules pending)
     _ -> pure ()
 
@@ -1107,12 +1170,12 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
 
-compileCheckedModules :: InstallConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
+compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do
-  let keepGrin = installKeepGrin config
-      keepNative = installKeepNative config
-      lint = installLint config
-      target = installTarget config
+  let keepGrin = compileKeepGrin config
+      keepNative = compileKeepNative config
+      lint = compileLint config
+      target = compileTarget config
       bindings = concatMap tcModuleBindings checkedModules
       desugarResults = map (Fc.desugarModuleFcPrepared prepared bindings) checkedModules
   unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
@@ -1151,11 +1214,11 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
           paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
       BS.writeFile (outputObjectPath paths) ""
-      when (installKeepGrin config) $ do
+      when (compileKeepGrin config) $ do
         writeFile (outputGrinPath paths) ""
         writeFile (outputCpsGrinPath paths) ""
         writeFile (outputGcGrinPath paths) ""
-      when (installKeepNative config) (writeFile (outputNativePath paths) "")
+      when (compileKeepNative config) (writeFile (outputNativePath paths) "")
       verbose ("Write empty object: " <> T.unpack name)
 
     writeFcModule fcModule = do
@@ -1171,12 +1234,12 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
 
     lowerGrinModule fcModule = do
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
-      when (installLint config) $ do
+      when (compileLint config) $ do
         let plainErrors = Grin.lintProgram plainProgram
         unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
       let gcProgram = Grin.lowerGc cpsProgram
-      when (installLint config) $ do
+      when (compileLint config) $ do
         let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       pure
@@ -1215,7 +1278,7 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
     compileNativeSourceFile nativeModule = do
       let name = nativeModuleName nativeModule
           paths = outputPaths name
-      (compiler, compilerArguments) <- backendCompiler (installTarget config)
+      (compiler, compilerArguments) <- backendCompiler (compileTarget config)
       runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 

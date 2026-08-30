@@ -35,6 +35,7 @@ import System.Directory
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    withCurrentDirectory,
   )
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
@@ -99,23 +100,26 @@ test_buildExeSourceDirectories = do
         requiredFc = installV2StorePath installed </> "GHC" </> "Base" </> "core"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
-    runBuildExe options
+    withCurrentDirectory root (runBuildExe options)
+    assertFileExists (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
+    assertFileDoesNotExist (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
     BS.writeFile unusedResolve resolveBytes
     typeBytes <- BS.readFile unusedType
     BS.writeFile unusedType "invalid unused type interface"
-    runBuildExe options
+    withCurrentDirectory root (runBuildExe options)
     BS.writeFile unusedType typeBytes
     fcBytes <- BS.readFile requiredFc
     BS.writeFile requiredFc "invalid required System FC"
-    runBuildExe options {buildExeLint = True}
+    withCurrentDirectory root (runBuildExe options {buildExeLint = True})
     BS.writeFile requiredFc fcBytes
     writeCachedPackage storeRoot target "duplicate-1.0.0-a" "duplicate" "1.0.0" [] ["System.IO"]
     ambiguousModule <-
       try
-        ( runBuildExe
-            options
-              { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
-              }
+        ( withCurrentDirectory root $
+            runBuildExe
+              options
+                { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
+                }
         ) ::
         IO (Either IOException ())
     case ambiguousModule of
@@ -124,10 +128,11 @@ test_buildExeSourceDirectories = do
     writeCachedPackage storeRoot target "duplicate-1.0.0-b" "duplicate" "1.0.0" [] []
     ambiguousPackage <-
       try
-        ( runBuildExe
-            options
-              { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
-              }
+        ( withCurrentDirectory root $
+            runBuildExe
+              options
+                { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
+                }
         ) ::
         IO (Either IOException ())
     case ambiguousPackage of
@@ -139,10 +144,11 @@ test_buildExeSourceDirectories = do
     writeCachedPackage storeRoot target "root-b-1.0.0" "root-b" "1.0.0" ["shared-1.0.0-b"] []
     conflictingClosure <-
       try
-        ( runBuildExe
-            options
-              { buildExePackageConstraints = buildExePackageConstraints options <> ["root-a == 1.0.0", "root-b == 1.0.0"]
-              }
+        ( withCurrentDirectory root $
+            runBuildExe
+              options
+                { buildExePackageConstraints = buildExePackageConstraints options <> ["root-a == 1.0.0", "root-b == 1.0.0"]
+                }
         ) ::
         IO (Either IOException ())
     case conflictingClosure of
@@ -150,11 +156,12 @@ test_buildExeSourceDirectories = do
       Right () -> assertFailure "expected the dependency builds to conflict"
     entryCollision <-
       try
-        ( runBuildExe
-            options
-              { buildExeSourceFile = entryCollisionRoot </> "Main.hs",
-                buildExeSourceDirectories = [entryCollisionRoot]
-              }
+        ( withCurrentDirectory root $
+            runBuildExe
+              options
+                { buildExeSourceFile = entryCollisionRoot </> "Main.hs",
+                  buildExeSourceDirectories = [entryCollisionRoot]
+                }
         ) ::
         IO (Either IOException ())
     case entryCollision of
