@@ -345,7 +345,7 @@ installPackageV2Direct config storeRoot dependencies root = do
   (parsed, importTimings) <- loadSourceModules (max 1 capabilities) root files
   loadedDependencies <- loadRequiredDependencies parsed dependencies
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
-      packageHash = stableHash (map TE.encodeUtf8 (artifactCacheVersion : dependencyIdentities))
+      packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
@@ -461,7 +461,7 @@ packageStoreDirectory dependencies root = do
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
       dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
-      packageHash = stableHash (map TE.encodeUtf8 (artifactCacheVersion : dependencyIdentities))
+      packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : dependencyIdentities))
   pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash)
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -1497,5 +1497,5 @@ stableHash chunks = replicate (16 - length rendered) '0' <> rendered
     hashChunk :: Word64 -> BS.ByteString -> Word64
     hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * 1099511628211)
 
-artifactCacheVersion :: Text
-artifactCacheVersion = "aihc-artifacts-9"
+packageArtifactFormatVersion :: Text
+packageArtifactFormatVersion = "aihc-artifacts-9"

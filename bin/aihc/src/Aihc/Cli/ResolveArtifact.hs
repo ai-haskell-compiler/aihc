@@ -31,9 +31,8 @@ data ResolveArtifact = ResolveArtifact
 encodeResolveArtifact :: ResolveArtifact -> BL.ByteString
 encodeResolveArtifact artifact =
   Builder.toLazyByteString $
-    cborArray 5
+    cborArray 4
       <> cborText "aihc-resolve"
-      <> cborWord 3
       <> cborText (resolveArtifactModuleName artifact)
       <> encodeHashes (resolveArtifactInputHashes artifact)
       <> encodeScope (resolveArtifactScope artifact)
@@ -51,9 +50,8 @@ decodeResolveArtifact bytes =
 
 getArtifact :: Get.Get ResolveArtifact
 getArtifact = do
-  5 <- getArrayLength
+  4 <- getArrayLength
   "aihc-resolve" <- getText
-  3 <- getWord
   resolveArtifactModuleName <- getText
   resolveArtifactInputHashes <- getHashes
   resolveArtifactScope <- getScope

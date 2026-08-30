@@ -60,9 +60,8 @@ encodeTypeArtifact artifact =
   let tyCons = Set.toAscList (interfaceTyCons (typeArtifactInterface artifact))
       tyConTable = Map.fromList (zip tyCons [0 ..])
    in Builder.toLazyByteString $
-        cborArray 6
+        cborArray 5
           <> cborText "aihc-type"
-          <> cborWord 9
           <> cborText (typeArtifactModuleName artifact)
           <> encodeList encodeHash (typeArtifactInputHashes artifact)
           <> encodeList putTyConDefinition tyCons
@@ -81,9 +80,8 @@ decodeTypeArtifact = Get.runGet getArtifact
 
 getArtifact :: Get.Get TypeArtifact
 getArtifact = do
-  expectArray 6
+  expectArray 5
   expectText "aihc-type"
-  expectWord 9
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   tyCons <- getList getTyConDefinition
@@ -611,11 +609,6 @@ expectText :: Text -> Get.Get ()
 expectText expected = do
   actual <- getText
   unless (actual == expected) (fail "unexpected artifact kind")
-
-expectWord :: Word64 -> Get.Get ()
-expectWord expected = do
-  actual <- getWord
-  unless (actual == expected) (fail "unsupported schema version")
 
 cborArray :: Int -> Builder.Builder
 cborArray = cborMajor 4 . fromIntegral
