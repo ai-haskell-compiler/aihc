@@ -1,0 +1,19 @@
+entry: $entry
+program: |
+  constructor Small/4 [IntRep, IntRep, IntRep, IntRep]
+  constructor Large/6 [IntRep, IntRep, IntRep, IntRep, IntRep, IntRep]
+
+  $entry -> BoxedRep Lifted =
+    case (1 :: IntRep) as choice%1 :: IntRep of
+      0 ->
+        store (CSmall (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep))
+      _ ->
+        store (CLarge (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep))
+return: "@0"
+heap: |
+  @0 = CLarge 1 2 3 4 5 6
+allocations:
+  macos-arm64: 1
+  linux-amd64: 1
+status: pass
+reason: one speculative reservation supplies the largest case branch

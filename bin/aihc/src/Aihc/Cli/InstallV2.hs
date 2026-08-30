@@ -1228,9 +1228,10 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
       verbose ("Write FC: " <> T.unpack name)
 
     writeFcFile path program = do
-      let output = withFinalNewline (Fc.renderProgram program)
+      let rendered = Fc.renderProgram program
+          output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
-      writeFile path output
+      TIO.writeFile path output
 
     lowerGrinModule fcModule = do
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))

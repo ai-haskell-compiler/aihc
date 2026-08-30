@@ -31,7 +31,7 @@ fcPropertyTests =
 prop_programRoundTrip :: Property
 prop_programRoundTrip = property $ do
   program <- forAll genProgram
-  let printed = T.pack (renderProgram program)
+  let printed = renderProgram program
   annotate (T.unpack printed)
   case parseProgram printed of
     Left parseError -> do
@@ -47,7 +47,7 @@ prop_tidyIdempotent = property $ do
 prop_tidyRoundTrip :: Property
 prop_tidyRoundTrip = property $ do
   program <- tidyProgram <$> forAll genTidyProgram
-  let printed = T.pack (renderProgram program)
+  let printed = renderProgram program
   annotate (T.unpack printed)
   case parseProgram printed of
     Left parseError -> do
@@ -57,14 +57,14 @@ prop_tidyRoundTrip = property $ do
 
 prop_prefixStrip :: Property
 prop_prefixStrip = property $ do
-  let printed = T.pack (renderProgram boolProgram)
+  let printed = renderProgram boolProgram
   annotate (T.unpack printed)
   T.isInfixOf "1.tBool" printed === True
   nameText (typeName (boolDecl boolProgram)) === "Bool"
 
 prop_noUseTypes :: Property
 prop_noUseTypes = property $ do
-  let printed = T.pack (renderProgram boolProgram)
+  let printed = renderProgram boolProgram
   annotate (T.unpack printed)
   T.isInfixOf " : tycon" printed === False
   T.isInfixOf ") : " printed === False

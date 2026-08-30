@@ -13,8 +13,9 @@ module Aihc.Grin.Gc
   )
 where
 
-import Aihc.Grin.Analysis (freeExprVars, freeNodeVars)
+import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinError, CpsGrinProgram (..), toCpsGrin)
+import Aihc.Grin.Heap (normalizeHeapReservations)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -47,15 +48,14 @@ entryGcProgram =
           grinFunctions = []
         }
 
--- | Give explicit reservations their live roots and place a static reservation
--- before every managed store. Each reservation returns fresh SSA names for
--- roots that may be relocated by collection.
+-- | Insert and normalize reservations. Then, give each reservation its live
+-- roots and fresh SSA names for roots that collection can relocate.
 lowerGc :: CpsGrinProgram -> GcGrinProgram
 lowerGc cps =
   GcGrinProgram
     { gcGrinProgram =
-        program
-          { grinFunctions = evalState (mapM lowerFunction (grinFunctions program)) nextUnique
+        normalizedProgram
+          { grinFunctions = evalState (mapM relocateFunction (grinFunctions normalizedProgram)) nextUnique
           },
       gcContinuationFunctions = cpsContinuationFunctions cps,
       gcContinuationFrames = cpsContinuationFrames cps,
@@ -64,32 +64,72 @@ lowerGc cps =
     }
   where
     program = cpsGrinProgram cps
-    nextUnique = 1 + maximumProgramVarUnique program
+    normalizedProgram = normalizeHeapReservations (insertHeapReservations program)
+    nextUnique = 1 + maximumProgramVarUnique normalizedProgram
 
-lowerFunction :: GrinFunction -> State Int GrinFunction
-lowerFunction function = do
-  body <- lowerExpr (Set.fromList (grinFunctionParameters function)) (grinFunctionBody function)
+insertHeapReservations :: GrinProgram -> GrinProgram
+insertHeapReservations program =
+  program {grinFunctions = map insertFunctionReservations (grinFunctions program)}
+
+insertFunctionReservations :: GrinFunction -> GrinFunction
+insertFunctionReservations function =
+  function {grinFunctionBody = insertExprReservations (grinFunctionBody function)}
+
+insertExprReservations :: GrinExpr -> GrinExpr
+insertExprReservations expression =
+  case expression of
+    GrinBind resultVars (GrinStore node) body ->
+      GrinBind
+        []
+        (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
+        (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations body))
+    GrinBind resultVars valueExpression body ->
+      GrinBind resultVars (insertExprReservations valueExpression) (insertExprReservations body)
+    GrinStore node ->
+      GrinBind
+        []
+        (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
+        (GrinStoreUnchecked node)
+    GrinStoreRec bindings body ->
+      GrinBind
+        []
+        (GrinEnsureHeap (staticHeapWords (sum (map (nodeWords . snd) bindings))) [])
+        (GrinStoreRecUnchecked bindings (insertExprReservations body))
+    GrinStoreRecUnchecked bindings body ->
+      GrinStoreRecUnchecked bindings (insertExprReservations body)
+    GrinCase scrutinee binder alternatives ->
+      GrinCase scrutinee binder (map insertAlternativeReservations alternatives)
+    _ -> expression
+
+insertAlternativeReservations :: GrinAlt -> GrinAlt
+insertAlternativeReservations alternative =
+  alternative {grinAltRhs = insertExprReservations (grinAltRhs alternative)}
+
+relocateFunction :: GrinFunction -> State Int GrinFunction
+relocateFunction function = do
+  body <- relocateExpr (Set.fromList (grinFunctionParameters function)) (grinFunctionBody function)
   pure function {grinFunctionBody = body}
 
-lowerExpr :: Set GrinVar -> GrinExpr -> State Int GrinExpr
-lowerExpr bound expression =
+relocateExpr :: Set GrinVar -> GrinExpr -> State Int GrinExpr
+relocateExpr bound expression =
   case expression of
     GrinBind [] (GrinEnsureHeap requiredWords []) body ->
-      lowerReservation bound requiredWords body
-    GrinBind resultVars (GrinStore node) body ->
-      lowerStore bound resultVars node body
+      relocateReservation bound requiredWords body
     GrinBind resultVars valueExpression body -> do
-      valueExpression' <- lowerExpr bound valueExpression
-      body' <- lowerExpr (bound <> Set.fromList resultVars) body
+      valueExpression' <- relocateExpr bound valueExpression
+      body' <- relocateExpr (bound <> Set.fromList resultVars) body
       pure (GrinBind resultVars valueExpression' body')
-    GrinStore node -> lowerTailStore bound node
-    GrinStoreRec bindings body -> lowerStoreRec bound bindings body
     GrinCase scrutinee binder alternatives ->
-      GrinCase scrutinee binder <$> mapM (lowerAlternative (Set.insert binder bound)) alternatives
+      GrinCase scrutinee binder <$> mapM (relocateAlternative (Set.insert binder bound)) alternatives
     GrinConstant {} -> pure expression
     GrinEnsureHeap {} -> pure expression
+    GrinStore {} -> pure expression
     GrinStoreUnchecked {} -> pure expression
-    GrinStoreRecUnchecked {} -> pure expression
+    GrinStoreRec {} -> pure expression
+    GrinStoreRecUnchecked bindings body -> do
+      let recursiveVars = Set.fromList (map fst bindings)
+      body' <- relocateExpr (bound <> recursiveVars) body
+      pure (GrinStoreRecUnchecked bindings body')
     GrinFetch {} -> pure expression
     GrinUpdate {} -> pure expression
     GrinUpdateBlackhole {} -> pure expression
@@ -108,31 +148,16 @@ lowerExpr bound expression =
     GrinCatch {} -> pure expression
     GrinForeignCallExpr {} -> pure expression
 
-lowerStore :: Set GrinVar -> [GrinVar] -> GrinNode -> GrinExpr -> State Int GrinExpr
-lowerStore bound resultVars node body = do
-  let roots = livePointerRoots bound (freeNodeVars node <> freeExprVars body)
-  relocated <- mapM freshRelocated roots
-  let substitutions = Map.fromList (zip roots relocated)
-      node' = substituteNode substitutions node
-      bodyWithRelocatedRoots = substituteExpr substitutions body
-  body' <- lowerExpr (bound <> Set.fromList relocated <> Set.fromList resultVars) bodyWithRelocatedRoots
-  pure
-    ( GrinBind
-        relocated
-        (GrinEnsureHeap (staticHeapWords (nodeWords node)) (map GrinVarValue roots))
-        (GrinBind resultVars (GrinStoreUnchecked node') body')
-    )
-
 -- Reservations inserted before CPS carry only their dynamic size. Once
 -- control flow is explicit, populate the reservation with every live pointer
 -- root and rewrite the following expression to use the relocated SSA names.
-lowerReservation :: Set GrinVar -> GrinValue -> GrinExpr -> State Int GrinExpr
-lowerReservation bound requiredWords body = do
+relocateReservation :: Set GrinVar -> GrinValue -> GrinExpr -> State Int GrinExpr
+relocateReservation bound requiredWords body = do
   let roots = livePointerRoots bound (freeExprVars body)
   relocated <- mapM freshRelocated roots
   let substitutions = Map.fromList (zip roots relocated)
       bodyWithRelocatedRoots = substituteExpr substitutions body
-  body' <- lowerExpr (bound <> Set.fromList relocated) bodyWithRelocatedRoots
+  body' <- relocateExpr (bound <> Set.fromList relocated) bodyWithRelocatedRoots
   pure
     ( GrinBind
         relocated
@@ -140,38 +165,9 @@ lowerReservation bound requiredWords body = do
         body'
     )
 
-lowerTailStore :: Set GrinVar -> GrinNode -> State Int GrinExpr
-lowerTailStore bound node = do
-  let roots = livePointerRoots bound (freeNodeVars node)
-  relocated <- mapM freshRelocated roots
-  let substitutions = Map.fromList (zip roots relocated)
-  pure
-    ( GrinBind
-        relocated
-        (GrinEnsureHeap (staticHeapWords (nodeWords node)) (map GrinVarValue roots))
-        (GrinStoreUnchecked (substituteNode substitutions node))
-    )
-
-lowerStoreRec :: Set GrinVar -> [(GrinVar, GrinNode)] -> GrinExpr -> State Int GrinExpr
-lowerStoreRec bound bindings body = do
-  let recursiveVars = Set.fromList (map fst bindings)
-      uses = foldMap (freeNodeVars . snd) bindings <> freeExprVars body
-      roots = livePointerRoots bound (uses `Set.difference` recursiveVars)
-  relocated <- mapM freshRelocated roots
-  let substitutions = Map.fromList (zip roots relocated)
-      bindings' = [(var, substituteNode substitutions node) | (var, node) <- bindings]
-      bodyWithRelocatedRoots = substituteExpr substitutions body
-  body' <- lowerExpr (bound <> Set.fromList relocated <> recursiveVars) bodyWithRelocatedRoots
-  pure
-    ( GrinBind
-        relocated
-        (GrinEnsureHeap (staticHeapWords (sum (map (nodeWords . snd) bindings))) (map GrinVarValue roots))
-        (GrinStoreRecUnchecked bindings' body')
-    )
-
-lowerAlternative :: Set GrinVar -> GrinAlt -> State Int GrinAlt
-lowerAlternative bound alternative = do
-  rhs <- lowerExpr (bound <> Set.fromList (grinAltBinders alternative)) (grinAltRhs alternative)
+relocateAlternative :: Set GrinVar -> GrinAlt -> State Int GrinAlt
+relocateAlternative bound alternative = do
+  rhs <- relocateExpr (bound <> Set.fromList (grinAltBinders alternative)) (grinAltRhs alternative)
   pure alternative {grinAltRhs = rhs}
 
 livePointerRoots :: Set GrinVar -> Set GrinVar -> [GrinVar]

@@ -21,6 +21,7 @@ import Data.Word (Word8)
 import Numeric (showHex)
 import Prettyprinter (Doc, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
 import Prettyprinter.Render.String (renderString)
+import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
   = PrecAtom
@@ -30,8 +31,8 @@ data Prec
   | PrecForAll
   deriving (Eq, Ord)
 
-renderProgram :: Program -> String
-renderProgram = renderDocument . prettyProgram
+renderProgram :: Program -> Text
+renderProgram = renderStrict . layoutPretty defaultLayoutOptions . prettyProgram
 
 prettyProgram :: Program -> Doc ann
 prettyProgram program =

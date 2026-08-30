@@ -231,13 +231,13 @@ renderFcCase tc =
       unlines <$> traverse renderResult results
     renderResult result =
       let rendered = renderProgram (dsProgram result)
-       in case parseProgram (T.pack rendered) of
-            Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
+       in case parseProgram rendered of
+            Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> T.unpack rendered)
             Right parsed ->
               let canonical = renderProgram parsed
                in if canonical == rendered
-                    then Right rendered
-                    else Left ("System FC round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
+                    then Right (T.unpack rendered)
+                    else Left ("System FC round trip changed canonical syntax:\n" <> T.unpack canonical <> "\noriginal:\n" <> T.unpack rendered)
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport primitiveModules =

@@ -96,6 +96,7 @@ library compiler
     Aihc.Grin.Anf
     Aihc.Grin.Cps
     Aihc.Grin.Gc
+    Aihc.Grin.Heap
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
     Aihc.Grin.Lower

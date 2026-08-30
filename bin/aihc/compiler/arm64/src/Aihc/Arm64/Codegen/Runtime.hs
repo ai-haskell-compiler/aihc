@@ -193,21 +193,25 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
   ]
 
 renderEnterStubs :: [RuntimeInfo] -> [Text]
-renderEnterStubs = concatMap renderStub
+renderEnterStubs infos = concatMap renderStub uniqueTransfers
   where
-    renderStub info =
-      case runtimeInfoEnter info of
-        Nothing -> []
-        Just apply ->
-          [ ".section __TEXT,__text,regular,pure_instructions",
-            ".p2align 3",
-            enterEntryLabel info <> ":"
-          ]
-            <> moveSupplied apply
-            <> moveSuppliedOverflow apply
-            <> loadStored apply
-            <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-            <> ["  b " <> runtimeEnterTarget apply]
+    uniqueTransfers =
+      Map.elems . Map.fromList $
+        [ (enterTransferShape apply, apply)
+        | info <- infos,
+          Just apply <- [runtimeInfoEnter info],
+          not (isDirectEnter apply)
+        ]
+    renderStub apply =
+      [ ".section __TEXT,__text,regular,pure_instructions",
+        ".p2align 3",
+        sharedEnterEntryLabel apply <> ":"
+      ]
+        <> moveSupplied apply
+        <> moveSuppliedOverflow apply
+        <> loadStored apply
+        <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
+        <> ["  ldr x8, [x20]", "  ldr x8, [x8, #8]", "  br x8"]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -236,11 +240,31 @@ renderEnterStubs = concatMap renderStub
         ]
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
-          ["  mov " <> applyArgumentRegisters !! targetIndex <> ", " <> source]
+          let destination = applyArgumentRegisters !! targetIndex
+           in ["  mov " <> destination <> ", " <> source | destination /= source]
       | otherwise = [storeAt source "x19" targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
-enterEntryLabel info = runtimeInfoLabel info <> "_enter"
+enterEntryLabel info =
+  case runtimeInfoEnter info of
+    Just apply | isDirectEnter apply -> runtimeEnterTarget apply
+    Just apply -> sharedEnterEntryLabel apply
+    Nothing -> runtimeInfoLabel info <> "_enter"
+
+isDirectEnter :: RuntimeEnter -> Bool
+isDirectEnter apply =
+  runtimeEnterStoredCount apply == 0
+    && runtimeEnterSuppliedCount apply <= length applyArgumentRegisters
+
+enterTransferShape :: RuntimeEnter -> (Int, Int)
+enterTransferShape apply = (runtimeEnterStoredCount apply, runtimeEnterSuppliedCount apply)
+
+sharedEnterEntryLabel :: RuntimeEnter -> Text
+sharedEnterEntryLabel apply =
+  ".Laihc_enter_"
+    <> tshow (runtimeEnterStoredCount apply)
+    <> "_"
+    <> tshow (runtimeEnterSuppliedCount apply)
 
 applyFunctionRegister, applyContinuationRegister :: Text
 applyFunctionRegister = "x20"
@@ -528,8 +552,13 @@ storeByteOffset :: Text -> Text -> Int -> Text
 storeByteOffset source base offset =
   "  str " <> source <> ", [" <> base <> ", #" <> tshow offset <> "]"
 
-immediate :: (Show value) => Text -> value -> Text
-immediate register value = "  ldr " <> register <> ", =" <> T.pack (show value)
+immediate :: (Integral value, Show value) => Text -> value -> Text
+immediate register value
+  | integer >= -65536 && integer <= 65535 = "  mov " <> register <> ", #" <> rendered
+  | otherwise = "  ldr " <> register <> ", =" <> rendered
+  where
+    integer = toInteger value
+    rendered = T.pack (show value)
 
 address :: Text -> Text -> Text
 address register label =
@@ -608,8 +637,11 @@ materializeNodeUnchecked = materializeNodeWith allocateNodeUnchecked
 materializeNodeWith :: (ValueEnv -> GrinNode -> Either Arm64Error [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
 materializeNodeWith allocate env node = do
   allocationLines <- allocate env node
-  fieldLines <- initializeNodeFields env node
-  pure $ allocationLines <> ["  mov x20, x0"] <> fieldLines <> ["  mov x0, x20"]
+  if null (grinNodeFields node)
+    then pure allocationLines
+    else do
+      fieldLines <- initializeNodeFields env node
+      pure $ allocationLines <> ["  mov x20, x0"] <> fieldLines <> ["  mov x0, x20"]
 
 allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
 allocateNode = allocateNodeWith makeNodeLines
@@ -626,13 +658,7 @@ initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
-    pure $
-      valueLines
-        <> [ "  mov x2, x0",
-             "  mov x0, x20",
-             immediate "x1" index,
-             "  bl _aihc_set_field"
-           ]
+    pure (valueLines <> [storeAt "x0" "x20" (index + 1)])
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error NodeInfo
 nodeHeader env node =
