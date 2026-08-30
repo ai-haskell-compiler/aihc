@@ -16,7 +16,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import FcGolden (FcCase (..), Outcome (..), evaluateFcCase, loadFcCases)
-import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, removeDirectoryRecursive)
+import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, makeAbsolute, removeDirectoryRecursive)
 import System.FilePath (takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -26,12 +26,13 @@ fixtureRoot = "compiler/fc/test/Test/Fixtures/fc"
 
 fcFixtureTests :: IO TestTree
 fcFixtureTests = do
-  exists <- doesDirectoryExist fixtureRoot
+  root <- makeAbsolute fixtureRoot
+  exists <- doesDirectoryExist root
   if not exists
     then pure (testGroup "SystemFC fixtures" [])
     else do
-      names <- listDirectory fixtureRoot
-      let files = [fixtureRoot </> name | name <- names, takeExtension name == ".fc"]
+      names <- listDirectory root
+      let files = [root </> name | name <- names, takeExtension name == ".fc"]
       pure (testGroup "SystemFC fixtures" (map fixtureTest files))
 
 fixtureTest :: FilePath -> TestTree
@@ -57,9 +58,10 @@ lintRoot = "compiler/fc/test/Test/Fixtures/fc-lint"
 
 fcLintTests :: IO TestTree
 fcLintTests = do
-  pass <- lintFileTests "pass" True (lintRoot </> "pass")
-  failCases <- lintFileTests "fail" False (lintRoot </> "fail")
-  mutual <- mutualLintTests (lintRoot </> "mutual")
+  root <- makeAbsolute lintRoot
+  pass <- lintFileTests "pass" True (root </> "pass")
+  failCases <- lintFileTests "fail" False (root </> "fail")
+  mutual <- mutualLintTests (root </> "mutual")
   pure (testGroup "SystemFC lint" [pass, failCases, mutual])
 
 lintFileTests :: String -> Bool -> FilePath -> IO TestTree
@@ -86,12 +88,12 @@ mutualLintTests dir = do
             mapM_
               (assertEqual "single-file lint errors" [] . lintProgram)
               programs,
-          scopeLoaderTest
+          scopeLoaderTest dir
         ]
     )
 
-scopeLoaderTest :: TestTree
-scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the store" $ do
+scopeLoaderTest :: FilePath -> TestTree
+scopeLoaderTest fixtureDirectory = testCase "loadScopeClosure loads a scoped module from the store" $ do
   tmp <- getTemporaryDirectory
   let store = tmp </> "aihc-fc-lint-scope"
       typesDir = store </> "aihc-prim" </> "GHC" </> "Types"
@@ -99,9 +101,9 @@ scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the stor
   ignoreMissing (removeDirectoryRecursive store)
   createDirectoryIfMissing True typesDir
   createDirectoryIfMissing True primDir
-  copyFile (lintRoot </> "mutual" </> "GHC.Types.fc") (typesDir </> "core")
-  copyFile (lintRoot </> "mutual" </> "GHC.Prim.fc") (primDir </> "core")
-  seed <- loadFcProgram (lintRoot </> "mutual" </> "GHC.Types.fc")
+  copyFile (fixtureDirectory </> "GHC.Types.fc") (typesDir </> "core")
+  copyFile (fixtureDirectory </> "GHC.Prim.fc") (primDir </> "core")
+  seed <- loadFcProgram (fixtureDirectory </> "GHC.Types.fc")
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
