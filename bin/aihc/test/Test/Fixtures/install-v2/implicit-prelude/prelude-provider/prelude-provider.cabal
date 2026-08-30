@@ -1,0 +1,9 @@
+cabal-version: 3.0
+name: prelude-provider
+version: 0.1.0.0
+
+library
+  exposed-modules: Prelude
+  hs-source-dirs: src
+  default-extensions: NoImplicitPrelude
+  default-language: Haskell2010
