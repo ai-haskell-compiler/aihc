@@ -77,7 +77,8 @@ lowerExpr bound expression =
     GrinBind [] (GrinEnsureHeap requiredWords []) body ->
       lowerReservation bound requiredWords body
     GrinBind resultVars (GrinStore node) body ->
-      lowerStore bound resultVars node body
+      let (stores, rest) = collectStores [(resultVars, node)] body
+       in lowerStores bound stores rest
     GrinBind resultVars valueExpression body -> do
       valueExpression' <- lowerExpr bound valueExpression
       body' <- lowerExpr (bound <> Set.fromList resultVars) body
@@ -108,20 +109,27 @@ lowerExpr bound expression =
     GrinCatch {} -> pure expression
     GrinForeignCallExpr {} -> pure expression
 
-lowerStore :: Set GrinVar -> [GrinVar] -> GrinNode -> GrinExpr -> State Int GrinExpr
-lowerStore bound resultVars node body = do
-  let roots = livePointerRoots bound (freeNodeVars node <> freeExprVars body)
+lowerStores :: Set GrinVar -> [([GrinVar], GrinNode)] -> GrinExpr -> State Int GrinExpr
+lowerStores bound stores body = do
+  let roots = livePointerRoots bound (foldMap (freeNodeVars . snd) stores <> freeExprVars body)
+      resultVars = concatMap fst stores
   relocated <- mapM freshRelocated roots
   let substitutions = Map.fromList (zip roots relocated)
-      node' = substituteNode substitutions node
+      stores' = [(vars, substituteNode substitutions node) | (vars, node) <- stores]
       bodyWithRelocatedRoots = substituteExpr substitutions body
   body' <- lowerExpr (bound <> Set.fromList relocated <> Set.fromList resultVars) bodyWithRelocatedRoots
   pure
     ( GrinBind
         relocated
-        (GrinEnsureHeap (staticHeapWords (nodeWords node)) (map GrinVarValue roots))
-        (GrinBind resultVars (GrinStoreUnchecked node') body')
+        (GrinEnsureHeap (staticHeapWords (sum (map (nodeWords . snd) stores))) (map GrinVarValue roots))
+        (foldr (\(vars, node) rest -> GrinBind vars (GrinStoreUnchecked node) rest) body' stores')
     )
+
+collectStores :: [([GrinVar], GrinNode)] -> GrinExpr -> ([([GrinVar], GrinNode)], GrinExpr)
+collectStores stores expression =
+  case expression of
+    GrinBind resultVars (GrinStore node) body -> collectStores (stores <> [(resultVars, node)]) body
+    _ -> (stores, expression)
 
 -- Reservations inserted before CPS carry only their dynamic size. Once
 -- control flow is explicit, populate the reservation with every live pointer

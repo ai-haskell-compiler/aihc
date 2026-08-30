@@ -3,6 +3,7 @@ module Aihc.Fc
   ( module Aihc.Fc.Syntax,
     module Aihc.Fc.Name,
     renderProgram,
+    renderProgramText,
     renderType,
     renderExpr,
     parseProgram,
@@ -30,6 +31,6 @@ import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), PreparedDesuga
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
-import Aihc.Fc.Pretty (renderExpr, renderProgram, renderType)
+import Aihc.Fc.Pretty (renderExpr, renderProgram, renderProgramText, renderType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)

@@ -3,6 +3,7 @@
 -- | Human-readable System FC text.
 module Aihc.Fc.Pretty
   ( renderProgram,
+    renderProgramText,
     renderType,
     renderExpr,
   )
@@ -21,6 +22,7 @@ import Data.Word (Word8)
 import Numeric (showHex)
 import Prettyprinter (Doc, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
 import Prettyprinter.Render.String (renderString)
+import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
   = PrecAtom
@@ -32,6 +34,9 @@ data Prec
 
 renderProgram :: Program -> String
 renderProgram = renderDocument . prettyProgram
+
+renderProgramText :: Program -> Text
+renderProgramText = renderStrict . layoutPretty defaultLayoutOptions . prettyProgram
 
 prettyProgram :: Program -> Doc ann
 prettyProgram program =
