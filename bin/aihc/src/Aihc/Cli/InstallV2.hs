@@ -7,7 +7,6 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.Cli.ArtifactCache (ArtifactCache, artifactCache, loadArtifact)
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan
@@ -99,7 +98,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
-import Control.Monad (filterM, forM, forM_, unless, when)
+import Control.Monad (filterM, forM, unless, when)
 import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
@@ -121,7 +120,7 @@ import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
@@ -199,7 +198,6 @@ data ResolveUnitResult = ResolveUnitResult
     resolveUnitScopeHashes :: !(Map.Map Text Text),
     resolveUnitResolved :: !(Maybe ResolveResult),
     resolveUnitErrors :: ![ResolveError],
-    resolveUnitChanged :: !Bool,
     resolveUnitSuccess :: !Bool
   }
 
@@ -232,8 +230,7 @@ data InstallConfig = InstallConfig
     installVerbose :: String -> IO (),
     installPrintTimings :: String -> IO (),
     installUseColor :: !Bool,
-    installReinstall :: !Bool,
-    installArtifactCache :: !ArtifactCache
+    installReinstall :: !Bool
   }
 
 data PackageTaskContext = PackageTaskContext
@@ -275,8 +272,7 @@ installV2 options = do
             installVerbose = verbose,
             installPrintTimings = printTimings,
             installUseColor = useColor,
-            installReinstall = installV2Reinstall options,
-            installArtifactCache = artifactCache True
+            installReinstall = installV2Reinstall options
           }
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver spec
@@ -313,9 +309,6 @@ installPackageV2 config storeRoot dependencies root = do
         (buildAndPublish storePath)
   where
     buildAndPublish storePath temporaryRoot = do
-      existsBeforeBuild <- doesDirectoryExist storePath
-      when (existsBeforeBuild && installReinstall config) $
-        copyDirectoryContents storePath (temporaryRoot </> takeFileName storePath)
       built <- installPackageV2Direct config temporaryRoot dependencies root
       exists <- doesDirectoryExist storePath
       when (exists && installReinstall config) (removeDirectoryRecursive storePath)
@@ -480,18 +473,6 @@ removeTemporaryStoreRoot :: FilePath -> IO ()
 removeTemporaryStoreRoot path = do
   exists <- doesDirectoryExist path
   when exists (removeDirectoryRecursive path)
-
-copyDirectoryContents :: FilePath -> FilePath -> IO ()
-copyDirectoryContents source destination = do
-  createDirectoryIfMissing True destination
-  entries <- listDirectory source
-  forM_ entries $ \entry -> do
-    let sourcePath = source </> entry
-        destinationPath = destination </> entry
-    isDirectory <- doesDirectoryExist sourcePath
-    if isDirectory
-      then copyDirectoryContents sourcePath destinationPath
-      else copyFile sourcePath destinationPath
 
 setInstalledStorePath :: FilePath -> InstalledV2Package -> InstalledV2Package
 setInstalledStorePath storePath installed =
@@ -864,7 +845,6 @@ runResolveUnit context runtimes runtime = do
       dependencyExports = taskDependencyExports context
       dependencyScopeHashes = taskDependencyScopeHashes context
       verbose = installVerbose config
-      cache = installArtifactCache config
       sources = sourceUnitSources unit
       packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
       unitNames = map sourceName sources
@@ -879,29 +859,20 @@ runResolveUnit context runtimes runtime = do
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
       dependenciesSucceeded = all resolveUnitSuccess dependencyResults
-  cachedExports <- readUnitArtifacts cache hashes resolvePackage resolvePath sources
-  (unitExports, resolved, errors, changed) <- case cachedExports of
-    Just exports -> do
-      mapM_ (verbose . ("Reuse resolve context: " <>) . T.unpack) unitNames
-      pure (exports, Nothing, [], False)
-    Nothing -> do
-      let result = resolveWithDeps availableExports packageModules
-          resultErrors = resolveErrors result
-          exports = extractInterfaceWithDeps availableExports result
-          success = parseSuccess && dependenciesSucceeded && null resultErrors
-      when success (mapM_ (\source -> writeArtifact verbose hashes exports resolvePackage (resolvePath source) source) sources)
-      pure (exports, Just result, resultErrors, True)
-  let ownScopeHashes = updateScopeHashes resolvePackage unitExports Map.empty sources
+  let resolved = resolveWithDeps availableExports packageModules
+      errors = resolveErrors resolved
+      unitExports = extractInterfaceWithDeps availableExports resolved
       success = parseSuccess && dependenciesSucceeded && null errors
+  when success (mapM_ (\source -> writeArtifact verbose hashes unitExports resolvePackage (resolvePath source) source) sources)
+  let ownScopeHashes = updateScopeHashes resolvePackage unitExports Map.empty sources
   atomically $
     putTMVar
       (runtimeResolveResult runtime)
       ResolveUnitResult
         { resolveUnitExports = unitExports,
           resolveUnitScopeHashes = ownScopeHashes,
-          resolveUnitResolved = resolved,
+          resolveUnitResolved = Just resolved,
           resolveUnitErrors = errors,
-          resolveUnitChanged = changed,
           resolveUnitSuccess = success
         }
   where
@@ -921,9 +892,7 @@ runTypeUnit context runtimes runtime = do
       dependencyScopeHashes = taskDependencyScopeHashes context
       dependencyTypes = taskDependencyTypes context
       dependencyTypeHashes = taskDependencyTypeHashes context
-      target = installTarget config
       verbose = installVerbose config
-      cache = installArtifactCache config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
@@ -941,7 +910,6 @@ runTypeUnit context runtimes runtime = do
             <> scopeInputs
             <> [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
-      outputPaths = moduleOutputPaths storePath target
       importedInstances =
         mergeTypeInterfaces
           ( instanceFacts (mergeTypeInterfaces (Map.elems dependencyTypes))
@@ -971,65 +939,27 @@ runTypeUnit context runtimes runtime = do
         pure checked
       dependencySuccess = all typeUnitSuccess dependencyResults
       resolveSuccess = resolveUnitSuccess resolvedOutput
-  cachedTypes <-
-    if resolveSuccess && dependencySuccess
-      then readTypeArtifacts cache typeInputs typePath sources
-      else pure Nothing
-  (unitTypes, typeChanged, initialChecked) <- case cachedTypes of
-    Just interfaces -> do
-      mapM_ (verbose . ("Reuse type interface: " <>) . T.unpack) unitNames
-      pure (interfaces, False, Nothing)
-    Nothing -> do
-      checked@(_, completeInterface) <- checkUnit
-      let interfaces = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
-      pure (interfaces, True, Just checked)
-  let diagnostics = maybe [] (concatMap tcModuleDiagnostics . fst) initialChecked
-      typeSuccess = maybe True (all tcModuleSuccess . fst) initialChecked
+  initialChecked@(_, checkedInterface) <- checkUnit
+  let unitTypes = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage checkedInterface) sources
+      diagnostics = concatMap tcModuleDiagnostics (fst initialChecked)
+      typeSuccess = all tcModuleSuccess (fst initialChecked)
       success = resolveSuccess && dependencySuccess && typeSuccess
-  when (typeChanged && success) $
+  when success $
     mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip sources unitTypes)
   let ownTypeHashes = updateTypeHashes Map.empty (zip unitNames unitTypes)
-  (fcChanged, generatedOutputChanged, pendingCompile) <-
+  pendingCompile <-
     if installNoCode config || not success
-      then pure (False, False, Nothing)
+      then pure Nothing
       else do
-        if typeChanged
-          then do
-            (checkedModules, _) <- maybe checkUnit pure initialChecked
-            pure (True, installKeepGrin config, Just (PendingCompile True checkedModules))
-          else do
-            fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) sources
-            grinStagesExist <-
-              and
-                <$> mapM
-                  ( \source -> do
-                      let paths = outputPaths (sourceName source)
-                      and <$> mapM doesFileExist [outputGrinPath paths, outputCpsGrinPath paths, outputGcGrinPath paths]
-                  )
-                  sources
-            objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) sources
-            nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) sources
-            if not fcExists || installLint config || repairRequired grinStagesExist nativeExists objectExists
-              then do
-                (checkedModules, _) <- maybe checkUnit pure initialChecked
-                pure (not fcExists, repairRequired grinStagesExist nativeExists objectExists, Just (PendingCompile (not fcExists) checkedModules))
-              else do
-                mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
-                pure (False, False, Nothing)
-  let cachedInterface = mergeTypeInterfaces unitTypes
-      cachedInstances = mergeTypeInterfaces [importedInstances, instanceFacts cachedInterface]
-      completeInterface = maybe (applyInstanceFacts cachedInstances cachedInterface) snd initialChecked
+        let (checkedModules, _) = initialChecked
+        pure (Just (PendingCompile True checkedModules))
+  let completeInterface = snd initialChecked
       localInterface = restrictTcInterfaceToModules (packageId resolvePackage) unitNames completeInterface
       availableBackendFacts =
         mergeTypeInterfaces
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
-      changed = resolveUnitChanged resolvedOutput || typeChanged || fcChanged || generatedOutputChanged
       unitSet = Set.fromList unitNames
-      written' = if changed then written <> unitSet else written
-      reused' = if changed then reused else reused <> unitSet
-      written = Set.empty
-      reused = Set.empty
   atomically $
     putTMVar
       (runtimeTypeResult runtime)
@@ -1040,16 +970,14 @@ runTypeUnit context runtimes runtime = do
           typeUnitLocalInterface = localInterface,
           typeUnitBackendInterface = backendInterface,
           typeUnitDiagnostics = diagnostics,
-          typeUnitWritten = written',
-          typeUnitReused = reused',
+          typeUnitWritten = unitSet,
+          typeUnitReused = Set.empty,
           typeUnitPendingCompile = pendingCompile,
           typeUnitSuccess = success
         }
   where
     config = taskInstallConfig context
     unit = runtimeUnit runtime
-    repairRequired grinStagesExist nativeExists objectExists =
-      (installKeepGrin config && not grinStagesExist) || (installKeepNative config && not nativeExists) || not objectExists
 
 runPrepareUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
 runPrepareUnit context runtimes runtime = do
@@ -1487,13 +1415,6 @@ writeTypeArtifact verbose hashes artifactPath source interface = do
   BL.writeFile path (encodeTypeArtifact (TypeArtifact name hashes interface))
   verbose ("Write type interface: " <> T.unpack name)
 
-readTypeArtifacts :: ArtifactCache -> [(Text, Text)] -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe [TcInterface])
-readTypeArtifacts cache expected artifactPath unit = fmap sequence (mapM readOne unit)
-  where
-    readOne source = do
-      let path = artifactPath source
-      fmap typeArtifactInterface <$> loadArtifact cache path decodeTypeArtifact ((== expected) . typeArtifactInputHashes)
-
 updateTypeHashes :: Map.Map Text Text -> [(Text, TcInterface)] -> Map.Map Text Text
 updateTypeHashes = foldl' insertHash
   where
@@ -1522,16 +1443,6 @@ writeArtifact verbose hashes exports package path source = do
       scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
   BL.writeFile path (encodeResolveArtifact (ResolveArtifact name hashes scope))
   verbose ("Write resolve context: " <> T.unpack name)
-
-readUnitArtifacts :: ArtifactCache -> [(Text, Text)] -> Package -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe ModuleExports)
-readUnitArtifacts cache expected package artifactPath unit = do
-  entries <- mapM readOne unit
-  pure (Map.fromList <$> sequence entries)
-  where
-    readOne source = do
-      let path = artifactPath source
-      artifact <- loadArtifact cache path decodeResolveArtifact ((== expected) . resolveArtifactInputHashes)
-      pure ((\value -> (ModuleKey package (resolveArtifactModuleName value), resolveArtifactScope value)) <$> artifact)
 
 stableHash :: [BS.ByteString] -> String
 stableHash chunks = replicate (16 - length rendered) '0' <> rendered
