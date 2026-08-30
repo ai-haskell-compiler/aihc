@@ -217,7 +217,7 @@ tests =
         case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
+            assertBool "passes two values" ("mov rdi, 2" `T.isInfixOf` assembly)
             assertBool "enters the continuation through registers" ("jmp .Laihc_enter" `T.isInfixOf` assembly)
             assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
@@ -304,6 +304,7 @@ snapshotCases =
   [ ("stores one value", "store-one.yaml"),
     ("preserves a suspended thunk", "store-suspended.yaml"),
     ("stores linked values", "store-linked.yaml"),
+    ("merges case branch reservations", "case-reservation.yaml"),
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
     ("loops ten million times", "loop-add.yaml"),
@@ -336,12 +337,28 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
+    when (fixtureName == "store-one.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "stores a new node field directly" ("mov QWORD PTR [r13 + 8], rax" `T.isInfixOf` assembly)
+      assertBool "does not call the field store function" (not ("call aihc_set_field" `T.isInfixOf` assembly))
+    when (fixtureName == "apply.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "enters a closure without a transfer stub" (".quad aihc_snapshot_function_0" `T.isInfixOf` assembly)
+      assertBool "does not move an argument to the same register" (not ("mov rax, rax" `T.isInfixOf` assembly))
+    when (fixtureName == "store-linked.yaml") $
+      assertEqual "one reservation for adjacent source stores" 2 (T.count "call aihc_ensure_heap" (observedAssembly observed))
+    when (fixtureName == "case-reservation.yaml") $
+      assertEqual "one reservation for all case branches" 2 (T.count "call aihc_ensure_heap" (observedAssembly observed))
+    when (fixtureName == "store-suspended.yaml") $
+      assertBool
+        "does not save a node without fields"
+        (not ("mov r13, rax\n  mov rax, r13" `T.isInfixOf` observedAssembly observed))
     when (fixtureName == "apply-partial.yaml") $ do
       let assembly = observedAssembly observed
       assertBool "dispatches through the info-table apply entry" ("mov r11, QWORD PTR [r11 + 48]" `T.isInfixOf` assembly)
       assertBool
         "loads captured and supplied arguments into registers"
-        ("mov rdi, rax\n  mov rax, QWORD PTR [r12 + 8]\n  jmp aihc_snapshot_function_0" `T.isInfixOf` assembly)
+        ("mov rdi, rax\n  mov rax, QWORD PTR [r12 + 8]\n  mov r11, QWORD PTR [r12]\n  mov r11, QWORD PTR [r11 + 8]\n  jmp r11" `T.isInfixOf` assembly)
       assertAssemblyAccepted assembly
     when (fixtureName == "apply-register-overflow.yaml") $ do
       let assembly = observedAssembly observed

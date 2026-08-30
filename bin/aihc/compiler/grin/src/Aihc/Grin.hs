@@ -21,6 +21,7 @@ module Aihc.Grin
     gcGrinProgram,
     gcUpdateFunction,
     lowerGc,
+    normalizeHeapReservations,
     lowerProgram,
     lintProgram,
     GrinLintError (..),
@@ -58,6 +59,7 @@ import Aihc.Grin.Cps
     toCpsGrin,
   )
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
+import Aihc.Grin.Heap (normalizeHeapReservations)
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (lowerProgram)

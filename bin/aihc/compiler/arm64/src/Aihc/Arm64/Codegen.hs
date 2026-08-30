@@ -398,8 +398,12 @@ threadDoneRuntimeInfos =
 renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Text]
 renderCompiledSupport env functions runtimeInfos =
   renderNativeControl
-    <> concatMap (\function -> compiledFunctionLines function <> [".ltorg"]) functions
+    <> concatMap renderFunction functions
     <> renderRuntimeSupport env runtimeInfos
+  where
+    renderFunction function =
+      let functionLines = compiledFunctionLines function
+       in functionLines <> [".ltorg" | any (T.isInfixOf ", =") functionLines]
 
 -- | Reject primitives that reachable native code would not execute correctly.
 -- Relocatable library objects may carry dormant primitive declarations, but

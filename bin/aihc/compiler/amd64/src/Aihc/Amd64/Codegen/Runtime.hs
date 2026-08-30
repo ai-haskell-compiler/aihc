@@ -238,8 +238,11 @@ materializeNodeUnchecked = materializeNodeWith allocateNodeUnchecked
 materializeNodeWith :: (ValueEnv -> GrinNode -> Either Amd64Error [Text]) -> ValueEnv -> GrinNode -> Either Amd64Error [Text]
 materializeNodeWith allocate env node = do
   allocationLines <- allocate env node
-  fieldLines <- initializeNodeFields env node
-  pure $ allocationLines <> ["  mov r13, rax"] <> fieldLines <> ["  mov rax, r13"]
+  if null (grinNodeFields node)
+    then pure allocationLines
+    else do
+      fieldLines <- initializeNodeFields env node
+      pure $ allocationLines <> ["  mov r13, rax"] <> fieldLines <> ["  mov rax, r13"]
 
 allocateNode :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
 allocateNode = allocateNodeWith makeNodeLines
@@ -256,13 +259,7 @@ initializeNodeFields :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
-    pure $
-      valueLines
-        <> [ "  mov rdx, rax",
-             "  mov rdi, r13",
-             immediate "rsi" index,
-             "  call aihc_set_field"
-           ]
+    pure (valueLines <> [storeAt "rax" "r13" (index + 1)])
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Amd64Error NodeInfo
 nodeHeader env node =
@@ -303,21 +300,25 @@ makeNodeUncheckedLines info =
   init (makeNodeLines info) <> ["  call aihc_make_node_unchecked"]
 
 renderEnterStubs :: [RuntimeInfo] -> [Text]
-renderEnterStubs = concatMap renderStub
+renderEnterStubs infos = concatMap renderStub uniqueTransfers
   where
-    renderStub info =
-      case runtimeInfoEnter info of
-        Nothing -> []
-        Just apply ->
-          [ ".text",
-            ".p2align 4",
-            enterEntryLabel info <> ":"
-          ]
-            <> moveSupplied apply
-            <> moveSuppliedOverflow apply
-            <> loadStored apply
-            <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-            <> ["  jmp " <> runtimeEnterTarget apply]
+    uniqueTransfers =
+      Map.elems . Map.fromList $
+        [ (enterTransferShape apply, apply)
+        | info <- infos,
+          Just apply <- [runtimeInfoEnter info],
+          not (isDirectEnter apply)
+        ]
+    renderStub apply =
+      [ ".text",
+        ".p2align 4",
+        sharedEnterEntryLabel apply <> ":"
+      ]
+        <> moveSupplied apply
+        <> moveSuppliedOverflow apply
+        <> loadStored apply
+        <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
+        <> ["  mov r11, QWORD PTR [r12]", "  mov r11, QWORD PTR [r11 + 8]", "  jmp r11"]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -345,11 +346,31 @@ renderEnterStubs = concatMap renderStub
         ]
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
-          ["  mov " <> applyArgumentRegisters !! targetIndex <> ", " <> source]
+          let destination = applyArgumentRegisters !! targetIndex
+           in ["  mov " <> destination <> ", " <> source | destination /= source]
       | otherwise = [storeAt source "r14" targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
-enterEntryLabel info = runtimeInfoLabel info <> "_enter"
+enterEntryLabel info =
+  case runtimeInfoEnter info of
+    Just apply | isDirectEnter apply -> runtimeEnterTarget apply
+    Just apply -> sharedEnterEntryLabel apply
+    Nothing -> runtimeInfoLabel info <> "_enter"
+
+isDirectEnter :: RuntimeEnter -> Bool
+isDirectEnter apply =
+  runtimeEnterStoredCount apply == 0
+    && runtimeEnterSuppliedCount apply <= length applyArgumentRegisters
+
+enterTransferShape :: RuntimeEnter -> (Int, Int)
+enterTransferShape apply = (runtimeEnterStoredCount apply, runtimeEnterSuppliedCount apply)
+
+sharedEnterEntryLabel :: RuntimeEnter -> Text
+sharedEnterEntryLabel apply =
+  ".Laihc_enter_"
+    <> tshow (runtimeEnterStoredCount apply)
+    <> "_"
+    <> tshow (runtimeEnterSuppliedCount apply)
 
 applyFunctionRegister, applyContinuationRegister :: Text
 applyFunctionRegister = "r12"

@@ -151,7 +151,7 @@ tests =
                 }
         case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
+          Right assembly -> assertBool "255 :: Int8# is stored as -1" ("mov x0, #-1" `T.isInfixOf` assembly),
       testCase "passes static Addr# literals to native foreign calls" $ do
         let functionName = FunctionName "puts_addr"
             foreignCall =
@@ -210,7 +210,7 @@ tests =
         case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "passes two values" ("ldr x2, =2" `T.isInfixOf` assembly)
+            assertBool "passes two values" ("mov x1, #2" `T.isInfixOf` assembly)
             assertBool "enters the continuation through registers" ("b .Laihc_enter" `T.isInfixOf` assembly)
             assertBool "does not call a C continuation adapter" (not ("_aihc_continue_values" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
@@ -454,6 +454,7 @@ snapshotCases =
   [ ("stores one value", "store-one.yaml"),
     ("preserves a suspended thunk", "store-suspended.yaml"),
     ("stores linked values", "store-linked.yaml"),
+    ("merges case branch reservations", "case-reservation.yaml"),
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
     ("loops ten million times", "loop-add.yaml"),
@@ -486,12 +487,31 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
+    when (fixtureName == "store-one.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "uses one instruction for a small literal" ("mov x0, #1" `T.isInfixOf` assembly)
+      assertBool "does not use a literal pool for a small literal" (not ("ldr x0, =1" `T.isInfixOf` assembly))
+      assertBool "does not flush an empty literal pool" (not (".ltorg" `T.isInfixOf` assembly))
+      assertBool "stores a new node field directly" ("str x0, [x20, #8]" `T.isInfixOf` assembly)
+      assertBool "does not call the field store function" (not ("bl _aihc_set_field" `T.isInfixOf` assembly))
+    when (fixtureName == "apply.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "enters a closure without a transfer stub" (".quad _aihc_snapshot_function_0" `T.isInfixOf` assembly)
+      assertBool "does not move an argument to the same register" (not ("mov x0, x0" `T.isInfixOf` assembly))
+    when (fixtureName == "store-linked.yaml") $
+      assertEqual "one reservation for adjacent source stores" 2 (T.count "bl _aihc_ensure_heap" (observedAssembly observed))
+    when (fixtureName == "case-reservation.yaml") $
+      assertEqual "one reservation for all case branches" 2 (T.count "bl _aihc_ensure_heap" (observedAssembly observed))
+    when (fixtureName == "store-suspended.yaml") $
+      assertBool
+        "does not save a node without fields"
+        (not ("mov x20, x0\n  mov x0, x20" `T.isInfixOf` observedAssembly observed))
     when (fixtureName == "apply-partial.yaml") $ do
       let assembly = observedAssembly observed
       assertBool "dispatches through the info-table apply entry" ("ldr x8, [x8, #48]" `T.isInfixOf` assembly)
       assertBool
         "loads captured and supplied arguments into registers"
-        ("mov x1, x0\n  ldr x0, [x20, #8]\n  b _aihc_snapshot_function_0" `T.isInfixOf` assembly)
+        ("mov x1, x0\n  ldr x0, [x20, #8]\n  ldr x8, [x20]\n  ldr x8, [x8, #8]\n  br x8" `T.isInfixOf` assembly)
     when (fixtureName == "apply-register-overflow.yaml") $ do
       let assembly = observedAssembly observed
       assertBool "spills supplied register overflow" ("sub sp, sp, x8\n  mov x9, sp" `T.isInfixOf` assembly)
