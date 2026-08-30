@@ -1231,6 +1231,8 @@ desugarAnnotatedExpr annotation inner = do
         pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
       Syn.EList elements -> desugarList annotation elements
       Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
+      Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
+      Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
       Syn.EDo statements _ -> desugarDo statements
       Syn.EIf condition thenExpression elseExpression ->
         desugarIf (tcAnnType annotation) condition thenExpression elseExpression
@@ -1289,6 +1291,26 @@ desugarInfixOperator operator =
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       pure (foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence)
     Nothing -> ExVar <$> occurrenceName operator
+
+desugarSectionL :: TcAnnotation -> Syn.Expr -> Syn.Name -> ValueM Expr
+desugarSectionL annotation operand operator = do
+  binder <- freshBinder "_section" =<< sectionArgumentType annotation
+  operator' <- desugarInfixOperator operator
+  operand' <- desugarExpr operand
+  pure (ExLam binder (ExApp (ExApp operator' operand') (ExVar (binderName binder))))
+
+desugarSectionR :: TcAnnotation -> Syn.Name -> Syn.Expr -> ValueM Expr
+desugarSectionR annotation operator operand = do
+  binder <- freshBinder "_section" =<< sectionArgumentType annotation
+  operator' <- desugarInfixOperator operator
+  operand' <- desugarExpr operand
+  pure (ExLam binder (ExApp (ExApp operator' (ExVar (binderName binder))) operand'))
+
+sectionArgumentType :: TcAnnotation -> ValueM TcType
+sectionArgumentType annotation =
+  case tcAnnTermArgTypes annotation of
+    [argumentType] -> pure argumentType
+    argumentTypes -> failValue ("operator section has " <> show (length argumentTypes) <> " checked argument types")
 
 desugarApplication :: Syn.Expr -> Syn.Expr -> ValueM Expr
 desugarApplication function argument = do

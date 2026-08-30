@@ -562,8 +562,10 @@ inferSectionL sp inner op = do
   argumentTy <- freshMetaTv
   resultTy <- freshMetaTv
   evidence <- freshEvVar
-  let wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy (TcFunTy argumentTy resultTy))) evidence (AppOrigin sp) sp
-  pure (ESectionL inner' op', TcFunTy argumentTy resultTy, opCts <> innerCts <> [wanted])
+  let sectionTy = TcFunTy argumentTy resultTy
+      pending = pendingAnnotation sectionTy [] [] [argumentTy]
+      wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy sectionTy)) evidence (AppOrigin sp) sp
+  pure (annotatePendingExprAt sp pending (ESectionL inner' op'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferSectionR :: SourceSpan -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferSectionR sp op inner = do
@@ -572,8 +574,10 @@ inferSectionR sp op inner = do
   argumentTy <- freshMetaTv
   resultTy <- freshMetaTv
   evidence <- freshEvVar
-  let wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
-  pure (ESectionR op' inner', TcFunTy argumentTy resultTy, opCts <> innerCts <> [wanted])
+  let sectionTy = TcFunTy argumentTy resultTy
+      pending = pendingAnnotation sectionTy [] [] [argumentTy]
+      wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
+  pure (annotatePendingExprAt sp pending (ESectionR op' inner'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferIf :: SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferIf sp cond thenE elseE = do

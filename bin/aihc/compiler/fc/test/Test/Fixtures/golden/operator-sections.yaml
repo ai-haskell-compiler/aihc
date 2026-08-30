@@ -1,0 +1,68 @@
+---
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (seq)
+    import GHC.Types (Bool (..))
+
+    pair :: a -> b -> (a, b)
+    pair left right = (left, right)
+
+    leftSection :: Bool -> (Bool, Bool)
+    leftSection = (True `pair`)
+
+    rightSection :: Bool -> (Bool, Bool)
+    rightSection = (`pair` False)
+
+    rwhnf :: a -> ()
+    rwhnf = (`seq` ())
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Tuple
+  scope 4 = "aihc-prim" GHC.Types
+
+  import headers
+    4.tBool :: 4.tType;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    3.tTuple2 :: ∀(a1 : 4.tType) (a2 : 4.tType). 4.tType;
+    4.tType :: 4.tType;
+    3.tUnit :: 4.tType;
+    3.v() :: 3.tUnit;
+    3.v(,) :: ∀(a1 : 4.tType) (a2 : 4.tType). a1 4.→ a2 4.→ 3.tTuple2 a1 a2;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.vFalse :: 4.tBool;
+    4.vLifted :: 4.tLevity;
+    4.vTrue :: 4.tBool;
+    2.vseq :: ∀(r : 4.tRuntimeRep) (a : 4.tType) (b : 4.tTYPE r). a 4.→ FUN @r @r b b
+
+  import synonyms
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
+
+  pub val 1.vpair :: ∀(a : 4.tType) (b : 4.tType). a 4.→ b 4.→ 3.tTuple2 a b
+   = Λ(a : 4.tType).
+    Λ(b : 4.tType).
+      λ(x : a).
+        λ(y : b).
+          3.v(,) @a @b x y
+
+  pub val 1.vleftSection :: 4.tBool 4.→ 3.tTuple2 4.tBool 4.tBool
+   = λ(_section : 4.tBool).
+    1.vpair @4.tBool @4.tBool 4.vTrue _section
+
+  pub val 1.vrightSection :: 4.tBool 4.→ 3.tTuple2 4.tBool 4.tBool
+   = λ(_section : 4.tBool).
+    1.vpair @4.tBool @4.tBool _section 4.vFalse
+
+  pub val 1.vrwhnf :: ∀(a : 4.tType). a 4.→ 3.tUnit
+   = Λ(a : 4.tType).
+    λ(_section : a).
+      2.vseq @(4.vBoxedRep 4.vLifted) @a @3.tUnit _section 3.v()
+status: pass
+reason: Operator sections produce typed FC lambdas with the correct argument order.
