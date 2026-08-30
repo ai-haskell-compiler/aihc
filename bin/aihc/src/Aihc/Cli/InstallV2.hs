@@ -93,7 +93,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (tvKind, tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
@@ -1351,6 +1351,8 @@ predTyCons :: Pred -> [TyCon]
 predTyCons predicate = case predicate of
   ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
   EqPred left right -> typeTyCons left <> typeTyCons right
+  QuantifiedPred variables antecedents consequent ->
+    concatMap (typeTyCons . tvKind) variables <> concatMap predTyCons antecedents <> predTyCons consequent
 
 typeTyCons :: TcType -> [TyCon]
 typeTyCons ty = case ty of

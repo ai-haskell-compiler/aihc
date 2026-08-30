@@ -602,6 +602,11 @@ predTyVars predicate =
   case predicate of
     ClassPred _ arguments -> Set.unions (map typeTyVars arguments)
     EqPred left right -> typeTyVars left <> typeTyVars right
+    QuantifiedPred variables antecedents consequent ->
+      foldr
+        (Set.delete . tvUnique)
+        (Set.unions (predTyVars consequent : map predTyVars antecedents))
+        variables
 
 replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
 replaceConstructorSubpatterns pat subPats =

@@ -28,6 +28,7 @@ canonicalize :: Ct -> CanonResult
 canonicalize ct = case ctPred ct of
   EqPred t1 t2 -> canonEq ct t1 t2
   ClassPred {} -> CanonDict ct
+  QuantifiedPred {} -> CanonDict ct
 
 -- | Canonicalize an equality constraint.
 canonEq :: Ct -> TcType -> TcType -> CanonResult
@@ -79,3 +80,4 @@ classifyCt :: Ct -> Either Ct Ct
 classifyCt ct = case ctPred ct of
   EqPred {} -> Left ct
   ClassPred {} -> Right ct
+  QuantifiedPred {} -> Right ct

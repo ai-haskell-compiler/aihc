@@ -16,10 +16,11 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..))
-import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupClass, lookupEvidence)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
+import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, freshSkolemTv, getInstances, lookupClass, lookupEvidence, mkKnownTyCon)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Control.Applicative ((<|>))
 import Control.Monad (foldM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -43,41 +44,47 @@ solveDict :: Ct -> TcM DictResult
 solveDict = solveDictWithGivens []
 
 solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
-solveDictWithGivens givens ct =
-  case ctPred ct of
-    ClassPred className args -> do
-      args' <- mapM zonkType args
-      givens' <- mapM zonkPred givens
-      givenEvidence <- givenDict givens' className args'
-      case givenEvidence of
-        Just evidence -> do
-          bindEvidence (ctEvVar ct) evidence
-          pure DictSolved
-        Nothing ->
-          case (tyConName className, args') of
-            ("Typeable", [ty]) -> tryTypeable className ty
-            _ -> do
-              instances <- getInstances
-              tryInstances (tyConName className) args' instances
-    _ ->
-      pure (DictStuck ct)
-  where
-    givenDict zonkedGivens className args =
-      firstGivenOrSuperclass (ClassPred className args) zonkedGivens
+solveDictWithGivens = solveDictWithGivensVisited []
 
-    firstGivenOrSuperclass _ [] = pure Nothing
-    firstGivenOrSuperclass target (given : rest)
+solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
+solveDictWithGivensVisited visited givens ct
+  | ctPred ct `elem` visited = pure (DictStuck ct)
+  | otherwise =
+      case ctPred ct of
+        ClassPred className args -> do
+          args' <- mapM zonkType args
+          givens' <- mapM zonkPred givens
+          givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
+          case givenEvidence of
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) evidence
+              pure DictSolved
+            Nothing ->
+              case (tyConName className, args') of
+                ("Typeable", [ty]) -> tryTypeable className ty
+                _ -> do
+                  instances <- getInstances
+                  tryInstances (ctPred ct : visited) (tyConName className) args' instances
+        quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
+        EqPred {} -> pure (DictStuck ct)
+  where
+    givenDict visited' zonkedGivens className args =
+      firstGivenOrSuperclass visited' (ClassPred className args) zonkedGivens
+
+    firstGivenOrSuperclass _ _ [] = pure Nothing
+    firstGivenOrSuperclass visited' target (given : rest)
       | target == given = pure (Just (EvGiven given))
       | otherwise = do
-          projected <- superclassEvidence [] target (EvGiven given) given
-          case projected of
+          quantified <- useQuantifiedEvidence visited' target (EvGiven given) given
+          projected <- superclassEvidence [] visited' target (EvGiven given) given
+          case quantified <|> projected of
             Just evidence -> pure (Just evidence)
-            Nothing -> firstGivenOrSuperclass target rest
+            Nothing -> firstGivenOrSuperclass visited' target rest
 
-    superclassEvidence visited target sourceEvidence sourcePredicate =
+    superclassEvidence classVisited solveVisited target sourceEvidence sourcePredicate =
       case sourcePredicate of
         ClassPred sourceClass sourceArgs
-          | sourceClass `elem` visited -> pure Nothing
+          | sourceClass `elem` classVisited -> pure Nothing
           | otherwise -> do
               classInfo <- lookupClass (tyConName sourceClass)
               case classInfo of
@@ -86,56 +93,194 @@ solveDictWithGivens givens ct =
                   let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                       fieldTypes = classFieldTypes info substitution
                   case traverse (constraintTypeToPred . applySubst substitution) (ciSuperClassTypes info) of
-                    Just superClasses -> searchSuperClasses (sourceClass : visited) sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
+                    Just superClasses -> searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
                     Nothing -> pure Nothing
         _ -> pure Nothing
 
-    searchSuperClasses _ _ _ _ _ _ _ [] = pure Nothing
-    searchSuperClasses visited sourceEvidence sourceOrigin sourcePredicate fieldTypes target index (superClass : rest)
+    searchSuperClasses _ _ _ _ _ _ _ _ [] = pure Nothing
+    searchSuperClasses classVisited solveVisited sourceEvidence sourceOrigin sourcePredicate fieldTypes target index (superClass : rest)
       | superClass == target =
           pure (Just (EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index))
       | otherwise = do
           let projection = EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index
-          nested <- superclassEvidence visited target projection superClass
-          case nested of
+          quantified <- useQuantifiedEvidence solveVisited target projection superClass
+          nested <- superclassEvidence classVisited solveVisited target projection superClass
+          case quantified <|> nested of
             Just evidence -> pure (Just evidence)
-            Nothing -> searchSuperClasses visited sourceEvidence sourceOrigin sourcePredicate fieldTypes target (index + 1) rest
+            Nothing -> searchSuperClasses classVisited solveVisited sourceEvidence sourceOrigin sourcePredicate fieldTypes target (index + 1) rest
 
-    tryInstances _ _ [] = pure (DictStuck ct)
-    tryInstances className args (instanceInfo : rest)
+    tryInstances _ _ _ [] = pure (DictStuck ct)
+    tryInstances visited' className args (instanceInfo : rest)
       | iiClassName instanceInfo /= className =
-          tryInstances className args rest
+          tryInstances visited' className args rest
       | otherwise =
           case matchTypes (iiHead instanceInfo) args of
-            Nothing -> tryInstances className args rest
+            Nothing -> tryInstances visited' className args rest
             Just subst -> do
               let context = map (applySubstPred subst) (iiContext instanceInfo)
                   typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
-              contextEvidence <- mapM solveSubPred context
+              contextEvidence <- mapM (solveSubPred visited') context
               case sequence contextEvidence of
                 Just evidence -> do
                   bindEvidence (ctEvVar ct) (EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence)
                   pure DictSolved
-                Nothing -> tryInstances className args rest
+                Nothing -> tryInstances visited' className args rest
 
-    solveSubPred pred' = do
+    solveSubPred visited' pred' = do
       ev <- freshEvVar
-      result <- solveDictWithGivens givens (ct {ctPred = pred', ctEvVar = ev})
-      case result of
-        DictSolved -> lookupEvidence ev
-        DictStuck _ -> pure Nothing
+      case pred' of
+        EqPred left right
+          | pred' `elem` givens -> pure (Just (EvGiven pred'))
+          | left == right -> pure (Just (EvCoercion (Refl left)))
+          | otherwise -> pure Nothing
+        _ -> do
+          result <- solveDictWithGivensVisited visited' givens (ct {ctPred = pred', ctEvVar = ev})
+          case result of
+            DictSolved -> lookupEvidence ev
+            DictStuck _ -> pure Nothing
 
     tryTypeable typeableTyCon ty =
       case typeableArguments ty of
         Nothing -> pure (DictStuck ct)
         Just arguments -> do
           classOrigin <- maybe Nothing ciOrigin <$> lookupClass "Typeable"
-          argumentEvidence <- mapM (solveSubPred . ClassPred typeableTyCon . (: [])) arguments
+          argumentEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) arguments
           case sequence argumentEvidence of
             Just evidence -> do
               bindEvidence (ctEvVar ct) (EvTypeable classOrigin ty evidence)
               pure DictSolved
             Nothing -> pure (DictStuck ct)
+
+    solveQuantifiedWanted visited' localGivens (QuantifiedPred variables antecedents consequent) = do
+      (freshVariables, substitution) <- freshQuantifiedVariables variables
+      let instantiatedAntecedents = map (applySubstPred substitution) antecedents
+          instantiatedConsequent = applySubstPred substitution consequent
+      consequenceVariable <- freshEvVar
+      result <-
+        solveDictWithGivensVisited
+          (ctPred ct : visited')
+          (localGivens <> instantiatedAntecedents)
+          (ct {ctPred = instantiatedConsequent, ctEvVar = consequenceVariable})
+      case result of
+        DictStuck _ -> pure (DictStuck ct)
+        DictSolved -> do
+          maybeBody <- lookupEvidence consequenceVariable
+          case maybeBody of
+            Nothing -> pure (DictStuck ct)
+            Just body -> do
+              antecedentTypes <- mapM predicateType instantiatedAntecedents
+              let dictionaryBody = foldr (uncurry EvDictLam) body (zip instantiatedAntecedents antecedentTypes)
+                  quantifiedBody = foldr EvTypeLam dictionaryBody freshVariables
+              bindEvidence (ctEvVar ct) quantifiedBody
+              pure DictSolved
+    solveQuantifiedWanted _ _ _ = pure (DictStuck ct)
+
+    useQuantifiedEvidence visited' target source (QuantifiedPred variables antecedents consequent) =
+      searchQuantifiedChain
+        visited'
+        target
+        variables
+        (applyQuantifiedEvidence visited' source variables antecedents)
+        consequent
+        []
+    useQuantifiedEvidence _ _ _ _ = pure Nothing
+
+    applyQuantifiedEvidence visited' source variables antecedents substitution = do
+      let typeArguments = map (\variable -> Map.findWithDefault (TcTyVar variable) (tvUnique variable) substitution) variables
+          instantiatedAntecedents = map (applySubstPred substitution) antecedents
+      antecedentEvidence <- mapM (solveSubPred visited') instantiatedAntecedents
+      pure $ do
+        evidence <- sequence antecedentEvidence
+        pure (foldl EvDictApp (foldl EvTypeApp source typeArguments) evidence)
+
+    searchQuantifiedChain visited' target variables build sourcePredicate classVisited =
+      case matchQuantifiedPredicate variables sourcePredicate target of
+        Just substitution -> build substitution
+        Nothing ->
+          case sourcePredicate of
+            ClassPred sourceClass sourceArguments
+              | sourceClass `elem` classVisited -> pure Nothing
+              | otherwise -> do
+                  classInfo <- lookupClass (tyConName sourceClass)
+                  case classInfo of
+                    Nothing -> pure Nothing
+                    Just info -> do
+                      let classSubstitution =
+                            Map.fromList
+                              [ (tvUnique variable, argument)
+                              | (variable, argument) <- zip (ciTyVars info) sourceArguments
+                              ]
+                          fieldTypes = classFieldTypes info classSubstitution
+                      case traverse (constraintTypeToPred . applySubst classSubstitution) (ciSuperClassTypes info) of
+                        Nothing -> pure Nothing
+                        Just superClasses ->
+                          searchQuantifiedSuperClasses
+                            visited'
+                            target
+                            variables
+                            build
+                            sourcePredicate
+                            (sourceClass : classVisited)
+                            (ciOrigin info)
+                            fieldTypes
+                            0
+                            superClasses
+            _ -> pure Nothing
+
+    searchQuantifiedSuperClasses _ _ _ _ _ _ _ _ _ [] = pure Nothing
+    searchQuantifiedSuperClasses visited' target variables build sourcePredicate classVisited sourceOrigin fieldTypes index (superClass : rest) = do
+      let project substitution = do
+            source <- build substitution
+            pure $ do
+              sourceEvidence <- source
+              pure
+                ( EvSuperClass
+                    sourceEvidence
+                    sourceOrigin
+                    (applySubstPred substitution sourcePredicate)
+                    (map (applySubst substitution) fieldTypes)
+                    index
+                )
+      result <-
+        case superClass of
+          QuantifiedPred newVariables antecedents consequent ->
+            searchQuantifiedChain
+              visited'
+              target
+              (variables <> newVariables)
+              ( \substitution -> do
+                  projected <- project substitution
+                  case projected of
+                    Nothing -> pure Nothing
+                    Just evidence -> applyQuantifiedEvidence visited' evidence newVariables antecedents substitution
+              )
+              consequent
+              classVisited
+          _ ->
+            searchQuantifiedChain visited' target variables project superClass classVisited
+      case result of
+        Just evidence -> pure (Just evidence)
+        Nothing ->
+          searchQuantifiedSuperClasses visited' target variables build sourcePredicate classVisited sourceOrigin fieldTypes (index + 1) rest
+
+    freshQuantifiedVariables = foldM freshOne ([], Map.empty)
+      where
+        freshOne (variables, substitution) variable = do
+          fresh <- freshSkolemTv (tvName variable)
+          let kind = applySubst substitution (tvKind variable)
+              freshVariable = setTyVarKind kind fresh
+          pure (variables <> [freshVariable], Map.insert (tvUnique variable) (TcTyVar freshVariable) substitution)
+
+    predicateType predicate =
+      case predicate of
+        ClassPred classTyCon arguments -> pure (TcTyCon classTyCon arguments)
+        EqPred left right -> do
+          equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+          pure (TcTyCon equalityTyCon [left, right])
+        QuantifiedPred variables antecedents consequent -> do
+          consequentType <- predicateType consequent
+          let qualified = if null antecedents then consequentType else TcQualTy antecedents consequentType
+          pure (foldr TcForAllTy qualified variables)
 
 typeableArguments :: TcType -> Maybe [TcType]
 typeableArguments ty =
@@ -168,14 +313,69 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
       case predicate of
         ClassPred className _ -> tyConName className == ciName classInfo
         EqPred {} -> False
+        QuantifiedPred {} -> False
 
 constraintTypeToPred :: TcType -> Maybe Pred
 constraintTypeToPred ty =
+  case collectForAllTypes ty of
+    (variables@(_ : _), qualified) -> do
+      let (antecedents, consequentType) =
+            case qualified of
+              TcQualTy predicates body -> (predicates, body)
+              body -> ([], body)
+      consequent <- atomicConstraintTypeToPred consequentType
+      pure (QuantifiedPred variables antecedents consequent)
+    ([], body) -> atomicConstraintTypeToPred body
+
+atomicConstraintTypeToPred :: TcType -> Maybe Pred
+atomicConstraintTypeToPred ty =
   case collectTypeApplications ty of
     (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
     (TcTyCon tyCon headArgs, arguments) ->
       Just (ClassPred tyCon (headArgs <> arguments))
     _ -> Nothing
+
+collectForAllTypes :: TcType -> ([TyVarId], TcType)
+collectForAllTypes (TcForAllTy variable body) =
+  let (variables, result) = collectForAllTypes body
+   in (variable : variables, result)
+collectForAllTypes ty = ([], ty)
+
+matchQuantifiedPredicate :: [TyVarId] -> Pred -> Pred -> Maybe (Map Unique TcType)
+matchQuantifiedPredicate variables patternPredicate targetPredicate =
+  case (patternPredicate, targetPredicate) of
+    (ClassPred patternClass patternArguments, ClassPred targetClass targetArguments)
+      | patternClass == targetClass,
+        length patternArguments == length targetArguments ->
+          foldM matchOneQuantified Map.empty (zip patternArguments targetArguments)
+    (EqPred patternLeft patternRight, EqPred targetLeft targetRight) ->
+      foldM matchOneQuantified Map.empty [(patternLeft, targetLeft), (patternRight, targetRight)]
+    _ -> Nothing
+  where
+    quantified = map tvUnique variables
+    matchOneQuantified = matchTypeQuantified quantified
+
+matchTypeQuantified :: [Unique] -> Map Unique TcType -> (TcType, TcType) -> Maybe (Map Unique TcType)
+matchTypeQuantified quantified substitution (TcTyVar variable, target)
+  | tvUnique variable `elem` quantified =
+      case Map.lookup (tvUnique variable) substitution of
+        Nothing -> Just (Map.insert (tvUnique variable) target substitution)
+        Just existing
+          | existing == target -> Just substitution
+          | otherwise -> Nothing
+matchTypeQuantified quantified substitution (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+  | tyCon == targetTyCon,
+    length arguments == length targetArguments =
+      foldM (matchTypeQuantified quantified) substitution (zip arguments targetArguments)
+matchTypeQuantified quantified substitution (TcFunTy argument result, TcFunTy targetArgument targetResult) =
+  matchTypeQuantified quantified substitution (argument, targetArgument)
+    >>= \substitution' -> matchTypeQuantified quantified substitution' (result, targetResult)
+matchTypeQuantified quantified substitution (TcAppTy function argument, TcAppTy targetFunction targetArgument) =
+  matchTypeQuantified quantified substitution (function, targetFunction)
+    >>= \substitution' -> matchTypeQuantified quantified substitution' (argument, targetArgument)
+matchTypeQuantified _ substitution (patternType, targetType)
+  | patternType == targetType = Just substitution
+  | otherwise = Nothing
 
 collectTypeApplications :: TcType -> (TcType, [TcType])
 collectTypeApplications ty =

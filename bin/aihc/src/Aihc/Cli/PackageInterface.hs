@@ -21,7 +21,8 @@ where
 
 import Aihc.Parser.Syntax (qualifyName, unqualifiedNameFromText)
 import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolvedName (..), Scope (..))
-import Aihc.Tc (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), renderTcType)
+import Aihc.Tc (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), renderTcType, tvKind)
+import Aihc.Tc.Types (setTyVarKind)
 import Control.Monad (when)
 import Data.Aeson ((.:), (.=))
 import Data.Aeson qualified as Aeson
@@ -103,7 +104,7 @@ data PackageInterfaceBinding = PackageInterfaceBinding
   deriving (Eq, Show)
 
 packageInterfaceSchemaVersion :: Int
-packageInterfaceSchemaVersion = 2
+packageInterfaceSchemaVersion = 3
 
 instance Aeson.ToJSON PackageInterface where
   toJSON interface =
@@ -416,7 +417,10 @@ parseTyVarObject obj =
 
 parseTyVarValue :: Aeson.Value -> AesonTypes.Parser TyVarId
 parseTyVarValue =
-  Aeson.withObject "type variable" parseTyVarObject
+  Aeson.withObject "type variable" $ \obj -> do
+    variable <- parseTyVarObject obj
+    kind <- obj .: "kind" >>= parseTcTypeJson
+    pure (setTyVarKind kind variable)
 
 parsePredJson :: Aeson.Value -> AesonTypes.Parser Pred
 parsePredJson =
@@ -431,6 +435,11 @@ parsePredJson =
         EqPred
           <$> (obj .: "left" >>= parseTcTypeJson)
           <*> (obj .: "right" >>= parseTcTypeJson)
+      "quantified" ->
+        QuantifiedPred
+          <$> (obj .: "variables" >>= traverse parseTyVarValue)
+          <*> (obj .: "antecedents" >>= traverse parsePredJson)
+          <*> (obj .: "consequent" >>= parsePredJson)
       other -> fail ("unknown predicate tag: " <> T.unpack other)
 
 predValue :: Pred -> Aeson.Value
@@ -448,6 +457,13 @@ predValue pred' =
           "left" .= tcTypeValue left,
           "right" .= tcTypeValue right
         ]
+    QuantifiedPred variables antecedents consequent ->
+      Aeson.object
+        [ "tag" .= ("quantified" :: Text),
+          "variables" .= map tyVarValue variables,
+          "antecedents" .= map predValue antecedents,
+          "consequent" .= predValue consequent
+        ]
 
 parseTyConText :: Text -> AesonTypes.Parser TyCon
 parseTyConText encoded =
@@ -459,7 +475,8 @@ tyVarValue :: TyVarId -> Aeson.Value
 tyVarValue tv =
   Aeson.object
     [ "name" .= tvName tv,
-      "unique" .= uniqueValue (tvUnique tv)
+      "unique" .= uniqueValue (tvUnique tv),
+      "kind" .= tcTypeValue (tvKind tv)
     ]
 
 uniqueValue :: Unique -> Int

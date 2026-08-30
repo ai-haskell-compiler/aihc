@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -25,9 +27,10 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
+import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..))
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, pattern KType)
+import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
 import Data.Data (Data, gmapM)
@@ -72,8 +75,42 @@ annotationForPendingTc pending = do
   evidenceTerms <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
   termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
   let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms termArgTypes
-  rejectMetaTcAnnotation ann
-  pure ann
+  defaulted <- defaultUnsolvedAnnotationMetas ann
+  rejectMetaTcAnnotation defaulted
+  pure defaulted
+
+defaultUnsolvedAnnotationMetas :: TcAnnotation -> TcM TcAnnotation
+defaultUnsolvedAnnotationMetas annotation =
+  case firstMetaTcAnnotation annotation of
+    Nothing -> pure annotation
+    Just meta -> do
+      solution <- readMetaTv meta
+      case solution of
+        Just {} -> pure ()
+        Nothing -> do
+          kind <- defaultKindMetas =<< readMetaTvKind meta
+          case kind of
+            KType -> do
+              unitTyCon <- mkKnownTyCon "GHC.Tuple" "Unit" 0 KType
+              writeMetaTv meta (TcTyCon unitTyCon [])
+            _ ->
+              abortTc
+                ( "internal type annotation error: cannot default meta-variable "
+                    <> show meta
+                    <> " with kind "
+                    <> show kind
+                )
+      annotation' <- zonkTcAnnotation annotation
+      defaultUnsolvedAnnotationMetas annotation'
+
+zonkTcAnnotation :: TcAnnotation -> TcM TcAnnotation
+zonkTcAnnotation annotation =
+  TcAnnotation
+    <$> zonkType (tcAnnType annotation)
+    <*> mapM zonkTypeBinder (tcAnnTypeBinders annotation)
+    <*> mapM zonkType (tcAnnTypeArgs annotation)
+    <*> mapM zonkEvTerm (tcAnnEvidenceTerms annotation)
+    <*> mapM zonkType (tcAnnTermArgTypes annotation)
 
 zonkTypeBinder :: TyVarId -> TcM TyVarId
 zonkTypeBinder binder = do
@@ -96,17 +133,31 @@ zonkEvTerm evTerm =
     EvVarTerm ev ->
       pure (EvVarTerm ev)
     EvGiven pred' ->
-      EvGiven <$> zonkPred pred'
+      EvGiven <$> finalizePred pred'
     EvDict origin name typeArgs evidence ->
-      EvDict origin name <$> mapM zonkType typeArgs <*> mapM zonkEvTerm evidence
+      EvDict origin name <$> mapM finalizeType typeArgs <*> mapM zonkEvTerm evidence
     EvCoercion coercion ->
       EvCoercion <$> zonkCoercion coercion
     EvSuperClass evidence sourceOrigin sourcePredicate fieldTypes index ->
-      EvSuperClass <$> zonkEvTerm evidence <*> pure sourceOrigin <*> zonkPred sourcePredicate <*> mapM zonkType fieldTypes <*> pure index
+      EvSuperClass <$> zonkEvTerm evidence <*> pure sourceOrigin <*> finalizePred sourcePredicate <*> mapM finalizeType fieldTypes <*> pure index
     EvCast evidence coercion ->
       EvCast <$> zonkEvTerm evidence <*> zonkCoercion coercion
     EvTypeable origin ty arguments ->
-      EvTypeable origin <$> zonkType ty <*> mapM zonkEvTerm arguments
+      EvTypeable origin <$> finalizeType ty <*> mapM zonkEvTerm arguments
+    EvTypeLam variable body ->
+      EvTypeLam <$> defaultTyVarKinds variable <*> zonkEvTerm body
+    EvDictLam predicate binderType body ->
+      EvDictLam <$> finalizePred predicate <*> finalizeType binderType <*> zonkEvTerm body
+    EvTypeApp function argument ->
+      EvTypeApp <$> zonkEvTerm function <*> finalizeType argument
+    EvDictApp function argument ->
+      EvDictApp <$> zonkEvTerm function <*> zonkEvTerm argument
+
+finalizeType :: TcType -> TcM TcType
+finalizeType = zonkType >=> defaultTypeKinds
+
+finalizePred :: Pred -> TcM Pred
+finalizePred = zonkPred >=> defaultPredKinds
 
 zonkCoercion :: Coercion -> TcM Coercion
 zonkCoercion coercion =
@@ -124,17 +175,17 @@ zonkCoercion coercion =
     AxiomInstCo name typeArgs ->
       AxiomInstCo name <$> mapM zonkType typeArgs
 
-zonkPred :: Pred -> TcM Pred
-zonkPred pred' =
-  case pred' of
-    ClassPred className args ->
-      ClassPred className <$> mapM zonkType args
-    EqPred left right ->
-      EqPred <$> zonkType left <*> zonkType right
-
 rejectMetaTcAnnotation :: TcAnnotation -> TcM ()
 rejectMetaTcAnnotation ann =
-  rejectMeta "finalized annotation" (firstMetaTcAnnotation ann)
+  case firstMetaTcAnnotation ann of
+    Nothing -> pure ()
+    Just (Unique meta) ->
+      abortTc
+        ( "internal type annotation error: unzonked meta-variable ?"
+            <> show meta
+            <> " in finalized annotation "
+            <> show ann
+        )
 
 rejectMetaFinalAnnotation :: Annotation -> TcM ()
 rejectMetaFinalAnnotation ann = do
@@ -262,6 +313,14 @@ firstMetaEvTerm evTerm =
       firstMetaEvTerm evidence <|> firstMetaCoercion coercion
     EvTypeable _ ty arguments ->
       firstMetaType ty <|> firstJusts (map firstMetaEvTerm arguments)
+    EvTypeLam variable body ->
+      firstMetaType (tvKind variable) <|> firstMetaEvTerm body
+    EvDictLam predicate binderType body ->
+      firstMetaPred predicate <|> firstMetaType binderType <|> firstMetaEvTerm body
+    EvTypeApp function argument ->
+      firstMetaEvTerm function <|> firstMetaType argument
+    EvDictApp function argument ->
+      firstMetaEvTerm function <|> firstMetaEvTerm argument
 
 firstMetaCoercion :: Coercion -> Maybe Unique
 firstMetaCoercion coercion =
@@ -286,6 +345,10 @@ firstMetaPred pred' =
       firstJusts (map firstMetaType args)
     EqPred left right ->
       firstMetaType left <|> firstMetaType right
+    QuantifiedPred variables antecedents consequent ->
+      firstJusts (map (firstMetaType . tvKind) variables)
+        <|> firstJusts (map firstMetaPred antecedents)
+        <|> firstMetaPred consequent
 
 firstMetaType :: TcType -> Maybe Unique
 firstMetaType ty =

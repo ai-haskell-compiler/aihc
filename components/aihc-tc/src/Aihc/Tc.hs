@@ -229,6 +229,8 @@ restrictTcInterfaceToModules package names interface =
       case predicate of
         ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
         EqPred left right -> typeTyCons left <> typeTyCons right
+        QuantifiedPred variables antecedents consequent ->
+          concatMap (typeTyCons . tvKind) variables <> concatMap predicateTyCons antecedents <> predicateTyCons consequent
 
 mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
 mergeInterfaceEntries label key values = reverse ordered

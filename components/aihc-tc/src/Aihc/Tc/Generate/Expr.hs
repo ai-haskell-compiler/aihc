@@ -92,6 +92,10 @@ inferExprAt ambient expr = case expr of
     inferTypeApp (exprSpan expr `orSourceSpan` ambient) fun tyArg
   EInfix lhs op rhs ->
     inferInfix (exprSpan expr `orSourceSpan` ambient) lhs op rhs
+  ESectionL inner op ->
+    inferSectionL (exprSpan expr `orSourceSpan` ambient) inner op
+  ESectionR op inner ->
+    inferSectionR (exprSpan expr `orSourceSpan` ambient) op inner
   EIf cond thenE elseE ->
     inferIf (exprSpan expr `orSourceSpan` ambient) cond thenE elseE
   ECase scrutinee alts ->
@@ -464,6 +468,10 @@ predicateMetaVariables predicate =
   case predicate of
     ClassPred _ arguments -> concatMap typeMetaVariables arguments
     EqPred left right -> typeMetaVariables left <> typeMetaVariables right
+    QuantifiedPred variables antecedents consequent ->
+      concatMap (typeMetaVariables . tvKind) variables
+        <> concatMap predicateMetaVariables antecedents
+        <> predicateMetaVariables consequent
 
 typeMentionsTyVar :: TyVarId -> TcType -> Bool
 typeMentionsTyVar target ty =
@@ -481,6 +489,9 @@ predicateMentionsTyVar target predicate =
   case predicate of
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    QuantifiedPred variables antecedents consequent ->
+      target `notElem` variables
+        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
 
 inferTypeApp :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeApp sp fun tyArg = do
@@ -543,6 +554,26 @@ inferInfix sp lhs op rhs = do
   rhsEv <- freshEvVar
   let rhsCt = mkWantedCt (EqPred midTy (TcFunTy rhsTy resTy)) rhsEv (AppOrigin sp) sp
   pure (EInfix lhs' op' rhs', resTy, opCts ++ lhsCts ++ [lhsCt] ++ rhsCts ++ [rhsCt])
+
+inferSectionL :: SourceSpan -> Expr -> Name -> TcM (Expr, TcType, [Ct])
+inferSectionL sp inner op = do
+  (op', opTy, opCts) <- inferOperator sp op
+  (inner', innerTy, innerCts) <- inferExpr inner
+  argumentTy <- freshMetaTv
+  resultTy <- freshMetaTv
+  evidence <- freshEvVar
+  let wanted = mkWantedCt (EqPred opTy (TcFunTy innerTy (TcFunTy argumentTy resultTy))) evidence (AppOrigin sp) sp
+  pure (ESectionL inner' op', TcFunTy argumentTy resultTy, opCts <> innerCts <> [wanted])
+
+inferSectionR :: SourceSpan -> Name -> Expr -> TcM (Expr, TcType, [Ct])
+inferSectionR sp op inner = do
+  (op', opTy, opCts) <- inferOperator sp op
+  (inner', innerTy, innerCts) <- inferExpr inner
+  argumentTy <- freshMetaTv
+  resultTy <- freshMetaTv
+  evidence <- freshEvVar
+  let wanted = mkWantedCt (EqPred opTy (TcFunTy argumentTy (TcFunTy innerTy resultTy))) evidence (AppOrigin sp) sp
+  pure (ESectionR op' inner', TcFunTy argumentTy resultTy, opCts <> innerCts <> [wanted])
 
 inferIf :: SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferIf sp cond thenE elseE = do

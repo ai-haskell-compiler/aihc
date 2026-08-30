@@ -197,8 +197,9 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       expected <- kindFromSurfaceType tvEnv kindTy
       checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
     TContext preds inner -> do
-      mapM_ (\predTy -> checkSurfaceType tvEnv predTy KConstraint) preds
-      convertSurfaceTypeWithKinds tvEnv inner
+      predicates <- mapM (surfacePredToPred tvEnv) preds
+      (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
+      pure (TcQualTy predicates innerType, innerKind)
     TForall telescope inner -> do
       params <- makeParamEnv (forallTelescopeBinders telescope)
       let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
@@ -364,6 +365,14 @@ expandTcTypeSynonyms expanding ty =
       case predicate of
         ClassPred className arguments -> ClassPred className <$> mapM (expandTcTypeSynonyms expanding) arguments
         EqPred left right -> EqPred <$> expandTcTypeSynonyms expanding left <*> expandTcTypeSynonyms expanding right
+        QuantifiedPred variables antecedents consequent ->
+          QuantifiedPred
+            <$> mapM expandVariable variables
+            <*> mapM expandPredicate antecedents
+            <*> expandPredicate consequent
+    expandVariable variable = do
+      kind <- expandTcTypeSynonyms expanding (tvKind variable)
+      pure (setTyVarKind kind variable)
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
 inferTypeVariable tvEnv name =
@@ -527,6 +536,12 @@ zonkKind kind =
       case predicate of
         ClassPred className arguments -> ClassPred className <$> mapM zonkKind arguments
         EqPred left right -> EqPred <$> zonkKind left <*> zonkKind right
+        QuantifiedPred variables antecedents consequent ->
+          QuantifiedPred
+            <$> mapM zonkVariable variables
+            <*> mapM zonkKindPred antecedents
+            <*> zonkKindPred consequent
+    zonkVariable variable = setTyVarKind <$> zonkKind (tvKind variable) <*> pure variable
 
 defaultKindMetas :: TcType -> TcM TcType
 defaultKindMetas kind =
@@ -564,6 +579,12 @@ defaultKindMetas kind =
       case predicate of
         ClassPred className arguments -> ClassPred className <$> mapM defaultKindMetas arguments
         EqPred left right -> EqPred <$> defaultKindMetas left <*> defaultKindMetas right
+        QuantifiedPred variables antecedents consequent ->
+          QuantifiedPred
+            <$> mapM defaultVariable variables
+            <*> mapM defaultKindPred antecedents
+            <*> defaultKindPred consequent
+    defaultVariable variable = setTyVarKind <$> defaultKindMetas (tvKind variable) <*> pure variable
 
 containsUnsolvedMeta :: TcType -> TcM Bool
 containsUnsolvedMeta ty =
@@ -585,6 +606,11 @@ containsUnsolvedMeta ty =
       case predicate of
         ClassPred _ arguments -> or <$> mapM containsUnsolvedMeta arguments
         EqPred left right -> (||) <$> containsUnsolvedMeta left <*> containsUnsolvedMeta right
+        QuantifiedPred variables antecedents consequent -> do
+          variableResults <- mapM (containsUnsolvedMeta . tvKind) variables
+          antecedentResults <- mapM containsUnsolvedPred antecedents
+          consequentResult <- containsUnsolvedPred consequent
+          pure (or variableResults || or antecedentResults || consequentResult)
 
 freshKindMeta :: TcM TcType
 freshKindMeta = do
@@ -607,6 +633,10 @@ occursInKind needle kind =
       case predicate of
         ClassPred _ arguments -> any (occursInKind needle) arguments
         EqPred left right -> occursInKind needle left || occursInKind needle right
+        QuantifiedPred variables antecedents consequent ->
+          any (occursInKind needle . tvKind) variables
+            || any occursInPred antecedents
+            || occursInPred consequent
 
 tcTypeKind :: TcType -> TcM TcType
 tcTypeKind ty =
@@ -703,17 +733,38 @@ splitForalls ty =
     _ -> ([], ty)
 
 surfacePredToPred :: TvKindEnv -> Type -> TcM Pred
-surfacePredToPred tvEnv ty =
-  case instanceHeadName ty of
+surfacePredToPred tvEnv ty = do
+  let (binders, qualifiedBody) = splitForalls (peelTypeHead ty)
+      (antecedentTypes, consequentType) = splitContext (peelTypeHead qualifiedBody)
+  if null binders && null antecedentTypes
+    then surfaceAtomicPredToPred tvEnv consequentType
+    else do
+      params <- makeParamEnvWith tvEnv binders
+      let quantifiedEnv =
+            tvEnv
+              <> Map.fromList
+                [ (paramName param, (paramTyVar param, paramKind param))
+                | param <- params
+                ]
+      antecedents <- mapM (surfaceAtomicPredToPred quantifiedEnv) antecedentTypes
+      consequent <- surfaceAtomicPredToPred quantifiedEnv consequentType
+      pure (QuantifiedPred (map paramTyVar params) antecedents consequent)
+
+surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM Pred
+surfaceAtomicPredToPred tvEnv ty =
+  case instanceHeadName (peelTypeHead ty) of
     Just className -> do
       let classNameText = nameText className
-          headArgs = instanceHeadTypes ty
+          headArgs = instanceHeadTypes (peelTypeHead ty)
       maybeClassInfo <- lookupTyCon classNameText
       case maybeClassInfo of
         Just classInfo -> do
-          argKinds <- takeClassArgKinds (length headArgs) <$> defaultKindMetas (typeSchemeBody (tciKindScheme classInfo))
+          classKind <- predicateClassKind classInfo
+          let argKinds = takeClassArgKinds (length headArgs) classKind
           args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
-          pure (ClassPred (tciTyCon classInfo) args)
+          case (classNameText, args) of
+            ("~", [left, right]) -> pure (EqPred left right)
+            _ -> pure (ClassPred (tciTyCon classInfo) args)
         Nothing -> do
           emitError NoSourceSpan (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
@@ -725,8 +776,15 @@ classPredicateArgKinds :: Text -> Int -> TcM [TcType]
 classPredicateArgKinds className argCount = do
   mInfo <- lookupTyCon className
   case mInfo of
-    Just info -> takeClassArgKinds argCount <$> defaultKindMetas (typeSchemeBody (tciKindScheme info))
+    Just info -> takeClassArgKinds argCount <$> predicateClassKind info
     Nothing -> mapM (const freshKindMeta) [1 .. argCount]
+
+predicateClassKind :: TyConInfo -> TcM TcType
+predicateClassKind info = do
+  classInfo <- lookupClass (tciName info)
+  case classInfo of
+    Just {} -> defaultKindMetas (typeSchemeBody (tciKindScheme info))
+    Nothing -> zonkKind (typeSchemeBody (tciKindScheme info))
 
 takeClassArgKinds :: Int -> TcType -> [TcType]
 takeClassArgKinds n kind

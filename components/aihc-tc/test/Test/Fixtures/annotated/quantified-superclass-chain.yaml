@@ -1,0 +1,43 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+  └─ class methods: rnf ∷ ∀ a. (NFData a) ⇒ a → a
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type)
+  └─ class methods:
+
+  class (forall a. NFData a => NFData1 (p a)) => NFData2 (p :: Type -> Type -> Type)
+  └─ class methods:
+
+  use :: (NFData2 p, NFData a, NFData b) => p a b -> p a b
+  use value = rnf value
+  │   │       └─ type: p a b → p a b; type-args: p a b; evidence: ((super[0](((super[0](given NFData2 p)) @a) (given NFData a))) @b) (given NFData b)
+  │   └─ type: p a b
+  └─ type: ∀ p a b. (NFData2 p, NFData a, NFData b) ⇒ p a b → p a b
+extensions:
+- KindSignatures
+- QuantifiedConstraints
+modules:
+- |
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type)
+
+  class (forall a. NFData a => NFData1 (p a)) => NFData2 (p :: Type -> Type -> Type)
+
+  use :: (NFData2 p, NFData a, NFData b) => p a b -> p a b
+  use value = rnf value
+reason: quantified evidence works through two superclass levels
+status: pass

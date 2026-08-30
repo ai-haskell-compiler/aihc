@@ -109,4 +109,17 @@ equivalentPred renaming left right =
         && and (zipWith (equivalentType renaming) leftArgs rightArgs)
     (EqPred leftA leftB, EqPred rightA rightB) ->
       equivalentType renaming leftA rightA && equivalentType renaming leftB rightB
+    (QuantifiedPred leftVariables leftAntecedents leftConsequent, QuantifiedPred rightVariables rightAntecedents rightConsequent) ->
+      length leftVariables == length rightVariables
+        && and (zipWith (equivalentType renaming `onKind`) leftVariables rightVariables)
+        && length leftAntecedents == length rightAntecedents
+        && and (zipWith (equivalentPred quantifiedRenaming) leftAntecedents rightAntecedents)
+        && equivalentPred quantifiedRenaming leftConsequent rightConsequent
+      where
+        quantifiedRenaming =
+          foldr
+            (\(leftVariable, rightVariable) -> Map.insert (tvUnique leftVariable) (tvUnique rightVariable))
+            renaming
+            (zip leftVariables rightVariables)
+        onKind comparison leftVariable rightVariable = comparison (tvKind leftVariable) (tvKind rightVariable)
     _ -> False
