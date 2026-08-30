@@ -124,13 +124,13 @@ lintFunctionResult env resultRep expr =
 lintExpr :: LintEnv -> Set GrinVar -> GrinExpr -> [GrinLintError]
 lintExpr env bound expr =
   case expr of
-    GrinConstant values -> concatMap (lintValue env bound) values
+    GrinConstant values -> concatMap (lintValue bound) values
     GrinBind vars valueExpr body ->
       bindRepresentationErrors vars valueExpr
         <> lintExpr env bound valueExpr
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
-    GrinEnsureHeap requiredWords roots -> lintValue env bound requiredWords <> concatMap (lintValue env bound) roots
+    GrinEnsureHeap requiredWords roots -> lintValue bound requiredWords <> concatMap (lintValue bound) roots
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
       let recursiveBound = Set.fromList (map fst bindings) <> bound
@@ -140,53 +140,53 @@ lintExpr env bound expr =
       let recursiveBound = Set.fromList (map fst bindings) <> bound
        in concatMap (lintNode env recursiveBound . snd) bindings
             <> lintExpr env recursiveBound body
-    GrinFetch _ pointer -> lintValue env bound pointer
+    GrinFetch _ pointer -> lintValue bound pointer
     GrinUpdate pointer value ->
       [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
-        <> lintValue env bound pointer
-        <> lintValue env bound value
+        <> lintValue bound pointer
+        <> lintValue bound value
     GrinUpdateBlackhole pointer value ->
       [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
-        <> lintValue env bound pointer
-        <> lintValue env bound value
+        <> lintValue bound pointer
+        <> lintValue bound value
     GrinEval _ value ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
-        <> lintValue env bound value
+        <> lintValue bound value
     GrinCpsEval _ value continuation updateContinuation ->
       [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
-        <> lintValue env bound value
-        <> lintValue env bound continuation
-        <> lintValue env bound updateContinuation
+        <> lintValue bound value
+        <> lintValue bound continuation
+        <> lintValue bound updateContinuation
     GrinCall _ functionName arguments ->
       lintKnownCall env bound functionName arguments
     GrinPrimitiveCall _ name arguments ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
-        <> concatMap (lintValue env bound) arguments
+        <> concatMap (lintValue bound) arguments
     GrinCpsPrimitiveCall _ name arguments continuation ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
-        <> concatMap (lintValue env bound) arguments
-        <> lintValue env bound continuation
-    GrinApply _ function arguments -> lintValue env bound function <> concatMap (lintValue env bound) arguments
+        <> concatMap (lintValue bound) arguments
+        <> lintValue bound continuation
+    GrinApply _ function arguments -> lintValue bound function <> concatMap (lintValue bound) arguments
     GrinCpsApply _ function arguments continuation ->
-      lintValue env bound function
-        <> concatMap (lintValue env bound) arguments
-        <> lintValue env bound continuation
+      lintValue bound function
+        <> concatMap (lintValue bound) arguments
+        <> lintValue bound continuation
     GrinContinue continuation values ->
-      lintValue env bound continuation <> concatMap (lintValue env bound) values
+      lintValue bound continuation <> concatMap (lintValue bound) values
     GrinCpsRaise exception continuation ->
-      lintValue env bound exception <> lintValue env bound continuation
-    GrinHalt values -> concatMap (lintValue env bound) values
+      lintValue bound exception <> lintValue bound continuation
+    GrinHalt values -> concatMap (lintValue bound) values
     GrinExit status ->
       [GrinLintRepresentationMismatch "exit status" (grinValueRuntimeRep status) IntRep | grinValueRuntimeRep status /= IntRep]
-        <> lintValue env bound status
+        <> lintValue bound status
     GrinCase scrutinee binder alternatives ->
-      lintValue env bound scrutinee
+      lintValue bound scrutinee
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
-    GrinThrow exception -> lintValue env bound exception
+    GrinThrow exception -> lintValue bound exception
     GrinCatch _ action handler state ->
-      lintValue env bound action
-        <> lintValue env bound handler
-        <> concatMap (lintValue env bound) state
+      lintValue bound action
+        <> lintValue bound handler
+        <> concatMap (lintValue bound) state
     GrinForeignCallExpr foreignCall arguments ->
       let expectedReps = grinForeignOperandReps (grinForeignCallSignature foreignCall)
           actualReps = map grinValueRuntimeRep arguments
@@ -204,11 +204,11 @@ lintExpr env bound expr =
                | (expected, actual) <- zip expectedReps actualReps,
                  expected /= actual
                ]
-            <> concatMap (lintValue env bound) arguments
+            <> concatMap (lintValue bound) arguments
 
 lintKnownCall :: LintEnv -> Set GrinVar -> FunctionName -> [GrinValue] -> [GrinLintError]
 lintKnownCall env bound functionName arguments =
-  functionErrors <> concatMap (lintValue env bound) arguments
+  functionErrors <> concatMap (lintValue bound) arguments
   where
     functionErrors =
       case Map.lookup functionName (lintFunctionArities env) of
@@ -231,8 +231,8 @@ lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
 lintAlt env bound alt =
   lintExpr env (Set.fromList (grinAltBinders alt) <> bound) (grinAltRhs alt)
 
-lintValue :: LintEnv -> Set GrinVar -> GrinValue -> [GrinLintError]
-lintValue _ bound value =
+lintValue :: Set GrinVar -> GrinValue -> [GrinLintError]
+lintValue bound value =
   case value of
     GrinVarValue var
       | var `Set.member` bound -> []
@@ -242,7 +242,7 @@ lintValue _ bound value =
 
 lintNode :: LintEnv -> Set GrinVar -> GrinNode -> [GrinLintError]
 lintNode env bound node =
-  concatMap (lintValue env bound) (grinNodeFields node)
+  concatMap (lintValue bound) (grinNodeFields node)
     <> lintNodeFunction env node
     <> lintConstructorFields env node
 

@@ -432,11 +432,8 @@ lintCase env scrutinee binder resultType alts = do
   checkExpr env "case binder" (binderType binder) scrutinee
   caseEnv <- bindLocal env binder
   _ <- representationOf env resultType
-  mapM_ (lintAltExpected caseEnv (binderType binder) resultType) alts
+  mapM_ (lintAlt caseEnv (binderType binder) resultType) alts
   Right resultType
-
-lintAltExpected :: TypeEnv -> Type -> Type -> Alt -> Either LintError ()
-lintAltExpected = lintAlt
 
 lintAlt :: TypeEnv -> Type -> Type -> Alt -> Either LintError ()
 lintAlt env scrutType expected alt =
@@ -460,7 +457,7 @@ lintAlt env scrutType expected alt =
           unless (length existentials == length (altTypeBinders alt)) (Left (LintFailure ("case alternative type binder count does not match constructor: " <> show name)))
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
           (envEx, substitution) <- foldM (bindExistential name) (env, Map.empty) (zip existentials (altTypeBinders alt))
-          envFields <- foldM (bindField name) envEx (zip (map (applySubst substitution) fields) (altBinders alt))
+          envFields <- foldM (bindField name) envEx (zip (map (substTypes substitution) fields) (altBinders alt))
           checkExpr envFields "case alternative" expected (altRhs alt)
 
 matchLiteralAlternative :: TypeEnv -> Type -> Literal -> Either LintError ()
@@ -476,7 +473,7 @@ bindExistential :: Name -> (TypeEnv, Map Name Type) -> (Binder, Binder) -> Eithe
 bindExistential constructorName (env, substitution) (expected, actual) = do
   unless (nameSort (binderName actual) == SortTypeVariable) (Left (LintFailure ("case alternative type binder has an invalid name sort: " <> show constructorName)))
   env' <- bindLocal env actual
-  let expectedKind = applySubst substitution (binderType expected)
+  let expectedKind = substTypes substitution (binderType expected)
   unless (typesEqual env' expectedKind (binderType actual)) (Left (KindMismatch ("case alternative type binder for " <> show constructorName) expectedKind (binderType actual)))
   Right (env', Map.insert (binderName expected) (TyVar (binderName actual)) substitution)
 
@@ -484,8 +481,8 @@ matchConstructor :: TypeEnv -> Type -> Type -> Either LintError ([Binder], [Type
 matchConstructor env constructorType scrutType = do
   let (foralls, fields, result) = splitConType env constructorType
   subst <- matchExpected env (map binderName foralls) Map.empty result scrutType
-  let existentials = [binder {binderType = applySubst subst (binderType binder)} | binder <- foralls, binderName binder `Map.notMember` subst]
-      substituted = map (applySubst subst) fields
+  let existentials = [binder {binderType = substTypes subst (binderType binder)} | binder <- foralls, binderName binder `Map.notMember` subst]
+      substituted = map (substTypes subst) fields
   Right (existentials, substituted)
 
 splitConType :: TypeEnv -> Type -> ([Binder], [Type], Type)
@@ -541,9 +538,6 @@ matchReduced env foralls subst expected actual =
       | typesEqual env expected actual -> Right subst
       | otherwise -> Left (TypeMismatch "constructor result" expected actual)
 
-applySubst :: Map Name Type -> Type -> Type
-applySubst = substTypes
-
 coercionEndpoints :: TypeEnv -> Coercion -> Either LintError (Type, Type)
 coercionEndpoints env coercion =
   case coercion of
@@ -580,10 +574,10 @@ coercionEndpoints env coercion =
           mapM_
             ( \(binder, argument) -> do
                 argumentKind <- lintType env argument
-                unless (typesEqual env (applySubst subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
+                unless (typesEqual env (substTypes subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
             )
             (zip (axiomBinders declaration) arguments)
-          Right (applySubst subst (axiomLeft declaration), applySubst subst (axiomRight declaration))
+          Right (substTypes subst (axiomLeft declaration), substTypes subst (axiomRight declaration))
 
 checkTyConCoercion :: TypeEnv -> Type -> [(Type, Type)] -> Either LintError ()
 checkTyConCoercion env = go

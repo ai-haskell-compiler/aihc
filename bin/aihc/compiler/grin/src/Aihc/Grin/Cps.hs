@@ -417,18 +417,14 @@ freshVar name runtimeRep = do
 
 addContinuationFunction :: ContinuationFrameKind -> GrinFunction -> CpsM ()
 addContinuationFunction frameKind function = do
-  addGeneratedFunction function
+  modify' $ \state ->
+    state
+      { cpsGeneratedFunctionsRev = function : cpsGeneratedFunctionsRev state
+      }
   modify' $ \state ->
     state
       { cpsContinuationFramesState =
           Map.insert (grinFunctionName function) frameKind (cpsContinuationFramesState state)
-      }
-
-addGeneratedFunction :: GrinFunction -> CpsM ()
-addGeneratedFunction function =
-  modify' $ \state ->
-    state
-      { cpsGeneratedFunctionsRev = function : cpsGeneratedFunctionsRev state
       }
 
 varsRuntimeRep :: [GrinVar] -> GrinRep
