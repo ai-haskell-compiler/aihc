@@ -16,11 +16,9 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
-type NameKey = Text
-
 data TidyEnv = TidyEnv
   { tidyNames :: Map Name Name,
-    tidyUsed :: Map NameKey (Set Int)
+    tidyUsed :: Map Text (Set Int)
   }
 
 emptyTidyEnv :: TidyEnv
@@ -203,7 +201,7 @@ tidyBinderName env name =
   case nameOrigin name of
     OriginLocal {} -> name {nameOrigin = OriginLocal (Unique (lowestUnused used))}
       where
-        used = Map.findWithDefault Set.empty (nameKey name) (tidyUsed env)
+        used = Map.findWithDefault Set.empty (nameText name) (tidyUsed env)
     OriginTop {} -> name
 
 bindName :: TidyEnv -> Name -> Name -> TidyEnv
@@ -212,7 +210,7 @@ bindName env oldName newName =
     OriginLocal (Unique unique) ->
       env
         { tidyNames = Map.insert oldName newName (tidyNames env),
-          tidyUsed = Map.insertWith Set.union (nameKey newName) (Set.singleton unique) (tidyUsed env)
+          tidyUsed = Map.insertWith Set.union (nameText newName) (Set.singleton unique) (tidyUsed env)
         }
     OriginTop {} -> env
 
@@ -221,9 +219,6 @@ tidyUse env name =
   case nameOrigin name of
     OriginLocal {} -> Map.findWithDefault name name (tidyNames env)
     OriginTop {} -> name
-
-nameKey :: Name -> NameKey
-nameKey = nameText
 
 lowestUnused :: Set Int -> Int
 lowestUnused used = go 0

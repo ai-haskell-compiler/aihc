@@ -136,13 +136,10 @@ referencesFromImports imports =
     <> foldMap (uncurry entryTypeReferences) (Map.toList (importBinders imports))
 
 entryTypeReferences :: Name -> Type -> References
-entryTypeReferences name = deleteReference name . typeReferences
+entryTypeReferences name = Set.delete name . typeReferences
 
 entryAxiomReferences :: Name -> AxiomDecl -> References
-entryAxiomReferences name = deleteReference name . axiomReferences
-
-deleteReference :: Name -> References -> References
-deleteReference = Set.delete
+entryAxiomReferences name = Set.delete name . axiomReferences
 
 declReferences :: Decl -> References
 declReferences decl =

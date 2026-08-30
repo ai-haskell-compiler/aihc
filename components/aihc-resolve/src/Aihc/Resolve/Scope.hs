@@ -255,7 +255,7 @@ declExportedNames decl =
 
 dataFamilyInstExports :: DataFamilyInst -> DeclExports
 dataFamilyInstExports familyInst =
-  case dataFamilyHeadName (dataFamilyInstHead familyInst) of
+  case typeFamilyHeadName (dataFamilyInstHead familyInst) of
     Nothing -> DeclExports termNames [] Map.empty recordFields Map.empty Map.empty
     Just familyName ->
       DeclExports
@@ -270,9 +270,6 @@ dataFamilyInstExports familyInst =
     termNames = dataDeclConstructorNames constructors
     constructorNames = concatMap dataConDeclConstructorNames constructors
     recordFields = recordFieldMap constructors
-
-dataFamilyHeadName :: Type -> Maybe UnqualifiedName
-dataFamilyHeadName = typeFamilyHeadName
 
 typeFamilyHeadName :: Type -> Maybe UnqualifiedName
 typeFamilyHeadName ty =
@@ -524,7 +521,7 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 builtinScope :: Scope
 builtinScope =
   Scope
-    { scopeTerms = Map.fromList (map mkBuiltinTerm builtinPromotedConstructorNames),
+    { scopeTerms = Map.empty,
       scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
@@ -533,11 +530,7 @@ builtinScope =
       scopeQualifiedModules = Map.empty
     }
   where
-    mkBuiltinTerm n = (n, ResolvedSyntax)
     mkBuiltinType n = (n, ResolvedSyntax)
-
-builtinPromotedConstructorNames :: [T.Text]
-builtinPromotedConstructorNames = []
 
 -- | Wired-in type-namespace names.
 --

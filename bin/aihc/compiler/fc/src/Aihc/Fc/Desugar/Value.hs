@@ -576,7 +576,7 @@ functionBinding declaration =
     _ -> Nothing
 
 sameFunction :: Text -> Syn.Decl -> Bool
-sameFunction name declaration = maybe False ((== name) . tripleFirst) (functionBinding declaration)
+sameFunction name declaration = maybe False (\(value, _, _) -> value == name) (functionBinding declaration)
 
 patternBinding :: Syn.Decl -> Maybe (Text, Syn.Rhs Syn.Expr, Maybe TcType)
 patternBinding declaration =
@@ -589,9 +589,6 @@ declarationType declaration =
   case declaration of
     Syn.DeclAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> declarationType inner
     _ -> Nothing
-
-tripleFirst :: (a, b, c) -> a
-tripleFirst (value, _, _) = value
 
 middle :: (a, b, c) -> b
 middle (_, value, _) = value
@@ -660,7 +657,7 @@ desugarMatches ty matches =
       typeBinders <- mapM convertTypeBinder typeVariables
       dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
       arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-      body <- withDictionaries (zipWith predicateDictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
+      body <- withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
 desugarMatchArguments :: TcType -> [Binder] -> [Syn.Match] -> ValueM Expr
@@ -674,7 +671,7 @@ desugarMatchArguments resultType (argument : arguments) matches
     length firstPatterns == length (argument : arguments),
     all patternIsIrrefutable firstPatterns =
       withLocals (matchArgumentBindings (argument : arguments) first) (desugarRhs (Syn.matchRhs first))
-  | all firstPatternIsVariable matches = do
+  | all (maybe False patternIsIrrefutable . listToMaybe . Syn.matchPats) matches = do
       let locals = concatMap (firstPatternBindings argument) matches
       withLocals locals (desugarMatchArguments resultType arguments (map dropFirstPattern matches))
   | otherwise = do
@@ -914,7 +911,7 @@ desugarPatternGroup resultType remaining matches key = do
           ]
   body <-
     withDictionaries
-      (zipWith predicateDictionary predicates dictionaries)
+      (zipWith Dictionary predicates dictionaries)
       (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
   pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
@@ -978,12 +975,6 @@ patternKey pattern' =
       | isBoxedCharacterLiteral literal -> "C#"
       | otherwise -> T.pack (show (Syn.peelLiteralAnn literal))
     _ -> "_"
-
-firstPatternIsVariable :: Syn.Match -> Bool
-firstPatternIsVariable match =
-  case Syn.matchPats match of
-    pattern' : _ -> patternIsIrrefutable pattern'
-    [] -> False
 
 firstPatternIsDefault :: Syn.Match -> Bool
 firstPatternIsDefault match =
@@ -1512,7 +1503,7 @@ desugarDoConstructorPattern resultType binder pattern' success = do
       caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
       body <-
         withDictionaries
-          (zipWith predicateDictionary predicates dictionaries)
+          (zipWith Dictionary predicates dictionaries)
           (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
       pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor typeBinders (dictionaries <> fields) body])
 
@@ -2035,9 +2026,6 @@ numericRepresentation numericType =
     Syn.TWord16Hash -> Word16Rep
     Syn.TWord32Hash -> Word32Rep
     Syn.TWord64Hash -> Word64Rep
-
-predicateDictionary :: Pred -> Binder -> Dictionary
-predicateDictionary = Dictionary
 
 withLocals :: [(Text, (Binder, TcType))] -> ValueM a -> ValueM a
 withLocals additions action = do

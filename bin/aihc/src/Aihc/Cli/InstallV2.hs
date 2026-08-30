@@ -7,8 +7,10 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.Cli.ArtifactCache (ArtifactCache, artifactCache, loadArtifact)
-import Aihc.Cli.Install
+import Aihc.Cli.ArtifactCache (loadArtifact)
+import Aihc.Cli.Options (InstallV2Options (..))
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
+import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
     PackagePlan (..),
     ParsedInterfaceFile (ParsedInterfaceFile),
@@ -18,8 +20,6 @@ import Aihc.Cli.Install
     parseInterfaceFile,
     renderHumanDiagnostic,
   )
-import Aihc.Cli.Options (InstallV2Options (..))
-import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -125,6 +125,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist, getFileSize, r
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
+import System.IO (hIsTerminalDevice, stdout)
 import System.Process (readProcessWithExitCode)
 
 data InstallV2Result = InstallV2Result
@@ -229,7 +230,9 @@ data InstallConfig = InstallConfig
     installNoCode :: !Bool,
     installTarget :: !NativeTarget,
     installVerbose :: String -> IO (),
-    installArtifactCache :: !ArtifactCache
+    installPrintTimings :: String -> IO (),
+    installUseColor :: !Bool,
+    installArtifactCache :: !Bool
   }
 
 data PackageTaskContext = PackageTaskContext
@@ -253,10 +256,12 @@ runInstallV2 options = do
 installV2 :: InstallV2Options -> IO InstallV2Result
 installV2 options = do
   storeRoot <- maybe defaultStoreRoot pure (installV2StoreRoot options)
+  useColor <- hIsTerminalDevice stdout
   let target = installV2Target options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
   let root = installV2PackageDirectory options
       verbose message = when (installV2Verbose options) (putStrLn message)
+      printTimings message = when (installV2PrintTimings options) (putStrLn message)
       fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
@@ -267,10 +272,12 @@ installV2 options = do
             installNoCode = installV2NoCode options,
             installTarget = target,
             installVerbose = verbose,
-            installArtifactCache = artifactCache (not (installV2NoCache options))
+            installPrintTimings = printTimings,
+            installUseColor = useColor,
+            installArtifactCache = not (installV2NoCache options)
           }
   spec <- packageSpecFromSource root
-  plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
+  plan <- buildPackagePlanWithResolver resolver spec
   installedV2Result <$> installPackagePlanV2 config targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
@@ -334,7 +341,7 @@ installPackageV2 config storeRoot dependencies root = do
     either (ioError . userError . ("FC environment generation failed: " <>)) pure $
       Fc.prepareDesugar
         (DesugarConfig primIdentity)
-        (if installNoCode config then mempty else mergeTypeInterfaces (Map.elems dependencyTypes))
+        (if installNoCode config then mempty else mergeTcInterfaces (Map.elems dependencyTypes))
   let taskContext =
         PackageTaskContext
           { taskInstallConfig = config,
@@ -355,7 +362,7 @@ installPackageV2 config storeRoot dependencies root = do
       (max 1 capabilities)
       units
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  verbose (renderTaskTimeline (importTimings <> taskTimings))
+  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> taskTimings))
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
@@ -372,8 +379,8 @@ installPackageV2 config storeRoot dependencies root = do
       allTypeHashes = localTypeHashes `Map.union` dependencyTypeHashes
       written = Set.unions (map typeUnitWritten typeResults)
       reused = Set.unions (map typeUnitReused typeResults)
-      completeTypes = mergeTypeInterfaces (Map.elems allTypes)
-      packageInstances = mergeTypeInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
+      completeTypes = mergeTcInterfaces (Map.elems allTypes)
+      packageInstances = mergeTcInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
   writePackageInstanceArtifact verbose storePath allTypeHashes completeTypes (ownInstanceFacts resolvePackage packageInstances)
   unless (installNoCode config) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
@@ -822,14 +829,14 @@ runTypeUnit context runtimes runtime = do
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
       outputPaths = moduleOutputPaths storePath target
       importedInstances =
-        mergeTypeInterfaces
-          ( instanceFacts (mergeTypeInterfaces (Map.elems dependencyTypes))
+        mergeTcInterfaces
+          ( instanceFacts (mergeTcInterfaces (Map.elems dependencyTypes))
               : map (instanceFacts . typeUnitComplete) dependencyResults
           )
       importedTypes =
         applyInstanceFacts
           importedInstances
-          ( mergeTypeInterfaces
+          ( mergeTcInterfaces
               [ interface
               | name <- dependencyNames,
                 name `notElem` unitNames,
@@ -895,12 +902,12 @@ runTypeUnit context runtimes runtime = do
               else do
                 mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
                 pure (False, False, Nothing)
-  let cachedInterface = mergeTypeInterfaces unitTypes
-      cachedInstances = mergeTypeInterfaces [importedInstances, instanceFacts cachedInterface]
+  let cachedInterface = mergeTcInterfaces unitTypes
+      cachedInstances = mergeTcInterfaces [importedInstances, instanceFacts cachedInterface]
       completeInterface = maybe (applyInstanceFacts cachedInstances cachedInterface) snd initialChecked
       localInterface = restrictTcInterfaceToModules (packageId resolvePackage) unitNames completeInterface
       availableBackendFacts =
-        mergeTypeInterfaces
+        mergeTcInterfaces
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
       changed = resolveUnitChanged resolvedOutput || typeChanged || fcChanged || generatedOutputChanged
@@ -971,9 +978,6 @@ runBackendUnit context runtime = do
         (moduleOutputPaths storePath (installTarget config))
         (pendingModules pending)
     _ -> pure ()
-
-mergeTypeInterfaces :: [TcInterface] -> TcInterface
-mergeTypeInterfaces = mergeTcInterfaces
 
 applyInstanceFacts :: TcInterface -> TcInterface -> TcInterface
 applyInstanceFacts instances direct =
@@ -1368,7 +1372,7 @@ writeTypeArtifact verbose hashes artifactPath source interface = do
   BL.writeFile path (encodeTypeArtifact (TypeArtifact name hashes interface))
   verbose ("Write type interface: " <> T.unpack name)
 
-readTypeArtifacts :: ArtifactCache -> [(Text, Text)] -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe [TcInterface])
+readTypeArtifacts :: Bool -> [(Text, Text)] -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe [TcInterface])
 readTypeArtifacts cache expected artifactPath unit = fmap sequence (mapM readOne unit)
   where
     readOne source = do
@@ -1404,7 +1408,7 @@ writeArtifact verbose hashes exports package path source = do
   BL.writeFile path (encodeResolveArtifact (ResolveArtifact name hashes scope))
   verbose ("Write resolve context: " <> T.unpack name)
 
-readUnitArtifacts :: ArtifactCache -> [(Text, Text)] -> Package -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe ModuleExports)
+readUnitArtifacts :: Bool -> [(Text, Text)] -> Package -> (SourceModule -> FilePath) -> [SourceModule] -> IO (Maybe ModuleExports)
 readUnitArtifacts cache expected package artifactPath unit = do
   entries <- mapM readOne unit
   pure (Map.fromList <$> sequence entries)

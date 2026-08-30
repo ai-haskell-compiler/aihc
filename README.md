@@ -16,13 +16,12 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `84/3427` (`2.45%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
-| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `254/3427` (`7.41%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `58/3425` (`1.69%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `505/10057` (`5.02%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `302/3427` (`8.81%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
+| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `61/3425` (`1.78%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `596/10057` (`5.93%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `51/52` (`98.07%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `56/57` (`98.24%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 ## Lines of code
 
@@ -30,16 +29,9 @@ Find more information here:
 ```
 | Component    |   Code |   Tests |   Total |
 |--------------|--------|---------|---------|
-| aihc-amd64   |   2167 |     788 |    2955 |
-| aihc-arm64   |   2058 |     876 |    2934 |
-| aihc-fc      |   5628 |    2761 |    8389 |
-| aihc-grin    |   4210 |     189 |    4399 |
-| aihc-llvm    |   1901 |     506 |    2407 |
-| aihc-native  |   3405 |     472 |    3877 |
-| aihc-resolve |   2605 |    1936 |    4541 |
-| aihc-tc      |  10204 |    2735 |   12939 |
-| aihc-wasm    |   2161 |     722 |    2883 |
-| **Total**    |  34339 |   10985 |   45324 |
+| aihc-resolve |   2632 |    2091 |    4723 |
+| aihc-tc      |  10128 |    3022 |   13150 |
+| **Total**    |  12760 |    5113 |   17873 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

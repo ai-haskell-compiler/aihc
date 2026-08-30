@@ -283,7 +283,7 @@ prettyForallTail scopes ty =
 prettyPiBinder :: ScopeTable -> Binder -> Doc ann
 prettyPiBinder scopes binder =
   parens
-    ( prettyLocalBinder (binderName binder)
+    ( (pretty (nameText (binderName binder)) <> prettyUniqueSuffix (binderName binder))
         <> " : "
         <> prettyTypeWith scopes PrecForAll (binderType binder)
     )
@@ -352,7 +352,7 @@ prettyExprAtom scopes expr =
 
 prettyBind :: ScopeTable -> Bind -> Doc ann
 prettyBind scopes bind =
-  prettyLocalBinder (binderName (bindBinder bind))
+  (pretty (nameText (binderName (bindBinder bind))) <> prettyUniqueSuffix (binderName (bindBinder bind)))
     <> " : "
     <> prettyTypeWith scopes PrecForAll (binderType (bindBinder bind))
     <> " ="
@@ -440,7 +440,7 @@ repName ty =
 prettyName :: ScopeTable -> Name -> Doc ann
 prettyName scopes name =
   case nameOrigin name of
-    OriginLocal {} -> prettyLocalUse name
+    OriginLocal {} -> pretty (nameText name) <> prettyUniqueSuffix name
     OriginTop {} -> prettyTopName scopes name
 
 prettyTopName :: ScopeTable -> Name -> Doc ann
@@ -471,14 +471,6 @@ prettyPrintedName name =
 
 prettyRawPrinted :: Text -> Doc ann
 prettyRawPrinted = pretty
-
-prettyLocalBinder :: Name -> Doc ann
-prettyLocalBinder name =
-  pretty (nameText name) <> prettyUniqueSuffix name
-
-prettyLocalUse :: Name -> Doc ann
-prettyLocalUse name =
-  pretty (nameText name) <> prettyUniqueSuffix name
 
 prettyUniqueSuffix :: Name -> Doc ann
 prettyUniqueSuffix name =
