@@ -106,7 +106,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -291,7 +291,8 @@ networkDependencyResolver =
 
 installPackagePlanV2 :: InstallConfig -> FilePath -> PackagePlan -> IO InstalledV2Package
 installPackagePlanV2 config storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 config storeRoot) (planDependencyPlans plan)
+  let dependencyConfig = config {installReinstall = False}
+  dependencies <- mapM (installPackagePlanV2 dependencyConfig storeRoot) (planDependencyPlans plan)
   installPackageV2 config storeRoot dependencies (planSourcePath plan)
 
 installPackageV2 :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
@@ -300,7 +301,7 @@ installPackageV2 config storeRoot dependencies root = do
   let storePath = storeRoot </> packageDirectory
   exists <- doesDirectoryExist storePath
   if exists && not (installReinstall config)
-    then loadInstalledV2Package storePath
+    then loadInstalledV2Package Set.empty storePath
     else do
       createDirectoryIfMissing True storeRoot
       bracket
@@ -318,7 +319,7 @@ installPackageV2 config storeRoot dependencies root = do
         Left err -> do
           published <- doesDirectoryExist storePath
           if published
-            then loadInstalledV2Package storePath
+            then loadInstalledV2Package Set.empty storePath
             else throwIO (err :: IOException)
 
 installPackageV2Direct :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
@@ -341,16 +342,17 @@ installPackageV2Direct config storeRoot dependencies root = do
   verbose ("Parse " <> show (length files) <> " library modules")
   capabilities <- getNumCapabilities
   (parsed, importTimings) <- loadSourceModules (max 1 capabilities) root files
+  loadedDependencies <- loadRequiredDependencies parsed dependencies
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
       packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
       units = sourceModuleUnits parsed
-      dependencyExports = Map.unions (map installedV2Exports dependencies)
-      dependencyTypes = Map.unions (map installedV2Types dependencies)
-      dependencyScopeHashes = Map.unions (map installedV2ScopeHashes dependencies)
-      dependencyTypeHashes = Map.unions (map installedV2TypeHashes dependencies)
+      dependencyExports = Map.unions (map installedV2Exports loadedDependencies)
+      dependencyTypes = Map.unions (map installedV2Types loadedDependencies)
+      dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
+      dependencyTypeHashes = Map.unions (map installedV2TypeHashes loadedDependencies)
       primIdentity =
         fromMaybe (PackageId "aihc-prim") $
           if packageName resolvePackage == "aihc-prim"
@@ -483,14 +485,42 @@ setInstalledStorePath storePath installed =
           }
     }
 
-loadInstalledV2Package :: FilePath -> IO InstalledV2Package
-loadInstalledV2Package storePath = do
+loadRequiredDependencies :: [SourceModule] -> [InstalledV2Package] -> IO [InstalledV2Package]
+loadRequiredDependencies sources = mapM loadDependency
+  where
+    requirements = requiredDependencyModules sources
+    loadDependency dependency = loadInstalledV2Package requirements (installV2StorePath (installedV2Result dependency))
+
+requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
+requiredDependencyModules sources =
+  Set.fromList
+    ( [ (importDeclPackage importDecl, importDeclModule importDecl)
+      | source <- sources,
+        importDecl <- Syntax.moduleImports (sourceModuleAst source),
+        not (localImport importDecl)
+      ]
+        <> [(Nothing, "Prelude") | any moduleUsesImplicitPrelude sources]
+        <> [(Nothing, name) | name <- wiredTypeModules]
+    )
+  where
+    localNames = Set.fromList (map sourceName sources)
+    localImport importDecl =
+      importDeclPackage importDecl == Just "this"
+        || (isNothing (importDeclPackage importDecl) && importDeclModule importDecl `Set.member` localNames)
+
+loadInstalledV2Package :: Set.Set (Maybe Text, Text) -> FilePath -> IO InstalledV2Package
+loadInstalledV2Package requirements storePath = do
   manifestResult <- readPackageManifest (packageManifestPath storePath)
   manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
-  entries <- mapM loadModule (packageManifestModules manifest)
+  let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
+  entries <- mapM loadModule selectedModules
+  instances <- if null selectedModules then pure mempty else loadPackageInstances
   let package = Package (packageManifestName manifest) (PackageId (packageManifestIdentity manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
-      types = Map.fromList [(name, interface) | (name, _, interface) <- entries]
+      moduleTypes = Map.fromList [(name, interface) | (name, _, interface) <- entries]
+      types
+        | null selectedModules = Map.empty
+        | otherwise = Map.insert ("$package-instances:" <> packageManifestIdentity manifest) instances moduleTypes
       scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
       typeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
   pure
@@ -502,6 +532,11 @@ loadInstalledV2Package storePath = do
         installedV2TypeHashes = typeHashes
       }
   where
+    moduleRequired manifest name =
+      any
+        (\(packageName', moduleName') -> moduleName' == name && maybe True (== packageManifestName manifest) packageName')
+        (Set.toList requirements)
+
     loadModule name = do
       let root = storePath </> moduleNameDirectory name
           resolvePath = root </> "resolve.cbor"
@@ -513,6 +548,17 @@ loadInstalledV2Package storePath = do
       unless (resolveArtifactModuleName resolveArtifact == name) (ioError (userError ("Resolve artifact module name does not match " <> resolvePath)))
       unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
       pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
+
+    loadPackageInstances = do
+      let path = storePath </> "instances.cbor"
+      exists <- doesFileExist path
+      if not exists
+        then pure mempty
+        else do
+          bytes <- BS.readFile path
+          artifact <- either (ioError . userError . (("Invalid package instance artifact " <> path <> ": ") <>)) pure (decodeTypeArtifact bytes)
+          unless (typeArtifactModuleName artifact == "$package-instances") (ioError (userError ("Package instance artifact name does not match " <> path)))
+          pure (typeArtifactInterface artifact)
 
 parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do

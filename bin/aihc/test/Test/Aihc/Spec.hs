@@ -643,52 +643,32 @@ test_installV2TypeReexports =
     assertBool "re-exported signature" ("fn" `elem` termNames)
 
 test_installV2LocalDependencies :: Assertion
-test_installV2LocalDependencies =
+test_installV2LocalDependencies = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/local-dependencies"
   withTempDir "aihc-install-v2-local-dependencies" $ \root -> do
-    let sourceRoot = root </> "demo"
-        dependencyRoot = root </> "dep"
+    let sourceRoot = fixtureRoot </> "demo"
         storeRoot = root </> "store"
         options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False False AppleArm64
-    createDirectoryIfMissing True (sourceRoot </> "src")
-    createDirectoryIfMissing True (dependencyRoot </> "src")
-    writeFile
-      (dependencyRoot </> "dep.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: dep",
-            "version: 1.0.0",
-            "library",
-            "  exposed-modules: Dep",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (dependencyRoot </> "src" </> "Dep.hs") "module Dep where\nidentity x = x\n"
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo",
-            "  hs-source-dirs: src",
-            "  build-depends: dep",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Dep\nresult = identity\n"
     _ <- installV2 options
     let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-    cachedOutput <- captureStdout (installV2 options {installV2Verbose = True})
-    assertBool "cached install does not build a package" (not ("Read Cabal package:" `isInfixOf` cachedOutput))
     storeEntries <- listDirectory targetStoreRoot
     assertBool "temporary store directories are absent" (not (any (".tmp-" `isPrefixOf`) storeEntries))
     let dependencyStores = filter ("dep-1.0.0-" `isPrefixOf`) storeEntries
     case dependencyStores of
       [dependencyStore] -> do
-        assertFileExists (targetStoreRoot </> dependencyStore </> "Dep" </> "resolve.cbor")
-        assertFileExists (targetStoreRoot </> dependencyStore </> "Dep" </> "type.cbor")
+        let dependencyStoreRoot = targetStoreRoot </> dependencyStore
+            unusedTypePath = dependencyStoreRoot </> "Dep" </> "Unused" </> "type.cbor"
+            sentinelPath = dependencyStoreRoot </> "reinstall-sentinel"
+        assertFileExists (dependencyStoreRoot </> "Dep" </> "resolve.cbor")
+        assertFileExists (dependencyStoreRoot </> "Dep" </> "type.cbor")
+        assertFileExists unusedTypePath
+        BS.writeFile unusedTypePath "invalid unused type artifact"
+        writeFile sentinelPath "dependency was not reinstalled"
+        reinstalled <- installV2 options {installV2Reinstall = True}
+        assertEqual "reinstall writes the specified package" ["Demo"] (installV2WrittenModules reinstalled)
+        assertFileExists sentinelPath
+        unusedTypeBytes <- BS.readFile unusedTypePath
+        assertEqual "reinstall does not read or replace the unused module" "invalid unused type artifact" unusedTypeBytes
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
 
 assertFileExists :: FilePath -> Assertion
