@@ -140,6 +140,7 @@ library compiler
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    array >=0.5 && <0.6,
     async,
     base >=4.16 && <5,
     binary >=0.8 && <0.9,
