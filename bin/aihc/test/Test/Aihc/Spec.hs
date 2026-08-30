@@ -92,6 +92,7 @@ test_buildExeSourceDirectories = do
               buildExeTarget = target,
               buildExeGarbageCollector = GcCalloc,
               buildExeStoreRoot = Just storeRoot,
+              buildExeBuildRoot = Nothing,
               buildExeLint = False,
               buildExeOutputFile = Just output
             }
@@ -103,6 +104,9 @@ test_buildExeSourceDirectories = do
     withCurrentDirectory root (runBuildExe options)
     assertFileExists (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
     assertFileDoesNotExist (root </> ".aihc-cache" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
+    let customBuildRoot = root </> "custom-build-root"
+    withCurrentDirectory fixtureRoot (runBuildExe options {buildExeBuildRoot = Just customBuildRoot})
+    assertFileExists (customBuildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
     BS.writeFile unusedResolve resolveBytes
     typeBytes <- BS.readFile unusedType
     BS.writeFile unusedType "invalid unused type interface"

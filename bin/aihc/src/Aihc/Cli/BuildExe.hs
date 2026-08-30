@@ -98,7 +98,8 @@ runBuildExe options = do
   currentDirectory <- getCurrentDirectory
   let target = buildExeTarget options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
-      buildRoot = currentDirectory </> ".aihc-cache" </> nativeTargetStoreDirectory target
+      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-cache") (buildExeBuildRoot options)
+      buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
       sourceDirectories = case buildExeSourceDirectories options of [] -> ["."]; values -> values
       output = fromMaybe (dropExtension (buildExeSourceFile options)) (buildExeOutputFile options)
   available <- readInstalledPackages targetStoreRoot
