@@ -180,7 +180,8 @@ data GrinModule = GrinModule
 
 data NativeModule = NativeModule
   { nativeModuleName :: !Text,
-    nativeSource :: !Text
+    nativeSource :: !Text,
+    nativeObject :: !(Maybe BL.ByteString)
   }
 
 data PendingCompile = PendingCompile
@@ -1267,7 +1268,8 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
 
     generateNativeModule selectedTarget grinModule = do
       source <- generateNativeCode selectedTarget (gcGrinProgram grinModule)
-      pure (NativeModule (grinModuleName grinModule) source)
+      object <- generateNativeObject selectedTarget (gcGrinProgram grinModule)
+      pure (NativeModule (grinModuleName grinModule) source object)
 
     writeNativeSourceFile nativeModule = do
       let name = nativeModuleName nativeModule
@@ -1279,8 +1281,11 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
     compileNativeSourceFile nativeModule = do
       let name = nativeModuleName nativeModule
           paths = outputPaths name
-      (compiler, compilerArguments) <- backendCompiler (compileTarget config)
-      runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
+      case nativeObject nativeModule of
+        Just object -> BL.writeFile (outputObjectPath paths) object
+        Nothing -> do
+          (compiler, compilerArguments) <- backendCompiler (compileTarget config)
+          runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 
     removeNativeSourceFile = removeFile . outputNativePath . outputPaths . nativeModuleName
@@ -1292,6 +1297,13 @@ generateNativeCode target gcProgram =
     LinuxAmd64 -> either (ioError . userError . ("Linux AMD64 generation failed: " <>) . show) pure (Amd64.compileModule gcProgram)
     Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
     Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
+
+generateNativeObject :: NativeTarget -> Grin.GcGrinProgram -> IO (Maybe BL.ByteString)
+generateNativeObject target gcProgram =
+  case target of
+    AppleArm64 -> Just <$> either (ioError . userError . ("Apple ARM64 object generation failed: " <>) . show) pure (Arm64.compileModuleObject gcProgram)
+    LinuxAmd64 -> Just <$> either (ioError . userError . ("Linux AMD64 object generation failed: " <>) . show) pure (Amd64.compileModuleObject gcProgram)
+    _ -> pure Nothing
 
 moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =

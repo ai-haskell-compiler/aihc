@@ -15,6 +15,7 @@ module Aihc.Amd64.Codegen
   )
 where
 
+import Aihc.Amd64.Assemble (assembleElf)
 import Aihc.Amd64.Codegen.Function
 import Aihc.Amd64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
@@ -96,7 +97,8 @@ compileObservedFunction entryName gcProgram = do
             <> renderLinkedLocals functions
             <> renderCompiledSupport compileEnv functions observedRuntimeInfos
             <> nonExecutableStack
-  pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
+  object <- either (Left . Amd64ObjectError . T.pack . show) pure (assembleElf assembly)
+  pure ObservedProgram {observedAssembly = assembly, observedObject = object, observedMetadataSource = metadata}
   where
     program = gcGrinProgram gcProgram
     compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}

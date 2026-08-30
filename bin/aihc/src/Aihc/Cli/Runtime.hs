@@ -30,6 +30,7 @@ import Aihc.Native
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM)
+import Data.ByteString.Lazy qualified as BL
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
@@ -52,8 +53,14 @@ prepareEntryArchive storeRoot target = do
         object = directory </> "entry.o"
         archive = directory </> "entry.a"
     TIO.writeFile sourcePath source
-    (compiler, arguments) <- backendCompiler target
-    runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
+    case target of
+      AppleArm64 ->
+        either (ioError . userError . show) (BL.writeFile object) Arm64.compileEntryObject
+      LinuxAmd64 ->
+        either (ioError . userError . show) (BL.writeFile object) Amd64.compileEntryObject
+      _ -> do
+        (compiler, arguments) <- backendCompiler target
+        runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
     archiver <- backendArchiver target
     runTool archiver ["rcs", archive, object]
     renameFile archive destination

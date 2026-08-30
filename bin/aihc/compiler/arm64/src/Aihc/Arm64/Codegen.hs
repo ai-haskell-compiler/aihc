@@ -15,6 +15,7 @@ module Aihc.Arm64.Codegen
   )
 where
 
+import Aihc.Arm64.Assemble (assembleMachO)
 import Aihc.Arm64.Codegen.Function
 import Aihc.Arm64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
@@ -94,7 +95,8 @@ compileObservedFunction entryName gcProgram = do
             <> staticGlobals
             <> renderLinkedLocals functions
             <> renderCompiledSupport compileEnv functions observedRuntimeInfos
-  pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
+  object <- either (Left . Arm64ObjectError . T.pack . show) pure (assembleMachO assembly)
+  pure ObservedProgram {observedAssembly = assembly, observedObject = object, observedMetadataSource = metadata}
   where
     program = gcGrinProgram gcProgram
     compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}

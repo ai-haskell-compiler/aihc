@@ -403,6 +403,11 @@ test_installV2TargetArchives = do
       assertFileExists objectPath
       assertFileExists nativePath
       assertFileExists archivePath
+      objectHeader <- BS.take 4 <$> BS.readFile objectPath
+      case target of
+        AppleArm64 -> assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
+        LinuxAmd64 -> assertEqual "ELF object header" (BS.pack [0x7f, 0x45, 0x4c, 0x46]) objectHeader
+        _ -> pure ()
       members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath

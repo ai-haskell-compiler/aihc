@@ -29,6 +29,7 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (forM, when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
@@ -627,17 +628,17 @@ runObservedProgram observed =
   withTempDirectory "aihc-arm64-snapshot" $ \directory -> do
     runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     snapshotRuntime <- snapshotSourcePath
-    let assemblyPath = directory </> "snapshot.s"
+    let objectPath = directory </> "snapshot.o"
         metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
-    TIO.writeFile assemblyPath (observedAssembly observed)
+    BL.writeFile objectPath (observedObject observed)
     TIO.writeFile metadataPath (observedMetadataSource observed)
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
         ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror"]
             <> runtimeArguments
-            <> [snapshotRuntime, metadataPath, assemblyPath, "-o", executablePath]
+            <> [snapshotRuntime, metadataPath, objectPath, "-o", executablePath]
         )
         ""
     case clangExit of

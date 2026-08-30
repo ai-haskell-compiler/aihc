@@ -113,13 +113,18 @@ library compiler
     Aihc.Wasm.Codegen
 
   other-modules:
+    Aihc.Amd64.Assemble
     Aihc.Amd64.Codegen.Function
     Aihc.Amd64.Codegen.Runtime
+    Aihc.Arm64.Assemble
     Aihc.Arm64.Codegen.Function
     Aihc.Arm64.Codegen.Runtime
     Aihc.Cli.TaskGraph
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
+    Aihc.Native.Elf
+    Aihc.Native.MachO
+    Aihc.Native.Object
     Paths_aihc
 
   autogen-modules: Paths_aihc

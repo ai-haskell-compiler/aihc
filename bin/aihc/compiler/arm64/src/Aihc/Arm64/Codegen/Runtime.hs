@@ -66,6 +66,7 @@ import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (StateT)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -82,6 +83,7 @@ data Arm64Error
   | Arm64UnsupportedExpression !Text
   | Arm64UnsupportedValue !Text
   | Arm64UnsupportedRuntimeRep !GrinRep
+  | Arm64ObjectError !Text
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
@@ -96,6 +98,7 @@ data CompileEnv = CompileEnv
 
 data ObservedProgram = ObservedProgram
   { observedAssembly :: !Text,
+    observedObject :: !BL.ByteString,
     observedMetadataSource :: !Text
   }
   deriving (Eq, Show)
