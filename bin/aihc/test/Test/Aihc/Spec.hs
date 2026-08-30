@@ -656,7 +656,7 @@ test_installV2ImplicitPrelude = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/implicit-prelude"
   withTempDir "aihc-install-v2-implicit-prelude" $ \root -> do
     let sourceRoot = fixtureRoot </> "demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False True False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False True False False AppleArm64
     result <- installV2 options
     assertEqual "implicit Prelude user" ["Demo"] (installV2WrittenModules result)
 
