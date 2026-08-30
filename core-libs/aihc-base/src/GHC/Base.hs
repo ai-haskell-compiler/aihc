@@ -9,6 +9,8 @@ module GHC.Base
     Applicative (..),
     Functor (..),
     Monad (..),
+    IO (..),
+    divInt#,
     bindIO,
     returnIO,
     thenIO,
@@ -18,7 +20,7 @@ where
 import Data.Kind (Type)
 import GHC.IO (IO (..))
 import GHC.Internal.Char (Char)
-import GHC.Prim (RealWorld, State#)
+import GHC.Prim (RealWorld, State#, divInt#)
 import GHC.Types (List (..))
 
 type String = [Char]
@@ -31,8 +33,10 @@ class Functor (f :: Type -> Type) where
 class (Functor f) => Applicative (f :: Type -> Type) where
   pure :: a -> f a
   (<*>) :: f (a -> b) -> f a -> f b
+  (*>) :: f a -> f b -> f b
+  first *> second = fmap (\_ value -> value) first <*> second
 
-infixl 4 <*>
+infixl 4 <*>, *>
 
 class (Applicative m) => Monad (m :: Type -> Type) where
   (>>=) :: m a -> (a -> m b) -> m b

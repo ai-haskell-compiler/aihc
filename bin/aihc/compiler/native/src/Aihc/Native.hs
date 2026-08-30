@@ -247,6 +247,7 @@ supportedNativePrimitiveNames =
     "leWord#",
     "gtWord#",
     "geWord#",
+    "nullAddr#",
     "realWorld#",
     "unsafeFreezeArray#",
     "unsafeThawArray#",

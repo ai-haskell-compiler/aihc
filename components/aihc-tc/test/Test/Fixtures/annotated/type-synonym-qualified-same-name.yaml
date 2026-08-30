@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Lazy where
+  import qualified Strict
+  type ST s a = Strict.ST s a
+       └─ type: Type → Type → Type
+  strictToLazyST :: Strict.ST s a -> ST s a
+  strictToLazyST action = action
+  │              └─ type: (s, a)
+  └─ type: ∀ s a. (s, a) → (s, a)
+- |-
+  module Strict where
+  type ST s a = (s, a)
+       └─ type: Type → Type → Type
+extensions: []
+modules:
+- |
+  module Strict where
+  type ST s a = (s, a)
+- |
+  module Lazy where
+  import qualified Strict
+  type ST s a = Strict.ST s a
+  strictToLazyST :: Strict.ST s a -> ST s a
+  strictToLazyST action = action
+reason: Qualified type synonyms with the same name have different identities.
+status: pass

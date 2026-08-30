@@ -373,6 +373,8 @@ compileDirectBinding env vars expression =
                 <> amountLines
                 <> ["  mov rcx, rax", "  " <> instruction <> " r10, cl", "  mov rax, r10", loadAt "rcx" "r14" savedCountRegister]
             )
+    GrinPrimitiveCall _ "nullAddr#" [] ->
+      storeSingleResult ["  xor rax, rax"]
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
