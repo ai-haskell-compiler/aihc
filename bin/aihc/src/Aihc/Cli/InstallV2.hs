@@ -40,7 +40,14 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
-import Aihc.Parser.Syntax (ImportDecl (..), Module, Name (..), SourceSpan (..), moduleName)
+import Aihc.Parser.Syntax
+  ( Extension (ImplicitPrelude),
+    ImportDecl (..),
+    Module,
+    Name (..),
+    SourceSpan (..),
+    moduleName,
+  )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve
   ( ModuleExports,
@@ -133,6 +140,7 @@ data SourceModule = SourceModule
     sourceModuleSize :: !Int,
     sourceModuleHash :: !Text,
     sourceModuleAst :: Module,
+    sourceModuleExtensions :: ![Extension],
     sourceModuleSourceLines :: !(Map.Map FilePath (Map.Map Int Text)),
     sourceModuleParseDiagnostics :: [Value]
   }
@@ -414,8 +422,8 @@ installPackageV2 config storeRoot dependencies root = do
 parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ <- parseInterfaceFile root fileInfo
-  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu sourceLines parseDiagnostics)
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root fileInfo
+  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu extensions sourceLines parseDiagnostics)
 
 loadSourceModules :: Int -> FilePath -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
 loadSourceModules workers root files = do
@@ -443,9 +451,8 @@ sourceModuleUnits :: [SourceModule] -> [SourceUnit]
 sourceModuleUnits sources = zipWith makeUnit [0 ..] orderedComponents
   where
     node source = (source, sourceName source, moduleDependencies source)
-    moduleImportsOf = Syntax.moduleImports . sourceModuleAst
     moduleDependencies source =
-      nub (filter (/= sourceName source) wiredTypeModules <> map importDeclModule (moduleImportsOf source))
+      nub (filter (/= sourceName source) wiredTypeModules <> sourceDependencyNames source)
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
     components = map (sortOn sourceName . flatten) (stronglyConnComp (map node sources))
@@ -716,6 +723,16 @@ unitLabel = T.intercalate "+" . map sourceName . sourceUnitSources
 sourceName :: SourceModule -> Text
 sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
+sourceDependencyNames :: SourceModule -> [Text]
+sourceDependencyNames source =
+  map importDeclModule (Syntax.moduleImports modu)
+    <> ["Prelude" | moduleUsesImplicitPrelude source]
+  where
+    modu = sourceModuleAst source
+
+moduleUsesImplicitPrelude :: SourceModule -> Bool
+moduleUsesImplicitPrelude = elem ImplicitPrelude . sourceModuleExtensions
+
 lookupRuntime :: Map.Map UnitId UnitRuntime -> UnitId -> UnitRuntime
 lookupRuntime runtimes identifier =
   fromMaybe (error "missing unit runtime") (Map.lookup identifier runtimes)
@@ -737,7 +754,7 @@ runResolveUnit context runtimes runtime = do
       sources = sourceUnitSources unit
       packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
       unitNames = map sourceName sources
-      importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) sources)
+      importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredTypeModules)
       availableExports = Map.unions (map resolveUnitExports dependencyResults) `Map.union` dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
@@ -795,7 +812,7 @@ runTypeUnit context runtimes runtime = do
       cache = installArtifactCache config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
-      importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) sources)
+      importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredTypeModules)
       availableTypes = Map.unions (map typeUnitTypes dependencyResults) `Map.union` dependencyTypes
       availableTypeHashes = Map.unions (map typeUnitHashes dependencyResults) `Map.union` dependencyTypeHashes

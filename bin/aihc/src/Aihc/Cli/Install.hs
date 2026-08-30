@@ -1164,7 +1164,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
   gpd <- readPlanPackageDescription plan
   files <- HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
-  let parsedModules = [modu | ParsedInterfaceFile _ modu _ diagnostics _ <- parsedFiles, null diagnostics]
+  let parsedModules = [modu | ParsedInterfaceFile _ modu _ diagnostics _ _ <- parsedFiles, null diagnostics]
       sourceLinesByFile = Map.unionsWith Map.union (map parsedFileSourceLines parsedFiles)
       enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
@@ -1283,16 +1283,16 @@ typecheckTimeoutDiagnostic modu =
         ]
 
 data ParsedInterfaceFile
-  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value]
+  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension]
 
 parsedFileSourceLines :: ParsedInterfaceFile -> DiagnosticSourceMap
-parsedFileSourceLines (ParsedInterfaceFile _ _ sourceLines _ _) = sourceLines
+parsedFileSourceLines (ParsedInterfaceFile _ _ sourceLines _ _ _) = sourceLines
 
 parsedFileParseDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
-parsedFileParseDiagnostics (ParsedInterfaceFile _ _ _ parseDiagnostics _) = parseDiagnostics
+parsedFileParseDiagnostics (ParsedInterfaceFile _ _ _ parseDiagnostics _ _) = parseDiagnostics
 
 parsedFileCppDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
-parsedFileCppDiagnostics (ParsedInterfaceFile _ _ _ _ cppDiagnostics) = cppDiagnostics
+parsedFileCppDiagnostics (ParsedInterfaceFile _ _ _ _ cppDiagnostics _) = cppDiagnostics
 
 readPlanPackageDescription :: PackagePlan -> IO GenericPackageDescription
 readPlanPackageDescription plan = do
@@ -1322,7 +1322,7 @@ parseInterfaceFile packageRoot fileInfo = do
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
       sourceLines = diagnosticSourceMap path source
-  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics)
+  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions)
   where
     path = HackageCabal.fileInfoPath fileInfo
 
