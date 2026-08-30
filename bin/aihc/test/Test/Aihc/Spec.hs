@@ -23,8 +23,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import System.Directory
-  ( copyFile,
-    createDirectory,
+  ( createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
@@ -55,16 +54,11 @@ tests =
         [testCase "builds imported source modules and runs the executable" test_buildExeSourceDirectories],
       testGroup
         "install-v2"
-        [ testCase "writes Core files and reuses equal SCC inputs" test_installV2ResolveArtifacts,
-          testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
-          testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
-          testCase "keeps transitive instances after cached type interfaces" test_installV2CachedTransitiveInstances,
+        [ testCase "writes Core files and reuses an installed package" test_installV2ResolveArtifacts,
           testCase "accepts type-check warnings" test_installV2TypeWarning,
           testCase "loads the implicit Prelude type interface" test_installV2ImplicitPrelude,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
-          testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
-          testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
           testCase "prints timings independently from verbose output" test_installV2TimingOutput,
           testCase "reports all frontend errors in stable dependency order" test_installV2ResolveError,
           testCase "writes Core for a ccall import" test_installV2FcCcall,
@@ -244,20 +238,20 @@ test_installV2ResolveArtifacts =
     assertCoreFile (installV2StorePath second </> "Demo" </> "B" </> "core")
     BS.writeFile (installV2StorePath second </> "Demo" </> "A" </> "resolve.cbor") "invalid resolve artifact"
     BS.writeFile (installV2StorePath second </> "Demo" </> "B" </> "type.cbor") "invalid type artifact"
-    uncached <- installV2 options {installV2NoCache = True}
-    assertEqual "no-cache rebuilds all modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules uncached))
-    assertEqual "no-cache reuses no modules" [] (installV2ReusedModules uncached)
+    reinstalled <- installV2 options {installV2Reinstall = True}
+    assertEqual "reinstall rebuilds all modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules reinstalled))
+    assertEqual "reinstall reuses no modules" [] (installV2ReusedModules reinstalled)
     removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
-    coreRepaired <- installV2 options
+    coreRepaired <- installV2 options {installV2Reinstall = True}
     assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
-    changed <- installV2 options
+    changed <- installV2 options {installV2Reinstall = True}
     assertEqual "source changes keep the package directory" (installV2StorePath first) (installV2StorePath changed)
     assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
     let artifact = installV2StorePath first </> "Demo" </> "A" </> "resolve.cbor"
     artifactBytes <- BS.readFile artifact
     BS.writeFile artifact (BS.init artifactBytes)
-    repaired <- installV2 options
+    repaired <- installV2 options {installV2Reinstall = True}
     assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules repaired))
     assertEqual "does not reuse a corrupt SCC" [] (installV2ReusedModules repaired)
 
@@ -310,7 +304,10 @@ test_installV2ResolveError = do
           result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
           case result of
             Right _ -> assertFailure "expected frontend compilation to fail"
-            Left err ->
+            Left err -> do
+              storeEntries <- listDirectory (root </> "store-" <> show workers </> nativeTargetStoreDirectory AppleArm64)
+              assertBool "failed install leaves no temporary entry" (not (any (".tmp-" `isPrefixOf`) storeEntries))
+              assertBool "failed install leaves no package entry" (not (any ("demo-" `isPrefixOf`) storeEntries))
               pure (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
     mapM_ (assertEqual "formatted frontend errors" expected) actual
 
@@ -350,7 +347,7 @@ test_installV2KeepGrin = do
     originalCore <- readFile corePath
     removeFile cpsGrinPath
     removeFile gcGrinPath
-    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False False False False AppleArm64)
+    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False True False False False AppleArm64)
     assertFileExists grinPath
     assertFileExists cpsGrinPath
     assertFileExists gcGrinPath
@@ -397,7 +394,7 @@ test_installV2TargetArchives = do
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
-      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False False False False target)
+      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False True False False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native source repair keeps Core" originalCore repairedCore
@@ -599,50 +596,6 @@ listNamedFiles root name = do
             then pure [path]
             else pure []
 
-test_installV2TypeDependencies :: Assertion
-test_installV2TypeDependencies =
-  withTempDir "aihc-install-v2-type-dependencies" $ \root -> do
-    let sourceRoot = root </> "source"
-        sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo.A, Demo.B",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na = b\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = x\n"
-    _ <- installV2 options
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x y = x\n"
-    changed <- installV2 options
-    assertEqual "type change and direct dependent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
-    assertEqual "no reused dependent after type change" [] (installV2ReusedModules changed)
-
-test_installV2CachedTransitiveInstances :: Assertion
-test_installV2CachedTransitiveInstances = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/cached-transitive-instance"
-  withTempDir "aihc-install-v2-cached-transitive-instance" $ \root -> do
-    let sourceRoot = root </> "source"
-        sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False True False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    copyFile (fixtureRoot </> "demo.cabal") (sourceRoot </> "demo.cabal")
-    mapM_ (\name -> copyFile (fixtureRoot </> "src" </> "Demo" </> name) (sourceDir </> name)) ["A.hs", "B.hs", "C.hs"]
-    first <- installV2 options
-    assertEqual "first install writes all modules" ["Demo.A", "Demo.B", "Demo.C"] (sort (installV2WrittenModules first))
-    copyFile (fixtureRoot </> "updated" </> "Demo" </> "C.hs") (sourceDir </> "C.hs")
-    second <- installV2 options
-    assertEqual "changed dependent uses the transitive instance" ["Demo.C"] (sort (installV2WrittenModules second))
-    assertEqual "instance providers use cached interfaces" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules second))
-
 test_installV2TypeWarning :: Assertion
 test_installV2TypeWarning = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/type-warning"
@@ -690,136 +643,33 @@ test_installV2TypeReexports =
     assertBool "re-exported signature" ("fn" `elem` termNames)
 
 test_installV2LocalDependencies :: Assertion
-test_installV2LocalDependencies =
+test_installV2LocalDependencies = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/local-dependencies"
   withTempDir "aihc-install-v2-local-dependencies" $ \root -> do
-    let sourceRoot = root </> "demo"
-        dependencyRoot = root </> "dep"
+    let sourceRoot = fixtureRoot </> "demo"
         storeRoot = root </> "store"
         options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False False AppleArm64
-    createDirectoryIfMissing True (sourceRoot </> "src")
-    createDirectoryIfMissing True (dependencyRoot </> "src")
-    writeFile
-      (dependencyRoot </> "dep.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: dep",
-            "version: 1.0.0",
-            "library",
-            "  exposed-modules: Dep",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (dependencyRoot </> "src" </> "Dep.hs") "module Dep where\nidentity x = x\n"
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo",
-            "  hs-source-dirs: src",
-            "  build-depends: dep",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Dep\nresult = identity\n"
     _ <- installV2 options
     let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
     storeEntries <- listDirectory targetStoreRoot
+    assertBool "temporary store directories are absent" (not (any (".tmp-" `isPrefixOf`) storeEntries))
     let dependencyStores = filter ("dep-1.0.0-" `isPrefixOf`) storeEntries
     case dependencyStores of
       [dependencyStore] -> do
-        assertFileExists (targetStoreRoot </> dependencyStore </> "Dep" </> "resolve.cbor")
-        assertFileExists (targetStoreRoot </> dependencyStore </> "Dep" </> "type.cbor")
+        let dependencyStoreRoot = targetStoreRoot </> dependencyStore
+            unusedTypePath = dependencyStoreRoot </> "Dep" </> "Unused" </> "type.cbor"
+            sentinelPath = dependencyStoreRoot </> "reinstall-sentinel"
+        assertFileExists (dependencyStoreRoot </> "Dep" </> "resolve.cbor")
+        assertFileExists (dependencyStoreRoot </> "Dep" </> "type.cbor")
+        assertFileExists unusedTypePath
+        BS.writeFile unusedTypePath "invalid unused type artifact"
+        writeFile sentinelPath "dependency was not reinstalled"
+        reinstalled <- installV2 options {installV2Reinstall = True}
+        assertEqual "reinstall writes the specified package" ["Demo"] (installV2WrittenModules reinstalled)
+        assertFileExists sentinelPath
+        unusedTypeBytes <- BS.readFile unusedTypePath
+        assertEqual "reinstall does not read or replace the unused module" "invalid unused type artifact" unusedTypeBytes
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
-
-test_installV2StaleTypeArtifact :: Assertion
-test_installV2StaleTypeArtifact =
-  withTempDir "aihc-install-v2-stale-type" $ \root -> do
-    let sourceRoot = root </> "source"
-        sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "Demo.hs") "module Demo where\nvalue x = x\n"
-    first <- installV2 options
-    let artifactPath = installV2StorePath first </> "Demo" </> "type.cbor"
-    artifact <- BS.readFile artifactPath
-    BS.writeFile artifactPath (BS.take 11 artifact <> BS.singleton 1 <> BS.drop 12 artifact)
-    rebuilt <- installV2 options
-    assertEqual "rebuilt module" ["Demo"] (installV2WrittenModules rebuilt)
-
-test_installV2ResolveDependencies :: Assertion
-test_installV2ResolveDependencies =
-  withTempDir "aihc-install-v2-dependencies" $ \root -> do
-    let sourceRoot = root </> "source"
-        sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo.A, Demo.B",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na = b\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = x\n"
-    _ <- installV2 options
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = (x)\n"
-    sourceChanged <- installV2 options
-    assertEqual "source-only change" ["Demo.B"] (sort (installV2WrittenModules sourceChanged))
-    assertEqual "dependent with equal scope" ["Demo.A"] (sort (installV2ReusedModules sourceChanged))
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = x\nc x = x\n"
-    scopeChanged <- installV2 options
-    assertEqual "changed scope and dependent modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules scopeChanged))
-    assertEqual "no reused dependent after scope change" [] (installV2ReusedModules scopeChanged)
-
-test_installV2StopsAtEqualScope :: Assertion
-test_installV2StopsAtEqualScope =
-  withTempDir "aihc-install-v2-scope-boundary" $ \root -> do
-    let sourceRoot = root </> "source"
-        sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo.A, Demo.B, Demo.C",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\na x = x\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = x\n"
-    writeFile (sourceDir </> "C.hs") "module Demo.C where\nimport Demo.B\nc x = x\n"
-    _ <- installV2 options
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\na x = x\na2 x = x\n"
-    changed <- installV2 options
-    assertEqual "changed module and direct dependent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
-    assertEqual "transitive dependent with equal direct scope" ["Demo.C"] (sort (installV2ReusedModules changed))
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
