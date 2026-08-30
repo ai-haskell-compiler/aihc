@@ -217,7 +217,7 @@ tests =
         case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
+            assertBool "passes two values" ("mov rdi, 2" `T.isInfixOf` assembly)
             assertBool "enters the continuation through registers" ("jmp .Laihc_enter" `T.isInfixOf` assembly)
             assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
@@ -304,6 +304,7 @@ snapshotCases =
   [ ("stores one value", "store-one.yaml"),
     ("preserves a suspended thunk", "store-suspended.yaml"),
     ("stores linked values", "store-linked.yaml"),
+    ("merges case branch reservations", "case-reservation.yaml"),
     ("stores a self-referential value", "store-self-referential.yaml"),
     ("returns an unboxed value", "return-unboxed.yaml"),
     ("loops ten million times", "loop-add.yaml"),
@@ -346,6 +347,8 @@ snapshotTest (name, fixtureName) =
       assertBool "does not move an argument to the same register" (not ("mov rax, rax" `T.isInfixOf` assembly))
     when (fixtureName == "store-linked.yaml") $
       assertEqual "one reservation for adjacent source stores" 2 (T.count "call aihc_ensure_heap" (observedAssembly observed))
+    when (fixtureName == "case-reservation.yaml") $
+      assertEqual "one reservation for all case branches" 2 (T.count "call aihc_ensure_heap" (observedAssembly observed))
     when (fixtureName == "store-suspended.yaml") $
       assertBool
         "does not save a node without fields"

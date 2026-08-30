@@ -3,7 +3,6 @@
 -- | Human-readable System FC text.
 module Aihc.Fc.Pretty
   ( renderProgram,
-    renderProgramText,
     renderType,
     renderExpr,
   )
@@ -32,11 +31,8 @@ data Prec
   | PrecForAll
   deriving (Eq, Ord)
 
-renderProgram :: Program -> String
-renderProgram = renderDocument . prettyProgram
-
-renderProgramText :: Program -> Text
-renderProgramText = renderStrict . layoutPretty defaultLayoutOptions . prettyProgram
+renderProgram :: Program -> Text
+renderProgram = renderStrict . layoutPretty defaultLayoutOptions . prettyProgram
 
 prettyProgram :: Program -> Doc ann
 prettyProgram program =

@@ -1228,7 +1228,7 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
       verbose ("Write FC: " <> T.unpack name)
 
     writeFcFile path program = do
-      let rendered = Fc.renderProgramText program
+      let rendered = Fc.renderProgram program
           output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       TIO.writeFile path output

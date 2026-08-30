@@ -40,7 +40,7 @@ fixtureTest path = testCase path $ do
   case parseProgram source of
     Left parseError -> assertFailure (renderParseError parseError)
     Right program ->
-      let printed = T.pack (renderProgram program)
+      let printed = renderProgram program
        in case parseProgram printed of
             Left reprintError -> assertFailure ("reprint parse failed: " <> renderParseError reprintError)
             Right reprinted -> do
