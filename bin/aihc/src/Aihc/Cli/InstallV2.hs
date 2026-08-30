@@ -9,7 +9,7 @@ import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.ArtifactCache (ArtifactCache, artifactCache, loadArtifact)
 import Aihc.Cli.Options (InstallV2Options (..))
-import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
     PackagePlan (..),
@@ -98,8 +98,8 @@ import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
-import Control.Exception (bracket, evaluate)
-import Control.Monad (filterM, forM, unless, when)
+import Control.Exception (IOException, bracket, evaluate, throwIO, try)
+import Control.Monad (filterM, forM, forM_, unless, when)
 import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
@@ -121,11 +121,11 @@ import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (createDirectoryIfMissing, doesFileExist, getFileSize, removeFile)
+import System.Directory (copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
-import System.IO (hIsTerminalDevice, stdout)
+import System.IO (hClose, hIsTerminalDevice, openBinaryTempFile, stdout)
 import System.Process (readProcessWithExitCode)
 
 data InstallV2Result = InstallV2Result
@@ -232,6 +232,7 @@ data InstallConfig = InstallConfig
     installVerbose :: String -> IO (),
     installPrintTimings :: String -> IO (),
     installUseColor :: !Bool,
+    installReinstall :: !Bool,
     installArtifactCache :: !ArtifactCache
   }
 
@@ -274,7 +275,8 @@ installV2 options = do
             installVerbose = verbose,
             installPrintTimings = printTimings,
             installUseColor = useColor,
-            installArtifactCache = artifactCache (not (installV2NoCache options))
+            installReinstall = installV2Reinstall options,
+            installArtifactCache = artifactCache True
           }
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver spec
@@ -298,6 +300,36 @@ installPackagePlanV2 config storeRoot plan = do
 
 installPackageV2 :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
 installPackageV2 config storeRoot dependencies root = do
+  packageDirectory <- packageStoreDirectory dependencies root
+  let storePath = storeRoot </> packageDirectory
+  exists <- doesDirectoryExist storePath
+  if exists && not (installReinstall config)
+    then loadInstalledV2Package storePath
+    else do
+      createDirectoryIfMissing True storeRoot
+      bracket
+        (createTemporaryStoreRoot storeRoot packageDirectory)
+        removeTemporaryStoreRoot
+        (buildAndPublish storePath)
+  where
+    buildAndPublish storePath temporaryRoot = do
+      existsBeforeBuild <- doesDirectoryExist storePath
+      when (existsBeforeBuild && installReinstall config) $
+        copyDirectoryContents storePath (temporaryRoot </> takeFileName storePath)
+      built <- installPackageV2Direct config temporaryRoot dependencies root
+      exists <- doesDirectoryExist storePath
+      when (exists && installReinstall config) (removeDirectoryRecursive storePath)
+      publishResult <- try (renameDirectory (installV2StorePath (installedV2Result built)) storePath)
+      case publishResult of
+        Right () -> pure (setInstalledStorePath storePath built)
+        Left err -> do
+          published <- doesDirectoryExist storePath
+          if published
+            then loadInstalledV2Package storePath
+            else throwIO (err :: IOException)
+
+installPackageV2Direct :: InstallConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2Direct config storeRoot dependencies root = do
   let target = installTarget config
       verbose = installVerbose config
   verbose ("Read Cabal package: " <> root)
@@ -418,6 +450,88 @@ installPackageV2 config storeRoot dependencies root = do
         installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
         installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
       }
+
+packageStoreDirectory :: [InstalledV2Package] -> FilePath -> IO FilePath
+packageStoreDirectory dependencies root = do
+  cabalFiles <- HackageUtil.findCabalFiles root
+  cabalFile <- case cabalFiles of
+    [] -> ioError (userError ("No .cabal file found under " <> root))
+    files -> pure (HackageUtil.chooseBestCabalFile root files)
+  cabalBytes <- BS.readFile cabalFile
+  gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
+    (_, Right value) -> pure value
+    (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
+  let packageId = package (packageDescription gpd)
+      packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
+      packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
+      dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
+      packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : dependencyIdentities))
+  pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash)
+
+createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
+createTemporaryStoreRoot storeRoot packageDirectory = do
+  (path, handle) <- openBinaryTempFile storeRoot (".tmp-" <> packageDirectory <> "-")
+  hClose handle
+  removeFile path
+  createDirectory path
+  pure path
+
+removeTemporaryStoreRoot :: FilePath -> IO ()
+removeTemporaryStoreRoot path = do
+  exists <- doesDirectoryExist path
+  when exists (removeDirectoryRecursive path)
+
+copyDirectoryContents :: FilePath -> FilePath -> IO ()
+copyDirectoryContents source destination = do
+  createDirectoryIfMissing True destination
+  entries <- listDirectory source
+  forM_ entries $ \entry -> do
+    let sourcePath = source </> entry
+        destinationPath = destination </> entry
+    isDirectory <- doesDirectoryExist sourcePath
+    if isDirectory
+      then copyDirectoryContents sourcePath destinationPath
+      else copyFile sourcePath destinationPath
+
+setInstalledStorePath :: FilePath -> InstalledV2Package -> InstalledV2Package
+setInstalledStorePath storePath installed =
+  installed
+    { installedV2Result =
+        (installedV2Result installed)
+          { installV2StorePath = storePath
+          }
+    }
+
+loadInstalledV2Package :: FilePath -> IO InstalledV2Package
+loadInstalledV2Package storePath = do
+  manifestResult <- readPackageManifest (packageManifestPath storePath)
+  manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
+  entries <- mapM loadModule (packageManifestModules manifest)
+  let package = Package (packageManifestName manifest) (PackageId (packageManifestIdentity manifest))
+      exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
+      types = Map.fromList [(name, interface) | (name, _, interface) <- entries]
+      scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
+      typeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
+  pure
+    InstalledV2Package
+      { installedV2Result = InstallV2Result storePath [] (packageManifestModules manifest),
+        installedV2Exports = exports,
+        installedV2Types = types,
+        installedV2ScopeHashes = scopeHashes,
+        installedV2TypeHashes = typeHashes
+      }
+  where
+    loadModule name = do
+      let root = storePath </> moduleNameDirectory name
+          resolvePath = root </> "resolve.cbor"
+          typePath = root </> "type.cbor"
+      resolveBytes <- BS.readFile resolvePath
+      resolveArtifact <- either (ioError . userError . (("Invalid resolve artifact " <> resolvePath <> ": ") <>)) pure (decodeResolveArtifact resolveBytes)
+      typeBytes <- BS.readFile typePath
+      typeArtifact <- either (ioError . userError . (("Invalid type artifact " <> typePath <> ": ") <>)) pure (decodeTypeArtifact typeBytes)
+      unless (resolveArtifactModuleName resolveArtifact == name) (ioError (userError ("Resolve artifact module name does not match " <> resolvePath)))
+      unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
+      pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
 
 parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do

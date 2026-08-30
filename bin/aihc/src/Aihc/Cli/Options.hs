@@ -50,7 +50,7 @@ data InstallV2Options = InstallV2Options
     installV2KeepGrin :: !Bool,
     installV2KeepNative :: !Bool,
     installV2Lint :: !Bool,
-    installV2NoCache :: !Bool,
+    installV2Reinstall :: !Bool,
     installV2NoCode :: !Bool,
     installV2Verbose :: !Bool,
     installV2PrintTimings :: !Bool,
@@ -219,8 +219,8 @@ installV2OptionsParser =
       )
     <*> lintOption
     <*> OA.switch
-      ( OA.long "no-cache"
-          <> OA.help "Do not read cached artifacts for the package"
+      ( OA.long "reinstall"
+          <> OA.help "Build the package again when it exists in the store"
       )
     <*> OA.switch
       ( OA.long "no-code"
