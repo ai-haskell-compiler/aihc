@@ -1,31 +1,16 @@
 module Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
-    InstallFailure (..),
-    PackageCheckCache,
-    PackageCheckResult,
-    PackagePlanCache,
     PackagePlan (..),
-    PackageVariantKey (..),
     buildPackagePlanWithResolver,
-    buildPackagePlanWithResolverCached,
-    checkPackagePlanWithCache,
-    installFailureIsForPackage,
     ParsedInterfaceFile (..),
     parseInterfaceFile,
-    lookupPackagePlanSourceLineCount,
     localDependencyResolverWithFallback,
-    newPackageCheckCache,
-    newPackagePlanCache,
     packageSpecFromSource,
-    packagePlanFailureShouldBeReportedForPackage,
-    renderInstallFailure,
     renderHumanDiagnostic,
   )
 where
 
-import Aihc.Cli.PackageInterface (PackageInterfaceBinding (..), PackageInterfaceTcModule (..))
 import Aihc.Cpp qualified as Cpp
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
@@ -34,7 +19,6 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
     ExtensionSetting (..),
-    ImportDecl (..),
     LanguageEdition (..),
     Module (..),
     SourceSpan (..),
@@ -44,58 +28,25 @@ import Aihc.Parser.Syntax
     parseExtensionSettingName,
     parseLanguageEdition,
   )
-import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve
-  ( ModuleExports,
-    ModuleKey (..),
-    Package (..),
-    PackageId (..),
-    ResolveError (..),
-    ResolveResult (..),
-    extractInterface,
-    modulesInPackage,
-    resolveWithDeps,
-  )
-import Aihc.Tc
-  ( TcBindingResult (..),
-    TcDiagnostic (..),
-    TcInterface (..),
-    TcSeverity (..),
-    tcConfig,
-    tcModuleBindings,
-    tcModuleDiagnostics,
-    tcModuleSuccess,
-    typecheckModulesWithInterface,
-  )
 import Control.Applicative ((<|>))
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
-import Control.Exception (AsyncException, Exception (..), SomeException, evaluate, fromException, mask, throwIO, try)
 import Data.Aeson (object, (.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Bits (xor)
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
-import Data.Either (rights)
-import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.List (nub, sort, sortOn)
+import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
-import Data.Set qualified as Set
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo, package, packageDescription)
+import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, libBuildInfo, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
-import Distribution.Types.Flag (flagDefault, flagName, unFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
-import Numeric (showHex)
 import System.Directory
   ( doesDirectoryExist,
     doesFileExist,
@@ -103,19 +54,12 @@ import System.Directory
   )
 import System.Environment (lookupEnv)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
-import System.Timeout (timeout)
 import Text.Read (readMaybe)
 
 data PackagePlan = PackagePlan
-  { planPackageKey :: !PackageVariantKey,
-    planSourcePath :: !FilePath,
-    planCabalFile :: !FilePath,
+  { planSourcePath :: !FilePath,
     planDependencyPlans :: ![PackagePlan]
   }
-  deriving (Eq, Show)
-
-data InstallFailure
-  = InstallInterfaceFailure !PackageSpec ![(String, [Aeson.Value])]
   deriving (Eq, Show)
 
 data DependencyResolver = DependencyResolver
@@ -123,91 +67,10 @@ data DependencyResolver = DependencyResolver
     resolverSourcePath :: PackageSpec -> IO FilePath
   }
 
-newtype PackageHash = PackageHash
-  { unPackageHash :: String
-  }
-  deriving (Eq, Ord, Show)
-
-data ResolvedDependency = ResolvedDependency
-  { resolvedDependencySpec :: !PackageSpec,
-    resolvedDependencyHash :: !PackageHash
-  }
-  deriving (Eq, Show)
-
-data PackageVariantKey = PackageVariantKey
-  { packageKeySpec :: !PackageSpec,
-    packageKeyHash :: !PackageHash
-  }
-  deriving (Eq, Show)
-
--- | Readable, globally unique library identity components. The package hash
--- already covers flags, dependency variants, Cabal input, and compiler phase
--- configuration, so it must not be recomputed later in the pipeline.
-packageVariantLibraryId :: PackageVariantKey -> [Text]
-packageVariantLibraryId key =
-  T.splitOn "-" (T.pack (pkgName spec))
-    <> T.splitOn "." (T.pack (pkgVersion spec))
-    <> [T.pack (unPackageHash (packageKeyHash key))]
-  where
-    spec = packageKeySpec key
-
-data SourceAnalysis = SourceAnalysis
-  { sourceCabalFile :: !FilePath,
-    sourceCabalBytes :: !BS.ByteString,
-    sourceSetupBytes :: !BS.ByteString,
-    sourceLineCount :: !Int,
-    sourceFlagAssignments :: ![(String, Bool)],
-    sourceDependencyNames :: ![String]
-  }
-
-data PackagePlanFailureDisposition
-  = ReportPackagePlanFailure
-  | SkipPackagePlanFailure
-  deriving (Eq)
-
-data PackagePlanFailure = PackagePlanFailure !PackagePlanFailureDisposition !PackageSpec !SomeException
-
-instance Show PackagePlanFailure where
-  show (PackagePlanFailure _ _ cause) = displayException cause
-
-instance Exception PackagePlanFailure where
-  displayException (PackagePlanFailure _ _ cause) = displayException cause
-
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
     coreProviderVersion :: !String,
     coreProviderSourceRel :: !FilePath
-  }
-
-data InterfaceBuildResult = InterfaceBuildResult
-  { interfaceModuleExports :: !ModuleExports,
-    interfaceParseDiagnostics :: ![Aeson.Value],
-    interfaceCppDiagnostics :: ![Aeson.Value],
-    interfaceResolveDiagnostics :: ![Aeson.Value],
-    interfaceTcDiagnostics :: ![Aeson.Value],
-    interfaceTcInterface :: !TcInterface,
-    interfaceTcBindings :: ![TcBindingResult],
-    interfaceFcDiagnostics :: ![Aeson.Value]
-  }
-
-newtype PreparedInstall = PreparedInstall
-  { preparedInterface :: InterfaceBuildResult
-  }
-
--- | Successful output from the complete package compiler pipeline.
--- The constructor stays private so callers cannot manufacture a success
--- without parsing, resolving, type-checking, and desugaring the package.
-newtype PackageCheckResult = PackageCheckResult PreparedInstall
-
--- | Concurrent cache for package-check results shared by batch callers.
-newtype PackageCheckCache
-  = PackageCheckCache
-      (MVar (Map.Map String (MVar (Either SomeException (Either InstallFailure PreparedInstall)))))
-
--- | Concurrent plan cache. A cache belongs to one resolver and store root.
-data PackagePlanCache = PackagePlanCache
-  { packagePlanEntries :: !(MVar (Map.Map (String, String) (MVar (Either SomeException (ResolvedDependency, PackagePlan))))),
-    packagePlanSourceLineCounts :: !(MVar (Map.Map (String, String) Int))
   }
 
 localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> DependencyResolver
@@ -258,55 +121,27 @@ packageSpecFromSource sourcePath = do
       }
 
 buildPackagePlanWithResolver :: DependencyResolver -> PackageSpec -> IO PackagePlan
-buildPackagePlanWithResolver resolver spec = do
-  cache <- newPackagePlanCache
-  buildPackagePlanWithResolverCached cache resolver spec
+buildPackagePlanWithResolver resolver = buildPackagePlanRecursive resolver []
 
-newPackagePlanCache :: IO PackagePlanCache
-newPackagePlanCache = PackagePlanCache <$> newMVar Map.empty <*> newMVar Map.empty
-
-lookupPackagePlanSourceLineCount :: PackagePlanCache -> PackageSpec -> IO (Maybe Int)
-lookupPackagePlanSourceLineCount cache rawSpec = do
-  counts <- readMVar (packagePlanSourceLineCounts cache)
-  pure (Map.lookup (pkgName spec, pkgVersion spec) counts)
-  where
-    spec = canonicalPackageSpec rawSpec
-
--- | Build a package plan while sharing dependency work with other roots.
-buildPackagePlanWithResolverCached :: PackagePlanCache -> DependencyResolver -> PackageSpec -> IO PackagePlan
-buildPackagePlanWithResolverCached cache resolver spec =
-  snd <$> buildPackagePlanRecursive cache resolver [] spec
-
-buildPackagePlanRecursive :: PackagePlanCache -> DependencyResolver -> [PackageSpec] -> PackageSpec -> IO (ResolvedDependency, PackagePlan)
-buildPackagePlanRecursive cache resolver stack rawSpec
+buildPackagePlanRecursive :: DependencyResolver -> [PackageSpec] -> PackageSpec -> IO PackagePlan
+buildPackagePlanRecursive resolver stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
-      withSkippedPackagePlanFailure cycleSpec $
-        ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
-  | otherwise = buildPackagePlanCached cache spec build
+      ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
+  | otherwise = do
+      sourcePath <- sourcePathForSpec resolver spec
+      dependencyNames <- packageDependencyNamesFromSource sourcePath
+      dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec dependencyNames)
+      dependencyPlans <- mapM (buildPackagePlanRecursive resolver (spec : stack)) dependencySpecs
+      pure
+        PackagePlan
+          { planSourcePath = sourcePath,
+            planDependencyPlans = dependencyPlans
+          }
   where
     spec = canonicalPackageSpec rawSpec
-    cycleSpec = spec {pkgVersion = "cyclic-dependency"}
-    build =
-      withPackagePlanFailure spec $ do
-        sourcePath <- sourcePathForSpec resolver spec
-        analysis <- analyzeSource sourcePath
-        recordPackagePlanSourceLineCount cache spec (sourceLineCount analysis)
-        dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec (sourceDependencyNames analysis))
-        dependencyPlans <- mapM (buildPackagePlanRecursive cache resolver (spec : stack)) dependencySpecs
-        let plan =
-              buildPackagePlanFromAnalysis
-                spec
-                sourcePath
-                (map fst dependencyPlans)
-                (map snd dependencyPlans)
-                analysis
-        pure (resolvedDependencyFromPlan plan, plan)
-
     resolveDependencySpec dependencyName = do
-      version <- withSkippedPackagePlanFailure unresolvedSpec (resolveVersionForDependency dependencyName)
+      version <- resolveVersionForDependency dependencyName
       pure (canonicalPackageSpec (PackageSpec dependencyName version))
-      where
-        unresolvedSpec = PackageSpec dependencyName "unresolved"
 
     resolveVersionForDependency dependencyName =
       case lookupCoreProvider dependencyName of
@@ -321,67 +156,23 @@ withImplicitPrimDependency spec dependencies
   where
     isPrimDependency name = name == "aihc-prim" || name == "ghc-prim"
 
-buildPackagePlanCached :: PackagePlanCache -> PackageSpec -> IO (ResolvedDependency, PackagePlan) -> IO (ResolvedDependency, PackagePlan)
-buildPackagePlanCached cache spec action = mask $ \restore -> do
-  resultVar <- newEmptyMVar
-  (isOwner, sharedResult) <-
-    modifyMVar entries $ \current ->
-      case Map.lookup cacheKey current of
-        Just existing -> pure (current, (False, existing))
-        Nothing -> pure (Map.insert cacheKey resultVar current, (True, resultVar))
-  if isOwner
-    then do
-      result <- try (restore action)
-      putMVar sharedResult result
-      either throwIO pure result
-    else do
-      result <- readMVar sharedResult
-      either throwIO pure result
-  where
-    entries = packagePlanEntries cache
-    cacheKey = (pkgName spec, pkgVersion spec)
-
-recordPackagePlanSourceLineCount :: PackagePlanCache -> PackageSpec -> Int -> IO ()
-recordPackagePlanSourceLineCount cache spec count =
-  modifyMVar_ (packagePlanSourceLineCounts cache) $ \counts ->
-    pure (Map.insert (pkgName spec, pkgVersion spec) count counts)
-
-withPackagePlanFailure :: PackageSpec -> IO a -> IO a
-withPackagePlanFailure = withPackagePlanFailureDisposition ReportPackagePlanFailure
-
-withSkippedPackagePlanFailure :: PackageSpec -> IO a -> IO a
-withSkippedPackagePlanFailure = withPackagePlanFailureDisposition SkipPackagePlanFailure
-
-withPackagePlanFailureDisposition :: PackagePlanFailureDisposition -> PackageSpec -> IO a -> IO a
-withPackagePlanFailureDisposition disposition spec action = do
-  result <- try action
-  case result of
-    Right value -> pure value
-    Left (err :: SomeException) ->
-      case fromException err of
-        Just (_ :: PackagePlanFailure) -> throwIO err
-        Nothing ->
-          case fromException err of
-            Just (_ :: AsyncException) -> throwIO err
-            Nothing -> throwIO (PackagePlanFailure disposition spec err)
-
-packagePlanFailureShouldBeReportedForPackage :: PackageSpec -> SomeException -> Bool
-packagePlanFailureShouldBeReportedForPackage rawSpec err =
-  case fromException err of
-    Just (PackagePlanFailure disposition failedSpec _) ->
-      disposition == ReportPackagePlanFailure
-        && packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
-    Nothing -> True
-
-installFailureIsForPackage :: PackageSpec -> InstallFailure -> Bool
-installFailureIsForPackage rawSpec (InstallInterfaceFailure failedSpec _) =
-  packageSpecIdentity failedSpec == packageSpecIdentity (canonicalPackageSpec rawSpec)
-
 sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO FilePath
 sourcePathForSpec resolver spec =
   case lookupCoreProvider (pkgName spec) of
     Just provider -> coreProviderSourcePath provider
-    Nothing -> withSkippedPackagePlanFailure spec (resolverSourcePath resolver spec)
+    Nothing -> resolverSourcePath resolver spec
+
+packageDependencyNamesFromSource :: FilePath -> IO [String]
+packageDependencyNamesFromSource sourcePath = do
+  cabalFiles <- HackageUtil.findCabalFiles sourcePath
+  cabalFile <-
+    case cabalFiles of
+      [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
+      files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
+  cabalBytes <- BS.readFile cabalFile
+  case runParseResult (parseGenericPackageDescription cabalBytes) of
+    (_, Right gpd) -> pure (packageDependencyNames gpd)
+    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
 
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
@@ -458,160 +249,6 @@ coreProviderSourcePath provider = do
 packageSpecIdentity :: PackageSpec -> (String, String)
 packageSpecIdentity spec =
   (pkgName spec, pkgVersion spec)
-
-resolvedDependencyFromPlan :: PackagePlan -> ResolvedDependency
-resolvedDependencyFromPlan plan =
-  ResolvedDependency
-    { resolvedDependencySpec = packageKeySpec key,
-      resolvedDependencyHash = packageKeyHash key
-    }
-  where
-    key = planPackageKey plan
-
-buildPackagePlanFromAnalysis :: PackageSpec -> FilePath -> [ResolvedDependency] -> [PackagePlan] -> SourceAnalysis -> PackagePlan
-buildPackagePlanFromAnalysis spec sourcePath dependencies dependencyPlans analysis =
-  let sortedDependencies = sortDependencies dependencies
-      sortedDependencyPlans = sortPackagePlans dependencyPlans
-      packageHash =
-        computePackageHash
-          spec
-          (sourceFlagAssignments analysis)
-          sortedDependencies
-          (sourceCabalBytes analysis)
-          (sourceSetupBytes analysis)
-   in PackagePlan
-        { planPackageKey =
-            PackageVariantKey
-              { packageKeySpec = spec,
-                packageKeyHash = packageHash
-              },
-          planSourcePath = sourcePath,
-          planCabalFile = sourceCabalFile analysis,
-          planDependencyPlans = sortedDependencyPlans
-        }
-
-analyzeSource :: FilePath -> IO SourceAnalysis
-analyzeSource sourcePath = do
-  cabalFiles <- HackageUtil.findCabalFiles sourcePath
-  cabalFile <-
-    case cabalFiles of
-      [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
-      files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
-  cabalBytes <- BS.readFile cabalFile
-  gpd <-
-    case runParseResult (parseGenericPackageDescription cabalBytes) of
-      (_, Right parsed) -> pure parsed
-      (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
-  sourceLineCount <- analyzeSourceLineCount gpd sourcePath
-  setupFile <- findSetupFile sourcePath
-  setupBytes <- maybe (pure BS.empty) BS.readFile setupFile
-  pure
-    SourceAnalysis
-      { sourceCabalFile = cabalFile,
-        sourceCabalBytes = cabalBytes,
-        sourceSetupBytes = setupBytes,
-        sourceLineCount = sourceLineCount,
-        sourceFlagAssignments = packageFlagAssignments gpd,
-        sourceDependencyNames = packageDependencyNames gpd
-      }
-
-analyzeSourceLineCount :: GenericPackageDescription -> FilePath -> IO Int
-analyzeSourceLineCount gpd sourcePath = do
-  files <- HackageCabal.collectLibraryFiles gpd sourcePath
-  sum <$> mapM fileLineCount files
-  where
-    fileLineCount fileInfo =
-      length . T.lines <$> HackageUtil.readTextFileLenient (HackageCabal.fileInfoPath fileInfo)
-
-newPackageCheckCache :: IO PackageCheckCache
-newPackageCheckCache = PackageCheckCache <$> newMVar Map.empty
-
-checkPackagePlanWithCache :: PackageCheckCache -> PackagePlan -> IO (Either InstallFailure PackageCheckResult)
-checkPackagePlanWithCache cache plan =
-  fmap PackageCheckResult <$> prepareInstallScaffoldRecursive cache plan
-
-prepareInstallScaffoldRecursive :: PackageCheckCache -> PackagePlan -> IO (Either InstallFailure PreparedInstall)
-prepareInstallScaffoldRecursive cache@(PackageCheckCache entries) plan = mask $ \restore -> do
-  resultVar <- newEmptyMVar
-  (isOwner, sharedResult) <-
-    modifyMVar entries $ \current ->
-      case Map.lookup cacheKey current of
-        Just existing -> pure (current, (False, existing))
-        Nothing -> pure (Map.insert cacheKey resultVar current, (True, resultVar))
-  if isOwner
-    then do
-      result <- try (restore (prepareInstallScaffoldUncached cache plan))
-      putMVar sharedResult result
-      either throwIO pure result
-    else do
-      result <- readMVar sharedResult
-      either throwIO pure result
-  where
-    cacheKey = unPackageHash (packageKeyHash (planPackageKey plan))
-
-prepareInstallScaffoldUncached :: PackageCheckCache -> PackagePlan -> IO (Either InstallFailure PreparedInstall)
-prepareInstallScaffoldUncached cache plan = do
-  dependencyResults <- traverse (prepareInstallScaffoldRecursive cache) (planDependencyPlans plan)
-  case firstLeft dependencyResults of
-    Just failure -> pure (Left failure)
-    Nothing -> do
-      let preparedDependencies = rights dependencyResults
-          depExports = foldl' Map.union Map.empty (map (interfaceModuleExports . preparedInterface) preparedDependencies)
-          dependencyInterfaces = map preparedInterface preparedDependencies
-          importedTcInterface = mconcat (map interfaceTcInterface dependencyInterfaces)
-          importedBindings = mergeBy tbName (map interfaceTcBindings dependencyInterfaces)
-      interfaceResult <- generatePackageInterface depExports importedTcInterface importedBindings plan
-      pure $
-        case blockingInterfaceFailures interfaceResult of
-          [] ->
-            Right
-              PreparedInstall
-                { preparedInterface = interfaceResult
-                }
-          failures ->
-            Left (InstallInterfaceFailure (packageKeySpec (planPackageKey plan)) failures)
-
-firstLeft :: [Either a b] -> Maybe a
-firstLeft [] = Nothing
-firstLeft (Left value : _) = Just value
-firstLeft (Right _ : rest) = firstLeft rest
-
-mergeBy :: (Ord key) => (value -> key) -> [[value]] -> [value]
-mergeBy key = Map.elems . Map.fromList . map (\value -> (key value, value)) . concat
-
-blockingInterfaceFailures :: InterfaceBuildResult -> [(String, [Aeson.Value])]
-blockingInterfaceFailures result =
-  [ ("cpp", interfaceCppDiagnostics result)
-  | not (null (interfaceCppDiagnostics result))
-  ]
-    <> [ ("parse", interfaceParseDiagnostics result)
-       | not (null (interfaceParseDiagnostics result))
-       ]
-    <> [ ("rename", interfaceResolveDiagnostics result)
-       | not (null (interfaceResolveDiagnostics result))
-       ]
-    <> [ ("type-check", interfaceTcDiagnostics result)
-       | not (null (interfaceTcDiagnostics result))
-       ]
-    <> [ ("desugar", interfaceFcDiagnostics result)
-       | not (null (interfaceFcDiagnostics result))
-       ]
-
-renderInstallFailure :: InstallFailure -> String
-renderInstallFailure (InstallInterfaceFailure spec failures) =
-  unlines $
-    [ "failed to install " <> formatPackage spec <> ": interface compilation failed"
-    ]
-      <> renderedFailures
-  where
-    nonEmptyFailures = filter (not . null . snd) failures
-    renderedFailures = concatMap renderFailure nonEmptyFailures
-    renderFailure (phase, diagnostics) =
-      ("  " <> phase <> " errors:") : concatMap (indentLines . renderHumanDiagnostic phase) diagnostics
-
-indentLines :: String -> [String]
-indentLines =
-  map ("    " <>) . lines
 
 renderHumanDiagnostic :: String -> Aeson.Value -> String
 renderHumanDiagnostic phase diagnostic =
@@ -749,13 +386,6 @@ diagnosticSourceLines diagnostic =
         Aeson.Error {} -> []
     Nothing -> []
 
-normalizeDiagnosticFile :: Text -> Text
-normalizeDiagnosticFile =
-  T.map slash
-  where
-    slash '\\' = '/'
-    slash c = c
-
 stringField :: String -> Aeson.Value -> Maybe Text
 stringField name value =
   case objectField name value of
@@ -799,194 +429,8 @@ diagnosticSummary =
 
 type DiagnosticSourceMap = Map.Map FilePath (Map.Map Int Text)
 
-addDiagnosticSourceLines :: DiagnosticSourceMap -> Aeson.Value -> Aeson.Value
-addDiagnosticSourceLines sourceLinesByFile diagnostic =
-  case (diagnostic, diagnosticFile diagnostic, diagnosticLineRange diagnostic) of
-    (Aeson.Object obj, Just file, Just (startLine, endLine)) ->
-      case lookupSourceLines file sourceLinesByFile of
-        Just sourceLines ->
-          Aeson.Object $
-            KeyMap.insert
-              "sourceLines"
-              (Aeson.toJSON (sourceLineExcerpt sourceLines startLine endLine))
-              obj
-        Nothing -> diagnostic
-    _ -> diagnostic
-
-lookupSourceLines :: Text -> DiagnosticSourceMap -> Maybe (Map.Map Int Text)
-lookupSourceLines file sourceLinesByFile =
-  Map.lookup (T.unpack file) sourceLinesByFile
-    <|> lookupNormalized
-  where
-    normalizedFile = normalizeDiagnosticFile file
-    lookupNormalized =
-      snd
-        <$> listToMaybe
-          [ (path, sourceLines)
-          | (path, sourceLines) <- Map.toList sourceLinesByFile,
-            normalizeDiagnosticFile (T.pack path) == normalizedFile
-          ]
-
-diagnosticLineRange :: Aeson.Value -> Maybe (Int, Int)
-diagnosticLineRange diagnostic =
-  spanLineRange <|> lineOnlyRange
-  where
-    spanLineRange = do
-      spanValue <- objectField "span" diagnostic
-      startLine <- intField "startLine" spanValue
-      endLine <- intField "endLine" spanValue
-      pure (startLine, endLine)
-    lineOnlyRange = do
-      line <- intField "line" diagnostic
-      pure (line, line)
-
-sourceLineExcerpt :: Map.Map Int Text -> Int -> Int -> [Aeson.Value]
-sourceLineExcerpt sourceLines startLine endLine =
-  [ object
-      [ "line" .= lineNumber,
-        "text" .= lineText
-      ]
-  | (lineNumber, lineText) <- Map.toAscList sourceLines,
-    lineNumber >= startLine,
-    lineNumber <= endLine
-  ]
-
-generatePackageInterface :: ModuleExports -> TcInterface -> [TcBindingResult] -> PackagePlan -> IO InterfaceBuildResult
-generatePackageInterface depExports importedTcInterface importedBindings plan = do
-  gpd <- readPlanPackageDescription plan
-  files <- HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
-  parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
-  let parsedModules = [modu | ParsedInterfaceFile _ modu _ diagnostics _ _ <- parsedFiles, null diagnostics]
-      sourceLinesByFile = Map.unionsWith Map.union (map parsedFileSourceLines parsedFiles)
-      enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
-      parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
-      cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
-      currentPackage = packageVariantResolvePackage (planPackageKey plan)
-      resolveResult = resolveWithDeps depExports (modulesInPackage currentPackage parsedModules)
-      exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
-      ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey currentPackage) exposedModules)
-      primPackageId =
-        if packageName currentPackage == "aihc-prim"
-          then Just (packageId currentPackage)
-          else
-            listToMaybe
-              [ packageId package
-              | ModuleKey package _ <- Map.keys depExports,
-                packageName package == "aihc-prim"
-              ]
-  let primIdentity = fromMaybe (PackageId "aihc-prim") primPackageId
-  (checkedModules, tcDiagnostics, tcInterface) <-
-    typecheckInterfaceModules primIdentity importedTcInterface (map snd (resolvedModules resolveResult))
-  let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
-      enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
-      ownBindings = concatMap tcModuleBindings checkedModules
-      allBindings = mergeBy tbName [importedBindings, ownBindings]
-      resolvedModuleAsts = map snd (resolvedModules resolveResult)
-      fcResults =
-        map
-          (desugarModuleFc (DesugarConfig {primPackageId = primIdentity}) allBindings tcInterface)
-          checkedModules
-      fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
-      fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
-  pure
-    InterfaceBuildResult
-      { interfaceModuleExports = ownExports,
-        interfaceParseDiagnostics = parseDiagnostics,
-        interfaceCppDiagnostics = cppDiagnostics,
-        interfaceResolveDiagnostics = resolveDiagnostics,
-        interfaceTcDiagnostics = enrichedTcDiagnostics,
-        interfaceTcInterface = tcInterface,
-        interfaceTcBindings = allBindings,
-        interfaceFcDiagnostics = fcDiagnostics
-      }
-
-packageVariantResolvePackage :: PackageVariantKey -> Package
-packageVariantResolvePackage key =
-  Package
-    { packageName = T.pack (pkgName (packageKeySpec key)),
-      packageId = PackageId (T.intercalate "-" (packageVariantLibraryId key))
-    }
-
-typecheckInterfaceModules :: PackageId -> TcInterface -> [Module] -> IO ([Module], [Aeson.Value], TcInterface)
-typecheckInterfaceModules primPackageId importedTcInterface modules = do
-  currentModule <- newIORef (listToMaybe sortedModules)
-  result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
-  case result of
-    Just (checkedModules, tcModules, tcInterface) ->
-      pure (checkedModules, concatMap tcModuleDiagnosticValues tcModules, tcInterface)
-    Nothing -> do
-      current <- readIORef currentModule
-      pure ([], [typecheckTimeoutDiagnostic current], mempty)
-  where
-    sortedModules = sortModulesByImports modules
-    go current = do
-      mapM_ (writeIORef current . Just) sortedModules
-      let (checkedModules, tcInterface) =
-            typecheckModulesWithInterface (tcConfig primPackageId) importedTcInterface sortedModules
-          tcModules = zipWith tcModuleValue sortedModules checkedModules
-      _ <- evaluate (forceJsonValue (Aeson.toJSON tcModules))
-      length (show tcInterface) `seq`
-        pure (checkedModules, tcModules, tcInterface)
-
-sortModulesByImports :: [Module] -> [Module]
-sortModulesByImports modules = reverse sorted
-  where
-    modulesByName = Map.fromList [(name, modu) | modu <- modules, Just name <- [Syntax.moduleName modu]]
-    (_, sorted) = foldl' visitModule (Set.empty, []) modules
-
-    visitModule state@(seen, acc) modu =
-      case Syntax.moduleName modu of
-        Just name
-          | name `Set.member` seen -> state
-          | otherwise ->
-              let seen' = Set.insert name seen
-                  (seen'', acc') = foldl' visitImport (seen', acc) (moduleImports modu)
-               in (seen'', modu : acc')
-        Nothing -> (seen, modu : acc)
-
-    visitImport state importDecl =
-      case Map.lookup (importDeclModule importDecl) modulesByName of
-        Just importedModule -> visitModule state importedModule
-        Nothing -> state
-
-typecheckPhaseTimeoutSeconds :: Int
-typecheckPhaseTimeoutSeconds = 30
-
-typecheckPhaseTimeoutMicros :: Int
-typecheckPhaseTimeoutMicros = typecheckPhaseTimeoutSeconds * 1000 * 1000
-
-forceJsonValue :: Aeson.Value -> Aeson.Value
-forceJsonValue value =
-  length (show value) `seq` value
-
-typecheckTimeoutDiagnostic :: Maybe Module -> Aeson.Value
-typecheckTimeoutDiagnostic modu =
-  let name = fromMaybe "<unknown>" (Syntax.moduleName =<< modu)
-   in object
-        [ "span" .= sourceSpanValue NoSourceSpan,
-          "severity" .= ("error" :: String),
-          "module" .= name,
-          "message" .= ("typecheck timed out after " <> show typecheckPhaseTimeoutSeconds <> "s while checking " <> T.unpack name <> "; this is a bug" :: String)
-        ]
-
 data ParsedInterfaceFile
   = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension]
-
-parsedFileSourceLines :: ParsedInterfaceFile -> DiagnosticSourceMap
-parsedFileSourceLines (ParsedInterfaceFile _ _ sourceLines _ _ _) = sourceLines
-
-parsedFileParseDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
-parsedFileParseDiagnostics (ParsedInterfaceFile _ _ _ parseDiagnostics _ _) = parseDiagnostics
-
-parsedFileCppDiagnostics :: ParsedInterfaceFile -> [Aeson.Value]
-parsedFileCppDiagnostics (ParsedInterfaceFile _ _ _ _ cppDiagnostics _) = cppDiagnostics
-
-readPlanPackageDescription :: PackagePlan -> IO GenericPackageDescription
-readPlanPackageDescription plan = do
-  cabalBytes <- BS.readFile (planCabalFile plan)
-  case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right parsed) -> pure parsed
-    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> planCabalFile plan <> ": " <> show errs))
 
 parseInterfaceFile :: FilePath -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot fileInfo = do
@@ -1137,74 +581,6 @@ unlitBird =
       Just ('>', rest) -> rest
       _ -> ""
 
-tcModuleValue :: Module -> Module -> PackageInterfaceTcModule
-tcModuleValue modu result =
-  PackageInterfaceTcModule
-    { packageInterfaceTcModuleName = moduleDisplayName modu,
-      packageInterfaceTcModuleSuccess = tcModuleSuccess result,
-      packageInterfaceTcModuleBindings = map tcBinding (tcModuleBindings result),
-      packageInterfaceTcModuleDiagnostics = map (tcDiagnosticValue (moduleDisplayName modu)) (tcModuleDiagnostics result)
-    }
-  where
-    tcBinding binding = PackageInterfaceBinding (tbName binding) (tbType binding)
-
-tcModuleDiagnosticValues :: PackageInterfaceTcModule -> [Aeson.Value]
-tcModuleDiagnosticValues = packageInterfaceTcModuleDiagnostics
-
-fcModuleValue :: Module -> FcDesugarResult -> Aeson.Value
-fcModuleValue modu result =
-  object
-    [ "module" .= moduleDisplayName modu,
-      "success" .= dsSuccess result,
-      "program" .= renderProgram (dsProgram result),
-      "diagnostics"
-        .= [ object
-               [ "module" .= moduleDisplayName modu,
-                 "severity" .= ("error" :: String),
-                 "message" .= err
-               ]
-           | err <- dsErrors result
-           ]
-    ]
-
-fcModuleDiagnosticValues :: Aeson.Value -> [Aeson.Value]
-fcModuleDiagnosticValues (Aeson.Object obj) =
-  case KeyMap.lookup "diagnostics" obj of
-    Just (Aeson.Array arr) -> foldr (:) [] arr
-    _ -> []
-fcModuleDiagnosticValues _ = []
-
-tcDiagnosticValue :: Text -> TcDiagnostic -> Aeson.Value
-tcDiagnosticValue moduleName diag =
-  object
-    [ "span" .= sourceSpanValue (fromMaybe NoSourceSpan (diagLoc diag)),
-      "severity" .= tcSeverityText (diagSeverity diag),
-      "module" .= moduleName,
-      "message" .= show (diagKind diag)
-    ]
-
-tcSeverityText :: TcSeverity -> String
-tcSeverityText severity =
-  case severity of
-    TcError -> "error"
-    TcWarning -> "warning"
-
-resolveErrorValue :: ResolveError -> Aeson.Value
-resolveErrorValue err =
-  case err of
-    ResolveResolutionError span' name namespace message ->
-      object
-        [ "span" .= sourceSpanValue span',
-          "name" .= name,
-          "namespace" .= show namespace,
-          "message" .= message
-        ]
-    ResolveNotImplemented message ->
-      object
-        [ "span" .= sourceSpanValue NoSourceSpan,
-          "message" .= message
-        ]
-
 parseDiagnosticValue :: FilePath -> (SourceSpan, Text) -> Aeson.Value
 parseDiagnosticValue path (span', message) =
   object
@@ -1237,44 +613,9 @@ sourceSpanValue span' =
           "endOffset" .= endOffset
         ]
 
-moduleDisplayName :: Module -> Text
-moduleDisplayName modu =
-  fromMaybe "Main" (Syntax.moduleName modu)
-
-findSetupFile :: FilePath -> IO (Maybe FilePath)
-findSetupFile sourcePath = do
-  let setupHs = sourcePath </> "Setup.hs"
-      setupLhs = sourcePath </> "Setup.lhs"
-  setupHsExists <- doesFileExist setupHs
-  setupLhsExists <- doesFileExist setupLhs
-  pure $
-    if setupHsExists
-      then Just setupHs
-      else
-        if setupLhsExists
-          then Just setupLhs
-          else Nothing
-
-stableHash :: [BS.ByteString] -> String
-stableHash chunks =
-  padLeft 16 '0' (showHex digest "")
-  where
-    digest = foldl' hashChunk fnvOffset chunks
-    hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * fnvPrime)
-
-fnvOffset :: Word64
-fnvOffset = 14695981039346656037
-
-fnvPrime :: Word64
-fnvPrime = 1099511628211
-
 padLeft :: Int -> Char -> String -> String
 padLeft width char value =
   replicate (max 0 (width - length value)) char <> value
-
-packageFlagAssignments :: GenericPackageDescription -> [(String, Bool)]
-packageFlagAssignments gpd =
-  sort [(unFlagName (flagName flag), flagDefault flag) | flag <- genPackageFlags gpd]
 
 packageDependencyNames :: GenericPackageDescription -> [String]
 packageDependencyNames gpd =
@@ -1295,26 +636,3 @@ packageDependencyNames gpd =
        in if buildable build
             then HackageCabal.extractDependencies build
             else []
-
-sortDependencies :: [ResolvedDependency] -> [ResolvedDependency]
-sortDependencies =
-  sortOn (\dependency -> (pkgName (resolvedDependencySpec dependency), pkgVersion (resolvedDependencySpec dependency), unPackageHash (resolvedDependencyHash dependency)))
-
-sortPackagePlans :: [PackagePlan] -> [PackagePlan]
-sortPackagePlans =
-  sortOn (\plan -> let spec = packageKeySpec (planPackageKey plan) in (pkgName spec, pkgVersion spec, unPackageHash (packageKeyHash (planPackageKey plan))))
-
-computePackageHash :: PackageSpec -> [(String, Bool)] -> [ResolvedDependency] -> BS.ByteString -> BS.ByteString -> PackageHash
-computePackageHash spec flags dependencies cabalBytes setupBytes =
-  PackageHash $
-    stableHash
-      [ BSC.pack "aihc-package-hash-v1",
-        BSC.pack (pkgName spec),
-        BSC.pack (pkgVersion spec),
-        BSC.pack (show flags),
-        BSC.pack (show [(pkgName depSpec, pkgVersion depSpec, unPackageHash (resolvedDependencyHash dep)) | dep <- dependencies, let depSpec = resolvedDependencySpec dep]),
-        cabalBytes,
-        setupBytes,
-        BSC.pack "tools:happy,alex,c2hs:planned",
-        BSC.pack "phases:setup,configure,build,interfaces,system-fc"
-      ]

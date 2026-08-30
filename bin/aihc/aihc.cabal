@@ -180,7 +180,6 @@ executable aihc-dev
     dev/exe
     dev/src
     dev/app/resolve-stackage-progress
-    dev/app/tc-stackage-progress
     compiler/grin/fuzz
     compiler/grin/test
 
@@ -198,7 +197,6 @@ executable aihc-dev
     BootInterface
     ResolvePackage
     ResolveStackageProgress
-    TcStackageProgress
     Test.Grin.Arbitrary
 
   build-depends:
@@ -326,7 +324,6 @@ test-suite dev-spec
     dev/test
     dev/src
     dev/app/resolve-stackage-progress
-    dev/app/tc-stackage-progress
     compiler/grin/fuzz
     compiler/grin/test
 
@@ -345,13 +342,11 @@ test-suite dev-spec
     BootInterface
     ResolvePackage
     ResolveStackageProgress
-    TcStackageProgress
     Test.ExtractHiCompare
     Test.Fuzz
     Test.Grin.Arbitrary
     Test.ResolvePackage
     Test.ResolveStackageProgress.PathsModule
-    Test.TcStackageProgress
 
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
