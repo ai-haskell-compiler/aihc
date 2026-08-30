@@ -283,6 +283,14 @@ renderPred pred' =
       renderTcType (TcTyCon classTyCon args)
     EqPred left right ->
       renderTcType left ++ " ~ " ++ renderTcType right
+    QuantifiedPred variables antecedents consequent ->
+      "∀ "
+        ++ unwords (map (T.unpack . tvName) variables)
+        ++ ". "
+        ++ (if null antecedents then "" else "(" ++ commaSep (map renderPred antecedents) ++ ") ⇒ ")
+        ++ renderPred consequent
+  where
+    commaSep = T.unpack . T.intercalate (T.pack ", ") . map T.pack
 
 -- | Render a 'TcType' as a human-readable string.
 --
@@ -328,6 +336,7 @@ renderTcTypeInModule currentModule = go 0
       T.unpack (renderTyConName cls) ++ " " ++ unwords (map (go 2) args)
     showPred (EqPred t1 t2) =
       go 2 t1 ++ " ~ " ++ go 2 t2
+    showPred predicate@QuantifiedPred {} = renderPred predicate
 
     parenIf False s = s
     parenIf True s = "(" ++ s ++ ")"

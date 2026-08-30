@@ -111,6 +111,9 @@ renderDerivingMethods methods = " [methods: " <> intercalate ", " (map (T.unpack
 renderInstanceAnnotation :: TcInstanceAnnotation -> String
 renderInstanceAnnotation ann =
   renderTcSignature (tcInstanceDictName ann) (tcInstanceDictType ann)
+    <> case tcInstanceSuperClasses ann of
+      [] -> ""
+      superClasses -> " [superclasses: " <> intercalate ", " (map (renderEvTerm . snd) superClasses) <> "]"
 
 renderInstanceMethodAnnotation :: TcInstanceMethodAnnotation -> String
 renderInstanceMethodAnnotation ann =
@@ -226,6 +229,14 @@ renderEvTerm ev =
     EvCast evidence coercion -> "cast(" <> renderEvTerm evidence <> ", " <> renderCoercion coercion <> ")"
     EvTypeable _ ty arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
+    EvTypeLam variable body ->
+      "Λ" <> T.unpack (tvName variable) <> ". " <> renderEvTerm body
+    EvDictLam predicate _ body ->
+      "λ(_ ∷ " <> renderPred predicate <> "). " <> renderEvTerm body
+    EvTypeApp function argument ->
+      "(" <> renderEvTerm function <> ") @" <> renderTcType argument
+    EvDictApp function argument ->
+      "(" <> renderEvTerm function <> ") (" <> renderEvTerm argument <> ")"
 
 renderTypeArgs :: [TcType] -> String
 renderTypeArgs [] = ""
@@ -253,3 +264,9 @@ renderPred pred' =
   case pred' of
     ClassPred cls args -> T.unpack (tyConName cls) <> concatMap ((" " <>) . renderTcType) args
     EqPred left right -> renderTcType left <> " ~ " <> renderTcType right
+    QuantifiedPred variables antecedents consequent ->
+      "forall "
+        <> unwords (map (T.unpack . tvName) variables)
+        <> ". "
+        <> (if null antecedents then "" else "(" <> intercalate ", " (map renderPred antecedents) <> ") => ")
+        <> renderPred consequent

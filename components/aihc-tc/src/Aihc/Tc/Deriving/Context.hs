@@ -380,6 +380,7 @@ predicatePlanKey predicate =
   case predicate of
     ClassPred className arguments -> Just (tyConName className, arguments)
     EqPred {} -> Nothing
+    QuantifiedPred {} -> Nothing
 
 planPredicate :: TcDerivingPlan -> Pred
 planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
@@ -389,12 +390,14 @@ predClassName predicate =
   case predicate of
     ClassPred className _ -> tyConName className
     EqPred {} -> "~"
+    QuantifiedPred {} -> "quantified"
 
 predArguments :: Pred -> [TcType]
 predArguments predicate =
   case predicate of
     ClassPred _ arguments -> arguments
     EqPred left right -> [left, right]
+    QuantifiedPred _ antecedents consequent -> concatMap predArguments antecedents <> predArguments consequent
 
 typeableArguments :: Pred -> Maybe [TcType]
 typeableArguments predicate =
@@ -418,6 +421,7 @@ isBareVariablePredicate tyVars predicate =
       not (null arguments)
         && all isPlanTyVar arguments
     EqPred {} -> False
+    QuantifiedPred {} -> False
   where
     isPlanTyVar (TcTyVar tyVar) = tyVar `elem` tyVars
     isPlanTyVar _ = False
@@ -459,7 +463,11 @@ typeMentionsTyCon name ty =
     TcAppTy function argument -> typeMentionsTyCon name function || typeMentionsTyCon name argument
 
 predTyVars :: Pred -> [TyVarId]
-predTyVars predicate = nub (concatMap typeTyVars (predArguments predicate))
+predTyVars predicate =
+  case predicate of
+    QuantifiedPred variables antecedents consequent ->
+      filter (`notElem` variables) (nub (concatMap predTyVars antecedents <> predTyVars consequent))
+    _ -> nub (concatMap typeTyVars (predArguments predicate))
 
 typeTyVars :: TcType -> [TyVarId]
 typeTyVars ty =
@@ -484,3 +492,19 @@ predDictBinder predicate =
     EqPred left right -> do
       equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
       pure (TcDictBinderAnnotation "<constraint>" [] (TcTyCon equalityTyCon [left, right]))
+    quantified@QuantifiedPred {} ->
+      TcDictBinderAnnotation "<quantified>" [] <$> predicateType quantified
+
+predicateType :: Pred -> TcM TcType
+predicateType predicate =
+  case predicate of
+    ClassPred classTyCon arguments -> pure (TcTyCon classTyCon arguments)
+    EqPred left right -> do
+      equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+      pure (TcTyCon equalityTyCon [left, right])
+    QuantifiedPred variables antecedents consequent -> do
+      consequentType <- predicateType consequent
+      let qualified
+            | null antecedents = consequentType
+            | otherwise = TcQualTy antecedents consequentType
+      pure (foldr TcForAllTy qualified variables)

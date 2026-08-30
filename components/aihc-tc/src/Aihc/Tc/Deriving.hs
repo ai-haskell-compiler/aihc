@@ -46,6 +46,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, tcTypeKind)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Dict (constraintTypeToPred)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
 import Control.Monad (filterM, zipWithM)
@@ -305,22 +306,6 @@ constraintTypeDictBinder ty =
     Just (ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
 
-constraintTypeToPred :: TcType -> Maybe Pred
-constraintTypeToPred ty =
-  case collectTypeApplications ty of
-    (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
-    (TcTyCon tyCon headArguments, arguments) ->
-      Just (ClassPred tyCon (headArguments <> arguments))
-    _ -> Nothing
-
-collectTypeApplications :: TcType -> (TcType, [TcType])
-collectTypeApplications ty =
-  case ty of
-    TcAppTy function argument ->
-      let (headType, arguments) = collectTypeApplications function
-       in (headType, arguments <> [argument])
-    _ -> (ty, [])
-
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className types = "$f" <> className <> T.concat (map typeSuffix types)
 
@@ -361,6 +346,9 @@ predicateMentionsTyVar target predicate =
   case predicate of
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    QuantifiedPred variables antecedents consequent ->
+      target `notElem` variables
+        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
 
 derivingArityError :: Text -> Int -> Int -> TcErrorKind
 derivingArityError className expected supplied =

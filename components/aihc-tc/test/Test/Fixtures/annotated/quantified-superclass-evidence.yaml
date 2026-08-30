@@ -1,0 +1,77 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+  └─ class methods: rnf ∷ ∀ a. (NFData a) ⇒ a → a
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type)
+  └─ class methods:
+
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: Type → Type
+
+  class Marker (f :: Type -> Type)
+  └─ class methods:
+
+  instance NFData (Proxy a) where
+  └─ $fNFDataProxya ∷ ∀ a. () ⇒ NFData (Proxy a)
+    rnf value = value
+    │   └─ type: Proxy a
+    └─ rnf ∷ Proxy a → Proxy a
+
+  instance NFData1 Proxy
+  └─ $fNFData1Proxy ∷ () ⇒ NFData1 Proxy [superclasses: Λa. λ(_ ∷ NFData a). $fNFDataProxya @a]
+
+  instance (forall a. NFData a => NFData (Proxy a)) => Marker Proxy
+  └─ $fMarkerProxy ∷ (∀ a. (NFData a) ⇒ NFData (Proxy a)) ⇒ Marker Proxy
+
+  use :: (NFData1 f, NFData a) => f a -> f a
+  use value = rnf value
+  │   │       └─ type: f a → f a; type-args: f a; evidence: ((super[0](given NFData1 f)) @a) (given NFData a)
+  │   └─ type: f a
+  └─ type: ∀ f a. (NFData1 f, NFData a) ⇒ f a → f a
+
+  useGiven :: forall (f :: Type -> Type) a. (forall x. NFData (f x)) => f a -> f a
+  useGiven value = rnf value
+  │        │       └─ type: f a → f a; type-args: f a; evidence: (given forall x. NFData f x) @a
+  │        └─ type: f a
+  └─ type: ∀ f a. (∀ x. NFData (f x)) ⇒ f a → f a
+extensions:
+- KindSignatures
+- QuantifiedConstraints
+modules:
+- |
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type)
+
+  data Proxy a = Proxy
+
+  class Marker (f :: Type -> Type)
+
+  instance NFData (Proxy a) where
+    rnf value = value
+
+  instance NFData1 Proxy
+
+  instance (forall a. NFData a => NFData (Proxy a)) => Marker Proxy
+
+  use :: (NFData1 f, NFData a) => f a -> f a
+  use value = rnf value
+
+  useGiven :: forall (f :: Type -> Type) a. (forall x. NFData (f x)) => f a -> f a
+  useGiven value = rnf value
+reason: quantified superclass evidence supports construction and local use
+status: pass

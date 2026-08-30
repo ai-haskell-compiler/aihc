@@ -1,0 +1,36 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+  └─ class methods: rnf ∷ ∀ a. (NFData a) ⇒ a → a
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type)
+  └─ class methods:
+
+  use :: NFData1 f => f a -> f a
+  use value = rnf value
+              └─ error: unsolved constraint NFData ?17
+extensions:
+- KindSignatures
+- QuantifiedConstraints
+modules:
+- |
+  {-# LANGUAGE KindSignatures, QuantifiedConstraints #-}
+  module Test where
+
+  import GHC.Types (Type)
+
+  class NFData a where
+    rnf :: a -> a
+
+  class (forall a. NFData a => NFData (f a)) => NFData1 (f :: Type -> Type)
+
+  use :: NFData1 f => f a -> f a
+  use value = rnf value
+reason: a missing quantified antecedent gives an unsolved constraint diagnostic
+status: pass

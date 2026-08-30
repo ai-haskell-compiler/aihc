@@ -106,11 +106,11 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), constraintTypeToPred, solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
-import Control.Monad (foldM, forM_, unless, when, zipWithM, zipWithM_)
+import Control.Monad (foldM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -1281,8 +1281,10 @@ solveBodyConstraintsWithGivens givens cts impls = do
       let origin = InstOrigin "class body"
       pure ((mkWantedCt predicate evidence origin NoSourceSpan) {ctFlavor = Given})
     solveClassCt ct@Ct {ctPred = ClassPred {}} = do
-      _ <- solveDictWithGivens givens ct
-      pure ()
+      result <- solveDictWithGivens givens ct
+      case result of
+        DictSolved -> pure ()
+        DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
     solveClassCt _ = pure ()
 
 bindingType :: Text -> TcM TcType
@@ -1344,6 +1346,9 @@ predDictBinder pred' =
     EqPred {} -> do
       ty <- predType pred'
       pure (TcDictBinderAnnotation "<constraint>" [] ty)
+    QuantifiedPred {} -> do
+      ty <- predType pred'
+      pure (TcDictBinderAnnotation "<quantified>" [] ty)
 
 constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder ty =
@@ -1356,22 +1361,6 @@ constraintTypePred ty =
   case constraintTypeToPred ty of
     Just predicate -> pure predicate
     Nothing -> missingTypeInfo ("class predicate for constraint " <> show ty)
-
-constraintTypeToPred :: TcType -> Maybe Pred
-constraintTypeToPred ty =
-  case collectTypeApplications ty of
-    (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
-    (TcTyCon tyCon headArgs, arguments) ->
-      Just (ClassPred tyCon (headArgs <> arguments))
-    _ -> Nothing
-
-collectTypeApplications :: TcType -> (TcType, [TcType])
-collectTypeApplications ty =
-  case ty of
-    TcAppTy function argument ->
-      let (headType, arguments) = collectTypeApplications function
-       in (headType, arguments <> [argument])
-    _ -> (ty, [])
 
 collectClassMethodNames :: [Decl] -> Map Text [Text]
 collectClassMethodNames = Map.fromList . mapMaybe collect
@@ -1937,18 +1926,26 @@ kindMentionsUnique target kind =
       case predicate of
         ClassPred _ arguments -> any (kindMentionsUnique unique) arguments
         EqPred left right -> kindMentionsUnique unique left || kindMentionsUnique unique right
+        QuantifiedPred variables antecedents consequent ->
+          all ((/= unique) . tvUnique) variables
+            && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =
   case predicate of
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    QuantifiedPred variables antecedents consequent ->
+      target `notElem` variables
+        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
 
 zonkPred :: Pred -> TcM Pred
 zonkPred pred' =
   case pred' of
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
+    QuantifiedPred variables antecedents consequent ->
+      QuantifiedPred <$> mapM defaultTyVarKinds variables <*> mapM zonkPred antecedents <*> zonkPred consequent
 
 collectStandaloneKindSignatures :: [Decl] -> Map TcTypeKey Type
 collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
@@ -2006,7 +2003,10 @@ predeclareTypeConstructor declaration =
     _ -> pure ()
   where
     predeclare binder name arity flavor = do
-      provisionalKind <- freshKindMeta
+      provisionalKind <-
+        case flavor of
+          ClassTyCon -> foldr KFun KConstraint <$> replicateM arity freshKindMeta
+          _ -> freshKindMeta
       tyCon <- mkDeclaredTyCon binder name arity
       storeTyConInfo
         TyConInfo
@@ -2100,7 +2100,7 @@ registerClassDecl origin classDecl = do
       paramKinds = map paramKind paramInfos
       paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
-  classKind <- defaultKindMetas (foldr KFun KConstraint paramKinds)
+  let classKind = foldr KFun KConstraint paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
   let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
   storeTyConInfo
@@ -2228,6 +2228,12 @@ predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
 predType (EqPred left right) = do
   equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
   pure (TcTyCon equalityTyCon [left, right])
+predType (QuantifiedPred variables antecedents consequent) = do
+  consequentType <- predType consequent
+  let qualifiedType
+        | null antecedents = consequentType
+        | otherwise = TcQualTy antecedents consequentType
+  pure (foldr TcForAllTy qualifiedType variables)
 
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)

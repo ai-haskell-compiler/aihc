@@ -239,6 +239,12 @@ convertPred env predicate =
       pure (foldl TyApp (TyCon (classDictTypeName tyCon)) converted)
     EqPred left right ->
       TyEq <$> convertType env left <*> convertType env right
+    QuantifiedPred variables antecedents consequent -> do
+      let quantifiedEnv = withTyVars variables env
+      binders <- mapM (tyVarBinder quantifiedEnv) variables
+      convertedAntecedents <- mapM (convertPred quantifiedEnv) antecedents
+      convertedConsequent <- convertPred quantifiedEnv consequent
+      pure (foldr TyForAll (foldr (funType quantifiedEnv) convertedConsequent convertedAntecedents) binders)
 
 typeRep :: ConvertEnv -> TcType -> Either String Type
 typeRep env ty = do

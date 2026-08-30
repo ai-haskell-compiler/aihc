@@ -44,7 +44,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Solve.Dict (matchTypes)
+import Aihc.Tc.Solve.Dict (constraintTypeToPred, matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcType (..),
@@ -529,9 +529,9 @@ dropClassPredicate classTyCon predicates =
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
   binder <- freshBinder ("$d" <> T.pack (show index)) (tcDictBinderType annotation)
-  case tcDictBinderType annotation of
-    TcTyCon classTyCon _ -> pure (Dictionary (ClassPred classTyCon (tcDictBinderArgs annotation)) binder)
-    other -> failValue ("invalid checked class dictionary type: " <> show other)
+  case constraintTypeToPred (tcDictBinderType annotation) of
+    Just predicate -> pure (Dictionary predicate binder)
+    Nothing -> failValue ("invalid checked class dictionary type: " <> show (tcDictBinderType annotation))
 
 instanceMethods :: Syn.InstanceDecl -> [(Text, (TcType, [Syn.Match]))]
 instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems instanceDecl)
@@ -1647,6 +1647,7 @@ desugarLocalDecls declarations body = do
 desugarEvidence :: Ev.EvTerm -> ValueM Expr
 desugarEvidence evidence =
   case evidence of
+    Ev.EvVarTerm variable -> failValue ("unresolved evidence variable: " <> show variable)
     Ev.EvGiven predicate -> do
       dictionaries <- gets vsDictionaries
       case Map.lookup (predicateKey predicate) dictionaries of
@@ -1666,6 +1667,7 @@ desugarEvidence evidence =
         case sourcePredicate of
           ClassPred classTyCon arguments -> pure (classTyCon, TcTyCon classTyCon arguments)
           EqPred {} -> failValue "cannot select a superclass from equality evidence"
+          QuantifiedPred {} -> failValue "cannot select a superclass from quantified evidence before application"
       sourceBinder <- freshBinder "$super_source" sourceType
       fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
       selected <-
@@ -1685,7 +1687,16 @@ desugarEvidence evidence =
         )
     Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
-    unsupported -> failValue ("unsupported System FC evidence: " <> take 80 (show unsupported))
+    Ev.EvTypeLam variable body ->
+      ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body
+    Ev.EvDictLam predicate binderType body -> do
+      binder <- freshBinder "$quantified_d" binderType
+      body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
+      pure (ExLam binder body')
+    Ev.EvTypeApp function argument ->
+      ExTyApp <$> desugarEvidence function <*> convertCheckedType argument
+    Ev.EvDictApp function argument ->
+      ExApp <$> desugarEvidence function <*> desugarEvidence argument
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty argumentEvidence = do
@@ -2053,6 +2064,7 @@ predicateKey predicate =
   case predicate of
     ClassPred classTyCon arguments -> dictionaryKey classTyCon arguments
     EqPred left right -> typeKey left <> "~" <> typeKey right
+    QuantifiedPred {} -> "quantified:" <> T.pack (show predicate)
 
 dictionaryKey :: TyCon -> [TcType] -> Text
 dictionaryKey classTyCon arguments =
