@@ -25,7 +25,7 @@ import Aihc.Cli.TaskGraph
   ( Task (..),
     TaskId (..),
     TaskKind (..),
-    TaskTiming (..),
+    TaskTiming,
     renderTaskTimeline,
     runTaskGraph,
   )
@@ -118,7 +118,6 @@ import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
-import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
@@ -344,7 +343,7 @@ installPackageV2Direct config storeRoot dependencies root = do
   verbose ("Parse " <> show (length files) <> " library modules")
   capabilities <- getNumCapabilities
   (parsed, importTimings) <- loadSourceModules (max 1 capabilities) root files
-  (loadedDependencies, dependencyIOTiming) <- measureIOTiming (loadRequiredDependencies parsed dependencies)
+  loadedDependencies <- loadRequiredDependencies parsed dependencies
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
       packageHash = stableHash (map TE.encodeUtf8 (artifactCacheVersion : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
@@ -391,7 +390,7 @@ installPackageV2Direct config storeRoot dependencies root = do
       (max 1 capabilities)
       units
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> [dependencyIOTiming] <> taskTimings))
+  installPrintTimings config (renderTaskTimeline (installUseColor config) (importTimings <> taskTimings))
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
@@ -492,13 +491,6 @@ loadRequiredDependencies sources = mapM loadDependency
   where
     requirements = requiredDependencyModules sources
     loadDependency dependency = loadInstalledV2Package requirements (installV2StorePath (installedV2Result dependency))
-
-measureIOTiming :: IO value -> IO (value, TaskTiming)
-measureIOTiming action = do
-  started <- getMonotonicTimeNSec
-  result <- action
-  ended <- getMonotonicTimeNSec
-  pure (result, TaskTiming 1 (TaskId "dependency-artifacts") TaskIO started ended)
 
 requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
 requiredDependencyModules sources =

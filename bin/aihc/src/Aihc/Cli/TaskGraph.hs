@@ -36,8 +36,7 @@ newtype TaskId = TaskId String
   deriving (Eq, Ord, Show)
 
 data TaskKind
-  = TaskIO
-  | TaskTypeCheck
+  = TaskTypeCheck
   | TaskResolve
   | TaskParse
   | TaskBackend
@@ -49,11 +48,10 @@ instance Ord TaskKind where
 taskKindPriority :: TaskKind -> Int
 taskKindPriority kind =
   case kind of
-    TaskIO -> 0
-    TaskTypeCheck -> 1
-    TaskResolve -> 2
-    TaskParse -> 3
-    TaskBackend -> 4
+    TaskTypeCheck -> 0
+    TaskResolve -> 1
+    TaskParse -> 2
+    TaskBackend -> 3
 
 data Task = Task
   { taskId :: !TaskId,
@@ -195,7 +193,7 @@ renderTaskTimeline useColor timings =
              "Frontend time: " <> renderDuration frontend,
              "Compile time: " <> renderDuration total
            ]
-        <> map renderKindTotal [TaskIO, TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
+        <> map renderKindTotal [TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
     )
   where
     start = minimum (map timingStart timings)
@@ -229,8 +227,7 @@ renderTaskTimeline useColor timings =
     axis = replicate (7 + labelWidth + 2) ' ' <> "0" <> replicate (width - 2) ' ' <> renderDuration total
     renderLegend =
       unwords
-        [ kindSymbol useColor TaskIO <> "=IO",
-          kindSymbol useColor TaskParse <> "=parse",
+        [ kindSymbol useColor TaskParse <> "=parse",
           kindSymbol useColor TaskResolve <> "=resolve",
           kindSymbol useColor TaskTypeCheck <> "=type-check",
           kindSymbol useColor TaskBackend <> "=backend",
@@ -242,13 +239,11 @@ renderTaskTimeline useColor timings =
         <> renderDuration (sum [timingEnd timing - timingStart timing | timing <- timings, timingKind timing == kind])
 
 kindSymbol :: Bool -> TaskKind -> String
-kindSymbol _ TaskIO = [kindGlyph TaskIO]
 kindSymbol useColor kind = colorize useColor (kindColor kind) [kindGlyph kind]
 
 kindGlyph :: TaskKind -> Char
 kindGlyph kind =
   case kind of
-    TaskIO -> '*'
     TaskParse -> '▁'
     TaskResolve -> '▂'
     TaskTypeCheck -> '▄'
@@ -257,7 +252,6 @@ kindGlyph kind =
 kindColor :: TaskKind -> String
 kindColor kind =
   case kind of
-    TaskIO -> ""
     TaskParse -> "37"
     TaskResolve -> "32"
     TaskTypeCheck -> "34"

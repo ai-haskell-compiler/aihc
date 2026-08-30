@@ -272,8 +272,7 @@ test_installV2TimingOutput = do
     assertBool "verbose output does not contain timings" (not ("Compile time:" `isInfixOf` verboseOutput))
     assertBool
       "timing output contains the stage symbols"
-      ("*=IO ▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
-    assertBool "timing output contains the IO total" ("* total:" `isInfixOf` timingOutput)
+      ("▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
     assertBool "timing output contains frontend time" ("Frontend time:" `isInfixOf` timingOutput)
     assertBool "timing output does not contain verbose output" (not ("Read Cabal package:" `isInfixOf` timingOutput))
     assertBool "redirected timing output does not contain colors" ('\ESC' `notElem` timingOutput)
