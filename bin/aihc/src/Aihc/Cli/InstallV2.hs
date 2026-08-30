@@ -93,6 +93,7 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
+    typecheckModuleSccInterfaceWithInterface,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
@@ -369,7 +370,10 @@ installPackageV2Direct config storeRoot dependencies root = do
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
-  compiled <- compileModulesWithDependencies config storePath root resolvePackage files dependencies
+      packageConfig
+        | isInterfaceOnlyPackage packageNameText = config {compileNoCode = True}
+        | otherwise = config
+  compiled <- compileModulesWithDependencies packageConfig storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
       allTypes = compiledTypes compiled
@@ -377,7 +381,7 @@ installPackageV2Direct config storeRoot dependencies root = do
       allTypeHashes = compiledTypeHashes compiled
       written = compiledWritten compiled
       reused = compiledReused compiled
-  unless (compileNoCode config) $ do
+  unless (compileNoCode packageConfig) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
         moduleObjects =
           sortOn
@@ -1040,8 +1044,11 @@ runTypeUnit context runtimes runtime = do
           case resolveUnitResolved resolvedOutput of
             Just result -> pure result
             Nothing -> pure (resolveWithDeps availableExports (modulesInPackage resolvePackage (map sourceModuleAst sources)))
-        let checked =
-              typecheckModuleSccWithInterface
+        let checkModules
+              | isInterfaceOnlyPackage (packageName resolvePackage) = typecheckModuleSccInterfaceWithInterface
+              | otherwise = typecheckModuleSccWithInterface
+            checked =
+              checkModules
                 (tcConfig primIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
@@ -1169,6 +1176,11 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
+
+-- Template Haskell supplies compiler interfaces.
+-- Stage 1 does not execute its code.
+isInterfaceOnlyPackage :: Text -> Bool
+isInterfaceOnlyPackage = (== "aihc-template-haskell")
 
 compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do

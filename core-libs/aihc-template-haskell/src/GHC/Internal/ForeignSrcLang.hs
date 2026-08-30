@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: BSD-3-Clause
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 module GHC.Internal.ForeignSrcLang
   ( ForeignSrcLang (..),
@@ -7,7 +7,6 @@ module GHC.Internal.ForeignSrcLang
 where
 
 -- See note [Why do we import Prelude here?]
-import GHC.Generics (Generic)
 import Prelude
 
 -- | Foreign formats supported by GHC via TH
@@ -26,4 +25,4 @@ data ForeignSrcLang
     LangJs
   | -- | Object (.o)
     RawObject
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show)

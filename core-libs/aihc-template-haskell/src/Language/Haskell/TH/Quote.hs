@@ -28,6 +28,7 @@ where
 import GHC.Boot.TH.Lift
 import GHC.Boot.TH.Quote
 import GHC.Boot.TH.Syntax
+import System.IO (readFile)
 
 -- | 'quoteFile' takes a 'QuasiQuoter' and lifts it into one that read
 -- the data out of a file.  For example, suppose @asmq@ is an

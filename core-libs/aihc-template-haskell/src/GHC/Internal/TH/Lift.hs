@@ -89,8 +89,6 @@ class Lift (t :: TYPE r) where
   -- | Turn a value into a Template Haskell expression, suitable for use in
   -- a splice.
   lift :: (Quote m) => t -> m Exp
-  default lift :: (r ~ ('BoxedRep 'Lifted), Quote m) => t -> m Exp
-  lift = unTypeCode . liftTyped
 
   -- | Turn a value into a Template Haskell typed expression, suitable for use
   -- in a typed splice.
@@ -172,37 +170,16 @@ instance Lift Float where
   lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.16.0.0
-instance Lift Float# where
-  liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (FloatPrimL (toRational (F# x))))
-
 instance Lift Double where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.16.0.0
-instance Lift Double# where
-  liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (DoublePrimL (toRational (D# x))))
-
 instance Lift Char where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift x = return (LitE (CharL x))
 
 -- | @since template-haskell-2.16.0.0
-instance Lift Char# where
-  liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (CharPrimL (C# x)))
-
--- | Produces an 'Addr#' literal from the NUL-terminated C-string starting at
--- the given memory address.
---
--- @since template-haskell-2.16.0.0
-instance Lift Addr# where
-  liftTyped x = unsafeCodeCoerce (lift x)
-  lift x =
-    return (LitE (StringPrimL (map (fromIntegral . ord) (unpackCString# x))))
-
 instance (Lift a) => Lift [a] where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift xs = do xs' <- mapM lift xs; return (ListE xs')
@@ -222,7 +199,6 @@ liftString s = return (LitE (StringL s))
 --     to replace this RULE. However, doing so breaks drv023
 --     which would need to declare an instance derived from `Lift @[a]` as
 --     incoherent. So this RULE it is.
-{-# RULES "TH:liftString" lift = liftString #-}
 
 -----------------------------------------------------
 --
@@ -416,52 +392,52 @@ nonemptyName = mkNameG_d "ghc-internal" "GHC.Internal.Base" ":|"
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Loc where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DocLoc where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift ModName where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift GHC.Internal.TH.Syntax.Module where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NameSpace where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NamespaceSpecifier where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift PkgName where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NameFlavour where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift OccName where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Name where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -473,12 +449,12 @@ instance Lift NameIs where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Specificity where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift BndrVis where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -496,12 +472,12 @@ instance (Lift a) => Lift (TyVarBndr a) where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift TyLit where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Type where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -523,52 +499,52 @@ instance Lift Bytes where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Lit where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Pat where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Clause where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DerivClause where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DerivStrategy where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Overlap where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift FunDep where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Safety where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Callconv where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Foreign where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -578,117 +554,117 @@ instance Lift ForeignSrcLang where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift FixityDirection where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Fixity where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Inline where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift RuleMatch where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Phases where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift RuleBndr where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift AnnTarget where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Pragma where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift SourceStrictness where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift SourceUnpackedness where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DecidedStrictness where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Bang where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Con where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift TySynEqn where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift FamilyResultSig where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift InjectivityAnn where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift TypeFamilyHead where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Role where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift PatSynArgs where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift PatSynDir where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Dec where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Range where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Exp where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -698,32 +674,32 @@ instance Lift (TExp a) where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Match where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Guard where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Stmt where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Body where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Info where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift AnnLookup where
-  lift = liftData
+  lift _ = error "Template Haskell AST lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -770,65 +746,7 @@ dataToQa ::
   (forall b. (Data b) => b -> Maybe (m q)) ->
   a ->
   m q
-dataToQa mkCon mkLit appCon antiQ t =
-  case antiQ t of
-    Nothing ->
-      case constrRep constr of
-        AlgConstr _ ->
-          appCon (mkCon funOrConName) conArgs
-          where
-            funOrConName :: Name
-            funOrConName =
-              case showConstr constr of
-                "(:)" ->
-                  Name
-                    (mkOccName ":")
-                    ( NameG
-                        DataName
-                        (mkPkgName "ghc-prim")
-                        (mkModName "GHC.Types")
-                    )
-                con@"[]" ->
-                  Name
-                    (mkOccName con)
-                    ( NameG
-                        DataName
-                        (mkPkgName "ghc-prim")
-                        (mkModName "GHC.Types")
-                    )
-                con@('(' : _) ->
-                  Name
-                    (mkOccName con)
-                    ( NameG
-                        DataName
-                        (mkPkgName "ghc-prim")
-                        (mkModName "GHC.Tuple")
-                    )
-                -- Tricky case: see Note [Data for non-algebraic types]
-                fun@(x : _)
-                  | startsVarSym x || startsVarId x ->
-                      mkNameG_v tyconPkg tyconMod fun
-                con -> mkNameG_d tyconPkg tyconMod con
-              where
-                tycon :: TyCon
-                tycon = (typeRepTyCon . typeOf) t
-
-                tyconPkg, tyconMod :: String
-                tyconPkg = tyConPackage tycon
-                tyconMod = tyConModule tycon
-
-            conArgs :: [m q]
-            conArgs = gmapQ (dataToQa mkCon mkLit appCon antiQ) t
-        IntConstr n ->
-          mkLit $ IntegerL n
-        FloatConstr n ->
-          mkLit $ RationalL n
-        CharConstr c ->
-          mkLit $ CharL c
-      where
-        constr :: Constr
-        constr = toConstr t
-    Just y -> y
+dataToQa _ _ _ _ _ = error "Generic Template Haskell lifting is not available"
 
 {- Note [Data for non-algebraic types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -866,27 +784,12 @@ dataToExpQ ::
   (forall b. (Data b) => b -> Maybe (m Exp)) ->
   a ->
   m Exp
-dataToExpQ = dataToQa varOrConE litE (foldl appE)
-  where
-    -- Make sure that VarE is used if the Constr value relies on a
-    -- function underneath the surface (instead of a constructor).
-    -- See #10796.
-    varOrConE s =
-      case nameSpace s of
-        Just VarName -> return (VarE s)
-        Just (FldName {}) -> return (VarE s)
-        Just DataName -> return (ConE s)
-        _ ->
-          error $
-            "Can't construct an expression from name "
-              ++ showName s
-    appE x y = do a <- x; b <- y; return (AppE a b)
-    litE c = return (LitE c)
+dataToExpQ _ _ = error "Generic Template Haskell lifting is not available"
 
 -- | 'liftData' is a variant of 'lift' in the 'Lift' type class which
 -- works for any type with a 'Data' instance.
 liftData :: (Quote m, Data a) => a -> m Exp
-liftData = dataToExpQ (const Nothing)
+liftData _ = error "Generic Template Haskell lifting is not available"
 
 -- | 'dataToPatQ' converts a value to a 'Pat' representation of the same
 -- value, in the SYB style. It takes a function to handle type-specific cases,
@@ -896,15 +799,4 @@ dataToPatQ ::
   (forall b. (Data b) => b -> Maybe (m Pat)) ->
   a ->
   m Pat
-dataToPatQ = dataToQa id litP conP
-  where
-    litP l = return (LitP l)
-    conP n ps =
-      case nameSpace n of
-        Just DataName -> do
-          ps' <- sequence ps
-          return (ConP n [] ps')
-        _ ->
-          error $
-            "Can't construct a pattern from name "
-              ++ showName n
+dataToPatQ _ _ = error "Generic Template Haskell lifting is not available"

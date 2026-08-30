@@ -19,7 +19,7 @@ module GHC.Boot.TH.Lib.Map
   )
 where
 
-import Prelude
+import Prelude hiding (lookup)
 
 data Map k a
   = Bin {-# UNPACK #-} !Size !k a !(Map k a) !(Map k a)
@@ -41,25 +41,20 @@ size (Bin sz _ _ _ _) = sz
 {-# INLINE size #-}
 
 lookup :: (Ord k) => k -> Map k a -> Maybe a
-lookup = go
-  where
-    go _ Tip = Nothing
-    go !k (Bin _ kx x l r) = case compare k kx of
-      LT -> go k l
-      GT -> go k r
-      EQ -> Just x
+lookup _ Tip = Nothing
+lookup !k (Bin _ kx x l r) = case compare k kx of
+  LT -> lookup k l
+  GT -> lookup k r
+  EQ -> Just x
 {-# INLINEABLE lookup #-}
 
 insert :: (Ord k) => k -> a -> Map k a -> Map k a
-insert = go
-  where
-    go :: (Ord k) => k -> a -> Map k a -> Map k a
-    go !kx x Tip = singleton kx x
-    go !kx x (Bin sz ky y l r) =
-      case compare kx ky of
-        LT -> balanceL ky y (go kx x l) r
-        GT -> balanceR ky y l (go kx x r)
-        EQ -> Bin sz kx x l r
+insert !kx x Tip = singleton kx x
+insert !kx x (Bin sz ky y l r) =
+  case compare kx ky of
+    LT -> balanceL ky y (insert kx x l) r
+    GT -> balanceR ky y l (insert kx x r)
+    EQ -> Bin sz kx x l r
 {-# INLINEABLE insert #-}
 
 balanceL :: k -> a -> Map k a -> Map k a -> Map k a

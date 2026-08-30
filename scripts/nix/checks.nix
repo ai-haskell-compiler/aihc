@@ -387,6 +387,12 @@
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
+
+      ${aihcExe} install-v2 core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
+
+      test -n "$(find "$store" -path '*/Language/Haskell/TH/resolve.cbor' -print -quit)"
+      test -n "$(find "$store" -path '*/Language/Haskell/TH/type.cbor' -print -quit)"
+      test -z "$(find "$store" -path '*/lib/libaihc-template-haskell.a' -print -quit)"
       touch "$out"
     '';
 

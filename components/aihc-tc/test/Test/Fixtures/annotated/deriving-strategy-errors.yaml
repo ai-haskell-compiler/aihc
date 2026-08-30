@@ -7,7 +7,7 @@ annotated:
   data ExplicitStock = ExplicitStock
        └─ type: Type   └─ type: ExplicitStock
     deriving stock C
-                   └─ error: stock deriving requires a class from aihc-prim
+                   └─ error: stock deriving requires a standard class
   data NoDefault = NoDefault
        │           └─ type: NoDefault
        └─ type: Type

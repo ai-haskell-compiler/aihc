@@ -19,9 +19,10 @@
 -- module from version to version.
 module GHC.Internal.TH.Lib where
 
-import Control.Applicative (Applicative (..), liftA)
+import Control.Applicative (Applicative (..), liftA, liftA2)
 import Data.Kind qualified as Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Traversable (sequenceA, traverse)
 import Data.Word (Word8)
 import GHC.Exts (TYPE)
 import GHC.Internal.TH.Syntax hiding (InjectivityAnn, Role)
@@ -993,14 +994,12 @@ implicitParamT n t =
     t' <- t
     pure $ ImplicitParamT n t'
 
-{-# DEPRECATED classP "As of template-haskell-2.10, constraint predicates (Pred) are just types (Type), in keeping with ConstraintKinds. Please use 'conT' and 'appT'." #-}
 classP :: (Quote m) => Name -> [m Type] -> m Pred
 classP cla tys =
   do
     tysl <- sequenceA tys
     pure (foldl AppT (ConT cla) tysl)
 
-{-# DEPRECATED equalP "As of template-haskell-2.10, constraint predicates (Pred) are just types (Type), in keeping with ConstraintKinds. Please see 'equalityT'." #-}
 equalP :: (Quote m) => m Type -> m Type -> m Pred
 equalP tleft tright =
   do
@@ -1031,31 +1030,9 @@ noSourceStrictness = pure NoSourceStrictness
 sourceLazy = pure SourceLazy
 sourceStrict = pure SourceStrict
 
-{-# DEPRECATED
-  isStrict
-  [ "Use 'bang'. See https://gitlab.haskell.org/ghc/ghc/wikis/migration/8.0. ",
-    "Example usage: 'bang noSourceUnpackedness sourceStrict'"
-  ]
-  #-}
-
-{-# DEPRECATED
-  notStrict
-  [ "Use 'bang'. See https://gitlab.haskell.org/ghc/ghc/wikis/migration/8.0. ",
-    "Example usage: 'bang noSourceUnpackedness noSourceStrictness'"
-  ]
-  #-}
-
-{-# DEPRECATED
-  unpacked
-  [ "Use 'bang'. See https://gitlab.haskell.org/ghc/ghc/wikis/migration/8.0. ",
-    "Example usage: 'bang sourceUnpack sourceStrict'"
-  ]
-  #-}
 isStrict, notStrict, unpacked :: (Quote m) => m Strict
 isStrict = bang noSourceUnpackedness sourceStrict
-
 notStrict = bang noSourceUnpackedness noSourceStrictness
-
 unpacked = bang sourceUnpack sourceStrict
 
 bang :: (Quote m) => m SourceUnpackedness -> m SourceStrictness -> m Bang
@@ -1070,17 +1047,9 @@ bangType = liftA2 (,)
 varBangType :: (Quote m) => Name -> m BangType -> m VarBangType
 varBangType v bt = (\(b, t) -> (v, b, t)) <$> bt
 
-{-# DEPRECATED
-  strictType
-  "As of @template-haskell-2.11.0.0@, 'StrictType' has been replaced by 'BangType'. Please use 'bangType' instead."
-  #-}
 strictType :: (Quote m) => m Strict -> m Type -> m StrictType
 strictType = bangType
 
-{-# DEPRECATED
-  varStrictType
-  "As of @template-haskell-2.11.0.0@, 'VarStrictType' has been replaced by 'VarBangType'. Please use 'varBangType' instead."
-  #-}
 varStrictType :: (Quote m) => Name -> m StrictType -> m VarStrictType
 varStrictType = varBangType
 

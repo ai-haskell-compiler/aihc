@@ -9,6 +9,7 @@
 module Aihc.Tc.Generate.Decl
   ( tcModule,
     tcModuleScc,
+    tcModuleSccInterface,
     moduleBindings,
     moduleInstances,
     moduleClasses,
@@ -75,6 +76,8 @@ import Aihc.Parser.Syntax
     peelClassDeclItemAnn,
     peelDeclAnn,
     peelTypeHead,
+    tyVarBinderKind,
+    tyVarBinderName,
     unqualifiedNameAnns,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
@@ -480,7 +483,13 @@ tcModuleScc modules = do
   mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
   mapM_ registerTypeSynonymBody declarations
   mapM_ checkTypeSynonymBody declarations
-  mapM_ (\modu -> mapM_ (registerStructuralDecl (resolvedModuleOrigin modu)) (moduleDecls modu)) modules
+  let structuralDeclarations =
+        [ (resolvedModuleOrigin modu, declaration)
+        | modu <- modules,
+          declaration <- moduleDecls modu
+        ]
+  mapM_ (uncurry registerStructuralDecl) (filter (not . isInstanceDecl . snd) structuralDeclarations)
+  mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
@@ -498,6 +507,31 @@ tcModuleScc modules = do
   defaultGlobalKindMetas structuralKeys
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
+
+-- | Register a module interface without checking value bodies.
+tcModuleSccInterface :: [Module] -> TcM [Module]
+tcModuleSccInterface modules = do
+  initialKeys <- globalStateKeys <$> lift get
+  let declarations = concatMap moduleDecls modules
+      standaloneKindSignatures = collectStandaloneKindSignatures declarations
+      structuralDeclarations =
+        [ (resolvedModuleOrigin modu, declaration)
+        | modu <- modules,
+          declaration <- moduleDecls modu
+        ]
+  mapM_ predeclareTypeConstructor declarations
+  mapM_ predeclareTypeLevelDataConstructors declarations
+  standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
+  mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
+  mapM_ registerTypeSynonymBody declarations
+  mapM_ checkTypeSynonymBody declarations
+  mapM_ (uncurry registerStructuralDecl) (filter (not . isInstanceDecl . snd) structuralDeclarations)
+  mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
+  defaultGlobalKindMetas initialKeys
+  rawSignatures <- mapM (collectUserSigs . moduleDecls) modules
+  schemes <- mapM (traverse checkUserSig) rawSignatures
+  mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
+  pure modules
 
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
 registerCheckedSig key sig = do
@@ -2038,6 +2072,11 @@ registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl _ _ = pure []
 
+isInstanceDecl :: Decl -> Bool
+isInstanceDecl (DeclAnn _ inner) = isInstanceDecl inner
+isInstanceDecl DeclInstance {} = True
+isInstanceDecl _ = False
+
 predeclareTypeLevelDataConstructors :: Decl -> TcM ()
 predeclareTypeLevelDataConstructors declaration =
   case declaration of
@@ -2095,10 +2134,15 @@ registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
-  paramInfos <- makeParamEnv params
+  kindParams <-
+    if isTemplateHaskellLift origin className
+      then implicitBinderKindParams params
+      else pure []
+  let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
+  paramInfos <- makeParamEnvWith kindEnv params
   let paramTyVars = map paramTyVar paramInfos
       paramKinds = map paramKind paramInfos
-      paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
+      paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
   let classKind = foldr KFun KConstraint paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
@@ -2108,7 +2152,7 @@ registerClassDecl origin classDecl = do
       { tciName = className,
         tciArity = length params,
         tciTyCon = classTyCon,
-        tciKindScheme = ForAll [] [] classKind,
+        tciKindScheme = ForAll (map paramTyVar kindParams) [] classKind,
         tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing
       }
@@ -2149,6 +2193,12 @@ registerClassDecl origin classDecl = do
       case ordinaryScheme of
         ForAll _ (classPredicate : _) _ -> ForAll tyVars (classPredicate : predicates) body
         _ -> ForAll tyVars predicates body
+
+isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
+isTemplateHaskellLift (packageId, moduleName') className =
+  "aihc-template-haskell-" `T.isPrefixOf` packageId
+    && moduleName' == "GHC.Internal.TH.Lift"
+    && className == "Lift"
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
@@ -2304,7 +2354,7 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       familyName = unqualifiedNameText familyBinder
       params = binderHeadParams (dataFamilyDeclHead familyDecl)
       arity = length params
-  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
   familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
@@ -2313,7 +2363,7 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       { tciName = familyName,
         tciArity = arity,
         tciTyCon = familyTyCon,
-        tciKindScheme = ForAll [] [] declaredKind,
+        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = DataFamilyTyCon,
         tciTypeSynonym = Nothing
       }
@@ -2572,6 +2622,21 @@ typeDeclParamInfos maybeKindScheme params =
           paramKind = kind
         }
 
+implicitBinderKindParams :: [TyVarBinder] -> TcM [ParamInfo]
+implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
+  where
+    explicitNames = map tyVarBinderName binders
+    implicitNames = nub (concatMap (maybe [] freeTypeVars . tyVarBinderKind) binders) \\ explicitNames
+    makeImplicitParam name = do
+      rawTyVar <- freshSkolemTv name
+      kind <- freshKindMeta
+      pure
+        ParamInfo
+          { paramName = name,
+            paramTyVar = setTyVarKind kind rawTyVar,
+            paramKind = kind
+          }
+
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
   typeDeclParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
@@ -2648,7 +2713,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
@@ -2657,7 +2722,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = ForAll [] [] declaredKind,
+        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing
       }

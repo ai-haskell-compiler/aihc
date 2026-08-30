@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: BSD-3-Clause
+{-# LANGUAGE DerivingStrategies #-}
 -----------------------------------------------------------------------------
 -----------------------------------------------------------------------------
-{-# LANGUAGE DeriveGeneric #-}
 -----------------------------------------------------------------------------
 {-# LANGUAGE Trustworthy #-}
 
@@ -16,7 +16,6 @@
 module GHC.Internal.LanguageExtensions (Extension (..)) where
 
 -- See note [Why do we import Prelude here?]
-import GHC.Generics (Generic)
 import Prelude
 
 -- | The language extensions known to GHC.
@@ -161,7 +160,7 @@ data Extension
   | ExtendedLiterals
   | ListTuplePuns
   | MultilineStrings
-  deriving (Eq, Enum, Show, Generic, Bounded)
+  deriving stock (Eq, Enum, Show, Bounded)
 
 -- 'Ord' and 'Bounded' are provided for GHC API users (see discussions
 -- in https://gitlab.haskell.org/ghc/ghc/merge_requests/2707 and

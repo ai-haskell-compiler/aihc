@@ -104,7 +104,19 @@ standaloneKindSigToScheme ty = do
             | param <- explicitParams
             ]
   body <- kindFromSurfaceType tyVarEnv bodyType
-  pure (ForAll (implicitTyVars <> explicitTyVars) [] body)
+  let (nestedTyVars, body') = prenexKindForalls body
+  pure (ForAll (implicitTyVars <> explicitTyVars <> nestedTyVars) [] body')
+
+prenexKindForalls :: TcType -> ([TyVarId], TcType)
+prenexKindForalls kind =
+  case kind of
+    TcForAllTy tyVar body ->
+      let (tyVars, body') = prenexKindForalls body
+       in (tyVar : tyVars, body')
+    TcFunTy argument result ->
+      let (tyVars, result') = prenexKindForalls result
+       in (tyVars, TcFunTy argument result')
+    _ -> ([], kind)
 
 convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
 convertSurfaceType tvMap ty = do
@@ -201,7 +213,7 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
       pure (TcQualTy predicates innerType, innerKind)
     TForall telescope inner -> do
-      params <- makeParamEnv (forallTelescopeBinders telescope)
+      params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
       let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
       (innerTy, innerKind) <- convertSurfaceTypeWithKinds tvEnv' inner
       pure (foldr (TcForAllTy . paramTyVar) innerTy params, innerKind)
@@ -782,10 +794,11 @@ classPredicateArgKinds className argCount = do
 
 predicateClassKind :: TyConInfo -> TcM TcType
 predicateClassKind info = do
+  kind <- instantiateTyConKind info
   classInfo <- lookupClass (tciName info)
   case classInfo of
-    Just {} -> defaultKindMetas (typeSchemeBody (tciKindScheme info))
-    Nothing -> zonkKind (typeSchemeBody (tciKindScheme info))
+    Just {} -> defaultKindMetas kind
+    Nothing -> zonkKind kind
 
 takeClassArgKinds :: Int -> TcType -> [TcType]
 takeClassArgKinds n kind

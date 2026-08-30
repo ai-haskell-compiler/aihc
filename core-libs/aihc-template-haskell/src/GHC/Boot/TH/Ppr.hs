@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: BSD-3-Clause
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE Trustworthy #-}
 
@@ -15,6 +16,7 @@ import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty qualified as NE
 import Data.Ratio (denominator, numerator)
+import Data.Traversable (traverse)
 import Data.Word (Word8)
 import GHC.Boot.TH.PprLib
 import GHC.Boot.TH.Syntax
@@ -814,12 +816,7 @@ instance Ppr Pragma where
     text "{-# SPECIALISE instance" <+> ppr inst <+> text "#-}"
   ppr (RuleP n ty_bndrs tm_bndrs lhs rhs phases) =
     sep
-      [ text "{-# RULES" <+> pprString n <+> ppr phases,
-        nest 4 $
-          ppr_ty_forall ty_bndrs
-            <+> ppr_tm_forall ty_bndrs
-            <+> ppr lhs,
-        nest 4 $ char '=' <+> ppr rhs <+> text "#-}"
+      [ text ""
       ]
     where
       ppr_ty_forall Nothing = empty
@@ -995,18 +992,12 @@ instance Ppr DecidedStrictness where
   ppr DecidedUnpack = text "{-# UNPACK #-} !"
 
 ------------------------------
-{-# DEPRECATED
-  pprVarStrictType
-  "As of @template-haskell-2.11.0.0@, 'VarStrictType' has been replaced by 'VarBangType'. Please use 'pprVarBangType' instead."
-  #-}
+
 pprVarStrictType :: (Name, Strict, Type) -> Doc
 pprVarStrictType = pprVarBangType
 
 ------------------------------
-{-# DEPRECATED
-  pprStrictType
-  "As of @template-haskell-2.11.0.0@, 'StrictType' has been replaced by 'BangType'. Please use 'pprBangType' instead."
-  #-}
+
 pprStrictType :: (Strict, Type) -> Doc
 pprStrictType = pprBangType
 
@@ -1139,7 +1130,7 @@ pprFunArgType = pprType funPrec
 data ForallVisFlag
   = ForallVis -- forall a -> {...}
   | ForallInvis -- forall a.   {...}
-  deriving (Show)
+  deriving stock (Show)
 
 data TypeArg
   = TANormal Type

@@ -374,7 +374,8 @@ module Language.Haskell.TH.Lib
   )
 where
 
-import Control.Applicative (Applicative (..))
+import Control.Applicative (Applicative (..), liftA2)
+import Data.Traversable (sequenceA)
 import Data.Word
 import Foreign.ForeignPtr
 import GHC.Boot.TH.Lib hiding

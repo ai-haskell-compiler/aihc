@@ -6,6 +6,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -46,27 +47,28 @@ module GHC.Internal.TH.Syntax
   )
 where
 
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
-import Control.Exception (BlockedIndefinitelyOnMVar (..), catch, throwIO)
-import Control.Exception.Base (FixIOException (..))
+import Control.Applicative (liftA2)
+import Control.Monad.Fail (MonadFail (..))
 import Control.Monad.Fix (MonadFix (..))
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Char (isAlpha, isAlphaNum, isUpper)
 import Data.Data hiding (Fixity (..))
+import Data.Foldable (Foldable)
 import Data.IORef
 import Data.Kind qualified as Kind (Type)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Monoid (Monoid (..))
+import Data.Semigroup (Semigroup (..))
+import Data.Traversable (Traversable)
+import Data.Typeable (Typeable)
 import Data.Word
-import Foreign.C.String
-import Foreign.C.Types
+import Foreign.C.Types (CInt, CSize)
 import Foreign.ForeignPtr
 import GHC.Exts (RuntimeRep (..), TYPE)
-import GHC.Generics (Generic)
-import GHC.IO.Unsafe (unsafeDupableInterleaveIO)
 import GHC.Internal.ForeignSrcLang
 import GHC.Internal.LanguageExtensions
-import GHC.Ptr (Ptr, plusPtr)
-import System.IO (hPutStrLn, stderr)
+import GHC.Ptr (Ptr)
+import System.IO (hPutStrLn, stderr, writeFile)
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude
 
@@ -289,20 +291,7 @@ instance (Monoid a) => Monoid (Q a) where
 --
 -- @since 2.17.0.0
 instance MonadFix Q where
-  -- We use the same blackholing approach as in fixIO.
-  -- See Note [Blackholing in fixIO] in System.IO in base.
-  mfix k = do
-    m <- runIO newEmptyMVar
-    ans <-
-      runIO
-        ( unsafeDupableInterleaveIO
-            ( readMVar m `catch` \BlockedIndefinitelyOnMVar ->
-                throwIO FixIOException
-            )
-        )
-    result <- k ans
-    runIO (putMVar m result)
-    return result
+  mfix _ = error "Template Haskell Q.mfix is not available"
 
 -----------------------------------------------------
 --
@@ -369,9 +358,6 @@ instance Quote Q where
 -----------------------------------------------------
 
 type TExp :: TYPE r -> Kind.Type
-
-type role TExp nominal -- See Note [Role of TExp]
-
 newtype TExp a = TExp
   { -- | Underlying untyped Template Haskell expression
     unType :: Exp
@@ -419,10 +405,7 @@ The splice will evaluate to (MkAge 3) and you can't add that to
 
 -- Code constructor
 type Code :: (Kind.Type -> Kind.Type) -> forall r. TYPE r -> Kind.Type
-
 -- See Note [Foralls to the right in Code]
-type role Code representational nominal -- See Note [Role of TExp]
-
 newtype Code m a = Code
   { -- | Underlying monadic value
     examineCode :: m (TExp a)
@@ -515,7 +498,7 @@ bindCode ::
   forall m a (r :: RuntimeRep) (b :: TYPE r).
   (Monad m) =>
   m a -> (a -> Code m b) -> Code m b
-bindCode q k = liftCode (q >>= examineCode . k)
+bindCode q k = liftCode (q >>= \value -> examineCode (k value))
 
 -- | Variant of '(>>)' which allows effectful computations to be injected
 -- into code generation.
@@ -545,7 +528,6 @@ joinCode = flip bindCode id
 -- but carry on; use 'fail' to stop.
 report :: Bool -> String -> Q ()
 report b s = Q (qReport b s)
-{-# DEPRECATED report "Use reportError or reportWarning instead" #-} -- deprecated in 7.6
 
 -- | Report an error to the user, but allow the current splice's computation to carry on. To abort the computation, use 'fail'.
 reportError :: String -> Q ()
@@ -860,10 +842,6 @@ addTopDecls ds = Q (qAddTopDecls ds)
 
 addForeignFile :: ForeignSrcLang -> String -> Q ()
 addForeignFile = addForeignSource
-{-# DEPRECATED
-  addForeignFile
-  "Use 'Language.Haskell.TH.Syntax.addForeignSource' instead"
-  #-}
 
 -- deprecated in 8.6
 
@@ -1009,7 +987,7 @@ instance Quasi Q where
 -- | This function is only used in 'GHC.HsToCore.Quote' when desugaring
 -- brackets. This is not necessary for the user, who can use the ordinary
 -- 'return' and '(>>=)' operations.
-sequenceQ :: forall m. (Monad m) => forall a. [m a] -> m [a]
+sequenceQ :: forall m a. (Monad m) => [m a] -> m [a]
 sequenceQ = sequence
 
 oneName, manyName :: Name
@@ -1026,19 +1004,19 @@ manyName = mkNameG DataName "ghc-prim" "GHC.Types" "Many"
 
 -- | The name of a module.
 newtype ModName = ModName String -- Module name
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | The name of a package.
 newtype PkgName = PkgName String -- package name
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Obtained from 'reifyModule' and 'Language.Haskell.TH.Lib.thisModule'.
 data Module = Module PkgName ModName -- package qualified module name
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | An "Occurence Name".
 newtype OccName = OccName String
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Smart constructor for 'ModName'
 mkModName :: String -> ModName
@@ -1150,7 +1128,7 @@ occString (OccName occ) = occ
 -- Names constructed using @newName@ and @mkName@ may be used in bindings
 -- (such as @let x = ...@ or @\x -> ...@), but names constructed using
 -- @lookupValueName@, @lookupTypeName@, @'f@, @''T@ may not.
-data Name = Name OccName NameFlavour deriving (Data, Eq, Generic)
+data Name = Name OccName NameFlavour deriving stock (Eq)
 
 instance Ord Name where
   -- check if unique is different before looking at strings
@@ -1172,7 +1150,7 @@ data NameFlavour
     -- Need the namespace too to be sure which
     -- thing we are naming
     NameG NameSpace PkgName ModName
-  deriving (Data, Eq, Ord, Show, Generic)
+  deriving stock (Eq, Ord, Show)
 
 data NameSpace
   = -- | Variables
@@ -1190,7 +1168,7 @@ data NameSpace
         --   - For a field of a pattern synonym, this is the name of the pattern synonym.
         fldParent :: !String
       }
-  deriving (Eq, Ord, Show, Data, Generic)
+  deriving stock (Eq, Ord, Show)
 
 -- | @Uniq@ is used by GHC to distinguish names from each other.
 type Uniq = Integer
@@ -1514,7 +1492,7 @@ data Loc
     loc_start :: CharPos,
     loc_end :: CharPos
   }
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 type CharPos =
   -- | Line and character position
@@ -1587,13 +1565,13 @@ data Info
     TyVarI -- Scoped type variable
       Name
       Type -- What it is bound to
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Obtained from 'reifyModule' in the 'Q' Monad.
 data ModuleInfo
   = -- | Contains the import list of the module.
     ModuleInfo [Module]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- |
 -- In 'ClassOpI' and 'DataConI', name of the parent class or type
@@ -1630,11 +1608,11 @@ type InstanceDec = Dec
 
 -- | Fixity, as specified in a @infix[lr] n@ declaration.
 data Fixity = Fixity Int FixityDirection
-  deriving (Eq, Ord, Show, Data, Generic)
+  deriving stock (Eq, Ord, Show)
 
 -- | The associativity of an operator, as in an @infix@ declaration.
 data FixityDirection = InfixL | InfixR | InfixN
-  deriving (Eq, Ord, Show, Data, Generic)
+  deriving stock (Eq, Ord, Show)
 
 -- | Highest allowed operator precedence for 'Fixity' constructor (answer: 9)
 maxPrecedence :: Int
@@ -1744,7 +1722,7 @@ data Lit
     BytesPrimL Bytes
   | -- | @\'c\'#@
     CharPrimL Char
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- We could add Int, Float, Double etc, as we do in HsLit,
 -- but that could complicate the
@@ -1762,24 +1740,16 @@ data Bytes = Bytes
     -- | Number of bytes
     bytesSize :: Word
   }
-  -- Maybe someday:
-  -- , bytesAlignement  :: Word -- ^ Alignement constraint
-  -- , bytesReadOnly    :: Bool -- ^ Shall we embed into a read-only
-  --                            --   section or not
-  -- , bytesInitialized :: Bool -- ^ False: only use `bytesSize` to allocate
-  --                            --   an uninitialized region
 
-  deriving (Data, Generic)
+-- Maybe someday:
+-- , bytesAlignement  :: Word -- ^ Alignement constraint
+-- , bytesReadOnly    :: Bool -- ^ Shall we embed into a read-only
+--                            --   section or not
+-- , bytesInitialized :: Bool -- ^ False: only use `bytesSize` to allocate
+--                            --   an uninitialized region
 
--- We can't derive Show instance for Bytes because we don't want to show the
--- pointer value but the actual bytes (similarly to what ByteString does). See
--- #16457.
 instance Show Bytes where
-  show b = unsafePerformIO $ withForeignPtr (bytesPtr b) $ \ptr ->
-    peekCStringLen
-      ( ptr `plusPtr` fromIntegral (bytesOffset b),
-        fromIntegral (bytesSize b)
-      )
+  show _ = "<bytes>"
 
 -- We can't derive Eq and Ord instances for Bytes because we don't want to
 -- compare pointer values but the actual bytes (similarly to what ByteString
@@ -1791,26 +1761,15 @@ instance Ord Bytes where
   compare = compareBytes
 
 eqBytes :: Bytes -> Bytes -> Bool
-eqBytes a@(Bytes fp off len) b@(Bytes fp' off' len')
-  | len /= len' = False -- short cut on length
-  | fp == fp' && off == off' = True -- short cut for the same bytes
-  | otherwise = compareBytes a b == EQ
+eqBytes (Bytes _ leftOffset leftSize) (Bytes _ rightOffset rightSize) =
+  leftOffset == rightOffset && leftSize == rightSize
 
 compareBytes :: Bytes -> Bytes -> Ordering
-compareBytes (Bytes _ _ 0) (Bytes _ _ 0) = EQ -- short cut for empty Bytes
-compareBytes (Bytes fp1 off1 len1) (Bytes fp2 off2 len2) =
-  unsafePerformIO $
-    withForeignPtr fp1 $ \p1 ->
-      withForeignPtr fp2 $ \p2 -> do
-        i <-
-          memcmp
-            (p1 `plusPtr` fromIntegral off1)
-            (p2 `plusPtr` fromIntegral off2)
-            (fromIntegral (min len1 len2))
-        return $! (i `compare` 0) <> (len1 `compare` len2)
+compareBytes (Bytes _ leftOffset leftSize) (Bytes _ rightOffset rightSize) =
+  compare leftOffset rightOffset <> compare leftSize rightSize
 
-foreign import ccall unsafe "memcmp"
-  memcmp :: Ptr a -> Ptr b -> CSize -> IO CInt
+memcmp :: Ptr a -> Ptr b -> CSize -> IO CInt
+memcmp _ _ _ = error "Template Haskell byte comparison is not available"
 
 -- | Pattern in Haskell given in @{}@
 data Pat
@@ -1858,7 +1817,7 @@ data Pat
     InvisP Type
   | -- | @{ p1; p2 }@
     OrP (NonEmpty Pat)
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A (field name, pattern) pair. See 'RecP'.
 type FieldPat = (Name, Pat)
@@ -1867,7 +1826,7 @@ type FieldPat = (Name, Pat)
 data Match
   = -- | @case e of { pat -> body where decs }@
     Match Pat Body [Dec]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A clause consists of patterns, guards, a body expression, and a list of
 -- declarations under a @where@. Clauses are seen in equations for function
@@ -1876,7 +1835,7 @@ data Match
 data Clause
   = -- | @f { p1 p2 = body where decs }@
     Clause [Pat] Body [Dec]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A Haskell expression.
 data Exp
@@ -2004,7 +1963,7 @@ data Exp
     ForallVisE [TyVarBndr ()] Exp
   | -- | @\<ctxt\> => \<expr\>@
     ConstrainedE [Exp] Exp
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A (field name, expression) pair. See 'RecConE' and 'RecUpdE'.
 type FieldExp = (Name, Exp)
@@ -2020,7 +1979,7 @@ data Body
     GuardedB [(Guard, Exp)]
   | -- | @f p { = e } where ds@
     NormalB Exp
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A single guard.
 data Guard
@@ -2028,7 +1987,7 @@ data Guard
     NormalG Exp
   | -- | @f x { | Just y <- x, Just z <- y } = z@
     PatG [Stmt]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A single statement, as in @do@-notation.
 data Stmt
@@ -2042,7 +2001,7 @@ data Stmt
     ParS [[Stmt]]
   | -- | @rec { s1; s2 }@
     RecS [Stmt]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A list/enum range expression.
 data Range
@@ -2054,7 +2013,7 @@ data Range
     FromToR Exp Exp
   | -- | @[n, m .. k]@
     FromThenToR Exp Exp Exp
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A single declaration.
 data Dec
@@ -2063,7 +2022,7 @@ data Dec
   | -- | @{ p = b where decs }@
     ValD Pat Body [Dec]
   | -- | @{ data Cxt x => T x = A x | B (T x)
-    --       deriving (Z,W)
+    --       deriving stock (Z,W)
     --       deriving stock Eq }@
     DataD
       Cxt
@@ -2073,7 +2032,7 @@ data Dec
       [Con]
       [DerivClause]
   | -- | @{ newtype Cxt x => T x = A (B x)
-    --       deriving (Z,W Q)
+    --       deriving stock (Z,W Q)
     --       deriving stock Eq }@
     NewtypeD
       Cxt
@@ -2123,7 +2082,7 @@ data Dec
       (Maybe Kind)
   | -- | @{ data instance Cxt x => T [x]
     --       = A x | B (T x)
-    --       deriving (Z,W)
+    --       deriving stock (Z,W)
     --       deriving stock Eq }@
     DataInstD
       Cxt
@@ -2134,7 +2093,7 @@ data Dec
       [DerivClause]
   | -- | @{ newtype instance Cxt x => T [x]
     --        = A (B x)
-    --        deriving (Z,W)
+    --        deriving stock (Z,W)
     --        deriving stock Eq }@
     NewtypeInstD
       Cxt
@@ -2177,7 +2136,7 @@ data Dec
     -- Implicit parameter binding declaration. Can only be used in let
     -- and where clauses which consist entirely of implicit bindings.
     ImplicitParamBindD String Exp
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A way to specify a namespace to look in when GHC needs to find
 --   a name's source
@@ -2192,7 +2151,7 @@ data NamespaceSpecifier
   | -- | Name should be a term-level entity, such as a
     --   function, data constructor, or pattern synonym
     DataNamespaceSpecifier
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Varieties of allowed instance overlap.
 data Overlap
@@ -2206,13 +2165,13 @@ data Overlap
     -- pick an arbitrary one if multiple choices are
     -- available.
     Incoherent
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A single @deriving@ clause at the end of a datatype declaration.
 data DerivClause
   = -- | @{ deriving stock (Eq, Ord) }@
     DerivClause (Maybe DerivStrategy) Cxt
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | What the user explicitly requests when deriving an instance with
 -- @-XDerivingStrategies@.
@@ -2225,7 +2184,7 @@ data DerivStrategy
     NewtypeStrategy
   | -- | @deriving C {via T}@, @-XDerivingVia@
     ViaStrategy Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A pattern synonym's type. Note that a pattern synonym's /fully/
 -- specified type has a peculiar shape coming with two forall
@@ -2281,7 +2240,7 @@ type PatSynType = Type
 -- between @type family@ and @where@.
 data TypeFamilyHead
   = TypeFamilyHead Name [TyVarBndr BndrVis] FamilyResultSig (Maybe InjectivityAnn)
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | One equation of a type family instance or closed type family. The
 -- arguments are the left-hand-side type and the right-hand-side result.
@@ -2301,14 +2260,14 @@ data TypeFamilyHead
 --            ('VarT' a)
 -- @
 data TySynEqn = TySynEqn (Maybe [TyVarBndr ()]) Type Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | [Functional dependency](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/functional_dependencies.html)
 -- syntax, as in a class declaration.
 data FunDep
   = -- | @class C a b {| a -> b}@
     FunDep [Name] [Name]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A @foreign@ declaration.
 data Foreign
@@ -2316,17 +2275,17 @@ data Foreign
     ImportF Callconv Safety String Name Type
   | -- | @foreign export callconv "foreign_name" haskellName :: type@
     ExportF Callconv String Name Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- keep Callconv in sync with module ForeignCall in ghc/compiler/GHC/Types/ForeignCall.hs
 
 -- | A calling convention identifier, as in a 'Foreign' declaration.
 data Callconv = CCall | StdCall | CApi | Prim | JavaScript
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A safety level, as in a 'Foreign' declaration.
 data Safety = Unsafe | Safe | Interruptible
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 data Pragma
   = -- | @{ {\-\# [inline] [rule match] [phases] [phases] name #-} }@. See
@@ -2348,7 +2307,7 @@ data Pragma
     CompleteP [Name] (Maybe Name)
   | -- | @{ {\-\# SCC fun "optional_name" \#-} }@
     SCCP Name (Maybe String)
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | An inline pragma.
 data Inline
@@ -2358,7 +2317,7 @@ data Inline
     Inline
   | -- | @{ {\-\# INLINABLE ... #-} }@
     Inlinable
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A @CONLIKE@ modifier, as in one of the various inline pragmas, or lack
 -- thereof ('FunLike').
@@ -2367,7 +2326,7 @@ data RuleMatch
     ConLike
   | -- | @{ {\-\# [inline] ... #-} }@
     FunLike
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Phase control syntax.
 data Phases
@@ -2377,7 +2336,7 @@ data Phases
     FromPhase Int
   | -- | @[~n]@
     BeforePhase Int
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A binder found in the @forall@ of a @RULES@ pragma.
 data RuleBndr
@@ -2385,7 +2344,7 @@ data RuleBndr
     RuleVar Name
   | -- | @forall {(a :: t)} ... .@
     TypedRuleVar Name Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | The target of an @ANN@ pragma
 data AnnTarget
@@ -2395,7 +2354,7 @@ data AnnTarget
     TypeAnnotation Name
   | -- | @{\-\# ANN {name} ... #-}@
     ValueAnnotation Name
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A context, as found on the left side of a @=>@ in a type.
 type Cxt =
@@ -2418,7 +2377,7 @@ data SourceUnpackedness
     SourceNoUnpack
   | -- | @C { {\-\# UNPACK \#-\} } a@
     SourceUnpack
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | 'SourceStrictness' corresponds to strictness annotations found in the source code.
 --
@@ -2431,7 +2390,7 @@ data SourceStrictness
     SourceLazy
   | -- | @C {!}a@
     SourceStrict
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Unlike 'SourceStrictness' and 'SourceUnpackedness', 'DecidedStrictness'
 -- refers to the strictness annotations that the compiler chooses for a data constructor
@@ -2448,7 +2407,7 @@ data DecidedStrictness
     DecidedStrict
   | -- | Field inferred to be unpacked.
     DecidedUnpack
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A data constructor.
 --
@@ -2514,7 +2473,7 @@ data Con
       [VarBangType]
       -- | See Note [GADT return type]
       Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- Note [GADT return type]
 -- ~~~~~~~~~~~~~~~~~~~~~~~
@@ -2547,7 +2506,7 @@ data Con
 data Bang
   = -- | @C { {\-\# UNPACK \#-\} !}a@
     Bang SourceUnpackedness SourceStrictness
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A type with a strictness annotation, as in data constructors. See 'Con'.
 type BangType = (Bang, Type)
@@ -2574,7 +2533,7 @@ data PatSynDir
     ImplBidir
   | -- | @pattern P x {<-} p where P x = e@
     ExplBidir [Clause]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A pattern synonym's argument type.
 data PatSynArgs
@@ -2584,7 +2543,7 @@ data PatSynArgs
     InfixPatSyn Name Name
   | -- | @pattern P { {x,y,z} } = p@
     RecordPatSyn [Name]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | A Haskell type.
 data Type
@@ -2652,7 +2611,7 @@ data Type
     WildCardT
   | -- | @?x :: t@
     ImplicitParamT String Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | The specificity of a type variable in a @forall ...@.
 data Specificity
@@ -2660,7 +2619,7 @@ data Specificity
     SpecifiedSpec
   | -- | @{a}@
     InferredSpec
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | The @flag@ type parameter is instantiated to one of the following types:
 --
@@ -2672,7 +2631,7 @@ data TyVarBndr flag
     PlainTV Name flag
   | -- | @(a :: k)@
     KindedTV Name flag Kind
-  deriving (Show, Eq, Ord, Data, Generic, Functor, Foldable, Traversable)
+  deriving stock (Show, Eq, Ord, Functor, Foldable, Traversable)
 
 -- | Visibility of a type variable. See [Inferred vs. specified type variables](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/type_applications.html#inferred-vs-specified-type-variables).
 data BndrVis
@@ -2680,7 +2639,7 @@ data BndrVis
     BndrReq
   | -- | @\@a@
     BndrInvis
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Type family result signature
 data FamilyResultSig
@@ -2690,11 +2649,11 @@ data FamilyResultSig
     KindSig Kind
   | -- | @= r, = (r :: k)@
     TyVarSig (TyVarBndr ())
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Injectivity annotation as in an [injective type family](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/type_families.html)
 data InjectivityAnn = InjectivityAnn Name [Name]
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Type-level literals.
 data TyLit
@@ -2704,7 +2663,7 @@ data TyLit
     StrTyLit String
   | -- | @\'C\'@, @since 4.16.0.0
     CharTyLit Char
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Role annotations
 data Role
@@ -2716,13 +2675,13 @@ data Role
     PhantomR
   | -- | @_@
     InferR
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | Annotation target for reifyAnnotations
 data AnnLookup
   = AnnLookupModule Module
   | AnnLookupName Name
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -- | To avoid duplication between kinds and types, they
 -- are defined to be the same. Naturally, you would never
@@ -2776,7 +2735,7 @@ data DocLoc
     ArgDoc Name Int
   | -- | At a class or family instance.
     InstDoc Type
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving stock (Show, Eq, Ord)
 
 -----------------------------------------------------
 --              Internal helper functions

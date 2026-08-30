@@ -3,11 +3,14 @@
 module GHC.Exts
   ( Addr#,
     ByteArray#,
+    copyAddrToByteArray#,
     Int#,
     MutableByteArray#,
     RealWorld,
     StablePtr#,
     Word#,
+    RuntimeRep (..),
+    TYPE,
     Ptr (..),
     Int (..),
     Float (..),
@@ -86,7 +89,7 @@ where
 
 import GHC.Prim
 import GHC.Ptr (Ptr (..))
-import GHC.Types (Bool (..), Double (..), Float (..), Int (..))
+import GHC.Types (Bool (..), Double (..), Float (..), Int (..), RuntimeRep (..), TYPE)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 isTrue# :: Int# -> Bool
