@@ -58,6 +58,7 @@ tests =
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
           testCase "keeps transitive instances after cached type interfaces" test_installV2CachedTransitiveInstances,
           testCase "accepts type-check warnings" test_installV2TypeWarning,
+          testCase "loads the implicit Prelude type interface" test_installV2ImplicitPrelude,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
@@ -610,6 +611,15 @@ test_installV2TypeWarning = do
     let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False True False AppleArm64
     result <- installV2 options
     assertEqual "warning does not prevent installation" ["Demo"] (installV2WrittenModules result)
+
+test_installV2ImplicitPrelude :: Assertion
+test_installV2ImplicitPrelude = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/implicit-prelude"
+  withTempDir "aihc-install-v2-implicit-prelude" $ \root -> do
+    let sourceRoot = fixtureRoot </> "demo"
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False True False AppleArm64
+    result <- installV2 options
+    assertEqual "implicit Prelude user" ["Demo"] (installV2WrittenModules result)
 
 test_installV2TypeReexports :: Assertion
 test_installV2TypeReexports =
