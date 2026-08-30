@@ -44,6 +44,14 @@ data EvTerm
     EvCast !EvTerm !Coercion
   | -- | Compiler-synthesized structural runtime type representation.
     EvTypeable !(Maybe (Text, Text)) !TcType ![EvTerm]
+  | -- | Type abstraction for quantified evidence.
+    EvTypeLam !TyVarId !EvTerm
+  | -- | Dictionary abstraction with its checked binder type.
+    EvDictLam !Pred !TcType !EvTerm
+  | -- | Type application for quantified evidence.
+    EvTypeApp !EvTerm !TcType
+  | -- | Dictionary application for quantified evidence.
+    EvDictApp !EvTerm !EvTerm
   deriving (Eq, Show, Read)
 
 -- | A binding of an evidence variable to its term.

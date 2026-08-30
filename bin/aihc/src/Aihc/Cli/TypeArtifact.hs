@@ -55,7 +55,7 @@ encodeTypeArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-type"
-      <> cborWord 7
+      <> cborWord 8
       <> cborText (typeArtifactModuleName artifact)
       <> encodeList encodeHash (typeArtifactInputHashes artifact)
       <> putInterface (typeArtifactInterface artifact)
@@ -77,7 +77,7 @@ getArtifact :: Get.Get TypeArtifact
 getArtifact = do
   expectArray 5
   expectText "aihc-type"
-  expectWord 7
+  expectWord 8
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   typeArtifactInterface <- getInterface
@@ -223,14 +223,17 @@ putPred :: Pred -> Builder.Builder
 putPred predicate = case predicate of
   ClassPred tyCon arguments -> sum2 0 (putTyCon tyCon) (encodeList putType arguments)
   EqPred left right -> sum2 1 (putType left) (putType right)
+  QuantifiedPred variables antecedents consequent ->
+    cborArray 4 <> cborWord 2 <> encodeList putTyVar variables <> encodeList putPred antecedents <> putPred consequent
 
 getPred :: Get.Get Pred
 getPred = do
-  expectArray 3
+  length' <- getArrayLength
   tag <- getWord
-  case tag of
-    0 -> ClassPred <$> getTyCon <*> getList getType
-    1 -> EqPred <$> getType <*> getType
+  case (length', tag) of
+    (3, 0) -> ClassPred <$> getTyCon <*> getList getType
+    (3, 1) -> EqPred <$> getType <*> getType
+    (4, 2) -> QuantifiedPred <$> getList getTyVar <*> getList getPred <*> getPred
     _ -> fail "unsupported predicate"
 
 putTyConInfo :: TyConInfo -> Builder.Builder

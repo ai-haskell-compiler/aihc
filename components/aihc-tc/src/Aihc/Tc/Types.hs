@@ -176,6 +176,7 @@ typeSchemeBody (ForAll _ _ body) = body
 data Pred
   = ClassPred !TyCon ![TcType]
   | EqPred !TcType !TcType
+  | QuantifiedPred ![TyVarId] ![Pred] !Pred
   deriving (Eq, Ord, Show, Read)
 
 boxedTupleTyConName :: Int -> Text
@@ -336,6 +337,11 @@ typeKindInEnv kindEnv = go
       case predicate of
         ClassPred className arguments -> ClassPred (configurePrimitiveTyCon className) (map configurePrimitiveType arguments)
         EqPred left right -> EqPred (configurePrimitiveType left) (configurePrimitiveType right)
+        QuantifiedPred variables antecedents consequent ->
+          QuantifiedPred
+            (map (\variable -> setTyVarKind (configurePrimitiveType (tvKind variable)) variable) variables)
+            (map configurePred antecedents)
+            (configurePred consequent)
 
     configurePrimitiveTyCon tyCon
       | tyConPackageId tyCon == PackageId "aihc-prim",
@@ -397,6 +403,12 @@ applySubstPred substitution predicate =
   case predicate of
     ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
     EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
+    QuantifiedPred variables antecedents consequent ->
+      let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
+       in QuantifiedPred
+            variables
+            (map (applySubstPred scopedSubstitution) antecedents)
+            (applySubstPred scopedSubstitution consequent)
 
 pattern KTYPE :: TcType -> TcType
 pattern KTYPE representation <- (matchTYPEKind -> Just representation)

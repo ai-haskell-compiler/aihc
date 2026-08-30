@@ -11,7 +11,7 @@ module Aihc.Resolve.Monad
     withEffectiveSpan,
     withPushedSpan,
     freshLocal,
-    withLocalSupply,
+    withResetLocalSupply,
   )
 where
 
@@ -125,10 +125,10 @@ freshLocal name = do
   modify' (\state -> state {stateNextLocal = currentId + 1})
   pure (ResolvedLocal currentId name)
 
-withLocalSupply :: Int -> ResolveM a -> ResolveM a
-withLocalSupply nextLocal action = do
+withResetLocalSupply :: ResolveM a -> ResolveM a
+withResetLocalSupply action = do
   savedNextLocal <- gets stateNextLocal
-  modify' (\state -> state {stateNextLocal = nextLocal})
+  modify' (\state -> state {stateNextLocal = 0})
   result <- action
   modify' (\state -> state {stateNextLocal = savedNextLocal})
   pure result

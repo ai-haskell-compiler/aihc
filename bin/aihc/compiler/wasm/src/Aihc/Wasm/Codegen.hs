@@ -686,7 +686,7 @@ compileCase env scrutinee binder alternatives = do
                 pure
                   ( ["local.get\t" <> caseLocal]
                       <> call "aihc_wasm_value_info"
-                      <> i32Symbol (renderLinkedConstructorInfoSymbol name 0)
+                      <> i32Const (renderLinkedConstructorInfoSymbol name 0)
                       <> ["i64.extend_i32_u", "i64.eq"]
                   )
           GrinDataAlt {} -> Left (WasmUnsupportedExpression "constructor case on unboxed value")
@@ -733,7 +733,7 @@ materializeValue env value = case value of
       Nothing -> i64Const "0"
     _ -> maybe (i64Const "0") (i64Const . renderInteger) (normalizedLiteralInteger literal)
   where
-    linkedGlobalValue name = i32Symbol (renderLinkedGlobalSymbol name) <> ["i64.extend_i32_u"]
+    linkedGlobalValue name = i32Const (renderLinkedGlobalSymbol name) <> ["i64.extend_i32_u"]
 
 storeScratchValues :: ValueEnv -> [GrinValue] -> Either WasmError Instructions
 storeScratchValues env values =
@@ -774,10 +774,9 @@ storeSlot address index value = address <> value <> ["i64.store\t" <> tshow (ind
 machine :: Instructions
 machine = ["local.get\t0"]
 
-i32Const, i64Const, i32Symbol, i32Data, i32RuntimeData, call :: Text -> Instructions
+i32Const, i64Const, i32Data, i32RuntimeData, call :: Text -> Instructions
 i32Const value = ["i32.const\t" <> value]
 i64Const value = ["i64.const\t" <> value]
-i32Symbol = i32Const
 i32Data = i32Const . dataLabel
 i32RuntimeData = i32Const . runtimeDataLabel
 call function = ["call\t" <> function]
@@ -847,12 +846,12 @@ renderProgramInitializer entryName =
           <> ["local.set\t0", "i32.const\t0", "local.get\t0", "i32.store\taihc_machine"]
           <> initializeSpecials
           <> ["local.get\t0"]
-          <> i32Symbol (renderLinkedGlobalSymbol entryName)
+          <> i32Const (renderLinkedGlobalSymbol entryName)
           <> ["i64.extend_i32_u"]
           <> specialGet 1
           <> specialGet 2
           <> specialGet 3
-          <> i32Symbol "aihc_wasm_exit"
+          <> i32Const "aihc_wasm_exit"
           <> call "aihc_wasm_transfer_start"
           <> ["return"]
       )
@@ -877,7 +876,7 @@ renderProgramInitializer entryName =
         <> call "aihc_wasm_set_field"
         <> specialGet 2
         <> i64Const "1"
-        <> i32Symbol (renderLinkedGlobalSymbol entryName)
+        <> i32Const (renderLinkedGlobalSymbol entryName)
         <> ["i64.extend_i32_u"]
         <> call "aihc_wasm_set_field"
         <> specialSet 3 (makeSpecial "aihc_wasm_thread_done_info")

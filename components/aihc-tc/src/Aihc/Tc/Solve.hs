@@ -55,6 +55,7 @@ addWork :: Ct -> WorkList -> WorkList
 addWork ct = case ctPred ct of
   EqPred {} -> addEq ct
   ClassPred {} -> addDict ct
+  QuantifiedPred {} -> addDict ct
 
 -- | Main solver loop.
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
@@ -132,6 +133,7 @@ partitionWanteds = foldr partitionOne ([], [])
       case ctPred ct of
         EqPred {} -> (ct : equalities, dictionaries)
         ClassPred {} -> (equalities, ct : dictionaries)
+        QuantifiedPred {} -> (equalities, ct : dictionaries)
 
 -- | Decompose a given constraint into atomic equalities.
 -- For example, @GADT a ~ GADT Bool@ decomposes into @[(a, Bool)]@.
@@ -196,12 +198,20 @@ solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
     case result of
       DictSolved -> pure ()
       DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+  quantified@QuantifiedPred {} -> do
+    let rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
+    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred givenEqualities quantified})
+    case result of
+      DictSolved -> pure ()
+      DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
 
 rewritePred :: [(TcType, TcType)] -> Pred -> Pred
 rewritePred equalities predicate =
   case predicate of
     ClassPred className arguments -> ClassPred className (map (applyGivenSubst equalities) arguments)
     EqPred left right -> EqPred (applyGivenSubst equalities left) (applyGivenSubst equalities right)
+    QuantifiedPred variables antecedents consequent ->
+      QuantifiedPred variables (map (rewritePred equalities) antecedents) (rewritePred equalities consequent)
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =

@@ -227,7 +227,12 @@ resolveModule package exports nextLocal modu =
   let imports' = resolveModuleImports package exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope package exports modu'
-      (nextLocal', decls') = runResolveM scope (moduleInfo package exports modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+      (nextLocal', decls') =
+        runResolveM
+          scope
+          (moduleInfo package exports modu')
+          nextLocal
+          (resolveBindingGroup (topLevelTermDefinition scope) Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
 
 moduleInfo :: Package -> ModuleExports -> Module -> ModuleInfo
@@ -336,11 +341,6 @@ missingImportedName item namespace itemName candidates
     rendered = renderUnqualifiedName itemName
 
 type TermDefinition = UnqualifiedName -> Maybe ResolvedName
-
-resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveTopLevelDecls signatureScopes decls = do
-  scope <- currentScope
-  resolveBindingGroup (topLevelTermDefinition scope) signatureScopes decls
 
 resolveBindingGroup :: TermDefinition -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBindingGroup _ _ [] = pure []
@@ -501,7 +501,7 @@ resolveClassDeclItem classDeclItem =
     ClassItemDefaultSig name ty -> ClassItemDefaultSig name <$> resolveType ty
     ClassItemDefault valueDecl -> do
       scope <- currentScope
-      ClassItemDefault <$> withLocalSupply 0 (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
+      ClassItemDefault <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
     ClassItemFixity {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemPragma pragma
       | ignoredInlinePragma (pragmaType pragma) -> pure classDeclItem
@@ -533,7 +533,7 @@ resolveInstanceDeclItem instanceDeclItem =
     InstanceItemAnn ann inner -> InstanceItemAnn ann <$> withPushedSpan ann (resolveInstanceDeclItem inner)
     InstanceItemBind valueDecl -> do
       scope <- currentScope
-      InstanceItemBind <$> withLocalSupply 0 (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
+      InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
     InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
     InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
@@ -1101,7 +1101,7 @@ resolvePatternDefinition termDefinition pat =
     PInfix left name right ->
       PInfix <$> resolvePatternDefinition termDefinition left <*> resolveTermUseAtName name <*> resolvePatternDefinition termDefinition right
     PView expr inner ->
-      PView <$> withLocalSupply 0 (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
+      PView <$> withResetLocalSupply (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
     PAs alias inner -> do
       sp <- currentSpan
       PAs (resolveTermDefinitionAt sp termDefinition alias) <$> resolvePatternDefinition termDefinition inner
@@ -1125,7 +1125,7 @@ resolvePatternDefinition termDefinition pat =
     PTypeSig inner ty ->
       PTypeSig <$> resolvePatternDefinition termDefinition inner <*> resolveType ty
     PSplice expr ->
-      PSplice <$> withLocalSupply 0 (resolveExpr expr)
+      PSplice <$> withResetLocalSupply (resolveExpr expr)
 
 bindRecordWildcardFields :: Name -> [RecordField Pattern] -> Bool -> ResolveM [(Text, ResolvedName)]
 bindRecordWildcardFields conName fields wildcard
@@ -1373,7 +1373,7 @@ resolveType ty =
     TTypeLit {} -> pure ty
     TStar {} -> pure ty
     TForall telescope inner -> do
-      (binderScope, binders') <- withLocalSupply 0 (bindTyVarBinders (forallTelescopeBinders telescope))
+      (binderScope, binders') <- withResetLocalSupply (bindTyVarBinders (forallTelescopeBinders telescope))
       inner' <- extendScope binderScope (resolveType inner)
       pure (TForall (telescope {forallTelescopeBinders = binders'}) inner')
     TApp left right ->
@@ -1407,7 +1407,7 @@ resolveType ty =
     TContext constraints inner ->
       TContext <$> mapM resolveType constraints <*> resolveType inner
     TSplice expr ->
-      TSplice <$> withLocalSupply 0 (resolveExpr expr)
+      TSplice <$> withResetLocalSupply (resolveExpr expr)
     TWildcard -> pure ty
     TQuasiQuote {} -> annotateUnhandledType <$> currentSpan <*> pure ty
 
@@ -1564,7 +1564,7 @@ reassociateResolvedInfixExpr operands names fallbackExpr = do
     Just op ->
       pure (buildLeftInfixExpr fallbackExpr operands (replaceAt (resolvedInfixIndex op) (ambiguousFixityName sp op) names))
     Nothing ->
-      pure (rebuildInfixExpr fallbackExpr operands ops)
+      pure (rebuildInfixExpr operands ops)
 
 ambiguousFixityName :: SourceSpan -> ResolvedInfixOp -> Name
 ambiguousFixityName ambient op =
@@ -1627,11 +1627,11 @@ infixAssoc = operatorFixityAssoc . resolvedInfixFixity
 infixPrecedence :: ResolvedInfixOp -> Int
 infixPrecedence = operatorFixityPrecedence . resolvedInfixFixity
 
-rebuildInfixExpr :: Expr -> [Expr] -> [ResolvedInfixOp] -> Expr
-rebuildInfixExpr fallbackExpr [] _ = fallbackExpr
-rebuildInfixExpr _ (operand : operands) ops =
+rebuildInfixExpr :: [Expr] -> [ResolvedInfixOp] -> Expr
+rebuildInfixExpr (operand : operands) ops =
   let (expr, _, _) = parseInfixExpr 0 operand operands ops
    in expr
+rebuildInfixExpr [] _ = error "flattenInfixExpr returned no operands"
 
 parseInfixExpr :: Int -> Expr -> [Expr] -> [ResolvedInfixOp] -> (Expr, [Expr], [ResolvedInfixOp])
 parseInfixExpr minPrec lhs operands ops =
@@ -1648,16 +1648,13 @@ parseInfixExpr minPrec lhs operands ops =
            in parseInfixExpr minPrec (EInfix lhs (resolvedInfixName op) rhs) operands' ops'
     _ -> (lhs, operands, ops)
 
-resolveTypeUse :: Name -> ResolveM Name
-resolveTypeUse name = do
-  sp <- currentSpan
-  scope <- currentScope
-  pure (resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name)
-
 resolveTypeConstructorUse :: TypePromotion -> Name -> ResolveM Name
 resolveTypeConstructorUse promotion name =
   case promotion of
-    Unpromoted -> resolveTypeUse name
+    Unpromoted -> do
+      sp <- currentSpan
+      scope <- currentScope
+      pure (resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name)
     Promoted -> do
       sp <- currentSpan
       scope <- currentScope

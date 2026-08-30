@@ -44,7 +44,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Solve.Dict (matchTypes)
+import Aihc.Tc.Solve.Dict (constraintTypeToPred, matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcType (..),
@@ -529,9 +529,9 @@ dropClassPredicate classTyCon predicates =
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
   binder <- freshBinder ("$d" <> T.pack (show index)) (tcDictBinderType annotation)
-  case tcDictBinderType annotation of
-    TcTyCon classTyCon _ -> pure (Dictionary (ClassPred classTyCon (tcDictBinderArgs annotation)) binder)
-    other -> failValue ("invalid checked class dictionary type: " <> show other)
+  case constraintTypeToPred (tcDictBinderType annotation) of
+    Just predicate -> pure (Dictionary predicate binder)
+    Nothing -> failValue ("invalid checked class dictionary type: " <> show (tcDictBinderType annotation))
 
 instanceMethods :: Syn.InstanceDecl -> [(Text, (TcType, [Syn.Match]))]
 instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems instanceDecl)
@@ -576,7 +576,7 @@ functionBinding declaration =
     _ -> Nothing
 
 sameFunction :: Text -> Syn.Decl -> Bool
-sameFunction name declaration = maybe False ((== name) . tripleFirst) (functionBinding declaration)
+sameFunction name declaration = maybe False (\(value, _, _) -> value == name) (functionBinding declaration)
 
 patternBinding :: Syn.Decl -> Maybe (Text, Syn.Rhs Syn.Expr, Maybe TcType)
 patternBinding declaration =
@@ -589,9 +589,6 @@ declarationType declaration =
   case declaration of
     Syn.DeclAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> declarationType inner
     _ -> Nothing
-
-tripleFirst :: (a, b, c) -> a
-tripleFirst (value, _, _) = value
 
 middle :: (a, b, c) -> b
 middle (_, value, _) = value
@@ -660,7 +657,7 @@ desugarMatches ty matches =
       typeBinders <- mapM convertTypeBinder typeVariables
       dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
       arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-      body <- withDictionaries (zipWith predicateDictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
+      body <- withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
 desugarMatchArguments :: TcType -> [Binder] -> [Syn.Match] -> ValueM Expr
@@ -674,7 +671,7 @@ desugarMatchArguments resultType (argument : arguments) matches
     length firstPatterns == length (argument : arguments),
     all patternIsIrrefutable firstPatterns =
       withLocals (matchArgumentBindings (argument : arguments) first) (desugarRhs (Syn.matchRhs first))
-  | all firstPatternIsVariable matches = do
+  | all (maybe False patternIsIrrefutable . listToMaybe . Syn.matchPats) matches = do
       let locals = concatMap (firstPatternBindings argument) matches
       withLocals locals (desugarMatchArguments resultType arguments (map dropFirstPattern matches))
   | otherwise = do
@@ -914,7 +911,7 @@ desugarPatternGroup resultType remaining matches key = do
           ]
   body <-
     withDictionaries
-      (zipWith predicateDictionary predicates dictionaries)
+      (zipWith Dictionary predicates dictionaries)
       (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
   pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
@@ -978,12 +975,6 @@ patternKey pattern' =
       | isBoxedCharacterLiteral literal -> "C#"
       | otherwise -> T.pack (show (Syn.peelLiteralAnn literal))
     _ -> "_"
-
-firstPatternIsVariable :: Syn.Match -> Bool
-firstPatternIsVariable match =
-  case Syn.matchPats match of
-    pattern' : _ -> patternIsIrrefutable pattern'
-    [] -> False
 
 firstPatternIsDefault :: Syn.Match -> Bool
 firstPatternIsDefault match =
@@ -1512,7 +1503,7 @@ desugarDoConstructorPattern resultType binder pattern' success = do
       caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
       body <-
         withDictionaries
-          (zipWith predicateDictionary predicates dictionaries)
+          (zipWith Dictionary predicates dictionaries)
           (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
       pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor typeBinders (dictionaries <> fields) body])
 
@@ -1647,6 +1638,7 @@ desugarLocalDecls declarations body = do
 desugarEvidence :: Ev.EvTerm -> ValueM Expr
 desugarEvidence evidence =
   case evidence of
+    Ev.EvVarTerm variable -> failValue ("unresolved evidence variable: " <> show variable)
     Ev.EvGiven predicate -> do
       dictionaries <- gets vsDictionaries
       case Map.lookup (predicateKey predicate) dictionaries of
@@ -1666,6 +1658,7 @@ desugarEvidence evidence =
         case sourcePredicate of
           ClassPred classTyCon arguments -> pure (classTyCon, TcTyCon classTyCon arguments)
           EqPred {} -> failValue "cannot select a superclass from equality evidence"
+          QuantifiedPred {} -> failValue "cannot select a superclass from quantified evidence before application"
       sourceBinder <- freshBinder "$super_source" sourceType
       fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
       selected <-
@@ -1685,7 +1678,16 @@ desugarEvidence evidence =
         )
     Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
-    unsupported -> failValue ("unsupported System FC evidence: " <> take 80 (show unsupported))
+    Ev.EvTypeLam variable body ->
+      ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body
+    Ev.EvDictLam predicate binderType body -> do
+      binder <- freshBinder "$quantified_d" binderType
+      body' <- withDictionaries [Dictionary predicate binder] (desugarEvidence body)
+      pure (ExLam binder body')
+    Ev.EvTypeApp function argument ->
+      ExTyApp <$> desugarEvidence function <*> convertCheckedType argument
+    Ev.EvDictApp function argument ->
+      ExApp <$> desugarEvidence function <*> desugarEvidence argument
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty argumentEvidence = do
@@ -2025,9 +2027,6 @@ numericRepresentation numericType =
     Syn.TWord32Hash -> Word32Rep
     Syn.TWord64Hash -> Word64Rep
 
-predicateDictionary :: Pred -> Binder -> Dictionary
-predicateDictionary = Dictionary
-
 withLocals :: [(Text, (Binder, TcType))] -> ValueM a -> ValueM a
 withLocals additions action = do
   previous <- gets vsLocals
@@ -2053,6 +2052,7 @@ predicateKey predicate =
   case predicate of
     ClassPred classTyCon arguments -> dictionaryKey classTyCon arguments
     EqPred left right -> typeKey left <> "~" <> typeKey right
+    QuantifiedPred {} -> "quantified:" <> T.pack (show predicate)
 
 dictionaryKey :: TyCon -> [TcType] -> Text
 dictionaryKey classTyCon arguments =

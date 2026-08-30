@@ -92,7 +92,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (tvKind, tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
@@ -366,7 +366,7 @@ installPackageV2Direct config storeRoot dependencies root = do
     either (ioError . userError . ("FC environment generation failed: " <>)) pure $
       Fc.prepareDesugar
         (DesugarConfig primIdentity)
-        (if installNoCode config then mempty else mergeTypeInterfaces (Map.elems dependencyTypes))
+        (if installNoCode config then mempty else mergeTcInterfaces (Map.elems dependencyTypes))
   let taskContext =
         PackageTaskContext
           { taskInstallConfig = config,
@@ -404,8 +404,8 @@ installPackageV2Direct config storeRoot dependencies root = do
       allTypeHashes = localTypeHashes `Map.union` dependencyTypeHashes
       written = Set.unions (map typeUnitWritten typeResults)
       reused = Set.unions (map typeUnitReused typeResults)
-      completeTypes = mergeTypeInterfaces (Map.elems allTypes)
-      packageInstances = mergeTypeInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
+      completeTypes = mergeTcInterfaces (Map.elems allTypes)
+      packageInstances = mergeTcInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
   writePackageInstanceArtifact verbose storePath allTypeHashes completeTypes (ownInstanceFacts resolvePackage packageInstances)
   unless (installNoCode config) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
@@ -911,14 +911,14 @@ runTypeUnit context runtimes runtime = do
             <> [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
       importedInstances =
-        mergeTypeInterfaces
-          ( instanceFacts (mergeTypeInterfaces (Map.elems dependencyTypes))
+        mergeTcInterfaces
+          ( instanceFacts (mergeTcInterfaces (Map.elems dependencyTypes))
               : map (instanceFacts . typeUnitComplete) dependencyResults
           )
       importedTypes =
         applyInstanceFacts
           importedInstances
-          ( mergeTypeInterfaces
+          ( mergeTcInterfaces
               [ interface
               | name <- dependencyNames,
                 name `notElem` unitNames,
@@ -956,7 +956,7 @@ runTypeUnit context runtimes runtime = do
   let completeInterface = snd initialChecked
       localInterface = restrictTcInterfaceToModules (packageId resolvePackage) unitNames completeInterface
       availableBackendFacts =
-        mergeTypeInterfaces
+        mergeTcInterfaces
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
       unitSet = Set.fromList unitNames
@@ -1020,9 +1020,6 @@ runBackendUnit context runtime = do
         (moduleOutputPaths storePath (installTarget config))
         (pendingModules pending)
     _ -> pure ()
-
-mergeTypeInterfaces :: [TcInterface] -> TcInterface
-mergeTypeInterfaces = mergeTcInterfaces
 
 applyInstanceFacts :: TcInterface -> TcInterface -> TcInterface
 applyInstanceFacts instances direct =
@@ -1396,6 +1393,8 @@ predTyCons :: Pred -> [TyCon]
 predTyCons predicate = case predicate of
   ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
   EqPred left right -> typeTyCons left <> typeTyCons right
+  QuantifiedPred variables antecedents consequent ->
+    concatMap (typeTyCons . tvKind) variables <> concatMap predTyCons antecedents <> predTyCons consequent
 
 typeTyCons :: TcType -> [TyCon]
 typeTyCons ty = case ty of

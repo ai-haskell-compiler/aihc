@@ -66,3 +66,6 @@ predicateMentionsTyVar target predicate =
   case predicate of
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    QuantifiedPred variables antecedents consequent ->
+      target `notElem` variables
+        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)

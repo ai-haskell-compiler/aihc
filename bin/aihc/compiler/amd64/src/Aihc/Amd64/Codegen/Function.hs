@@ -545,7 +545,7 @@ compileCase env prefix label scrutinee binder alternatives = do
   alternativeTargets <- forM alternatives $ \alternative -> do
     alternativeLabel <- freshLabel label "case_alt"
     pure (alternative, alternativeLabel)
-  (checks, successor) <- caseChecks env resultLocation scrutineeIsPointer alternativeTargets
+  (checks, successor) <- caseChecks resultLocation scrutineeIsPointer alternativeTargets
   addBlock
     label
     ( prefix
@@ -584,8 +584,8 @@ alternativePrefix env resultLocation alternative =
     isLive binder = binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
     liveIndexedBinders = filter (isLive . snd) (zip [0 ..] (grinAltBinders alternative))
 
-caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
-caseChecks _env resultLocation scrutineeIsPointer targets = do
+caseChecks :: Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
+caseChecks resultLocation scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
   checks <- fmap concat . forM nonDefault $ \(alternative, target) ->

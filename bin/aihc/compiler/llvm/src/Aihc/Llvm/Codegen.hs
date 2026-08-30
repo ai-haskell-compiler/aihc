@@ -57,8 +57,7 @@ data CompilationUnit
   deriving (Eq)
 
 data CompileEnv = CompileEnv
-  { compileConstructorArities :: !(Map Text Int),
-    compileFunctionLabels :: !(Map FunctionName Text),
+  { compileFunctionLabels :: !(Map FunctionName Text),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
@@ -186,8 +185,7 @@ validatePrimitiveNames = mapM_ $ \name ->
 compileEnvironment :: CompilationUnit -> Set.Set FunctionName -> Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
 compileEnvironment unitKind continuationFunctions continuationFrames program =
   CompileEnv
-    { compileConstructorArities = Map.fromList constructors,
-      compileFunctionLabels = functionLabels,
+    { compileFunctionLabels = functionLabels,
       compileAddrLiteralLabels = Map.fromList [(bytes, llvmLabel label) | (bytes, label) <- buildAddrLiteralPool program],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
       compileRuntimeInfos = map third (constructorEntries <> functionEntries),
@@ -195,7 +193,6 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
     }
   where
     constructorLayouts = grinConstructors program
-    constructors = [(name, length layouts) | (name, layouts) <- constructorLayouts]
     functionLabels =
       Map.fromList
         [ (grinFunctionName function, localFunctionLabel index function)
@@ -218,7 +215,7 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
             <> concatMap requiredNodeConstructorInfos (programNodes program)
         )
     declaredConstructorInfos =
-      [ConstructorRuntimeInfo name 0 | (name, arity) <- constructors, arity == 0]
+      [ConstructorRuntimeInfo name 0 | (name, layouts) <- constructorLayouts, null layouts]
     infoKeys =
       [ key
       | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
@@ -1011,7 +1008,7 @@ compileCase env prefix label scrutinee binder alternatives = do
     if isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
       then pointerIdentity result
       else pure ([], result)
-  checks <- caseSwitch env (snd discriminatorLines) targets
+  checks <- caseSwitch (snd discriminatorLines) targets
   addBlock dispatch (resultLines <> [storeLocal binderSlot result] <> fst discriminatorLines <> checks)
 
 alternativePrefix :: ValueEnv -> Int -> GrinAlt -> FunctionM [Text]
@@ -1040,8 +1037,8 @@ alternativePrefix env resultSlot alternative =
         pure (storeLocal destination result)
       pure (resultLines <> bindings)
 
-caseSwitch :: ValueEnv -> Text -> [(GrinAlt, Text)] -> FunctionM [Text]
-caseSwitch _env discriminator targets = do
+caseSwitch :: Text -> [(GrinAlt, Text)] -> FunctionM [Text]
+caseSwitch discriminator targets = do
   allCases <- fmap concat . forM nonDefault $ \(alternative, target) ->
     case grinAltCon alternative of
       GrinDataAlt name ->
