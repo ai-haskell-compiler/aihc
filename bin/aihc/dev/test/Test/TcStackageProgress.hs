@@ -5,7 +5,7 @@ module Test.TcStackageProgress
   )
 where
 
-import Aihc.Cli.Install (DependencyResolver (..), newPackageCheckCache, newPackagePlanCache)
+import Aihc.Cli.PackagePlan (DependencyResolver (..), newPackageCheckCache, newPackagePlanCache)
 import Aihc.Hackage.Cabal (FileInfo (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Control.Exception (bracket)
@@ -78,9 +78,8 @@ test_smallestFailingPackages =
 
 test_skipsSourceDownloadFailure :: IO ()
 test_skipsSourceDownloadFailure =
-  withTempDir "tc-stackage-progress-download-failure" $ \dir -> do
-    let storeRoot = dir </> "store"
-        spec = PackageSpec "demo" "0.1.0.0"
+  withTempDir "tc-stackage-progress-download-failure" $ \_ -> do
+    let spec = PackageSpec "demo" "0.1.0.0"
         resolver =
           DependencyResolver
             { resolverResolveVersion = \name -> fail ("unexpected dependency " <> name),
@@ -89,7 +88,7 @@ test_skipsSourceDownloadFailure =
     planCache <- newPackagePlanCache
     checkCache <- newPackageCheckCache
 
-    (status, lineCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
+    (status, lineCount) <- checkOnePackage planCache checkCache resolver spec
 
     assertEqual "source line count" 0 lineCount
     assertSkipped status
@@ -99,7 +98,6 @@ test_skipsDependencyPlanningFailure =
   withTempDir "tc-stackage-progress-planning-failure" $ \dir -> do
     let sourceRoot = dir </> "source"
         sourceDir = sourceRoot </> "src"
-        storeRoot = dir </> "store"
         spec = PackageSpec "demo" "0.1.0.0"
         resolver =
           DependencyResolver
@@ -112,7 +110,7 @@ test_skipsDependencyPlanningFailure =
     planCache <- newPackagePlanCache
     checkCache <- newPackageCheckCache
 
-    (status, lineCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
+    (status, lineCount) <- checkOnePackage planCache checkCache resolver spec
 
     assertEqual "source line count" 2 lineCount
     assertSkipped status
@@ -122,7 +120,6 @@ test_skipsDependencyCheckFailure =
   withTempDir "tc-stackage-progress-dependency-check-failure" $ \dir -> do
     let sourceRoot = dir </> "source"
         dependencyRoot = dir </> "dependency"
-        storeRoot = dir </> "store"
         spec = PackageSpec "demo" "0.1.0.0"
         resolver =
           DependencyResolver
@@ -135,7 +132,7 @@ test_skipsDependencyCheckFailure =
     planCache <- newPackagePlanCache
     checkCache <- newPackageCheckCache
 
-    (status, _) <- checkOnePackage planCache checkCache resolver storeRoot spec
+    (status, _) <- checkOnePackage planCache checkCache resolver spec
 
     assertSkipped status
 
@@ -143,7 +140,6 @@ test_reportsRootPackageFailure :: IO ()
 test_reportsRootPackageFailure =
   withTempDir "tc-stackage-progress-root-failure" $ \dir -> do
     let sourceRoot = dir </> "source"
-        storeRoot = dir </> "store"
         spec = PackageSpec "demo" "0.1.0.0"
         resolver =
           DependencyResolver
@@ -154,7 +150,7 @@ test_reportsRootPackageFailure =
     planCache <- newPackagePlanCache
     checkCache <- newPackageCheckCache
 
-    (status, _) <- checkOnePackage planCache checkCache resolver storeRoot spec
+    (status, _) <- checkOnePackage planCache checkCache resolver spec
 
     case status of
       PkgFailed message -> assertBool "root parse failure is retained" ("parse errors" `isInfixOf` message)

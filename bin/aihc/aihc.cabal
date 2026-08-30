@@ -67,11 +67,11 @@ library compiler
     Aihc.Cli
     Aihc.Cli.ArtifactCache
     Aihc.Cli.BuildExe
-    Aihc.Cli.Install
     Aihc.Cli.InstallV2
     Aihc.Cli.Options
     Aihc.Cli.PackageInterface
     Aihc.Cli.PackageManifest
+    Aihc.Cli.PackagePlan
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
     Aihc.Cli.Store

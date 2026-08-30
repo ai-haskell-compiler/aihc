@@ -12,7 +12,7 @@ module TcStackageProgress
   )
 where
 
-import Aihc.Cli.Install
+import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
     PackageCheckCache,
     PackagePlan (..),
@@ -20,7 +20,6 @@ import Aihc.Cli.Install
     PackageVariantKey (..),
     buildPackagePlanWithResolverCached,
     checkPackagePlanWithCache,
-    defaultStoreRoot,
     installFailureIsForPackage,
     lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
@@ -143,7 +142,6 @@ run opts0 = do
     Left err -> hPutStrLn stderr ("Failed to load snapshot: " ++ err) >> exitFailure
     Right specs -> pure specs
 
-  storeRoot <- defaultStoreRoot
   planCache <- newPackagePlanCache
   checkCache <- newPackageCheckCache
   let snapshotVersions = Map.fromList [(pkgName spec, pkgVersion spec) | spec <- packages]
@@ -167,7 +165,7 @@ run opts0 = do
         case next of
           Nothing -> pure ()
           Just spec -> do
-            (status, lineCount) <- checkOnePackage planCache checkCache resolver storeRoot spec
+            (status, lineCount) <- checkOnePackage planCache checkCache resolver spec
             modifyMVar_ resultVar (pure . Map.insert (T.pack (pkgName spec)) (status, lineCount))
             worker
   replicateConcurrently_ jobs worker
@@ -194,10 +192,10 @@ snapshotDependencyResolver opts versions =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-checkOnePackage :: PackagePlanCache -> PackageCheckCache -> DependencyResolver -> FilePath -> PackageSpec -> IO (RSP.PackageStatus, Int)
-checkOnePackage planCache checkCache resolver storeRoot spec = do
+checkOnePackage :: PackagePlanCache -> PackageCheckCache -> DependencyResolver -> PackageSpec -> IO (RSP.PackageStatus, Int)
+checkOnePackage planCache checkCache resolver spec = do
   result <- try $ do
-    plan <- buildPackagePlanWithResolverCached planCache resolver storeRoot spec
+    plan <- buildPackagePlanWithResolverCached planCache resolver spec
     checkResult <- checkPackagePlanWithCache checkCache plan
     pure (plan, checkResult)
   lineCount <- fromMaybe 0 <$> lookupPackagePlanSourceLineCount planCache spec
