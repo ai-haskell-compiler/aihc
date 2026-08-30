@@ -87,6 +87,7 @@
                   export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
                   export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
+                  export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
                 '';
             }
         )

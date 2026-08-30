@@ -833,6 +833,7 @@ compileDirectBinding env vars expression =
               result
             )
         _ -> internalArity "compareInt#"
+    GrinPrimitiveCall _ "nullAddr#" [] -> storeOne ([], "0")
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name arguments
