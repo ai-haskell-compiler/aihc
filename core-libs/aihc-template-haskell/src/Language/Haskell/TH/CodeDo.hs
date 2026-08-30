@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+
 -- | This module exists to work nicely with the QualifiedDo
 -- extension.
 --

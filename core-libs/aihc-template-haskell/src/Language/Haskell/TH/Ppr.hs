@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE Safe #-}
 
 -- | contains a prettyprinter for the

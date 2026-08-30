@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE Safe #-}
 
 -- Note: this module mostly re-exports functions from

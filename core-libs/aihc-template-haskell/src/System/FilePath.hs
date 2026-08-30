@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: BSD-3-Clause
 -- Vendored from filepath v1.4.2.2
 {-# LANGUAGE CPP #-}
 #if __GLASGOW_HASKELL__ >= 704

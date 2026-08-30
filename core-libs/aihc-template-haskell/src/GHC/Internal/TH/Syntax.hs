@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}

@@ -101,6 +101,7 @@ in rec {
   templateHaskellSrc = mkComponentSrc "/core-libs/aihc-template-haskell" [
     ".hs"
     ".cabal"
+    "LICENSE.filepath"
   ];
 
   resolveToolingCommonSrc = pkgs:

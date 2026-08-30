@@ -3,7 +3,10 @@ name: aihc-template-haskell
 version: 2.23.0.0
 build-type: Simple
 license: BSD-3-Clause
-license-file: LICENSE
+license-files:
+  LICENSE
+  LICENSE.filepath
+
 synopsis: API-compatible stand-in for template-haskell
 
 library
