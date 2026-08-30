@@ -40,7 +40,6 @@ run_cmd() {
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 resolve_stackage_cmd="${RESOLVE_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- resolve-stackage-progress --snapshot lts-24.33}"
-tc_stackage_cmd="${TC_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- tc-stackage-progress --snapshot lts-24.33}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
@@ -53,14 +52,12 @@ trap cleanup EXIT
 resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 resolve_stackage_out="$tmpdir/resolve-stackage-progress.txt"
-tc_stackage_out="$tmpdir/tc-stackage-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
 run_cmd "$resolve_stackage_cmd" >"$resolve_stackage_out" || true
-run_cmd "$tc_stackage_cmd" >"$tc_stackage_out" || true
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 run_cmd "$line_counts_cmd" >"$line_counts_out"
 
@@ -90,23 +87,6 @@ parse_resolve_stackage_progress() {
 	local infile="$1"
 	awk '
     /^  Resolved:[[:space:]]+/ {
-      implemented = $2 + 0
-      total = $4 + 0
-    }
-    END {
-      if (total == "" || total <= 0) {
-        exit 2
-      }
-      complete = (implemented * 100.0) / total
-      printf "%d\n%d\n%.2f\n", implemented, total, complete
-    }
-  ' "$infile"
-}
-
-parse_tc_stackage_progress() {
-	local infile="$1"
-	awk '
-    /^  Typechecked:[[:space:]]+/ {
       implemented = $2 + 0
       total = $4 + 0
     }
@@ -179,14 +159,6 @@ resolve_stackage_implemented="${resolve_stackage_vals[0]}"
 resolve_stackage_total="${resolve_stackage_vals[1]}"
 resolve_stackage_complete="${resolve_stackage_vals[2]}"
 
-tc_stackage_vals=($(parse_tc_stackage_progress "$tc_stackage_out")) || {
-	echo "update-generated-content.sh: could not parse tc-stackage-progress output (expected '  Typechecked: N / M' line on stdout)." >&2
-	exit 2
-}
-tc_stackage_implemented="${tc_stackage_vals[0]}"
-tc_stackage_total="${tc_stackage_vals[1]}"
-tc_stackage_complete="${tc_stackage_vals[2]}"
-
 ghc_prim_vals=($(parse_core_libs_progress "$core_libs_progress_out" "GHC_PRIM")) || {
 	echo "update-generated-content.sh: could not parse core-libs-progress output for GHC_PRIM (expected 'GHC_PRIM N M PCT' line on stdout)." >&2
 	exit 2
@@ -204,17 +176,12 @@ base_total="${base_vals[1]}"
 base_complete="${base_vals[2]}"
 
 resolve_stackage_circles="$(progress_circles "$resolve_stackage_complete")"
-tc_stackage_circles="$(progress_circles "$tc_stackage_complete")"
 resolve_circles="$(progress_circles "$resolve_complete")"
 ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
 base_circles="$(progress_circles "$base_complete")"
 
 cat >"$tmpdir/readme-root-resolve-stackage.txt" <<EOF2
 \`${resolve_stackage_implemented}/${resolve_stackage_total}\` (\`${resolve_stackage_complete}%\`) ${resolve_stackage_circles}
-EOF2
-
-cat >"$tmpdir/readme-root-tc-stackage.txt" <<EOF2
-\`${tc_stackage_implemented}/${tc_stackage_total}\` (\`${tc_stackage_complete}%\`) ${tc_stackage_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
@@ -322,6 +289,19 @@ replace_marker_inline() {
 	fi
 }
 
+remove_obsolete_marker_line() {
+	local file="$1"
+	local marker="$2"
+
+	if [ "$mode" = "--update" ]; then
+		local tmp_out="$tmpdir/$(basename "$file").${marker}.remove.out"
+		grep -Fv "<!-- AUTO-GENERATED: START ${marker} -->" "$file" >"$tmp_out"
+		if ! cmp -s "$file" "$tmp_out"; then
+			cp "$tmp_out" "$file"
+		fi
+	fi
+}
+
 stale=0
 
 if [ "$mode" = "--update" ]; then
@@ -334,11 +314,11 @@ else
 fi
 
 replace_marker_inline README.md "resolve-stackage-progress" "$tmpdir/readme-root-resolve-stackage.txt"
-replace_marker_inline README.md "tc-stackage-progress" "$tmpdir/readme-root-tc-stackage.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
 replace_marker_block README.md "line-counts" "$line_counts_out"
+remove_obsolete_marker_line README.md "tc-stackage-progress"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
 	exit 1

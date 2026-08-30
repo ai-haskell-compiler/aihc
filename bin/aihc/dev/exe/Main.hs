@@ -15,7 +15,6 @@ import ResolveStackageProgress qualified as RSP
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
-import TcStackageProgress qualified as TSP
 
 main :: IO ()
 main = do
@@ -38,7 +37,6 @@ data Command
   | Fuzz FuzzCLI.Command
   | ResolvePackage RP.Options
   | ResolveStackageProgress RSP.Options
-  | TcStackageProgress TSP.Options
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -102,12 +100,6 @@ commandParser =
           ( info
               (ResolveStackageProgress <$> RSP.optionsParser <**> helper)
               (progDesc "Test name resolver on Stackage snapshot packages")
-          )
-        <> command
-          "tc-stackage-progress"
-          ( info
-              (TcStackageProgress <$> TSP.optionsParser <**> helper)
-              (progDesc "Test type checker on Stackage snapshot packages")
           )
     )
 
@@ -182,5 +174,3 @@ runCommand (ResolvePackage opts) =
   RP.run opts
 runCommand (ResolveStackageProgress opts) =
   RSP.run opts
-runCommand (TcStackageProgress opts) =
-  TSP.run opts

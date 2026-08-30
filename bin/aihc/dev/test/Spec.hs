@@ -11,8 +11,7 @@ main =
     -- extractHiCompareTests,
     -- fuzzTests,
     -- resolvePackageTests,
-    -- resolveStackagePathsModuleTests,
-    -- tcStackageProgressTests
+    -- resolveStackagePathsModuleTests
     ]
 
 prop_dummy :: Property

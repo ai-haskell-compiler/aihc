@@ -8,7 +8,9 @@ where
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.ArtifactCache (ArtifactCache, artifactCache, loadArtifact)
-import Aihc.Cli.Install
+import Aihc.Cli.Options (InstallV2Options (..))
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
+import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
     PackagePlan (..),
     ParsedInterfaceFile (ParsedInterfaceFile),
@@ -18,8 +20,6 @@ import Aihc.Cli.Install
     parseInterfaceFile,
     renderHumanDiagnostic,
   )
-import Aihc.Cli.Options (InstallV2Options (..))
-import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
@@ -277,7 +277,7 @@ installV2 options = do
             installArtifactCache = artifactCache (not (installV2NoCache options))
           }
   spec <- packageSpecFromSource root
-  plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
+  plan <- buildPackagePlanWithResolver resolver spec
   installedV2Result <$> installPackagePlanV2 config targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
