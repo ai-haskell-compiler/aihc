@@ -56,6 +56,7 @@ import Control.DeepSeq (force)
 import Control.Exception (bracket, evaluate)
 import Control.Monad (filterM, foldM, forM, unless, when, zipWithM)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, nub, sortOn)
 import Data.Map.Strict qualified as Map
@@ -496,12 +497,8 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
               (decodeResolveArtifact resolveBytes)
           unless (resolveArtifactModuleName resolveArtifact == installedModuleName installedModule) $
             ioError (userError ("Resolve artifact module name does not match " <> resolvePath))
-          typeBytes <- BS.readFile typePath
-          typeArtifact <-
-            either
-              (ioError . userError . (("Invalid type artifact " <> typePath <> ": ") <>))
-              pure
-              (decodeTypeArtifact typeBytes)
+          typeBytes <- BL.readFile typePath
+          let typeArtifact = decodeTypeArtifact typeBytes
           unless (typeArtifactModuleName typeArtifact == installedModuleName installedModule) $
             ioError (userError ("Type artifact module name does not match " <> typePath))
           packageInstances <- readPackageInstances packageInstancesPath
@@ -527,12 +524,8 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
       if not exists
         then pure mempty
         else do
-          bytes <- BS.readFile path
-          artifact <-
-            either
-              (ioError . userError . (("Invalid package instance artifact " <> path <> ": ") <>))
-              pure
-              (decodeTypeArtifact bytes)
+          bytes <- BL.readFile path
+          let artifact = decodeTypeArtifact bytes
           unless (typeArtifactModuleName artifact == "$package-instances") $
             ioError (userError ("Package instance artifact name does not match " <> path))
           pure (typeArtifactInterface artifact)

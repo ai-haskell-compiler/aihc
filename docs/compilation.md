@@ -129,7 +129,9 @@ The package plan selects dependency libraries. Their exposed-module maps resolve
 
 Use deterministic CBOR for all compiler-owned stored data.
 
-Each top-level value must start with an artifact kind and a schema version. A decoder must reject an unsupported major schema version.
+Each top-level value must start with an artifact kind. Do not put a format version in an artifact file.
+
+Put the artifact format version in the package cache hash. A format change must change the package cache hash.
 
 Use integer field keys or fixed-position arrays for stable records. Use explicit constructor tags for sum types.
 
