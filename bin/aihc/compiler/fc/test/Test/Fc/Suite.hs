@@ -16,8 +16,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import FcGolden (FcCase (..), Outcome (..), evaluateFcCase, loadFcCases)
-import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, removeDirectoryRecursive)
-import System.FilePath (takeExtension, takeFileName, (</>))
+import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, makeAbsolute, removeDirectoryRecursive)
+import System.FilePath (makeRelative, takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -26,16 +26,17 @@ fixtureRoot = "compiler/fc/test/Test/Fixtures/fc"
 
 fcFixtureTests :: IO TestTree
 fcFixtureTests = do
-  exists <- doesDirectoryExist fixtureRoot
+  absoluteFixtureRoot <- makeAbsolute fixtureRoot
+  exists <- doesDirectoryExist absoluteFixtureRoot
   if not exists
     then pure (testGroup "SystemFC fixtures" [])
     else do
-      names <- listDirectory fixtureRoot
-      let files = [fixtureRoot </> name | name <- names, takeExtension name == ".fc"]
-      pure (testGroup "SystemFC fixtures" (map fixtureTest files))
+      names <- listDirectory absoluteFixtureRoot
+      let files = [absoluteFixtureRoot </> name | name <- names, takeExtension name == ".fc"]
+      pure (testGroup "SystemFC fixtures" (map (fixtureTest absoluteFixtureRoot) files))
 
-fixtureTest :: FilePath -> TestTree
-fixtureTest path = testCase path $ do
+fixtureTest :: FilePath -> FilePath -> TestTree
+fixtureTest root path = testCase (fixtureRoot </> makeRelative root path) $ do
   source <- TIO.readFile path
   case parseProgram source of
     Left parseError -> assertFailure (renderParseError parseError)
@@ -57,26 +58,27 @@ lintRoot = "compiler/fc/test/Test/Fixtures/fc-lint"
 
 fcLintTests :: IO TestTree
 fcLintTests = do
-  pass <- lintFileTests "pass" True (lintRoot </> "pass")
-  failCases <- lintFileTests "fail" False (lintRoot </> "fail")
-  mutual <- mutualLintTests (lintRoot </> "mutual")
+  absoluteLintRoot <- makeAbsolute lintRoot
+  pass <- lintFileTests "pass" True absoluteLintRoot (absoluteLintRoot </> "pass")
+  failCases <- lintFileTests "fail" False absoluteLintRoot (absoluteLintRoot </> "fail")
+  mutual <- mutualLintTests absoluteLintRoot (absoluteLintRoot </> "mutual")
   pure (testGroup "SystemFC lint" [pass, failCases, mutual])
 
-lintFileTests :: String -> Bool -> FilePath -> IO TestTree
-lintFileTests label expectPass dir = do
+lintFileTests :: String -> Bool -> FilePath -> FilePath -> IO TestTree
+lintFileTests label expectPass root dir = do
   files <- listFcFiles dir
-  pure (testGroup label (map (lintFileTest expectPass) files))
+  pure (testGroup label (map (lintFileTest expectPass root) files))
 
-lintFileTest :: Bool -> FilePath -> TestTree
-lintFileTest expectPass path = testCase path $ do
+lintFileTest :: Bool -> FilePath -> FilePath -> TestTree
+lintFileTest expectPass root path = testCase (lintRoot </> makeRelative root path) $ do
   program <- loadFcProgram path
   let errors = lintProgram program
   if expectPass
     then assertEqual (path <> " lint errors") [] errors
     else assertBool (path <> " expected lint errors") (matchesFail path errors)
 
-mutualLintTests :: FilePath -> IO TestTree
-mutualLintTests dir = do
+mutualLintTests :: FilePath -> FilePath -> IO TestTree
+mutualLintTests root dir = do
   files <- listFcFiles dir
   pure
     ( testGroup
@@ -86,12 +88,12 @@ mutualLintTests dir = do
             mapM_
               (assertEqual "single-file lint errors" [] . lintProgram)
               programs,
-          scopeLoaderTest
+          scopeLoaderTest root
         ]
     )
 
-scopeLoaderTest :: TestTree
-scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the store" $ do
+scopeLoaderTest :: FilePath -> TestTree
+scopeLoaderTest root = testCase "loadScopeClosure loads a scoped module from the store" $ do
   tmp <- getTemporaryDirectory
   let store = tmp </> "aihc-fc-lint-scope"
       typesDir = store </> "aihc-prim" </> "GHC" </> "Types"
@@ -99,9 +101,9 @@ scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the stor
   ignoreMissing (removeDirectoryRecursive store)
   createDirectoryIfMissing True typesDir
   createDirectoryIfMissing True primDir
-  copyFile (lintRoot </> "mutual" </> "GHC.Types.fc") (typesDir </> "core")
-  copyFile (lintRoot </> "mutual" </> "GHC.Prim.fc") (primDir </> "core")
-  seed <- loadFcProgram (lintRoot </> "mutual" </> "GHC.Types.fc")
+  copyFile (root </> "mutual" </> "GHC.Types.fc") (typesDir </> "core")
+  copyFile (root </> "mutual" </> "GHC.Prim.fc") (primDir </> "core")
+  seed <- loadFcProgram (root </> "mutual" </> "GHC.Types.fc")
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
