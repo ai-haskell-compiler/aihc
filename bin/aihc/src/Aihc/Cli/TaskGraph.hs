@@ -264,6 +264,7 @@ colorize useColor color value
 
 renderDuration :: Word64 -> String
 renderDuration nanoseconds
+  | nanoseconds >= 60000000000 = renderScaledDuration 60000000000 "min"
   | nanoseconds >= 1000000000 = renderScaledDuration 1000000000 "s"
   | nanoseconds >= 1000000 = renderScaledDuration 1000000 "ms"
   | nanoseconds >= 1000 = renderScaledDuration 1000 "µs"
