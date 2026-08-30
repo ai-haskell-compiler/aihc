@@ -15,7 +15,7 @@ import Aihc.Grin.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', runStateT)
 import Data.Map.Strict (Map)
@@ -68,7 +68,7 @@ lowerProgram program = do
       globals = globalNameTable types
       env = LowerEnv types Map.empty Map.empty globals
       initialState = LowerState (-1000000000) 0 []
-  (parts, finalState) <- runStateT (foldMapM (lowerDecl env) (Fc.programDecls program)) initialState
+  (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
     ( normalizeGrinProgram
         GrinProgram
@@ -79,9 +79,6 @@ lowerProgram program = do
             grinFunctions = reverse (lowerFunctionsRev finalState)
           }
     )
-
-foldMapM :: (Monad monad, Monoid value) => (item -> monad value) -> [item] -> monad value
-foldMapM action = foldM (\result item -> (result <>) <$> action item) mempty
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
@@ -364,7 +361,7 @@ lowerExpr env expression =
     Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
-    Fc.ExCase scrutinee binder resultType alternatives -> lowerCase env scrutinee binder resultType alternatives
+    Fc.ExCase scrutinee binder _ alternatives -> lowerCase env scrutinee binder alternatives
     Fc.ExCast inner _ -> lowerExpr env inner
 
 lowerVariable :: LowerEnv -> Fc.Name -> LowerM GrinExpr
@@ -555,11 +552,11 @@ lowerRec env bindings body = do
     bindOne current (binding, vars) = bindLocal current (Fc.bindBinder binding) vars
     makeBindingNode recursiveEnv binding = makeThunk recursiveEnv (Fc.nameText (Fc.binderName (Fc.bindBinder binding))) (Fc.bindRhs binding)
 
-lowerCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> Fc.Type -> [Fc.Alt] -> LowerM GrinExpr
-lowerCase env scrutinee binder _ alternatives = do
+lowerCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerCase env scrutinee binder alternatives = do
   representation <- expressionRuntimeRep env scrutinee
   case representation of
-    TupleRep fields -> lowerTupleCase env scrutinee binder fields alternatives
+    TupleRep _ -> lowerTupleCase env scrutinee binder alternatives
     _ ->
       bindExpression env "case_value" scrutinee $ \case
         [value] -> do
@@ -568,8 +565,8 @@ lowerCase env scrutinee binder _ alternatives = do
           pure (GrinCase value caseBinder loweredAlternatives)
         _ -> throwLower "GRIN case expected one scrutinee value"
 
-lowerTupleCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [GrinRep] -> [Fc.Alt] -> LowerM GrinExpr
-lowerTupleCase env scrutinee binder _fields alternatives = do
+lowerTupleCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
+lowerTupleCase env scrutinee binder alternatives = do
   alternative <-
     case alternatives of
       first : _ -> pure first
@@ -614,7 +611,7 @@ makeThunk env hint expression = do
   if not (isLiftedRuntimeRep representation)
     then throwLower ("GRIN cannot suspend an unlifted expression with representation " <> show representation)
     else do
-      captures <- capturedVariables env expression
+      let captures = capturedVariables env expression
       functionName <- freshFunction (hint <> "_thunk")
       body <- lowerExpr env expression
       emitFunction
@@ -629,7 +626,7 @@ makeThunk env hint expression = do
 makeClosure :: LowerEnv -> Fc.Expr -> LowerM GrinNode
 makeClosure env expression = do
   let (bodyEnv0, binders, body) = collectLambdas env expression
-  captures <- capturedVariables env expression
+  let captures = capturedVariables env expression
   parameterGroups <- mapM (freshVarsForBinder bodyEnv0) binders
   let bodyEnv = foldl bindPair bodyEnv0 (zip binders parameterGroups)
   bodyRep <- expressionRuntimeRep bodyEnv body
@@ -659,15 +656,13 @@ collectLambdas env expression =
     Fc.ExTyLam binder body -> collectLambdas (extendTypeBinder env binder) body
     _ -> (env, [], expression)
 
-capturedVariables :: LowerEnv -> Fc.Expr -> LowerM [GrinVar]
+capturedVariables :: LowerEnv -> Fc.Expr -> [GrinVar]
 capturedVariables env expression =
-  pure
-    ( concat
-        [ variables
-        | name <- Set.toAscList (freeVariables expression),
-          Just variables <- [Map.lookup name (lowerLocals env)]
-        ]
-    )
+  concat
+    [ variables
+    | name <- Set.toAscList (freeVariables expression),
+      Just variables <- [Map.lookup name (lowerLocals env)]
+    ]
 
 freeVariables :: Fc.Expr -> Set Fc.Name
 freeVariables expression =
