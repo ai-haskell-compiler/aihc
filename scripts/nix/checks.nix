@@ -157,6 +157,7 @@
       --target ${backend} \
       --gc ${gc} \
       --store ${exampleToolchain} \
+      --build-root "$TMPDIR/.aihc-cache" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -234,6 +235,7 @@
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
       --store ${exampleToolchain} \
+      --build-root "$TMPDIR/.aihc-cache" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :

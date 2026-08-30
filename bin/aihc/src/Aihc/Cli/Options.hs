@@ -32,6 +32,7 @@ data BuildExeOptions = BuildExeOptions
     buildExeTarget :: !NativeTarget,
     buildExeGarbageCollector :: !GarbageCollector,
     buildExeStoreRoot :: !(Maybe FilePath),
+    buildExeBuildRoot :: !(Maybe FilePath),
     buildExeLint :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
   }
@@ -125,6 +126,13 @@ buildExeOptionsParser =
     <*> nativeTargetOption
     <*> garbageCollectorOption
     <*> storeRootOption "Override the aihc store root"
+    <*> OA.optional
+      ( OA.strOption
+          ( OA.long "build-root"
+              <> OA.metavar "DIR"
+              <> OA.help "Write local compiler artifacts under DIR"
+          )
+      )
     <*> lintOption
     <*> OA.optional
       ( OA.strOption
