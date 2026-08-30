@@ -37,8 +37,7 @@ data LowerEnv = LowerEnv
 data LowerState = LowerState
   { lowerNextUnique :: !Int,
     lowerNextFunction :: !Int,
-    lowerFunctionsRev :: ![GrinFunction],
-    lowerImportedPrimitives :: !(Map Text (GrinVar, Int))
+    lowerFunctionsRev :: ![GrinFunction]
   }
 
 type LowerM = StateT LowerState (Either String)
@@ -68,13 +67,13 @@ lowerProgram program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       env = LowerEnv types Map.empty Map.empty globals
-      initialState = LowerState (-1000000000) 0 [] Map.empty
+      initialState = LowerState (-1000000000) 0 []
   (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
     ( normalizeGrinProgram
         GrinProgram
           { grinConstructors = topConstructors parts,
-            grinPrimitives = topPrimitives parts <> Map.elems (lowerImportedPrimitives finalState),
+            grinPrimitives = topPrimitives parts,
             grinForeignCalls = topForeignCalls parts,
             grinGlobals = topGlobals parts,
             grinFunctions = reverse (lowerFunctionsRev finalState)
@@ -379,13 +378,9 @@ lowerVariable env name = do
         else pure (GrinConstant (map GrinVarValue variables))
     Nothing
       | null components -> pure (GrinConstant [])
-      | Map.lookup (Fc.nameText name) specialPrimitiveArities == Just 0 -> do
-          recordImportedPrimitive (Fc.nameText name) representation 0
-          pure (GrinPrimitiveCall representation (Fc.nameText name) [])
-      | isLiftedRuntimeRep representation -> do
+      | otherwise -> do
           globalName <- lookupGlobalName env name
           pure (GrinEval representation (GrinGlobalValue globalName))
-      | otherwise -> throwLower ("GRIN does not support an imported unlifted value: " <> show name)
 
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
@@ -426,17 +421,7 @@ lowerTupleArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("nullAddr#", 0), ("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
-
-recordImportedPrimitive :: Text -> GrinRep -> Int -> LowerM ()
-recordImportedPrimitive name representation arity =
-  modify'
-    ( \lowerState ->
-        lowerState
-          { lowerImportedPrimitives =
-              Map.insert name (GrinVar name (-2000000000 + arity) representation, arity) (lowerImportedPrimitives lowerState)
-          }
-    )
+specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
 
 lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
