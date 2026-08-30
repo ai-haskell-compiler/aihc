@@ -2,6 +2,8 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
+{-# HLINT ignore "Use sequence_" #-}
+
 module Prelude
   ( Applicative (..),
     Bounded (..),
@@ -37,9 +39,20 @@ module Prelude
     ShowS,
     String,
     (&&),
+    ($),
+    ($!),
+    (*>),
     (.),
     (++),
     foldr,
+    map,
+    mapM,
+    sequence,
+    sequence_,
+    zip,
+    and,
+    flip,
+    error,
     (=<<),
     (/=),
     (==),
@@ -100,7 +113,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, raise#, seq, word2Int#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -128,6 +141,46 @@ type Prec = Int
 
 minPrec :: Prec
 minPrec = 0
+
+($) :: (a -> b) -> a -> b
+function $ argument = function argument
+
+infixr 0 $
+
+($!) :: (a -> b) -> a -> b
+function $! argument = argument `seq` function argument
+
+infixr 0 $!
+
+map :: (a -> b) -> [a] -> [b]
+map _ [] = []
+map function (value : values) = function value : map function values
+
+zip :: [a] -> [b] -> [(a, b)]
+zip (left : lefts) (right : rights) = (left, right) : zip lefts rights
+zip _ _ = []
+
+and :: [Bool] -> Bool
+and = foldr (&&) True
+
+flip :: (a -> b -> c) -> b -> a -> c
+flip function right left = function left right
+
+sequence :: (Monad m) => [m a] -> m [a]
+sequence [] = return []
+sequence (action : actions) = do
+  value <- action
+  values <- sequence actions
+  return (value : values)
+
+sequence_ :: (Monad m) => [m a] -> m ()
+sequence_ = foldr (>>) (return ())
+
+mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
+mapM function = sequence . map function
+
+error :: String -> a
+error = raise#
 
 newtype ReadPrec a = ReadPrec (Prec -> ReadS a)
 

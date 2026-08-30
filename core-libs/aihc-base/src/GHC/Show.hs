@@ -5,7 +5,11 @@ module GHC.Show
     showParen,
     shows,
     showString,
+    appPrec,
   )
 where
 
 import Prelude (Show (..), ShowS, showChar, showParen, showString, shows)
+
+appPrec :: Int
+appPrec = 10

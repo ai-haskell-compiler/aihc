@@ -1,0 +1,25 @@
+annotated:
+- |-
+  module Test where
+  class Apply f where
+  └─ class methods: <.> ∷ ∀ f. (Apply f) ⇒ f → f → f
+    (<.>) :: f -> f -> f
+    left <.> _ = left
+    ││        └─ type: f
+    └─ type: f
+    └─ <.> ∷ ∀ f. (Apply f) ⇒ f → f → f
+  use :: Apply f => f -> f
+  use value = value <.> value
+  │   └─ type: f    └─ type: f → f → f; type-args: f; evidence: given Apply f
+  └─ type: ∀ f. (Apply f) ⇒ f → f
+extensions: []
+modules:
+- |
+  module Test where
+  class Apply f where
+    (<.>) :: f -> f -> f
+    left <.> _ = left
+  use :: Apply f => f -> f
+  use value = value <.> value
+reason: Symbolic class default methods use their canonical names.
+status: pass

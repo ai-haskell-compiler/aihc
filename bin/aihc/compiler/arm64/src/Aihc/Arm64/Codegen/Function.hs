@@ -380,6 +380,8 @@ compileDirectBinding env vars expression =
                    ]
             )
         _ -> lift (Left (Arm64UnsupportedExpression "internal quotRemWord2# arity"))
+    GrinPrimitiveCall _ "nullAddr#" [] ->
+      storeSingleResult ["  mov x0, #0"]
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,

@@ -6,12 +6,15 @@ module GHC.IO.Exception
     ioError,
     ioErrorFromErrno,
     illegalOperationError,
+    ioeSetErrorString,
+    mkIOError,
     userError,
   )
 where
 
 import GHC.Base (Maybe, Monad (..), String)
 import GHC.IO (IO)
+import GHC.IO.Handle.Types (Handle)
 import GHC.IO.Runtime (raiseIOErrorRaw)
 import GHC.Int (Int)
 
@@ -47,3 +50,9 @@ illegalOperationError _ _ = IOError 9
 
 userError :: String -> IOException
 userError _ = IOError 0
+
+mkIOError :: IOErrorType -> String -> Maybe Handle -> Maybe String -> IOError
+mkIOError _ _ _ _ = IOError 0
+
+ioeSetErrorString :: IOError -> String -> IOError
+ioeSetErrorString exception _ = exception

@@ -332,7 +332,7 @@ typeApplicationSpine = go []
     go arguments (TTypeApp function argument) = go (argument : arguments) function
     go arguments headType = (headType, arguments)
 
-expandTcTypeSynonyms :: Set Text -> TcType -> TcM TcType
+expandTcTypeSynonyms :: Set TcTypeKey -> TcType -> TcM TcType
 expandTcTypeSynonyms expanding ty =
   case ty of
     TcTyVar {} -> pure ty
@@ -345,7 +345,7 @@ expandTcTypeSynonyms expanding ty =
           | Just body <- tsiBody synonym,
             let params = tsiParams synonym,
             length expandedArguments >= length params ->
-              if tyConName tyCon `Set.member` expanding
+              if tyConKey tyCon `Set.member` expanding
                 then do
                   emitError NoSourceSpan (OtherError ("recursive type synonym: " <> T.unpack (tyConName tyCon)))
                   pure (TcTyCon tyCon expandedArguments)
@@ -353,8 +353,9 @@ expandTcTypeSynonyms expanding ty =
                   let (synonymArguments, remainingArguments) = splitAt (length params) expandedArguments
                       substitution = Map.fromList (zip (map tvUnique params) synonymArguments)
                       expandedBody = applySubst substitution body
-                  normalizedBody <- expandTcTypeSynonyms (Set.insert (tyConName tyCon) expanding) expandedBody
-                  expandTcTypeSynonyms expanding (foldl applyType normalizedBody remainingArguments)
+                      expanding' = Set.insert (tyConKey tyCon) expanding
+                  normalizedBody <- expandTcTypeSynonyms expanding' expandedBody
+                  expandTcTypeSynonyms expanding' (foldl applyType normalizedBody remainingArguments)
         _ -> pure (TcTyCon tyCon expandedArguments)
     TcFunTy argument result -> TcFunTy <$> expandTcTypeSynonyms expanding argument <*> expandTcTypeSynonyms expanding result
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> expandTcTypeSynonyms expanding body

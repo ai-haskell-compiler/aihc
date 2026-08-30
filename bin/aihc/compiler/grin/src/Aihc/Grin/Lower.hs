@@ -378,6 +378,8 @@ lowerVariable env name = do
         else pure (GrinConstant (map GrinVarValue variables))
     Nothing
       | null components -> pure (GrinConstant [])
+      | Map.lookup (Fc.nameText name) specialPrimitiveArities == Just 0 ->
+          pure (GrinPrimitiveCall representation (Fc.nameText name) [])
       | isLiftedRuntimeRep representation -> do
           globalName <- lookupGlobalName env name
           pure (GrinEval representation (GrinGlobalValue globalName))
@@ -422,7 +424,7 @@ lowerTupleArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
+specialPrimitiveArities = Map.fromList [("nullAddr#", 0), ("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
 
 lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =

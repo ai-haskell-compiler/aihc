@@ -558,6 +558,7 @@ compileDirectBinding env vars expression =
             <> materializeValue env right
             <> ["i64.lt_s", "i32.sub", "i64.extend_i32_s"]
         )
+    GrinPrimitiveCall _ "nullAddr#" [] -> storeSingle (i64Const "0")
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]

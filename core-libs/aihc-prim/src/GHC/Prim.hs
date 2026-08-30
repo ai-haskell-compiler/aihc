@@ -24,6 +24,7 @@ module GHC.Prim
     casMutVar#,
     Char#,
     compareInt#,
+    divInt#,
     copyByteArray#,
     copyAddrToByteArray#,
     Double#,
@@ -80,6 +81,7 @@ module GHC.Prim
     subWordC#,
     State#,
     StableName#,
+    StablePtr#,
     takeMVar#,
     ThreadId#,
     RealWorld,
@@ -107,6 +109,54 @@ module GHC.Prim
     Word32#,
     Word64#,
     xor#,
+    nullAddr#,
+    sameMutableByteArray#,
+    setByteArray#,
+    indexAddrArray#,
+    indexDoubleArray#,
+    indexFloatArray#,
+    indexInt8Array#,
+    indexInt16Array#,
+    indexInt32Array#,
+    indexInt64Array#,
+    indexIntArray#,
+    indexStablePtrArray#,
+    indexWideCharArray#,
+    indexWord8Array#,
+    indexWord16Array#,
+    indexWord32Array#,
+    indexWord64Array#,
+    readAddrArray#,
+    readDoubleArray#,
+    readFloatArray#,
+    readInt8Array#,
+    readInt16Array#,
+    readInt32Array#,
+    readInt64Array#,
+    readIntArray#,
+    readStablePtrArray#,
+    readWideCharArray#,
+    readWord8Array#,
+    readWord16Array#,
+    readWord32Array#,
+    readWord64Array#,
+    writeAddrArray#,
+    writeDoubleArray#,
+    writeFloatArray#,
+    writeInt8Array#,
+    writeInt16Array#,
+    writeInt32Array#,
+    writeInt64Array#,
+    writeIntArray#,
+    writeStablePtrArray#,
+    writeWideCharArray#,
+    writeWord8Array#,
+    writeWord16Array#,
+    writeWord32Array#,
+    writeWord64Array#,
+    uncheckedIShiftL#,
+    uncheckedIShiftRA#,
+    uncheckedIShiftRL#,
     clz#,
     ctz#,
     eqWord#,
@@ -194,6 +244,9 @@ data ThreadId#
 type StableName# :: Type -> UnliftedType
 data StableName# a
 
+type StablePtr# :: Type -> UnliftedType
+data StablePtr# a
+
 type RealWorld :: Type
 data RealWorld
 
@@ -214,6 +267,8 @@ foreign import prim makeStableName# :: a -> State# RealWorld -> (# State# RealWo
 foreign import prim stableNameToInt# :: StableName# a -> Int#
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
+
+foreign import prim divInt# :: Int# -> Int# -> Int#
 
 foreign import prim (+#) :: Int# -> Int# -> Int#
 
@@ -328,6 +383,8 @@ foreign import prim unsafeThawArray# :: Array# a -> State# d -> (# State# d, Mut
 
 foreign import prim sameMutableArray# :: MutableArray# d a -> MutableArray# d a -> Int#
 
+foreign import prim sameMutableByteArray# :: MutableByteArray# d -> MutableByteArray# d -> Int#
+
 foreign import prim newByteArray# :: Int# -> State# d -> (# State# d, MutableByteArray# d #)
 
 foreign import prim newPinnedByteArray# :: Int# -> State# d -> (# State# d, MutableByteArray# d #)
@@ -369,6 +426,100 @@ foreign import prim readWordArray# :: MutableByteArray# d -> Int# -> State# d ->
 foreign import prim writeWordArray# :: MutableByteArray# d -> Int# -> Word# -> State# d -> State# d
 
 foreign import prim copyByteArray# :: ByteArray# -> Int# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim nullAddr# :: Addr#
+
+foreign import prim setByteArray# :: MutableByteArray# d -> Int# -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim indexAddrArray# :: ByteArray# -> Int# -> Addr#
+
+foreign import prim indexDoubleArray# :: ByteArray# -> Int# -> Double#
+
+foreign import prim indexFloatArray# :: ByteArray# -> Int# -> Float#
+
+foreign import prim indexInt8Array# :: ByteArray# -> Int# -> Int8#
+
+foreign import prim indexInt16Array# :: ByteArray# -> Int# -> Int16#
+
+foreign import prim indexInt32Array# :: ByteArray# -> Int# -> Int32#
+
+foreign import prim indexInt64Array# :: ByteArray# -> Int# -> Int64#
+
+foreign import prim indexIntArray# :: ByteArray# -> Int# -> Int#
+
+foreign import prim indexStablePtrArray# :: ByteArray# -> Int# -> StablePtr# a
+
+foreign import prim indexWideCharArray# :: ByteArray# -> Int# -> Char#
+
+foreign import prim indexWord8Array# :: ByteArray# -> Int# -> Word8#
+
+foreign import prim indexWord16Array# :: ByteArray# -> Int# -> Word16#
+
+foreign import prim indexWord32Array# :: ByteArray# -> Int# -> Word32#
+
+foreign import prim indexWord64Array# :: ByteArray# -> Int# -> Word64#
+
+foreign import prim readAddrArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Addr# #)
+
+foreign import prim readDoubleArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Double# #)
+
+foreign import prim readFloatArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Float# #)
+
+foreign import prim readInt8Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int8# #)
+
+foreign import prim readInt16Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int16# #)
+
+foreign import prim readInt32Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int32# #)
+
+foreign import prim readInt64Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int64# #)
+
+foreign import prim readIntArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim readStablePtrArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, StablePtr# a #)
+
+foreign import prim readWideCharArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim readWord8Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word8# #)
+
+foreign import prim readWord16Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word16# #)
+
+foreign import prim readWord32Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word32# #)
+
+foreign import prim readWord64Array# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word64# #)
+
+foreign import prim writeAddrArray# :: MutableByteArray# d -> Int# -> Addr# -> State# d -> State# d
+
+foreign import prim writeDoubleArray# :: MutableByteArray# d -> Int# -> Double# -> State# d -> State# d
+
+foreign import prim writeFloatArray# :: MutableByteArray# d -> Int# -> Float# -> State# d -> State# d
+
+foreign import prim writeInt8Array# :: MutableByteArray# d -> Int# -> Int8# -> State# d -> State# d
+
+foreign import prim writeInt16Array# :: MutableByteArray# d -> Int# -> Int16# -> State# d -> State# d
+
+foreign import prim writeInt32Array# :: MutableByteArray# d -> Int# -> Int32# -> State# d -> State# d
+
+foreign import prim writeInt64Array# :: MutableByteArray# d -> Int# -> Int64# -> State# d -> State# d
+
+foreign import prim writeIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim writeStablePtrArray# :: MutableByteArray# d -> Int# -> StablePtr# a -> State# d -> State# d
+
+foreign import prim writeWideCharArray# :: MutableByteArray# d -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim writeWord8Array# :: MutableByteArray# d -> Int# -> Word8# -> State# d -> State# d
+
+foreign import prim writeWord16Array# :: MutableByteArray# d -> Int# -> Word16# -> State# d -> State# d
+
+foreign import prim writeWord32Array# :: MutableByteArray# d -> Int# -> Word32# -> State# d -> State# d
+
+foreign import prim writeWord64Array# :: MutableByteArray# d -> Int# -> Word64# -> State# d -> State# d
+
+foreign import prim uncheckedIShiftL# :: Int# -> Int# -> Int#
+
+foreign import prim uncheckedIShiftRA# :: Int# -> Int# -> Int#
+
+foreign import prim uncheckedIShiftRL# :: Int# -> Int# -> Int#
 
 foreign import prim
   fork# ::

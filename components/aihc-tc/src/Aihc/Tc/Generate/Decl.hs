@@ -819,7 +819,7 @@ annotateClassDefaultItem item =
     ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem inner
     ClassItemDefault valueDecl ->
       case valueDeclBinderName valueDecl of
-        Just (_, methodName) -> do
+        Just (methodName, _) -> do
           methodTy <- bindingType (defaultMethodName methodName)
           pure (ClassItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) item)
         Nothing -> pure item
@@ -1177,7 +1177,7 @@ tcClassDefaultValue :: ValueDecl -> TcM ValueDecl
 tcClassDefaultValue valueDecl =
   case valueDeclBinderName valueDecl of
     Nothing -> pure valueDecl
-    Just (_, methodName) -> do
+    Just (methodName, _) -> do
       binder <- lookupTerm (defaultMethodName methodName)
       case binder of
         Just (TcIdBinder (ForAll _ givens methodTy) _) ->
@@ -1386,7 +1386,7 @@ classDeclDefaultMethodNames classDecl = mapMaybe classItemDefaultMethodName (cla
 classItemDefaultMethodName :: ClassDeclItem -> Maybe Text
 classItemDefaultMethodName item =
   case peelClassDeclItemAnn item of
-    ClassItemDefault valueDecl -> snd <$> valueDeclBinderName valueDecl
+    ClassItemDefault valueDecl -> fst <$> valueDeclBinderName valueDecl
     _ -> Nothing
 
 valueDeclBinderName :: ValueDecl -> Maybe (Text, Text)
