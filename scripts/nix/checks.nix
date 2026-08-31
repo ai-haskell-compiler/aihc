@@ -74,7 +74,7 @@
           old:
             addCheckSettings drv old
             // {
-              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.bintools pkgs.llvmPackages.clang];
               preCheck =
                 (old.preCheck or "")
                 + ''

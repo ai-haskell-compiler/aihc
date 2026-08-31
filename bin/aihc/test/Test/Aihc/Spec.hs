@@ -355,7 +355,7 @@ test_installV2KeepGrin = do
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
-    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.objdump")
     retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False False False False AppleArm64)
     let corePath = installV2StorePath retained </> "Demo" </> "core"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
@@ -385,7 +385,7 @@ test_installV2KeepGrin = do
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.s")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.objdump")
     assertFileDoesNotExist (noCodeRoot </> "lib" </> "libdemo.a")
 
 test_installV2TargetArchives :: Assertion
@@ -395,10 +395,10 @@ test_installV2TargetArchives = do
   foreignArchivesSupported <- arSupportsForeignObjects
   withTempDir "aihc-install-v2-targets" $ \root -> do
     let targets =
-          [ (AppleArm64, "arm64-macos-apple", ".s"),
+          [ (AppleArm64, "arm64-macos-apple", ".objdump"),
             (Llvm, "llvm", ".ll")
           ]
-            <> [(LinuxAmd64, "amd64-linux-gnu", ".s") | foreignArchivesSupported]
+            <> [(LinuxAmd64, "amd64-linux-gnu", ".objdump") | foreignArchivesSupported]
             <> [(Wasm32Wasip3, "wasm32-wasip3", ".s") | wasmSupported && foreignArchivesSupported]
     results <- forM targets $ \(target, directory, nativeExtension) -> do
       result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False False False False target)
@@ -410,6 +410,15 @@ test_installV2TargetArchives = do
       assertFileExists objectPath
       assertFileExists nativePath
       assertFileExists archivePath
+      objectHeader <- BS.take 4 <$> BS.readFile objectPath
+      case target of
+        AppleArm64 -> do
+          assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
+          assertFileDoesNotExist (objectPath <> ".s")
+        LinuxAmd64 -> do
+          assertEqual "ELF object header" (BS.pack [0x7f, 0x45, 0x4c, 0x46]) objectHeader
+          assertFileDoesNotExist (objectPath <> ".s")
+        _ -> pure ()
       members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
@@ -417,8 +426,8 @@ test_installV2TargetArchives = do
       repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False True False False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
-      assertEqual "native source repair keeps Core" originalCore repairedCore
-      assertEqual "native source repair writes the module" ["Demo"] (installV2WrittenModules repaired)
+      assertEqual "native output repair keeps Core" originalCore repairedCore
+      assertEqual "native output repair writes the module" ["Demo"] (installV2WrittenModules repaired)
       pure result
     case results of
       [] -> assertFailure "no target results"
