@@ -129,8 +129,18 @@ lowerValueDecl env declaration = do
     then throwLower ("GRIN does not support an unlifted top-level value: " <> show (Fc.valName declaration))
     else do
       globalName <- lookupGlobalName env (Fc.valName declaration)
-      node <- makeThunk env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
+      node <-
+        if isFunctionExpression (Fc.valBody declaration)
+          then makeClosure env (Fc.valBody declaration)
+          else makeThunk env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
       pure mempty {topGlobals = [(globalName, node)]}
+
+isFunctionExpression :: Fc.Expr -> Bool
+isFunctionExpression expression =
+  case expression of
+    Fc.ExLam {} -> True
+    Fc.ExTyLam _ body -> isFunctionExpression body
+    _ -> False
 
 lowerForeignDecl :: LowerEnv -> Fc.ForeignImportDecl -> LowerM TopParts
 lowerForeignDecl env declaration = do
