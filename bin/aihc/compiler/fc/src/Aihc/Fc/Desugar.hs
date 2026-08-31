@@ -19,6 +19,7 @@ import Aihc.Fc.Convert
 import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, mergePreparedValueInterfaces, prepareValueInterface)
 import Aihc.Fc.Imports (PreparedImports, emptyImports, importsForProgramPrepared, mergePreparedImports, prepareImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
@@ -378,7 +379,7 @@ desugarCheckedWithAvailable config interfaceBindings moduleBindings interface pr
       baseProgram = Program emptyScopeTable emptyImports decls
       imports = importsForProgramPrepared preparedImports baseProgram
       scopes = buildScopes (primPackageId config) moduleOrigin imports decls
-  pure (tidyProgramWithTidiedImports (Program scopes imports decls))
+  pure (tidyProgramWithTidiedImports (normalizeProgram (Program scopes imports decls)))
 
 dsDecl ::
   ConvertEnv ->

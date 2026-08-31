@@ -92,6 +92,7 @@ library compiler
     Aihc.Fc.Imports
     Aihc.Fc.Lint
     Aihc.Fc.Name
+    Aihc.Fc.Normalize
     Aihc.Fc.Parser
     Aihc.Fc.Pretty
     Aihc.Fc.Syntax
