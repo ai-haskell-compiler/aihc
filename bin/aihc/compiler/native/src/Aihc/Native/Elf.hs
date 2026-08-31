@@ -124,7 +124,7 @@ placeBaseSection offset description =
   let section = descriptionImage description
       alignment = 1 `shiftL` imageSectionAlignment section
       placed = alignUp alignment offset
-      size = fromIntegral (BS.length (imageSectionBytes section))
+      size = fromIntegral (BL.length (imageSectionBytes section))
    in (placed + size, PlacedBaseSection description placed)
 
 placeRelocationSection :: Word64 -> RelocationDescription -> (Word64, PlacedRelocationSection)
@@ -158,8 +158,8 @@ putBaseContents offset sections =
     section : rest -> do
       putPadding (placedBaseOffset section - offset)
       let bytes = imageSectionBytes (descriptionImage (placedBaseDescription section))
-          next = placedBaseOffset section + fromIntegral (BS.length bytes)
-      putByteString bytes
+          next = placedBaseOffset section + fromIntegral (BL.length bytes)
+      putLazyByteString bytes
       putBaseContents next rest
 
 putRelocationContents :: Map Text Word32 -> Word64 -> [PlacedRelocationSection] -> PutM Word64
@@ -220,7 +220,7 @@ putBaseSectionHeader names section = do
   putWord64le (descriptionFlags description)
   putWord64le 0
   putWord64le (placedBaseOffset section)
-  putWord64le (fromIntegral (BS.length (imageSectionBytes imageSection)))
+  putWord64le (fromIntegral (BL.length (imageSectionBytes imageSection)))
   putWord32le 0
   putWord32le 0
   putWord64le (1 `shiftL` imageSectionAlignment imageSection)

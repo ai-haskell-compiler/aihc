@@ -97,7 +97,7 @@ placeSection (fileOffset, address) description =
       alignment = 1 `shiftL` imageSectionAlignment section
       placedFile = alignUp alignment fileOffset
       placedAddress' = alignUp alignment address
-      size = fromIntegral (BS.length (imageSectionBytes section))
+      size = fromIntegral (BL.length (imageSectionBytes section))
    in ( (placedFile + size, placedAddress' + size),
         PlacedSection description placedFile placedAddress' 0
       )
@@ -164,7 +164,7 @@ putSection section = do
   putFixedName (descriptionSectionName description)
   putFixedName (descriptionSegmentName description)
   putWord64le (placedAddress section)
-  putWord64le (fromIntegral (BS.length (imageSectionBytes imageSection)))
+  putWord64le (fromIntegral (BL.length (imageSectionBytes imageSection)))
   putWord32le (fromIntegral (placedFileOffset section))
   putWord32le (fromIntegral (imageSectionAlignment imageSection))
   putWord32le (fromIntegral (placedRelocationOffset section))
@@ -303,8 +303,8 @@ putSectionContents offset sections =
     section : rest -> do
       putPadding (placedFileOffset section - offset)
       let bytes = imageSectionBytes (placedImageSection section)
-          next = placedFileOffset section + fromIntegral (BS.length bytes)
-      putByteString bytes
+          next = placedFileOffset section + fromIntegral (BL.length bytes)
+      putLazyByteString bytes
       putSectionContents next rest
 
 putPadding :: Word64 -> Put

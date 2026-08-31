@@ -23,6 +23,8 @@ where
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -94,7 +96,7 @@ data Relocation = Relocation
 data ImageSection = ImageSection
   { imageSectionRole :: !SectionRole,
     imageSectionAlignment :: !Int,
-    imageSectionBytes :: !ByteString,
+    imageSectionBytes :: !BL.ByteString,
     imageSectionRelocations :: ![Relocation]
   }
   deriving (Eq, Show)
@@ -284,20 +286,20 @@ patchLocal offset target fixup bytes =
             then pure (fromIntegral displacement)
             else Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
 
-applyPatches :: ByteString -> [(Word64, Word32)] -> Either ObjectError ByteString
-applyPatches bytes = fmap BS.concat . go 0
+applyPatches :: ByteString -> [(Word64, Word32)] -> Either ObjectError BL.ByteString
+applyPatches bytes = fmap Builder.toLazyByteString . go 0
   where
     size = BS.length bytes
     go start patches =
       case patches of
-        [] -> pure [BS.drop start bytes]
+        [] -> pure (Builder.byteString (BS.drop start bytes))
         (offset, value) : rest -> do
           let index = fromIntegral offset
           if index < start || index + 4 > size
             then Left (ObjectSizeOverflow "fixup offset")
             else do
               suffix <- go (index + 4) rest
-              pure (BS.take (index - start) (BS.drop start bytes) : word32Bytes value : suffix)
+              pure (Builder.byteString (BS.take (index - start) (BS.drop start bytes)) <> Builder.word32LE value <> suffix)
 
 signedDifference :: Word64 -> Word64 -> Int64
 signedDifference left right = fromIntegral left - fromIntegral right
@@ -317,12 +319,3 @@ readWord32 offset bytes =
                 .|. fromIntegral (BS.index bytes (index + 2)) `shiftL` 16
                 .|. fromIntegral (BS.index bytes (index + 3)) `shiftL` 24
             )
-
-word32Bytes :: Word32 -> ByteString
-word32Bytes value =
-  BS.pack
-    [ fromIntegral value,
-      fromIntegral (value `shiftR` 8),
-      fromIntegral (value `shiftR` 16),
-      fromIntegral (value `shiftR` 24)
-    ]
