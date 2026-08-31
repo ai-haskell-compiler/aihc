@@ -4,6 +4,7 @@ module GHC.IO.Exception
     IOException (..),
     IOErrorType (..),
     ioError,
+    ioException,
     ioErrorFromErrno,
     illegalOperationError,
     ioeSetErrorString,
@@ -41,6 +42,9 @@ ioError :: IOException -> IO a
 ioError (IOError exceptionCode) = do
   raiseIOErrorRaw exceptionCode
   ioError (IOError exceptionCode)
+
+ioException :: IOException -> IO a
+ioException = ioError
 
 ioErrorFromErrno :: String -> Maybe String -> Int -> IOException
 ioErrorFromErrno _ _ = IOError

@@ -771,9 +771,19 @@ evalPrimitive "uncheckedShiftRL#" [value, amount] = evalWordShift "uncheckedShif
 evalPrimitive "int2Word#" [value] = do
   int <- expectIntPrimitiveArgument "int2Word#" value
   pure [wordRuntimeValue int]
+evalPrimitive "intToInt8#" [value] = convertIntRep "intToInt8#" Int8Rep value
+evalPrimitive "intToInt16#" [value] = convertIntRep "intToInt16#" Int16Rep value
+evalPrimitive "intToInt32#" [value] = convertIntRep "intToInt32#" Int32Rep value
+evalPrimitive "intToInt64#" [value] = convertIntRep "intToInt64#" Int64Rep value
 evalPrimitive "word2Int#" [value] = do
   word <- expectWordPrimitiveArgument "word2Int#" value
   pure [intRuntimeValue word]
+evalPrimitive "wordToWord8#" [value] = convertWordRep "wordToWord8#" Word8Rep value
+evalPrimitive "wordToWord16#" [value] = convertWordRep "wordToWord16#" Word16Rep value
+evalPrimitive "wordToWord32#" [value] = convertWordRep "wordToWord32#" Word32Rep value
+evalPrimitive "wordToWord64#" [value] = convertWordRep "wordToWord64#" Word64Rep value
+evalPrimitive "castWord32ToFloat#" [value] = convertPrimitiveRep "castWord32ToFloat#" Word32Rep FloatRep value
+evalPrimitive "castWord64ToDouble#" [value] = convertPrimitiveRep "castWord64ToDouble#" Word64Rep DoubleRep value
 evalPrimitive "word8ToWord#" [value] =
   (: []) . wordRuntimeValue <$> expectRuntimeRepPrimitiveArgument "word8ToWord#" Word8Rep value
 evalPrimitive "word32ToWord#" [value] =
@@ -1120,6 +1130,21 @@ expectRuntimeRepPrimitiveArgument name expectedRep value =
 
 intRuntimeValue :: Integer -> RuntimeValue
 intRuntimeValue = RuntimeLit . GrinLitInt IntRep . normalizeInt
+
+convertIntRep :: Text -> GrinRep -> RuntimeValue -> EvalM [RuntimeValue]
+convertIntRep name rep value = do
+  int <- expectIntPrimitiveArgument name value
+  pure [RuntimeLit (GrinLitInt rep int)]
+
+convertWordRep :: Text -> GrinRep -> RuntimeValue -> EvalM [RuntimeValue]
+convertWordRep name rep value = do
+  word <- expectWordPrimitiveArgument name value
+  pure [RuntimeLit (GrinLitInt rep word)]
+
+convertPrimitiveRep :: Text -> GrinRep -> GrinRep -> RuntimeValue -> EvalM [RuntimeValue]
+convertPrimitiveRep name inputRep outputRep value = do
+  int <- expectRuntimeRepPrimitiveArgument name inputRep value
+  pure [RuntimeLit (GrinLitInt outputRep int)]
 
 wordBits :: Int
 wordBits = 64

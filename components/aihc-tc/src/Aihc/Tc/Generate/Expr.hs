@@ -14,6 +14,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
     DoFlavor (..),
@@ -69,6 +70,10 @@ inferExprAt ambient expr = case expr of
       isFromIntegerResolution resolution,
       EInt _ TInteger _ <- inner ->
         inferOverloadedIntegerLiteral ambient ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      EArithSeq arithSeq <- inner ->
+        inferArithSeq ambient ann resolution arithSeq
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
   EInt _ numericType _ ->
@@ -237,8 +242,62 @@ inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
           []
   pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq])
 
+inferArithSeq :: SourceSpan -> Annotation -> ResolutionAnnotation -> ArithSeq -> TcM (Expr, TcType, [Ct])
+inferArithSeq ambient resolutionAnn resolution arithSeq = do
+  let sp = resolutionSpan resolution `orSourceSpan` ambient
+  (arithSeq', argumentResults) <- inferArithSeqArguments arithSeq
+  elementTy <- freshMetaTv
+  listTyCon' <- resolvedListTyCon
+  let resultTy = TcTyCon listTyCon' [elementTy]
+  argumentCts <- mapM (\(_, argumentTy, _) -> arithSeqArgumentCt sp elementTy argumentTy) argumentResults
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxTerm sp resolution
+  methodEv <- freshEvVar
+  let expectedMethodTy = foldr TcFunTy resultTy (replicate (length argumentResults) elementTy)
+      methodEq = mkWantedCt (EqPred methodTy expectedMethodTy) methodEv (AppOrigin sp) sp
+      pending = pendingAnnotation resultTy typeArgs (map ctEvVar methodCts) []
+      expressionCts = concatMap (\(_, _, cts) -> cts) argumentResults
+  pure
+    ( annotatePendingExprAt sp pending (EAnn resolutionAnn (EArithSeq arithSeq')),
+      resultTy,
+      expressionCts <> argumentCts <> methodCts <> [methodEq]
+    )
+
+inferArithSeqArguments :: ArithSeq -> TcM (ArithSeq, [(Expr, TcType, [Ct])])
+inferArithSeqArguments arithSeq =
+  case arithSeq of
+    ArithSeqAnn ann inner -> do
+      (inner', results) <- inferArithSeqArguments inner
+      pure (ArithSeqAnn ann inner', results)
+    ArithSeqFrom from -> rebuild ArithSeqFrom [from]
+    ArithSeqFromThen from then' -> rebuild2 ArithSeqFromThen from then'
+    ArithSeqFromTo from to -> rebuild2 ArithSeqFromTo from to
+    ArithSeqFromThenTo from then' to -> rebuild3 ArithSeqFromThenTo from then' to
+  where
+    infer = inferExpr
+    rebuild constructor [value] = do
+      result@(value', _, _) <- infer value
+      pure (constructor value', [result])
+    rebuild _ _ = abortTc "invalid arithmetic sequence"
+    rebuild2 constructor first second = do
+      firstResult@(first', _, _) <- infer first
+      secondResult@(second', _, _) <- infer second
+      pure (constructor first' second', [firstResult, secondResult])
+    rebuild3 constructor first second third = do
+      firstResult@(first', _, _) <- infer first
+      secondResult@(second', _, _) <- infer second
+      thirdResult@(third', _, _) <- infer third
+      pure (constructor first' second' third', [firstResult, secondResult, thirdResult])
+
+arithSeqArgumentCt :: SourceSpan -> TcType -> TcType -> TcM Ct
+arithSeqArgumentCt sp expected actual = do
+  ev <- freshEvVar
+  pure (mkWantedCt (EqPred actual expected) ev (AppOrigin sp) sp)
+
 inferResolvedFromInteger :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
-inferResolvedFromInteger sp resolution = do
+inferResolvedFromInteger = inferResolvedSyntaxTerm
+
+inferResolvedSyntaxTerm :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedSyntaxTerm sp resolution = do
   mBinder <- lookupResolvedTerm "fromInteger" (resolutionTarget resolution)
   case mBinder of
     Just (TcIdBinder scheme _) -> do
@@ -450,13 +509,14 @@ hasLeadingForAll TcQualTy {} = True
 hasLeadingForAll _ = False
 
 instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
-instantiateSigmaType = go []
+instantiateSigmaType = go Map.empty []
   where
-    go arguments (TcForAllTy binder body) = do
-      argument <- freshMetaTv
-      go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
-    go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
-    go arguments ty = pure (ty, arguments, [])
+    go substitution arguments (TcForAllTy binder body) = do
+      argument <- freshMetaTvOfKind (applySubst substitution (tvKind binder))
+      go (Map.insert (tvUnique binder) argument substitution) (arguments <> [argument]) body
+    go substitution arguments (TcQualTy predicates body) =
+      pure (applySubst substitution body, arguments, map (applySubstPred substitution) predicates)
+    go substitution arguments ty = pure (applySubst substitution ty, arguments, [])
 
 skolemizeSigmaType :: TcType -> TcM ([TyVarId], [Pred], TcType)
 skolemizeSigmaType = go [] []
@@ -1000,12 +1060,32 @@ numericLiteralType numericType =
     TWord64Hash -> primType "Word64#"
 
 primType :: Text -> TcM TcType
-primType = knownTyConType "GHC.Prim"
+primType name = knownTyConTypeWithKind "GHC.Prim" name (primitiveTypeKind name)
+
+primitiveTypeKind :: Text -> TcType
+primitiveTypeKind name =
+  KTYPE $ case name of
+    "Int#" -> intRep
+    "Int8#" -> int8Rep
+    "Int16#" -> int16Rep
+    "Int32#" -> int32Rep
+    "Int64#" -> int64Rep
+    "Word#" -> wordRep
+    "Word8#" -> word8Rep
+    "Word16#" -> word16Rep
+    "Word32#" -> word32Rep
+    "Word64#" -> word64Rep
+    "Char#" -> wordRep
+    "Addr#" -> addrRep
+    _ -> liftedRep
 
 knownTyConType :: Text -> Text -> TcM TcType
-knownTyConType moduleName name = do
+knownTyConType moduleName name = knownTyConTypeWithKind moduleName name typeKindType
+
+knownTyConTypeWithKind :: Text -> Text -> TcType -> TcM TcType
+knownTyConTypeWithKind moduleName name kind = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name 0 typeKindType) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon moduleName name 0 kind) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType

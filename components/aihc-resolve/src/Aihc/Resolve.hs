@@ -74,8 +74,6 @@ import Aihc.Parser.Syntax
     NewtypeDecl (..),
     NumericType (..),
     Pattern (..),
-    Pragma (..),
-    PragmaType (..),
     RecordField (..),
     Rhs (..),
     SourceSpan (..),
@@ -245,6 +243,7 @@ moduleInfo package exports modu =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
       moduleInfoGhcBaseScope = lookupImportedModule package Nothing "GHC.Base" exports,
       moduleInfoGhcClassesScope = lookupImportedModule package Nothing "GHC.Classes" exports,
+      moduleInfoGhcEnumScope = lookupImportedModule package Nothing "Prelude" exports,
       moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports
     }
 
@@ -418,10 +417,8 @@ resolveDeclCore termDefinition decl =
     DeclFixity {} -> pure decl
     DeclForeign foreignDecl ->
       DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
-    DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPragma pragma
-      | ignoredInlinePragma (pragmaType pragma) -> pure decl
-      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclRoleAnnotation {} -> pure decl
+    DeclPragma {} -> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclInstance instanceDecl ->
@@ -436,20 +433,6 @@ resolveDeclCore termDefinition decl =
       DeclTypeFamilyInst <$> resolveTypeFamilyInst familyInst
     DeclDataFamilyInst dataFamilyInst ->
       DeclDataFamilyInst <$> resolveDataFamilyInst dataFamilyInst
-
-ignoredInlinePragma :: PragmaType -> Bool
-ignoredInlinePragma pragma =
-  case pragma of
-    PragmaInline kind _
-      | kind == "INLINE"
-          || kind == "INLINABLE"
-          || kind == "INLINEABLE"
-          || kind == "NOINLINE"
-          || kind == "NOINLINEABLE"
-          || kind == "NOINLINABLE"
-          || kind == "CONLIKE" ->
-          True
-    _ -> False
 
 resolveValueDecl :: TermDefinition -> ValueDecl -> ResolveM ValueDecl
 resolveValueDecl termDefinition valueDecl =
@@ -503,9 +486,7 @@ resolveClassDeclItem classDeclItem =
       scope <- currentScope
       ClassItemDefault <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
     ClassItemFixity {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemPragma pragma
-      | ignoredInlinePragma (pragmaType pragma) -> pure classDeclItem
-      | otherwise -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemPragma {} -> pure classDeclItem
     ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
@@ -538,9 +519,7 @@ resolveInstanceDeclItem instanceDeclItem =
     InstanceItemFixity {} -> pure instanceDeclItem
     InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
-    InstanceItemPragma pragma
-      | ignoredInlinePragma (pragmaType pragma) -> pure instanceDeclItem
-      | otherwise -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemPragma {} -> pure instanceDeclItem
 
 resolveStandaloneDerivingDecl :: StandaloneDerivingDecl -> ResolveM StandaloneDerivingDecl
 resolveStandaloneDerivingDecl derivingDecl = do
@@ -688,8 +667,11 @@ resolveExpr expr =
       pure (ELetDecls decls' body')
     ECase scrutinee alts ->
       ECase <$> resolveExpr scrutinee <*> mapM resolveCaseAlt alts
-    EArithSeq arithSeq ->
-      EArithSeq <$> resolveArithSeq arithSeq
+    EArithSeq arithSeq -> do
+      arithSeq' <- resolveArithSeq arithSeq
+      sp <- currentSpan
+      annotation <- syntaxTermAnnotation sp (arithSeqMethod arithSeq)
+      pure (EAnn (mkAnnotation annotation) (EArithSeq arithSeq'))
     ERecordCon name fields wildcard ->
       ERecordCon name <$> resolveRecordFields fields <*> pure wildcard
     ERecordUpd record fields ->
@@ -731,7 +713,13 @@ resolveExpr expr =
     EListComp body stmts -> do
       (scope, stmts') <- resolveCompStmts stmts
       body' <- withScope scope (resolveExpr body)
-      pure (EListComp body' stmts')
+      sp <- currentSpan
+      annotation <- syntaxTermAnnotation sp "map"
+      let listComp = EListComp body' stmts'
+      pure $
+        case resolutionTarget annotation of
+          ResolvedError _ -> listComp
+          _ -> EAnn (mkAnnotation annotation) listComp
     EListCompParallel {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     ETHExpQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     ETHTypedQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
@@ -801,6 +789,11 @@ builtinSyntaxTerm info name =
     "fromInteger" -> lookupTerm name (moduleInfoGhcNumScope info)
     "negate" -> lookupTerm name (moduleInfoGhcNumScope info)
     "==" -> lookupTerm name (moduleInfoGhcClassesScope info)
+    "enumFrom" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFromThen" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFromTo" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFromThenTo" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "map" -> lookupTerm name (moduleInfoGhcEnumScope info)
     _ -> ResolvedError "unknown built-in syntax term"
 
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
@@ -958,6 +951,15 @@ resolveArithSeq arithSeq =
       ArithSeqFromTo <$> resolveExpr from <*> resolveExpr to
     ArithSeqFromThenTo from then' to ->
       ArithSeqFromThenTo <$> resolveExpr from <*> resolveExpr then' <*> resolveExpr to
+
+arithSeqMethod :: ArithSeq -> Text
+arithSeqMethod arithSeq =
+  case arithSeq of
+    ArithSeqAnn _ inner -> arithSeqMethod inner
+    ArithSeqFrom {} -> "enumFrom"
+    ArithSeqFromThen {} -> "enumFromThen"
+    ArithSeqFromTo {} -> "enumFromTo"
+    ArithSeqFromThenTo {} -> "enumFromThenTo"
 
 resolveBoundDecls :: Map.Map Text ResolvedName -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBoundDecls binderTargets =

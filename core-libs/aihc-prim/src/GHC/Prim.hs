@@ -23,6 +23,8 @@ module GHC.Prim
     catch#,
     casMutVar#,
     Char#,
+    castWord32ToFloat#,
+    castWord64ToDouble#,
     compareInt#,
     divInt#,
     copyByteArray#,
@@ -37,6 +39,10 @@ module GHC.Prim
     indexWord64OffAddr#,
     indexWordArray#,
     int2Word#,
+    intToInt8#,
+    intToInt16#,
+    intToInt32#,
+    intToInt64#,
     Int#,
     Int8#,
     Int16#,
@@ -97,6 +103,10 @@ module GHC.Prim
     uncheckedShiftRL#,
     unsafeCoerce#,
     word2Int#,
+    wordToWord8#,
+    wordToWord16#,
+    wordToWord32#,
+    wordToWord64#,
     word8ToWord#,
     word32ToWord#,
     word64ToWord#,
@@ -223,13 +233,13 @@ data Addr#
 type Array# :: Type -> UnliftedType
 data Array# a
 
-type ByteArray# :: UnliftedType
+type ByteArray# :: TYPE 'AddrRep
 data ByteArray#
 
 type MutableArray# :: Type -> Type -> UnliftedType
 data MutableArray# d a
 
-type MutableByteArray# :: Type -> UnliftedType
+type MutableByteArray# :: Type -> TYPE 'AddrRep
 data MutableByteArray# d
 
 type MVar# :: Type -> Type -> UnliftedType
@@ -252,7 +262,7 @@ data RealWorld
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 
-foreign import prim unsafeCoerce# :: a -> b
+foreign import prim unsafeCoerce# :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep) (a :: TYPE r1) (b :: TYPE r2). a -> b
 
 foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
 
@@ -283,6 +293,10 @@ foreign import prim (==#) :: Int# -> Int# -> Int#
 foreign import prim ord# :: Char# -> Int#
 
 foreign import prim chr# :: Int# -> Char#
+
+foreign import prim castWord32ToFloat# :: Word32# -> Float#
+
+foreign import prim castWord64ToDouble# :: Word64# -> Double#
 
 foreign import prim addIntC# :: Int# -> Int# -> (# Int#, Int# #)
 
@@ -322,7 +336,23 @@ foreign import prim uncheckedShiftRL# :: Word# -> Int# -> Word#
 
 foreign import prim int2Word# :: Int# -> Word#
 
+foreign import prim intToInt8# :: Int# -> Int8#
+
+foreign import prim intToInt16# :: Int# -> Int16#
+
+foreign import prim intToInt32# :: Int# -> Int32#
+
+foreign import prim intToInt64# :: Int# -> Int64#
+
 foreign import prim word2Int# :: Word# -> Int#
+
+foreign import prim wordToWord8# :: Word# -> Word8#
+
+foreign import prim wordToWord16# :: Word# -> Word16#
+
+foreign import prim wordToWord32# :: Word# -> Word32#
+
+foreign import prim wordToWord64# :: Word# -> Word64#
 
 foreign import prim word8ToWord# :: Word8# -> Word#
 

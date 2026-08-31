@@ -773,7 +773,7 @@ compileDirectBinding env vars expression =
       | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
           binaryPrimitive instruction value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["int2Word#", "intToInt8#", "intToInt16#", "intToInt32#", "intToInt64#", "word2Int#", "wordToWord8#", "wordToWord16#", "wordToWord32#", "wordToWord64#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "castWord32ToFloat#", "castWord64ToDouble#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           materializeValue env value >>= storeOne
     GrinPrimitiveCall _ "newArray#" [size, initial] -> do
       (lines', operands) <- materializeValues env [size, initial]

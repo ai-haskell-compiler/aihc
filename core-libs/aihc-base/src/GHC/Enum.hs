@@ -19,6 +19,7 @@ import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)
 import GHC.Num (Num (..))
 import GHC.Prim (int2Word#, not#, uncheckedShiftRL#, word2Int#, (+#))
+import GHC.Word (Word (..))
 
 class Bounded a where
   minBound :: a
@@ -100,6 +101,10 @@ instance Bounded Int where
     case maximumInt of
       I# value -> I# ((+#) value 1#)
   maxBound = maximumInt
+
+instance Bounded Word where
+  minBound = W# 0##
+  maxBound = W# (not# 0##)
 
 instance Enum Int where
   succ value =

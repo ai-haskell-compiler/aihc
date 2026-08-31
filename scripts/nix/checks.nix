@@ -399,6 +399,36 @@
       touch "$out"
     '';
 
+  arraySource = pkgs.fetchzip {
+    url = "https://hackage.haskell.org/package/array-0.5.8.0/array-0.5.8.0.tar.gz";
+    hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+  };
+
+  arrayInstallV2 =
+    pkgs.runCommand "aihc-array-0.5.8.0-install-v2" {
+      src = sources.coreLibrariesSrc pkgs;
+      nativeBuildInputs = [
+        pkgs.findutils
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+      ];
+    } ''
+      cd "$src"
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      store="$TMPDIR/store"
+      mkdir -p "$store"
+
+      ${aihcExe} install-v2 ${arraySource} --store "$store" --target apple-arm64
+
+      test -n "$(find "$store" -path '*/Data/Array/core' -print -quit)"
+      archive="$(find "$store" -path '*/lib/libarray.a' -print -quit)"
+      test -n "$archive"
+      test -s "$archive"
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
+      touch "$out"
+    '';
+
   # The compiler owns preparation of the installed toolchain. Runtime archives
   # are built once per backend/GC pair, and ordinary package installation emits
   # the reusable library interfaces and target-specific archives.
@@ -649,6 +679,7 @@ in {
   c-format = cFormat;
   cabal-format = cabalFormat;
   core-libraries-install-v2 = coreLibrariesInstallV2;
+  array-0_5_8_0-install-v2 = arrayInstallV2;
   examples-tests = examplesTests;
   wasip3-example-test = wasip3ExampleTest;
 }

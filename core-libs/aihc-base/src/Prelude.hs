@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
@@ -164,6 +165,7 @@ import GHC.Real
     (^^),
   )
 import GHC.Tuple ()
+import GHC.Types (RuntimeRep, TYPE)
 import GHC.Word (Word (..), Word8 (..))
 
 type ReadS a = String -> [(a, String)]
@@ -175,12 +177,12 @@ type Prec = Int
 minPrec :: Prec
 minPrec = 0
 
-($) :: (a -> b) -> a -> b
+($) :: forall (r :: RuntimeRep) a (b :: TYPE r). (a -> b) -> a -> b
 function $ argument = function argument
 
 infixr 0 $
 
-($!) :: (a -> b) -> a -> b
+($!) :: forall (r :: RuntimeRep) a (b :: TYPE r). (a -> b) -> a -> b
 function $! argument = argument `seq` function argument
 
 infixr 0 $!
@@ -363,7 +365,7 @@ sequence_ = foldr (>>) (return ())
 mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
 mapM function = sequence . map function
 
-error :: String -> a
+error :: forall (r :: RuntimeRep) (a :: TYPE r). String -> a
 error = raise#
 
 newtype ReadPrec a = ReadPrec (Prec -> ReadS a)

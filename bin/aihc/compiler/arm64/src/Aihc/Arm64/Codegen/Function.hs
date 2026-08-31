@@ -486,7 +486,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", [arm64Instruction (ArmMvn X0 X0)])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "intToInt8#", "intToInt16#", "intToInt32#", "intToInt64#", "word2Int#", "wordToWord8#", "wordToWord16#", "wordToWord32#", "wordToWord64#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "castWord32ToFloat#", "castWord64ToDouble#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary opcode names =
       [(name, [arm64Instruction (opcode X0 X9 X0)]) | name <- names]

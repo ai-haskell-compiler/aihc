@@ -484,7 +484,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", [amd64Instruction (AmdNot (Amd64RmRegister RAX))])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "intToInt8#", "intToInt16#", "intToInt32#", "intToInt64#", "word2Int#", "wordToWord8#", "wordToWord16#", "wordToWord32#", "wordToWord64#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "castWord32ToFloat#", "castWord64ToDouble#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary opcode names =
       [(name, [amd64Instruction (opcode (Amd64RmRegister R10) (Amd64BinaryRegister RAX)), amd64Instruction (AmdMov RAX (Amd64MoveRegister R10))]) | name <- names]

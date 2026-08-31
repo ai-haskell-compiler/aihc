@@ -12,6 +12,7 @@ module GHC.Exts
     RuntimeRep (..),
     TYPE,
     Ptr (..),
+    FunPtr (..),
     Int (..),
     Float (..),
     Double (..),
@@ -85,11 +86,14 @@ module GHC.Exts
     writeWord64Array#,
     writeWordArray#,
     xor#,
+    (+#),
+    (*#),
+    (<#),
   )
 where
 
 import GHC.Prim
-import GHC.Ptr (Ptr (..))
+import GHC.Ptr (FunPtr (..), Ptr (..))
 import GHC.Types (Bool (..), Double (..), Float (..), Int (..), RuntimeRep (..), TYPE)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 

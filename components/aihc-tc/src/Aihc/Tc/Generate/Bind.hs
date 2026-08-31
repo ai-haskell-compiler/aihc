@@ -18,6 +18,8 @@ import Aihc.Parser.Syntax
     CaseAlt (..),
     Decl (..),
     Expr (..),
+    GuardQualifier (..),
+    GuardedRhs (..),
     Match (..),
     NameType (..),
     Pattern (..),
@@ -38,14 +40,16 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (solveConstraints)
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve.InertSet (inertDicts)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM)
+import Data.Foldable (foldrM)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe, maybeToList)
+import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -67,12 +71,14 @@ inferLocalDecls inferExpr decls body = do
     let bindingCts = concatMap snd groupResults
     if shouldGen
       then do
-        _ <- solveConstraints bindingCts
+        solveResult <- solveConstraints bindingCts
+        retryResult <- solveConstraints (inertDicts (srInerts solveResult))
+        let residualCts = srResidual solveResult <> srResidual retryResult <> inertDicts (srInerts retryResult)
         polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap) binders
         decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
-          pure (decls', bodyResult, bodyTy, bodyCts)
+          pure (decls', bodyResult, bodyTy, residualCts <> bodyCts)
       else do
         monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
         decls' <- annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
@@ -143,9 +149,29 @@ inferRhsWithLocals inferExpr rhs =
         Just decls -> do
           (decls', expr', ty, cts) <- inferLocalDecls inferExpr decls (inferExpr expr)
           pure (UnguardedRhs sp expr' (Just decls'), ty, cts)
-    GuardedRhss {} -> do
-      ty <- freshMetaTv
-      pure (rhs, ty, [])
+    GuardedRhss annotations guardedRhss maybeDecls -> do
+      expression <- guardedRhssExpr guardedRhss
+      inferRhsWithLocals inferExpr (UnguardedRhs annotations expression maybeDecls)
+
+guardedRhssExpr :: [GuardedRhs Expr] -> TcM Expr
+guardedRhssExpr guardedRhss =
+  case guardedRhss of
+    [] -> abortTc "a guarded right-hand side has no branch"
+    [lastBranch] -> pure (guardedRhsBody lastBranch)
+    branch : rest -> do
+      fallback <- guardedRhssExpr rest
+      guardedBranchExpr branch fallback
+
+guardedBranchExpr :: GuardedRhs Expr -> Expr -> TcM Expr
+guardedBranchExpr guardedRhs fallback =
+  foldrM guardedQualifierExpr (guardedRhsBody guardedRhs) (guardedRhsGuards guardedRhs)
+  where
+    guardedQualifierExpr qualifier success =
+      case qualifier of
+        GuardAnn _ inner -> guardedQualifierExpr inner success
+        GuardExpr condition -> pure (EIf condition success fallback)
+        GuardLet declarations -> pure (ELetDecls declarations success)
+        GuardPat {} -> abortTc "pattern guards are not supported"
 
 placeholderFor :: Map TcTermKey TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcTermKey, TcType)
 placeholderFor sigs name = do
@@ -211,8 +237,10 @@ inferLocalSingleDecl inferExpr sigs placeholders decl =
               (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs placeholders name rhs
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
-              (rhs', _ty, cts) <- inferRhsWithLocals inferExpr rhs
-              pure (DeclValue (PatternBind mult pat rhs'), cts)
+              (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
+              patternCheck <- checkPattern NoSourceSpan pat rhsTy
+              cts <- foldM (tiePatternBinder placeholders) (rhsCts <> pcWantedCts patternCheck) (pcBindings patternCheck)
+              pure (DeclValue (PatternBind mult (checkedPattern patternCheck) rhs'), cts)
         FunctionBind name matches -> do
           (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)
@@ -258,6 +286,11 @@ tiePlaceholder placeholders key ty cts =
       ev <- freshEvVar
       let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
       pure (cts ++ [eqCt])
+
+tiePatternBinder :: Map TcTermKey TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
+tiePatternBinder placeholders cts (name, ty) = do
+  key <- resolvedLocalTermKey name
+  tiePlaceholder placeholders key ty cts
 
 tcMatches :: InferExpr -> [Match] -> TcM ([Match], TcType, [Ct])
 tcMatches _ [] = do
@@ -375,8 +408,21 @@ groupBinders group =
     SingleDecl decl ->
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]
-        DeclValue (PatternBind _ pat _) -> maybeToList (patternBinderName pat)
+        DeclValue (PatternBind _ pat _) -> patternBinderNames pat
         _ -> []
+
+patternBinderNames :: Pattern -> [UnqualifiedName]
+patternBinderNames pat =
+  case pat of
+    PVar name -> [name]
+    PAnn _ inner -> patternBinderNames inner
+    PParen inner -> patternBinderNames inner
+    PAs name inner -> name : patternBinderNames inner
+    PStrict inner -> patternBinderNames inner
+    PIrrefutable inner -> patternBinderNames inner
+    PCon _ _ pats -> concatMap patternBinderNames pats
+    PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
+    _ -> []
 
 extractFunctionBind :: Decl -> Maybe (UnqualifiedName, [Match])
 extractFunctionBind decl =

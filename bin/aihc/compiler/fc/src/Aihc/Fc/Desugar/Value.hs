@@ -90,6 +90,7 @@ data ValueState = ValueState
     vsConvertEnv :: !ConvertEnv,
     vsTypes :: !(Map Text TcType),
     vsLocals :: !(Map Text (Binder, TcType)),
+    vsBinderTypes :: !(Map Name TcType),
     vsDictionaries :: !(Map Text Binder),
     vsConstructors :: !(Map Text [Name]),
     vsConstructorInfos :: !(Map Text [DataConInfo]),
@@ -107,7 +108,7 @@ type ValueM = StateT ValueState (Either String)
 
 data ValueGroup
   = FunctionGroup !Text ![Syn.Match] !TcType
-  | PatternGroup !Text !(Syn.Rhs Syn.Expr) !TcType
+  | PatternGroup !Text !Syn.Pattern !(Syn.Rhs Syn.Expr) !TcType
 
 data TopValue = TopValue
   { topCoreName :: !Name,
@@ -175,6 +176,7 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsConvertEnv = convertEnv,
             vsTypes = typeEntries,
             vsLocals = Map.empty,
+            vsBinderTypes = Map.empty,
             vsDictionaries = Map.empty,
             vsConstructors = preparedConstructors interface,
             vsConstructorInfos = preparedConstructorInfos interface,
@@ -186,10 +188,18 @@ desugarModuleValues :: Syn.Module -> ValueM [Decl]
 desugarModuleValues checked = do
   phaseOne <- concat <$> mapM desugarEarlyDecl (Syn.moduleDecls checked)
   instances <- concat <$> mapM desugarInstanceDecl (Syn.moduleDecls checked)
-  groups <- groupValues (Syn.moduleDecls checked)
+  localGroups <- groupValues (Syn.moduleDecls checked)
+  groups <- mapM useTopLevelType localGroups
   tops <- mapM allocateTopValue groups
   values <- mapM desugarTopValue tops
   pure (phaseOne <> instances <> map DeclVal values)
+
+useTopLevelType :: ValueGroup -> ValueM ValueGroup
+useTopLevelType group = do
+  ty <- lookupCheckedType (groupName group)
+  pure $ case group of
+    FunctionGroup name matches _ -> FunctionGroup name matches ty
+    PatternGroup name pattern' rhs _ -> PatternGroup name pattern' rhs ty
 
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =
@@ -488,7 +498,15 @@ desugarInstanceMethod annotation dictionaries methods methodName =
     Just (methodType, matches) -> withDictionaries dictionaries (desugarMatches methodType matches)
     Nothing
       | methodName `elem` tcInstanceDefaultMethods annotation -> desugarDefaultMethod annotation dictionaries methodName
-      | otherwise -> failValue ("missing method " <> T.unpack methodName <> " in instance dictionary")
+      | otherwise ->
+          failValue
+            ( "missing method "
+                <> T.unpack methodName
+                <> " in instance dictionary for "
+                <> T.unpack (tyConName (tcInstanceClassTyCon annotation))
+                <> " "
+                <> show (tcInstanceHeadTypes annotation)
+            )
 
 desugarDefaultMethod :: TcInstanceAnnotation -> [Dictionary] -> Text -> ValueM Expr
 desugarDefaultMethod annotation dictionaries methodName = do
@@ -566,8 +584,8 @@ groupValues (declaration : rest) =
     Just (name, _, Nothing) -> failValue ("function " <> T.unpack name <> " does not have a checked type annotation")
     Nothing ->
       case patternBinding declaration of
-        Just (name, rhs, Just checkedType) -> (PatternGroup name rhs checkedType :) <$> groupValues rest
-        Just (name, _, Nothing) -> failValue ("pattern binding " <> T.unpack name <> " does not have a checked type annotation")
+        Just (name, pattern', rhs, Just checkedType) -> (PatternGroup name pattern' rhs checkedType :) <$> groupValues rest
+        Just (name, _, _, Nothing) -> failValue ("pattern binding " <> T.unpack name <> " does not have a checked type annotation")
         Nothing -> groupValues rest
 
 functionBinding :: Syn.Decl -> Maybe (Text, [Syn.Match], Maybe TcType)
@@ -579,11 +597,33 @@ functionBinding declaration =
 sameFunction :: Text -> Syn.Decl -> Bool
 sameFunction name declaration = maybe False (\(value, _, _) -> value == name) (functionBinding declaration)
 
-patternBinding :: Syn.Decl -> Maybe (Text, Syn.Rhs Syn.Expr, Maybe TcType)
+patternBinding :: Syn.Decl -> Maybe (Text, Syn.Pattern, Syn.Rhs Syn.Expr, Maybe TcType)
 patternBinding declaration =
   case Syn.peelDeclAnn declaration of
-    Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> (,,declarationType declaration) <$> barePatternName pattern' <*> pure rhs
+    Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> (,,,declarationType declaration) <$> singlePatternName pattern' <*> pure pattern' <*> pure rhs
     _ -> Nothing
+
+singlePatternName :: Syn.Pattern -> Maybe Text
+singlePatternName pattern' =
+  case patternNames pattern' of
+    [name] -> Just name
+    _ -> Nothing
+
+patternNames :: Syn.Pattern -> [Text]
+patternNames pattern' =
+  case pattern' of
+    Syn.PAnn _ inner -> patternNames inner
+    Syn.PParen inner -> patternNames inner
+    Syn.PStrict inner -> patternNames inner
+    Syn.PIrrefutable inner -> patternNames inner
+    Syn.PTypeSig inner _ -> patternNames inner
+    Syn.PVar name -> [Syn.unqualifiedNameText name]
+    Syn.PAs name inner -> Syn.unqualifiedNameText name : patternNames inner
+    Syn.PCon _ _ children -> concatMap patternNames children
+    Syn.PInfix left _ right -> patternNames left <> patternNames right
+    Syn.PList children -> concatMap patternNames children
+    Syn.PTuple _ children -> concatMap patternNames children
+    _ -> []
 
 declarationType :: Syn.Decl -> Maybe TcType
 declarationType declaration =
@@ -614,20 +654,21 @@ groupName :: ValueGroup -> Text
 groupName group =
   case group of
     FunctionGroup name _ _ -> name
-    PatternGroup name _ _ -> name
+    PatternGroup name _ _ _ -> name
 
 groupType :: ValueGroup -> TcType
 groupType group =
   case group of
     FunctionGroup _ _ ty -> ty
-    PatternGroup _ _ ty -> ty
+    PatternGroup _ _ _ ty -> ty
 
 desugarTopValue :: TopValue -> ValueM ValDecl
 desugarTopValue top = do
-  body <-
-    case topGroup top of
-      FunctionGroup _ matches _ -> desugarMatches (topType top) matches
-      PatternGroup _ rhs _ -> desugarMatches (topType top) [emptyMatch rhs]
+  body <- case topGroup top of
+    FunctionGroup _ matches _ -> desugarMatches (topType top) matches
+    PatternGroup name pattern' rhs _
+      | isJust (barePatternName pattern') -> desugarMatches (topType top) [emptyMatch rhs]
+      | otherwise -> desugarPatternBindingScheme name pattern' rhs (topType top)
   ty <- convertCheckedType (topType top)
   pure
     ValDecl
@@ -636,6 +677,50 @@ desugarTopValue top = do
         valType = ty,
         valBody = body
       }
+
+desugarPatternBinding :: Text -> Syn.Pattern -> Syn.Rhs Syn.Expr -> TcType -> ValueM Expr
+desugarPatternBinding name pattern' rhs resultType = do
+  constructorType <- patternConstructorResultType pattern'
+  let sourceType = fromMaybe resultType (patternType pattern' <|> constructorType)
+  source <- desugarRhs rhs
+  sourceBinder <- freshPatternBinder pattern' sourceType
+  selected <-
+    desugarDoPattern resultType sourceBinder sourceType pattern' $ do
+      locals <- gets vsLocals
+      case Map.lookup name locals of
+        Just (binder, _) -> pure (ExVar (binderName binder))
+        Nothing -> failValue ("pattern binding does not bind " <> T.unpack name)
+  pure (ExLet (Bind sourceBinder source) selected)
+
+patternConstructorResultType :: Syn.Pattern -> ValueM (Maybe TcType)
+patternConstructorResultType pattern' =
+  case patternConstructorSourceName pattern' of
+    Nothing -> pure Nothing
+    Just constructorName -> do
+      constructors <- Map.findWithDefault [] (Syn.nameText constructorName) <$> gets vsConstructorInfos
+      pure $
+        case resolvedTermKey constructorName of
+          Just (package, moduleName', _) ->
+            dciResTy
+              <$> listToMaybe
+                [ candidate
+                | candidate <- constructors,
+                  dciOrigin candidate == (package, moduleName')
+                ]
+          Nothing -> dciResTy <$> listToMaybe constructors
+
+desugarPatternBindingScheme :: Text -> Syn.Pattern -> Syn.Rhs Syn.Expr -> TcType -> ValueM Expr
+desugarPatternBindingScheme name pattern' rhs ty = do
+  let (typeVariables, afterForAlls) = peelForAlls ty
+      (predicates, resultType) = peelConstraints afterForAlls
+  typeBinders <- convertTypeBinders typeVariables
+  withTypeVariables typeVariables $ do
+    dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+    body <-
+      withDictionaries
+        (zipWith Dictionary predicates dictionaries)
+        (desugarPatternBinding name pattern' rhs resultType)
+    pure (foldr ExTyLam (foldr ExLam body dictionaries) typeBinders)
 
 emptyMatch :: Syn.Rhs Syn.Expr -> Syn.Match
 emptyMatch rhs =
@@ -661,7 +746,8 @@ desugarMatches ty matches =
           dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
           arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
           body <-
-            withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
+            withBinderTypes (zip (map binderName arguments) argumentTypes) $
+              withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
           pure (dictionaries, arguments, body)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
@@ -825,13 +911,17 @@ overloadedIntegerValue literal =
 
 desugarDataPatterns :: TcType -> Binder -> [Binder] -> [Syn.Match] -> ValueM Expr
 desugarDataPatterns resultType argument arguments matches = do
+  argumentType <-
+    gets vsBinderTypes
+      >>= maybe (failValue "missing checked case argument type") pure
+        . Map.lookup (binderName argument)
   caseBinder <- freshBinderFromType "_scrut" (binderType argument)
   resultType' <- convertCheckedType resultType
   let keys = patternKeys matches
       defaultMatches = filter firstPatternIsDefault matches
       rootBindings = concatMap (firstPatternBindings caseBinder) matches
   withLocals rootBindings $ do
-    constructorAlternatives <- mapM (desugarPatternGroup resultType arguments matches) keys
+    constructorAlternatives <- mapM (desugarPatternGroup resultType argumentType arguments matches) keys
     defaultAlternatives <-
       case defaultMatches of
         [] -> pure []
@@ -869,7 +959,7 @@ desugarNewtypePatterns resultType argument remaining matches representative data
     case patternChildren representative of
       [pattern'] -> pure pattern'
       _ -> failValue ("newtype pattern does not have one field: " <> T.unpack (dtiName dataType))
-  childType <- requiredPatternType child
+  childType <- requiredPatternTypeFor "newtype match field" child
   field <- freshPatternBinder child childType
   typeArguments <- newtypePatternArguments representative
   convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
@@ -888,7 +978,9 @@ desugarNewtypePatterns resultType argument remaining matches representative data
       tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
       unwrapped = ExCast (ExVar (binderName argument)) (CoAxiom axiom convertedArguments)
-  body <- withLocals (rootBindings <> childBindings) (desugarMatchArguments resultType (field : remaining) expanded)
+  body <-
+    withBinderTypes [(binderName field, childType)] $
+      withLocals (rootBindings <> childBindings) (desugarMatchArguments resultType (field : remaining) expanded)
   pure (ExLet (Bind field unwrapped) body)
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]
@@ -906,8 +998,8 @@ constructorResultType arity ty =
       | arity > 0 -> constructorResultType (arity - 1) result
     _ -> ty
 
-desugarPatternGroup :: TcType -> [Binder] -> [Syn.Match] -> Text -> ValueM Alt
-desugarPatternGroup resultType remaining matches key = do
+desugarPatternGroup :: TcType -> TcType -> [Binder] -> [Syn.Match] -> Text -> ValueM Alt
+desugarPatternGroup resultType argumentType remaining matches key = do
   pattern' <-
     case [candidate | match <- matches, candidate : _ <- [Syn.matchPats match], not (patternIsDefault candidate), patternKey candidate == key] of
       candidate : _ -> pure candidate
@@ -917,7 +1009,11 @@ desugarPatternGroup resultType remaining matches key = do
       predicates = patternGivenPredicates pattern'
       typeVariables = patternTypeVariables pattern'
   typeBinders <- convertTypeBinders typeVariables
-  fieldTypes <- patternFieldTypes pattern' subpatterns
+  fieldTypes <-
+    case (peelPattern pattern', argumentType) of
+      (Syn.PTuple _ fields, TcTyCon _ types)
+        | length fields == length types -> pure types
+      _ -> patternFieldTypes pattern' subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
   let arity = length fields
@@ -932,9 +1028,10 @@ desugarPatternGroup resultType remaining matches key = do
             let children = patternChildren candidate
           ]
   body <-
-    withDictionaries
-      (zipWith Dictionary predicates dictionaries)
-      (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
+    withBinderTypes (zip (map binderName fields) fieldTypes) $
+      withDictionaries
+        (zipWith Dictionary predicates dictionaries)
+        (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
   pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
 patternGivenPredicates :: Syn.Pattern -> [Pred]
@@ -1121,7 +1218,12 @@ patternFieldTypes parent children
       case firstFunctionArgument constructorType of
         Just fieldType -> pure [fieldType]
         Nothing -> failValue "boxed character constructor does not have one field"
-  | otherwise = mapM requiredPatternType children
+  | Syn.PTuple _ fields <- peelPattern parent,
+    length fields == length children,
+    Just (TcTyCon _ fieldTypes) <- patternType parent,
+    length fieldTypes == length children =
+      pure fieldTypes
+  | otherwise = mapM (requiredPatternTypeFor "constructor field") children
 
 firstFunctionArgument :: TcType -> Maybe TcType
 firstFunctionArgument ty =
@@ -1160,11 +1262,11 @@ peelPattern pattern' =
     Syn.PTypeSig inner _ -> peelPattern inner
     _ -> pattern'
 
-requiredPatternType :: Syn.Pattern -> ValueM TcType
-requiredPatternType pattern' =
+requiredPatternTypeFor :: String -> Syn.Pattern -> ValueM TcType
+requiredPatternTypeFor context pattern' =
   case patternType pattern' of
     Just ty -> pure ty
-    Nothing -> failValue ("missing checked pattern type: " <> take 80 (show pattern'))
+    Nothing -> failValue ("missing checked " <> context <> " type: " <> take 240 (show pattern'))
 
 patternType :: Syn.Pattern -> Maybe TcType
 patternType pattern' =
@@ -1202,12 +1304,21 @@ desugarRhs rhs =
 
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
+  case annotatedListComp expression of
+    Just (annotation, resolutionAnnotation, body, statements) ->
+      desugarAnnotatedExpr annotation (Syn.EAnn resolutionAnnotation (Syn.EListComp body statements))
+    Nothing -> desugarOrdinaryExpr expression
+
+desugarOrdinaryExpr :: Syn.Expr -> ValueM Expr
+desugarOrdinaryExpr expression =
   case expression of
     Syn.EAnn annotation inner
       | Just tcAnnotation <- Syn.fromAnnotation annotation -> desugarAnnotatedExpr tcAnnotation inner
       | otherwise -> desugarExpr inner
     Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
+    Syn.EInfix left operator right
+      | Syn.nameText operator == "$" -> ExApp <$> desugarExpr left <*> desugarExpr right
     Syn.EInfix left operator right -> do
       operator' <- desugarInfixOperator operator
       (ExApp . ExApp operator' <$> desugarExpr left) <*> desugarExpr right
@@ -1221,6 +1332,22 @@ desugarExpr expression =
     Syn.ECase {} -> failValue "case expression does not have a checked result type"
     Syn.ELetDecls declarations body -> desugarLocalDecls declarations (desugarExpr body)
     unsupported -> failValue ("unsupported System FC expression: " <> take 80 (show unsupported))
+
+annotatedListComp :: Syn.Expr -> Maybe (TcAnnotation, Syn.Annotation, Syn.Expr, [Syn.CompStmt])
+annotatedListComp = go Nothing Nothing
+  where
+    go checked resolution expression =
+      case expression of
+        Syn.EAnn annotation inner ->
+          go
+            ((Syn.fromAnnotation annotation :: Maybe TcAnnotation) <|> checked)
+            ( if isJust (Syn.fromAnnotation annotation :: Maybe ResolutionAnnotation)
+                then Just annotation
+                else resolution
+            )
+            inner
+        Syn.EListComp body statements -> (,,,statements) <$> checked <*> resolution <*> pure body
+        _ -> Nothing
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
@@ -1239,6 +1366,9 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
               desugarOverloadedInteger annotation resolution value
+        Syn.EAnn resolutionAnnotation (Syn.EArithSeq arithSeq)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation ->
+              desugarArithSeq annotation resolution arithSeq
         Syn.EInt value numericType _
           | numericType /= Syn.TInteger -> do
               representation <- convertRuntimeRep (numericRepresentation numericType)
@@ -1255,6 +1385,8 @@ desugarAnnotatedExpr annotation inner = do
           representation <- convertRuntimeRep AddrRep
           pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
         Syn.EList elements -> desugarList annotation elements
+        Syn.EAnn resolutionAnnotation (Syn.EListComp body statements)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation -> desugarListComp annotation resolution body statements
         Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
@@ -1412,7 +1544,7 @@ convertTyConApplicationArguments tyCon arguments = do
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do
-  types <- mapM requiredPatternType patterns
+  types <- mapM (requiredPatternTypeFor "lambda argument") patterns
   binders <- zipWithM freshPatternBinder patterns types
   let locals = concat (zipWith patternLocalBindings patterns binders)
   body' <- withLocals locals (desugarExpr body)
@@ -1431,6 +1563,42 @@ desugarList annotation elements = do
   let nil = ExTyApp (ExVar nilName) convertedType
       cons = ExTyApp (ExVar consName) convertedType
   pure (foldr (ExApp . ExApp cons) nil elements')
+
+desugarListComp :: TcAnnotation -> ResolutionAnnotation -> Syn.Expr -> [Syn.CompStmt] -> ValueM Expr
+desugarListComp annotation resolution body statements =
+  case map peelCompStatement statements of
+    [Syn.CompGen pattern' source] -> do
+      resultType <-
+        case tcAnnTypeArgs annotation of
+          [ty] -> pure ty
+          types -> failValue ("list comprehension has " <> show (length types) <> " element types")
+      sourceListType <- requiredExprType source
+      sourceType <-
+        case sourceListType of
+          TcTyCon tyCon [ty]
+            | tyConName tyCon == "[]" -> pure ty
+          ty -> failValue ("list comprehension source has non-list type " <> show ty)
+      convertedSourceType <- convertCheckedType sourceType
+      convertedResultType <- convertCheckedType resultType
+      source' <- desugarExpr source
+      binder <- freshPatternBinder pattern' sourceType
+      mappedBody <- desugarDoPattern resultType binder sourceType pattern' (desugarExpr body)
+      mapName <- resolutionValueName resolution
+      let mapFunction = ExTyApp (ExTyApp (ExVar mapName) convertedSourceType) convertedResultType
+      pure (ExApp (ExApp mapFunction (ExLam binder mappedBody)) source')
+    unsupported -> failValue ("unsupported list comprehension statements: " <> take 80 (show unsupported))
+  where
+    peelCompStatement statement =
+      case statement of
+        Syn.CompAnn _ inner -> peelCompStatement inner
+        _ -> statement
+
+resolutionValueName :: ResolutionAnnotation -> ValueM Name
+resolutionValueName resolution =
+  case resolutionTarget resolution of
+    ResolvedTopLevel package target ->
+      pure (Name (Syn.nameText target) SortValue (OriginTop package (fromMaybe "" (Syn.nameQualifier target))))
+    target -> failValue ("list comprehension map has invalid resolution: " <> show target)
 
 desugarString :: TcAnnotation -> Text -> ValueM Expr
 desugarString annotation value = do
@@ -1523,7 +1691,7 @@ desugarDo statements =
 
 desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
 desugarDoPatternContinuation annotation pattern' rest = do
-  ty <- requiredPatternType pattern'
+  ty <- doBindArgumentType annotation
   binder <- freshPatternBinder pattern' ty
   let locals = directPatternBindings pattern' binder ty
   case locals of
@@ -1547,10 +1715,10 @@ desugarDoPattern resultType binder ty pattern' success =
       withLocals
         [(Syn.unqualifiedNameText name, (binder, ty))]
         (desugarDoPattern resultType binder ty inner success)
-    _ -> desugarDoConstructorPattern resultType binder pattern' success
+    _ -> desugarDoConstructorPattern resultType binder ty pattern' success
 
-desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> ValueM Expr
-desugarDoConstructorPattern resultType binder pattern' success = do
+desugarDoConstructorPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> ValueM Expr
+desugarDoConstructorPattern resultType binder patternType' pattern' success = do
   maybeNewtype <- doPatternNewtype pattern'
   case maybeNewtype of
     Just dataType -> desugarDoNewtypePattern resultType binder pattern' dataType success
@@ -1559,7 +1727,14 @@ desugarDoConstructorPattern resultType binder pattern' success = do
           predicates = patternGivenPredicates pattern'
       let typeVariables = patternTypeVariables pattern'
       typeBinders <- convertTypeBinders typeVariables
-      fieldTypes <- patternFieldTypes pattern' children
+      checkedFields <- checkedConstructorFieldTypes patternType' pattern'
+      fieldTypes <- case checkedFields of
+        Just types -> pure types
+        Nothing ->
+          case (peelPattern pattern', patternType') of
+            (Syn.PTuple _ fields, TcTyCon _ types)
+              | length fields == length types -> pure types
+            _ -> patternFieldTypes pattern' children
       fields <- zipWithM freshPatternBinder children fieldTypes
       dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
       constructor <- patternConstructor pattern'
@@ -1570,6 +1745,19 @@ desugarDoConstructorPattern resultType binder pattern' success = do
           (zipWith Dictionary predicates dictionaries)
           (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
       pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor typeBinders (dictionaries <> fields) body])
+
+checkedConstructorFieldTypes :: TcType -> Syn.Pattern -> ValueM (Maybe [TcType])
+checkedConstructorFieldTypes parentType pattern' =
+  case patternConstructorSourceName pattern' of
+    Nothing -> pure Nothing
+    Just constructorName -> do
+      constructors <- Map.findWithDefault [] (Syn.nameText constructorName) <$> gets vsConstructorInfos
+      pure $
+        listToMaybe
+          [ map (applySubst substitution . dcfiType) (dciFields constructor)
+          | constructor <- constructors,
+            Just substitution <- [matchTypes [dciResTy constructor] [parentType]]
+          ]
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success =
@@ -1592,7 +1780,7 @@ desugarDoNewtypePattern resultType binder pattern' dataType success = do
     case patternChildren pattern' of
       [fieldPattern] -> pure fieldPattern
       _ -> failValue ("newtype do pattern does not have one field: " <> T.unpack (dtiName dataType))
-  childType <- requiredPatternType child
+  childType <- requiredPatternTypeFor "newtype do field" child
   field <- freshPatternBinder child childType
   typeArguments <- newtypePatternArguments pattern'
   convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
@@ -1664,10 +1852,11 @@ desugarCase resultType scrutinee alternatives = do
     _ -> do
       let matches = map caseAlternativeMatch alternatives
       case scrutinee' of
-        ExVar name -> desugarMatchArguments resultType [Binder name convertedType] matches
+        ExVar name ->
+          withBinderTypes [(name, scrutineeType)] (desugarMatchArguments resultType [Binder name convertedType] matches)
         _ -> do
           binder <- freshBinder "_case" scrutineeType
-          body <- desugarMatchArguments resultType [binder] matches
+          body <- withBinderTypes [(binderName binder, scrutineeType)] (desugarMatchArguments resultType [binder] matches)
           pure (ExLet (Bind binder scrutinee') body)
 
 caseAlternativeMatch :: Syn.CaseAlt Syn.Expr -> Syn.Match
@@ -1685,7 +1874,11 @@ desugarLocalDecls declarations body = do
   allocated <- mapM allocateLocal groups
   withLocals [(name, (binder, ty)) | (name, binder, ty, _) <- allocated] $ do
     binds <- mapM desugarLocal allocated
-    ExRec binds <$> body
+    body' <- body
+    let recursiveBinds = [bind | (True, bind) <- binds]
+        patternBinds = [bind | (False, bind) <- binds]
+        recursiveBody = if null recursiveBinds then body' else ExRec recursiveBinds body'
+    pure (foldr ExLet recursiveBody patternBinds)
   where
     allocateLocal group = do
       let name = groupName group
@@ -1696,8 +1889,19 @@ desugarLocalDecls declarations body = do
       rhs <-
         case group of
           FunctionGroup _ matches _ -> desugarMatches ty matches
-          PatternGroup _ sourceRhs _ -> desugarMatches ty [emptyMatch sourceRhs]
-      pure (Bind binder rhs)
+          PatternGroup name pattern' sourceRhs _
+            | isJust (barePatternName pattern') -> desugarMatches ty [emptyMatch sourceRhs]
+            | otherwise -> desugarPatternBindingScheme name pattern' sourceRhs ty
+      recursive <-
+        case group of
+          FunctionGroup {} -> pure True
+          PatternGroup _ pattern' _ _
+            | isJust (barePatternName pattern') -> pure True
+            | otherwise -> do
+                representation <- checkedRuntimeRep ty
+                lifted <- gets (liftedRepType . vsConvertEnv)
+                pure (representation == lifted)
+      pure (recursive, Bind binder rhs)
 
 desugarEvidence :: Ev.EvTerm -> ValueM Expr
 desugarEvidence evidence =
@@ -1857,6 +2061,21 @@ desugarOverloadedInteger annotation resolution value = do
   integer <- desugarIntegerLiteral value
   pure (ExApp fromIntegerExpression integer)
 
+desugarArithSeq :: TcAnnotation -> ResolutionAnnotation -> Syn.ArithSeq -> ValueM Expr
+desugarArithSeq annotation resolution arithSeq = do
+  method <- desugarResolvedOccurrence annotation resolution
+  arguments <- mapM desugarExpr (arithSeqArguments arithSeq)
+  pure (foldl ExApp method arguments)
+
+arithSeqArguments :: Syn.ArithSeq -> [Syn.Expr]
+arithSeqArguments arithSeq =
+  case arithSeq of
+    Syn.ArithSeqAnn _ inner -> arithSeqArguments inner
+    Syn.ArithSeqFrom from -> [from]
+    Syn.ArithSeqFromThen from then' -> [from, then']
+    Syn.ArithSeqFromTo from to -> [from, to]
+    Syn.ArithSeqFromThenTo from then' to -> [from, then', to]
+
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
   constructor <- uniqueConstructorName "IS"
@@ -2013,7 +2232,17 @@ lookupCheckedType name = do
   types <- gets vsTypes
   case Map.lookup name types of
     Just ty -> pure ty
-    Nothing -> failValue ("missing checked type for " <> T.unpack name)
+    Nothing -> do
+      moduleOrigin <- gets vsModuleOrigin
+      locals <- gets vsLocals
+      failValue
+        ( "missing checked type for "
+            <> T.unpack name
+            <> " in "
+            <> show moduleOrigin
+            <> "; local values: "
+            <> show (Map.keys locals)
+        )
 
 requiredExprType :: Syn.Expr -> ValueM TcType
 requiredExprType expression =
@@ -2109,6 +2338,14 @@ withLocals additions action = do
   modify' (\state -> state {vsLocals = foldr (uncurry Map.insert) previous additions})
   result <- action
   modify' (\state -> state {vsLocals = previous})
+  pure result
+
+withBinderTypes :: [(Name, TcType)] -> ValueM a -> ValueM a
+withBinderTypes additions action = do
+  previous <- gets vsBinderTypes
+  modify' (\state -> state {vsBinderTypes = foldr (uncurry Map.insert) previous additions})
+  result <- action
+  modify' (\state -> state {vsBinderTypes = previous})
   pure result
 
 withDictionaries :: [Dictionary] -> ValueM a -> ValueM a

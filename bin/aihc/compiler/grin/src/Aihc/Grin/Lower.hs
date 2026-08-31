@@ -124,12 +124,14 @@ lowerTypeDecl env declaration = do
 
 lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
-  representation <- liftEither (runtimeRep env (Fc.valType declaration))
+  let (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.valType declaration))
+      valueEnv = defaultRuntimeReps (foldl extendTypeBinder env typeBinders) typeBinders
+  representation <- liftEither (runtimeRep valueEnv monotype)
   if representation /= liftedGrinRep
     then throwLower ("GRIN does not support an unlifted top-level value: " <> show (Fc.valName declaration))
     else do
       globalName <- lookupGlobalName env (Fc.valName declaration)
-      node <- makeThunk env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
+      node <- makeThunk valueEnv (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
       pure mempty {topGlobals = [(globalName, node)]}
 
 lowerForeignDecl :: LowerEnv -> Fc.ForeignImportDecl -> LowerM TopParts
@@ -275,6 +277,15 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
 adaptForeignResult :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
 adaptForeignResult env axioms constructors sourceType sourceRep foreignRep foreignExpression
   | sourceRep == foreignRep = pure foreignExpression
+  | sourceRep == BoxedRep Unlifted,
+    foreignRep == AddrRep = do
+      result <- freshVar "foreign_unlifted_result" AddrRep
+      pure
+        ( GrinBind
+            [result]
+            foreignExpression
+            (GrinConstant [GrinVarValue (result {grinVarRuntimeRep = BoxedRep Unlifted})])
+        )
   | isLiftedRuntimeRep sourceRep = do
       (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType foreignRep
       result <- freshVar "foreign_result" fieldRep

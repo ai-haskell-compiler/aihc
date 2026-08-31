@@ -545,7 +545,7 @@ compileDirectBinding env vars expression =
       | Just operator <- lookup name [("uncheckedShiftL#", "i64.shl"), ("uncheckedShiftRL#", "i64.shr_u")] ->
           binaryPrimitive operator value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["int2Word#", "intToInt8#", "intToInt16#", "intToInt32#", "intToInt64#", "word2Int#", "wordToWord8#", "wordToWord16#", "wordToWord32#", "wordToWord64#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "castWord32ToFloat#", "castWord64ToDouble#"] -> storeSingle (materializeValue env value)
     GrinPrimitiveCall _ name [value]
       | Just operator <- lookup name [("clz#", "i64.clz"), ("ctz#", "i64.ctz"), ("popCnt#", "i64.popcnt")] ->
           storeSingle (materializeValue env value <> [operator])

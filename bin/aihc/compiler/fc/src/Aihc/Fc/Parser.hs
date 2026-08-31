@@ -495,9 +495,16 @@ rawName =
   MP.choice
     [ "[]" <$ MPC.string "[]",
       MP.try tupleName,
+      MP.try generatedOperatorName,
       MP.try identName,
       operatorName
     ]
+
+generatedOperatorName :: Parser Text
+generatedOperatorName = do
+  prefix <- (:) <$> MPC.char '$' <*> MP.some (MP.satisfy identContinue)
+  suffix <- MP.some (MP.satisfy (`elem` operatorNameCharacters))
+  pure (T.pack (prefix <> suffix))
 
 tupleName :: Parser Text
 tupleName = unboxedTupleName <|> boxedTupleName

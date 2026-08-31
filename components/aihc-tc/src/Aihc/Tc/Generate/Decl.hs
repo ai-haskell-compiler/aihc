@@ -1002,7 +1002,9 @@ annotateForeignDeclTc foreignDecl = do
 
 checkForeignImportType :: SourceSpan -> TcType -> TcM TcForeignImportAnnotation
 checkForeignImportType sourceSpan ty = do
-  let (argumentTypes, resultType) = splitFunctionType ty
+  let (_, monomorphicTy) = peelForAlls ty
+      unqualifiedTy = stripForeignConstraints monomorphicTy
+      (argumentTypes, resultType) = splitFunctionType unqualifiedTy
       (effect, valueResultType) =
         case resultType of
           TcTyCon (TyCon "IO" 1) [ioResult] -> (TcForeignRealWorld, ioResult)
@@ -1015,6 +1017,12 @@ checkForeignImportType sourceSpan ty = do
         tcForeignResult = result,
         tcForeignEffect = effect
       }
+
+stripForeignConstraints :: TcType -> TcType
+stripForeignConstraints ty =
+  case ty of
+    TcQualTy _ body -> stripForeignConstraints body
+    _ -> ty
 
 splitFunctionType :: TcType -> ([TcType], TcType)
 splitFunctionType ty =
@@ -1030,22 +1038,25 @@ checkForeignValueType sourceSpan ty =
     TcTyCon (TyCon "Int" 0) [] -> intMarshal ty ["I#"]
     TcTyCon (TyCon "Int#" 0) [] -> intMarshal ty []
     TcTyCon (TyCon "CInt" 0) [] -> int32Marshal ty ["CInt", "I32#"]
+    TcTyCon (TyCon "CSize" 0) [] -> word64Marshal ty ["CSize", "W64#"]
     TcTyCon (TyCon "Int32" 0) [] -> int32Marshal ty ["I32#"]
     TcTyCon (TyCon "Int32#" 0) [] -> int32Marshal ty []
     TcTyCon (TyCon "Word64" 0) [] -> word64Marshal ty ["W64#"]
     TcTyCon (TyCon "Word64#" 0) [] -> word64Marshal ty []
     TcTyCon (TyCon "Addr#" 0) [] -> addrMarshal ty []
+    TcTyCon (TyCon "ByteArray#" 0) [] -> addrMarshal ty []
+    TcTyCon (TyCon "MutableByteArray#" 1) [_] -> addrMarshal ty []
     TcTyCon (TyCon "Ptr" 1) [_] -> addrMarshal ty ["Ptr"]
     _ -> do
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
       int32Marshal ty []
   where
-    intMarshal = marshal "Int#" TcForeignInt
-    int32Marshal = marshal "Int32#" TcForeignInt32
-    word64Marshal = marshal "Word64#" TcForeignWord64
-    addrMarshal = marshal "Addr#" TcForeignAddr
-    marshal primitiveName abiType sourceType constructors = do
-      primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
+    intMarshal = marshal "Int#" (KTYPE intRep) TcForeignInt
+    int32Marshal = marshal "Int32#" (KTYPE int32Rep) TcForeignInt32
+    word64Marshal = marshal "Word64#" (KTYPE word64Rep) TcForeignWord64
+    addrMarshal = marshal "Addr#" (KTYPE addrRep) TcForeignAddr
+    marshal primitiveName primitiveKind abiType sourceType constructors = do
+      primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 primitiveKind
       pure
         TcForeignMarshal
           { tcForeignSourceType = sourceType,
