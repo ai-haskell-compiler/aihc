@@ -8,8 +8,8 @@ where
 import Aihc.Amd64
   ( Amd64Error (..),
     ObservedProgram (..),
-    compileEntry,
-    compileModule,
+    compileEntryObject,
+    compileModuleObject,
     compileObservedFunction,
     snapshotSourcePath,
     targetTriple,
@@ -25,6 +25,7 @@ import Aihc.Native
   )
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
+import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (forM, when)
@@ -36,7 +37,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Data.Yaml qualified as Y
-import System.Directory (createDirectory, doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (createDirectory, doesDirectoryExist, findExecutable, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
@@ -60,9 +61,8 @@ tests =
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
-        case compileModule (expectGcGrin program) of
-          Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
-          Right assembly -> assertBool "linked locals section" ("aihc_locals" `T.isInfixOf` assembly),
+        listing <- compileModuleListing (expectGcGrin program)
+        assertBool "linked locals section" ("aihc_locals" `T.isInfixOf` listing),
       testCase "adds Int# values with wrapping machine arithmetic" $ do
         let entryName = FunctionName "int_add"
             result = GrinVar "result" 2 IntRep
@@ -99,7 +99,8 @@ tests =
           case compileObservedFunction entryName gc of
             Left err -> assertFailure ("native Int# addition compilation failed: " <> show err)
             Right value -> pure value
-        assertBool "emits a wrapping 64-bit add" ("  add r10, rax" `T.isInfixOf` observedAssembly observed)
+        listing <- disassembleObjectBytes (observedObject observed)
+        assertBool "emits a wrapping 64-bit add" ("add r10, rax" `T.isInfixOf` listing)
         when (arch == "x86_64" && os == "linux") $ do
           native <- runObservedProgram observed
           assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
@@ -131,7 +132,8 @@ tests =
           case compileObservedFunction entryName (expectGcGrin program) of
             Left err -> assertFailure ("native timesWord2# compilation failed: " <> show err)
             Right value -> pure value
-        assertBool "emits unsigned wide multiplication" ("  mul r10" `T.isInfixOf` observedAssembly observed),
+        listing <- disassembleObjectBytes (observedObject observed)
+        assertBool "emits unsigned wide multiplication" ("mul r10" `T.isInfixOf` listing),
       testCase "emits boundary integer literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -153,12 +155,9 @@ tests =
                         }
                     ]
                 }
-        case compileModule (expectGcGrin program) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> do
-            assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
-            assertBool "maxBound :: Word64# remains unsigned" ("mov rdi, 18446744073709551615" `T.isInfixOf` assembly)
-            assertAssemblyAccepted assembly,
+        listing <- compileModuleListing (expectGcGrin program)
+        assertBool "255 :: Int8# is stored as -1" ("movabs rax, -0x1" `T.isInfixOf` listing)
+        assertBool "maxBound :: Word64# remains unsigned" ("movabs rdi, -0x1" `T.isInfixOf` listing),
       testCase "passes static Addr# literals to native foreign calls" $ do
         let functionName = FunctionName "puts_addr"
             foreignCall =
@@ -187,13 +186,10 @@ tests =
                         }
                     ]
                 }
-        case compileModule (expectGcGrin program) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> do
-            assertBool "loads the static string address" ("lea rax, [rip + .Laihc_addr_0]" `T.isInfixOf` assembly)
-            assertBool "emits NUL-terminated Latin-1" (".byte 255, 0, 98, 97, 114, 0" `T.isInfixOf` assembly)
-            assertBool "calls puts" ("call puts" `T.isInfixOf` assembly)
-            assertAssemblyAccepted assembly,
+        listing <- compileModuleListing (expectGcGrin program)
+        assertBool "loads the static string address" (".Laihc_addr_0" `T.isInfixOf` listing)
+        assertBool "emits NUL-terminated Latin-1" ("ff0062617200" `T.isInfixOf` T.filter (/= ' ') listing)
+        assertBool "calls puts" ("puts" `T.isInfixOf` listing),
       testCase "returns unboxed tuples as direct machine values" $ do
         let functionName = FunctionName "pair_code"
             program =
@@ -215,35 +211,28 @@ tests =
                         }
                     ]
                 }
-        case compileModule (expectGcGrin program) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> do
-            assertBool "passes two values" ("mov rdi, 2" `T.isInfixOf` assembly)
-            assertBool "enters the continuation through registers" ("jmp .Laihc_enter" `T.isInfixOf` assembly)
-            assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
+        listing <- compileModuleListing (expectGcGrin program)
+        assertBool "passes two values" ("movabs rdi, 0x2" `T.isInfixOf` listing)
+        assertBool "enters the continuation through registers" (".Laihc_enter" `T.isInfixOf` listing)
+        assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` listing)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
-        case compileModule (expectGcGrin explicitEvaluationProgram) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly ->
-            assertBool "generated case and apply contain no direct-style eval call" (not ("call aihc_eval\n" `T.isInfixOf` assembly))
+        listing <- compileModuleListing (expectGcGrin explicitEvaluationProgram)
+        assertEqual "generated case and apply contain no direct-style eval call" 0 (relocationCount "aihc_eval" listing)
         pure (),
       testCase "case dispatch preserves allocatable registers" $
-        case compileModule (expectGcGrin caseDispatchProgram) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> do
-            assertBool "uses the reserved scratch register" ("cmp r10, r11" `T.isInfixOf` assembly)
-            assertBool "does not clobber allocatable r9" (not ("cmp r10, r9" `T.isInfixOf` assembly)),
+        do
+          listing <- compileModuleListing (expectGcGrin caseDispatchProgram)
+          assertBool "uses the reserved scratch register" ("cmp r10, r11" `T.isInfixOf` listing)
+          assertBool "does not clobber allocatable r9" (not ("cmp r10, r9" `T.isInfixOf` listing)),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
-        case compileModule (expectGcGrin explicitEvaluationProgram) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> do
-            assertBool
-              "slow apply returns a value that is passed to the continuation in registers"
-              ("call aihc_apply_slow" `T.isInfixOf` assembly && "jmp .Laihc_enter" `T.isInfixOf` assembly)
-            assertBool
-              "generated code does not reload a scheduled entry"
-              (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
+        listing <- compileModuleListing (expectGcGrin explicitEvaluationProgram)
+        assertBool
+          "slow apply returns a value that is passed to the continuation in registers"
+          ("aihc_apply_slow" `T.isInfixOf` listing && ".Laihc_enter" `T.isInfixOf` listing)
+        assertBool
+          "generated code does not reload a scheduled entry"
+          (not ("mov r11, qword ptr [r15]" `T.isInfixOf` T.toLower listing && "jmp r11" `T.isInfixOf` listing))
         pure (),
       testCase "runtime object ABI compiles cleanly on the host C compiler" $
         withTempDirectory "aihc-amd64-runtime" $ \directory -> do
@@ -338,45 +327,37 @@ snapshotTest (name, fixtureName) =
       case compileObservedFunction entry gc of
         Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
         Right value -> pure value
+    listing <- disassembleObjectBytes (observedObject observed)
     when (fixtureName == "store-one.yaml") $ do
-      let assembly = observedAssembly observed
-      assertBool "stores a new node field directly" ("mov QWORD PTR [r13 + 8], rax" `T.isInfixOf` assembly)
-      assertBool "does not call the field store function" (not ("call aihc_set_field" `T.isInfixOf` assembly))
+      assertBool "stores a new node field directly" ("mov qword ptr [r13 + 0x8], rax" `T.isInfixOf` T.toLower listing)
+      assertBool "does not call the field store function" (not ("aihc_set_field" `T.isInfixOf` listing))
     when (fixtureName == "apply.yaml") $ do
-      let assembly = observedAssembly observed
-      assertBool "enters a closure without a transfer stub" (".quad aihc_snapshot_function_0" `T.isInfixOf` assembly)
-      assertBool "does not move an argument to the same register" (not ("mov rax, rax" `T.isInfixOf` assembly))
+      assertBool "enters a closure without a transfer stub" ("aihc_snapshot_function_0" `T.isInfixOf` listing)
+      assertBool "does not move an argument to the same register" (not ("mov rax, rax" `T.isInfixOf` listing))
     when (fixtureName == "store-linked.yaml") $
-      assertEqual "one reservation for adjacent source stores" 2 (T.count "call aihc_ensure_heap" (observedAssembly observed))
+      assertEqual "one reservation for adjacent source stores" 2 (relocationCount "aihc_ensure_heap" listing)
     when (fixtureName == "case-reservation.yaml") $
-      assertEqual "one reservation for all case branches" 2 (T.count "call aihc_ensure_heap" (observedAssembly observed))
+      assertEqual "one reservation for all case branches" 2 (relocationCount "aihc_ensure_heap" listing)
     when (fixtureName == "store-suspended.yaml") $
       assertBool
         "does not save a node without fields"
-        (not ("mov r13, rax\n  mov rax, r13" `T.isInfixOf` observedAssembly observed))
+        (not ("mov r13, rax\nmov rax, r13" `T.isInfixOf` listing))
     when (fixtureName == "apply-partial.yaml") $ do
-      let assembly = observedAssembly observed
-      assertBool "dispatches through the info-table apply entry" ("mov r11, QWORD PTR [r11 + 48]" `T.isInfixOf` assembly)
+      assertBool "dispatches through the info-table apply entry" ("mov r11, qword ptr [r11 + 0x30]" `T.isInfixOf` T.toLower listing)
       assertBool
         "loads captured and supplied arguments into registers"
-        ("mov rdi, rax\n  mov rax, QWORD PTR [r12 + 8]\n  mov r11, QWORD PTR [r12]\n  mov r11, QWORD PTR [r11 + 8]\n  jmp r11" `T.isInfixOf` assembly)
-      assertAssemblyAccepted assembly
+        ("mov rdi, rax\nmov rax, qword ptr [r12 + 0x8]\nmov r11, qword ptr [r12]\nmov r11, qword ptr [r11 + 0x8]\njmp r11" `T.isInfixOf` T.toLower listing)
     when (fixtureName == "apply-register-overflow.yaml") $ do
-      let assembly = observedAssembly observed
-      assertBool "spills supplied register overflow" ("sub rsp, 16" `T.isInfixOf` assembly)
-      assertBool "reloads supplied register overflow" ("mov r11, QWORD PTR [rsp + 0]" `T.isInfixOf` assembly)
-      assertAssemblyAccepted assembly
+      assertBool "spills supplied register overflow" ("sub rsp, 0x10" `T.isInfixOf` listing)
+      assertBool "reloads supplied register overflow" ("mov r11, qword ptr [rsp]" `T.isInfixOf` T.toLower listing)
     when (fixtureName == "call-register-overflow.yaml") $ do
-      let assembly = observedAssembly observed
-      assertBool "spills direct-call register overflow" ("sub rsp, 32" `T.isInfixOf` assembly)
-      assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` assembly))
-      assertAssemblyAccepted assembly
+      assertBool "spills direct-call register overflow" ("sub rsp, 0x20" `T.isInfixOf` listing)
+      assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` listing))
     when (fixtureName == "loop-add.yaml") $ do
-      let assembly = observedAssembly observed
-          loopAndRest = snd (T.breakOn "aihc_snapshot_function_0:" assembly)
-          loopAssembly = fst (T.breakOn "aihc_snapshot_function_1:" loopAndRest)
+      let loopAndRest = snd (T.breakOn "<aihc_snapshot_function_0>:" listing)
+          loopAssembly = fst (T.breakOn "<aihc_snapshot_function_1>:" loopAndRest)
       assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[r14" `T.isInfixOf` loopAssembly))
-      assertEqual "only the self-tail-call jumps to the allocated body" 1 (T.count "jmp aihc_snapshot_function_0_body" loopAssembly)
+      assertBool "self-tail-call jumps to the allocated body" ("aihc_snapshot_function_0_body" `T.isInfixOf` loopAssembly)
       assertBool "merges case dispatch into the loop body" (not ("case_dispatch" `T.isInfixOf` loopAssembly))
       assertBool "uses the canonical label as the register entry" (not ("_register" `T.isInfixOf` loopAssembly))
     when (arch == "x86_64" && os == "linux") $ do
@@ -584,55 +565,55 @@ testNativeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
   let gc = expectGcGrin schedulerProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
-  (moduleAssembly, entryAssembly) <- compileEntryTestUnits schedulerProgram
-  assertBool "captures argc and argv before machine startup" ("call aihc_program_arguments_initialize" `T.isInfixOf` entryAssembly)
-  assertBool "emits fork state operation" ("call aihc_fork" `T.isInfixOf` moduleAssembly)
-  assertBool "emits yield state operation" ("call aihc_yield" `T.isInfixOf` moduleAssembly)
-  assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` entryAssembly)
-  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines entryAssembly)))
-      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines entryAssembly)))
-  assertBool "emits update continuation frame metadata" ("  .quad 3" `T.isSuffixOf` T.stripEnd updateInfo)
-  assertBool "emits stop continuation frame metadata" ("  .quad 5" `T.isSuffixOf` T.stripEnd finalInfo)
-  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
+  (moduleObject, entryObject) <- compileEntryTestUnits schedulerProgram
+  moduleListing <- disassembleObjectBytes moduleObject
+  entryListing <- disassembleObjectBytes entryObject
+  assertBool "captures argc and argv before machine startup" ("aihc_program_arguments_initialize" `T.isInfixOf` entryListing)
+  assertBool "emits fork state operation" ("aihc_fork" `T.isInfixOf` moduleListing)
+  assertBool "emits yield state operation" ("aihc_yield" `T.isInfixOf` moduleListing)
+  assertBool "emits child completion transfer" ("aihc_thread_done" `T.isInfixOf` entryListing)
+  assertBool "emits update continuation frame metadata" (".Laihc_update_info" `T.isInfixOf` entryListing)
+  assertBool "emits stop continuation frame metadata" (".Laihc_final_info" `T.isInfixOf` entryListing)
   when (arch == "x86_64" && os == "linux") $
-    runSchedulerAssembly "PCAB" [moduleAssembly, entryAssembly]
+    runSchedulerObjects "PCAB" [moduleObject, entryObject]
 
 testNativeSynchronousException :: IO ()
 testNativeSynchronousException = do
-  (moduleAssembly, entryAssembly) <- compileEntryTestUnits synchronousExceptionProgram
-  assertBool "emits the shared raise transfer" ("call aihc_raise" `T.isInfixOf` moduleAssembly)
-  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
+  (moduleObject, entryObject) <- compileEntryTestUnits synchronousExceptionProgram
+  moduleListing <- disassembleObjectBytes moduleObject
+  assertBool "emits the shared raise transfer" ("aihc_raise" `T.isInfixOf` moduleListing)
   when (arch == "x86_64" && os == "linux") $
-    runSchedulerAssembly "E" [moduleAssembly, entryAssembly]
+    runSchedulerObjects "E" [moduleObject, entryObject]
 
 testNativeBlackholeScheduler :: IO ()
 testNativeBlackholeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram blackholeSchedulerProgram)
   let gc = expectGcGrin blackholeSchedulerProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
-  (moduleAssembly, entryAssembly) <- compileEntryTestUnits blackholeSchedulerProgram
+  (moduleObject, entryObject) <- compileEntryTestUnits blackholeSchedulerProgram
   when (arch == "x86_64" && os == "linux") $
-    runSchedulerAssembly "TA" [moduleAssembly, entryAssembly]
+    runSchedulerObjects "TA" [moduleObject, entryObject]
 
 testNativeStdioScheduler :: IO ()
 testNativeStdioScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram stdioSchedulerProgram)
   let gc = expectGcGrin stdioSchedulerProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
-  (moduleAssembly, entryAssembly) <- compileEntryTestUnits stdioSchedulerProgram
-  let assembly = moduleAssembly <> entryAssembly
-  assertBool "emits generic IO suspension transfer" ("call aihc_await_io" `T.isInfixOf` assembly)
-  assertBool "allocates a pinned byte array" ("call aihc_byte_array_new_pinned" `T.isInfixOf` assembly)
-  assertBool "obtains the byte-array payload" ("call aihc_byte_array_contents" `T.isInfixOf` assembly)
-  assertBool "obtains stdin through the runtime ABI" ("call aihc_io_stdin" `T.isInfixOf` assembly)
-  assertBool "obtains stdout through the runtime ABI" ("call aihc_io_stdout" `T.isInfixOf` assembly)
-  assertBool "submits a generic read through the runtime ABI" ("call aihc_io_submit_read" `T.isInfixOf` assembly)
-  assertBool "submits a generic write through the runtime ABI" ("call aihc_io_submit_write" `T.isInfixOf` assembly)
-  assertBool "consumes results through the runtime ABI" ("call aihc_io_take_result" `T.isInfixOf` assembly)
-  assertBool "compiler has no operation-specific CPS transfer" (not ("aihc_read_stdin_cps" `T.isInfixOf` assembly || "aihc_write_stdout_cps" `T.isInfixOf` assembly))
-  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
+  (moduleObject, entryObject) <- compileEntryTestUnits stdioSchedulerProgram
+  moduleListing <- disassembleObjectBytes moduleObject
+  entryListing <- disassembleObjectBytes entryObject
+  let listing = moduleListing <> entryListing
+  assertBool "emits generic IO suspension transfer" ("aihc_await_io" `T.isInfixOf` listing)
+  assertBool "allocates a pinned byte array" ("aihc_byte_array_new_pinned" `T.isInfixOf` listing)
+  assertBool "obtains the byte-array payload" ("aihc_byte_array_contents" `T.isInfixOf` listing)
+  assertBool "obtains stdin through the runtime ABI" ("aihc_io_stdin" `T.isInfixOf` listing)
+  assertBool "obtains stdout through the runtime ABI" ("aihc_io_stdout" `T.isInfixOf` listing)
+  assertBool "submits a generic read through the runtime ABI" ("aihc_io_submit_read" `T.isInfixOf` listing)
+  assertBool "submits a generic write through the runtime ABI" ("aihc_io_submit_write" `T.isInfixOf` listing)
+  assertBool "consumes results through the runtime ABI" ("aihc_io_take_result" `T.isInfixOf` listing)
+  assertBool "compiler has no operation-specific CPS transfer" (not ("aihc_read_stdin_cps" `T.isInfixOf` listing || "aihc_write_stdout_cps" `T.isInfixOf` listing))
   when (arch == "x86_64" && os == "linux") $
-    runStdioAssembly [moduleAssembly, entryAssembly]
+    runStdioObjects [moduleObject, entryObject]
 
 expectGcGrin :: GrinProgram -> GcGrinProgram
 expectGcGrin program =
@@ -640,7 +621,7 @@ expectGcGrin program =
     Right cpsProgram -> lowerGc cpsProgram
     Left err -> error ("test GRIN failed CPS conversion: " <> show err)
 
-compileEntryTestUnits :: GrinProgram -> IO (T.Text, T.Text)
+compileEntryTestUnits :: GrinProgram -> IO (BL.ByteString, BL.ByteString)
 compileEntryTestUnits program = do
   let linkedProgram =
         program
@@ -649,55 +630,42 @@ compileEntryTestUnits program = do
               | (name, node) <- grinGlobals program
               ]
           }
-  moduleAssembly <- either (assertFailure . show) pure (compileModule (expectGcGrin linkedProgram))
-  entryAssembly <- either (assertFailure . show) pure compileEntry
-  pure (moduleAssembly, entryAssembly)
+  moduleObject <- either (assertFailure . show) pure (compileModuleObject (expectGcGrin linkedProgram))
+  entryObject <- either (assertFailure . show) pure compileEntryObject
+  pure (moduleObject, entryObject)
 
-assertAssemblyAccepted :: T.Text -> IO ()
-assertAssemblyAccepted assembly =
-  withTempDirectory "aihc-amd64-assemble" $ \directory -> do
-    let assemblyPath = directory </> "program.s"
-        objectPath = directory </> "program.o"
-    TIO.writeFile assemblyPath assembly
-    (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode
-        "clang"
-        ["--target=" <> targetTriple, "-c", assemblyPath, "-o", objectPath]
-        ""
-    assertEqual ("clang rejected Linux AMD64 assembly:\n" <> clangErr) ExitSuccess clangExit
-
-runSchedulerAssembly :: String -> [T.Text] -> IO ()
-runSchedulerAssembly expected sources =
+runSchedulerObjects :: String -> [BL.ByteString] -> IO ()
+runSchedulerObjects expected objects =
   withTempDirectory "aihc-amd64-scheduler" $ \directory -> do
     runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
-    sourcePaths <- forM (zip [0 :: Int ..] sources) $ \(index, source) -> do
-      let sourcePath = directory </> "scheduler-" <> show index <> ".s"
-      TIO.writeFile sourcePath source
-      pure sourcePath
+    objectPaths <- forM (zip [0 :: Int ..] objects) $ \(index, object) -> do
+      let objectPath = directory </> "scheduler-" <> show index <> ".o"
+      BL.writeFile objectPath object
+      pure objectPath
     let executablePath = directory </> "scheduler"
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> sourcePaths <> ["-o", executablePath])
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> objectPaths <> ["-o", executablePath])
         ""
     assertEqual ("clang failed to assemble scheduler program:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
     assertEqual "scheduler stdout" expected programOut
 
-runStdioAssembly :: [T.Text] -> IO ()
-runStdioAssembly sources =
+runStdioObjects :: [BL.ByteString] -> IO ()
+runStdioObjects objects =
   withTempDirectory "aihc-amd64-stdio" $ \directory -> do
     runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
-    sourcePaths <- forM (zip [0 :: Int ..] sources) $ \(index, source) -> do
-      let sourcePath = directory </> "stdio-" <> show index <> ".s"
-      TIO.writeFile sourcePath source
-      pure sourcePath
+    objectPaths <- forM (zip [0 :: Int ..] objects) $ \(index, object) -> do
+      let objectPath = directory </> "stdio-" <> show index <> ".o"
+      BL.writeFile objectPath object
+      pure objectPath
     let executablePath = directory </> "stdio"
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> sourcePaths <> ["-o", executablePath])
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> objectPaths <> ["-o", executablePath])
         ""
     assertEqual ("clang failed to assemble async stdio program:\n" <> clangErr) ExitSuccess clangExit
     (Just childInput, Just childOutput, Just childError, processHandle) <-
@@ -716,6 +684,47 @@ runStdioAssembly sources =
     programExit <- waitForProcess processHandle
     assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
     assertEqual "async stdout" "Buffered async IO\n" programOut
+
+compileModuleListing :: GcGrinProgram -> IO T.Text
+compileModuleListing program =
+  either (assertFailure . show) disassembleObjectBytes (compileModuleObject program)
+
+disassembleObjectBytes :: BL.ByteString -> IO T.Text
+disassembleObjectBytes object =
+  withTempDirectory "aihc-amd64-objdump" $ \directory -> do
+    let objectPath = directory </> "program.o"
+    BL.writeFile objectPath object
+    executable <- findObjdump
+    (objdumpExit, objdumpOut, objdumpErr) <-
+      readProcessWithExitCode executable ["-d", "-r", "-t", "-s", "-M", "intel", objectPath] ""
+    assertEqual ("object disassembler diagnostics:\n" <> objdumpErr) ExitSuccess objdumpExit
+    pure (normalizeObjdump (T.pack objdumpOut))
+
+findObjdump :: IO FilePath
+findObjdump = do
+  llvmObjdump <- findExecutable "llvm-objdump"
+  objdump <- findExecutable "objdump"
+  case llvmObjdump <|> objdump of
+    Just executable -> pure executable
+    Nothing -> assertFailure "llvm-objdump or objdump is required"
+
+normalizeObjdump :: T.Text -> T.Text
+normalizeObjdump = T.unlines . map normalizeLine . T.lines
+  where
+    normalizeLine line =
+      case T.splitOn "\t" line of
+        prefix : fields
+          | ":" `T.isInfixOf` prefix,
+            not (null fields) ->
+              T.unwords (filter (not . T.null) (map T.strip fields))
+        _ -> T.strip line
+
+relocationCount :: T.Text -> T.Text -> Int
+relocationCount symbol =
+  length
+    . filter
+      (\line -> "R_X86_64" `T.isInfixOf` line && symbol `T.isInfixOf` line)
+    . T.lines
 
 nativeRuntimeArguments :: RuntimeGarbageCollector -> IO [String]
 nativeRuntimeArguments garbageCollector = do

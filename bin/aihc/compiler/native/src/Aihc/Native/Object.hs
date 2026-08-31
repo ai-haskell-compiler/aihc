@@ -178,16 +178,16 @@ layoutItems role = go 0 0 [] [] []
             LaidSection
               { laidRole = role,
                 laidAlignment = alignment,
-                laidBytes = BS.pack (concat (reverse bytes)),
+                laidBytes = BS.concat (reverse bytes),
                 laidLabels = reverse labels,
                 laidFixups = reverse fixups
               }
         item : rest ->
           case item of
-            Bytes value -> go (offset + byteLength value) alignment (BS.unpack value : bytes) labels fixups rest
+            Bytes value -> go (offset + byteLength value) alignment (value : bytes) labels fixups rest
             Apply fixup ->
               let value = fixupBytes fixup
-               in go (offset + byteLength value) alignment (BS.unpack value : bytes) labels ((offset, fixup) : fixups) rest
+               in go (offset + byteLength value) alignment (value : bytes) labels ((offset, fixup) : fixups) rest
             Label name -> go offset alignment bytes ((name, offset) : labels) fixups rest
             Align alignmentPower fill
               | alignmentPower < 0 || alignmentPower > 30 -> Left (ObjectInvalidAlignment alignmentPower)
@@ -196,7 +196,7 @@ layoutItems role = go 0 0 [] [] []
                   let boundary = (1 `shiftL` alignmentPower) :: Word64
                       padding = fromIntegral ((boundary - offset `mod` boundary) `mod` boundary)
                       (fillCount, fillRemainder) = padding `divMod` BS.length fill
-                      paddingBytes = concat (replicate fillCount (BS.unpack fill)) <> BS.unpack (BS.take fillRemainder fill)
+                      paddingBytes = BS.concat (replicate fillCount fill) <> BS.take fillRemainder fill
                    in go (offset + fromIntegral padding) (max alignment alignmentPower) (paddingBytes : bytes) labels fixups rest
     byteLength = fromIntegral . BS.length
 
@@ -214,7 +214,8 @@ collectDefinitions = foldl' addSection (Right Map.empty)
 
 resolveSection :: Set Text -> Map Text (SectionRole, Word64) -> LaidSection -> Either ObjectError ImageSection
 resolveSection globals definitions section = do
-  (bytes, relocations) <- foldl' resolve (Right (laidBytes section, [])) (laidFixups section)
+  (patches, relocations) <- foldl' resolve (Right ([], [])) (laidFixups section)
+  bytes <- applyPatches (laidBytes section) (reverse patches)
   pure
     ImageSection
       { imageSectionRole = laidRole section,
@@ -224,17 +225,17 @@ resolveSection globals definitions section = do
       }
   where
     resolve result (offset, fixup) = do
-      (bytes, relocations) <- result
+      (patches, relocations) <- result
       case Map.lookup (fixupTarget fixup) definitions of
         Just (targetRole, targetOffset)
           | canResolve (fixupKind fixup)
               && targetRole == laidRole section
               && fixupTarget fixup `Set.notMember` globals -> do
-              patched <- patchLocal offset targetOffset fixup bytes
-              pure (patched, relocations)
+              patched <- patchLocal offset targetOffset fixup (laidBytes section)
+              pure ((offset, patched) : patches, relocations)
         _ ->
           pure
-            ( bytes,
+            ( patches,
               Relocation offset (fixupKind fixup) (fixupTarget fixup) (fixupAddend fixup) : relocations
             )
 
@@ -248,7 +249,7 @@ canResolve kind =
     X86Plt32 -> True
     _ -> False
 
-patchLocal :: Word64 -> Word64 -> Fixup -> ByteString -> Either ObjectError ByteString
+patchLocal :: Word64 -> Word64 -> Fixup -> ByteString -> Either ObjectError Word32
 patchLocal offset target fixup bytes =
   case fixupKind fixup of
     Arm64Branch26 -> do
@@ -256,13 +257,13 @@ patchLocal offset target fixup bytes =
       let displacement = signedDifference target offset + fixupAddend fixup
       if displacement `mod` 4 /= 0 || not (fitsSigned 28 displacement)
         then Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
-        else pure (writeWord32 offset (instruction .|. fromIntegral ((displacement `shiftR` 2) .&. 0x03ffffff)) bytes)
+        else pure (instruction .|. fromIntegral ((displacement `shiftR` 2) .&. 0x03ffffff))
     Arm64Branch19 -> do
       instruction <- readWord32 offset bytes
       let displacement = signedDifference target offset + fixupAddend fixup
       if displacement `mod` 4 /= 0 || not (fitsSigned 21 displacement)
         then Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
-        else pure (writeWord32 offset (instruction .|. fromIntegral (((displacement `shiftR` 2) .&. 0x7ffff) `shiftL` 5)) bytes)
+        else pure (instruction .|. fromIntegral (((displacement `shiftR` 2) .&. 0x7ffff) `shiftL` 5))
     Arm64Adr21 -> do
       instruction <- readWord32 offset bytes
       let displacement = signedDifference target offset + fixupAddend fixup
@@ -272,7 +273,7 @@ patchLocal offset target fixup bytes =
           let immediate = displacement .&. 0x1fffff
               low = fromIntegral ((immediate .&. 3) `shiftL` 29)
               high = fromIntegral (((immediate `shiftR` 2) .&. 0x7ffff) `shiftL` 5)
-           in pure (writeWord32 offset (instruction .|. low .|. high) bytes)
+           in pure (instruction .|. low .|. high)
     X86Pc32 -> patchX86
     X86Plt32 -> patchX86
     kind -> Left (ObjectInvalidFixup kind)
@@ -280,8 +281,23 @@ patchLocal offset target fixup bytes =
     patchX86 =
       let displacement = signedDifference target offset + fixupAddend fixup
        in if fitsSigned 32 displacement
-            then pure (writeWord32 offset (fromIntegral displacement) bytes)
+            then pure (fromIntegral displacement)
             else Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
+
+applyPatches :: ByteString -> [(Word64, Word32)] -> Either ObjectError ByteString
+applyPatches bytes = fmap BS.concat . go 0
+  where
+    size = BS.length bytes
+    go start patches =
+      case patches of
+        [] -> pure [BS.drop start bytes]
+        (offset, value) : rest -> do
+          let index = fromIntegral offset
+          if index < start || index + 4 > size
+            then Left (ObjectSizeOverflow "fixup offset")
+            else do
+              suffix <- go (index + 4) rest
+              pure (BS.take (index - start) (BS.drop start bytes) : word32Bytes value : suffix)
 
 signedDifference :: Word64 -> Word64 -> Int64
 signedDifference left right = fromIntegral left - fromIntegral right
@@ -302,14 +318,11 @@ readWord32 offset bytes =
                 .|. fromIntegral (BS.index bytes (index + 3)) `shiftL` 24
             )
 
-writeWord32 :: Word64 -> Word32 -> ByteString -> ByteString
-writeWord32 offset value bytes =
-  let index = fromIntegral offset
-      encoded =
-        BS.pack
-          [ fromIntegral value,
-            fromIntegral (value `shiftR` 8),
-            fromIntegral (value `shiftR` 16),
-            fromIntegral (value `shiftR` 24)
-          ]
-   in BS.take index bytes <> encoded <> BS.drop (index + 4) bytes
+word32Bytes :: Word32 -> ByteString
+word32Bytes value =
+  BS.pack
+    [ fromIntegral value,
+      fromIntegral (value `shiftR` 8),
+      fromIntegral (value `shiftR` 16),
+      fromIntegral (value `shiftR` 24)
+    ]

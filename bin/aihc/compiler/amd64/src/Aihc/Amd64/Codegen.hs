@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Lower runtime-explicit GRIN to Intel-syntax AMD64 assembly for Linux.
+-- | Lower runtime-explicit GRIN to AMD64 ELF objects for Linux.
 -- Generated Haskell entries transfer only with branches; calls are reserved
 -- for the C runtime and foreign functions.
 module Aihc.Amd64.Codegen
   ( Amd64Error (..),
-    compileEntry,
-    compileModule,
+    compileEntryObject,
+    compileModuleObject,
     ObservedProgram (..),
     compileObservedFunction,
     supportedNativePrimitiveNames,
@@ -35,6 +35,7 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
+import Data.ByteString.Lazy qualified as BL
 import Data.List (find)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -42,10 +43,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 -- | Compile the fixed executable entry unit.
-compileEntry :: Either Amd64Error Text
-compileEntry = do
+compileEntryObject :: Either Amd64Error BL.ByteString
+compileEntryObject = do
   gcProgram <- either (Left . Amd64UnsupportedExpression . T.pack . show) Right entryGcProgram
-  compileEntryUnit executableEntryName gcProgram
+  statements <- compileEntryUnit executableEntryName gcProgram
+  assembleObject statements
 
 -- | Compile a nullary function with a driver that snapshots its raw return
 -- values. The driver supports cooperative scheduling but exits when the
@@ -67,38 +69,37 @@ compileObservedFunction entryName gcProgram = do
   staticGlobals <- renderStaticGlobals compileEnv program
   metadata <- renderObservedMetadata compileEnv program resultReps
   let resultCount = length resultReps
-      assembly =
-        T.unlines $
-          mainPrologue 0
-            <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
-            <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-            <> [ "  mov rdi, r15",
-                 "  mov rsi, rax",
-                 "  call aihc_set_thread_done_continuation"
-               ]
-            <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-            <> [ "  mov r13, rax",
-                 "  mov rdi, r15",
-                 "  call aihc_reset_allocation_count",
-                 "  jmp " <> entryLabel,
-                 ".p2align 3",
-                 ".Laihc_snapshot_result:"
-               ]
-            <> [storeAt register "r14" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-            <> [ "  mov rsi, r14",
-                 "  mov rdx, r15",
-                 immediate "rdi" resultCount,
-                 "  call aihc_snapshot_dump_result",
-                 "  xor eax, eax"
-               ]
-            <> mainEpilogue
-            <> threadDoneContinuation
-            <> staticGlobals
-            <> renderLinkedLocals functions
-            <> renderCompiledSupport compileEnv functions observedRuntimeInfos
-            <> nonExecutableStack
-  object <- either (Left . Amd64ObjectError . T.pack . show) pure (assembleElf assembly)
-  pure ObservedProgram {observedAssembly = assembly, observedObject = object, observedMetadataSource = metadata}
+      statements =
+        mainPrologue 0
+          <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
+          <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
+          <> [ "  mov rdi, r15",
+               "  mov rsi, rax",
+               "  call aihc_set_thread_done_continuation"
+             ]
+          <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
+          <> [ "  mov r13, rax",
+               "  mov rdi, r15",
+               "  call aihc_reset_allocation_count",
+               "  jmp " <> entryLabel,
+               ".p2align 3",
+               ".Laihc_snapshot_result:"
+             ]
+          <> [storeAt register "r14" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
+          <> [ "  mov rsi, r14",
+               "  mov rdx, r15",
+               immediate "rdi" resultCount,
+               "  call aihc_snapshot_dump_result",
+               "  xor eax, eax"
+             ]
+          <> mainEpilogue
+          <> threadDoneContinuation
+          <> staticGlobals
+          <> renderLinkedLocals functions
+          <> renderCompiledSupport compileEnv functions observedRuntimeInfos
+          <> nonExecutableStack
+  object <- assembleObject statements
+  pure ObservedProgram {observedObject = object, observedMetadataSource = metadata}
   where
     program = gcGrinProgram gcProgram
     compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
@@ -125,13 +126,19 @@ validateProgramPrimitives program =
 validatePrimitiveNames :: [Text] -> Either Amd64Error ()
 validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 
--- | Compile one library module to relocatable assembly.
-compileModule :: GcGrinProgram -> Either Amd64Error Text
-compileModule gcProgram = do
+-- | Compile one library module to a relocatable object.
+compileModuleObject :: GcGrinProgram -> Either Amd64Error BL.ByteString
+compileModuleObject gcProgram = compileModuleStatements gcProgram >>= assembleObject
+
+assembleObject :: [Text] -> Either Amd64Error BL.ByteString
+assembleObject = either (Left . Amd64ObjectError . T.pack . show) pure . assembleElf
+
+compileModuleStatements :: GcGrinProgram -> Either Amd64Error [Text]
+compileModuleStatements gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
-  pure . T.unlines $
+  pure $
     [".intel_syntax noprefix"]
       <> staticGlobals
       <> renderLinkedLocals functions
@@ -145,13 +152,13 @@ compileModule gcProgram = do
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
 
-compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error Text
+compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error [Text]
 compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
-  pure . T.unlines $
+  pure $
     mainPrologue 0
       <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
       <> [ "  mov rdi, r15",

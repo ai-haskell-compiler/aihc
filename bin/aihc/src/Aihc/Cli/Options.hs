@@ -223,7 +223,7 @@ installV2OptionsParser =
       )
     <*> OA.switch
       ( OA.long "keep-native"
-          <> OA.help "Retain native source files"
+          <> OA.help "Retain native output files"
       )
     <*> lintOption
     <*> OA.switch

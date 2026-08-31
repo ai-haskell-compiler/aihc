@@ -97,8 +97,7 @@ data CompileEnv = CompileEnv
   }
 
 data ObservedProgram = ObservedProgram
-  { observedAssembly :: !Text,
-    observedObject :: !BL.ByteString,
+  { observedObject :: !BL.ByteString,
     observedMetadataSource :: !Text
   }
   deriving (Eq, Show)

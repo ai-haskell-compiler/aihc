@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Lower runtime-explicit GRIN to textual AArch64 assembly for Darwin.
+-- | Lower runtime-explicit GRIN to AArch64 Mach-O objects for Darwin.
 -- Generated Haskell entries transfer only with branches; calls are reserved
 -- for the C runtime and foreign functions.
 module Aihc.Arm64.Codegen
   ( Arm64Error (..),
-    compileEntry,
-    compileModule,
+    compileEntryObject,
+    compileModuleObject,
     ObservedProgram (..),
     compileObservedFunction,
     supportedNativePrimitiveNames,
@@ -35,16 +35,18 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
+import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
 -- | Compile the fixed executable entry unit.
-compileEntry :: Either Arm64Error Text
-compileEntry = do
+compileEntryObject :: Either Arm64Error BL.ByteString
+compileEntryObject = do
   gcProgram <- either (Left . Arm64UnsupportedExpression . T.pack . show) Right entryGcProgram
-  compileEntryUnit executableEntryName gcProgram
+  statements <- compileEntryUnit executableEntryName gcProgram
+  assembleObject statements
 
 -- | Compile a nullary function with a driver that snapshots its raw return
 -- values. The driver supports cooperative scheduling but exits when the
@@ -66,37 +68,36 @@ compileObservedFunction entryName gcProgram = do
   staticGlobals <- renderStaticGlobals compileEnv program
   metadata <- renderObservedMetadata compileEnv program resultReps
   let resultCount = length resultReps
-      assembly =
-        T.unlines $
-          mainPrologue 0
-            <> ["  mov x0, x22", "  bl _aihc_alloc_linked_locals", "  mov x19, x0"]
-            <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-            <> [ "  mov x1, x0",
-                 "  mov x0, x22",
-                 "  bl _aihc_set_thread_done_continuation"
-               ]
-            <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-            <> [ "  mov x21, x0",
-                 "  mov x0, x22",
-                 "  bl _aihc_reset_allocation_count",
-                 "  b " <> entryLabel,
-                 ".p2align 3",
-                 ".Laihc_snapshot_result:"
-               ]
-            <> [storeAt register "x19" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-            <> [ "  mov x1, x19",
-                 "  mov x2, x22",
-                 immediate "x0" resultCount,
-                 "  bl _aihc_snapshot_dump_result",
-                 "  mov w0, #0"
-               ]
-            <> entryEpilogue
-            <> threadDoneContinuation
-            <> staticGlobals
-            <> renderLinkedLocals functions
-            <> renderCompiledSupport compileEnv functions observedRuntimeInfos
-  object <- either (Left . Arm64ObjectError . T.pack . show) pure (assembleMachO assembly)
-  pure ObservedProgram {observedAssembly = assembly, observedObject = object, observedMetadataSource = metadata}
+      statements =
+        mainPrologue 0
+          <> ["  mov x0, x22", "  bl _aihc_alloc_linked_locals", "  mov x19, x0"]
+          <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
+          <> [ "  mov x1, x0",
+               "  mov x0, x22",
+               "  bl _aihc_set_thread_done_continuation"
+             ]
+          <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
+          <> [ "  mov x21, x0",
+               "  mov x0, x22",
+               "  bl _aihc_reset_allocation_count",
+               "  b " <> entryLabel,
+               ".p2align 3",
+               ".Laihc_snapshot_result:"
+             ]
+          <> [storeAt register "x19" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
+          <> [ "  mov x1, x19",
+               "  mov x2, x22",
+               immediate "x0" resultCount,
+               "  bl _aihc_snapshot_dump_result",
+               "  mov w0, #0"
+             ]
+          <> entryEpilogue
+          <> threadDoneContinuation
+          <> staticGlobals
+          <> renderLinkedLocals functions
+          <> renderCompiledSupport compileEnv functions observedRuntimeInfos
+  object <- assembleObject statements
+  pure ObservedProgram {observedObject = object, observedMetadataSource = metadata}
   where
     program = gcGrinProgram gcProgram
     compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
@@ -113,13 +114,19 @@ compileObservedFunction entryName gcProgram = do
           []
           resultReps
 
--- | Compile one library module to relocatable assembly.
-compileModule :: GcGrinProgram -> Either Arm64Error Text
-compileModule gcProgram = do
+-- | Compile one library module to a relocatable object.
+compileModuleObject :: GcGrinProgram -> Either Arm64Error BL.ByteString
+compileModuleObject gcProgram = compileModuleStatements gcProgram >>= assembleObject
+
+assembleObject :: [Text] -> Either Arm64Error BL.ByteString
+assembleObject = either (Left . Arm64ObjectError . T.pack . show) pure . assembleMachO
+
+compileModuleStatements :: GcGrinProgram -> Either Arm64Error [Text]
+compileModuleStatements gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
-  pure . T.unlines $ staticGlobals <> renderLinkedLocals functions <> renderCompiledSupport compileEnv functions []
+  pure (staticGlobals <> renderLinkedLocals functions <> renderCompiledSupport compileEnv functions [])
   where
     program = gcGrinProgram gcProgram
     compileEnv =
@@ -128,13 +135,13 @@ compileModule gcProgram = do
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
 
-compileEntryUnit :: Text -> GcGrinProgram -> Either Arm64Error Text
+compileEntryUnit :: Text -> GcGrinProgram -> Either Arm64Error [Text]
 compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
-  pure . T.unlines $
+  pure $
     mainPrologue 0
       <> ["  mov x0, x22", "  bl _aihc_alloc_linked_locals", "  mov x19, x0"]
       <> [ "  mov x0, x22",

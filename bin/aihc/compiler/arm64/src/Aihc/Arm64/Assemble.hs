@@ -20,11 +20,11 @@ import Data.Text qualified as T
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 
-assembleMachO :: Text -> Either ObjectError BL.ByteString
+assembleMachO :: [Text] -> Either ObjectError BL.ByteString
 assembleMachO source = parseAssembly source >>= layoutDraft >>= writeArm64MachO
 
-parseAssembly :: Text -> Either ObjectError Draft
-parseAssembly = foldl' parseLine (Right emptyDraft) . T.lines
+parseAssembly :: [Text] -> Either ObjectError Draft
+parseAssembly = foldl' parseLine (Right emptyDraft) . concatMap T.lines
 
 parseLine :: Either ObjectError Draft -> Text -> Either ObjectError Draft
 parseLine result sourceLine = do
