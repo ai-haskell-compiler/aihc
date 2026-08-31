@@ -62,16 +62,19 @@ where
 import Aihc.Amd64.Assemble
   ( Amd64Opcode (..),
     Amd64Statement,
+    amd64Align,
     amd64Bytes,
     amd64Global,
     amd64Instruction,
     amd64Label,
     amd64Quad,
+    amd64Section,
   )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
+import Aihc.Native.Object (SectionRole (..))
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (StateT)
@@ -253,7 +256,7 @@ materializeNodeWith allocate env node = do
     then pure allocationLines
     else do
       fieldLines <- initializeNodeFields env node
-      pure $ allocationLines <> ["  mov r13, rax"] <> fieldLines <> ["  mov rax, r13"]
+      pure $ allocationLines <> [amd64Instruction AmdMov ["r13", "rax"]] <> fieldLines <> [amd64Instruction AmdMov ["rax", "r13"]]
 
 allocateNode :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 allocateNode = allocateNodeWith makeNodeLines
@@ -295,9 +298,9 @@ data NodeInfo
 
 makeNodeLines :: NodeInfo -> [Amd64Statement]
 makeNodeLines info =
-  [ "  mov rdi, r15",
+  [ amd64Instruction AmdMov ["rdi", "r15"],
     infoLine info,
-    "  call aihc_make_node"
+    amd64Instruction AmdCall ["aihc_make_node"]
   ]
   where
     infoLine nodeInfo =
@@ -308,7 +311,7 @@ makeNodeLines info =
 
 makeNodeUncheckedLines :: NodeInfo -> [Amd64Statement]
 makeNodeUncheckedLines info =
-  init (makeNodeLines info) <> ["  call aihc_make_node_unchecked"]
+  init (makeNodeLines info) <> [amd64Instruction AmdCall ["aihc_make_node_unchecked"]]
 
 renderEnterStubs :: [RuntimeInfo] -> [Amd64Statement]
 renderEnterStubs infos = concatMap renderStub uniqueTransfers
@@ -321,15 +324,15 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
           not (isDirectEnter apply)
         ]
     renderStub apply =
-      [ ".text",
-        ".p2align 4",
+      [ amd64Section TextSection,
+        amd64Align 4,
         amd64Label (sharedEnterEntryLabel apply)
       ]
         <> moveSupplied apply
         <> moveSuppliedOverflow apply
         <> loadStored apply
         <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-        <> ["  mov r11, QWORD PTR [r12]", "  mov r11, QWORD PTR [r11 + 8]", "  jmp r11"]
+        <> [amd64Instruction AmdMov ["r11", "QWORD PTR [r12]"], amd64Instruction AmdMov ["r11", "QWORD PTR [r11 + 8]"], amd64Instruction AmdJmp ["r11"]]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -403,12 +406,12 @@ restoreApplyStackLines stackBytes
 
 renderRuntimeInfos :: [RuntimeInfo] -> [Amd64Statement]
 renderRuntimeInfos infos =
-  [".section .rodata"] <> concatMap renderInfo infos
+  [amd64Section ReadOnlySection] <> concatMap renderInfo infos
   where
     renderInfo info =
       bitmapLines
         <> [amd64Global (runtimeInfoLabel info) | "aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
-        <> [ ".p2align 3",
+        <> [ amd64Align 3,
              amd64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
@@ -473,110 +476,110 @@ storeLocation source location =
 
 renderNativeControl :: [Amd64Statement]
 renderNativeControl =
-  [ ".text",
-    ".p2align 4",
-    ".Laihc_enter:",
-    "  mov r11, QWORD PTR [r12]",
-    "  mov r10, QWORD PTR [r11 + 64]",
-    "  cmp r10, 4",
-    "  je .Laihc_enter_indirection",
-    "  mov r11, QWORD PTR [r11 + 48]",
-    "  test r11, r11",
-    "  jz .Laihc_invalid_enter",
-    "  jmp r11",
-    ".Laihc_enter_indirection:",
-    "  mov r12, QWORD PTR [r12 + 8]",
-    "  jmp .Laihc_enter",
-    ".Laihc_resume:",
-    "  mov r11d, DWORD PTR [rax]",
-    "  cmp r11d, 1",
-    "  je .Laihc_resume_apply",
-    "  cmp r11d, 2",
-    "  je .Laihc_resume_continue",
-    "  cmp r11d, 3",
-    "  je .Laihc_resume_raise",
-    "  jmp .Laihc_invalid_enter",
-    ".Laihc_resume_continue:",
-    "  mov r10, QWORD PTR [rax + 24]",
-    "  mov r11, QWORD PTR [rax + 32]",
-    "  mov r12, QWORD PTR [rax + 8]",
-    "  mov QWORD PTR [rax], 0",
-    "  mov QWORD PTR [rax + 8], 0",
-    "  mov QWORD PTR [rax + 16], 0",
-    "  mov QWORD PTR [rax + 24], 0",
-    "  mov QWORD PTR [rax + 32], 0",
-    "  test r11, r11",
-    "  jz .Laihc_enter",
-    "  cmp r11, 1",
-    "  jne .Laihc_invalid_enter",
-    "  mov rax, r10",
-    "  jmp .Laihc_enter",
-    ".Laihc_resume_apply:",
-    "  mov r10, QWORD PTR [rax + 24]",
-    "  mov r11, QWORD PTR [rax + 32]",
-    "  mov r12, QWORD PTR [rax + 8]",
-    "  mov r13, QWORD PTR [rax + 16]",
-    "  mov QWORD PTR [rax], 0",
-    "  mov QWORD PTR [rax + 8], 0",
-    "  mov QWORD PTR [rax + 16], 0",
-    "  mov QWORD PTR [rax + 24], 0",
-    "  mov QWORD PTR [rax + 32], 0",
-    "  test r11, r11",
-    "  jz .Laihc_enter",
-    "  cmp r11, 1",
-    "  jne .Laihc_invalid_enter",
-    "  mov rax, r10",
-    "  jmp .Laihc_enter",
-    ".Laihc_resume_raise:",
-    "  mov rsi, QWORD PTR [rax + 8]",
-    "  mov rdx, QWORD PTR [rax + 16]",
-    "  mov QWORD PTR [rax], 0",
-    "  mov QWORD PTR [rax + 8], 0",
-    "  mov QWORD PTR [rax + 16], 0",
-    "  mov QWORD PTR [rax + 24], 0",
-    "  mov QWORD PTR [rax + 32], 0",
-    "  mov rdi, r15",
-    "  call aihc_raise",
-    "  jmp .Laihc_resume",
-    ".Laihc_eval:",
-    "  mov QWORD PTR [r14], rax",
-    "  mov QWORD PTR [r14 + 8], r11",
-    ".Laihc_eval_loop:",
-    "  mov r11, QWORD PTR [r12]",
-    "  mov r10, QWORD PTR [r11 + 64]",
-    "  cmp r10, 2",
-    "  je .Laihc_eval_thunk",
-    "  cmp r10, 4",
-    "  je .Laihc_eval_indirection",
-    "  cmp r10, 5",
-    "  je .Laihc_eval_blackhole",
-    "  mov rax, r12",
-    "  mov r12, r13",
-    "  jmp .Laihc_enter",
-    ".Laihc_eval_thunk:",
-    "  mov rsi, r12",
-    "  mov rdi, r15",
-    "  call aihc_begin_blackhole",
-    "  mov r13, QWORD PTR [r14]",
-    "  jmp .Laihc_enter",
-    ".Laihc_eval_indirection:",
-    "  cmp QWORD PTR [r14 + 8], 0",
-    "  je .Laihc_eval_unlifted_indirection",
-    "  mov r12, QWORD PTR [r12 + 8]",
-    "  jmp .Laihc_eval_loop",
-    ".Laihc_eval_unlifted_indirection:",
-    "  mov rax, QWORD PTR [r12 + 8]",
-    "  mov r12, r13",
-    "  jmp .Laihc_enter",
-    ".Laihc_eval_blackhole:",
-    "  mov rdx, r13",
-    "  mov rsi, r12",
-    "  mov rdi, r15",
-    "  call aihc_block_on_blackhole",
-    "  jmp .Laihc_resume",
-    ".Laihc_invalid_enter:",
-    "  call aihc_no_match",
-    "  ud2"
+  [ amd64Section TextSection,
+    amd64Align 4,
+    amd64Label ".Laihc_enter",
+    amd64Instruction AmdMov ["r11", "QWORD PTR [r12]"],
+    amd64Instruction AmdMov ["r10", "QWORD PTR [r11 + 64]"],
+    amd64Instruction AmdCmp ["r10", "4"],
+    amd64Instruction AmdJe [".Laihc_enter_indirection"],
+    amd64Instruction AmdMov ["r11", "QWORD PTR [r11 + 48]"],
+    amd64Instruction AmdTest ["r11", "r11"],
+    amd64Instruction AmdJz [".Laihc_invalid_enter"],
+    amd64Instruction AmdJmp ["r11"],
+    amd64Label ".Laihc_enter_indirection",
+    amd64Instruction AmdMov ["r12", "QWORD PTR [r12 + 8]"],
+    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Label ".Laihc_resume",
+    amd64Instruction AmdMov ["r11d", "DWORD PTR [rax]"],
+    amd64Instruction AmdCmp ["r11d", "1"],
+    amd64Instruction AmdJe [".Laihc_resume_apply"],
+    amd64Instruction AmdCmp ["r11d", "2"],
+    amd64Instruction AmdJe [".Laihc_resume_continue"],
+    amd64Instruction AmdCmp ["r11d", "3"],
+    amd64Instruction AmdJe [".Laihc_resume_raise"],
+    amd64Instruction AmdJmp [".Laihc_invalid_enter"],
+    amd64Label ".Laihc_resume_continue",
+    amd64Instruction AmdMov ["r10", "QWORD PTR [rax + 24]"],
+    amd64Instruction AmdMov ["r11", "QWORD PTR [rax + 32]"],
+    amd64Instruction AmdMov ["r12", "QWORD PTR [rax + 8]"],
+    amd64Instruction AmdMov ["QWORD PTR [rax]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 8]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 16]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 24]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 32]", "0"],
+    amd64Instruction AmdTest ["r11", "r11"],
+    amd64Instruction AmdJz [".Laihc_enter"],
+    amd64Instruction AmdCmp ["r11", "1"],
+    amd64Instruction AmdJne [".Laihc_invalid_enter"],
+    amd64Instruction AmdMov ["rax", "r10"],
+    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Label ".Laihc_resume_apply",
+    amd64Instruction AmdMov ["r10", "QWORD PTR [rax + 24]"],
+    amd64Instruction AmdMov ["r11", "QWORD PTR [rax + 32]"],
+    amd64Instruction AmdMov ["r12", "QWORD PTR [rax + 8]"],
+    amd64Instruction AmdMov ["r13", "QWORD PTR [rax + 16]"],
+    amd64Instruction AmdMov ["QWORD PTR [rax]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 8]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 16]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 24]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 32]", "0"],
+    amd64Instruction AmdTest ["r11", "r11"],
+    amd64Instruction AmdJz [".Laihc_enter"],
+    amd64Instruction AmdCmp ["r11", "1"],
+    amd64Instruction AmdJne [".Laihc_invalid_enter"],
+    amd64Instruction AmdMov ["rax", "r10"],
+    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Label ".Laihc_resume_raise",
+    amd64Instruction AmdMov ["rsi", "QWORD PTR [rax + 8]"],
+    amd64Instruction AmdMov ["rdx", "QWORD PTR [rax + 16]"],
+    amd64Instruction AmdMov ["QWORD PTR [rax]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 8]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 16]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 24]", "0"],
+    amd64Instruction AmdMov ["QWORD PTR [rax + 32]", "0"],
+    amd64Instruction AmdMov ["rdi", "r15"],
+    amd64Instruction AmdCall ["aihc_raise"],
+    amd64Instruction AmdJmp [".Laihc_resume"],
+    amd64Label ".Laihc_eval",
+    amd64Instruction AmdMov ["QWORD PTR [r14]", "rax"],
+    amd64Instruction AmdMov ["QWORD PTR [r14 + 8]", "r11"],
+    amd64Label ".Laihc_eval_loop",
+    amd64Instruction AmdMov ["r11", "QWORD PTR [r12]"],
+    amd64Instruction AmdMov ["r10", "QWORD PTR [r11 + 64]"],
+    amd64Instruction AmdCmp ["r10", "2"],
+    amd64Instruction AmdJe [".Laihc_eval_thunk"],
+    amd64Instruction AmdCmp ["r10", "4"],
+    amd64Instruction AmdJe [".Laihc_eval_indirection"],
+    amd64Instruction AmdCmp ["r10", "5"],
+    amd64Instruction AmdJe [".Laihc_eval_blackhole"],
+    amd64Instruction AmdMov ["rax", "r12"],
+    amd64Instruction AmdMov ["r12", "r13"],
+    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Label ".Laihc_eval_thunk",
+    amd64Instruction AmdMov ["rsi", "r12"],
+    amd64Instruction AmdMov ["rdi", "r15"],
+    amd64Instruction AmdCall ["aihc_begin_blackhole"],
+    amd64Instruction AmdMov ["r13", "QWORD PTR [r14]"],
+    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Label ".Laihc_eval_indirection",
+    amd64Instruction AmdCmp ["QWORD PTR [r14 + 8]", "0"],
+    amd64Instruction AmdJe [".Laihc_eval_unlifted_indirection"],
+    amd64Instruction AmdMov ["r12", "QWORD PTR [r12 + 8]"],
+    amd64Instruction AmdJmp [".Laihc_eval_loop"],
+    amd64Label ".Laihc_eval_unlifted_indirection",
+    amd64Instruction AmdMov ["rax", "QWORD PTR [r12 + 8]"],
+    amd64Instruction AmdMov ["r12", "r13"],
+    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Label ".Laihc_eval_blackhole",
+    amd64Instruction AmdMov ["rdx", "r13"],
+    amd64Instruction AmdMov ["rsi", "r12"],
+    amd64Instruction AmdMov ["rdi", "r15"],
+    amd64Instruction AmdCall ["aihc_block_on_blackhole"],
+    amd64Instruction AmdJmp [".Laihc_resume"],
+    amd64Label ".Laihc_invalid_enter",
+    amd64Instruction AmdCall ["aihc_no_match"],
+    amd64Instruction AmdUd2 []
   ]
 
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Amd64Error Text
@@ -647,11 +650,11 @@ renderAddrLiteralPool env =
   case Map.toAscList (compileAddrLiteralLabels env) of
     [] -> []
     literals ->
-      [".section .rodata"]
+      [amd64Section ReadOnlySection]
         <> concatMap renderLiteral literals
   where
     renderLiteral (value, label) =
-      ["  .p2align 3", amd64Label label]
+      [amd64Align 3, amd64Label label]
         <> map (amd64Bytes . BS.pack) (chunksOf 32 (BS.unpack value <> [0]))
 
     chunksOf _ [] = []

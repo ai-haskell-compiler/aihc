@@ -21,10 +21,8 @@ import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Char (isSpace)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
-import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64, Word8)
@@ -78,12 +76,6 @@ data Amd64Opcode
   | AmdSetge
   | AmdSetle
   | AmdSetg
-
-instance IsString Amd64Statement where
-  fromString source =
-    case parseStatement (T.pack source) of
-      Right statement -> statement
-      Left objectError -> error (show objectError)
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
 assembleElf statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeAmd64Elf
@@ -166,51 +158,6 @@ opcodeText opcode =
     AmdSetle -> "setle"
     AmdSetg -> "setg"
 
-parseStatement :: Text -> Either ObjectError Amd64Statement
-parseStatement sourceLine = do
-  let line = T.strip sourceLine
-  if T.null line
-    then Left (ObjectInvalidInput sourceLine)
-    else
-      if line == ".intel_syntax noprefix"
-        then pure (Amd64Bytes BS.empty)
-        else
-          if line == ".text"
-            then pure (Amd64Section TextSection)
-            else
-              if ".section " `T.isPrefixOf` line
-                then Amd64Section <$> selectElfSection line
-                else
-                  if ".p2align " `T.isPrefixOf` line
-                    then Amd64Align <$> parseAlignment line
-                    else
-                      if ".globl " `T.isPrefixOf` line
-                        then pure (Amd64Global (T.drop 7 line))
-                        else
-                          if ".quad " `T.isPrefixOf` line
-                            then pure (Amd64Quad (T.drop 6 line))
-                            else
-                              if ".byte " `T.isPrefixOf` line
-                                then Amd64Bytes <$> parseBytes (T.drop 6 line)
-                                else
-                                  if ":" `T.isSuffixOf` line
-                                    then pure (Amd64Label (T.dropEnd 1 line))
-                                    else parseInstruction line
-
-selectElfSection :: Text -> Either ObjectError SectionRole
-selectElfSection line
-  | ".rodata" `T.isPrefixOf` name = pure ReadOnlySection
-  | ".data" `T.isPrefixOf` name = pure DataSection
-  | "aihc_roots" `T.isPrefixOf` name = pure RootsSection
-  | "aihc_locals" `T.isPrefixOf` name = pure LocalsSection
-  | ".note.GNU-stack" `T.isPrefixOf` name = pure NoExecuteStackSection
-  | otherwise = Left (ObjectInvalidInput line)
-  where
-    name = T.strip (T.drop 9 line)
-
-parseAlignment :: Text -> Either ObjectError Int
-parseAlignment line = maybe (Left (ObjectInvalidInput line)) pure (readMaybe (T.unpack (T.drop 9 line)))
-
 alignmentFill :: Draft -> ByteString
 alignmentFill draft
   | draftCurrentSection draft == Just TextSection = BS.singleton 0x90
@@ -221,14 +168,6 @@ parseQuad value =
   case readInteger value of
     Just integer -> pure (Bytes (word64Bytes (fromIntegral integer)))
     Nothing -> pure (Apply (Fixup Absolute64 value 0 (BS.replicate 8 0)))
-
-parseBytes :: Text -> Either ObjectError ByteString
-parseBytes source = BS.pack <$> mapM parseByte (T.splitOn "," source)
-  where
-    parseByte value =
-      case readMaybe (T.unpack (T.strip value)) :: Maybe Integer of
-        Just integer | integer >= 0 && integer <= 255 -> pure (fromIntegral integer)
-        _ -> Left (ObjectInvalidInput source)
 
 data Register = Register
   { registerNumber :: !Word8,
@@ -272,60 +211,6 @@ parseOperand source
           displacement <- maybe (Left (ObjectInvalidInput source)) pure (readInteger offset)
           pure (MemoryOperand register (fromIntegral displacement))
         _ -> Left (ObjectInvalidInput source)
-
-parseInstruction :: Text -> Either ObjectError Amd64Statement
-parseInstruction line =
-  case T.break isSpace line of
-    (operation, rest) -> do
-      opcode <- parseOpcode operation
-      pure (amd64Instruction opcode (splitOperands (T.strip rest)))
-
-parseOpcode :: Text -> Either ObjectError Amd64Opcode
-parseOpcode operation =
-  case lookup operation [(opcodeText opcode, opcode) | opcode <- allOpcodes] of
-    Just opcode -> pure opcode
-    Nothing -> Left (ObjectInvalidInput operation)
-  where
-    allOpcodes =
-      [ AmdRet,
-        AmdUd2,
-        AmdPush,
-        AmdPop,
-        AmdCall,
-        AmdJmp,
-        AmdJe,
-        AmdJz,
-        AmdJne,
-        AmdMov,
-        AmdMovsxd,
-        AmdMovzx,
-        AmdLea,
-        AmdAdd,
-        AmdSub,
-        AmdAnd,
-        AmdOr,
-        AmdXor,
-        AmdImul,
-        AmdCmp,
-        AmdTest,
-        AmdShl,
-        AmdShr,
-        AmdNot,
-        AmdMul,
-        AmdDiv,
-        AmdSeto,
-        AmdSetc,
-        AmdSetb,
-        AmdSetae,
-        AmdSete,
-        AmdSetne,
-        AmdSetbe,
-        AmdSeta,
-        AmdSetl,
-        AmdSetge,
-        AmdSetle,
-        AmdSetg
-      ]
 
 encodeOperation :: Amd64Opcode -> [Text] -> Either ObjectError [Item]
 encodeOperation operation operands =
@@ -506,18 +391,6 @@ rex width register index base =
     .|. (if register then 4 else 0)
     .|. (if index then 2 else 0)
     .|. (if base then 1 else 0)
-
-splitOperands :: Text -> [Text]
-splitOperands source
-  | T.null source = []
-  | otherwise = map T.strip (go (0 :: Int) "" [] (T.unpack source))
-  where
-    go _ current values [] = reverse (T.pack (reverse current) : values)
-    go depth current values (character : rest)
-      | character == '[' = go (depth + 1) (character : current) values rest
-      | character == ']' = go (depth - 1) (character : current) values rest
-      | character == ',' && depth == 0 = go depth "" (T.pack (reverse current) : values) rest
-      | otherwise = go depth (character : current) values rest
 
 readInteger :: Text -> Maybe Integer
 readInteger = readMaybe . T.unpack . T.strip

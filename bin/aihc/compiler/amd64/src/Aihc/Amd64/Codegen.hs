@@ -18,10 +18,12 @@ where
 import Aihc.Amd64.Assemble
   ( Amd64Opcode (..),
     Amd64Statement,
+    amd64Align,
     amd64Global,
     amd64Instruction,
     amd64Label,
     amd64Quad,
+    amd64Section,
     assembleElf,
   )
 import Aihc.Amd64.Codegen.Function
@@ -43,6 +45,7 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
+import Aihc.Native.Object (SectionRole (..))
 import Data.ByteString.Lazy qualified as BL
 import Data.List (find)
 import Data.Map.Strict qualified as Map
@@ -79,26 +82,26 @@ compileObservedFunction entryName gcProgram = do
   let resultCount = length resultReps
       statements =
         mainPrologue 0
-          <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
+          <> [amd64Instruction AmdMov ["rdi", "r15"], amd64Instruction AmdCall ["aihc_alloc_linked_locals"], amd64Instruction AmdMov ["r14", "rax"]]
           <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-          <> [ "  mov rdi, r15",
-               "  mov rsi, rax",
-               "  call aihc_set_thread_done_continuation"
+          <> [ amd64Instruction AmdMov ["rdi", "r15"],
+               amd64Instruction AmdMov ["rsi", "rax"],
+               amd64Instruction AmdCall ["aihc_set_thread_done_continuation"]
              ]
           <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-          <> [ "  mov r13, rax",
-               "  mov rdi, r15",
-               "  call aihc_reset_allocation_count",
+          <> [ amd64Instruction AmdMov ["r13", "rax"],
+               amd64Instruction AmdMov ["rdi", "r15"],
+               amd64Instruction AmdCall ["aihc_reset_allocation_count"],
                amd64Instruction AmdJmp [entryLabel],
-               ".p2align 3",
-               ".Laihc_snapshot_result:"
+               amd64Align 3,
+               amd64Label ".Laihc_snapshot_result"
              ]
           <> [storeAt register "r14" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-          <> [ "  mov rsi, r14",
-               "  mov rdx, r15",
+          <> [ amd64Instruction AmdMov ["rsi", "r14"],
+               amd64Instruction AmdMov ["rdx", "r15"],
                immediate "rdi" resultCount,
-               "  call aihc_snapshot_dump_result",
-               "  xor eax, eax"
+               amd64Instruction AmdCall ["aihc_snapshot_dump_result"],
+               amd64Instruction AmdXor ["eax", "eax"]
              ]
           <> mainEpilogue
           <> threadDoneContinuation
@@ -147,8 +150,7 @@ compileModuleStatements gcProgram = do
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
   pure $
-    [".intel_syntax noprefix"]
-      <> staticGlobals
+    staticGlobals
       <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions []
       <> nonExecutableStack
@@ -168,59 +170,59 @@ compileEntryUnit entryName gcProgram = do
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure $
     mainPrologue 0
-      <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
-      <> [ "  mov rdi, r15",
+      <> [amd64Instruction AmdMov ["rdi", "r15"], amd64Instruction AmdCall ["aihc_alloc_linked_locals"], amd64Instruction AmdMov ["r14", "rax"]]
+      <> [ amd64Instruction AmdMov ["rdi", "r15"],
            immediate "rsi" (7 :: Int),
-           "  xor edx, edx",
-           "  xor ecx, ecx",
-           "  call aihc_ensure_heap"
+           amd64Instruction AmdXor ["edx", "edx"],
+           amd64Instruction AmdXor ["ecx", "ecx"],
+           amd64Instruction AmdCall ["aihc_ensure_heap"]
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_final_info")
-      <> ["  mov r13, rax"]
+      <> [amd64Instruction AmdMov ["r13", "rax"]]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_top_info")
-      <> [ "  mov r12, rax",
-           "  mov rdi, r12",
-           "  xor esi, esi",
-           "  mov rdx, r13",
-           "  call aihc_set_field"
+      <> [ amd64Instruction AmdMov ["r12", "rax"],
+           amd64Instruction AmdMov ["rdi", "r12"],
+           amd64Instruction AmdXor ["esi", "esi"],
+           amd64Instruction AmdMov ["rdx", "r13"],
+           amd64Instruction AmdCall ["aihc_set_field"]
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_update_info")
       <> [ storeAt "rax" "r14" 0,
-           "  mov rdx, r12",
+           amd64Instruction AmdMov ["rdx", "r12"],
            loadAt "rdi" "r14" 0,
-           "  xor esi, esi",
-           "  call aihc_set_field",
+           amd64Instruction AmdXor ["esi", "esi"],
+           amd64Instruction AmdCall ["aihc_set_field"],
            loadAt "rdi" "r14" 0,
-           "  mov esi, 1",
+           amd64Instruction AmdMov ["esi", "1"],
            address "rdx" (renderLinkedGlobalSymbol entryName),
-           "  call aihc_set_field"
+           amd64Instruction AmdCall ["aihc_set_field"]
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
-      <> [ "  mov r10, rax",
-           "  mov rsi, r10",
-           "  mov rdi, r15",
-           "  call aihc_set_thread_done_continuation",
+      <> [ amd64Instruction AmdMov ["r10", "rax"],
+           amd64Instruction AmdMov ["rsi", "r10"],
+           amd64Instruction AmdMov ["rdi", "r15"],
+           amd64Instruction AmdCall ["aihc_set_thread_done_continuation"],
            address "r11" ".Laihc_exit",
-           "  mov QWORD PTR [r15 + 16], r11",
+           amd64Instruction AmdMov ["QWORD PTR [r15 + 16]", "r11"],
            address applyFunctionRegister (renderLinkedGlobalSymbol entryName),
            loadAt "rax" "r14" 0,
-           "  mov r13, QWORD PTR [rax + 8]",
-           "  mov r11, 1",
-           "  jmp .Laihc_eval"
+           amd64Instruction AmdMov ["r13", "QWORD PTR [rax + 8]"],
+           amd64Instruction AmdMov ["r11", "1"],
+           amd64Instruction AmdJmp [".Laihc_eval"]
          ]
-      <> [ ".p2align 3",
-           ".Laihc_top_continuation:",
-           "  mov r13, rax",
-           "  mov r12, rdi",
-           "  jmp .Laihc_enter"
+      <> [ amd64Align 3,
+           amd64Label ".Laihc_top_continuation",
+           amd64Instruction AmdMov ["r13", "rax"],
+           amd64Instruction AmdMov ["r12", "rdi"],
+           amd64Instruction AmdJmp [".Laihc_enter"]
          ]
       <> threadDoneContinuation
-      <> [ ".p2align 3",
-           ".Laihc_final_continuation:",
-           "  jmp .Laihc_exit"
+      <> [ amd64Align 3,
+           amd64Label ".Laihc_final_continuation",
+           amd64Instruction AmdJmp [".Laihc_exit"]
          ]
-      <> [ ".Laihc_exit:",
-           "  xor eax, eax"
+      <> [ amd64Label ".Laihc_exit",
+           amd64Instruction AmdXor ["eax", "eax"]
          ]
       <> mainEpilogue
       <> staticGlobals
@@ -258,44 +260,43 @@ compileEntryUnit entryName gcProgram = do
 mainPrologue :: Int -> [Amd64Statement]
 mainPrologue globalCount =
   entryPrologue "main"
-    <> [ "  call aihc_program_arguments_initialize",
+    <> [ amd64Instruction AmdCall ["aihc_program_arguments_initialize"],
          immediate "rdi" globalCount,
-         "  call aihc_machine_new",
-         "  mov r15, rax"
+         amd64Instruction AmdCall ["aihc_machine_new"],
+         amd64Instruction AmdMov ["r15", "rax"]
        ]
 
 entryPrologue :: Text -> [Amd64Statement]
 entryPrologue symbol =
-  [ ".intel_syntax noprefix",
-    ".text",
-    ".p2align 4",
+  [ amd64Section TextSection,
+    amd64Align 4,
     amd64Global symbol,
     amd64Label symbol,
-    "  push rbp",
-    "  mov rbp, rsp",
-    "  push r12",
-    "  push r13",
-    "  push r14",
-    "  push r15"
+    amd64Instruction AmdPush ["rbp"],
+    amd64Instruction AmdMov ["rbp", "rsp"],
+    amd64Instruction AmdPush ["r12"],
+    amd64Instruction AmdPush ["r13"],
+    amd64Instruction AmdPush ["r14"],
+    amd64Instruction AmdPush ["r15"]
   ]
 
 mainEpilogue :: [Amd64Statement]
 mainEpilogue =
-  [ "  pop r15",
-    "  pop r14",
-    "  pop r13",
-    "  pop r12",
-    "  pop rbp",
-    "  ret"
+  [ amd64Instruction AmdPop ["r15"],
+    amd64Instruction AmdPop ["r14"],
+    amd64Instruction AmdPop ["r13"],
+    amd64Instruction AmdPop ["r12"],
+    amd64Instruction AmdPop ["rbp"],
+    amd64Instruction AmdRet []
   ]
 
 threadDoneContinuation :: [Amd64Statement]
 threadDoneContinuation =
-  [ ".p2align 3",
-    ".Laihc_thread_done_continuation:",
-    "  mov rdi, r15",
-    "  call aihc_thread_done",
-    "  jmp .Laihc_resume"
+  [ amd64Align 3,
+    amd64Label ".Laihc_thread_done_continuation",
+    amd64Instruction AmdMov ["rdi", "r15"],
+    amd64Instruction AmdCall ["aihc_thread_done"],
+    amd64Instruction AmdJmp [".Laihc_resume"]
   ]
 
 threadDoneRuntimeInfos :: [RuntimeInfo]
@@ -315,7 +316,7 @@ renderCompiledSupport env functions runtimeInfos =
     <> renderRuntimeSupport env runtimeInfos
 
 nonExecutableStack :: [Amd64Statement]
-nonExecutableStack = [".section .note.GNU-stack,\"\",@progbits"]
+nonExecutableStack = [amd64Section NoExecuteStackSection]
 
 compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
 compileEnvironment = compileEnvironmentWith False
@@ -405,15 +406,15 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       let symbol = renderLinkedGlobalSymbol name
           payload = if null fields && isThunk node then [amd64Quad "0"] else fields
       pure $
-        [ ".section .data",
-          ".p2align 3",
+        [ amd64Section DataSection,
+          amd64Align 3,
           amd64Global symbol,
           amd64Label symbol,
           amd64Quad info
         ]
           <> payload
-          <> [ ".section aihc_roots,\"aw\"",
-               ".p2align 3",
+          <> [ amd64Section RootsSection,
+               amd64Align 3,
                amd64Quad symbol
              ]
     staticNodeInfo node =
@@ -439,8 +440,8 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
 
 renderLinkedLocals :: [CompiledFunction] -> [Amd64Statement]
 renderLinkedLocals functions =
-  [ ".section aihc_locals,\"aw\"",
-    ".p2align 3",
+  [ amd64Section LocalsSection,
+    amd64Align 3,
     amd64Quad (tshow (maximum (2 : map compiledFunctionSlots functions)))
   ]
 

@@ -18,10 +18,12 @@ where
 import Aihc.Arm64.Assemble
   ( Arm64Opcode (..),
     Arm64Statement,
+    arm64Align,
     arm64Global,
     arm64Instruction,
     arm64Label,
     arm64Quad,
+    arm64Section,
     assembleMachO,
   )
 import Aihc.Arm64.Codegen.Function
@@ -43,6 +45,7 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
+import Aihc.Native.Object (SectionRole (..))
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -78,26 +81,26 @@ compileObservedFunction entryName gcProgram = do
   let resultCount = length resultReps
       statements =
         mainPrologue 0
-          <> ["  mov x0, x22", "  bl _aihc_alloc_linked_locals", "  mov x19, x0"]
+          <> [arm64Instruction ArmMov ["x0", "x22"], arm64Instruction ArmBl ["_aihc_alloc_linked_locals"], arm64Instruction ArmMov ["x19", "x0"]]
           <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-          <> [ "  mov x1, x0",
-               "  mov x0, x22",
-               "  bl _aihc_set_thread_done_continuation"
+          <> [ arm64Instruction ArmMov ["x1", "x0"],
+               arm64Instruction ArmMov ["x0", "x22"],
+               arm64Instruction ArmBl ["_aihc_set_thread_done_continuation"]
              ]
           <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-          <> [ "  mov x21, x0",
-               "  mov x0, x22",
-               "  bl _aihc_reset_allocation_count",
+          <> [ arm64Instruction ArmMov ["x21", "x0"],
+               arm64Instruction ArmMov ["x0", "x22"],
+               arm64Instruction ArmBl ["_aihc_reset_allocation_count"],
                arm64Instruction ArmB [entryLabel],
-               ".p2align 3",
-               ".Laihc_snapshot_result:"
+               arm64Align 3,
+               arm64Label ".Laihc_snapshot_result"
              ]
           <> [storeAt register "x19" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-          <> [ "  mov x1, x19",
-               "  mov x2, x22",
+          <> [ arm64Instruction ArmMov ["x1", "x19"],
+               arm64Instruction ArmMov ["x2", "x22"],
                immediate "x0" resultCount,
-               "  bl _aihc_snapshot_dump_result",
-               "  mov w0, #0"
+               arm64Instruction ArmBl ["_aihc_snapshot_dump_result"],
+               arm64Instruction ArmMov ["w0", "#0"]
              ]
           <> entryEpilogue
           <> threadDoneContinuation
@@ -151,60 +154,60 @@ compileEntryUnit entryName gcProgram = do
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure $
     mainPrologue 0
-      <> ["  mov x0, x22", "  bl _aihc_alloc_linked_locals", "  mov x19, x0"]
-      <> [ "  mov x0, x22",
+      <> [arm64Instruction ArmMov ["x0", "x22"], arm64Instruction ArmBl ["_aihc_alloc_linked_locals"], arm64Instruction ArmMov ["x19", "x0"]]
+      <> [ arm64Instruction ArmMov ["x0", "x22"],
            immediate "x1" (7 :: Int),
-           "  mov x2, xzr",
-           "  mov x3, xzr",
-           "  bl _aihc_ensure_heap"
+           arm64Instruction ArmMov ["x2", "xzr"],
+           arm64Instruction ArmMov ["x3", "xzr"],
+           arm64Instruction ArmBl ["_aihc_ensure_heap"]
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_final_info")
-      <> ["  mov x21, x0"]
+      <> [arm64Instruction ArmMov ["x21", "x0"]]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_top_info")
-      <> [ "  mov x20, x0",
-           "  mov x2, x21",
-           "  mov x1, #0",
-           "  bl _aihc_set_field"
+      <> [ arm64Instruction ArmMov ["x20", "x0"],
+           arm64Instruction ArmMov ["x2", "x21"],
+           arm64Instruction ArmMov ["x1", "#0"],
+           arm64Instruction ArmBl ["_aihc_set_field"]
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_update_info")
       <> [ storeAt "x0" "x19" 0,
-           "  mov x2, x20",
+           arm64Instruction ArmMov ["x2", "x20"],
            loadAt "x0" "x19" 0,
-           "  mov x1, #0",
-           "  bl _aihc_set_field"
+           arm64Instruction ArmMov ["x1", "#0"],
+           arm64Instruction ArmBl ["_aihc_set_field"]
          ]
       <> address "x2" ("_" <> renderLinkedGlobalSymbol entryName)
       <> [ loadAt "x0" "x19" 0,
-           "  mov x1, #1",
-           "  bl _aihc_set_field"
+           arm64Instruction ArmMov ["x1", "#1"],
+           arm64Instruction ArmBl ["_aihc_set_field"]
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
-      <> [ "  mov x10, x0",
-           "  mov x1, x10",
-           "  mov x0, x22",
-           "  bl _aihc_set_thread_done_continuation",
-           "  adr x9, .Laihc_exit",
-           "  str x9, [x22, #16]"
+      <> [ arm64Instruction ArmMov ["x10", "x0"],
+           arm64Instruction ArmMov ["x1", "x10"],
+           arm64Instruction ArmMov ["x0", "x22"],
+           arm64Instruction ArmBl ["_aihc_set_thread_done_continuation"],
+           arm64Instruction ArmAdr ["x9", ".Laihc_exit"],
+           arm64Instruction ArmStr ["x9", "[x22, #16]"]
          ]
       <> address applyFunctionRegister ("_" <> renderLinkedGlobalSymbol entryName)
       <> [ loadAt "x0" "x19" 0,
-           "  ldr x21, [x0, #8]",
-           "  mov x8, #1",
-           "  b .Laihc_eval"
+           arm64Instruction ArmLdr ["x21", "[x0, #8]"],
+           arm64Instruction ArmMov ["x8", "#1"],
+           arm64Instruction ArmB [".Laihc_eval"]
          ]
-      <> [ ".p2align 3",
-           ".Laihc_top_continuation:",
-           "  mov x21, x0",
-           "  mov x20, x1",
-           "  b .Laihc_enter"
+      <> [ arm64Align 3,
+           arm64Label ".Laihc_top_continuation",
+           arm64Instruction ArmMov ["x21", "x0"],
+           arm64Instruction ArmMov ["x20", "x1"],
+           arm64Instruction ArmB [".Laihc_enter"]
          ]
       <> threadDoneContinuation
-      <> [ ".p2align 3",
-           ".Laihc_final_continuation:",
-           "  b .Laihc_exit"
+      <> [ arm64Align 3,
+           arm64Label ".Laihc_final_continuation",
+           arm64Instruction ArmB [".Laihc_exit"]
          ]
-      <> [ ".Laihc_exit:",
-           "  mov w0, #0"
+      <> [ arm64Label ".Laihc_exit",
+           arm64Instruction ArmMov ["w0", "#0"]
          ]
       <> entryEpilogue
       <> staticGlobals
@@ -327,15 +330,15 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       let symbol = "_" <> renderLinkedGlobalSymbol name
           payload = if null fields && isThunk node then [arm64Quad "0"] else fields
       pure $
-        [ ".section __DATA,__data",
-          ".p2align 3",
+        [ arm64Section DataSection,
+          arm64Align 3,
           arm64Global symbol,
           arm64Label symbol,
           arm64Quad info
         ]
           <> payload
-          <> [ ".section __DATA,__aihc_roots,regular,no_dead_strip",
-               ".p2align 3",
+          <> [ arm64Section RootsSection,
+               arm64Align 3,
                arm64Quad symbol
              ]
     staticNodeInfo node =
@@ -361,47 +364,47 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
 
 renderLinkedLocals :: [CompiledFunction] -> [Arm64Statement]
 renderLinkedLocals functions =
-  [ ".section __DATA,__aihc_locals,regular,no_dead_strip",
-    ".p2align 3",
+  [ arm64Section LocalsSection,
+    arm64Align 3,
     arm64Quad (tshow (maximum (2 : map compiledFunctionSlots functions)))
   ]
 
 mainPrologue :: Int -> [Arm64Statement]
 mainPrologue globalCount =
   entryPrologue "_main"
-    <> [ "  bl _aihc_program_arguments_initialize",
+    <> [ arm64Instruction ArmBl ["_aihc_program_arguments_initialize"],
          immediate "x0" globalCount,
-         "  bl _aihc_machine_new",
-         "  mov x22, x0"
+         arm64Instruction ArmBl ["_aihc_machine_new"],
+         arm64Instruction ArmMov ["x22", "x0"]
        ]
 
 entryPrologue :: Text -> [Arm64Statement]
 entryPrologue symbol =
-  [ ".section __TEXT,__text,regular,pure_instructions",
-    ".p2align 2",
+  [ arm64Section TextSection,
+    arm64Align 2,
     arm64Global symbol,
     arm64Label symbol,
-    "  stp x29, x30, [sp, #-48]!",
-    "  mov x29, sp",
-    "  stp x19, x20, [sp, #16]",
-    "  stp x21, x22, [sp, #32]"
+    arm64Instruction ArmStp ["x29", "x30", "[sp, #-48]!"],
+    arm64Instruction ArmMov ["x29", "sp"],
+    arm64Instruction ArmStp ["x19", "x20", "[sp, #16]"],
+    arm64Instruction ArmStp ["x21", "x22", "[sp, #32]"]
   ]
 
 entryEpilogue :: [Arm64Statement]
 entryEpilogue =
-  [ "  ldp x21, x22, [sp, #32]",
-    "  ldp x19, x20, [sp, #16]",
-    "  ldp x29, x30, [sp], #48",
-    "  ret"
+  [ arm64Instruction ArmLdp ["x21", "x22", "[sp, #32]"],
+    arm64Instruction ArmLdp ["x19", "x20", "[sp, #16]"],
+    arm64Instruction ArmLdp ["x29", "x30", "[sp]", "#48"],
+    arm64Instruction ArmRet []
   ]
 
 threadDoneContinuation :: [Arm64Statement]
 threadDoneContinuation =
-  [ ".p2align 3",
-    ".Laihc_thread_done_continuation:",
-    "  mov x0, x22",
-    "  bl _aihc_thread_done",
-    "  b .Laihc_resume"
+  [ arm64Align 3,
+    arm64Label ".Laihc_thread_done_continuation",
+    arm64Instruction ArmMov ["x0", "x22"],
+    arm64Instruction ArmBl ["_aihc_thread_done"],
+    arm64Instruction ArmB [".Laihc_resume"]
   ]
 
 threadDoneRuntimeInfos :: [RuntimeInfo]

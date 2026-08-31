@@ -61,16 +61,19 @@ where
 import Aihc.Arm64.Assemble
   ( Arm64Opcode (..),
     Arm64Statement,
+    arm64Align,
     arm64Bytes,
     arm64Global,
     arm64Instruction,
     arm64Label,
     arm64Quad,
+    arm64Section,
   )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
+import Aihc.Native.Object (SectionRole (..))
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (StateT)
@@ -163,7 +166,7 @@ data NodeInfo
 
 makeNodeLines :: NodeInfo -> [Arm64Statement]
 makeNodeLines info =
-  ["  mov x0, x22"] <> infoLines info <> ["  bl _aihc_make_node"]
+  [arm64Instruction ArmMov ["x0", "x22"]] <> infoLines info <> [arm64Instruction ArmBl ["_aihc_make_node"]]
   where
     infoLines nodeInfo =
       case nodeInfo of
@@ -173,7 +176,7 @@ makeNodeLines info =
 
 makeNodeUncheckedLines :: NodeInfo -> [Arm64Statement]
 makeNodeUncheckedLines info =
-  init (makeNodeLines info) <> ["  bl _aihc_make_node_unchecked"]
+  init (makeNodeLines info) <> [arm64Instruction ArmBl ["_aihc_make_node_unchecked"]]
 
 -- | Describe a unary continuation before and after it receives its result.
 -- The result can occupy several machine slots even though it is one GRIN
@@ -211,15 +214,15 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
           not (isDirectEnter apply)
         ]
     renderStub apply =
-      [ ".section __TEXT,__text,regular,pure_instructions",
-        ".p2align 3",
+      [ arm64Section TextSection,
+        arm64Align 3,
         arm64Label (sharedEnterEntryLabel apply)
       ]
         <> moveSupplied apply
         <> moveSuppliedOverflow apply
         <> loadStored apply
         <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-        <> ["  ldr x8, [x20]", "  ldr x8, [x8, #8]", "  br x8"]
+        <> [arm64Instruction ArmLdr ["x8", "[x20]"], arm64Instruction ArmLdr ["x8", "[x8, #8]"], arm64Instruction ArmBr ["x8"]]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -230,9 +233,9 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     moveSuppliedOverflow apply
       | runtimeEnterSuppliedCount apply <= length applyArgumentRegisters = []
       | otherwise =
-          ["  mov x9, sp"]
+          [arm64Instruction ArmMov ["x9", "sp"]]
             <> concat
-              [ ["  ldr x8, [x9], #8", storeAt "x8" "x19" targetIndex]
+              [ [arm64Instruction ArmLdr ["x8", "[x9]", "#8"], storeAt "x8" "x19" targetIndex]
               | sourceIndex <- [length applyArgumentRegisters .. runtimeEnterSuppliedCount apply - 1],
                 let targetIndex = runtimeEnterStoredCount apply + sourceIndex
               ]
@@ -289,15 +292,15 @@ applyStackBytes suppliedCount = ((overflowCount * 8 + 15) `div` 16) * 16
 restoreApplyStackLines :: Int -> [Arm64Statement]
 restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
-  | otherwise = [immediate "x8" stackBytes, "  add sp, sp, x8"]
+  | otherwise = [immediate "x8" stackBytes, arm64Instruction ArmAdd ["sp", "sp", "x8"]]
 
 renderRuntimeInfos :: [RuntimeInfo] -> [Arm64Statement]
-renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo infos
+renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInfo infos
   where
     renderInfo info =
       bitmapLines
         <> [arm64Global (runtimeInfoLabel info) | "_aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
-        <> [ ".p2align 3",
+        <> [ arm64Align 3,
              arm64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
@@ -362,101 +365,101 @@ storeLocation source location =
 
 renderNativeControl :: [Arm64Statement]
 renderNativeControl =
-  [ ".section __TEXT,__text,regular,pure_instructions",
-    ".p2align 3",
-    ".Laihc_enter:",
-    "  ldr x9, [x20]",
-    "  ldr x10, [x9, #64]",
-    "  cmp x10, #4",
-    "  b.eq .Laihc_enter_indirection",
-    "  ldr x9, [x9, #48]",
-    "  cbz x9, .Laihc_invalid_enter",
-    "  br x9",
-    ".Laihc_enter_indirection:",
-    "  ldr x20, [x20, #8]",
-    "  b .Laihc_enter",
-    ".Laihc_resume:",
-    "  ldr w9, [x0]",
-    "  cmp w9, #1",
-    "  b.eq .Laihc_resume_apply",
-    "  cmp w9, #2",
-    "  b.eq .Laihc_resume_continue",
-    "  cmp w9, #3",
-    "  b.eq .Laihc_resume_raise",
-    "  b .Laihc_invalid_enter",
-    ".Laihc_resume_continue:",
-    "  ldr x8, [x0, #24]",
-    "  ldr x9, [x0, #32]",
-    "  ldr x20, [x0, #8]",
-    "  stp xzr, xzr, [x0]",
-    "  stp xzr, xzr, [x0, #16]",
-    "  str xzr, [x0, #32]",
-    "  cbz x9, .Laihc_enter",
-    "  cmp x9, #1",
-    "  b.ne .Laihc_invalid_enter",
-    "  mov x0, x8",
-    "  b .Laihc_enter",
-    ".Laihc_resume_apply:",
-    "  ldr x8, [x0, #24]",
-    "  ldr x9, [x0, #32]",
-    "  ldr x20, [x0, #8]",
-    "  ldr x21, [x0, #16]",
-    "  stp xzr, xzr, [x0]",
-    "  stp xzr, xzr, [x0, #16]",
-    "  str xzr, [x0, #32]",
-    "  cbz x9, .Laihc_enter",
-    "  cmp x9, #1",
-    "  b.ne .Laihc_invalid_enter",
-    "  mov x0, x8",
-    "  b .Laihc_enter",
-    ".Laihc_resume_raise:",
-    "  ldr x1, [x0, #8]",
-    "  ldr x2, [x0, #16]",
-    "  stp xzr, xzr, [x0]",
-    "  stp xzr, xzr, [x0, #16]",
-    "  str xzr, [x0, #32]",
-    "  mov x0, x22",
-    "  bl _aihc_raise",
-    "  b .Laihc_resume",
-    ".Laihc_eval:",
-    "  str x0, [x19]",
-    "  str x8, [x19, #8]",
-    ".Laihc_eval_loop:",
-    "  ldr x9, [x20]",
-    "  ldr x10, [x9, #64]",
-    "  cmp x10, #2",
-    "  b.eq .Laihc_eval_thunk",
-    "  cmp x10, #4",
-    "  b.eq .Laihc_eval_indirection",
-    "  cmp x10, #5",
-    "  b.eq .Laihc_eval_blackhole",
-    "  mov x0, x20",
-    "  mov x20, x21",
-    "  b .Laihc_enter",
-    ".Laihc_eval_thunk:",
-    "  mov x1, x20",
-    "  mov x0, x22",
-    "  bl _aihc_begin_blackhole",
-    "  ldr x21, [x19]",
-    "  b .Laihc_enter",
-    ".Laihc_eval_indirection:",
-    "  ldr x9, [x19, #8]",
-    "  cbz x9, .Laihc_eval_unlifted_indirection",
-    "  ldr x20, [x20, #8]",
-    "  b .Laihc_eval_loop",
-    ".Laihc_eval_unlifted_indirection:",
-    "  ldr x0, [x20, #8]",
-    "  mov x20, x21",
-    "  b .Laihc_enter",
-    ".Laihc_eval_blackhole:",
-    "  mov x2, x21",
-    "  mov x1, x20",
-    "  mov x0, x22",
-    "  bl _aihc_block_on_blackhole",
-    "  b .Laihc_resume",
-    ".Laihc_invalid_enter:",
-    "  bl _aihc_no_match",
-    "  brk #0"
+  [ arm64Section TextSection,
+    arm64Align 3,
+    arm64Label ".Laihc_enter",
+    arm64Instruction ArmLdr ["x9", "[x20]"],
+    arm64Instruction ArmLdr ["x10", "[x9, #64]"],
+    arm64Instruction ArmCmp ["x10", "#4"],
+    arm64Instruction ArmBEq [".Laihc_enter_indirection"],
+    arm64Instruction ArmLdr ["x9", "[x9, #48]"],
+    arm64Instruction ArmCbz ["x9", ".Laihc_invalid_enter"],
+    arm64Instruction ArmBr ["x9"],
+    arm64Label ".Laihc_enter_indirection",
+    arm64Instruction ArmLdr ["x20", "[x20, #8]"],
+    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Label ".Laihc_resume",
+    arm64Instruction ArmLdr ["w9", "[x0]"],
+    arm64Instruction ArmCmp ["w9", "#1"],
+    arm64Instruction ArmBEq [".Laihc_resume_apply"],
+    arm64Instruction ArmCmp ["w9", "#2"],
+    arm64Instruction ArmBEq [".Laihc_resume_continue"],
+    arm64Instruction ArmCmp ["w9", "#3"],
+    arm64Instruction ArmBEq [".Laihc_resume_raise"],
+    arm64Instruction ArmB [".Laihc_invalid_enter"],
+    arm64Label ".Laihc_resume_continue",
+    arm64Instruction ArmLdr ["x8", "[x0, #24]"],
+    arm64Instruction ArmLdr ["x9", "[x0, #32]"],
+    arm64Instruction ArmLdr ["x20", "[x0, #8]"],
+    arm64Instruction ArmStp ["xzr", "xzr", "[x0]"],
+    arm64Instruction ArmStp ["xzr", "xzr", "[x0, #16]"],
+    arm64Instruction ArmStr ["xzr", "[x0, #32]"],
+    arm64Instruction ArmCbz ["x9", ".Laihc_enter"],
+    arm64Instruction ArmCmp ["x9", "#1"],
+    arm64Instruction ArmBNe [".Laihc_invalid_enter"],
+    arm64Instruction ArmMov ["x0", "x8"],
+    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Label ".Laihc_resume_apply",
+    arm64Instruction ArmLdr ["x8", "[x0, #24]"],
+    arm64Instruction ArmLdr ["x9", "[x0, #32]"],
+    arm64Instruction ArmLdr ["x20", "[x0, #8]"],
+    arm64Instruction ArmLdr ["x21", "[x0, #16]"],
+    arm64Instruction ArmStp ["xzr", "xzr", "[x0]"],
+    arm64Instruction ArmStp ["xzr", "xzr", "[x0, #16]"],
+    arm64Instruction ArmStr ["xzr", "[x0, #32]"],
+    arm64Instruction ArmCbz ["x9", ".Laihc_enter"],
+    arm64Instruction ArmCmp ["x9", "#1"],
+    arm64Instruction ArmBNe [".Laihc_invalid_enter"],
+    arm64Instruction ArmMov ["x0", "x8"],
+    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Label ".Laihc_resume_raise",
+    arm64Instruction ArmLdr ["x1", "[x0, #8]"],
+    arm64Instruction ArmLdr ["x2", "[x0, #16]"],
+    arm64Instruction ArmStp ["xzr", "xzr", "[x0]"],
+    arm64Instruction ArmStp ["xzr", "xzr", "[x0, #16]"],
+    arm64Instruction ArmStr ["xzr", "[x0, #32]"],
+    arm64Instruction ArmMov ["x0", "x22"],
+    arm64Instruction ArmBl ["_aihc_raise"],
+    arm64Instruction ArmB [".Laihc_resume"],
+    arm64Label ".Laihc_eval",
+    arm64Instruction ArmStr ["x0", "[x19]"],
+    arm64Instruction ArmStr ["x8", "[x19, #8]"],
+    arm64Label ".Laihc_eval_loop",
+    arm64Instruction ArmLdr ["x9", "[x20]"],
+    arm64Instruction ArmLdr ["x10", "[x9, #64]"],
+    arm64Instruction ArmCmp ["x10", "#2"],
+    arm64Instruction ArmBEq [".Laihc_eval_thunk"],
+    arm64Instruction ArmCmp ["x10", "#4"],
+    arm64Instruction ArmBEq [".Laihc_eval_indirection"],
+    arm64Instruction ArmCmp ["x10", "#5"],
+    arm64Instruction ArmBEq [".Laihc_eval_blackhole"],
+    arm64Instruction ArmMov ["x0", "x20"],
+    arm64Instruction ArmMov ["x20", "x21"],
+    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Label ".Laihc_eval_thunk",
+    arm64Instruction ArmMov ["x1", "x20"],
+    arm64Instruction ArmMov ["x0", "x22"],
+    arm64Instruction ArmBl ["_aihc_begin_blackhole"],
+    arm64Instruction ArmLdr ["x21", "[x19]"],
+    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Label ".Laihc_eval_indirection",
+    arm64Instruction ArmLdr ["x9", "[x19, #8]"],
+    arm64Instruction ArmCbz ["x9", ".Laihc_eval_unlifted_indirection"],
+    arm64Instruction ArmLdr ["x20", "[x20, #8]"],
+    arm64Instruction ArmB [".Laihc_eval_loop"],
+    arm64Label ".Laihc_eval_unlifted_indirection",
+    arm64Instruction ArmLdr ["x0", "[x20, #8]"],
+    arm64Instruction ArmMov ["x20", "x21"],
+    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Label ".Laihc_eval_blackhole",
+    arm64Instruction ArmMov ["x2", "x21"],
+    arm64Instruction ArmMov ["x1", "x20"],
+    arm64Instruction ArmMov ["x0", "x22"],
+    arm64Instruction ArmBl ["_aihc_block_on_blackhole"],
+    arm64Instruction ArmB [".Laihc_resume"],
+    arm64Label ".Laihc_invalid_enter",
+    arm64Instruction ArmBl ["_aihc_no_match"],
+    arm64Instruction ArmBrk ["#0"]
   ]
 
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Arm64Error Text
@@ -527,10 +530,10 @@ renderAddrLiteralPool :: CompileEnv -> [Arm64Statement]
 renderAddrLiteralPool env =
   case Map.toAscList (compileAddrLiteralLabels env) of
     [] -> []
-    literals -> [".section __TEXT,__const"] <> concatMap renderLiteral literals
+    literals -> [arm64Section TextConstantsSection] <> concatMap renderLiteral literals
   where
     renderLiteral (value, label) =
-      ["  .p2align 3", arm64Label label]
+      [arm64Align 3, arm64Label label]
         <> map (arm64Bytes . BS.pack) (chunksOf 32 (BS.unpack value <> [0]))
 
     chunksOf _ [] = []
@@ -649,7 +652,7 @@ materializeNodeWith allocate env node = do
     then pure allocationLines
     else do
       fieldLines <- initializeNodeFields env node
-      pure $ allocationLines <> ["  mov x20, x0"] <> fieldLines <> ["  mov x0, x20"]
+      pure $ allocationLines <> [arm64Instruction ArmMov ["x20", "x0"]] <> fieldLines <> [arm64Instruction ArmMov ["x0", "x20"]]
 
 allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNode = allocateNodeWith makeNodeLines

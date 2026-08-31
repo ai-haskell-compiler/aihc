@@ -10,6 +10,7 @@ where
 import Aihc.Amd64.Assemble
   ( Amd64Opcode (..),
     Amd64Statement,
+    amd64Align,
     amd64Global,
     amd64Instruction,
     amd64Label,
@@ -74,7 +75,7 @@ compileFunction env function = do
              ]
       entry =
         exportLines env function label
-          <> [ ".p2align 3",
+          <> [ amd64Align 3,
                amd64Label label
              ]
           <> registerParameterCopies
@@ -92,9 +93,9 @@ compileFunction env function = do
 reserveLocalsLines :: [CompiledFunction] -> [Amd64Statement]
 reserveLocalsLines functions =
   [ immediate "rsi" maximumSlots,
-    "  mov rdi, r15",
-    "  call aihc_alloc_locals",
-    "  mov r14, rax"
+    amd64Instruction AmdMov ["rdi", "r15"],
+    amd64Instruction AmdCall ["aihc_alloc_locals"],
+    amd64Instruction AmdMov ["r14", "rax"]
   ]
   where
     maximumSlots = maximum (2 : map compiledFunctionSlots functions)
@@ -176,8 +177,8 @@ compileExpr env prefix label expression =
                  ]
               <> slotPointer "rcx" argumentSlots
               <> [ amd64Instruction AmdLea ["r8", "[r14 + " <> tshow (continuationSlot * 8) <> "]"],
-                   "  mov rdi, r15",
-                   "  call aihc_apply_slow",
+                   amd64Instruction AmdMov ["rdi", "r15"],
+                   amd64Instruction AmdCall ["aihc_apply_slow"],
                    loadAt applyFunctionRegister "r14" continuationSlot
                  ]
       addBlock
@@ -190,10 +191,10 @@ compileExpr env prefix label expression =
             <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
             <> saveApplyOverflowLines "r14" argumentSlots
             <> [ amd64Instruction AmdMov ["r11", "QWORD PTR [" <> applyFunctionRegister <> "]"],
-                 "  mov r11, QWORD PTR [r11 + 48]",
-                 "  test r11, r11",
+                 amd64Instruction AmdMov ["r11", "QWORD PTR [r11 + 48]"],
+                 amd64Instruction AmdTest ["r11", "r11"],
                  amd64Instruction AmdJz [slowLabel],
-                 "  jmp r11",
+                 amd64Instruction AmdJmp ["r11"],
                  amd64Label slowLabel
                ]
             <> slowApplyLines
@@ -221,15 +222,15 @@ compileExpr env prefix label expression =
             <> storedLines
             <> [ loadAt "rsi" "r14" exceptionSlot,
                  loadAt "rdx" "r14" continuationSlot,
-                 "  mov rdi, r15",
-                 "  call aihc_raise"
+                 amd64Instruction AmdMov ["rdi", "r15"],
+                 amd64Instruction AmdCall ["aihc_raise"]
                ]
         )
         (BlockLayout.Jump ".Laihc_resume")
     GrinHalt _ ->
       addBlock
         label
-        (prefix <> ["  mov rdi, r15", "  call aihc_halt", "  jmp rax"])
+        (prefix <> [amd64Instruction AmdMov ["rdi", "r15"], amd64Instruction AmdCall ["aihc_halt"], amd64Instruction AmdJmp ["rax"]])
         BlockLayout.Exit
     GrinExit status -> do
       statusLines <- liftEither (materializeValueTo env "rdi" status)
@@ -237,8 +238,8 @@ compileExpr env prefix label expression =
         label
         ( prefix
             <> statusLines
-            <> [ "  call aihc_exit_process",
-                 "  ud2"
+            <> [ amd64Instruction AmdCall ["aihc_exit_process"],
+                 amd64Instruction AmdUd2 []
                ]
         )
         BlockLayout.Exit
@@ -303,7 +304,7 @@ compileCpsPrimitive env prefix label name arguments continuation =
 
 renderCpsCallArguments :: NativeCpsCall -> [Int] -> Int -> [Amd64Statement]
 renderCpsCallArguments runtimeCall operandSlots continuationSlot =
-  ["  mov rdi, r15"]
+  [amd64Instruction AmdMov ["rdi", "r15"]]
     <> [loadAt register "r14" slot | (register, slot) <- zip (drop 1 foreignArgumentRegisters) operandSlots]
     <> [ loadAt (foreignArgumentRegisters !! (length operandSlots + 1)) "r14" continuationSlot
        | nativeCpsCallPassContinuation runtimeCall
@@ -330,12 +331,12 @@ compileDirectBinding env vars expression =
                   pure ([loadAt "r11" "r14" slot] <> storeLocation "r11" location)
               pure
                 ( argumentLines
-                    <> [ "  mov rdi, r15",
+                    <> [ amd64Instruction AmdMov ["rdi", "r15"],
                          loadAt "rsi" "r14" requiredSlot,
                          immediate "rdx" (length roots)
                        ]
                     <> slotPointer "rcx" rootSlots
-                    <> [ "  call aihc_ensure_heap"
+                    <> [ amd64Instruction AmdCall ["aihc_ensure_heap"]
                        ]
                     <> resultLines
                 )
@@ -365,9 +366,9 @@ compileDirectBinding env vars expression =
                 <> [ loadAt "rdx" "r14" highSlot,
                      loadAt "rax" "r14" lowSlot,
                      loadAt "r10" "r14" divisorSlot,
-                     "  div r10",
-                     "  mov r10, rax",
-                     "  mov r11, rdx"
+                     amd64Instruction AmdDiv ["r10"],
+                     amd64Instruction AmdMov ["r10", "rax"],
+                     amd64Instruction AmdMov ["r11", "rdx"]
                    ]
             )
         _ -> lift (Left (Amd64UnsupportedExpression "internal quotRemWord2# arity"))
@@ -380,10 +381,10 @@ compileDirectBinding env vars expression =
             ( [storeAt "rcx" "r14" savedCountRegister]
                 <> valueLines
                 <> amountLines
-                <> ["  mov rcx, rax", amd64Instruction opcode ["r10", "cl"], "  mov rax, r10", loadAt "rcx" "r14" savedCountRegister]
+                <> [amd64Instruction AmdMov ["rcx", "rax"], amd64Instruction opcode ["r10", "cl"], amd64Instruction AmdMov ["rax", "r10"], loadAt "rcx" "r14" savedCountRegister]
             )
     GrinPrimitiveCall _ "nullAddr#" [] ->
-      storeSingleResult ["  xor rax, rax"]
+      storeSingleResult [amd64Instruction AmdXor ["rax", "rax"]]
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -402,7 +403,7 @@ compileDirectBinding env vars expression =
             1 -> storeSingleResult callLines
             _ -> lift (Left (Amd64UnsupportedExpression ("runtime primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
-          pure ["  call aihc_unsupported_primitive"]
+          pure [amd64Instruction AmdCall ["aihc_unsupported_primitive"]]
       | otherwise -> lift (Left (Amd64UnsupportedExpression ("primitive call " <> name)))
     GrinForeignCallExpr foreignCall arguments ->
       compileForeignCallLines env foreignCall arguments >>= storeSingleResult
@@ -435,7 +436,7 @@ compileDirectBinding env vars expression =
             <> [ loadAt (if passMachine then "rsi" else "rdi") "r14" pointerSlot,
                  loadAt (if passMachine then "rdx" else "rsi") "r14" valueSlot
                ]
-            <> ["  mov rdi, r15" | passMachine]
+            <> [amd64Instruction AmdMov ["rdi", "r15"] | passMachine]
             <> [amd64Instruction AmdCall [symbol]]
             <> resultLines
         )
@@ -456,7 +457,7 @@ compileDirectBinding env vars expression =
           comparison "a" ["gtWord#"],
           comparison "ae" ["geWord#"]
         ]
-        <> [ ("compareInt#", ["  cmp r10, rax", "  setg al", "  setl r10b", "  movzx rax, al", "  movzx r10, r10b", "  sub rax, r10"])
+        <> [ ("compareInt#", [amd64Instruction AmdCmp ["r10", "rax"], amd64Instruction AmdSetg ["al"], amd64Instruction AmdSetl ["r10b"], amd64Instruction AmdMovzx ["rax", "al"], amd64Instruction AmdMovzx ["r10", "r10b"], amd64Instruction AmdSub ["rax", "r10"]])
            ]
     pairResultBinaryPrimitives =
       [ carry "addIntC#" AmdAdd AmdSeto,
@@ -465,27 +466,27 @@ compileDirectBinding env vars expression =
         carry "subWordC#" AmdSub AmdSetc
       ]
     singleResultDividendPrimitives =
-      [ ("quotWord#", ["  xor rdx, rdx", "  div r10"]),
-        ("remWord#", ["  xor rdx, rdx", "  div r10", "  mov rax, rdx"])
+      [ ("quotWord#", [amd64Instruction AmdXor ["rdx", "rdx"], amd64Instruction AmdDiv ["r10"]]),
+        ("remWord#", [amd64Instruction AmdXor ["rdx", "rdx"], amd64Instruction AmdDiv ["r10"], amd64Instruction AmdMov ["rax", "rdx"]])
       ]
     pairResultDividendPrimitives =
-      [ ("timesWord2#", ("rdx", "rax", ["  mul r10"])),
-        ("quotRemWord#", ("r10", "r11", ["  xor rdx, rdx", "  div r10", "  mov r10, rax", "  mov r11, rdx"]))
+      [ ("timesWord2#", ("rdx", "rax", [amd64Instruction AmdMul ["r10"]])),
+        ("quotRemWord#", ("r10", "r11", [amd64Instruction AmdXor ["rdx", "rdx"], amd64Instruction AmdDiv ["r10"], amd64Instruction AmdMov ["r10", "rax"], amd64Instruction AmdMov ["r11", "rdx"]]))
       ]
     unaryPrimitives =
-      ("not#", ["  not rax"])
+      ("not#", [amd64Instruction AmdNot ["rax"]])
         : [ (name, [])
           | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary opcode names =
-      [(name, [amd64Instruction opcode ["r10", "rax"], "  mov rax, r10"]) | name <- names]
+      [(name, [amd64Instruction opcode ["r10", "rax"], amd64Instruction AmdMov ["rax", "r10"]]) | name <- names]
     comparison condition names =
-      [(name, ["  cmp r10, rax", amd64Instruction (conditionOpcode condition) ["al"], "  movzx rax, al"]) | name <- names]
+      [(name, [amd64Instruction AmdCmp ["r10", "rax"], amd64Instruction (conditionOpcode condition) ["al"], amd64Instruction AmdMovzx ["rax", "al"]]) | name <- names]
     carry name opcode setOpcode =
       ( name,
         ( "r10",
           "r11",
-          [amd64Instruction opcode ["r10", "rax"], amd64Instruction setOpcode ["r11b"], "  movzx r11, r11b"]
+          [amd64Instruction opcode ["r10", "rax"], amd64Instruction setOpcode ["r11b"], amd64Instruction AmdMovzx ["r11", "r11b"]]
         )
       )
     conditionOpcode :: Text -> Amd64Opcode
@@ -527,7 +528,7 @@ compileCallLines env passMachine foreignCall arguments = do
                 ]
               callLines =
                 argumentLines
-                  <> ["  mov rdi, r15" | passMachine]
+                  <> [amd64Instruction AmdMov ["rdi", "r15"] | passMachine]
                   <> loadAbiArguments
                   <> [amd64Instruction AmdCall [grinForeignCallSymbol foreignCall]]
                   <> normalizeForeignResult (grinForeignResultType signature)
@@ -550,7 +551,7 @@ normalizeForeignResult :: GrinForeignType -> [Amd64Statement]
 normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt -> []
-    GrinForeignInt32 -> ["  movsxd rax, eax"]
+    GrinForeignInt32 -> [amd64Instruction AmdMovsxd ["rax", "eax"]]
     GrinForeignWord64 -> []
     GrinForeignAddr -> []
 
@@ -622,7 +623,7 @@ caseChecks resultLocation scrutineeIsPointer targets = do
             <> [ loadByteOffset "r10" "r11" 0,
                  loadByteOffset "r10" "r10" 0,
                  address "r11" identity,
-                 "  cmp r10, r11",
+                 amd64Instruction AmdCmp ["r10", "r11"],
                  amd64Instruction AmdJe [target]
                ]
       GrinLitAlt _
@@ -633,12 +634,12 @@ caseChecks resultLocation scrutineeIsPointer targets = do
           Just integer ->
             pure $
               loadLocation "r10" resultLocation
-                <> [immediate "r11" integer, "  cmp r10, r11", amd64Instruction AmdJe [target]]
+                <> [immediate "r11" integer, amd64Instruction AmdCmp ["r10", "r11"], amd64Instruction AmdJe [target]]
           Nothing -> lift (Left (Amd64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   pure $ case defaultTarget of
     target : _ -> (checks, BlockLayout.Jump target)
-    [] -> (checks <> ["  call aihc_no_match", "  ud2"], BlockLayout.Exit)
+    [] -> (checks <> [amd64Instruction AmdCall ["aihc_no_match"], amd64Instruction AmdUd2 []], BlockLayout.Exit)
 
 moveEntryParameters :: [(Text, Location Text)] -> [Amd64Statement]
 moveEntryParameters pairs =

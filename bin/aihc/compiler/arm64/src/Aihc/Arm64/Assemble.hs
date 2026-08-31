@@ -21,10 +21,8 @@ import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Char (isSpace)
 import Data.Int (Int64)
 import Data.Maybe (isJust)
-import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64)
@@ -75,12 +73,6 @@ data Arm64Opcode
   | ArmCset
   | ArmCsinv
   | ArmSxtw
-
-instance IsString Arm64Statement where
-  fromString source =
-    case parseStatement (T.pack source) of
-      Right statement -> statement
-      Left objectError -> error (show objectError)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
 assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
@@ -160,47 +152,6 @@ opcodeText opcode =
     ArmCsinv -> "csinv"
     ArmSxtw -> "sxtw"
 
-parseStatement :: Text -> Either ObjectError Arm64Statement
-parseStatement sourceLine = do
-  let line = T.strip sourceLine
-  if T.null line
-    then Left (ObjectInvalidInput sourceLine)
-    else
-      if ".section " `T.isPrefixOf` line
-        then Arm64Section <$> selectMachSection line
-        else
-          if ".p2align " `T.isPrefixOf` line
-            then Arm64Align <$> parseAlignment line
-            else
-              if ".globl " `T.isPrefixOf` line
-                then pure (Arm64Global (T.drop 7 line))
-                else
-                  if ".quad " `T.isPrefixOf` line
-                    then pure (Arm64Quad (T.drop 6 line))
-                    else
-                      if ".byte " `T.isPrefixOf` line
-                        then Arm64Bytes <$> parseBytes (T.drop 6 line)
-                        else
-                          if line == ".ltorg"
-                            then pure (Arm64Bytes BS.empty)
-                            else
-                              if ":" `T.isSuffixOf` line
-                                then pure (Arm64Label (T.dropEnd 1 line))
-                                else parseInstruction line
-
-selectMachSection :: Text -> Either ObjectError SectionRole
-selectMachSection line
-  | "__TEXT,__text" `T.isInfixOf` line = pure TextSection
-  | "__TEXT,__const" `T.isInfixOf` line = pure TextConstantsSection
-  | "__DATA,__const" `T.isInfixOf` line = pure ReadOnlySection
-  | "__DATA,__data" `T.isInfixOf` line = pure DataSection
-  | "__DATA,__aihc_roots" `T.isInfixOf` line = pure RootsSection
-  | "__DATA,__aihc_locals" `T.isInfixOf` line = pure LocalsSection
-  | otherwise = Left (ObjectInvalidInput line)
-
-parseAlignment :: Text -> Either ObjectError Int
-parseAlignment line = maybe (Left (ObjectInvalidInput line)) pure (readMaybe (T.unpack (T.drop 9 line)))
-
 alignmentFill :: Draft -> ByteString
 alignmentFill draft
   | draftCurrentSection draft == Just TextSection = word32Bytes 0xd503201f
@@ -211,14 +162,6 @@ parseQuad value =
   case readInteger value of
     Just integer -> pure (Bytes (word64Bytes (fromIntegral integer)))
     Nothing -> pure (Apply (Fixup Absolute64 value 0 (BS.replicate 8 0)))
-
-parseBytes :: Text -> Either ObjectError ByteString
-parseBytes source = BS.pack <$> mapM parseByte (T.splitOn "," source)
-  where
-    parseByte value =
-      case readMaybe (T.unpack (T.strip value)) :: Maybe Integer of
-        Just integer | integer >= 0 && integer <= 255 -> pure (fromIntegral integer)
-        _ -> Left (ObjectInvalidInput source)
 
 data Register = Register
   { registerNumber :: !Word32,
@@ -242,57 +185,6 @@ parseRegister name
     value <= 30 =
       pure (Register (fromIntegral value) 32 False)
   | otherwise = Left (ObjectInvalidInput name)
-
-parseInstruction :: Text -> Either ObjectError Arm64Statement
-parseInstruction line =
-  case T.break isSpace line of
-    (operation, rest) -> do
-      opcode <- parseOpcode operation
-      pure (arm64Instruction opcode (splitOperands (T.strip rest)))
-
-parseOpcode :: Text -> Either ObjectError Arm64Opcode
-parseOpcode operation =
-  case lookup operation [(opcodeText opcode, opcode) | opcode <- allOpcodes] of
-    Just opcode -> pure opcode
-    Nothing -> Left (ObjectInvalidInput operation)
-  where
-    allOpcodes =
-      [ ArmRet,
-        ArmBrk,
-        ArmBr,
-        ArmB,
-        ArmBl,
-        ArmBEq,
-        ArmBNe,
-        ArmBLo,
-        ArmCbz,
-        ArmCbnz,
-        ArmAdr,
-        ArmAdrp,
-        ArmMov,
-        ArmLdr,
-        ArmStr,
-        ArmLdp,
-        ArmStp,
-        ArmAdd,
-        ArmAdds,
-        ArmSub,
-        ArmSubs,
-        ArmCmp,
-        ArmAnd,
-        ArmOrr,
-        ArmEor,
-        ArmMvn,
-        ArmMul,
-        ArmUmulh,
-        ArmUdiv,
-        ArmMsub,
-        ArmLsl,
-        ArmLsr,
-        ArmCset,
-        ArmCsinv,
-        ArmSxtw
-      ]
 
 encodeOperation :: Arm64Opcode -> [Text] -> Either ObjectError [Item]
 encodeOperation operation operands =

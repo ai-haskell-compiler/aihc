@@ -10,6 +10,7 @@ where
 import Aihc.Arm64.Assemble
   ( Arm64Opcode (..),
     Arm64Statement,
+    arm64Align,
     arm64Global,
     arm64Instruction,
     arm64Label,
@@ -67,7 +68,7 @@ compileFunction env function = do
           ]
       entry =
         exportLines env function label
-          <> [ ".p2align 3",
+          <> [ arm64Align 3,
                arm64Label label
              ]
           <> registerParameterCopies
@@ -85,9 +86,9 @@ compileFunction env function = do
 reserveLocalsLines :: [CompiledFunction] -> [Arm64Statement]
 reserveLocalsLines functions =
   [ immediate "x1" maximumSlots,
-    "  mov x0, x22",
-    "  bl _aihc_alloc_locals",
-    "  mov x19, x0"
+    arm64Instruction ArmMov ["x0", "x22"],
+    arm64Instruction ArmBl ["_aihc_alloc_locals"],
+    arm64Instruction ArmMov ["x19", "x0"]
   ]
   where
     maximumSlots = maximum (2 : map compiledFunctionSlots functions)
@@ -169,9 +170,9 @@ compileExpr env prefix label expression =
                  ]
               <> slotPointer "x3" argumentSlots
               <> [ immediate "x4" (continuationSlot * 8),
-                   "  add x4, x19, x4",
-                   "  mov x0, x22",
-                   "  bl _aihc_apply_slow",
+                   arm64Instruction ArmAdd ["x4", "x19", "x4"],
+                   arm64Instruction ArmMov ["x0", "x22"],
+                   arm64Instruction ArmBl ["_aihc_apply_slow"],
                    loadAt applyFunctionRegister "x19" continuationSlot
                  ]
       addBlock
@@ -184,9 +185,9 @@ compileExpr env prefix label expression =
             <> [loadAt register "x19" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
             <> saveApplyOverflowLines "x19" argumentSlots
             <> [ arm64Instruction ArmLdr ["x8", "[" <> applyFunctionRegister <> "]"],
-                 "  ldr x8, [x8, #48]",
+                 arm64Instruction ArmLdr ["x8", "[x8, #48]"],
                  arm64Instruction ArmCbz ["x8", slowLabel],
-                 "  br x8",
+                 arm64Instruction ArmBr ["x8"],
                  arm64Label slowLabel
                ]
             <> slowApplyLines
@@ -214,15 +215,15 @@ compileExpr env prefix label expression =
             <> storedLines
             <> [ loadAt "x1" "x19" exceptionSlot,
                  loadAt "x2" "x19" continuationSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_raise"
+                 arm64Instruction ArmMov ["x0", "x22"],
+                 arm64Instruction ArmBl ["_aihc_raise"]
                ]
         )
         (BlockLayout.Jump ".Laihc_resume")
     GrinHalt _ ->
       addBlock
         label
-        (prefix <> ["  mov x0, x22", "  bl _aihc_halt", "  br x0"])
+        (prefix <> [arm64Instruction ArmMov ["x0", "x22"], arm64Instruction ArmBl ["_aihc_halt"], arm64Instruction ArmBr ["x0"]])
         BlockLayout.Exit
     GrinExit status -> do
       statusLines <- liftEither (materializeValueTo env "x0" status)
@@ -230,8 +231,8 @@ compileExpr env prefix label expression =
         label
         ( prefix
             <> statusLines
-            <> [ "  bl _aihc_exit_process",
-                 "  brk #0"
+            <> [ arm64Instruction ArmBl ["_aihc_exit_process"],
+                 arm64Instruction ArmBrk ["#0"]
                ]
         )
         BlockLayout.Exit
@@ -296,7 +297,7 @@ compileCpsPrimitive env prefix label name arguments continuation =
 
 renderCpsCallArguments :: NativeCpsCall -> [Int] -> Int -> [Arm64Statement]
 renderCpsCallArguments runtimeCall operandSlots continuationSlot =
-  ["  mov x0, x22"]
+  [arm64Instruction ArmMov ["x0", "x22"]]
     <> [loadAt register "x19" slot | (register, slot) <- zip (drop 1 applyArgumentRegisters) operandSlots]
     <> [ loadAt (applyArgumentRegisters !! (length operandSlots + 1)) "x19" continuationSlot
        | nativeCpsCallPassContinuation runtimeCall
@@ -323,12 +324,12 @@ compileDirectBinding env vars expression =
                   pure ([loadAt "x9" "x19" slot] <> storeLocation "x9" location)
               pure
                 ( argumentLines
-                    <> [ "  mov x0, x22",
+                    <> [ arm64Instruction ArmMov ["x0", "x22"],
                          loadAt "x1" "x19" requiredSlot,
                          immediate "x2" (length roots)
                        ]
                     <> slotPointer "x3" rootSlots
-                    <> [ "  bl _aihc_ensure_heap"
+                    <> [ arm64Instruction ArmBl ["_aihc_ensure_heap"]
                        ]
                     <> resultLines
                 )
@@ -362,26 +363,26 @@ compileDirectBinding env vars expression =
                      loadAt "x9" "x19" highSlot,
                      loadAt "x10" "x19" lowSlot,
                      loadAt "x11" "x19" divisorSlot,
-                     "  mov x12, #0",
-                     "  mov x13, #64",
+                     arm64Instruction ArmMov ["x12", "#0"],
+                     arm64Instruction ArmMov ["x13", "#64"],
                      arm64Label loopLabel,
-                     "  lsr x14, x9, #63",
-                     "  lsr x15, x10, #63",
-                     "  lsl x9, x9, #1",
-                     "  orr x9, x9, x15",
-                     "  lsl x10, x10, #1",
-                     "  lsl x12, x12, #1",
+                     arm64Instruction ArmLsr ["x14", "x9", "#63"],
+                     arm64Instruction ArmLsr ["x15", "x10", "#63"],
+                     arm64Instruction ArmLsl ["x9", "x9", "#1"],
+                     arm64Instruction ArmOrr ["x9", "x9", "x15"],
+                     arm64Instruction ArmLsl ["x10", "x10", "#1"],
+                     arm64Instruction ArmLsl ["x12", "x12", "#1"],
                      arm64Instruction ArmCbnz ["x14", subtractLabel],
-                     "  cmp x9, x11",
+                     arm64Instruction ArmCmp ["x9", "x11"],
                      arm64Instruction ArmBLo [nextLabel],
                      arm64Label subtractLabel,
-                     "  sub x9, x9, x11",
-                     "  orr x12, x12, #1",
+                     arm64Instruction ArmSub ["x9", "x9", "x11"],
+                     arm64Instruction ArmOrr ["x12", "x12", "#1"],
                      arm64Label nextLabel,
-                     "  subs x13, x13, #1",
+                     arm64Instruction ArmSubs ["x13", "x13", "#1"],
                      arm64Instruction ArmBNe [loopLabel],
-                     "  mov x10, x9",
-                     "  mov x9, x12",
+                     arm64Instruction ArmMov ["x10", "x9"],
+                     arm64Instruction ArmMov ["x9", "x12"],
                      loadAt "x12" "x19" saved12,
                      loadAt "x13" "x19" saved13,
                      loadAt "x14" "x19" saved14,
@@ -390,7 +391,7 @@ compileDirectBinding env vars expression =
             )
         _ -> lift (Left (Arm64UnsupportedExpression "internal quotRemWord2# arity"))
     GrinPrimitiveCall _ "nullAddr#" [] ->
-      storeSingleResult ["  mov x0, #0"]
+      storeSingleResult [arm64Instruction ArmMov ["x0", "#0"]]
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -409,7 +410,7 @@ compileDirectBinding env vars expression =
             1 -> storeSingleResult callLines
             _ -> lift (Left (Arm64UnsupportedExpression ("runtime primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
-          pure ["  bl _aihc_unsupported_primitive"]
+          pure [arm64Instruction ArmBl ["_aihc_unsupported_primitive"]]
       | otherwise -> lift (Left (Arm64UnsupportedExpression ("primitive call " <> name)))
     GrinForeignCallExpr foreignCall arguments ->
       compileForeignCallLines env foreignCall arguments >>= storeSingleResult
@@ -442,7 +443,7 @@ compileDirectBinding env vars expression =
             <> [ loadAt (if passMachine then "x1" else "x0") "x19" pointerSlot,
                  loadAt (if passMachine then "x2" else "x1") "x19" valueSlot
                ]
-            <> ["  mov x0, x22" | passMachine]
+            <> [arm64Instruction ArmMov ["x0", "x22"] | passMachine]
             <> [arm64Instruction ArmBl [symbol]]
             <> resultLines
         )
@@ -463,29 +464,29 @@ compileDirectBinding env vars expression =
           comparison "hi" ["gtWord#"],
           comparison "hs" ["geWord#"]
         ]
-        <> [ ("compareInt#", ["  cmp x9, x0", "  cset x0, gt", "  csinv x0, x0, xzr, ge"]),
-             ("quotWord#", ["  udiv x0, x9, x0"]),
-             ("remWord#", ["  udiv x10, x9, x0", "  msub x0, x10, x0, x9"]),
-             ("uncheckedShiftL#", ["  lsl x0, x9, x0"]),
-             ("uncheckedShiftRL#", ["  lsr x0, x9, x0"])
+        <> [ ("compareInt#", [arm64Instruction ArmCmp ["x9", "x0"], arm64Instruction ArmCset ["x0", "gt"], arm64Instruction ArmCsinv ["x0", "x0", "xzr", "ge"]]),
+             ("quotWord#", [arm64Instruction ArmUdiv ["x0", "x9", "x0"]]),
+             ("remWord#", [arm64Instruction ArmUdiv ["x10", "x9", "x0"], arm64Instruction ArmMsub ["x0", "x10", "x0", "x9"]]),
+             ("uncheckedShiftL#", [arm64Instruction ArmLsl ["x0", "x9", "x0"]]),
+             ("uncheckedShiftRL#", [arm64Instruction ArmLsr ["x0", "x9", "x0"]])
            ]
     pairResultBinaryPrimitives =
       [ carry "addIntC#" ArmAdds "vs",
         carry "subIntC#" ArmSubs "vs",
         carry "addWordC#" ArmAdds "cs",
         carry "subWordC#" ArmSubs "cc",
-        ("timesWord2#", ("x10", "x11", ["  umulh x10, x9, x0", "  mul x11, x9, x0"])),
-        ("quotRemWord#", ("x10", "x11", ["  udiv x10, x9, x0", "  msub x11, x10, x0, x9"]))
+        ("timesWord2#", ("x10", "x11", [arm64Instruction ArmUmulh ["x10", "x9", "x0"], arm64Instruction ArmMul ["x11", "x9", "x0"]])),
+        ("quotRemWord#", ("x10", "x11", [arm64Instruction ArmUdiv ["x10", "x9", "x0"], arm64Instruction ArmMsub ["x11", "x10", "x0", "x9"]]))
       ]
     unaryPrimitives =
-      ("not#", ["  mvn x0, x0"])
+      ("not#", [arm64Instruction ArmMvn ["x0", "x0"]])
         : [ (name, [])
           | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary opcode names =
       [(name, [arm64Instruction opcode ["x0", "x9", "x0"]]) | name <- names]
     comparison condition names =
-      [(name, ["  cmp x9, x0", arm64Instruction ArmCset ["x0", condition]]) | name <- names]
+      [(name, [arm64Instruction ArmCmp ["x9", "x0"], arm64Instruction ArmCset ["x0", condition]]) | name <- names]
     carry name opcode condition =
       ( name,
         ( "x9",
@@ -521,7 +522,7 @@ compileCallLines env passMachine foreignCall arguments = do
                 ]
               callLines =
                 argumentLines
-                  <> ["  mov x0, x22" | passMachine]
+                  <> [arm64Instruction ArmMov ["x0", "x22"] | passMachine]
                   <> loadAbiArguments
                   <> [arm64Instruction ArmBl ["_" <> grinForeignCallSymbol foreignCall]]
                   <> normalizeForeignResult (grinForeignResultType signature)
@@ -544,7 +545,7 @@ normalizeForeignResult :: GrinForeignType -> [Arm64Statement]
 normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt -> []
-    GrinForeignInt32 -> ["  sxtw x0, w0"]
+    GrinForeignInt32 -> [arm64Instruction ArmSxtw ["x0", "w0"]]
     GrinForeignWord64 -> []
     GrinForeignAddr -> []
 
@@ -610,11 +611,11 @@ caseChecks resultLocation scrutineeIsPointer targets = do
         let identity = constructorStageLabel name 0
         pure $
           loadLocation "x9" resultLocation
-            <> [ "  ldr x10, [x9, #0]",
-                 "  ldr x10, [x10, #0]"
+            <> [ arm64Instruction ArmLdr ["x10", "[x9, #0]"],
+                 arm64Instruction ArmLdr ["x10", "[x10, #0]"]
                ]
             <> address "x11" identity
-            <> [ "  cmp x10, x11",
+            <> [ arm64Instruction ArmCmp ["x10", "x11"],
                  arm64Instruction ArmBEq [target]
                ]
       GrinLitAlt _
@@ -625,12 +626,12 @@ caseChecks resultLocation scrutineeIsPointer targets = do
           Just integer ->
             pure $
               loadLocation "x10" resultLocation
-                <> [immediate "x11" integer, "  cmp x10, x11", arm64Instruction ArmBEq [target]]
+                <> [immediate "x11" integer, arm64Instruction ArmCmp ["x10", "x11"], arm64Instruction ArmBEq [target]]
           Nothing -> lift (Left (Arm64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   pure $ case defaultTarget of
     target : _ -> (checks, BlockLayout.Jump target)
-    [] -> (checks <> ["  bl _aihc_no_match", "  brk #0"], BlockLayout.Exit)
+    [] -> (checks <> [arm64Instruction ArmBl ["_aihc_no_match"], arm64Instruction ArmBrk ["#0"]], BlockLayout.Exit)
 
 moveValuesToRegisters :: ValueEnv -> [GrinValue] -> [Text] -> Either Arm64Error [Arm64Statement]
 moveValuesToRegisters env values registers =
@@ -663,7 +664,7 @@ saveValueOverflowLines env values
         fmap concat . forM (zip [0 :: Int ..] (drop (length applyArgumentRegisters) values)) $ \(index, value) -> do
           lines' <- materializeValueTo env "x8" value
           pure (lines' <> [storeByteOffset "x8" "x10" (index * 8)])
-      pure ([immediate "x8" stackBytes, "  sub sp, sp, x8", "  mov x10, sp"] <> stores)
+      pure ([immediate "x8" stackBytes, arm64Instruction ArmSub ["sp", "sp", "x8"], arm64Instruction ArmMov ["x10", "sp"]] <> stores)
   where
     stackBytes = applyStackBytes (length values)
 
@@ -671,9 +672,9 @@ saveApplyOverflowLines :: Text -> [Int] -> [Arm64Statement]
 saveApplyOverflowLines base slots
   | stackBytes == 0 = []
   | otherwise =
-      [immediate "x8" stackBytes, "  sub sp, sp, x8", "  mov x9, sp"]
+      [immediate "x8" stackBytes, arm64Instruction ArmSub ["sp", "sp", "x8"], arm64Instruction ArmMov ["x9", "sp"]]
         <> concat
-          [ [loadAt "x8" base slot, "  str x8, [x9], #8"]
+          [ [loadAt "x8" base slot, arm64Instruction ArmStr ["x8", "[x9]", "#8"]]
           | slot <- drop (length applyArgumentRegisters) slots
           ]
   where
@@ -683,9 +684,9 @@ moveDirectOverflowLines :: Text -> Int -> [Arm64Statement]
 moveDirectOverflowLines base valueCount
   | stackBytes == 0 = []
   | otherwise =
-      ["  mov x9, sp"]
+      [arm64Instruction ArmMov ["x9", "sp"]]
         <> concat
-          [ ["  ldr x8, [x9], #8", storeAt "x8" base targetIndex]
+          [ [arm64Instruction ArmLdr ["x8", "[x9]", "#8"], storeAt "x8" base targetIndex]
           | targetIndex <- [length applyArgumentRegisters .. valueCount - 1]
           ]
         <> restoreApplyStackLines stackBytes
