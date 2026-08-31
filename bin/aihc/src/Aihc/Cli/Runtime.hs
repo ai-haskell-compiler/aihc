@@ -30,6 +30,7 @@ import Aihc.Native
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM)
+import Data.ByteString.Lazy qualified as BL
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
@@ -47,13 +48,19 @@ prepareEntryArchive storeRoot target = do
       destinationDirectory = takeDirectory destination
   createDirectoryIfMissing True destinationDirectory
   withTemporaryDirectory destinationDirectory "entry-build" $ \directory -> do
-    source <- either (ioError . userError) pure (entrySource target)
-    let sourcePath = directory </> if target == Llvm then "entry.ll" else "entry.s"
-        object = directory </> "entry.o"
+    let object = directory </> "entry.o"
         archive = directory </> "entry.a"
-    TIO.writeFile sourcePath source
-    (compiler, arguments) <- backendCompiler target
-    runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
+    case target of
+      AppleArm64 ->
+        either (ioError . userError . show) (BL.writeFile object) Arm64.compileEntryObject
+      LinuxAmd64 ->
+        either (ioError . userError . show) (BL.writeFile object) Amd64.compileEntryObject
+      _ -> do
+        source <- either (ioError . userError) pure (entrySource target)
+        let sourcePath = directory </> if target == Llvm then "entry.ll" else "entry.s"
+        TIO.writeFile sourcePath source
+        (compiler, arguments) <- backendCompiler target
+        runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
     archiver <- backendArchiver target
     runTool archiver ["rcs", archive, object]
     renameFile archive destination
@@ -62,8 +69,8 @@ prepareEntryArchive storeRoot target = do
 entrySource :: NativeTarget -> Either String Text
 entrySource target =
   case target of
-    AppleArm64 -> firstBackend Arm64.compileEntry
-    LinuxAmd64 -> firstBackend Amd64.compileEntry
+    AppleArm64 -> Left "Apple ARM64 uses direct object generation"
+    LinuxAmd64 -> Left "Linux AMD64 uses direct object generation"
     Llvm -> firstBackend Llvm.compileEntry
     Wasm32Wasip3 -> firstBackend Wasm.compileEntry
   where

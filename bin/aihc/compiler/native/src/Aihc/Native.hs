@@ -23,7 +23,6 @@ module Aihc.Native
     renderLinkedGlobalSymbol,
     renderNativeTarget,
     runtimePlan,
-    snapshotSourcePath,
     supportedNativePrimitiveNames,
   )
 where
@@ -202,9 +201,6 @@ runtimePlan target garbageCollector = do
             <> [trampoline | target == Wasm32Wasip3],
         runtimeIncludeDirectories = [takeDirectory core]
       }
-
-snapshotSourcePath :: IO FilePath
-snapshotSourcePath = getDataFileName "compiler/native/runtime/aihc_snapshot.c"
 
 -- | Primitive operations implemented directly by every native backend or by
 -- the shared runtime ABI.

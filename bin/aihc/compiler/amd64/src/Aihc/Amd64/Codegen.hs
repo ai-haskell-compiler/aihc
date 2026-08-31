@@ -1,20 +1,49 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Lower runtime-explicit GRIN to Intel-syntax AMD64 assembly for Linux.
+-- | Lower runtime-explicit GRIN to AMD64 ELF objects for Linux.
 -- Generated Haskell entries transfer only with branches; calls are reserved
 -- for the C runtime and foreign functions.
 module Aihc.Amd64.Codegen
   ( Amd64Error (..),
-    compileEntry,
-    compileModule,
-    ObservedProgram (..),
-    compileObservedFunction,
+    assembleObject,
+    compileEnvironmentWith,
+    compileEntryObject,
+    compileModuleObject,
+    mainEpilogue,
+    mainPrologue,
+    nonExecutableStack,
+    programRuntimeReps,
+    renderCompiledSupport,
+    renderLinkedLocals,
+    renderStaticGlobals,
     supportedNativePrimitiveNames,
+    threadDoneContinuation,
+    threadDoneRuntimeInfos,
     validateProgramPrimitives,
     validatePrimitiveNames,
+    validateRuntimeRep,
   )
 where
 
+import Aihc.Amd64.Assemble
+  ( Amd64BinarySource (..),
+    Amd64Instruction (..),
+    Amd64JumpTarget (..),
+    Amd64Memory (..),
+    Amd64MoveSource (..),
+    Amd64Register (..),
+    Amd64Rm (..),
+    Amd64Statement,
+    Amd64StoreSource (..),
+    amd64Align,
+    amd64Global,
+    amd64Instruction,
+    amd64Label,
+    amd64Quad,
+    amd64QuadSymbol,
+    amd64Section,
+    assembleElf,
+  )
 import Aihc.Amd64.Codegen.Function
 import Aihc.Amd64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
@@ -23,7 +52,6 @@ import Aihc.Grin.Gc
     entryGcProgram,
     gcContinuationFrames,
     gcContinuationFunctions,
-    gcFunctionContinuations,
     gcGrinProgram,
     gcUpdateFunction,
   )
@@ -34,84 +62,19 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
-import Data.List (find)
+import Aihc.Native.Object (SectionRole (..))
+import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
 -- | Compile the fixed executable entry unit.
-compileEntry :: Either Amd64Error Text
-compileEntry = do
+compileEntryObject :: Either Amd64Error BL.ByteString
+compileEntryObject = do
   gcProgram <- either (Left . Amd64UnsupportedExpression . T.pack . show) Right entryGcProgram
-  compileEntryUnit executableEntryName gcProgram
-
--- | Compile a nullary function with a driver that snapshots its raw return
--- values. The driver supports cooperative scheduling but exits when the
--- observed function returns; it does not evaluate returned objects or drain
--- other runnable threads.
-compileObservedFunction :: FunctionName -> GcGrinProgram -> Either Amd64Error ObservedProgram
-compileObservedFunction entryName gcProgram = do
-  mapM_ validateRuntimeRep (programRuntimeReps program)
-  validateProgramPrimitives program
-  entryFunction <-
-    maybe (Left (Amd64MissingFunction entryName)) Right $
-      findFunction entryName (grinFunctions program)
-  case Map.lookup entryName (gcFunctionContinuations gcProgram) of
-    Just continuation
-      | grinFunctionParameters entryFunction == [continuation] -> pure ()
-    _ -> Left (Amd64UnsupportedExpression "observed entry function must have only its CPS continuation")
-  entryLabel <- functionCodeLabel compileEnv entryName
-  functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals compileEnv program
-  metadata <- renderObservedMetadata compileEnv program resultReps
-  let resultCount = length resultReps
-      assembly =
-        T.unlines $
-          mainPrologue 0
-            <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
-            <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-            <> [ "  mov rdi, r15",
-                 "  mov rsi, rax",
-                 "  call aihc_set_thread_done_continuation"
-               ]
-            <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-            <> [ "  mov r13, rax",
-                 "  mov rdi, r15",
-                 "  call aihc_reset_allocation_count",
-                 "  jmp " <> entryLabel,
-                 ".p2align 3",
-                 ".Laihc_snapshot_result:"
-               ]
-            <> [storeAt register "r14" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-            <> [ "  mov rsi, r14",
-                 "  mov rdx, r15",
-                 immediate "rdi" resultCount,
-                 "  call aihc_snapshot_dump_result",
-                 "  xor eax, eax"
-               ]
-            <> mainEpilogue
-            <> threadDoneContinuation
-            <> staticGlobals
-            <> renderLinkedLocals functions
-            <> renderCompiledSupport compileEnv functions observedRuntimeInfos
-            <> nonExecutableStack
-  pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
-  where
-    program = gcGrinProgram gcProgram
-    compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
-    resultReps =
-      maybe [] (runtimeRepComponents . grinFunctionResultRep) $
-        findFunction entryName (grinFunctions program)
-    observedRuntimeInfos =
-      threadDoneRuntimeInfos
-        <> continuationRuntimeInfos
-          ContinuationFrameStop
-          ".Laihc_snapshot_info"
-          ".Laihc_snapshot_applied_info"
-          ".Laihc_snapshot_result"
-          []
-          resultReps
+  statements <- compileEntryUnit executableEntryName gcProgram
+  assembleObject statements
 
 -- | Reject primitives that reachable native code would not execute correctly.
 -- Relocatable library objects may carry dormant primitive declarations, but
@@ -123,15 +86,20 @@ validateProgramPrimitives program =
 validatePrimitiveNames :: [Text] -> Either Amd64Error ()
 validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 
--- | Compile one library module to relocatable assembly.
-compileModule :: GcGrinProgram -> Either Amd64Error Text
-compileModule gcProgram = do
+-- | Compile one library module to a relocatable object.
+compileModuleObject :: GcGrinProgram -> Either Amd64Error BL.ByteString
+compileModuleObject gcProgram = compileModuleStatements gcProgram >>= assembleObject
+
+assembleObject :: [Amd64Statement] -> Either Amd64Error BL.ByteString
+assembleObject = either (Left . Amd64ObjectError . T.pack . show) pure . assembleElf
+
+compileModuleStatements :: GcGrinProgram -> Either Amd64Error [Amd64Statement]
+compileModuleStatements gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
-  pure . T.unlines $
-    [".intel_syntax noprefix"]
-      <> staticGlobals
+  pure $
+    staticGlobals
       <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions []
       <> nonExecutableStack
@@ -143,67 +111,67 @@ compileModule gcProgram = do
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
 
-compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error Text
+compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error [Amd64Statement]
 compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
-  pure . T.unlines $
+  pure $
     mainPrologue 0
-      <> ["  mov rdi, r15", "  call aihc_alloc_linked_locals", "  mov r14, rax"]
-      <> [ "  mov rdi, r15",
-           immediate "rsi" (7 :: Int),
-           "  xor edx, edx",
-           "  xor ecx, ecx",
-           "  call aihc_ensure_heap"
+      <> [amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)), amd64Instruction (AmdCall "aihc_alloc_linked_locals"), amd64Instruction (AmdMov R14 (Amd64MoveRegister RAX))]
+      <> [ amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+           immediate RSI (7 :: Int),
+           amd64Instruction (AmdXor (Amd64RmRegister EDX) (Amd64BinaryRegister EDX)),
+           amd64Instruction (AmdXor (Amd64RmRegister ECX) (Amd64BinaryRegister ECX)),
+           amd64Instruction (AmdCall "aihc_ensure_heap")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_final_info")
-      <> ["  mov r13, rax"]
+      <> [amd64Instruction (AmdMov R13 (Amd64MoveRegister RAX))]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_top_info")
-      <> [ "  mov r12, rax",
-           "  mov rdi, r12",
-           "  xor esi, esi",
-           "  mov rdx, r13",
-           "  call aihc_set_field"
+      <> [ amd64Instruction (AmdMov R12 (Amd64MoveRegister RAX)),
+           amd64Instruction (AmdMov RDI (Amd64MoveRegister R12)),
+           amd64Instruction (AmdXor (Amd64RmRegister ESI) (Amd64BinaryRegister ESI)),
+           amd64Instruction (AmdMov RDX (Amd64MoveRegister R13)),
+           amd64Instruction (AmdCall "aihc_set_field")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_update_info")
-      <> [ storeAt "rax" "r14" 0,
-           "  mov rdx, r12",
-           loadAt "rdi" "r14" 0,
-           "  xor esi, esi",
-           "  call aihc_set_field",
-           loadAt "rdi" "r14" 0,
-           "  mov esi, 1",
-           address "rdx" (renderLinkedGlobalSymbol entryName),
-           "  call aihc_set_field"
+      <> [ storeAt RAX R14 0,
+           amd64Instruction (AmdMov RDX (Amd64MoveRegister R12)),
+           loadAt RDI R14 0,
+           amd64Instruction (AmdXor (Amd64RmRegister ESI) (Amd64BinaryRegister ESI)),
+           amd64Instruction (AmdCall "aihc_set_field"),
+           loadAt RDI R14 0,
+           amd64Instruction (AmdMov ESI (Amd64MoveImmediate 1)),
+           address RDX (renderLinkedGlobalSymbol entryName),
+           amd64Instruction (AmdCall "aihc_set_field")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
-      <> [ "  mov r10, rax",
-           "  mov rsi, r10",
-           "  mov rdi, r15",
-           "  call aihc_set_thread_done_continuation",
-           address "r11" ".Laihc_exit",
-           "  mov QWORD PTR [r15 + 16], r11",
+      <> [ amd64Instruction (AmdMov R10 (Amd64MoveRegister RAX)),
+           amd64Instruction (AmdMov RSI (Amd64MoveRegister R10)),
+           amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+           amd64Instruction (AmdCall "aihc_set_thread_done_continuation"),
+           address R11 ".Laihc_exit",
+           amd64Instruction (AmdStore (Amd64Memory R15 16) (Amd64StoreRegister R11)),
            address applyFunctionRegister (renderLinkedGlobalSymbol entryName),
-           loadAt "rax" "r14" 0,
-           "  mov r13, QWORD PTR [rax + 8]",
-           "  mov r11, 1",
-           "  jmp .Laihc_eval"
+           loadAt RAX R14 0,
+           amd64Instruction (AmdMov R13 (Amd64MoveMemory (Amd64Memory RAX 8))),
+           amd64Instruction (AmdMov R11 (Amd64MoveImmediate 1)),
+           amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_eval"))
          ]
-      <> [ ".p2align 3",
-           ".Laihc_top_continuation:",
-           "  mov r13, rax",
-           "  mov r12, rdi",
-           "  jmp .Laihc_enter"
+      <> [ amd64Align 3,
+           amd64Label ".Laihc_top_continuation",
+           amd64Instruction (AmdMov R13 (Amd64MoveRegister RAX)),
+           amd64Instruction (AmdMov R12 (Amd64MoveRegister RDI)),
+           amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter"))
          ]
       <> threadDoneContinuation
-      <> [ ".p2align 3",
-           ".Laihc_final_continuation:",
-           "  jmp .Laihc_exit"
+      <> [ amd64Align 3,
+           amd64Label ".Laihc_final_continuation",
+           amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_exit"))
          ]
-      <> [ ".Laihc_exit:",
-           "  xor eax, eax"
+      <> [ amd64Label ".Laihc_exit",
+           amd64Instruction (AmdXor (Amd64RmRegister EAX) (Amd64BinaryRegister EAX))
          ]
       <> mainEpilogue
       <> staticGlobals
@@ -238,47 +206,46 @@ compileEntryUnit entryName gcProgram = do
           [pointerRep]
         <> threadDoneRuntimeInfos
 
-mainPrologue :: Int -> [Text]
+mainPrologue :: Int -> [Amd64Statement]
 mainPrologue globalCount =
   entryPrologue "main"
-    <> [ "  call aihc_program_arguments_initialize",
-         immediate "rdi" globalCount,
-         "  call aihc_machine_new",
-         "  mov r15, rax"
+    <> [ amd64Instruction (AmdCall "aihc_program_arguments_initialize"),
+         immediate RDI globalCount,
+         amd64Instruction (AmdCall "aihc_machine_new"),
+         amd64Instruction (AmdMov R15 (Amd64MoveRegister RAX))
        ]
 
-entryPrologue :: Text -> [Text]
+entryPrologue :: Text -> [Amd64Statement]
 entryPrologue symbol =
-  [ ".intel_syntax noprefix",
-    ".text",
-    ".p2align 4",
-    ".globl " <> symbol,
-    symbol <> ":",
-    "  push rbp",
-    "  mov rbp, rsp",
-    "  push r12",
-    "  push r13",
-    "  push r14",
-    "  push r15"
+  [ amd64Section TextSection,
+    amd64Align 4,
+    amd64Global symbol,
+    amd64Label symbol,
+    amd64Instruction (AmdPush RBP),
+    amd64Instruction (AmdMov RBP (Amd64MoveRegister RSP)),
+    amd64Instruction (AmdPush R12),
+    amd64Instruction (AmdPush R13),
+    amd64Instruction (AmdPush R14),
+    amd64Instruction (AmdPush R15)
   ]
 
-mainEpilogue :: [Text]
+mainEpilogue :: [Amd64Statement]
 mainEpilogue =
-  [ "  pop r15",
-    "  pop r14",
-    "  pop r13",
-    "  pop r12",
-    "  pop rbp",
-    "  ret"
+  [ amd64Instruction (AmdPop R15),
+    amd64Instruction (AmdPop R14),
+    amd64Instruction (AmdPop R13),
+    amd64Instruction (AmdPop R12),
+    amd64Instruction (AmdPop RBP),
+    amd64Instruction AmdRet
   ]
 
-threadDoneContinuation :: [Text]
+threadDoneContinuation :: [Amd64Statement]
 threadDoneContinuation =
-  [ ".p2align 3",
-    ".Laihc_thread_done_continuation:",
-    "  mov rdi, r15",
-    "  call aihc_thread_done",
-    "  jmp .Laihc_resume"
+  [ amd64Align 3,
+    amd64Label ".Laihc_thread_done_continuation",
+    amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+    amd64Instruction (AmdCall "aihc_thread_done"),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_resume"))
   ]
 
 threadDoneRuntimeInfos :: [RuntimeInfo]
@@ -291,14 +258,14 @@ threadDoneRuntimeInfos =
     []
     [BoxedRep Lifted]
 
-renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Text]
+renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Amd64Statement]
 renderCompiledSupport env functions runtimeInfos =
   renderNativeControl
     <> concatMap compiledFunctionLines functions
     <> renderRuntimeSupport env runtimeInfos
 
-nonExecutableStack :: [Text]
-nonExecutableStack = [".section .note.GNU-stack,\"\",@progbits"]
+nonExecutableStack :: [Amd64Statement]
+nonExecutableStack = [amd64Section NoExecuteStackSection]
 
 compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
 compileEnvironment = compileEnvironmentWith False
@@ -369,7 +336,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames program =
       ]
     third (_, _, value) = value
 
-renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Amd64Error [Text]
+renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Amd64Error [Amd64Statement]
 renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
   where
     declaredGlobals = grinGlobals program
@@ -386,18 +353,18 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
       let symbol = renderLinkedGlobalSymbol name
-          payload = if null fields && isThunk node then ["  .quad 0"] else fields
+          payload = if null fields && isThunk node then [amd64Quad 0] else fields
       pure $
-        [ ".section .data",
-          ".p2align 3",
-          ".globl " <> symbol,
-          symbol <> ":",
-          "  .quad " <> info
+        [ amd64Section DataSection,
+          amd64Align 3,
+          amd64Global symbol,
+          amd64Label symbol,
+          amd64QuadSymbol info
         ]
           <> payload
-          <> [ ".section aihc_roots,\"aw\"",
-               ".p2align 3",
-               "  .quad " <> symbol
+          <> [ amd64Section RootsSection,
+               amd64Align 3,
+               amd64QuadSymbol symbol
              ]
     staticNodeInfo node =
       case grinNodeTag node of
@@ -408,23 +375,23 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
         fields = map grinValueRuntimeRep (grinNodeFields node)
     renderStaticValue value =
       case value of
-        GrinVarValue var -> pure ("  .quad " <> renderLinkedGlobalSymbol (grinVarName var))
-        GrinGlobalValue name -> pure ("  .quad " <> renderLinkedGlobalSymbol name)
+        GrinVarValue var -> pure (amd64QuadSymbol (renderLinkedGlobalSymbol (grinVarName var)))
+        GrinGlobalValue name -> pure (amd64QuadSymbol (renderLinkedGlobalSymbol name))
         GrinLitValue literal ->
           case literal of
             GrinLitAddr bytes ->
-              maybe (Left (Amd64UnsupportedValue "unregistered Addr# literal")) (pure . ("  .quad " <>)) (Map.lookup bytes (compileAddrLiteralLabels env))
-            _ -> maybe (Left (Amd64UnsupportedValue "string literal")) (pure . ("  .quad " <>) . T.pack . show) (normalizedLiteralInteger literal)
+              maybe (Left (Amd64UnsupportedValue "unregistered Addr# literal")) (pure . amd64QuadSymbol) (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (Amd64UnsupportedValue "string literal")) (pure . amd64Quad . fromIntegral) (normalizedLiteralInteger literal)
     isThunk node =
       case grinNodeTag node of
         GrinThunk {} -> True
         _ -> False
 
-renderLinkedLocals :: [CompiledFunction] -> [Text]
+renderLinkedLocals :: [CompiledFunction] -> [Amd64Statement]
 renderLinkedLocals functions =
-  [ ".section aihc_locals,\"aw\"",
-    ".p2align 3",
-    "  .quad " <> tshow (maximum (2 : map compiledFunctionSlots functions))
+  [ amd64Section LocalsSection,
+    amd64Align 3,
+    amd64Quad (fromIntegral (maximum (2 : map compiledFunctionSlots functions)))
   ]
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
@@ -550,149 +517,3 @@ valueRuntimeReps value = [grinValueRuntimeRep value]
 
 nodeRuntimeReps :: GrinNode -> [GrinRep]
 nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
-
-findFunction :: FunctionName -> [GrinFunction] -> Maybe GrinFunction
-findFunction name = find ((== name) . grinFunctionName)
-
-renderObservedMetadata :: CompileEnv -> GrinProgram -> [GrinRep] -> Either Amd64Error Text
-renderObservedMetadata env program resultReps = do
-  renderedResultReps <- mapM snapshotRepName resultReps
-  constructors <- mapM renderConstructorDescriptor constructorEntries
-  functions <- mapM renderFunctionDescriptor functionEntries
-  pure . T.unlines $
-    [ "#include \"aihc_snapshot.h\"",
-      "#include <stddef.h>",
-      ""
-    ]
-      <> map renderFunctionDeclaration functions
-      <> [""]
-      <> concatMap renderConstructorRepDeclaration constructors
-      <> concatMap renderFunctionRepDeclaration functions
-      <> renderRepDeclaration "result_reps" renderedResultReps
-      <> renderConstructorTable constructors
-      <> renderFunctionTable functions
-      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, const AihcMachine *machine) {",
-           "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
-           "                     aihc_allocation_count(machine),",
-           "                     " <> tshow (length constructors) <> ", " <> pointerOrNull constructors "constructors" <> ",",
-           "                     " <> tshow (length functions) <> ", " <> pointerOrNull functions "functions" <> ");",
-           "}"
-         ]
-  where
-    layouts =
-      Map.fromList [(name, concat argumentLayouts) | (name, argumentLayouts) <- grinConstructors program]
-    constructorEntries =
-      [ (index, name, fields)
-      | (index, (name, fields)) <- zip [0 :: Int ..] (Map.toAscList layouts)
-      ]
-    localFunctionEntries =
-      [ (grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function))
-      | function <- grinFunctions program
-      ]
-    functionEntries = localFunctionEntries
-
-    renderConstructorDescriptor (identifier, name, fields) = do
-      reps <- mapM snapshotRepName fields
-      pure (identifier, name, reps)
-
-    renderFunctionDescriptor (name, parameters) = do
-      label <- functionCodeLabel env name
-      reps <- mapM snapshotRepName parameters
-      pure (name, label, reps)
-
-renderFunctionDeclaration :: (FunctionName, Text, [Text]) -> Text
-renderFunctionDeclaration (_, label, _) =
-  "extern void " <> cSymbol label <> "(void);"
-
-renderConstructorRepDeclaration :: (Int, Text, [Text]) -> [Text]
-renderConstructorRepDeclaration (identifier, _, reps) =
-  renderRepDeclaration ("constructor_reps_" <> tshow identifier) reps
-
-renderFunctionRepDeclaration :: (FunctionName, Text, [Text]) -> [Text]
-renderFunctionRepDeclaration (_, label, reps) =
-  renderRepDeclaration ("function_reps_" <> cSymbol label) reps
-
-renderRepDeclaration :: Text -> [Text] -> [Text]
-renderRepDeclaration _ [] = []
-renderRepDeclaration name reps =
-  [ "static const AihcSnapshotRep "
-      <> name
-      <> "[] = {"
-      <> T.intercalate ", " reps
-      <> "};"
-  ]
-
-renderConstructorTable :: [(Int, Text, [Text])] -> [Text]
-renderConstructorTable [] = []
-renderConstructorTable constructors =
-  ["extern const char " <> cSymbol (constructorStageLabel name 0) <> "[];" | (_, name, _) <- constructors]
-    <> ["static const AihcSnapshotConstructor constructors[] = {"]
-    <> [ "  {"
-           <> "(uintptr_t)&"
-           <> cSymbol (constructorStageLabel name 0)
-           <> ", "
-           <> cString name
-           <> ", "
-           <> tshow (length reps)
-           <> ", "
-           <> pointerOrNull reps ("constructor_reps_" <> tshow identifier)
-           <> "},"
-       | (identifier, name, reps) <- constructors
-       ]
-    <> ["};"]
-
-renderFunctionTable :: [(FunctionName, Text, [Text])] -> [Text]
-renderFunctionTable [] = []
-renderFunctionTable functions =
-  [ "static const AihcSnapshotFunction functions[] = {"
-  ]
-    <> [ "  {(uintptr_t)&"
-           <> cSymbol label
-           <> ", "
-           <> cString (unFunctionName name)
-           <> ", "
-           <> tshow (length reps)
-           <> ", "
-           <> pointerOrNull reps ("function_reps_" <> cSymbol label)
-           <> "},"
-       | (name, label, reps) <- functions
-       ]
-    <> ["};"]
-
-snapshotRepName :: GrinRep -> Either Amd64Error Text
-snapshotRepName runtimeRep =
-  case runtimeRep of
-    BoxedRep {} -> pure "AIHC_SNAPSHOT_POINTER"
-    SumRep {} -> pure "AIHC_SNAPSHOT_POINTER"
-    IntRep -> pure "AIHC_SNAPSHOT_INT"
-    Int8Rep -> pure "AIHC_SNAPSHOT_INT8"
-    Int16Rep -> pure "AIHC_SNAPSHOT_INT16"
-    Int32Rep -> pure "AIHC_SNAPSHOT_INT32"
-    Int64Rep -> pure "AIHC_SNAPSHOT_INT64"
-    WordRep -> pure "AIHC_SNAPSHOT_WORD"
-    Word8Rep -> pure "AIHC_SNAPSHOT_WORD8"
-    Word16Rep -> pure "AIHC_SNAPSHOT_WORD16"
-    Word32Rep -> pure "AIHC_SNAPSHOT_WORD32"
-    Word64Rep -> pure "AIHC_SNAPSHOT_WORD64"
-    AddrRep -> pure "AIHC_SNAPSHOT_ADDR"
-    FloatRep -> pure "AIHC_SNAPSHOT_FLOAT"
-    DoubleRep -> pure "AIHC_SNAPSHOT_DOUBLE"
-    _ -> Left (Amd64UnsupportedRuntimeRep runtimeRep)
-
-pointerOrNull :: [value] -> Text -> Text
-pointerOrNull values name
-  | null values = "NULL"
-  | otherwise = name
-
-cSymbol :: Text -> Text
-cSymbol = id
-
-cString :: Text -> Text
-cString value = "\"" <> T.concatMap escape value <> "\""
-  where
-    escape '"' = "\\\""
-    escape '\\' = "\\\\"
-    escape '\n' = "\\n"
-    escape '\r' = "\\r"
-    escape '\t' = "\\t"
-    escape character = T.singleton character

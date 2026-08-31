@@ -8,7 +8,6 @@ module Aihc.Arm64.Codegen.Runtime
     FunctionM,
     FunctionState (..),
     NodeInfo (..),
-    ObservedProgram (..),
     RuntimeEnter (..),
     RuntimeInfo (..),
     RuntimeInfoKey (..),
@@ -58,10 +57,27 @@ module Aihc.Arm64.Codegen.Runtime
   )
 where
 
+import Aihc.Arm64.Assemble
+  ( Arm64Address (..),
+    Arm64Condition (..),
+    Arm64Instruction (..),
+    Arm64Register (..),
+    Arm64Statement,
+    Arm64Value (..),
+    arm64Align,
+    arm64Bytes,
+    arm64Global,
+    arm64Instruction,
+    arm64Label,
+    arm64Quad,
+    arm64QuadSymbol,
+    arm64Section,
+  )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
+import Aihc.Native.Object (SectionRole (..))
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (StateT)
@@ -69,7 +85,6 @@ import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -82,6 +97,7 @@ data Arm64Error
   | Arm64UnsupportedExpression !Text
   | Arm64UnsupportedValue !Text
   | Arm64UnsupportedRuntimeRep !GrinRep
+  | Arm64ObjectError !Text
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
@@ -94,28 +110,22 @@ data CompileEnv = CompileEnv
     compileAllowUnsupportedPrimitives :: !Bool
   }
 
-data ObservedProgram = ObservedProgram
-  { observedAssembly :: !Text,
-    observedMetadataSource :: !Text
-  }
-  deriving (Eq, Show)
-
 data FunctionState = FunctionState
   { functionNextLabel :: !Int,
     functionNextSlot :: !Int,
-    functionBlocksRev :: ![BlockLayout.Block Text Text]
+    functionBlocksRev :: ![BlockLayout.Block Text Arm64Statement]
   }
 
 data CompiledFunction = CompiledFunction
   { compiledFunctionSlots :: !Int,
-    compiledFunctionLines :: ![Text]
+    compiledFunctionLines :: ![Arm64Statement]
   }
 
 type FunctionM = StateT FunctionState (Either Arm64Error)
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocations :: !(Map GrinVar (Location Text)),
+    valueLocations :: !(Map GrinVar (Location Arm64Register)),
     valueLabelPrefix :: !Text,
     valueFunctionName :: !FunctionName,
     valueFunctionParameters :: ![GrinVar],
@@ -150,22 +160,19 @@ data NodeInfo
   | InfoAddress !Text
   | InfoConstructor !Text
 
-makeNodeLines :: NodeInfo -> [Text]
+makeNodeLines :: NodeInfo -> [Arm64Statement]
 makeNodeLines info =
-  [ "  mov x0, x22",
-    infoLine info,
-    "  bl _aihc_make_node"
-  ]
+  [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22))] <> infoLines info <> [arm64Instruction (ArmBl "_aihc_make_node")]
   where
-    infoLine nodeInfo =
+    infoLines nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> immediate "x1" integer
-        InfoAddress label -> address "x1" label
-        InfoConstructor label -> address "x1" label
+        InfoImmediate integer -> [immediate X1 integer]
+        InfoAddress label -> address X1 label
+        InfoConstructor label -> address X1 label
 
-makeNodeUncheckedLines :: NodeInfo -> [Text]
+makeNodeUncheckedLines :: NodeInfo -> [Arm64Statement]
 makeNodeUncheckedLines info =
-  init (makeNodeLines info) <> ["  bl _aihc_make_node_unchecked"]
+  init (makeNodeLines info) <> [arm64Instruction (ArmBl "_aihc_make_node_unchecked")]
 
 -- | Describe a unary continuation before and after it receives its result.
 -- The result can occupy several machine slots even though it is one GRIN
@@ -192,7 +199,7 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       runtimeObjectClosure
   ]
 
-renderEnterStubs :: [RuntimeInfo] -> [Text]
+renderEnterStubs :: [RuntimeInfo] -> [Arm64Statement]
 renderEnterStubs infos = concatMap renderStub uniqueTransfers
   where
     uniqueTransfers =
@@ -203,15 +210,15 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
           not (isDirectEnter apply)
         ]
     renderStub apply =
-      [ ".section __TEXT,__text,regular,pure_instructions",
-        ".p2align 3",
-        sharedEnterEntryLabel apply <> ":"
+      [ arm64Section TextSection,
+        arm64Align 3,
+        arm64Label (sharedEnterEntryLabel apply)
       ]
         <> moveSupplied apply
         <> moveSuppliedOverflow apply
         <> loadStored apply
         <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-        <> ["  ldr x8, [x20]", "  ldr x8, [x8, #8]", "  br x8"]
+        <> [arm64Instruction (ArmLdr X8 (Arm64Offset X20 0)), arm64Instruction (ArmLdr X8 (Arm64Offset X8 8)), arm64Instruction (ArmBr X8)]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -222,27 +229,27 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     moveSuppliedOverflow apply
       | runtimeEnterSuppliedCount apply <= length applyArgumentRegisters = []
       | otherwise =
-          ["  mov x9, sp"]
+          [arm64Instruction (ArmMov X9 (Arm64RegisterValue SP))]
             <> concat
-              [ ["  ldr x8, [x9], #8", storeAt "x8" "x19" targetIndex]
+              [ [arm64Instruction (ArmLdr X8 (Arm64PostIndex X9 8)), storeAt X8 X19 targetIndex]
               | sourceIndex <- [length applyArgumentRegisters .. runtimeEnterSuppliedCount apply - 1],
                 let targetIndex = runtimeEnterStoredCount apply + sourceIndex
               ]
     loadStored apply =
       concat
         [ if targetIndex < length applyArgumentRegisters
-            then ["  ldr " <> applyArgumentRegisters !! targetIndex <> ", [" <> applyFunctionRegister <> ", #" <> tshow ((targetIndex + 1) * 8) <> "]"]
+            then [loadByteOffset (applyArgumentRegisters !! targetIndex) applyFunctionRegister ((targetIndex + 1) * 8)]
             else
-              [ "  ldr x8, [" <> applyFunctionRegister <> ", #" <> tshow ((targetIndex + 1) * 8) <> "]",
-                storeAt "x8" "x19" targetIndex
+              [ loadByteOffset X8 applyFunctionRegister ((targetIndex + 1) * 8),
+                storeAt X8 X19 targetIndex
               ]
         | targetIndex <- [0 .. runtimeEnterStoredCount apply - 1]
         ]
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
           let destination = applyArgumentRegisters !! targetIndex
-           in ["  mov " <> destination <> ", " <> source | destination /= source]
-      | otherwise = [storeAt source "x19" targetIndex]
+           in [arm64Instruction (ArmMov destination (Arm64RegisterValue source)) | destination /= source]
+      | otherwise = [storeAt source X19 targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
 enterEntryLabel info =
@@ -266,40 +273,40 @@ sharedEnterEntryLabel apply =
     <> "_"
     <> tshow (runtimeEnterSuppliedCount apply)
 
-applyFunctionRegister, applyContinuationRegister :: Text
-applyFunctionRegister = "x20"
-applyContinuationRegister = "x21"
+applyFunctionRegister, applyContinuationRegister :: Arm64Register
+applyFunctionRegister = X20
+applyContinuationRegister = X21
 
-applyArgumentRegisters :: [Text]
-applyArgumentRegisters = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+applyArgumentRegisters :: [Arm64Register]
+applyArgumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 
 applyStackBytes :: Int -> Int
 applyStackBytes suppliedCount = ((overflowCount * 8 + 15) `div` 16) * 16
   where
     overflowCount = max 0 (suppliedCount - length applyArgumentRegisters)
 
-restoreApplyStackLines :: Int -> [Text]
+restoreApplyStackLines :: Int -> [Arm64Statement]
 restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
-  | otherwise = [immediate "x8" stackBytes, "  add sp, sp, x8"]
+  | otherwise = [immediate X8 stackBytes, arm64Instruction (ArmAdd SP SP (Arm64RegisterValue X8))]
 
-renderRuntimeInfos :: [RuntimeInfo] -> [Text]
-renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo infos
+renderRuntimeInfos :: [RuntimeInfo] -> [Arm64Statement]
+renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInfo infos
   where
     renderInfo info =
       bitmapLines
-        <> [".globl " <> runtimeInfoLabel info | "_aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
-        <> [ ".p2align 3",
-             runtimeInfoLabel info <> ":",
+        <> [arm64Global (runtimeInfoLabel info) | "_aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
+        <> [ arm64Align 3,
+             arm64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
-             "  .quad " <> tshow (length fields),
-             "  .quad " <> tshow (runtimeInfoRemainingArity info),
-             "  .quad " <> if null fields then "0" else bitmapLabel,
-             "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
-             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info),
-             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
-             "  .quad " <> tshow (runtimeInfoObjectKind info)
+             arm64Quad (fromIntegral (length fields)),
+             arm64Quad (fromIntegral (runtimeInfoRemainingArity info)),
+             if null fields then arm64Quad 0 else arm64QuadSymbol bitmapLabel,
+             maybe (arm64Quad 0) arm64QuadSymbol (runtimeInfoNext info),
+             maybe (arm64Quad 0) (const (arm64QuadSymbol (enterEntryLabel info))) (runtimeInfoEnter info),
+             arm64Quad (fromIntegral (continuationFrameKindCode (runtimeInfoFrameKind info))),
+             arm64Quad (fromIntegral (runtimeInfoObjectKind info))
            ]
       where
         fields = runtimeInfoFields info
@@ -308,21 +315,21 @@ renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo i
           if null fields
             then []
             else
-              [ bitmapLabel <> ":",
-                "  .byte " <> T.intercalate ", " [if isPointerRuntimeRep runtimeRep then "1" else "0" | runtimeRep <- fields]
+              [ arm64Label bitmapLabel,
+                arm64Bytes (BS.pack [if isPointerRuntimeRep runtimeRep then 1 else 0 | runtimeRep <- fields])
               ]
     identityLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> "  .quad " <> tshow integer
-        InfoAddress label -> "  .quad " <> label
-        InfoConstructor label -> "  .quad " <> label
+        InfoImmediate integer -> arm64Quad (fromIntegral integer)
+        InfoAddress label -> arm64QuadSymbol label
+        InfoConstructor label -> arm64QuadSymbol label
     entryLine nodeInfo =
       case nodeInfo of
-        InfoImmediate {} -> "  .quad 0"
-        InfoAddress label -> "  .quad " <> label
-        InfoConstructor {} -> "  .quad 0"
+        InfoImmediate {} -> arm64Quad 0
+        InfoAddress label -> arm64QuadSymbol label
+        InfoConstructor {} -> arm64Quad 0
 
-renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Text]
+renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Arm64Statement]
 renderRuntimeSupport env extraInfos =
   renderEnterStubs infos
     <> renderAddrLiteralPool env
@@ -336,119 +343,119 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-loadLocation :: Text -> Location Text -> [Text]
+loadLocation :: Arm64Register -> Location Arm64Register -> [Arm64Statement]
 loadLocation destination location =
   case location of
     InRegister source
       | destination == source -> []
-      | otherwise -> ["  mov " <> destination <> ", " <> source]
-    InHeapSpill slot -> [loadAt destination "x19" slot]
+      | otherwise -> [arm64Instruction (ArmMov destination (Arm64RegisterValue source))]
+    InHeapSpill slot -> [loadAt destination X19 slot]
 
-storeLocation :: Text -> Location Text -> [Text]
+storeLocation :: Arm64Register -> Location Arm64Register -> [Arm64Statement]
 storeLocation source location =
   case location of
     InRegister destination
       | destination == source -> []
-      | otherwise -> ["  mov " <> destination <> ", " <> source]
-    InHeapSpill slot -> [storeAt source "x19" slot]
+      | otherwise -> [arm64Instruction (ArmMov destination (Arm64RegisterValue source))]
+    InHeapSpill slot -> [storeAt source X19 slot]
 
-renderNativeControl :: [Text]
+renderNativeControl :: [Arm64Statement]
 renderNativeControl =
-  [ ".section __TEXT,__text,regular,pure_instructions",
-    ".p2align 3",
-    ".Laihc_enter:",
-    "  ldr x9, [x20]",
-    "  ldr x10, [x9, #64]",
-    "  cmp x10, #4",
-    "  b.eq .Laihc_enter_indirection",
-    "  ldr x9, [x9, #48]",
-    "  cbz x9, .Laihc_invalid_enter",
-    "  br x9",
-    ".Laihc_enter_indirection:",
-    "  ldr x20, [x20, #8]",
-    "  b .Laihc_enter",
-    ".Laihc_resume:",
-    "  ldr w9, [x0]",
-    "  cmp w9, #1",
-    "  b.eq .Laihc_resume_apply",
-    "  cmp w9, #2",
-    "  b.eq .Laihc_resume_continue",
-    "  cmp w9, #3",
-    "  b.eq .Laihc_resume_raise",
-    "  b .Laihc_invalid_enter",
-    ".Laihc_resume_continue:",
-    "  ldr x8, [x0, #24]",
-    "  ldr x9, [x0, #32]",
-    "  ldr x20, [x0, #8]",
-    "  stp xzr, xzr, [x0]",
-    "  stp xzr, xzr, [x0, #16]",
-    "  str xzr, [x0, #32]",
-    "  cbz x9, .Laihc_enter",
-    "  cmp x9, #1",
-    "  b.ne .Laihc_invalid_enter",
-    "  mov x0, x8",
-    "  b .Laihc_enter",
-    ".Laihc_resume_apply:",
-    "  ldr x8, [x0, #24]",
-    "  ldr x9, [x0, #32]",
-    "  ldr x20, [x0, #8]",
-    "  ldr x21, [x0, #16]",
-    "  stp xzr, xzr, [x0]",
-    "  stp xzr, xzr, [x0, #16]",
-    "  str xzr, [x0, #32]",
-    "  cbz x9, .Laihc_enter",
-    "  cmp x9, #1",
-    "  b.ne .Laihc_invalid_enter",
-    "  mov x0, x8",
-    "  b .Laihc_enter",
-    ".Laihc_resume_raise:",
-    "  ldr x1, [x0, #8]",
-    "  ldr x2, [x0, #16]",
-    "  stp xzr, xzr, [x0]",
-    "  stp xzr, xzr, [x0, #16]",
-    "  str xzr, [x0, #32]",
-    "  mov x0, x22",
-    "  bl _aihc_raise",
-    "  b .Laihc_resume",
-    ".Laihc_eval:",
-    "  str x0, [x19]",
-    "  str x8, [x19, #8]",
-    ".Laihc_eval_loop:",
-    "  ldr x9, [x20]",
-    "  ldr x10, [x9, #64]",
-    "  cmp x10, #2",
-    "  b.eq .Laihc_eval_thunk",
-    "  cmp x10, #4",
-    "  b.eq .Laihc_eval_indirection",
-    "  cmp x10, #5",
-    "  b.eq .Laihc_eval_blackhole",
-    "  mov x0, x20",
-    "  mov x20, x21",
-    "  b .Laihc_enter",
-    ".Laihc_eval_thunk:",
-    "  mov x1, x20",
-    "  mov x0, x22",
-    "  bl _aihc_begin_blackhole",
-    "  ldr x21, [x19]",
-    "  b .Laihc_enter",
-    ".Laihc_eval_indirection:",
-    "  ldr x9, [x19, #8]",
-    "  cbz x9, .Laihc_eval_unlifted_indirection",
-    "  ldr x20, [x20, #8]",
-    "  b .Laihc_eval_loop",
-    ".Laihc_eval_unlifted_indirection:",
-    "  ldr x0, [x20, #8]",
-    "  mov x20, x21",
-    "  b .Laihc_enter",
-    ".Laihc_eval_blackhole:",
-    "  mov x2, x21",
-    "  mov x1, x20",
-    "  mov x0, x22",
-    "  bl _aihc_block_on_blackhole",
-    "  b .Laihc_resume",
-    ".Laihc_invalid_enter:",
-    "  bl _aihc_no_match",
-    "  brk #0"
+  [ arm64Section TextSection,
+    arm64Align 3,
+    arm64Label ".Laihc_enter",
+    arm64Instruction (ArmLdr X9 (Arm64Offset X20 0)),
+    arm64Instruction (ArmLdr X10 (Arm64Offset X9 64)),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 4)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_enter_indirection"),
+    arm64Instruction (ArmLdr X9 (Arm64Offset X9 48)),
+    arm64Instruction (ArmCbz X9 ".Laihc_invalid_enter"),
+    arm64Instruction (ArmBr X9),
+    arm64Label ".Laihc_enter_indirection",
+    arm64Instruction (ArmLdr X20 (Arm64Offset X20 8)),
+    arm64Instruction (ArmB ".Laihc_enter"),
+    arm64Label ".Laihc_resume",
+    arm64Instruction (ArmLdr W9 (Arm64Offset X0 0)),
+    arm64Instruction (ArmCmp W9 (Arm64ImmediateValue 1)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_resume_apply"),
+    arm64Instruction (ArmCmp W9 (Arm64ImmediateValue 2)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_resume_continue"),
+    arm64Instruction (ArmCmp W9 (Arm64ImmediateValue 3)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_resume_raise"),
+    arm64Instruction (ArmB ".Laihc_invalid_enter"),
+    arm64Label ".Laihc_resume_continue",
+    arm64Instruction (ArmLdr X8 (Arm64Offset X0 24)),
+    arm64Instruction (ArmLdr X9 (Arm64Offset X0 32)),
+    arm64Instruction (ArmLdr X20 (Arm64Offset X0 8)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 0)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 16)),
+    arm64Instruction (ArmStr XZR (Arm64Offset X0 32)),
+    arm64Instruction (ArmCbz X9 ".Laihc_enter"),
+    arm64Instruction (ArmCmp X9 (Arm64ImmediateValue 1)),
+    arm64Instruction (ArmBCond ArmNe ".Laihc_invalid_enter"),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X8)),
+    arm64Instruction (ArmB ".Laihc_enter"),
+    arm64Label ".Laihc_resume_apply",
+    arm64Instruction (ArmLdr X8 (Arm64Offset X0 24)),
+    arm64Instruction (ArmLdr X9 (Arm64Offset X0 32)),
+    arm64Instruction (ArmLdr X20 (Arm64Offset X0 8)),
+    arm64Instruction (ArmLdr X21 (Arm64Offset X0 16)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 0)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 16)),
+    arm64Instruction (ArmStr XZR (Arm64Offset X0 32)),
+    arm64Instruction (ArmCbz X9 ".Laihc_enter"),
+    arm64Instruction (ArmCmp X9 (Arm64ImmediateValue 1)),
+    arm64Instruction (ArmBCond ArmNe ".Laihc_invalid_enter"),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X8)),
+    arm64Instruction (ArmB ".Laihc_enter"),
+    arm64Label ".Laihc_resume_raise",
+    arm64Instruction (ArmLdr X1 (Arm64Offset X0 8)),
+    arm64Instruction (ArmLdr X2 (Arm64Offset X0 16)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 0)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 16)),
+    arm64Instruction (ArmStr XZR (Arm64Offset X0 32)),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_raise"),
+    arm64Instruction (ArmB ".Laihc_resume"),
+    arm64Label ".Laihc_eval",
+    arm64Instruction (ArmStr X0 (Arm64Offset X19 0)),
+    arm64Instruction (ArmStr X8 (Arm64Offset X19 8)),
+    arm64Label ".Laihc_eval_loop",
+    arm64Instruction (ArmLdr X9 (Arm64Offset X20 0)),
+    arm64Instruction (ArmLdr X10 (Arm64Offset X9 64)),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 2)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_eval_thunk"),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 4)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_eval_indirection"),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 5)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_eval_blackhole"),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X20)),
+    arm64Instruction (ArmMov X20 (Arm64RegisterValue X21)),
+    arm64Instruction (ArmB ".Laihc_enter"),
+    arm64Label ".Laihc_eval_thunk",
+    arm64Instruction (ArmMov X1 (Arm64RegisterValue X20)),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_begin_blackhole"),
+    arm64Instruction (ArmLdr X21 (Arm64Offset X19 0)),
+    arm64Instruction (ArmB ".Laihc_enter"),
+    arm64Label ".Laihc_eval_indirection",
+    arm64Instruction (ArmLdr X9 (Arm64Offset X19 8)),
+    arm64Instruction (ArmCbz X9 ".Laihc_eval_unlifted_indirection"),
+    arm64Instruction (ArmLdr X20 (Arm64Offset X20 8)),
+    arm64Instruction (ArmB ".Laihc_eval_loop"),
+    arm64Label ".Laihc_eval_unlifted_indirection",
+    arm64Instruction (ArmLdr X0 (Arm64Offset X20 8)),
+    arm64Instruction (ArmMov X20 (Arm64RegisterValue X21)),
+    arm64Instruction (ArmB ".Laihc_enter"),
+    arm64Label ".Laihc_eval_blackhole",
+    arm64Instruction (ArmMov X2 (Arm64RegisterValue X21)),
+    arm64Instruction (ArmMov X1 (Arm64RegisterValue X20)),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_block_on_blackhole"),
+    arm64Instruction (ArmB ".Laihc_resume"),
+    arm64Label ".Laihc_invalid_enter",
+    arm64Instruction (ArmBl "_aihc_no_match"),
+    arm64Instruction (ArmBrk 0)
   ]
 
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Arm64Error Text
@@ -515,17 +522,15 @@ runtimeInfoKeyNext (ClosureRuntimeInfo functionName fields (layout : rest)) =
 runtimeInfoKeyNext ClosureRuntimeInfo {} = Nothing
 runtimeInfoKeyNext ThunkRuntimeInfo {} = Nothing
 
-renderAddrLiteralPool :: CompileEnv -> [Text]
+renderAddrLiteralPool :: CompileEnv -> [Arm64Statement]
 renderAddrLiteralPool env =
   case Map.toAscList (compileAddrLiteralLabels env) of
     [] -> []
-    literals -> [".section __TEXT,__const"] <> concatMap renderLiteral literals
+    literals -> [arm64Section TextConstantsSection] <> concatMap renderLiteral literals
   where
     renderLiteral (value, label) =
-      ["  .p2align 3", label <> ":"]
-        <> map renderBytes (chunksOf 32 (BS.unpack value <> [0]))
-
-    renderBytes bytes = "  .byte " <> T.intercalate ", " (map tshow bytes)
+      [arm64Align 3, arm64Label label]
+        <> map (arm64Bytes . BS.pack) (chunksOf 32 (BS.unpack value <> [0]))
 
     chunksOf _ [] = []
     chunksOf size bytes = take size bytes : chunksOf size (drop size bytes)
@@ -535,52 +540,53 @@ functionLabel index = ".Laihc_function_" <> tshow index
 
 localFunctionLabelWith :: Bool -> Int -> GrinFunction -> Text
 localFunctionLabelWith exposeAllFunctions index _function
-  | exposeAllFunctions = "_aihc_snapshot_function_" <> tshow index
+  | exposeAllFunctions = "_aihc_exposed_function_" <> tshow index
   | otherwise = functionLabel index
 
-loadAt :: Text -> Text -> Int -> Text
+loadAt :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 loadAt destination base slot = loadByteOffset destination base (slot * 8)
 
-storeAt :: Text -> Text -> Int -> Text
+storeAt :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 storeAt source base slot = storeByteOffset source base (slot * 8)
 
-loadByteOffset :: Text -> Text -> Int -> Text
+loadByteOffset :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 loadByteOffset destination base offset =
-  "  ldr " <> destination <> ", [" <> base <> ", #" <> tshow offset <> "]"
+  arm64Instruction (ArmLdr destination (Arm64Offset base (fromIntegral offset)))
 
-storeByteOffset :: Text -> Text -> Int -> Text
+storeByteOffset :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 storeByteOffset source base offset =
-  "  str " <> source <> ", [" <> base <> ", #" <> tshow offset <> "]"
+  arm64Instruction (ArmStr source (Arm64Offset base (fromIntegral offset)))
 
-immediate :: (Integral value, Show value) => Text -> value -> Text
+immediate :: (Integral value) => Arm64Register -> value -> Arm64Statement
 immediate register value
-  | integer >= -65536 && integer <= 65535 = "  mov " <> register <> ", #" <> rendered
-  | otherwise = "  ldr " <> register <> ", =" <> rendered
+  | integer >= -65536 && integer <= 65535 = arm64Instruction (ArmMov register (Arm64ImmediateValue integer))
+  | otherwise = arm64Instruction (ArmLdrImmediate register integer)
   where
     integer = toInteger value
-    rendered = T.pack (show value)
 
-address :: Text -> Text -> Text
+address :: Arm64Register -> Text -> [Arm64Statement]
 address register label =
-  "  adrp " <> register <> ", " <> label <> "@PAGE\n  add " <> register <> ", " <> register <> ", " <> label <> "@PAGEOFF"
+  [ arm64Instruction (ArmAdrp register label),
+    arm64Instruction (ArmAddPageOffset register register label)
+  ]
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show
 
-materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Text]
-materializeValue env = materializeValueTo env "x0"
+materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Arm64Statement]
+materializeValue env = materializeValueTo env X0
 
-materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Arm64Error [Text]
+materializeValueTo :: ValueEnv -> Arm64Register -> GrinValue -> Either Arm64Error [Arm64Statement]
 materializeValueTo env destination value =
   case value of
     GrinVarValue var ->
       case Map.lookup var (valueLocations env) of
         Just location -> Right (loadLocation destination location)
-        Nothing -> Right [address destination ("_" <> renderLinkedGlobalSymbol (grinVarName var))]
-    GrinGlobalValue name -> Right [address destination ("_" <> renderLinkedGlobalSymbol name)]
+        Nothing -> Right (address destination ("_" <> renderLinkedGlobalSymbol (grinVarName var)))
+    GrinGlobalValue name -> Right (address destination ("_" <> renderLinkedGlobalSymbol name))
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
-materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Text]
+materializeLiteralTo :: Arm64Register -> CompileEnv -> GrinLiteral -> Either Arm64Error [Arm64Statement]
 materializeLiteralTo destination env literal =
   case literal of
     GrinLitAddr value -> do
@@ -589,7 +595,7 @@ materializeLiteralTo destination env literal =
           (Left (Arm64UnsupportedValue "unregistered Addr# literal"))
           Right
           (Map.lookup value (compileAddrLiteralLabels env))
-      pure [address destination label]
+      pure (address destination label)
     _ ->
       case normalizedLiteralInteger literal of
         Just integer -> Right [immediate destination integer]
@@ -628,37 +634,37 @@ normalizeSigned bits integer =
 normalizeUnsigned :: Int -> Integer -> Integer
 normalizeUnsigned bits integer = integer `mod` (2 ^ bits)
 
-materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 materializeNode = materializeNodeWith allocateNode
 
-materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 materializeNodeUnchecked = materializeNodeWith allocateNodeUnchecked
 
-materializeNodeWith :: (ValueEnv -> GrinNode -> Either Arm64Error [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNodeWith :: (ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]) -> ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 materializeNodeWith allocate env node = do
   allocationLines <- allocate env node
   if null (grinNodeFields node)
     then pure allocationLines
     else do
       fieldLines <- initializeNodeFields env node
-      pure $ allocationLines <> ["  mov x20, x0"] <> fieldLines <> ["  mov x0, x20"]
+      pure $ allocationLines <> [arm64Instruction (ArmMov X20 (Arm64RegisterValue X0))] <> fieldLines <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X20))]
 
-allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNode = allocateNodeWith makeNodeLines
 
-allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNodeUnchecked = allocateNodeWith makeNodeUncheckedLines
 
-allocateNodeWith :: (NodeInfo -> [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeWith :: (NodeInfo -> [Arm64Statement]) -> ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNodeWith make env node = do
   info <- nodeHeader env node
   pure (make info)
 
-initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
-    pure (valueLines <> [storeAt "x0" "x20" (index + 1)])
+    pure (valueLines <> [storeAt X0 X20 (index + 1)])
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error NodeInfo
 nodeHeader env node =

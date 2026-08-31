@@ -1,11 +1,8 @@
 -- | Native AMD64 code generation for runtime-explicit GRIN.
 module Aihc.Amd64
   ( Amd64Error (..),
-    compileEntry,
-    compileModule,
-    ObservedProgram (..),
-    compileObservedFunction,
-    snapshotSourcePath,
+    compileEntryObject,
+    compileModuleObject,
     targetTriple,
     validateProgramPrimitives,
     validatePrimitiveNames,
@@ -14,19 +11,16 @@ where
 
 import Aihc.Amd64.Codegen
   ( Amd64Error (..),
-    ObservedProgram (..),
-    compileEntry,
-    compileModule,
-    compileObservedFunction,
+    compileEntryObject,
+    compileModuleObject,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )
 import Aihc.Native
   ( NativeTarget (LinuxAmd64),
     nativeTargetTriple,
-    snapshotSourcePath,
   )
 
--- | LLVM target triple for the assembly emitted by this backend.
+-- | LLVM target triple for this backend.
 targetTriple :: String
 targetTriple = nativeTargetTriple LinuxAmd64

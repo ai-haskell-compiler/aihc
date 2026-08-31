@@ -125,7 +125,7 @@ import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
@@ -180,7 +180,8 @@ data GrinModule = GrinModule
 
 data NativeModule = NativeModule
   { nativeModuleName :: !Text,
-    nativeSource :: !Text
+    nativeSource :: !(Maybe Text),
+    nativeObject :: !(Maybe BL.ByteString)
   }
 
 data PendingCompile = PendingCompile
@@ -1201,6 +1202,7 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
   nativeModules <- mapM (generateNativeModule target) grinModules
   mapM_ writeNativeSourceFile nativeModules
   mapM_ compileNativeSourceFile nativeModules
+  when keepNative (mapM_ writeNativeDisassembly nativeModules)
   unless keepNative (mapM_ removeNativeSourceFile nativeModules)
   where
     spanEmptyModules = foldr split ([], [])
@@ -1266,30 +1268,57 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
       writeFile path (withFinalNewline (renderString (layoutPretty defaultLayoutOptions (Grin.prettyProgram program))))
 
     generateNativeModule selectedTarget grinModule = do
-      source <- generateNativeCode selectedTarget (gcGrinProgram grinModule)
-      pure (NativeModule (grinModuleName grinModule) source)
+      let name = grinModuleName grinModule
+          gcProgram = gcGrinProgram grinModule
+      case selectedTarget of
+        AppleArm64 -> do
+          object <- either (ioError . userError . ("Apple ARM64 object generation failed: " <>) . show) pure (Arm64.compileModuleObject gcProgram)
+          pure (NativeModule name Nothing (Just object))
+        LinuxAmd64 -> do
+          object <- either (ioError . userError . ("Linux AMD64 object generation failed: " <>) . show) pure (Amd64.compileModuleObject gcProgram)
+          pure (NativeModule name Nothing (Just object))
+        _ -> do
+          source <- generateNativeCode selectedTarget gcProgram
+          pure (NativeModule name (Just source) Nothing)
 
     writeNativeSourceFile nativeModule = do
-      let name = nativeModuleName nativeModule
-          path = outputNativePath (outputPaths name)
-      createDirectoryIfMissing True (takeDirectory path)
-      TIO.writeFile path (nativeSource nativeModule)
-      verbose ("Write native source: " <> T.unpack name)
+      case nativeSource nativeModule of
+        Nothing -> pure ()
+        Just source -> do
+          let name = nativeModuleName nativeModule
+              path = outputNativePath (outputPaths name)
+          createDirectoryIfMissing True (takeDirectory path)
+          TIO.writeFile path source
+          verbose ("Write native source: " <> T.unpack name)
 
     compileNativeSourceFile nativeModule = do
       let name = nativeModuleName nativeModule
           paths = outputPaths name
-      (compiler, compilerArguments) <- backendCompiler (compileTarget config)
-      runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
+      case nativeObject nativeModule of
+        Just object -> BL.writeFile (outputObjectPath paths) object
+        Nothing -> do
+          (compiler, compilerArguments) <- backendCompiler (compileTarget config)
+          runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 
-    removeNativeSourceFile = removeFile . outputNativePath . outputPaths . nativeModuleName
+    writeNativeDisassembly nativeModule =
+      case nativeObject nativeModule of
+        Nothing -> pure ()
+        Just _ -> do
+          let paths = outputPaths (nativeModuleName nativeModule)
+          disassembleObject (outputObjectPath paths) (outputNativePath paths)
+          verbose ("Write native disassembly: " <> T.unpack (nativeModuleName nativeModule))
+
+    removeNativeSourceFile nativeModule =
+      case nativeSource nativeModule of
+        Nothing -> pure ()
+        Just _ -> removeFile (outputNativePath (outputPaths (nativeModuleName nativeModule)))
 
 generateNativeCode :: NativeTarget -> Grin.GcGrinProgram -> IO Text
 generateNativeCode target gcProgram =
   case target of
-    AppleArm64 -> either (ioError . userError . ("Apple ARM64 generation failed: " <>) . show) pure (Arm64.compileModule gcProgram)
-    LinuxAmd64 -> either (ioError . userError . ("Linux AMD64 generation failed: " <>) . show) pure (Amd64.compileModule gcProgram)
+    AppleArm64 -> ioError (userError "Apple ARM64 uses direct object generation")
+    LinuxAmd64 -> ioError (userError "Linux AMD64 uses direct object generation")
     Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
     Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
 
@@ -1316,7 +1345,19 @@ nativeSourceExtension :: NativeTarget -> String
 nativeSourceExtension target =
   case target of
     Llvm -> ".ll"
-    _ -> ".s"
+    AppleArm64 -> ".objdump"
+    LinuxAmd64 -> ".objdump"
+    Wasm32Wasip3 -> ".s"
+
+disassembleObject :: FilePath -> FilePath -> IO ()
+disassembleObject objectPath outputPath = do
+  llvmObjdump <- findExecutable "llvm-objdump"
+  objdump <- maybe (findExecutable "objdump") (pure . Just) llvmObjdump
+  executable <- maybe (ioError (userError "Keep-native requires llvm-objdump or objdump")) pure objdump
+  (status, output, errors) <- readProcessWithExitCode executable ["-dr", objectPath] ""
+  case status of
+    ExitSuccess -> writeFile outputPath output
+    ExitFailure _ -> ioError (userError (unlines ["Object disassembly failed: " <> executable, errors]))
 
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
 buildLibraryArchive target verbose archive moduleObjects = do

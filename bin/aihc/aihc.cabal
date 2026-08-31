@@ -17,6 +17,8 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/golden/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
+  compiler/native/test/Test/Runtime/aihc_snapshot.c
+  compiler/native/test/Test/Runtime/aihc_snapshot.h
   test/Test/Fixtures/build-exe/generated-entry-collision/Aihc/Entry.hs
   test/Test/Fixtures/build-exe/generated-entry-collision/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Cycle.hs
@@ -48,8 +50,6 @@ data-files:
   compiler/native/runtime/aihc_runtime_options.c
   compiler/native/runtime/aihc_runtime_trampoline.c
   compiler/native/runtime/aihc_runtime_trampoline.h
-  compiler/native/runtime/aihc_snapshot.c
-  compiler/native/runtime/aihc_snapshot.h
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_adapter.c
   compiler/wasm/runtime/aihc_wasm_internal.h
@@ -64,10 +64,16 @@ library compiler
   visibility: private
   exposed-modules:
     Aihc.Amd64
+    Aihc.Amd64.Assemble
     Aihc.Amd64.Codegen
+    Aihc.Amd64.Codegen.Function
+    Aihc.Amd64.Codegen.Runtime
     Aihc.Amd64.RegisterAllocate
     Aihc.Arm64
+    Aihc.Arm64.Assemble
     Aihc.Arm64.Codegen
+    Aihc.Arm64.Codegen.Function
+    Aihc.Arm64.Codegen.Runtime
     Aihc.Arm64.RegisterAllocate
     Aihc.Cli
     Aihc.Cli.BuildExe
@@ -113,13 +119,12 @@ library compiler
     Aihc.Wasm.Codegen
 
   other-modules:
-    Aihc.Amd64.Codegen.Function
-    Aihc.Amd64.Codegen.Runtime
-    Aihc.Arm64.Codegen.Function
-    Aihc.Arm64.Codegen.Runtime
     Aihc.Cli.TaskGraph
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
+    Aihc.Native.Elf
+    Aihc.Native.MachO
+    Aihc.Native.Object
     Paths_aihc
 
   autogen-modules: Paths_aihc
@@ -276,8 +281,10 @@ test-suite spec
     FcGolden
     GrinGolden
     Test.Aihc.Spec
+    Test.Amd64.Observed
     Test.Amd64.Spec
     Test.Amd64.Suite
+    Test.Arm64.Observed
     Test.Arm64.Spec
     Test.Arm64.Suite
     Test.Fc.Properties
@@ -289,6 +296,7 @@ test-suite spec
     Test.Llvm.Suite
     Test.Native.BlockLayout
     Test.Native.Compiler
+    Test.Native.Observed
     Test.Native.Primitive
     Test.Native.RegisterAllocate
     Test.Native.Runtime
