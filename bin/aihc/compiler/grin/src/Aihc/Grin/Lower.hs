@@ -378,10 +378,9 @@ lowerVariable env name = do
         else pure (GrinConstant (map GrinVarValue variables))
     Nothing
       | null components -> pure (GrinConstant [])
-      | isLiftedRuntimeRep representation -> do
+      | otherwise -> do
           globalName <- lookupGlobalName env name
           pure (GrinEval representation (GrinGlobalValue globalName))
-      | otherwise -> throwLower ("GRIN does not support an imported unlifted value: " <> show name)
 
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do

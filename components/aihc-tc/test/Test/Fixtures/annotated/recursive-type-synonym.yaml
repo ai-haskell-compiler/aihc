@@ -1,0 +1,14 @@
+annotated:
+- |-
+  module Test where
+  └─ error: recursive type synonym: Loop
+  └─ error: recursive type synonym: Loop
+  type Loop a = Loop a
+       └─ type: Type → Type
+extensions: []
+modules:
+- |
+  module Test where
+  type Loop a = Loop a
+reason: Recursive type synonym detection must terminate.
+status: pass

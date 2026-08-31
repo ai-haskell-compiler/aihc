@@ -74,7 +74,7 @@
           old:
             addCheckSettings drv old
             // {
-              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.bintools pkgs.llvmPackages.clang];
               preCheck =
                 (old.preCheck or "")
                 + ''
@@ -86,6 +86,7 @@
                   export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
                   export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
+                  export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
                 '';
             }
         )

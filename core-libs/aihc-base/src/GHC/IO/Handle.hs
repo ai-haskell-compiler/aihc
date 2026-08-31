@@ -1,6 +1,10 @@
+{-# LANGUAGE MagicHash #-}
+
 module GHC.IO.Handle
   ( Handle,
     hClose,
+    hGetBuf,
+    hPutBuf,
   )
 where
 
@@ -8,6 +12,8 @@ import GHC.IO.Exception (ioError, ioErrorFromErrno)
 import GHC.IO.FD (closeIOHandle)
 import GHC.IO.Handle.Types (Handle (..), HandleState (..))
 import GHC.MVar (putMVar, takeMVar)
+import GHC.Prim (raise#)
+import GHC.Ptr (Ptr)
 import Prelude
 
 hClose :: Handle -> IO ()
@@ -24,3 +30,9 @@ hClose (FileHandle name stateVariable) = do
 
 decodeHandleError :: Int -> Int
 decodeHandleError result = negate result - 1
+
+hGetBuf :: Handle -> Ptr a -> Int -> IO Int
+hGetBuf _ _ _ = raise# ()
+
+hPutBuf :: Handle -> Ptr a -> Int -> IO ()
+hPutBuf _ _ _ = raise# ()

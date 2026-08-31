@@ -1,0 +1,23 @@
+expected: |-
+  constructor Test.Address [AddrRep]
+
+  global "\NULTest\NULAddress" = (CTest.Address/1)
+
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    argument%-1000000001 :: AddrRep <-
+      eval @AddrRep global-ref "aihc-prim\NULGHC.Prim\NULnullAddr#"
+    function_whnf%-1000000000 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref "\NULTest\NULAddress"
+    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: AddrRep)
+extensions:
+- MagicHash
+reason: evaluates an imported nullary primitive through its global binding
+source: |
+  module Test where
+  import GHC.Prim
+  data Address = Address Addr#
+  value :: Address
+  value = Address nullAddr#
+status: pass

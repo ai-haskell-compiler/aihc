@@ -3,8 +3,10 @@ module System.IO.Error
     IOException,
     IOErrorType (..),
     ioError,
+    ioeSetErrorString,
+    mkIOError,
     userError,
   )
 where
 
-import GHC.IO.Exception (IOError, IOErrorType (..), IOException, ioError, userError)
+import GHC.IO.Exception (IOError, IOErrorType (..), IOException, ioError, ioeSetErrorString, mkIOError, userError)

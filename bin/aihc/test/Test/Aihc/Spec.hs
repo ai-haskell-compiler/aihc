@@ -326,9 +326,16 @@ test_installV2ResolveError = do
 
 findFixtureRoot :: FilePath -> IO FilePath
 findFixtureRoot fixture = do
-  cwd <- getCurrentDirectory
-  findUp cwd
+  configuredRoot <- lookupEnv "AIHC_TEST_ROOT"
+  case configuredRoot of
+    Just root -> validate (root </> fixture)
+    Nothing -> getCurrentDirectory >>= findUp
   where
+    validate candidate = do
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else assertFailure ("could not find fixture " <> candidate)
     findUp directory = do
       let candidate = directory </> fixture
       exists <- doesDirectoryExist candidate

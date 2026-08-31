@@ -14,12 +14,11 @@ module GHC.ST
 where
 
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
+import GHC.IO (ST (..))
 import GHC.Prim (RealWorld, State#, noDuplicate#, realWorld#)
 import GHC.Show (Show (..), showString)
 
 -- | The strict state-thread monad.
-newtype ST s a = ST (STRep s a)
-
 -- | The unwrapped representation of an 'ST' computation.
 type STRep s a = State# s -> (# State# s, a #)
 
