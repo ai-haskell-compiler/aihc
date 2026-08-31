@@ -224,7 +224,10 @@ encodeOperation operation operands =
       | Just register <- parseRegister target -> encodeGroup True [0xff] 4 (RegisterOperand register) []
       | otherwise -> relativeBranch [0xe9] X86Pc32 target
     (conditional, [target]) | Just condition <- jumpCondition conditional -> relativeBranch [0x0f, 0x80 + condition] X86Pc32 target
-    (AmdMov, [destination, source]) -> encodeMove destination source
+    (AmdMov, [destination, source]) -> do
+      destinationOperand <- parseOperand destination
+      sourceOperand <- parseOperand source
+      encodeMove destinationOperand sourceOperand
     (AmdMovsxd, [destination, source]) -> encodeRegisterSource True [0x63] destination source
     (AmdMovzx, [destination, source]) -> encodeRegisterSource True [0x0f, 0xb6] destination source
     (AmdLea, [destination, source]) -> encodeLea destination source
@@ -255,10 +258,8 @@ encodePushPop popValue source =
           opcode = (if popValue then 0x58 else 0x50) + registerNumber register .&. 7
        in bytes (prefix <> [opcode])
 
-encodeMove :: Text -> Text -> Either ObjectError [Item]
-encodeMove destinationSource sourceSource = do
-  destination <- parseOperand destinationSource
-  source <- parseOperand sourceSource
+encodeMove :: Operand -> Operand -> Either ObjectError [Item]
+encodeMove destination source =
   case (destination, source) of
     (RegisterOperand destinationRegister, ImmediateOperand immediate) ->
       let number = registerNumber destinationRegister
@@ -275,7 +276,7 @@ encodeMove destinationSource sourceSource = do
     (MemoryOperand {}, RegisterOperand sourceRegister) ->
       encodeRm (registerWidth sourceRegister == 64) [0x89] (registerNumber sourceRegister) destination False []
     (MemoryOperand {}, ImmediateOperand immediate) -> encodeGroup True [0xc7] 0 destination (word32List (fromIntegral immediate))
-    _ -> Left (ObjectInvalidInput (destinationSource <> ", " <> sourceSource))
+    _ -> Left (ObjectInvalidInput "mov operands")
 
 encodeRegisterSource :: Bool -> [Word8] -> Text -> Text -> Either ObjectError [Item]
 encodeRegisterSource width64 destinationOpcode destinationSource sourceSource = do

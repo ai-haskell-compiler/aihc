@@ -209,7 +209,10 @@ encodeOperation operation operands =
       register <- parseRegister destination
       symbol <- requireSuffix "@PAGE" target
       fixupItem (0x90000000 .|. registerNumber register) Arm64Page21 symbol
-    (ArmMov, [destination, source]) -> encodeMove destination source
+    (ArmMov, [destination, source]) -> do
+      destinationRegister <- parseRegister destination
+      sourceOperand <- parseMoveSource source
+      encodeMove destinationRegister sourceOperand
     (ArmLdr, [destination, literal]) | "=" `T.isPrefixOf` literal -> do
       register <- parseRegister destination
       value <- maybe (Left (ObjectInvalidInput literal)) pure (readInteger (T.drop 1 literal))
@@ -270,13 +273,21 @@ encodeOperation operation operands =
 xorWord32 :: Word32 -> Word32 -> Word32
 xorWord32 left right = (left .|. right) .&. complement (left .&. right)
 
-encodeMove :: Text -> Text -> Either ObjectError [Item]
-encodeMove destination source = do
-  destinationRegister <- parseRegister destination
+data MoveSource
+  = MoveRegister !Register
+  | MoveImmediate !Integer
+
+parseMoveSource :: Text -> Either ObjectError MoveSource
+parseMoveSource source =
   case T.stripPrefix "#" source >>= readInteger of
-    Just value -> pure (map (Bytes . word32Bytes) (loadImmediate destinationRegister value))
-    Nothing -> do
-      sourceRegister <- parseRegister source
+    Just value -> pure (MoveImmediate value)
+    Nothing -> MoveRegister <$> parseRegister source
+
+encodeMove :: Register -> MoveSource -> Either ObjectError [Item]
+encodeMove destinationRegister source =
+  case source of
+    MoveImmediate value -> pure (map (Bytes . word32Bytes) (loadImmediate destinationRegister value))
+    MoveRegister sourceRegister ->
       if registerSp destinationRegister || registerSp sourceRegister
         then
           words32
@@ -284,9 +295,9 @@ encodeMove destination source = do
                 .|. registerNumber sourceRegister `shiftL` 5
                 .|. registerNumber destinationRegister
             ]
-        else do
+        else
           let base = if registerWidth destinationRegister == 64 then 0xaa0003e0 else 0x2a0003e0
-          words32 [base .|. registerNumber sourceRegister `shiftL` 16 .|. registerNumber destinationRegister]
+           in words32 [base .|. registerNumber sourceRegister `shiftL` 16 .|. registerNumber destinationRegister]
 
 loadImmediate :: Register -> Integer -> [Word32]
 loadImmediate register value
