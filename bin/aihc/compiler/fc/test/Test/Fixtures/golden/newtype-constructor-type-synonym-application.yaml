@@ -39,7 +39,6 @@ expected: |-
 
   pub val 1.vmakeError :: 1.tField 2.→ 1.tIOException
    = λ(x : 1.tField).
-    (λ(_newtype : 1.tField).
-      _newtype ▷ sym (axiom-co 1.$ax$IOException)) x
+    x ▷ sym (axiom-co 1.$ax$IOException)
 status: pass
-reason: ""
+reason: An applied newtype conversion becomes a direct cast.
