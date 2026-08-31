@@ -104,7 +104,7 @@ arm64Bytes :: ByteString -> Arm64Statement
 arm64Bytes = Arm64Bytes
 
 arm64Instruction :: Arm64Opcode -> [Text] -> Arm64Statement
-arm64Instruction opcode = Arm64Instruction . encodeOperation (opcodeText opcode)
+arm64Instruction opcode = Arm64Instruction . encodeOperation opcode
 
 applyStatement :: Either ObjectError Draft -> Arm64Statement -> Either ObjectError Draft
 applyStatement result statement = do
@@ -294,87 +294,86 @@ parseOpcode operation =
         ArmSxtw
       ]
 
-encodeOperation :: Text -> [Text] -> Either ObjectError [Item]
+encodeOperation :: Arm64Opcode -> [Text] -> Either ObjectError [Item]
 encodeOperation operation operands =
   case (operation, operands) of
-    ("ret", []) -> words32 [0xd65f03c0]
-    ("brk", [immediate]) -> do
+    (ArmRet, []) -> words32 [0xd65f03c0]
+    (ArmBrk, [immediate]) -> do
       value <- parseImmediate immediate
       words32 [0xd4200000 .|. (fromIntegral value .&. 0xffff) `shiftL` 5]
-    ("br", [source]) -> do
+    (ArmBr, [source]) -> do
       register <- parseRegister source
       words32 [0xd61f0000 .|. registerNumber register `shiftL` 5]
-    ("b", [target]) -> branchItem 0x14000000 Arm64Branch26 target
-    ("bl", [target]) -> branchItem 0x94000000 Arm64Branch26 target
-    (conditional, [target]) | Just condition <- T.stripPrefix "b." conditional -> do
-      code <- conditionCode condition
+    (ArmB, [target]) -> branchItem 0x14000000 Arm64Branch26 target
+    (ArmBl, [target]) -> branchItem 0x94000000 Arm64Branch26 target
+    (conditional, [target]) | Just code <- branchCondition conditional -> do
       branchItem (0x54000000 .|. code) Arm64Branch19 target
-    ("cbz", [source, target]) -> compareBranch 0x34000000 source target
-    ("cbnz", [source, target]) -> compareBranch 0x35000000 source target
-    ("adr", [destination, target]) -> do
+    (ArmCbz, [source, target]) -> compareBranch 0x34000000 source target
+    (ArmCbnz, [source, target]) -> compareBranch 0x35000000 source target
+    (ArmAdr, [destination, target]) -> do
       register <- parseRegister destination
       fixupItem (0x10000000 .|. registerNumber register) Arm64Adr21 target
-    ("adrp", [destination, target]) -> do
+    (ArmAdrp, [destination, target]) -> do
       register <- parseRegister destination
       symbol <- requireSuffix "@PAGE" target
       fixupItem (0x90000000 .|. registerNumber register) Arm64Page21 symbol
-    ("mov", [destination, source]) -> encodeMove destination source
-    ("ldr", [destination, literal]) | "=" `T.isPrefixOf` literal -> do
+    (ArmMov, [destination, source]) -> encodeMove destination source
+    (ArmLdr, [destination, literal]) | "=" `T.isPrefixOf` literal -> do
       register <- parseRegister destination
       value <- maybe (Left (ObjectInvalidInput literal)) pure (readInteger (T.drop 1 literal))
       pure (map (Bytes . word32Bytes) (loadImmediate register value))
-    ("ldr", memory) -> encodeLoadStore True memory
-    ("str", memory) -> encodeLoadStore False memory
-    ("ldp", memory) -> encodePair True memory
-    ("stp", memory) -> encodePair False memory
-    ("add", [destination, source, value]) | "@PAGEOFF" `T.isSuffixOf` value -> do
+    (ArmLdr, memory) -> encodeLoadStore True memory
+    (ArmStr, memory) -> encodeLoadStore False memory
+    (ArmLdp, memory) -> encodePair True memory
+    (ArmStp, memory) -> encodePair False memory
+    (ArmAdd, [destination, source, value]) | "@PAGEOFF" `T.isSuffixOf` value -> do
       destinationRegister <- parseRegister destination
       sourceRegister <- parseRegister source
       symbol <- requireSuffix "@PAGEOFF" value
       let instruction = 0x91000000 .|. registerNumber sourceRegister `shiftL` 5 .|. registerNumber destinationRegister
       fixupItem instruction Arm64PageOffset12 symbol
-    ("add", [destination, source, value]) -> encodeAddSub False False destination source value
-    ("adds", [destination, source, value]) -> encodeAddSub False True destination source value
-    ("sub", [destination, source, value]) -> encodeAddSub True False destination source value
-    ("subs", [destination, source, value]) -> encodeAddSub True True destination source value
-    ("cmp", [left, right]) -> encodeCompare left right
-    ("and", [destination, left, right]) -> encodeLogical 0x8a000000 destination left right
-    ("orr", [destination, left, immediate]) | "#" `T.isPrefixOf` immediate -> encodeLogicalImmediate destination left immediate
-    ("orr", [destination, left, right]) -> encodeLogical 0xaa000000 destination left right
-    ("eor", [destination, left, right]) -> encodeLogical 0xca000000 destination left right
-    ("mvn", [destination, source]) -> do
+    (ArmAdd, [destination, source, value]) -> encodeAddSub False False destination source value
+    (ArmAdds, [destination, source, value]) -> encodeAddSub False True destination source value
+    (ArmSub, [destination, source, value]) -> encodeAddSub True False destination source value
+    (ArmSubs, [destination, source, value]) -> encodeAddSub True True destination source value
+    (ArmCmp, [left, right]) -> encodeCompare left right
+    (ArmAnd, [destination, left, right]) -> encodeLogical 0x8a000000 destination left right
+    (ArmOrr, [destination, left, immediate]) | "#" `T.isPrefixOf` immediate -> encodeLogicalImmediate destination left immediate
+    (ArmOrr, [destination, left, right]) -> encodeLogical 0xaa000000 destination left right
+    (ArmEor, [destination, left, right]) -> encodeLogical 0xca000000 destination left right
+    (ArmMvn, [destination, source]) -> do
       destinationRegister <- parseRegister destination
       sourceRegister <- parseRegister source
       words32 [0xaa2003e0 .|. registerNumber sourceRegister `shiftL` 16 .|. registerNumber destinationRegister]
-    ("mul", [destination, left, right]) -> encodeThreeRegister 0x9b007c00 destination left right
-    ("umulh", [destination, left, right]) -> encodeThreeRegister 0x9bc07c00 destination left right
-    ("udiv", [destination, left, right]) -> encodeThreeRegister 0x9ac00800 destination left right
-    ("msub", [destination, left, right, accumulator]) -> do
+    (ArmMul, [destination, left, right]) -> encodeThreeRegister 0x9b007c00 destination left right
+    (ArmUmulh, [destination, left, right]) -> encodeThreeRegister 0x9bc07c00 destination left right
+    (ArmUdiv, [destination, left, right]) -> encodeThreeRegister 0x9ac00800 destination left right
+    (ArmMsub, [destination, left, right, accumulator]) -> do
       rd <- parseRegister destination
       rn <- parseRegister left
       rm <- parseRegister right
       ra <- parseRegister accumulator
       words32 [0x9b008000 .|. registerNumber rm `shiftL` 16 .|. registerNumber ra `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
-    ("lsl", [destination, left, right]) -> encodeShift 0x9ac02000 True destination left right
-    ("lsr", [destination, left, right]) -> encodeShift 0x9ac02400 False destination left right
-    ("cset", [destination, condition]) -> do
+    (ArmLsl, [destination, left, right]) -> encodeShift 0x9ac02000 True destination left right
+    (ArmLsr, [destination, left, right]) -> encodeShift 0x9ac02400 False destination left right
+    (ArmCset, [destination, condition]) -> do
       register <- parseRegister destination
       code <- conditionCode condition
       let inverted = code `xorWord32` 1
           base = if registerWidth register == 64 then 0x9a800400 else 0x1a800400
       words32 [base .|. 31 `shiftL` 16 .|. inverted `shiftL` 12 .|. 31 `shiftL` 5 .|. registerNumber register]
-    ("csinv", [destination, trueValue, falseValue, condition]) -> do
+    (ArmCsinv, [destination, trueValue, falseValue, condition]) -> do
       rd <- parseRegister destination
       rn <- parseRegister trueValue
       rm <- parseRegister falseValue
       code <- conditionCode condition
       let base = if registerWidth rd == 64 then 0xda800000 else 0x5a800000
       words32 [base .|. registerNumber rm `shiftL` 16 .|. code `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
-    ("sxtw", [destination, source]) -> do
+    (ArmSxtw, [destination, source]) -> do
       rd <- parseRegister destination
       rn <- parseRegister source
       words32 [0x93407c00 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
-    _ -> Left (ObjectInvalidInput (operation <> " " <> T.intercalate ", " operands))
+    _ -> Left (ObjectInvalidInput (opcodeText operation <> " " <> T.intercalate ", " operands))
 
 xorWord32 :: Word32 -> Word32 -> Word32
 xorWord32 left right = (left .|. right) .&. complement (left .&. right)
@@ -600,6 +599,14 @@ conditionCode name =
         ("gt", 12),
         ("le", 13)
       ]
+
+branchCondition :: Arm64Opcode -> Maybe Word32
+branchCondition opcode =
+  case opcode of
+    ArmBEq -> Just 0
+    ArmBNe -> Just 1
+    ArmBLo -> Just 3
+    _ -> Nothing
 
 parseImmediate :: Text -> Either ObjectError Int64
 parseImmediate source =

@@ -107,7 +107,7 @@ amd64Bytes :: ByteString -> Amd64Statement
 amd64Bytes = Amd64Bytes
 
 amd64Instruction :: Amd64Opcode -> [Text] -> Amd64Statement
-amd64Instruction opcode = Amd64Instruction . encodeOperation (opcodeText opcode)
+amd64Instruction opcode = Amd64Instruction . encodeOperation opcode
 
 applyStatement :: Either ObjectError Draft -> Amd64Statement -> Either ObjectError Draft
 applyStatement result statement = do
@@ -327,40 +327,39 @@ parseOpcode operation =
         AmdSetg
       ]
 
-encodeOperation :: Text -> [Text] -> Either ObjectError [Item]
+encodeOperation :: Amd64Opcode -> [Text] -> Either ObjectError [Item]
 encodeOperation operation operands =
   case (operation, operands) of
-    ("ret", []) -> bytes [0xc3]
-    ("ud2", []) -> bytes [0x0f, 0x0b]
-    ("push", [source]) -> encodePushPop False source
-    ("pop", [source]) -> encodePushPop True source
-    ("call", [target]) -> relativeBranch [0xe8] X86Plt32 target
-    ("jmp", [target])
+    (AmdRet, []) -> bytes [0xc3]
+    (AmdUd2, []) -> bytes [0x0f, 0x0b]
+    (AmdPush, [source]) -> encodePushPop False source
+    (AmdPop, [source]) -> encodePushPop True source
+    (AmdCall, [target]) -> relativeBranch [0xe8] X86Plt32 target
+    (AmdJmp, [target])
       | Just register <- parseRegister target -> encodeGroup True [0xff] 4 (RegisterOperand register) []
       | otherwise -> relativeBranch [0xe9] X86Pc32 target
     (conditional, [target]) | Just condition <- jumpCondition conditional -> relativeBranch [0x0f, 0x80 + condition] X86Pc32 target
-    ("mov", [destination, source]) -> encodeMove destination source
-    ("movsxd", [destination, source]) -> encodeRegisterSource True [0x63] destination source
-    ("movzx", [destination, source]) -> encodeRegisterSource True [0x0f, 0xb6] destination source
-    ("lea", [destination, source]) -> encodeLea destination source
-    ("add", [destination, source]) -> encodeBinary [0x01] 0 destination source
-    ("sub", [destination, source]) -> encodeBinary [0x29] 5 destination source
-    ("and", [destination, source]) -> encodeBinary [0x21] 4 destination source
-    ("or", [destination, source]) -> encodeBinary [0x09] 1 destination source
-    ("xor", [destination, source]) -> encodeBinary [0x31] 6 destination source
-    ("imul", [destination, source]) -> encodeRegisterSource True [0x0f, 0xaf] destination source
-    ("cmp", [left, right]) -> encodeCompare left right
-    ("test", [left, right]) -> encodeRegisterBinary [0x85] left right
-    ("shl", [destination, "cl"]) -> parseOperand destination >>= \operand -> encodeGroup True [0xd3] 4 operand []
-    ("shr", [destination, "cl"]) -> parseOperand destination >>= \operand -> encodeGroup True [0xd3] 5 operand []
-    ("not", [destination]) -> parseOperand destination >>= \operand -> encodeGroup True [0xf7] 2 operand []
-    ("mul", [source]) -> parseOperand source >>= \operand -> encodeGroup True [0xf7] 4 operand []
-    ("div", [source]) -> parseOperand source >>= \operand -> encodeGroup True [0xf7] 6 operand []
-    (setOperation, [destination]) | Just condition <- T.stripPrefix "set" setOperation -> do
-      code <- conditionCode condition
+    (AmdMov, [destination, source]) -> encodeMove destination source
+    (AmdMovsxd, [destination, source]) -> encodeRegisterSource True [0x63] destination source
+    (AmdMovzx, [destination, source]) -> encodeRegisterSource True [0x0f, 0xb6] destination source
+    (AmdLea, [destination, source]) -> encodeLea destination source
+    (AmdAdd, [destination, source]) -> encodeBinary [0x01] 0 destination source
+    (AmdSub, [destination, source]) -> encodeBinary [0x29] 5 destination source
+    (AmdAnd, [destination, source]) -> encodeBinary [0x21] 4 destination source
+    (AmdOr, [destination, source]) -> encodeBinary [0x09] 1 destination source
+    (AmdXor, [destination, source]) -> encodeBinary [0x31] 6 destination source
+    (AmdImul, [destination, source]) -> encodeRegisterSource True [0x0f, 0xaf] destination source
+    (AmdCmp, [left, right]) -> encodeCompare left right
+    (AmdTest, [left, right]) -> encodeRegisterBinary [0x85] left right
+    (AmdShl, [destination, "cl"]) -> parseOperand destination >>= \operand -> encodeGroup True [0xd3] 4 operand []
+    (AmdShr, [destination, "cl"]) -> parseOperand destination >>= \operand -> encodeGroup True [0xd3] 5 operand []
+    (AmdNot, [destination]) -> parseOperand destination >>= \operand -> encodeGroup True [0xf7] 2 operand []
+    (AmdMul, [source]) -> parseOperand source >>= \operand -> encodeGroup True [0xf7] 4 operand []
+    (AmdDiv, [source]) -> parseOperand source >>= \operand -> encodeGroup True [0xf7] 6 operand []
+    (setOperation, [destination]) | Just code <- setCondition setOperation -> do
       operand <- parseOperand destination
       encodeGroupWithWidth False [0x0f, 0x90 + code] 0 operand [] True
-    _ -> Left (ObjectInvalidInput (operation <> " " <> T.intercalate ", " operands))
+    _ -> Left (ObjectInvalidInput (opcodeText operation <> " " <> T.intercalate ", " operands))
 
 encodePushPop :: Bool -> Text -> Either ObjectError [Item]
 encodePushPop popValue source =
@@ -475,34 +474,30 @@ encodeRm width64 opcode regField operand forceByteRex suffix =
 relativeBranch :: [Word8] -> FixupKind -> Text -> Either ObjectError [Item]
 relativeBranch opcode kind target = pure [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) (BS.replicate 4 0))]
 
-jumpCondition :: Text -> Maybe Word8
+jumpCondition :: Amd64Opcode -> Maybe Word8
 jumpCondition name =
   case name of
-    "je" -> Just 4
-    "jz" -> Just 4
-    "jne" -> Just 5
+    AmdJe -> Just 4
+    AmdJz -> Just 4
+    AmdJne -> Just 5
     _ -> Nothing
 
-conditionCode :: Text -> Either ObjectError Word8
-conditionCode name =
-  case lookup name conditions of
-    Just value -> pure value
-    Nothing -> Left (ObjectInvalidInput name)
-  where
-    conditions =
-      [ ("o", 0),
-        ("c", 2),
-        ("b", 2),
-        ("ae", 3),
-        ("e", 4),
-        ("ne", 5),
-        ("be", 6),
-        ("a", 7),
-        ("l", 12),
-        ("ge", 13),
-        ("le", 14),
-        ("g", 15)
-      ]
+setCondition :: Amd64Opcode -> Maybe Word8
+setCondition opcode =
+  case opcode of
+    AmdSeto -> Just 0
+    AmdSetc -> Just 2
+    AmdSetb -> Just 2
+    AmdSetae -> Just 3
+    AmdSete -> Just 4
+    AmdSetne -> Just 5
+    AmdSetbe -> Just 6
+    AmdSeta -> Just 7
+    AmdSetl -> Just 12
+    AmdSetge -> Just 13
+    AmdSetle -> Just 14
+    AmdSetg -> Just 15
+    _ -> Nothing
 
 rex :: Bool -> Bool -> Bool -> Bool -> Word8
 rex width register index base =
