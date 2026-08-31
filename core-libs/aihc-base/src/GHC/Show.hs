@@ -6,10 +6,14 @@ module GHC.Show
     shows,
     showString,
     appPrec,
+    showMultiLineString,
   )
 where
 
-import Prelude (Show (..), ShowS, showChar, showParen, showString, shows)
+import Prelude (Int, Show (..), ShowS, String, showChar, showParen, showString, shows)
 
 appPrec :: Int
 appPrec = 10
+
+showMultiLineString :: String -> [String]
+showMultiLineString value = [show value]

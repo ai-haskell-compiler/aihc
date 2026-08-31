@@ -1,0 +1,57 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+{-# LANGUAGE Safe #-}
+
+-- | Monadic front-end to Text.PrettyPrint
+module Language.Haskell.TH.PprLib
+  ( ($$),
+    ($+$),
+    (<+>),
+    (<>),
+    arrow,
+    braces,
+    brackets,
+    cat,
+    char,
+    colon,
+    comma,
+    dcolon,
+    double,
+    doubleQuotes,
+    empty,
+    equals,
+    fcat,
+    float,
+    fsep,
+    hang,
+    hcat,
+    hsep,
+    int,
+    integer,
+    isEmpty,
+    lbrace,
+    lbrack,
+    lparen,
+    nest,
+    parens,
+    pprName,
+    pprName',
+    ptext,
+    punctuate,
+    quotes,
+    rational,
+    rbrace,
+    rbrack,
+    rparen,
+    semi,
+    sep,
+    space,
+    text,
+    to_HPJ_Doc,
+    vcat,
+    Doc,
+    PprM,
+  )
+where
+
+import GHC.Boot.TH.PprLib
+import Prelude hiding ((<>))

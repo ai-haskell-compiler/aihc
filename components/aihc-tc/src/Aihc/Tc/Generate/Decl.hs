@@ -75,6 +75,8 @@ import Aihc.Parser.Syntax
     peelClassDeclItemAnn,
     peelDeclAnn,
     peelTypeHead,
+    tyVarBinderKind,
+    tyVarBinderName,
     unqualifiedNameAnns,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
@@ -223,6 +225,7 @@ annotationClasses ann decl =
           { ciName = unqualifiedNameText (binderHeadName (classDeclHead classDecl)),
             ciTyCon = tcClassTyCon classAnn,
             ciOrigin = Nothing,
+            ciKindTyVars = tcClassKindTyVars classAnn,
             ciTyVars = tcClassTyVars classAnn,
             ciSuperClassTypes = map tcDictBinderType (tcClassSuperClasses classAnn),
             ciMethods =
@@ -480,7 +483,13 @@ tcModuleScc modules = do
   mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
   mapM_ registerTypeSynonymBody declarations
   mapM_ checkTypeSynonymBody declarations
-  mapM_ (\modu -> mapM_ (registerStructuralDecl (resolvedModuleOrigin modu)) (moduleDecls modu)) modules
+  let structuralDeclarations =
+        [ (resolvedModuleOrigin modu, declaration)
+        | modu <- modules,
+          declaration <- moduleDecls modu
+        ]
+  mapM_ (uncurry registerStructuralDecl) (filter (not . isInstanceDecl . snd) structuralDeclarations)
+  mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
@@ -642,13 +651,15 @@ defaultGlobalKindMetas initialKeys = do
       fieldType' <- defaultTypeKinds (dcfiType field)
       pure field {dcfiType = fieldType'}
     defaultClassKinds info = do
+      kindTyVars <- mapM defaultTyVarKinds (ciKindTyVars info)
       tyVars <- mapM defaultTyVarKinds (ciTyVars info)
       superClassTypes <- mapM defaultTypeKinds (ciSuperClassTypes info)
       methods <- mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
       defaultSignatures <- mapM (traverse defaultTypeSchemeKinds) (ciDefaultSignatures info)
       pure
         info
-          { ciTyVars = tyVars,
+          { ciKindTyVars = kindTyVars,
+            ciTyVars = tyVars,
             ciSuperClassTypes = superClassTypes,
             ciMethods = methods,
             ciDefaultSignatures = defaultSignatures
@@ -755,7 +766,7 @@ annotateDeclTc origin classMethods checkedValueTypes decl =
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueTypes valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc checkedValueTypes valueDecl
-          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] []) (DeclValue valueDecl'))
+          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
@@ -802,6 +813,7 @@ annotateClassDeclTc classDecl = do
             ( mkAnnotation
                 TcClassAnnotation
                   { tcClassTyCon = ciTyCon info,
+                    tcClassKindTyVars = ciKindTyVars info,
                     tcClassTyVars = ciTyVars info,
                     tcClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                     tcClassMethods = methods,
@@ -844,7 +856,7 @@ annotateDataDeclTc dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataDeclHead dataDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
 
 annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
@@ -852,21 +864,21 @@ annotateNewtypeDeclTc newtypeDecl = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
   ty <- tyConBindingType tyName
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (newtypeDeclHead newtypeDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
 annotateTypeSynDeclTc :: TypeSynDecl -> TcM Decl
 annotateTypeSynDeclTc typeSynDecl = do
   let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
   ty <- tyConBindingType tyName
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (typeSynHead typeSynDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (typeSynHead typeSynDecl)
   pure (DeclTypeSyn (typeSynDecl {typeSynHead = annotatedHead}))
 
 annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
 annotateDataFamilyDeclTc familyDecl = do
   let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
   ty <- tyConBindingType familyName
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataFamilyDeclHead familyDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataFamilyDeclHead familyDecl)
   pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
 
 annotateTypeFamilyDeclTc :: TypeFamilyDecl -> TcM Decl
@@ -875,7 +887,7 @@ annotateTypeFamilyDeclTc familyDecl =
     Nothing -> pure (DeclTypeFamilyDecl familyDecl)
     Just familyBinder -> do
       ty <- tyConBindingType (unqualifiedNameText familyBinder)
-      let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] []) (typeFamilyDeclHead familyDecl)
+      let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] [] []) (typeFamilyDeclHead familyDecl)
       pure (DeclTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
 
 annotateTypeFamilyHead :: TcAnnotation -> Type -> Type
@@ -930,7 +942,7 @@ annotateRegisteredDataConDeclTc dataConDecl =
   where
     annotateWithType ty = do
       zonkedTy <- zonkType ty
-      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [] [])) dataConDecl)
+      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [] [] [])) dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -951,7 +963,7 @@ annotateDataConDeclTc dataConDecl = do
     (name, _) : _ -> do
       ty <- dataConBindingType name
       selectors <- annotateRecordSelectorNames dataConDecl
-      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [])) selectors)
+      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [] [])) selectors)
 
 annotateRecordSelectorNames :: DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames declaration =
@@ -967,7 +979,7 @@ annotateRecordSelectorNames declaration =
       pure field {fieldNames = names}
     annotateSelectorName name = do
       ty <- bindingType (unqualifiedNameText name)
-      pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] []) name)
+      pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
 
 dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
@@ -981,7 +993,7 @@ annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
   ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
-      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] []) (DeclForeign foreignDecl)
+      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
     CCall -> do
       plan <- checkForeignImportType sourceSpan ty
@@ -1303,7 +1315,11 @@ methodExpectedScheme classInfo headTys methodName =
   case lookup methodName (ciMethods classInfo) of
     Just (ForAll tyVars predicates body) ->
       case splitClassReceiver predicates headTys of
-        Just (subst, methodPredicates) ->
+        Just (receiverSubst, methodPredicates) -> do
+          headKinds <- mapM tcTypeKind headTys
+          let classKinds = map tvKind (ciTyVars classInfo)
+              kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
+              subst = receiverSubst <> kindSubst
           pure
             ( ForAll
                 (filter (\tyVar -> not (Map.member (tvUnique tyVar) subst)) tyVars)
@@ -2038,6 +2054,11 @@ registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl _ _ = pure []
 
+isInstanceDecl :: Decl -> Bool
+isInstanceDecl (DeclAnn _ inner) = isInstanceDecl inner
+isInstanceDecl DeclInstance {} = True
+isInstanceDecl _ = False
+
 predeclareTypeLevelDataConstructors :: Decl -> TcM ()
 predeclareTypeLevelDataConstructors declaration =
   case declaration of
@@ -2095,10 +2116,16 @@ registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
       className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
-  paramInfos <- makeParamEnv params
+  kindParams <-
+    if isTemplateHaskellLift origin className
+      then implicitBinderKindParams params
+      else pure []
+  let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
+  paramInfos <- makeParamEnvWith kindEnv params
   let paramTyVars = map paramTyVar paramInfos
+      allClassTyVars = map paramTyVar kindParams <> paramTyVars
       paramKinds = map paramKind paramInfos
-      paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
+      paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
   let classKind = foldr KFun KConstraint paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
@@ -2108,13 +2135,13 @@ registerClassDecl origin classDecl = do
       { tciName = className,
         tciArity = length params,
         tciTyCon = classTyCon,
-        tciKindScheme = ForAll [] [] classKind,
+        tciKindScheme = ForAll (map paramTyVar kindParams) [] classKind,
         tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing
       }
-  methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv paramTyVars) (classDeclItems classDecl)
+  methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv allClassTyVars) (classDeclItems classDecl)
   methods <- mapM registeredMethod (classDeclMethodNames classDecl)
-  defaultSignatures <- catMaybes <$> mapM (registerClassDefaultSignature paramTvEnv paramTyVars) (classDeclItems classDecl)
+  defaultSignatures <- catMaybes <$> mapM (registerClassDefaultSignature paramTvEnv allClassTyVars) (classDeclItems classDecl)
   let defaults = classDeclDefaultMethodNames classDecl
   defaultResults <- mapM (registerDefaultMethod defaults defaultSignatures) methods
   addClass
@@ -2122,6 +2149,7 @@ registerClassDecl origin classDecl = do
       { ciName = className,
         ciTyCon = classTyCon,
         ciOrigin = Just origin,
+        ciKindTyVars = map paramTyVar kindParams,
         ciTyVars = paramTyVars,
         ciSuperClassTypes = superClassTypes,
         ciMethods = methods,
@@ -2149,6 +2177,12 @@ registerClassDecl origin classDecl = do
       case ordinaryScheme of
         ForAll _ (classPredicate : _) _ -> ForAll tyVars (classPredicate : predicates) body
         _ -> ForAll tyVars predicates body
+
+isTemplateHaskellLift :: (Text, Text) -> Text -> Bool
+isTemplateHaskellLift (packageId, moduleName') className =
+  "aihc-template-haskell-" `T.isPrefixOf` packageId
+    && moduleName' == "GHC.Internal.TH.Lift"
+    && className == "Lift"
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
@@ -2304,7 +2338,7 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       familyName = unqualifiedNameText familyBinder
       params = binderHeadParams (dataFamilyDeclHead familyDecl)
       arity = length params
-  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
   familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
@@ -2313,7 +2347,7 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       { tciName = familyName,
         tciArity = arity,
         tciTyCon = familyTyCon,
-        tciKindScheme = ForAll [] [] declaredKind,
+        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = DataFamilyTyCon,
         tciTypeSynonym = Nothing
       }
@@ -2572,6 +2606,21 @@ typeDeclParamInfos maybeKindScheme params =
           paramKind = kind
         }
 
+implicitBinderKindParams :: [TyVarBinder] -> TcM [ParamInfo]
+implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
+  where
+    explicitNames = map tyVarBinderName binders
+    implicitNames = nub (concatMap (maybe [] freeTypeVars . tyVarBinderKind) binders) \\ explicitNames
+    makeImplicitParam name = do
+      rawTyVar <- freshSkolemTv name
+      kind <- freshKindMeta
+      pure
+        ParamInfo
+          { paramName = name,
+            paramTyVar = setTyVarKind kind rawTyVar,
+            paramKind = kind
+          }
+
 dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
 dataDeclParamInfos maybeKindScheme declaration =
   typeDeclParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
@@ -2648,7 +2697,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
   tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
@@ -2657,7 +2706,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = ForAll [] [] declaredKind,
+        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing
       }
@@ -2776,14 +2825,15 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   inferredResultKind <- freshKindMeta
   let inferredKind = foldr (KFun . paramKind) inferredResultKind paramInfos
   tyCon <- mkDeclaredTyCon tyBinder tyName arity
-  let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
+  let declaredKindScheme = fromMaybe (ForAll [] [] inferredKind) maybeKindScheme
+      declaredKind = typeSchemeBody declaredKindScheme
   let synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
   storeTyConInfo
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tyCon,
-        tciKindScheme = ForAll [] [] declaredKind,
+        tciKindScheme = declaredKindScheme,
         tciFlavor = SynonymTyCon,
         tciTypeSynonym = Just synonym
       }

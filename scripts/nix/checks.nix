@@ -83,6 +83,7 @@
                   ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
                   ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
                   ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
+                  ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
                   export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
                   export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
@@ -385,6 +386,15 @@
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
+
+      ${aihcExe} install-v2 core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
+
+      test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
+      archive="$(find "$store" -path '*/lib/libaihc-template-haskell.a' -print -quit)"
+      test -n "$archive"
+      test -s "$archive"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
     '';

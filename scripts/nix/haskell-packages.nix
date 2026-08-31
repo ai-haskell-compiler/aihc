@@ -43,6 +43,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-template-haskell = {
+      src = sources.templateHaskellSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-testing = {
       src = sources.testingSrc;
       cabal2nixOptions = {

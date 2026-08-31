@@ -324,10 +324,11 @@ getDataConFieldInfo table = do
 
 putClassInfo :: Map TyCon Word64 -> ClassInfo -> Builder.Builder
 putClassInfo table info =
-  cborArray 8
+  cborArray 9
     <> cborText (ciName info)
     <> putTyCon table (ciTyCon info)
     <> putMaybe putTextOrigin (ciOrigin info)
+    <> encodeList (putTyVar table) (ciKindTyVars info)
     <> encodeList (putTyVar table) (ciTyVars info)
     <> encodeList (putType table) (ciSuperClassTypes info)
     <> encodeList (putNamedScheme table) (ciMethods info)
@@ -336,16 +337,17 @@ putClassInfo table info =
 
 getClassInfo :: TyConTable -> Get.Get ClassInfo
 getClassInfo table = do
-  expectArray 8
+  expectArray 9
   ciName <- getText
   ciTyCon <- getTyCon table
   ciOrigin <- getMaybe getTextOrigin
+  ciKindTyVars <- getList (getTyVar table)
   ciTyVars <- getList (getTyVar table)
   ciSuperClassTypes <- getList (getType table)
   ciMethods <- getList (getNamedScheme table)
   ciDefaultMethods <- getList getText
   ciDefaultSignatures <- getList (getNamedScheme table)
-  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures}
+  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures}
 
 putInstanceInfo :: Map TyCon Word64 -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =
@@ -472,7 +474,7 @@ dataConInfoTyCons info =
 classInfoTyCons :: ClassInfo -> Set.Set TyCon
 classInfoTyCons info =
   Set.insert (ciTyCon info) $
-    Set.unions (map tyVarTyCons (ciTyVars info))
+    Set.unions (map tyVarTyCons (ciKindTyVars info <> ciTyVars info))
       <> Set.unions (map typeTyCons (ciSuperClassTypes info))
       <> Set.unions (map (typeSchemeTyCons . snd) (ciMethods info <> ciDefaultSignatures info))
 

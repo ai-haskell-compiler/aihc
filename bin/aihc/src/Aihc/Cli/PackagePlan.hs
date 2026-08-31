@@ -183,6 +183,8 @@ lookupCoreProvider name =
     "aihc-prim" -> Just aihcPrimProvider
     "ghc-internal" -> Just aihcInternalProvider
     "aihc-internal" -> Just aihcInternalProvider
+    "template-haskell" -> Just aihcTemplateHaskellProvider
+    "aihc-template-haskell" -> Just aihcTemplateHaskellProvider
     "system-cxx-std-lib" -> Just systemCxxStdLibProvider
     _ -> Nothing
 
@@ -214,6 +216,14 @@ aihcInternalProvider =
     { coreProviderName = "aihc-internal",
       coreProviderVersion = "9.1204.0",
       coreProviderSourceRel = "core-libs" </> "aihc-internal"
+    }
+
+aihcTemplateHaskellProvider :: CoreProvider
+aihcTemplateHaskellProvider =
+  CoreProvider
+    { coreProviderName = "aihc-template-haskell",
+      coreProviderVersion = "2.23.0.0",
+      coreProviderSourceRel = "core-libs" </> "aihc-template-haskell"
     }
 
 systemCxxStdLibProvider :: CoreProvider

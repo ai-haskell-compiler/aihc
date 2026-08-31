@@ -38,9 +38,11 @@ module Prelude
     Show (..),
     ShowS,
     String,
+    FilePath,
     (&&),
     ($),
     ($!),
+    (<$>),
     (*>),
     (.),
     (++),
@@ -51,6 +53,34 @@ module Prelude
     sequence_,
     zip,
     and,
+    all,
+    any,
+    null,
+    elem,
+    concat,
+    concatMap,
+    filter,
+    head,
+    tail,
+    last,
+    init,
+    length,
+    reverse,
+    foldl,
+    lookup,
+    zipWith,
+    unzip,
+    break,
+    dropWhile,
+    replicate,
+    fst,
+    snd,
+    span,
+    take,
+    drop,
+    takeWhile,
+    maybe,
+    mapM_,
     flip,
     error,
     (=<<),
@@ -113,7 +143,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, raise#, seq, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, raise#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -134,8 +164,11 @@ import GHC.Real
     (^^),
   )
 import GHC.Tuple ()
+import GHC.Word (Word (..), Word8 (..))
 
 type ReadS a = String -> [(a, String)]
+
+type FilePath = String
 
 type Prec = Int
 
@@ -152,9 +185,88 @@ function $! argument = argument `seq` function argument
 
 infixr 0 $!
 
+(<$>) :: (Functor f) => (a -> b) -> f a -> f b
+(<$>) = fmap
+
+infixl 4 <$>
+
 map :: (a -> b) -> [a] -> [b]
 map _ [] = []
 map function (value : values) = function value : map function values
+
+null :: [a] -> Bool
+null [] = True
+null (_ : _) = False
+
+elem :: (Eq a) => a -> [a] -> Bool
+elem _ [] = False
+elem expected (value : values) = expected == value || elem expected values
+
+concat :: [[a]] -> [a]
+concat = foldr (++) []
+
+concatMap :: (a -> [b]) -> [a] -> [b]
+concatMap function = concat . map function
+
+filter :: (a -> Bool) -> [a] -> [a]
+filter _ [] = []
+filter predicate (value : values) =
+  if predicate value
+    then value : filter predicate values
+    else filter predicate values
+
+head :: [a] -> a
+head [] = error "Prelude.head: empty list"
+head (value : _) = value
+
+tail :: [a] -> [a]
+tail [] = error "Prelude.tail: empty list"
+tail (_ : values) = values
+
+last :: [a] -> a
+last [] = error "Prelude.last: empty list"
+last (value : values) = lastWithDefault value values
+
+lastWithDefault :: a -> [a] -> a
+lastWithDefault value [] = value
+lastWithDefault _ (value : values) = lastWithDefault value values
+
+init :: [a] -> [a]
+init [] = error "Prelude.init: empty list"
+init [_] = []
+init (value : values) = value : init values
+
+length :: [a] -> Int
+length [] = 0
+length (_ : values) = 1 + length values
+
+reverse :: [a] -> [a]
+reverse = reverseOnto []
+
+reverseOnto :: [a] -> [a] -> [a]
+reverseOnto = foldl (flip (:))
+
+foldl :: (b -> a -> b) -> b -> [a] -> b
+foldl _ initial [] = initial
+foldl function initial (value : values) = foldl function (function initial value) values
+
+lookup :: (Eq a) => a -> [(a, b)] -> Maybe b
+lookup _ [] = Nothing
+lookup key ((candidate, value) : values) =
+  if key == candidate
+    then Just value
+    else lookup key values
+
+zipWith :: (a -> b -> c) -> [a] -> [b] -> [c]
+zipWith _ [] _ = []
+zipWith _ _ [] = []
+zipWith function (left : lefts) (right : rights) = function left right : zipWith function lefts rights
+
+unzip :: [(a, b)] -> ([a], [b])
+unzip [] = ([], [])
+unzip ((left, right) : values) =
+  case unzip values of
+    (lefts, rights) -> (left : lefts, right : rights)
 
 zip :: [a] -> [b] -> [(a, b)]
 zip (left : lefts) (right : rights) = (left, right) : zip lefts rights
@@ -162,6 +274,78 @@ zip _ _ = []
 
 and :: [Bool] -> Bool
 and = foldr (&&) True
+
+all :: (a -> Bool) -> [a] -> Bool
+all predicate = foldr (\value result -> predicate value && result) True
+
+any :: (a -> Bool) -> [a] -> Bool
+any predicate = foldr (\value result -> predicate value || result) False
+
+break :: (a -> Bool) -> [a] -> ([a], [a])
+break _ [] = ([], [])
+break predicate values@(value : rest) =
+  if predicate value
+    then ([], values)
+    else case break predicate rest of
+      (prefix, suffix) -> (value : prefix, suffix)
+
+dropWhile :: (a -> Bool) -> [a] -> [a]
+dropWhile _ [] = []
+dropWhile predicate values@(value : rest) =
+  if predicate value
+    then dropWhile predicate rest
+    else values
+
+replicate :: Int -> a -> [a]
+replicate count value =
+  if count <= 0
+    then []
+    else value : replicate (count - 1) value
+
+fst :: (a, b) -> a
+fst (left, _) = left
+
+snd :: (a, b) -> b
+snd (_, right) = right
+
+span :: (a -> Bool) -> [a] -> ([a], [a])
+span _ [] = ([], [])
+span predicate values@(value : rest) =
+  if predicate value
+    then case span predicate rest of
+      (prefix, suffix) -> (value : prefix, suffix)
+    else ([], values)
+
+take :: Int -> [a] -> [a]
+take count values =
+  if count <= 0
+    then []
+    else case values of
+      [] -> []
+      value : rest -> value : take (count - 1) rest
+
+drop :: Int -> [a] -> [a]
+drop count values =
+  if count <= 0
+    then values
+    else case values of
+      [] -> []
+      _ : rest -> drop (count - 1) rest
+
+takeWhile :: (a -> Bool) -> [a] -> [a]
+takeWhile _ [] = []
+takeWhile predicate (value : values) =
+  if predicate value
+    then value : takeWhile predicate values
+    else []
+
+maybe :: b -> (a -> b) -> Maybe a -> b
+maybe initial _ Nothing = initial
+maybe _ function (Just value) = function value
+
+mapM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
+mapM_ _ [] = return ()
+mapM_ function (value : values) = function value >> mapM_ function values
 
 flip :: (a -> b -> c) -> b -> a -> c
 flip function right left = function left right
@@ -397,6 +581,10 @@ instance Eq Char where
 
   x /= y = not (x == y)
 
+instance Eq () where
+  () == () = True
+  () /= () = False
+
 instance (Eq a) => Eq [a] where
   [] == [] = True
   [] == (_ : _) = False
@@ -421,6 +609,15 @@ instance (Eq a, Eq b) => Eq (Either a b) where
 
   x /= y = not (x == y)
 
+instance (Eq a, Eq b) => Eq (a, b) where
+  (leftA, leftB) == (rightA, rightB) = leftA == rightA && leftB == rightB
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c) => Eq (a, b, c) where
+  (leftA, leftB, leftC) == (rightA, rightB, rightC) =
+    leftA == rightA && leftB == rightB && leftC == rightC
+  left /= right = not (left == right)
+
 instance (Ord a) => Ord [a] where
   compare = compareList
   xs < ys = lessBy compareList xs ys
@@ -429,6 +626,15 @@ instance (Ord a) => Ord [a] where
   xs >= ys = greaterOrEqualBy compareList xs ys
   max = maxBy compareList
   min = minBy compareList
+
+instance Ord () where
+  compare () () = EQ
+  () < () = False
+  () <= () = True
+  () > () = False
+  () >= () = True
+  max () () = ()
+  min () () = ()
 
 instance (Ord a) => Ord (Maybe a) where
   compare = compareMaybe
@@ -447,6 +653,24 @@ instance (Ord a, Ord b) => Ord (Either a b) where
   x >= y = greaterOrEqualBy compareEither x y
   max = maxBy compareEither
   min = minBy compareEither
+
+instance (Ord a, Ord b) => Ord (a, b) where
+  compare = comparePair
+  left < right = lessBy comparePair left right
+  left <= right = lessOrEqualBy comparePair left right
+  left > right = greaterBy comparePair left right
+  left >= right = greaterOrEqualBy comparePair left right
+  max = maxBy comparePair
+  min = minBy comparePair
+
+instance (Ord a, Ord b, Ord c) => Ord (a, b, c) where
+  compare = compareTriple
+  left < right = lessBy compareTriple left right
+  left <= right = lessOrEqualBy compareTriple left right
+  left > right = greaterBy compareTriple left right
+  left >= right = greaterOrEqualBy compareTriple left right
+  max = maxBy compareTriple
+  min = minBy compareTriple
 
 compareList :: (Ord a) => [a] -> [a] -> Ordering
 compareList [] [] = EQ
@@ -469,6 +693,21 @@ compareEither (Left x) (Left y) = compare x y
 compareEither (Left _) (Right _) = LT
 compareEither (Right _) (Left _) = GT
 compareEither (Right x) (Right y) = compare x y
+
+comparePair :: (Ord a, Ord b) => (a, b) -> (a, b) -> Ordering
+comparePair (leftA, leftB) (rightA, rightB) =
+  case compare leftA rightA of
+    EQ -> compare leftB rightB
+    result -> result
+
+compareTriple :: (Ord a, Ord b, Ord c) => (a, b, c) -> (a, b, c) -> Ordering
+compareTriple (leftA, leftB, leftC) (rightA, rightB, rightC) =
+  case compare leftA rightA of
+    EQ ->
+      case compare leftB rightB of
+        EQ -> compare leftC rightC
+        result -> result
+    result -> result
 
 lessBy :: (a -> a -> Ordering) -> a -> a -> Bool
 lessBy cmp x y =
@@ -541,6 +780,12 @@ instance Show Int where
     case (<#) value 0# of
       0# -> showsUnsignedInt (int2Word# value)
       _ -> showParen (precedence > 6) (showChar '-' . showsUnsignedInt (minusWord# (int2Word# 0#) (int2Word# value)))
+
+instance Show Word where
+  showsPrec _ (W# value) = showsUnsignedInt value
+
+instance Show Word8 where
+  showsPrec _ (W8# value) = showsUnsignedInt (word8ToWord# value)
 
 instance Show Integer where
   showsPrec = showsSignedInteger

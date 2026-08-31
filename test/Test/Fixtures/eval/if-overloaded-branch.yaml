@@ -1,0 +1,21 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    class Empty a where
+      empty :: a
+
+    instance Empty Bool where
+      empty = True
+
+    choose :: Bool -> Bool
+    choose condition = if condition then empty else False
+output: |
+  True
+expression: |
+  choose True
+status: pass
+reason: an if expression keeps its result type after an overloaded branch is solved

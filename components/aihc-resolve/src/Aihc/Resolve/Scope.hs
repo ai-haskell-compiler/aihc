@@ -140,7 +140,9 @@ exportedScope package exports modu =
     exportSpecScope spec =
       case spec of
         ExportAnn _ inner -> exportSpecScope inner
-        ExportModule _ exportModuleName -> lookupImportedModule package Nothing exportModuleName exports
+        ExportModule _ exportModuleName
+          | exportModuleName == moduleKey modu -> topLevelScope package modu
+          | otherwise -> lookupImportedModule package Nothing exportModuleName exports
         ExportVar _ _ name -> selectTerm (nameText name) availableScope
         ExportAbs _ _ name -> selectType (nameText name) availableScope
         ExportAll _ _ name -> selectTypeWithMembers (nameText name) availableScope (allTypeMembers (nameText name) availableScope)

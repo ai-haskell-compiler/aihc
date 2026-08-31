@@ -13,6 +13,7 @@ module Aihc.Fc.Convert
     convertKind,
     convertRep,
     convertType,
+    convertTypeWithExpectedKind,
     convertPred,
     tyVarBinder,
     tyConNameFc,
@@ -23,6 +24,7 @@ module Aihc.Fc.Convert
     liftedRepType,
     typeRep,
     extraKindVars,
+    invisibleKindArgs,
     typeKindInEnv,
   )
 where
@@ -235,8 +237,10 @@ convertPred :: ConvertEnv -> Pred -> Either String Type
 convertPred env predicate =
   case predicate of
     ClassPred tyCon arguments -> do
-      converted <- mapM (convertType env) arguments
-      pure (foldl TyApp (TyCon (classDictTypeName tyCon)) converted)
+      kindArguments <- invisibleKindArgs env tyCon arguments Nothing
+      argumentKinds <- visibleArgumentKinds env tyCon arguments Nothing
+      converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
+      pure (foldl TyApp (TyCon (classDictTypeName tyCon)) (kindArguments <> converted))
     EqPred left right ->
       TyEq <$> convertType env left <*> convertType env right
     QuantifiedPred variables antecedents consequent -> do
@@ -317,6 +321,8 @@ kindVarToType env tyCon arguments expectedKind tyVar =
                 <> show (tvUnique tyVar)
                 <> " for "
                 <> T.unpack (tyConName tyCon)
+                <> " with arguments "
+                <> show arguments
             )
 
 kindSubst :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String (Map Unique TcType)

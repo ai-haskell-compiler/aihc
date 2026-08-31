@@ -42,7 +42,8 @@ extractHiCompareTests =
           testCase "counts candidate-only exports separately" test_coreLibProgressCountsExtrasSeparately,
           testCase "renders stable command output" test_coreLibProgressRendersStableOutput
         ],
-      testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset
+      testCase "aihc-internal is a subset of ghc-internal" test_aihcInternalSubset,
+      testCase "aihc-template-haskell is a subset of template-haskell" test_aihcTemplateHaskellSubset
     ]
 
 test_acceptsEmptyCandidateModuleExports :: Assertion
@@ -182,6 +183,13 @@ test_aihcInternalSubset = do
   candidate <- extractPackage "aihc-internal"
   oracle <- extractPackage "ghc-internal"
   assertEqual "aihc-internal mismatches" [] (comparePackageSubset candidate oracle)
+
+-- A source fixture cannot compare all exported interface facts in all public modules.
+test_aihcTemplateHaskellSubset :: Assertion
+test_aihcTemplateHaskellSubset = do
+  candidate <- extractPackage "aihc-template-haskell"
+  oracle <- extractPackage "template-haskell"
+  assertEqual "aihc-template-haskell mismatches" [] (comparePackageSubset candidate oracle)
 
 pkg :: [ModuleInterface] -> PackageInterface
 pkg modules =

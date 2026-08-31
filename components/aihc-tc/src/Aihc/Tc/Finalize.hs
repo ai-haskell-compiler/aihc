@@ -73,8 +73,9 @@ annotationForPendingTc pending = do
   typeBinders <- mapM zonkTypeBinder (pendingTcAnnTypeBinders pending)
   typeArgs <- mapM zonkType (pendingTcAnnTypeArgs pending)
   evidenceTerms <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
+  evidenceBinders <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceBinders pending)
   termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
-  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms termArgTypes
+  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms evidenceBinders termArgTypes
   defaulted <- defaultUnsolvedAnnotationMetas ann
   rejectMetaTcAnnotation defaulted
   pure defaulted
@@ -110,6 +111,7 @@ zonkTcAnnotation annotation =
     <*> mapM zonkTypeBinder (tcAnnTypeBinders annotation)
     <*> mapM zonkType (tcAnnTypeArgs annotation)
     <*> mapM zonkEvTerm (tcAnnEvidenceTerms annotation)
+    <*> mapM zonkEvTerm (tcAnnEvidenceBinders annotation)
     <*> mapM zonkType (tcAnnTermArgTypes annotation)
 
 zonkTypeBinder :: TyVarId -> TcM TyVarId
@@ -214,12 +216,14 @@ firstMetaTcAnnotation ann =
     ( firstMetaType (tcAnnType ann)
         : map firstMetaType (tcAnnTypeArgs ann)
         ++ map firstMetaEvTerm (tcAnnEvidenceTerms ann)
+        ++ map firstMetaEvTerm (tcAnnEvidenceBinders ann)
         ++ map firstMetaType (tcAnnTermArgTypes ann)
     )
 
 firstMetaClassAnnotation :: TcClassAnnotation -> Maybe Unique
 firstMetaClassAnnotation classAnnotation =
-  firstJusts (map (firstMetaType . tcDictBinderType) (tcClassSuperClasses classAnnotation))
+  firstJusts (map (firstMetaType . TcTyVar) (tcClassKindTyVars classAnnotation))
+    <|> firstJusts (map (firstMetaType . tcDictBinderType) (tcClassSuperClasses classAnnotation))
     <|> firstJusts (map firstMetaClassMethodAnnotation (tcClassMethods classAnnotation))
     <|> firstJusts (map (firstMetaType . snd) (tcClassDefaultSignatures classAnnotation))
 

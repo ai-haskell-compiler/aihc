@@ -2,6 +2,7 @@
 -- process-global vector observed by every Haskell thread.
 module System.Environment
   ( getArgs,
+    getEnv,
     getProgName,
     withArgs,
     withProgName,
@@ -11,6 +12,9 @@ where
 import Control.Exception.Base (SomeException, catch, throwIO)
 import GHC.Environment (getFullArgs, setFullArgs)
 import Prelude
+
+getEnv :: String -> IO String
+getEnv name = return (error ("System.Environment.getEnv is not available: " ++ name))
 
 -- | Return every initial or replacement argument after the program name.
 getArgs :: IO [String]

@@ -1182,8 +1182,8 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
   unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
       fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
-      fcErrors = concatMap (Fc.lintProgram . fcProgram) fcModules
-      fcReport = map (("    " <>) . show) fcErrors
+      fcErrors = [(fcModuleName fcModule, err) | fcModule <- fcModules, err <- Fc.lintProgram (fcProgram fcModule)]
+      fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
   when lint $
     unless (null fcErrors) $
       ioError
@@ -1521,7 +1521,8 @@ dataConInfoTyCons info =
 classInfoTyCons :: ClassInfo -> [TyCon]
 classInfoTyCons info =
   ciTyCon info
-    : concatMap typeTyCons (ciSuperClassTypes info)
+    : concatMap (typeTyCons . TcTyVar) (ciKindTyVars info)
+      <> concatMap typeTyCons (ciSuperClassTypes info)
       <> concatMap (typeSchemeTyCons . snd) (ciMethods info)
       <> concatMap (typeSchemeTyCons . snd) (ciDefaultSignatures info)
 

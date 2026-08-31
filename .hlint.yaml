@@ -10,3 +10,21 @@
 - ignore:
     name: Use sequenceA
     within: Data.Traversable
+- ignore:
+    within: GHC.Boot.TH.Lib.Map
+- ignore:
+    within: GHC.Boot.TH.Ppr
+- ignore:
+    within: GHC.Boot.TH.PprLib
+- ignore:
+    within: GHC.Internal.TH.Lib
+- ignore:
+    within: GHC.Internal.TH.Lift
+- ignore:
+    within: GHC.Internal.TH.Syntax
+- ignore:
+    within: Language.Haskell.TH.Lib
+- ignore:
+    within: System.FilePath.Posix
+- ignore:
+    within: System.FilePath.Windows

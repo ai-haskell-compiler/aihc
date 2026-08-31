@@ -45,7 +45,7 @@ checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv target
 
 selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> SourceSpan -> TcM TcDerivingStrategy
 selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sourceSpan =
-  case (isAihcPrimClass classOrigin, stockDerivingRequirement className) of
+  case (isStockClassOrigin classOrigin, stockDerivingRequirement className) of
     (True, Just requiredExtension)
       | maybe True (`elem` extensions) requiredExtension -> pure TcDerivingStock
     _
@@ -62,8 +62,8 @@ selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sour
 
 checkStockDeriving :: [Extension] -> Text -> Maybe (Text, Text) -> SourceSpan -> TcM ()
 checkStockDeriving extensions className classOrigin sourceSpan
-  | not (isAihcPrimClass classOrigin) =
-      emitError sourceSpan (OtherError "stock deriving requires a class from aihc-prim")
+  | not (isStockClassOrigin classOrigin) =
+      emitError sourceSpan (OtherError "stock deriving requires a standard class")
   | otherwise =
       case stockDerivingRequirement className of
         Nothing ->
@@ -72,9 +72,14 @@ checkStockDeriving extensions className classOrigin sourceSpan
         Just (Just extension) ->
           requireDerivingExtension extensions extension ("stock deriving for " <> T.unpack className) sourceSpan
 
-isAihcPrimClass :: Maybe (Text, Text) -> Bool
-isAihcPrimClass (Just ("aihc-prim", _)) = True
-isAihcPrimClass _ = False
+isStockClassOrigin :: Maybe (Text, Text) -> Bool
+isStockClassOrigin (Just (packageId, _)) =
+  isPackage "aihc-prim" packageId || isPackage "aihc-base" packageId
+isStockClassOrigin _ = False
+
+isPackage :: Text -> Text -> Bool
+isPackage packageName packageId =
+  packageId == packageName || (packageName <> "-") `T.isPrefixOf` packageId
 
 -- | Extensions required by GHC's stock deriving mechanisms. A @Nothing@
 -- requirement denotes the six classes available for ordinary Haskell data
