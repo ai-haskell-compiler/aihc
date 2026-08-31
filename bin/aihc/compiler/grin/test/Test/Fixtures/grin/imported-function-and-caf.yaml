@@ -11,11 +11,9 @@ expected: |-
     eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
 
   $grin_caf_thunk_1 -> BoxedRep Lifted =
-    argument%-1000000002 :: IntRep <-
+    argument%-1000000001 :: IntRep <-
       constant (7 :: IntRep)
-    function_whnf%-1000000001 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) global-ref "\NULDependency\NULBox"
-    apply @(BoxedRep Lifted) (function_whnf%-1000000001 :: BoxedRep Lifted) (argument%-1000000002 :: IntRep)
+    store (CDependency.Box (argument%-1000000001 :: IntRep))
   global "\NULTarget\NULuseFunction" = (F$grin_useFunction_thunk_0)
 
   global "\NULTarget\NULuseCaf" = (F$grin_useCaf_thunk_1)
