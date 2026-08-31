@@ -88,7 +88,6 @@ import Aihc.Tc
     mergeTcInterfaces,
     renderPred,
     renderTcType,
-    restrictTcInterfaceToModules,
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -111,7 +110,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -211,8 +210,8 @@ data TypeUnitResult = TypeUnitResult
   { typeUnitTypes :: !(Map.Map Text TcInterface),
     typeUnitHashes :: !(Map.Map Text Text),
     typeUnitComplete :: !TcInterface,
-    typeUnitLocalInterface :: !TcInterface,
     typeUnitBackendInterface :: !TcInterface,
+    typeUnitDesugarInterfaces :: ![(Text, TcInterface)],
     typeUnitDiagnostics :: ![TcDiagnostic],
     typeUnitWritten :: !(Set.Set Text),
     typeUnitReused :: !(Set.Set Text),
@@ -223,8 +222,7 @@ data TypeUnitResult = TypeUnitResult
 data UnitRuntime = UnitRuntime
   { runtimeUnit :: !SourceUnit,
     runtimeResolveResult :: !(TMVar ResolveUnitResult),
-    runtimeTypeResult :: !(TMVar TypeUnitResult),
-    runtimePreparedDesugar :: !(TMVar (Maybe Fc.PreparedDesugar))
+    runtimeTypeResult :: !(TMVar TypeUnitResult)
   }
 
 data ModuleCompileConfig = ModuleCompileConfig
@@ -270,8 +268,7 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyExports :: !ModuleExports,
     taskDependencyScopeHashes :: !(Map.Map Text Text),
     taskDependencyTypes :: !(Map.Map Text TcInterface),
-    taskDependencyTypeHashes :: !(Map.Map Text Text),
-    taskDependencyPreparedDesugar :: !Fc.PreparedDesugar
+    taskDependencyTypeHashes :: !(Map.Map Text Text)
   }
 
 runInstallV2 :: InstallV2Options -> IO ()
@@ -449,11 +446,6 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
-  dependencyPreparedDesugar <-
-    either (ioError . userError . ("FC environment generation failed: " <>)) pure $
-      Fc.prepareDesugar
-        (DesugarConfig primIdentity)
-        (if compileNoCode config then mempty else mergeTcInterfaces (Map.elems dependencyTypes))
   let taskContext =
         PackageTaskContext
           { taskModuleCompileConfig = config,
@@ -464,8 +456,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskDependencyExports = dependencyExports,
             taskDependencyScopeHashes = dependencyScopeHashes,
             taskDependencyTypes = dependencyTypes,
-            taskDependencyTypeHashes = dependencyTypeHashes,
-            taskDependencyPreparedDesugar = dependencyPreparedDesugar
+            taskDependencyTypeHashes = dependencyTypeHashes
           }
   verbose ("Compute " <> show (length units) <> " SCC units")
   (runtimes, taskTimings) <- runPackageTasks taskContext (max 1 capabilities) units
@@ -827,7 +818,7 @@ runPackageTasks :: PackageTaskContext -> Int -> [SourceUnit] -> IO ([UnitRuntime
 runPackageTasks context workers units = do
   runtimes <-
     forM units $ \unit ->
-      UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO
+      UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO
   let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
       tasks = concatMap (unitTasks runtimeMap) runtimes
   timings <- runTaskGraph workers tasks
@@ -836,9 +827,7 @@ runPackageTasks context workers units = do
     unitTasks runtimeMap runtime =
       map (parseTask runtime) (sourceUnitSources unit)
         <> [resolveTask runtimeMap runtime, typeTask runtimeMap runtime]
-        <> if compileNoCode config
-          then []
-          else [prepareTask runtimeMap runtime, backendTask runtime]
+        <> [backendTask runtime | not (compileNoCode config)]
       where
         unit = runtimeUnit runtime
 
@@ -890,21 +879,8 @@ runPackageTasks context workers units = do
         { taskId = backendTaskId (runtimeUnit runtime),
           taskKind = TaskBackend,
           taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources (runtimeUnit runtime)))),
-          taskDependencies = Set.singleton (prepareTaskId (runtimeUnit runtime)),
+          taskDependencies = Set.singleton (typeTaskId (runtimeUnit runtime)),
           taskAction = runBackendUnit context runtime
-        }
-
-    prepareTask runtimeMap runtime =
-      Task
-        { taskId = prepareTaskId (runtimeUnit runtime),
-          taskKind = TaskBackend,
-          taskOrder = sourceUnitOrder (runtimeUnit runtime),
-          taskDependencies =
-            Set.fromList
-              ( typeTaskId (runtimeUnit runtime)
-                  : map (prepareTaskId . runtimeUnit . lookupRuntime runtimeMap) (sourceUnitDependencies (runtimeUnit runtime))
-              ),
-          taskAction = runPrepareUnit context runtimeMap runtime
         }
     config = taskModuleCompileConfig context
 
@@ -916,9 +892,6 @@ resolveTaskId = TaskId . ("resolve:" <>) . T.unpack . unitLabel
 
 typeTaskId :: SourceUnit -> TaskId
 typeTaskId = TaskId . ("type-check:" <>) . T.unpack . unitLabel
-
-prepareTaskId :: SourceUnit -> TaskId
-prepareTaskId = TaskId . ("prepare-fc:" <>) . T.unpack . unitLabel
 
 backendTaskId :: SourceUnit -> TaskId
 backendTaskId = TaskId . ("backend:" <>) . T.unpack . unitLabel
@@ -1065,21 +1038,37 @@ runTypeUnit context runtimes runtime = do
         let (checkedModules, _) = initialChecked
         pure (Just (PendingCompile True checkedModules))
   let completeInterface = snd initialChecked
-      localInterface = restrictTcInterfaceToModules (packageId resolvePackage) unitNames completeInterface
+      unitTypeMap = Map.fromList (zip unitNames unitTypes)
       availableBackendFacts =
         mergeTcInterfaces
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
+      selectedDesugarInterfaces =
+        Map.toList $
+          unitTypeMap
+            <> Map.fromList
+              [ (name, interface)
+              | name <- dependencyNames,
+                name `notElem` unitNames,
+                Just interface <- [LazyMap.lookup name availableTypes]
+              ]
+            <> Map.fromList
+              [ (name, interface)
+              | (name, interface) <- LazyMap.toList availableTypes,
+                "$package-instances:" `T.isPrefixOf` name
+              ]
+            <> Map.unions (map typeUnitTypes dependencyResults)
+            <> Map.singleton ("$imported-instances:" <> unitLabel unit) (addReferencedFacts availableBackendFacts importedInstances)
       unitSet = Set.fromList unitNames
   atomically $
     putTMVar
       (runtimeTypeResult runtime)
       TypeUnitResult
-        { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
+        { typeUnitTypes = unitTypeMap,
           typeUnitHashes = ownTypeHashes,
           typeUnitComplete = completeInterface,
-          typeUnitLocalInterface = localInterface,
           typeUnitBackendInterface = backendInterface,
+          typeUnitDesugarInterfaces = if compileNoCode config || not success then [] else selectedDesugarInterfaces,
           typeUnitDiagnostics = diagnostics,
           typeUnitWritten = unitSet,
           typeUnitReused = Set.empty,
@@ -1090,39 +1079,14 @@ runTypeUnit context runtimes runtime = do
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
 
-runPrepareUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
-runPrepareUnit context runtimes runtime = do
-  result <- atomically (readTMVar (runtimeTypeResult runtime))
-  dependencyResults <- readDependencyResults runtimePreparedDesugar runtimes (sourceUnitDependencies (runtimeUnit runtime))
-  prepared <-
-    if typeUnitSuccess result
-      then do
-        let availableDependencies = catMaybes dependencyResults
-            dependencies =
-              if null availableDependencies
-                then [taskDependencyPreparedDesugar context]
-                else availableDependencies
-        Just
-          <$> either
-            (ioError . userError . ("FC environment generation failed: " <>))
-            pure
-            ( Fc.prepareDesugarIncrementalWithAvailable
-                (DesugarConfig (taskPrimIdentity context))
-                dependencies
-                (typeUnitLocalInterface result)
-                (typeUnitBackendInterface result)
-            )
-      else pure Nothing
-  atomically (putTMVar (runtimePreparedDesugar runtime) prepared)
-
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
   result <- atomically (readTMVar (runtimeTypeResult runtime))
-  prepared <- atomically (readTMVar (runtimePreparedDesugar runtime))
-  case (typeUnitPendingCompile result, prepared) of
-    (Just pending, Just preparedDesugar) -> do
+  case typeUnitPendingCompile result of
+    Just pending -> do
       let config = taskModuleCompileConfig context
           storePath = taskStorePath context
+      preparedDesugar <- mergeDesugarInterfaces context (typeUnitDesugarInterfaces result)
       compileCheckedModules
         config
         (pendingWriteFc pending)
@@ -1130,7 +1094,15 @@ runBackendUnit context runtime = do
         preparedDesugar
         (moduleOutputPaths storePath (compileTarget config))
         (pendingModules pending)
-    _ -> pure ()
+    Nothing -> pure ()
+
+mergeDesugarInterfaces :: PackageTaskContext -> [(Text, TcInterface)] -> IO Fc.DesugarEnv
+mergeDesugarInterfaces context interfaces = do
+  let config = DesugarConfig (taskPrimIdentity context)
+  either
+    (ioError . userError . ("FC environment generation failed: " <>))
+    pure
+    (Fc.prepareDesugarMany config (map snd interfaces))
 
 applyInstanceFacts :: TcInterface -> TcInterface -> TcInterface
 applyInstanceFacts instances direct =
@@ -1171,14 +1143,14 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
 
-compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
+compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> Fc.DesugarEnv -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do
   let keepGrin = compileKeepGrin config
       keepNative = compileKeepNative config
       lint = compileLint config
       target = compileTarget config
       bindings = concatMap tcModuleBindings checkedModules
-      desugarResults = map (Fc.desugarModuleFcPrepared prepared bindings) checkedModules
+      desugarResults = map (Fc.desugarPrepared prepared bindings) checkedModules
   unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
       fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)

@@ -11,7 +11,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, desugarModuleFcPrepared, lintProgram, parseProgram, prepareDesugar, prepareDesugarIncremental, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, desugarPrepared, lintProgram, parseProgram, prepareDesugar, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -29,7 +29,6 @@ import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult 
 import Aihc.Tc
   ( TcInterface,
     emptyTcInterface,
-    restrictTcInterfaceToModules,
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -197,8 +196,8 @@ renderFcCase tc =
                   (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) (supportTcInterface primitiveSupport) fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
-                      basePrepared <- prepareDesugar desugarConfig (supportTcInterface primitiveSupport)
-                      fixtureResults <- prepareResults basePrepared tcInterface fixtureTcResults
+                      env <- prepareDesugar desugarConfig (supportTcInterface primitiveSupport <> tcInterface)
+                      let fixtureResults = map (\checked -> desugarPrepared env (tcModuleBindings checked) checked) fixtureTcResults
                       if all dsSuccess fixtureResults
                         then lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
@@ -208,13 +207,6 @@ renderFcCase tc =
   where
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
-    prepareResults _ _ [] = Right []
-    prepareResults previous complete (checked : remaining) = do
-      let name = fromMaybe "Main" (moduleName checked)
-          local = restrictTcInterfaceToModules (packageId fixturePackage) [name] complete
-      prepared <- prepareDesugarIncremental desugarConfig [previous] local
-      let result = desugarModuleFcPrepared prepared (tcModuleBindings checked) checked
-      (result :) <$> prepareResults prepared complete remaining
     lintAndRenderResults fixtureResults =
       case renderResults fixtureResults of
         Left renderError -> Left renderError

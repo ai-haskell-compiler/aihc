@@ -4,6 +4,7 @@
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
   ( desugarValues,
+    emptyPreparedValueInterface,
     mergePreparedValueInterfaces,
     prepareValueInterface,
     PreparedValueInterface,
@@ -27,8 +28,10 @@ import Aihc.Tc
   ( DataConFieldInfo (..),
     DataConInfo (..),
     DataTypeInfo (..),
+    InstanceInfo (..),
     TcBindingResult (..),
     TcInterface (..),
+    TcTermKey (..),
     TyConFlavor (..),
   )
 import Aihc.Tc.Annotations
@@ -50,6 +53,7 @@ import Aihc.Tc.Types
     TcType (..),
     TyCon,
     TyVarId,
+    TypeScheme (..),
     Unique (..),
     applySubst,
     applySubstPred,
@@ -88,7 +92,8 @@ data ValueState = ValueState
   { vsNextUnique :: !Int,
     vsModuleOrigin :: !(PackageId, Text),
     vsConvertEnv :: !ConvertEnv,
-    vsTypes :: !(Map Text TcType),
+    vsLocalTypes :: !(Map Text TcType),
+    vsGlobalTypes :: !(Map (PackageId, Text, Text) TcType),
     vsLocals :: !(Map Text (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
     vsConstructors :: !(Map Text [Name]),
@@ -97,7 +102,7 @@ data ValueState = ValueState
   }
 
 data PreparedValueInterface = PreparedValueInterface
-  { preparedTypes :: !(Map Text TcType),
+  { preparedTypes :: !(Map (PackageId, Text, Text) TcType),
     preparedConstructors :: !(Map Text [Name]),
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
     preparedNewtypeConstructors :: !(Map (PackageId, Text, Text) DataTypeInfo)
@@ -120,15 +125,34 @@ data Dictionary = Dictionary
     dictionaryBinder :: !Binder
   }
 
-prepareValueInterface :: [TcBindingResult] -> TcInterface -> PreparedValueInterface
-prepareValueInterface bindings interface =
+emptyPreparedValueInterface :: PreparedValueInterface
+emptyPreparedValueInterface =
   PreparedValueInterface
-    { preparedTypes = Map.fromList [(tbName binding, tbType binding) | binding <- bindings],
+    { preparedTypes = Map.empty,
+      preparedConstructors = Map.empty,
+      preparedConstructorInfos = Map.empty,
+      preparedNewtypeConstructors = Map.empty
+    }
+
+prepareValueInterface :: TcInterface -> PreparedValueInterface
+prepareValueInterface interface =
+  PreparedValueInterface
+    { preparedTypes = termTypes,
       preparedConstructors = constructors,
       preparedConstructorInfos = constructorInfos,
       preparedNewtypeConstructors = newtypes
     }
   where
+    termTypes =
+      Map.fromList
+        ( [ ((package, moduleName', identifier), schemeType scheme)
+          | (TcTermGlobal package moduleName' identifier, scheme) <- tcInterfaceTerms interface
+          ]
+            <> [ ((PackageId package, moduleName', iiDictName info), iiDictType info)
+               | info <- tcInterfaceInstances interface,
+                 let (package, moduleName') = iiDictOrigin info
+               ]
+        )
     constructors =
       Map.fromListWith
         (<>)
@@ -137,6 +161,10 @@ prepareValueInterface bindings interface =
           constructor <- dtiConstructors dataType,
           let (package, moduleName') = dciOrigin constructor
         ]
+    schemeType (ForAll [] [] ty) = ty
+    schemeType (ForAll variables [] ty) = foldr TcForAllTy ty variables
+    schemeType (ForAll [] predicates ty) = TcQualTy predicates ty
+    schemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualTy predicates ty) variables
 
     constructorInfos =
       Map.fromListWith
@@ -167,13 +195,13 @@ mergePreparedValueInterfaces interfaces =
 
 desugarValues :: ConvertEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv bindings interface moduleOrigin checked = do
-  let typeEntries = Map.fromList [(tbName binding, tbType binding) | binding <- bindings] `Map.union` preparedTypes interface
-      initialState =
+  let initialState =
         ValueState
           { vsNextUnique = 1000,
             vsModuleOrigin = moduleOrigin,
             vsConvertEnv = convertEnv,
-            vsTypes = typeEntries,
+            vsLocalTypes = Map.fromList [(tbName binding, tbType binding) | binding <- bindings],
+            vsGlobalTypes = preparedTypes interface,
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
             vsConstructors = preparedConstructors interface,
@@ -1351,10 +1379,8 @@ desugarVariable maybeAnnotation name = do
         case maybeAnnotation of
           Just value -> pure value
           Nothing -> do
-            types <- gets vsTypes
-            case Map.lookup (Syn.nameText name) types of
-              Just constructorType -> pure (TcAnnotation constructorType [] [] [] [] [])
-              Nothing -> failValue ("missing checked newtype constructor type " <> T.unpack (Syn.nameText name))
+            constructorType <- lookupCheckedName name
+            pure (TcAnnotation constructorType [] [] [] [] [])
       desugarNewtypeConstructor annotation dataType
     Nothing -> do
       variable <- occurrenceName name
@@ -2010,10 +2036,31 @@ freshUnique = do
 
 lookupCheckedType :: Text -> ValueM TcType
 lookupCheckedType name = do
-  types <- gets vsTypes
-  case Map.lookup name types of
+  local <- Map.lookup name <$> gets vsLocalTypes
+  case local of
     Just ty -> pure ty
-    Nothing -> failValue ("missing checked type for " <> T.unpack name)
+    Nothing -> do
+      matches <-
+        gets
+          ( map snd
+              . filter (\((_, _, identifier), _) -> identifier == name)
+              . Map.toList
+              . vsGlobalTypes
+          )
+      case matches of
+        [ty] -> pure ty
+        [] -> failValue ("missing checked type for " <> T.unpack name)
+        _ -> failValue ("ambiguous checked type for " <> T.unpack name)
+
+lookupCheckedName :: Syn.Name -> ValueM TcType
+lookupCheckedName sourceName =
+  case resolvedTermKey sourceName of
+    Just key -> do
+      types <- gets vsGlobalTypes
+      case Map.lookup key types of
+        Just ty -> pure ty
+        Nothing -> lookupCheckedType (Syn.nameText sourceName)
+    Nothing -> lookupCheckedType (Syn.nameText sourceName)
 
 requiredExprType :: Syn.Expr -> ValueM TcType
 requiredExprType expression =
@@ -2029,7 +2076,7 @@ inferExprType expression =
       local <- Map.lookup (Syn.nameText name) <$> gets vsLocals
       case local of
         Just (_, ty) -> pure ty
-        Nothing -> lookupCheckedType (Syn.nameText name)
+        Nothing -> lookupCheckedName name
     Syn.EApp function _ -> do
       functionType <- inferExprType function
       case applicationResultType functionType of

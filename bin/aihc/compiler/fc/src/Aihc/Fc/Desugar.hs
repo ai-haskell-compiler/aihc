@@ -4,11 +4,11 @@
 -- | Convert a checked module into System FC types, axioms, and values.
 module Aihc.Fc.Desugar
   ( desugarModuleFc,
-    desugarModuleFcPrepared,
+    desugarPrepared,
+    emptyDesugarEnv,
     prepareDesugar,
-    prepareDesugarIncremental,
-    prepareDesugarIncrementalWithAvailable,
-    PreparedDesugar,
+    prepareDesugarMany,
+    DesugarEnv,
     typeEnvFromTcInterface,
     DesugarConfig (..),
     FcDesugarResult (..),
@@ -16,7 +16,7 @@ module Aihc.Fc.Desugar
 where
 
 import Aihc.Fc.Convert
-import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, mergePreparedValueInterfaces, prepareValueInterface)
+import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, emptyPreparedValueInterface, mergePreparedValueInterfaces, prepareValueInterface)
 import Aihc.Fc.Imports (PreparedImports, emptyImports, importsForProgramPrepared, mergePreparedImports, prepareImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
@@ -53,7 +53,6 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
-    tcInterfaceBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
   )
@@ -61,7 +60,6 @@ import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
     TcType (..),
-    TyCon,
     TyVarId,
     TypeScheme (..),
     Unique (..),
@@ -88,25 +86,38 @@ data FcDesugarResult = FcDesugarResult
   }
   deriving (Show)
 
-data PreparedDesugar = PreparedDesugar
-  { preparedConfig :: !DesugarConfig,
-    preparedInterface :: !TcInterface,
-    preparedImports :: !PreparedImports,
-    preparedBindings :: !(Map.Map Text TcBindingResult),
-    preparedValues :: !PreparedValueInterface,
-    preparedConversion :: !ConvertEnv,
-    preparedFacts :: !PreparedFacts
+-- | Converted desugar facts for one interface. Merge with '(<>)'.
+data DesugarEnv = DesugarEnv
+  { deConfig :: !DesugarConfig,
+    deDataTypes :: ![DataTypeInfo],
+    deTyCons :: ![TyConInfo],
+    deClasses :: ![ClassInfo],
+    deDataFamilyInstances :: ![DataFamilyInstanceInfo],
+    deTypeFamilyInstances :: ![TypeFamilyInstanceInfo],
+    deImports :: !PreparedImports,
+    deBindings :: !(Map.Map TcTermKey TcBindingResult),
+    deValues :: !PreparedValueInterface,
+    deConvert :: !ConvertEnv
   }
 
-data PreparedFacts = PreparedFacts
-  { preparedTermKeys :: !(Set.Set TcTermKey),
-    preparedTyConKeys :: !(Set.Set TyCon),
-    preparedDataTypeKeys :: !(Set.Set TyCon),
-    preparedClassKeys :: !(Set.Set TyCon),
-    preparedInstanceKeys :: !(Set.Set ((Text, Text), Text)),
-    preparedDataFamilyKeys :: !(Set.Set Text),
-    preparedTypeFamilyKeys :: !(Set.Set Text)
-  }
+instance Semigroup DesugarEnv where
+  left <> right =
+    DesugarEnv
+      { deConfig = deConfig left,
+        deDataTypes = keepFirst (tyConKey . dtiTyCon) (deDataTypes left <> deDataTypes right),
+        deTyCons = keepFirst (tyConKey . tciTyCon) (deTyCons left <> deTyCons right),
+        deClasses = keepFirst (tyConKey . ciTyCon) (deClasses left <> deClasses right),
+        deDataFamilyInstances = keepFirst dfiiAxiomName (deDataFamilyInstances left <> deDataFamilyInstances right),
+        deTypeFamilyInstances = keepFirst tfiiAxiomName (deTypeFamilyInstances left <> deTypeFamilyInstances right),
+        deImports = mergePreparedImports [deImports left, deImports right],
+        deBindings = Map.union (deBindings left) (deBindings right),
+        deValues = mergePreparedValueInterfaces [deValues left, deValues right],
+        deConvert = mergeConvertEnvs (deConfig left) [deConvert left, deConvert right]
+      }
+
+keepFirst :: (Ord key) => (value -> key) -> [value] -> [value]
+keepFirst key values =
+  Map.elems (Map.fromList [(key value, value) | value <- reverse values])
 
 newtype DesugarConfig = DesugarConfig
   { primPackageId :: PackageId
@@ -185,7 +196,7 @@ interfaceTypeDeclarations env interface = do
       withConversionContext ("class " <> T.unpack (ciName info)) (convertClass env info)
     convertDataFamilyDeclaration info =
       let tyCon = dfiiRepresentationTyCon info
-       in convertDataFamilyInst env (tyConPackageId tyCon) (tyConModuleName tyCon) (tcInterfaceBindings interface) info
+       in convertDataFamilyInst env (tyConPackageId tyCon) (tyConModuleName tyCon) (bindingsFromInterface interface) info
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
 convertTyConHeader env info = do
@@ -252,95 +263,100 @@ desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -
 desugarModuleFc config bindings interface checked =
   case prepareDesugar config interface of
     Left message -> failedDesugar [message]
-    Right prepared -> desugarModuleFcPrepared prepared bindings checked
+    Right env -> desugarPrepared env bindings checked
 
-prepareDesugar :: DesugarConfig -> TcInterface -> Either String PreparedDesugar
-prepareDesugar config = prepareDesugarIncremental config []
+emptyDesugarEnv :: DesugarConfig -> DesugarEnv
+emptyDesugarEnv config =
+  DesugarEnv
+    { deConfig = config,
+      deDataTypes = [],
+      deTyCons = [],
+      deClasses = [],
+      deDataFamilyInstances = [],
+      deTypeFamilyInstances = [],
+      deImports = prepareImports (TypeOf.emptyTypeEnv (primPackageId config)),
+      deBindings = Map.empty,
+      deValues = emptyPreparedValueInterface,
+      deConvert = emptyConvertEnv (primPackageId config)
+    }
 
-prepareDesugarIncremental :: DesugarConfig -> [PreparedDesugar] -> TcInterface -> Either String PreparedDesugar
-prepareDesugarIncremental config dependencies interface =
-  prepareDesugarIncrementalWithAvailable config dependencies interface interface
+-- | Convert exactly the facts in one type interface.
+prepareDesugar :: DesugarConfig -> TcInterface -> Either String DesugarEnv
+prepareDesugar config interface = prepareDesugarMany config [interface]
 
-prepareDesugarIncrementalWithAvailable :: DesugarConfig -> [PreparedDesugar] -> TcInterface -> TcInterface -> Either String PreparedDesugar
-prepareDesugarIncrementalWithAvailable config dependencies localInterface availableInterface = do
-  let inheritedFacts = mergePreparedFacts (map preparedFacts dependencies)
-      newInterface = removePreparedFacts inheritedFacts availableInterface
-      newFacts = preparedFactsFromInterface newInterface
-      localConversion = interfaceConvertEnv config newInterface
-      conversion = mergeConvertEnvs config (localConversion : map preparedConversion dependencies)
-      localBindings = tcInterfaceBindings newInterface
-      bindings = Map.unions (Map.fromList [(tbName binding, binding) | binding <- localBindings] : map preparedBindings dependencies)
-  available <- tidyTypeEnv <$> typeEnvFromTcInterfaceWith conversion config newInterface
+-- | Convert each interface with the shared kind data from every interface.
+prepareDesugarMany :: DesugarConfig -> [TcInterface] -> Either String DesugarEnv
+prepareDesugarMany config interfaces = do
+  let conversion = mergeConvertEnvs config (map (interfaceConvertEnv config) interfaces)
+  envs <- mapM (prepareDesugarWith config conversion) interfaces
+  pure (foldr (<>) (emptyDesugarEnv config) envs)
+
+prepareDesugarWith :: DesugarConfig -> ConvertEnv -> TcInterface -> Either String DesugarEnv
+prepareDesugarWith config conversion interface = do
+  let bindings = bindingsFromInterface interface
+  available <- tidyTypeEnv <$> typeEnvFromTcInterfaceWith conversion config interface
   pure
-    PreparedDesugar
-      { preparedConfig = config,
-        preparedInterface = localInterface,
-        preparedImports = mergePreparedImports (prepareImports available : map preparedImports dependencies),
-        preparedBindings = bindings,
-        preparedValues = mergePreparedValueInterfaces (prepareValueInterface localBindings newInterface : map preparedValues dependencies),
-        preparedConversion = conversion,
-        preparedFacts = mergePreparedFacts [newFacts, inheritedFacts]
+    DesugarEnv
+      { deConfig = config,
+        deDataTypes = tcInterfaceDataTypes interface,
+        deTyCons = tcInterfaceTyCons interface,
+        deClasses = tcInterfaceClasses interface,
+        deDataFamilyInstances = tcInterfaceDataFamilyInstances interface,
+        deTypeFamilyInstances = tcInterfaceTypeFamilyInstances interface,
+        deImports = prepareImports available,
+        deBindings = bindings,
+        deValues = prepareValueInterface interface,
+        deConvert = conversion
       }
 
-preparedFactsFromInterface :: TcInterface -> PreparedFacts
-preparedFactsFromInterface interface =
-  PreparedFacts
-    { preparedTermKeys = Set.fromList (map fst (tcInterfaceTerms interface)),
-      preparedTyConKeys = Set.fromList (map tciTyCon (tcInterfaceTyCons interface)),
-      preparedDataTypeKeys = Set.fromList (map dtiTyCon (tcInterfaceDataTypes interface)),
-      preparedClassKeys = Set.fromList (map ciTyCon (tcInterfaceClasses interface)),
-      preparedInstanceKeys = Set.fromList (map (\info -> (iiDictOrigin info, iiDictName info)) (tcInterfaceInstances interface)),
-      preparedDataFamilyKeys = Set.fromList (map dfiiAxiomName (tcInterfaceDataFamilyInstances interface)),
-      preparedTypeFamilyKeys = Set.fromList (map tfiiAxiomName (tcInterfaceTypeFamilyInstances interface))
-    }
+bindingsFromInterface :: TcInterface -> Map.Map TcTermKey TcBindingResult
+bindingsFromInterface interface =
+  Map.fromList (termBindings <> instanceBindings <> defaultMethodBindings)
+  where
+    termBindings =
+      [ (key, TcBindingResult identifier identifier (interfaceSchemeType scheme))
+      | (key@(TcTermGlobal _ _ identifier), scheme) <- tcInterfaceTerms interface
+      ]
+    instanceBindings =
+      [ (TcTermGlobal (PackageId package) moduleName' (iiDictName info), TcBindingResult (iiDictName info) (iiDictName info) (iiDictType info))
+      | info <- tcInterfaceInstances interface,
+        let (package, moduleName') = iiDictOrigin info
+      ]
+    defaultMethodBindings =
+      [ (TcTermGlobal (PackageId package) moduleName' workerName, TcBindingResult workerName workerName (interfaceSchemeType workerScheme))
+      | info <- tcInterfaceClasses interface,
+        Just (package, moduleName') <- [ciOrigin info],
+        methodName <- ciDefaultMethods info,
+        Just methodScheme <- [lookup methodName (ciMethods info)],
+        let workerName = "$dm" <> methodName
+            workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
+      ]
+    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
+      case ordinaryScheme of
+        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
+        _ -> ForAll variables predicates body
 
-mergePreparedFacts :: [PreparedFacts] -> PreparedFacts
-mergePreparedFacts facts =
-  PreparedFacts
-    { preparedTermKeys = Set.unions (map preparedTermKeys facts),
-      preparedTyConKeys = Set.unions (map preparedTyConKeys facts),
-      preparedDataTypeKeys = Set.unions (map preparedDataTypeKeys facts),
-      preparedClassKeys = Set.unions (map preparedClassKeys facts),
-      preparedInstanceKeys = Set.unions (map preparedInstanceKeys facts),
-      preparedDataFamilyKeys = Set.unions (map preparedDataFamilyKeys facts),
-      preparedTypeFamilyKeys = Set.unions (map preparedTypeFamilyKeys facts)
-    }
-
-removePreparedFacts :: PreparedFacts -> TcInterface -> TcInterface
-removePreparedFacts prepared interface =
-  TcInterface
-    { tcInterfaceTerms = filter ((`Set.notMember` preparedTermKeys prepared) . fst) (tcInterfaceTerms interface),
-      tcInterfaceTyCons = filter ((`Set.notMember` preparedTyConKeys prepared) . tciTyCon) (tcInterfaceTyCons interface),
-      tcInterfaceDataTypes = filter ((`Set.notMember` preparedDataTypeKeys prepared) . dtiTyCon) (tcInterfaceDataTypes interface),
-      tcInterfaceClasses = filter ((`Set.notMember` preparedClassKeys prepared) . ciTyCon) (tcInterfaceClasses interface),
-      tcInterfaceInstances = filter ((`Set.notMember` preparedInstanceKeys prepared) . (\info -> (iiDictOrigin info, iiDictName info))) (tcInterfaceInstances interface),
-      tcInterfaceDataFamilyInstances = filter ((`Set.notMember` preparedDataFamilyKeys prepared) . dfiiAxiomName) (tcInterfaceDataFamilyInstances interface),
-      tcInterfaceTypeFamilyInstances = filter ((`Set.notMember` preparedTypeFamilyKeys prepared) . tfiiAxiomName) (tcInterfaceTypeFamilyInstances interface)
-    }
+interfaceSchemeType :: TypeScheme -> TcType
+interfaceSchemeType (ForAll [] [] ty) = ty
+interfaceSchemeType (ForAll variables [] ty) = foldr TcForAllTy ty variables
+interfaceSchemeType (ForAll [] predicates ty) = TcQualTy predicates ty
+interfaceSchemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualTy predicates ty) variables
 
 mergeConvertEnvs :: DesugarConfig -> [ConvertEnv] -> ConvertEnv
 mergeConvertEnvs config environments =
   ConvertEnv
     { cePrimPackage = primPackageId config,
-      ceTyVars = Map.unions (map ceTyVars environments),
+      ceTyVars = Map.empty,
       ceKindEnv = Map.unions (map ceKindEnv environments),
       ceClassTyCons = Set.unions (map ceClassTyCons environments),
       ceAxioms = Map.unions (map ceAxioms environments)
     }
 
-desugarModuleFcPrepared :: PreparedDesugar -> [TcBindingResult] -> Module -> FcDesugarResult
-desugarModuleFcPrepared prepared bindings checked =
+desugarPrepared :: DesugarEnv -> [TcBindingResult] -> Module -> FcDesugarResult
+desugarPrepared env bindings checked =
   if not (tcModuleSuccess checked)
     then failedDesugar (map show (tcModuleDiagnostics checked))
-    else case desugarCheckedWithAvailable
-      (preparedConfig prepared)
-      (Map.elems (preparedBindings prepared))
-      bindings
-      (preparedInterface prepared)
-      (preparedImports prepared)
-      (preparedValues prepared)
-      (preparedConversion prepared)
-      checked of
+    else case desugarCheckedWithAvailable env bindings checked of
       Left message -> failedDesugar [message]
       Right program ->
         FcDesugarResult
@@ -357,28 +373,35 @@ failedDesugar messages =
       dsErrors = messages
     }
 
-desugarCheckedWithAvailable :: DesugarConfig -> [TcBindingResult] -> [TcBindingResult] -> TcInterface -> PreparedImports -> PreparedValueInterface -> ConvertEnv -> Module -> Either String Program
-desugarCheckedWithAvailable config interfaceBindings moduleBindings interface preparedImports preparedValues env checked = do
-  let (packageId, currentModule) = resolvedModuleOrigin checked
+desugarCheckedWithAvailable :: DesugarEnv -> [TcBindingResult] -> Module -> Either String Program
+desugarCheckedWithAvailable desugarEnv moduleBindings checked = do
+  let config = deConfig desugarEnv
+      (packageId, currentModule) = resolvedModuleOrigin checked
       moduleOrigin = (packageId, currentModule)
       localTyCon tyCon = tyConPackageId tyCon == packageId && tyConModuleName tyCon == currentModule
-      dataTypes = filter (localTyCon . dtiTyCon) (tcInterfaceDataTypes interface)
-      tyCons = filter (localTyCon . tciTyCon) (tcInterfaceTyCons interface)
-      classes = filter (localTyCon . ciTyCon) (tcInterfaceClasses interface)
-      dataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
-      typeFamilyInstances = tcInterfaceTypeFamilyInstances interface
-      bindings = interfaceBindings <> moduleBindings
+      dataTypes = filter (localTyCon . dtiTyCon) (deDataTypes desugarEnv)
+      tyCons = filter (localTyCon . tciTyCon) (deTyCons desugarEnv)
+      classes = filter (localTyCon . ciTyCon) (deClasses desugarEnv)
+      dataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (deDataFamilyInstances desugarEnv)
+      typeFamilyInstances = deTypeFamilyInstances desugarEnv
+      convertEnv = deConvert desugarEnv
+      bindings = Map.union (localBindingMap packageId currentModule moduleBindings) (deBindings desugarEnv)
   typeDecls <-
     concat
       <$> mapM
-        (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
+        (dsDecl convertEnv packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  valueDecls <- desugarValues env moduleBindings preparedValues moduleOrigin checked
+  valueDecls <- desugarValues convertEnv moduleBindings (deValues desugarEnv) moduleOrigin checked
   let decls = typeDecls <> valueDecls
       baseProgram = Program emptyScopeTable emptyImports decls
-      imports = importsForProgramPrepared preparedImports baseProgram
+      imports = importsForProgramPrepared (deImports desugarEnv) baseProgram
       scopes = buildScopes (primPackageId config) moduleOrigin imports decls
   pure (tidyProgramWithTidiedImports (Program scopes imports decls))
+
+localBindingMap :: PackageId -> Text -> [TcBindingResult] -> Map.Map TcTermKey TcBindingResult
+localBindingMap package moduleName' =
+  Map.fromList
+    . map (\binding -> (TcTermGlobal package moduleName' (tbName binding), binding))
 
 dsDecl ::
   ConvertEnv ->
@@ -389,7 +412,7 @@ dsDecl ::
   [ClassInfo] ->
   [DataFamilyInstanceInfo] ->
   [TypeFamilyInstanceInfo] ->
-  [TcBindingResult] ->
+  Map.Map TcTermKey TcBindingResult ->
   Syn.Decl ->
   Either String [Decl]
 dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings decl =
@@ -619,7 +642,7 @@ dropKindParams remaining kind
 dropKindParams remaining (KFun _ result) = dropKindParams (remaining - 1) result
 dropKindParams _ kind = kind
 
-convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> [TcBindingResult] -> DataFamilyInstanceInfo -> Either String [Decl]
+convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> Map.Map TcTermKey TcBindingResult -> DataFamilyInstanceInfo -> Either String [Decl]
 convertDataFamilyInst env package moduleName' bindings info = do
   let tyVars = dfiiTyVars info
       bindersEnv = withTyVars tyVars env
@@ -645,7 +668,7 @@ convertDataFamilyInst env package moduleName' bindings info = do
       fieldType <-
         case dfiiConstructorNames info of
           constructorName : _ -> do
-            constructorType <- lookupBindingType bindings constructorName
+            constructorType <- lookupBindingType bindings package moduleName' constructorName
             converted <- convertType bindersEnv constructorType
             constructorFieldType converted
           [] -> Left "newtype family instance has no constructor"
@@ -687,9 +710,9 @@ convertDataFamilyInst env package moduleName' bindings info = do
           familyAxiom
         ]
 
-convertFamilyConstructor :: ConvertEnv -> [TcBindingResult] -> PackageId -> Text -> Type -> Text -> Either String ConDecl
+convertFamilyConstructor :: ConvertEnv -> Map.Map TcTermKey TcBindingResult -> PackageId -> Text -> Type -> Text -> Either String ConDecl
 convertFamilyConstructor bindersEnv bindings package moduleName' representationType constructorName = do
-  constructorType <- lookupBindingType bindings constructorName
+  constructorType <- lookupBindingType bindings package moduleName' constructorName
   converted <- convertType bindersEnv constructorType
   replaced <- replaceResultType converted representationType
   pure
@@ -699,11 +722,11 @@ convertFamilyConstructor bindersEnv bindings package moduleName' representationT
         conType = replaced
       }
 
-lookupBindingType :: [TcBindingResult] -> Text -> Either String TcType
-lookupBindingType bindings name =
-  case [tbType binding | binding <- bindings, tbName binding == name] of
-    ty : _ -> Right ty
-    [] -> Left ("missing checked constructor type " <> T.unpack name)
+lookupBindingType :: Map.Map TcTermKey TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
+lookupBindingType bindings package moduleName' name =
+  case Map.lookup (TcTermGlobal package moduleName' name) bindings of
+    Just binding -> Right (tbType binding)
+    Nothing -> Left ("missing checked constructor type " <> T.unpack moduleName' <> "." <> T.unpack name)
 
 replaceResultType :: Type -> Type -> Either String Type
 replaceResultType ty result =
