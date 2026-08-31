@@ -143,7 +143,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, raise#, seq, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, raise#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -164,6 +164,7 @@ import GHC.Real
     (^^),
   )
 import GHC.Tuple ()
+import GHC.Word (Word (..), Word8 (..))
 
 type ReadS a = String -> [(a, String)]
 
@@ -580,6 +581,10 @@ instance Eq Char where
 
   x /= y = not (x == y)
 
+instance Eq () where
+  () == () = True
+  () /= () = False
+
 instance (Eq a) => Eq [a] where
   [] == [] = True
   [] == (_ : _) = False
@@ -604,6 +609,15 @@ instance (Eq a, Eq b) => Eq (Either a b) where
 
   x /= y = not (x == y)
 
+instance (Eq a, Eq b) => Eq (a, b) where
+  (leftA, leftB) == (rightA, rightB) = leftA == rightA && leftB == rightB
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c) => Eq (a, b, c) where
+  (leftA, leftB, leftC) == (rightA, rightB, rightC) =
+    leftA == rightA && leftB == rightB && leftC == rightC
+  left /= right = not (left == right)
+
 instance (Ord a) => Ord [a] where
   compare = compareList
   xs < ys = lessBy compareList xs ys
@@ -612,6 +626,15 @@ instance (Ord a) => Ord [a] where
   xs >= ys = greaterOrEqualBy compareList xs ys
   max = maxBy compareList
   min = minBy compareList
+
+instance Ord () where
+  compare () () = EQ
+  () < () = False
+  () <= () = True
+  () > () = False
+  () >= () = True
+  max () () = ()
+  min () () = ()
 
 instance (Ord a) => Ord (Maybe a) where
   compare = compareMaybe
@@ -630,6 +653,24 @@ instance (Ord a, Ord b) => Ord (Either a b) where
   x >= y = greaterOrEqualBy compareEither x y
   max = maxBy compareEither
   min = minBy compareEither
+
+instance (Ord a, Ord b) => Ord (a, b) where
+  compare = comparePair
+  left < right = lessBy comparePair left right
+  left <= right = lessOrEqualBy comparePair left right
+  left > right = greaterBy comparePair left right
+  left >= right = greaterOrEqualBy comparePair left right
+  max = maxBy comparePair
+  min = minBy comparePair
+
+instance (Ord a, Ord b, Ord c) => Ord (a, b, c) where
+  compare = compareTriple
+  left < right = lessBy compareTriple left right
+  left <= right = lessOrEqualBy compareTriple left right
+  left > right = greaterBy compareTriple left right
+  left >= right = greaterOrEqualBy compareTriple left right
+  max = maxBy compareTriple
+  min = minBy compareTriple
 
 compareList :: (Ord a) => [a] -> [a] -> Ordering
 compareList [] [] = EQ
@@ -652,6 +693,21 @@ compareEither (Left x) (Left y) = compare x y
 compareEither (Left _) (Right _) = LT
 compareEither (Right _) (Left _) = GT
 compareEither (Right x) (Right y) = compare x y
+
+comparePair :: (Ord a, Ord b) => (a, b) -> (a, b) -> Ordering
+comparePair (leftA, leftB) (rightA, rightB) =
+  case compare leftA rightA of
+    EQ -> compare leftB rightB
+    result -> result
+
+compareTriple :: (Ord a, Ord b, Ord c) => (a, b, c) -> (a, b, c) -> Ordering
+compareTriple (leftA, leftB, leftC) (rightA, rightB, rightC) =
+  case compare leftA rightA of
+    EQ ->
+      case compare leftB rightB of
+        EQ -> compare leftC rightC
+        result -> result
+    result -> result
 
 lessBy :: (a -> a -> Ordering) -> a -> a -> Bool
 lessBy cmp x y =
@@ -724,6 +780,12 @@ instance Show Int where
     case (<#) value 0# of
       0# -> showsUnsignedInt (int2Word# value)
       _ -> showParen (precedence > 6) (showChar '-' . showsUnsignedInt (minusWord# (int2Word# 0#) (int2Word# value)))
+
+instance Show Word where
+  showsPrec _ (W# value) = showsUnsignedInt value
+
+instance Show Word8 where
+  showsPrec _ (W8# value) = showsUnsignedInt (word8ToWord# value)
 
 instance Show Integer where
   showsPrec = showsSignedInteger

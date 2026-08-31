@@ -5,7 +5,6 @@ build-type: Simple
 license: BSD-3-Clause
 license-files:
   LICENSE
-  LICENSE.filepath
 
 synopsis: API-compatible stand-in for template-haskell
 
@@ -39,9 +38,6 @@ library
     GHC.Internal.TH.Syntax
     GHC.LanguageExtensions.Type
     GHC.Lexeme
-    System.FilePath
-    System.FilePath.Posix
-    System.FilePath.Windows
     Text.PrettyPrint
 
   hs-source-dirs: src

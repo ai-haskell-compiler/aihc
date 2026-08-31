@@ -118,61 +118,61 @@ instance Lift Int# where
 
 instance Lift Int8 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Int8 lifting is not available"
 
 instance Lift Int16 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Int16 lifting is not available"
 
 instance Lift Int32 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Int32 lifting is not available"
 
 instance Lift Int64 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Int64 lifting is not available"
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Word# where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (WordPrimL (fromIntegral (W# x))))
+  lift _ = error "Template Haskell Word# lifting is not available"
 
 instance Lift Word where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Word lifting is not available"
 
 instance Lift Word8 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Word8 lifting is not available"
 
 instance Lift Word16 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Word16 lifting is not available"
 
 instance Lift Word32 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Word32 lifting is not available"
 
 instance Lift Word64 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Word64 lifting is not available"
 
 instance Lift Natural where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (IntegerL (fromIntegral x)))
+  lift _ = error "Template Haskell Natural lifting is not available"
 
 instance (Integral a) => Lift (Ratio a) where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (RationalL (toRational x)))
+  lift _ = error "Template Haskell Ratio lifting is not available"
 
 instance Lift Float where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (RationalL (toRational x)))
+  lift _ = error "Template Haskell Float lifting is not available"
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Double where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift x = return (LitE (RationalL (toRational x)))
+  lift _ = error "Template Haskell Double lifting is not available"
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Char where
@@ -269,12 +269,12 @@ liftTuple constructor arguments = do
 
 -- | @since template-haskell-2.16.0.0
 instance Lift (# #) where
-  lift (# #) = return (UnboxedTupE [])
+  lift _ = error "Template Haskell unboxed unit lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a) => Lift (# a #) where
-  lift (# a #) = UnboxedTupE . pure . Just <$> lift a
+  lift _ = error "Template Haskell unboxed unary tuple lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
@@ -309,59 +309,32 @@ instance (Lift a, Lift b, Lift c, Lift d, Lift e, Lift f, Lift g) => Lift (# a, 
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a, Lift b) => Lift (# a | b #) where
-  lift value = case value of
-    (# a | #) -> liftSum a 1 2
-    (# | b #) -> liftSum b 2 2
+  lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a, Lift b, Lift c) => Lift (# a | b | c #) where
-  lift value = case value of
-    (# a | | #) -> liftSum a 1 3
-    (# | b | #) -> liftSum b 2 3
-    (# | | c #) -> liftSum c 3 3
+  lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a, Lift b, Lift c, Lift d) => Lift (# a | b | c | d #) where
-  lift value = case value of
-    (# a | | | #) -> liftSum a 1 4
-    (# | b | | #) -> liftSum b 2 4
-    (# | | c | #) -> liftSum c 3 4
-    (# | | | d #) -> liftSum d 4 4
+  lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a, Lift b, Lift c, Lift d, Lift e) => Lift (# a | b | c | d | e #) where
-  lift value = case value of
-    (# a | | | | #) -> liftSum a 1 5
-    (# | b | | | #) -> liftSum b 2 5
-    (# | | c | | #) -> liftSum c 3 5
-    (# | | | d | #) -> liftSum d 4 5
-    (# | | | | e #) -> liftSum e 5 5
+  lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a, Lift b, Lift c, Lift d, Lift e, Lift f) => Lift (# a | b | c | d | e | f #) where
-  lift value = case value of
-    (# a | | | | | #) -> liftSum a 1 6
-    (# | b | | | | #) -> liftSum b 2 6
-    (# | | c | | | #) -> liftSum c 3 6
-    (# | | | d | | #) -> liftSum d 4 6
-    (# | | | | e | #) -> liftSum e 5 6
-    (# | | | | | f #) -> liftSum f 6 6
+  lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a, Lift b, Lift c, Lift d, Lift e, Lift f, Lift g) => Lift (# a | b | c | d | e | f | g #) where
-  lift value = case value of
-    (# a | | | | | | #) -> liftSum a 1 7
-    (# | b | | | | | #) -> liftSum b 2 7
-    (# | | c | | | | #) -> liftSum c 3 7
-    (# | | | d | | | #) -> liftSum d 4 7
-    (# | | | | e | | #) -> liftSum e 5 7
-    (# | | | | | f | #) -> liftSum f 6 7
-    (# | | | | | | g #) -> liftSum g 7 7
+  lift _ = error "Template Haskell sum lifting is not available"
   liftTyped value = unsafeCodeCoerce (lift value)
 
 liftSum :: (Lift a, Quote m) => a -> SumAlt -> SumArity -> m Exp
@@ -483,19 +456,7 @@ instance Lift Type where
 -- | @since template-haskell-2.22.1.0
 instance Lift Bytes where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift bytes@Bytes {} =
-    return
-      ( RecConE
-          (thSyntaxDataName "Bytes")
-          [ ( thSyntaxValueName "bytesPtr",
-              AppE
-                (AppE (ConE foreignPtrName) (LitE (BytesPrimL bytes)))
-                (ConE finalPtrName)
-            ),
-            (thSyntaxValueName "bytesOffset", LitE (IntegerL 0)),
-            (thSyntaxValueName "bytesSize", LitE (IntegerL (fromIntegral (bytesSize bytes))))
-          ]
-      )
+  lift _ = error "Template Haskell Bytes lifting is not available"
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Lit where
@@ -549,7 +510,7 @@ instance Lift Foreign where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift ForeignSrcLang where
-  lift = liftEnumConstructor "GHC.Internal.ForeignSrcLang"
+  lift _ = error "Template Haskell ForeignSrcLang lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -704,7 +665,7 @@ instance Lift AnnLookup where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Extension where
-  lift = liftEnumConstructor "GHC.Internal.LanguageExtensions"
+  lift _ = error "Template Haskell Extension lifting is not available"
   liftTyped = unsafeCodeCoerce . lift
 
 thSyntaxDataName :: String -> Name

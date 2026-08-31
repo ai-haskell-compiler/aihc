@@ -395,17 +395,25 @@ inferTypeVariable tvEnv name =
         Nothing -> inferUnknownType
 
 inferTypeConstructor :: Name -> TcM (TcType, TcType)
-inferTypeConstructor name =
-  case nameText name of
-    "Type" -> knownType "GHC.Types" "Type" KType
-    "Constraint" -> knownType "GHC.Types" "Constraint" KType
-    _ -> do
-      mInfo <- lookupResolvedTyCon name
-      case mInfo of
-        Just info -> do
-          kind <- instantiateTyConKind info
-          pure (TcTyCon (tciTyCon info) [], kind)
-        Nothing -> inferUnknownType
+inferTypeConstructor name = do
+  mInfo <- lookupResolvedTyCon name
+  case mInfo of
+    Just info
+      | tyConModuleName (tciTyCon info) == "GHC.Types",
+        tciName info == "Type" ->
+          knownType "GHC.Types" "Type" KType
+    Just info
+      | tyConModuleName (tciTyCon info) == "GHC.Types",
+        tciName info == "Constraint" ->
+          knownType "GHC.Types" "Constraint" KType
+    Just info -> do
+      kind <- instantiateTyConKind info
+      pure (TcTyCon (tciTyCon info) [], kind)
+    Nothing ->
+      case nameText name of
+        "Type" -> knownType "GHC.Types" "Type" KType
+        "Constraint" -> knownType "GHC.Types" "Constraint" KType
+        _ -> inferUnknownType
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = do
@@ -495,6 +503,10 @@ unifyKinds expected actual = do
     (kind, TcMetaTv unique) -> bindKindMeta unique kind
     (TcTyVar left, TcTyVar right)
       | left == right -> pure ()
+    (TcTyVar {}, kind)
+      | isConcreteRuntimeRep kind -> pure ()
+    (kind, TcTyVar {})
+      | isConcreteRuntimeRep kind -> pure ()
     (TcTyCon left leftArguments, TcTyCon right rightArguments)
       | left == right,
         length leftArguments == length rightArguments ->
@@ -508,6 +520,15 @@ unifyKinds expected actual = do
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
       | leftPredicates == rightPredicates -> unifyKinds leftBody rightBody
     _ -> emitError NoSourceSpan (KindMismatch expected' actual')
+
+isConcreteRuntimeRep :: TcType -> Bool
+isConcreteRuntimeRep ty =
+  case ty of
+    TcTyCon tyCon _ ->
+      tyConModuleName tyCon == "GHC.Types"
+        && tyConNamespace tyCon == ResolutionNamespaceTerm
+        && "Rep" `T.isSuffixOf` tyConName tyCon
+    _ -> False
 
 bindKindMeta :: Unique -> TcType -> TcM ()
 bindKindMeta u kind
@@ -793,12 +814,13 @@ classPredicateArgKinds className argCount = do
     Nothing -> mapM (const freshKindMeta) [1 .. argCount]
 
 predicateClassKind :: TyConInfo -> TcM TcType
+predicateClassKind info
+  | tciName info == "Lift" = do
+      representation <- freshMetaTvOfKind runtimeRepKind
+      pure (KFun (KTYPE representation) KConstraint)
 predicateClassKind info = do
   kind <- instantiateTyConKind info
-  classInfo <- lookupClass (tciName info)
-  case classInfo of
-    Just {} -> defaultKindMetas kind
-    Nothing -> zonkKind kind
+  zonkKind kind
 
 takeClassArgKinds :: Int -> TcType -> [TcType]
 takeClassArgKinds n kind

@@ -142,6 +142,8 @@ data ClassInfo = ClassInfo
     ciTyCon :: !TyCon,
     -- | Package and module that define the class.
     ciOrigin :: !(Maybe (Text, Text)),
+    -- | Invisible kind parameters of the class.
+    ciKindTyVars :: ![TyVarId],
     -- | Type parameters of the class.
     ciTyVars :: ![TyVarId],
     -- | Superclass constraint types. Keeping the full type permits a class

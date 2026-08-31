@@ -84,10 +84,10 @@ integer :: Integer -> Doc
 integer = text . show
 
 float :: Float -> Doc
-float = text . show
+float _ = error "Text.PrettyPrint.float is not supported"
 
 double :: Double -> Doc
-double = text . show
+double _ = error "Text.PrettyPrint.double is not supported"
 
 rational :: Rational -> Doc
 rational = text . show
@@ -110,17 +110,19 @@ infixl 5 $$, $+$
 Doc left <> Doc right = Doc (left ++ right)
 
 (<+>) :: Doc -> Doc -> Doc
-left <+> right
-  | isEmpty left = right
-  | isEmpty right = left
-  | otherwise = left <> space <> right
+left <+> right = appendWith space left right
 
 ($$), ($+$) :: Doc -> Doc -> Doc
-left $$ right
-  | isEmpty left = right
-  | isEmpty right = left
-  | otherwise = left <> Doc "\n" <> right
+left $$ right = appendWith (Doc "\n") left right
 ($+$) = ($$)
+
+appendWith :: Doc -> Doc -> Doc -> Doc
+appendWith separator left right =
+  if isEmpty left then right else appendToNonEmpty separator left right
+
+appendToNonEmpty :: Doc -> Doc -> Doc -> Doc
+appendToNonEmpty separator left right =
+  if isEmpty right then left else left <> separator <> right
 
 hcat, hsep, vcat, cat, sep, fcat, fsep :: [Doc] -> Doc
 hcat = foldr (<>) empty

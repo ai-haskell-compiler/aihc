@@ -292,10 +292,11 @@ tcMatchEquation inferExpr argTys resTy match = do
   patCheck <- checkPatternsWithGivens matchSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
-  let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
-      resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  let rhsLocation = orSourceSpan (rhsSourceSpan (matchRhs match)) matchSpan
+      pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
+      resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin rhsLocation) rhsLocation
       bodyWanteds = rhsCts ++ [resCt]
-  remainingCts <- solvePatternBranch NoSourceSpan patCheck resTy bodyWanteds
+  remainingCts <- solvePatternBranch rhsLocation patCheck resTy bodyWanteds
   pure (match {matchPats = pats', matchRhs = rhs'}, remainingCts)
 
 sourceSpanFromAnnotations :: [Annotation] -> SourceSpan
@@ -308,8 +309,19 @@ unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do
   (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr (matchRhs match)
   ev <- freshEvVar
-  let eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
+  let rhsLocation = orSourceSpan (rhsSourceSpan (matchRhs match)) (sourceSpanFromAnnotations (matchAnns match))
+      eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin rhsLocation) rhsLocation
   pure (match {matchRhs = rhs'}, rhsCts ++ [eqCt])
+
+rhsSourceSpan :: Rhs body -> SourceSpan
+rhsSourceSpan rhs =
+  case rhs of
+    UnguardedRhs annotations _ _ -> sourceSpanFromAnnotations annotations
+    GuardedRhss annotations _ _ -> sourceSpanFromAnnotations annotations
+
+orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
+orSourceSpan NoSourceSpan fallback = fallback
+orSourceSpan sourceSpan _ = sourceSpan
 
 shouldGeneralizeLocal :: Set.Set TcTermKey -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do

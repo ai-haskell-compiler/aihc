@@ -68,6 +68,7 @@ module GHC.Exts
     unsafeCoerce#,
     unsafeFreezeByteArray#,
     word2Int#,
+    word8ToWord#,
     writeAddrArray#,
     writeDoubleArray#,
     writeFloatArray#,

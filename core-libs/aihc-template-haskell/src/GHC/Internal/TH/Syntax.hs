@@ -264,8 +264,9 @@ runQ :: (Quasi m) => Q a -> m a
 runQ (Q m) = m
 
 instance Monad Q where
-  Q m >>= k = Q (m >>= \x -> unQ (k x))
+  Q m >>= k = Q (m >>= \x -> runQ (k x))
   (>>) = (*>)
+  return = pure
 
 instance MonadFail Q where
   fail s = report True s >> Q (fail "Q monad failure")
@@ -373,9 +374,7 @@ newtype TExp a = TExp
 --
 -- Representation-polymorphic since /template-haskell-2.16.0.0/.
 unTypeQ :: forall (r :: RuntimeRep) (a :: TYPE r) m. (Quote m) => m (TExp a) -> m Exp
-unTypeQ m = do
-  TExp e <- m
-  return e
+unTypeQ m = fmap unType m
 
 -- | Annotate the Template Haskell expression with a type
 --
@@ -892,7 +891,7 @@ addForeignFilePath lang fp = Q (qAddForeignFilePath lang fp)
 -- 'reify' is able to find the local definitions when executed inside the
 -- finalizer.
 addModFinalizer :: Q () -> Q ()
-addModFinalizer act = Q (qAddModFinalizer (unQ act))
+addModFinalizer act = Q (qAddModFinalizer (runQ act))
 
 -- | Adds a core plugin to the compilation pipeline.
 --
@@ -1128,13 +1127,7 @@ occString (OccName occ) = occ
 -- Names constructed using @newName@ and @mkName@ may be used in bindings
 -- (such as @let x = ...@ or @\x -> ...@), but names constructed using
 -- @lookupValueName@, @lookupTypeName@, @'f@, @''T@ may not.
-data Name = Name OccName NameFlavour deriving stock (Eq)
-
-instance Ord Name where
-  -- check if unique is different before looking at strings
-  (Name o1 f1) `compare` (Name o2 f2) =
-    (f1 `compare` f2)
-      `thenCmp` (o1 `compare` o2)
+data Name = Name OccName NameFlavour deriving stock (Eq, Ord)
 
 data NameFlavour
   = -- | An unqualified name; dynamically bound
@@ -1270,39 +1263,34 @@ mkName :: String -> Name
 -- > Foo.Baz.x   as    Qual Foo.Baz x
 --
 -- So we parse it from back to front
-mkName str =
-  split [] (reverse str)
-  where
-    split occ [] = Name (mkOccName occ) NameS
-    split occ ('.' : rev)
-      | not (null occ),
-        is_rev_mod_name rev =
-          Name (mkOccName occ) (NameQ (mkModName (reverse rev)))
-    -- The 'not (null occ)' guard ensures that
-    --      mkName "&." = Name "&." NameS
-    -- The 'is_rev_mod' guards ensure that
-    --      mkName ".&" = Name ".&" NameS
-    --      mkName "^.." = Name "^.." NameS      -- #8633
-    --      mkName "Data.Bits..&" = Name ".&" (NameQ "Data.Bits")
-    -- This rather bizarre case actually happened; (.&.) is in Data.Bits
-    split occ (c : rev) = split (c : occ) rev
+mkName str = splitName [] (reverse str)
 
-    -- Recognises a reversed module name xA.yB.C,
-    -- with at least one component,
-    -- and each component looks like a module name
-    --   (i.e. non-empty, starts with capital, all alpha)
-    is_rev_mod_name rev_mod_str
-      | (compt, rest) <- break (== '.') rev_mod_str,
-        not (null compt),
-        isUpper (last compt),
-        all is_mod_char compt =
-          case rest of
-            [] -> True
-            (_dot : rest') -> is_rev_mod_name rest'
-      | otherwise =
-          False
+splitName :: String -> String -> Name
+splitName occurrence reversedName =
+  case reversedName of
+    [] -> Name (mkOccName occurrence) NameS
+    '.' : remainder ->
+      if not (null occurrence) && isReversedModuleName remainder
+        then Name (mkOccName occurrence) (NameQ (mkModName (reverse remainder)))
+        else splitName ('.' : occurrence) remainder
+    character : remainder -> splitName (character : occurrence) remainder
 
-    is_mod_char c = isAlphaNum c || c == '_' || c == '\''
+isReversedModuleName :: String -> Bool
+isReversedModuleName reversedModuleName =
+  case break (== '.') reversedModuleName of
+    (component, remainder) ->
+      if null component
+        then False
+        else
+          if isUpper (last component) && all isModuleNameCharacter component
+            then case remainder of
+              [] -> True
+              _dot : nextComponent -> isReversedModuleName nextComponent
+            else False
+
+isModuleNameCharacter :: Char -> Bool
+isModuleNameCharacter character =
+  isAlphaNum character || character == '_' || character == '\''
 
 -- | Only used internally
 mkNameU :: String -> Uniq -> Name
@@ -1356,12 +1344,8 @@ showName' :: NameIs -> Name -> String
 showName' ni nm =
   case ni of
     Alone -> nms
-    Applied
-      | pnam -> nms
-      | otherwise -> "(" ++ nms ++ ")"
-    Infix
-      | pnam -> "`" ++ nms ++ "`"
-      | otherwise -> nms
+    Applied -> if pnam then nms else "(" ++ nms ++ ")"
+    Infix -> if pnam then "`" ++ nms ++ "`" else nms
   where
     -- For now, we make the NameQ and NameG print the same, even though
     -- NameQ is a qualified name (so what it means depends on what the
@@ -1376,17 +1360,20 @@ showName' ni nm =
       Name occ (NameU u) -> occString occ ++ "_" ++ show u
       Name occ (NameL u) -> occString occ ++ "_" ++ show u
 
-    pnam = classify nms
+    pnam = classifyName nms
 
-    -- True if we are function style, e.g. f, [], (,)
-    -- False if we are operator style, e.g. +, :+
-    classify "" = False -- shouldn't happen; . operator is handled below
-    classify (x : xs)
-      | isAlpha x || (x `elem` "_[]()") =
-          case dropWhile (/= '.') xs of
-            (_ : xs') -> classify xs'
-            [] -> True
-      | otherwise = False
+-- True if we are function style, e.g. f, [], (,)
+-- False if we are operator style, e.g. +, :+
+classifyName :: String -> Bool
+classifyName input =
+  case input of
+    [] -> False -- should not happen; the period operator is handled below
+    x : xs ->
+      if isAlpha x || (x `elem` "_[]()")
+        then case dropWhile (/= '.') xs of
+          _ : xs' -> classifyName xs'
+          [] -> True
+        else False
 
 instance Show Name where
   show = showName
@@ -1417,23 +1404,43 @@ unboxedTupleTypeName n = mk_tup_name n TcClsName False
 
 mk_tup_name :: Int -> NameSpace -> Bool -> Name
 mk_tup_name n space boxed =
-  Name (mkOccName tup_occ) (NameG space (mkPkgName "ghc-prim") tup_mod)
-  where
-    withParens thing
-      | boxed = "(" ++ thing ++ ")"
-      | otherwise = "(#" ++ thing ++ "#)"
-    tup_occ
-      | n == 0, space == TcClsName = if boxed then "Unit" else "Unit#"
-      | n == 1 = if boxed then solo else unboxed_solo
-      | space == TcClsName = "Tuple" ++ show n ++ if boxed then "" else "#"
-      | otherwise = withParens (replicate n_commas ',')
-    n_commas = n - 1
-    tup_mod = mkModName (if boxed then "GHC.Tuple" else "GHC.Types")
-    solo
-      | space == DataName = "MkSolo"
-      | otherwise = "Solo"
+  Name
+    (mkOccName (tupleOccurrence n space boxed))
+    (NameG space (mkPkgName "ghc-prim") (mkModName (if boxed then "GHC.Tuple" else "GHC.Types")))
 
-    unboxed_solo = solo ++ "#"
+tupleOccurrence :: Int -> NameSpace -> Bool -> String
+tupleOccurrence n space boxed =
+  if n == 0 && space == TcClsName
+    then boxedString boxed "Unit" "Unit#"
+    else nonUnitTupleOccurrence n space boxed
+
+nonUnitTupleOccurrence :: Int -> NameSpace -> Bool -> String
+nonUnitTupleOccurrence n space boxed =
+  if n == 1
+    then soloOccurrence space boxed
+    else multipleTupleOccurrence n space boxed
+
+soloOccurrence :: NameSpace -> Bool -> String
+soloOccurrence space boxed =
+  if space == DataName
+    then boxedString boxed "MkSolo" "MkSolo#"
+    else boxedString boxed "Solo" "Solo#"
+
+multipleTupleOccurrence :: Int -> NameSpace -> Bool -> String
+multipleTupleOccurrence n space boxed =
+  if space == TcClsName
+    then "Tuple" ++ show n ++ boxedString boxed "" "#"
+    else tupleParens boxed (replicate (n - 1) ',')
+
+boxedString :: Bool -> String -> String -> String
+boxedString boxed boxedValue unboxedValue =
+  case boxed of
+    True -> boxedValue
+    False -> unboxedValue
+
+tupleParens :: Bool -> String -> String
+tupleParens boxed contents =
+  if boxed then "(" ++ contents ++ ")" else "(#" ++ contents ++ "#)"
 
 -- Unboxed sum data and type constructors
 
@@ -1443,41 +1450,34 @@ unboxedSumDataName :: SumAlt -> SumArity -> Name
 -- | Unboxed sum type constructor
 unboxedSumTypeName :: SumArity -> Name
 
-unboxedSumDataName alt arity
-  | alt > arity =
-      error $ prefix ++ "Index out of bounds." ++ debug_info
-  | alt <= 0 =
-      error $ prefix ++ "Alt must be > 0." ++ debug_info
-  | arity < 2 =
-      error $ prefix ++ "Arity must be >= 2." ++ debug_info
-  | otherwise =
-      Name
-        (mkOccName sum_occ)
-        (NameG DataName (mkPkgName "ghc-prim") (mkModName "GHC.Types"))
-  where
-    prefix = "unboxedSumDataName: "
-    debug_info = " (alt: " ++ show alt ++ ", arity: " ++ show arity ++ ")"
+unboxedSumDataName alt arity =
+  if alt > arity
+    then error ("unboxedSumDataName: Index out of bounds." ++ sumDebugInfo alt arity)
+    else
+      if alt <= 0
+        then error ("unboxedSumDataName: Alt must be > 0." ++ sumDebugInfo alt arity)
+        else
+          if arity < 2
+            then error ("unboxedSumDataName: Arity must be >= 2." ++ sumDebugInfo alt arity)
+            else
+              Name
+                (mkOccName (sumDataOccurrence alt arity))
+                (NameG DataName (mkPkgName "ghc-prim") (mkModName "GHC.Types"))
 
-    -- Synced with the definition of mkSumDataConOcc in GHC.Builtin.Types
-    sum_occ = '(' : '#' : bars nbars_before ++ '_' : bars nbars_after ++ "#)"
-    bars i = replicate i '|'
-    nbars_before = alt - 1
-    nbars_after = arity - alt
+sumDebugInfo :: SumAlt -> SumArity -> String
+sumDebugInfo alt arity = " (alt: " ++ show alt ++ ", arity: " ++ show arity ++ ")"
 
-unboxedSumTypeName arity
-  | arity < 2 =
-      error $
-        "unboxedSumTypeName: Arity must be >= 2."
-          ++ " (arity: "
-          ++ show arity
-          ++ ")"
-  | otherwise =
+sumDataOccurrence :: SumAlt -> SumArity -> String
+sumDataOccurrence alt arity =
+  "(#" ++ replicate (alt - 1) '|' ++ "_" ++ replicate (arity - alt) '|' ++ "#)"
+
+unboxedSumTypeName arity =
+  if arity < 2
+    then error ("unboxedSumTypeName: Arity must be >= 2. (arity: " ++ show arity ++ ")")
+    else
       Name
-        (mkOccName sum_occ)
+        (mkOccName ("Sum" ++ show arity ++ "#"))
         (NameG TcClsName (mkPkgName "ghc-prim") (mkModName "GHC.Types"))
-  where
-    -- Synced with the definition of mkSumTyConOcc in GHC.Builtin.Types
-    sum_occ = "Sum" ++ show arity ++ "#"
 
 -----------------------------------------------------
 --              Locations
@@ -1756,9 +1756,16 @@ instance Show Bytes where
 -- does).  See #16457
 instance Eq Bytes where
   (==) = eqBytes
+  left /= right = not (eqBytes left right)
 
 instance Ord Bytes where
   compare = compareBytes
+  left < right = isLess (compareBytes left right)
+  left <= right = isLessOrEqual (compareBytes left right)
+  left > right = isGreater (compareBytes left right)
+  left >= right = isGreaterOrEqual (compareBytes left right)
+  max left right = selectMaximum (compareBytes left right) left right
+  min left right = selectMinimum (compareBytes left right) left right
 
 eqBytes :: Bytes -> Bytes -> Bool
 eqBytes (Bytes _ leftOffset leftSize) (Bytes _ rightOffset rightSize) =
@@ -1766,7 +1773,33 @@ eqBytes (Bytes _ leftOffset leftSize) (Bytes _ rightOffset rightSize) =
 
 compareBytes :: Bytes -> Bytes -> Ordering
 compareBytes (Bytes _ leftOffset leftSize) (Bytes _ rightOffset rightSize) =
-  compare leftOffset rightOffset <> compare leftSize rightSize
+  case compare leftOffset rightOffset of
+    EQ -> compare leftSize rightSize
+    result -> result
+
+isLess :: Ordering -> Bool
+isLess LT = True
+isLess _ = False
+
+isLessOrEqual :: Ordering -> Bool
+isLessOrEqual GT = False
+isLessOrEqual _ = True
+
+isGreater :: Ordering -> Bool
+isGreater GT = True
+isGreater _ = False
+
+isGreaterOrEqual :: Ordering -> Bool
+isGreaterOrEqual LT = False
+isGreaterOrEqual _ = True
+
+selectMaximum :: Ordering -> a -> a -> a
+selectMaximum GT left _ = left
+selectMaximum _ _ right = right
+
+selectMinimum :: Ordering -> a -> a -> a
+selectMinimum GT _ right = right
+selectMinimum _ left _ = left
 
 memcmp :: Ptr a -> Ptr b -> CSize -> IO CInt
 memcmp _ _ _ = error "Template Haskell byte comparison is not available"

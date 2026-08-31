@@ -247,15 +247,21 @@ pprName :: Name -> Doc
 pprName = pprName' Alone
 
 pprName' :: NameIs -> Name -> Doc
-pprName' ni n@(Name o (NameU _)) =
-  PprM $ \s@(fm, i) ->
-    let (n', s') = case Map.lookup n fm of
-          Just d -> (d, s)
-          Nothing ->
-            let n'' = Name o (NameU i)
-             in (n'', (Map.insert n n'' fm, i + 1))
-     in (HPJ.text $ showName' ni n', s')
+pprName' ni n@(Name _ (NameU _)) =
+  PprM (pprUniqueName ni n)
 pprName' ni n = text $ showName' ni n
+
+pprUniqueName :: NameIs -> Name -> State -> (HPJ.Doc, State)
+pprUniqueName ni name state =
+  case name of
+    Name occurrence _ ->
+      case state of
+        (freeNames, unique) ->
+          case Map.lookup name freeNames of
+            Just displayed -> (HPJ.text $ showName' ni displayed, state)
+            Nothing ->
+              let generated = Name occurrence (NameU unique)
+               in (HPJ.text $ showName' ni generated, (Map.insert name generated freeNames, unique + 1))
 
 {-
 instance Show Name where
@@ -281,8 +287,10 @@ instance Applicative PprM where
 
 instance Monad PprM where
   m >>= k = PprM $ \s ->
-    let (x, s') = runPprM m s
-     in runPprM (k x) s'
+    case runPprM m s of
+      (x, s') -> runPprM (k x) s'
+  (>>) = (*>)
+  return = pure
 
 type Doc = PprM HPJ.Doc
 

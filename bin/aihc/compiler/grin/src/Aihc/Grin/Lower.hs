@@ -17,7 +17,7 @@ import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify', runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, mapStateT, modify', runStateT)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -84,10 +84,14 @@ lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
   case declaration of
     Fc.DeclType value -> lowerTypeDecl env value
-    Fc.DeclVal value -> lowerValueDecl env value
+    Fc.DeclVal value -> withLowerContext ("value " <> show (Fc.valName value)) (lowerValueDecl env value)
     Fc.DeclForeignImport value -> lowerForeignDecl env value
     Fc.DeclSynonym {} -> pure mempty
     Fc.DeclAxiom {} -> pure mempty
+
+withLowerContext :: String -> LowerM a -> LowerM a
+withLowerContext context =
+  mapStateT (either (Left . ((context <> ": ") <>)) Right)
 
 lowerTypeDecl :: LowerEnv -> Fc.TypeDecl -> LowerM TopParts
 lowerTypeDecl env declaration = do
@@ -701,7 +705,7 @@ expressionType env expression =
       functionType <- expressionType env function
       case reduce env functionType of
         Fc.TyFun _ _ _ result -> pure result
-        other -> throwLower ("GRIN application has a non-function type: " <> show other)
+        other -> throwLower ("GRIN application has a non-function type: " <> show other <> " for " <> show function)
     Fc.ExTyApp function argument -> do
       functionType <- expressionType env function
       case reduce env functionType of

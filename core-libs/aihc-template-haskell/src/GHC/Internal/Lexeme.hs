@@ -29,19 +29,20 @@ import Prelude
 -- | Is this character acceptable in a symbol (after the first char)?
 -- See alexGetByte in GHC.Parser.Lexer
 okSymChar :: Char -> Bool
-okSymChar c
-  | c `elem` "(),;[]`{}_\"'" =
-      False
-  | otherwise =
-      case generalCategory c of
-        ConnectorPunctuation -> True
-        DashPunctuation -> True
-        OtherPunctuation -> True
-        MathSymbol -> True
-        CurrencySymbol -> True
-        ModifierSymbol -> True
-        OtherSymbol -> True
-        _ -> False
+okSymChar c =
+  not (isReservedSymbolCharacter c)
+    && case generalCategory c of
+      ConnectorPunctuation -> True
+      DashPunctuation -> True
+      OtherPunctuation -> True
+      MathSymbol -> True
+      CurrencySymbol -> True
+      ModifierSymbol -> True
+      OtherSymbol -> True
+      _ -> False
+
+isReservedSymbolCharacter :: Char -> Bool
+isReservedSymbolCharacter character = character `elem` "(),;[]`{}_\"'"
 
 startsVarSym, startsVarId, startsConSym, startsConId :: Char -> Bool
 startsVarSym c = okSymChar c && c /= ':' -- Infix Ids

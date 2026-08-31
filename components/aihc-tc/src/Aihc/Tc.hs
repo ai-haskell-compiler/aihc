@@ -17,7 +17,6 @@ module Aihc.Tc
     typecheckExpr,
     typecheckModulesWithInterface,
     typecheckModuleSccWithInterface,
-    typecheckModuleSccInterfaceWithInterface,
 
     -- * Result types
     TcResult (..),
@@ -119,7 +118,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc, tcModuleSccInterface)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -386,12 +385,6 @@ typecheckModuleSccWithInterface config imported modules =
   let (checkedModules, finalState) = typecheckModuleSccWithState config (initialTcState imported) modules
    in (checkedModules, tcInterfaceFromState finalState)
 
--- | Register one module component without checking value bodies.
-typecheckModuleSccInterfaceWithInterface :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
-typecheckModuleSccInterfaceWithInterface config imported modules =
-  let (checkedModules, finalState) = typecheckModuleSccWithStateUsing tcModuleSccInterface config (initialTcState imported) modules
-   in (checkedModules, tcInterfaceFromState finalState)
-
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
   initTcState
@@ -447,11 +440,8 @@ exportedGlobalTerms state =
         TcTermLocal {} -> False
 
 typecheckModuleSccWithState :: TcConfig -> TcState -> [Module] -> ([Module], TcState)
-typecheckModuleSccWithState = typecheckModuleSccWithStateUsing tcModuleScc
-
-typecheckModuleSccWithStateUsing :: ([Module] -> TcM [Module]) -> TcConfig -> TcState -> [Module] -> ([Module], TcState)
-typecheckModuleSccWithStateUsing checkModules config st modules =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (checkModules modules) of
+typecheckModuleSccWithState config st modules =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc modules) of
     Left abort ->
       ( case modules of
           [] -> []

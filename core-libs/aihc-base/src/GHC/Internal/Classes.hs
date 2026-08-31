@@ -11,8 +11,9 @@ import Data.Bool (not)
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
 import GHC.Internal.Integer (Integer, compareInteger#, eqInteger#)
-import GHC.Prim (Int#, compareInt#, (==#))
+import GHC.Prim (Int#, Word#, compareInt#, eqWord#, ltWord#, word8ToWord#, (==#))
 import GHC.Types (Bool (..), Ordering (..))
+import GHC.Word (Word (..), Word8 (..))
 
 instance Eq Bool where
   False == False = True
@@ -44,6 +45,14 @@ instance Eq Ordering where
   GT == GT = True
   _ == _ = False
 
+  left /= right = not (left == right)
+
+instance Eq Word where
+  W# left == W# right = wordEquals left right
+  left /= right = not (left == right)
+
+instance Eq Word8 where
+  W8# left == W8# right = wordEquals (word8ToWord# left) (word8ToWord# right)
   left /= right = not (left == right)
 
 instance Ord Bool where
@@ -82,6 +91,24 @@ instance Ord Ordering where
   max = classesMaxBy compareOrdering
   min = classesMinBy compareOrdering
 
+instance Ord Word where
+  compare = compareWord
+  left < right = classesLessBy compareWord left right
+  left <= right = classesLessOrEqualBy compareWord left right
+  left > right = classesGreaterBy compareWord left right
+  left >= right = classesGreaterOrEqualBy compareWord left right
+  max = classesMaxBy compareWord
+  min = classesMinBy compareWord
+
+instance Ord Word8 where
+  compare = compareWord8
+  left < right = classesLessBy compareWord8 left right
+  left <= right = classesLessOrEqualBy compareWord8 left right
+  left > right = classesGreaterBy compareWord8 left right
+  left >= right = classesGreaterOrEqualBy compareWord8 left right
+  max = classesMaxBy compareWord8
+  min = classesMinBy compareWord8
+
 compareBool :: Bool -> Bool -> Ordering
 compareBool False False = EQ
 compareBool False True = LT
@@ -102,6 +129,27 @@ compareOrdering EQ EQ = EQ
 compareOrdering EQ GT = LT
 compareOrdering GT GT = EQ
 compareOrdering GT _ = GT
+
+compareWord :: Word -> Word -> Ordering
+compareWord (W# left) (W# right) = compareWord# left right
+
+compareWord8 :: Word8 -> Word8 -> Ordering
+compareWord8 (W8# left) (W8# right) = compareWord# (word8ToWord# left) (word8ToWord# right)
+
+wordEquals :: Word# -> Word# -> Bool
+wordEquals left right =
+  case eqWord# left right of
+    0# -> False
+    _ -> True
+
+compareWord# :: Word# -> Word# -> Ordering
+compareWord# left right =
+  case eqWord# left right of
+    0# ->
+      case ltWord# left right of
+        0# -> GT
+        _ -> LT
+    _ -> EQ
 
 orderingFromInt# :: Int# -> Ordering
 orderingFromInt# value =

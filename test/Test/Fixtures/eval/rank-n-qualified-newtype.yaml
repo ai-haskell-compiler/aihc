@@ -1,0 +1,33 @@
+extensions:
+  - RankNTypes
+dependencies: []
+modules:
+  - |
+    module Test where
+
+    class Monad m => Quasi m
+
+    instance Quasi Maybe
+
+    newtype Q a = Q (forall m. Quasi m => m a)
+
+    runQ :: Quasi m => Q a -> m a
+    runQ (Q action) = action
+
+    instance Functor Q where
+      fmap function (Q action) = Q (fmap function action)
+
+    instance Applicative Q where
+      pure value = Q (pure value)
+      Q function <*> Q argument = Q (function <*> argument)
+
+    instance Monad Q where
+      Q action >>= next = Q (action >>= \value -> runQ (next value))
+
+    result :: Maybe Int
+    result = runQ (pure 1 >>= \_ -> pure 2)
+output: |
+  (Just 2)
+expression: result
+status: pass
+reason: evaluates a rank-N newtype whose field has a class constraint

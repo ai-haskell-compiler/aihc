@@ -160,9 +160,4 @@ data Extension
   | ExtendedLiterals
   | ListTuplePuns
   | MultilineStrings
-  deriving stock (Eq, Enum, Show, Bounded)
-
--- 'Ord' and 'Bounded' are provided for GHC API users (see discussions
--- in https://gitlab.haskell.org/ghc/ghc/merge_requests/2707 and
--- https://gitlab.haskell.org/ghc/ghc/merge_requests/826).
-instance Ord Extension where compare a b = compare (fromEnum a) (fromEnum b)
+  deriving stock (Eq, Ord, Enum, Show, Bounded)

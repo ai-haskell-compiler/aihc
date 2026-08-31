@@ -74,6 +74,8 @@ data TcAnnotation = TcAnnotation
     tcAnnTypeArgs :: ![TcType],
     -- | Evidence terms whose dictionaries must be passed at this occurrence.
     tcAnnEvidenceTerms :: ![EvTerm],
+    -- | Evidence terms whose dictionaries are abstracted at this expression.
+    tcAnnEvidenceBinders :: ![EvTerm],
     -- | Term argument types made explicit for lambda-like binders.
     tcAnnTermArgTypes :: ![TcType]
   }
@@ -126,6 +128,7 @@ data PendingTcAnnotation = PendingTcAnnotation
     pendingTcAnnTypeBinders :: ![TyVarId],
     pendingTcAnnTypeArgs :: ![TcType],
     pendingTcAnnEvidenceVars :: ![EvVar],
+    pendingTcAnnEvidenceBinders :: ![EvVar],
     pendingTcAnnTermArgTypes :: ![TcType]
   }
   deriving (Eq, Show)
@@ -148,6 +151,7 @@ data TcClassMethodAnnotation = TcClassMethodAnnotation
 
 data TcClassAnnotation = TcClassAnnotation
   { tcClassTyCon :: !TyCon,
+    tcClassKindTyVars :: ![TyVarId],
     tcClassTyVars :: ![TyVarId],
     tcClassSuperClasses :: ![TcDictBinderAnnotation],
     tcClassMethods :: ![TcClassMethodAnnotation],
@@ -266,10 +270,12 @@ annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
 
 pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
-pendingAnnotation ty = PendingTcAnnotation ty []
+pendingAnnotation ty typeArgs evidenceVars =
+  PendingTcAnnotation ty [] typeArgs evidenceVars []
 
-pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> PendingTcAnnotation
-pendingTypeLambdaAnnotation ty binders = PendingTcAnnotation ty binders [] [] []
+pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> [EvVar] -> PendingTcAnnotation
+pendingTypeLambdaAnnotation ty binders evidenceBinders =
+  PendingTcAnnotation ty binders [] [] evidenceBinders []
 
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String

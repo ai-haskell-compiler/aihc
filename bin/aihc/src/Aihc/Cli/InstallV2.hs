@@ -93,7 +93,6 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typecheckModuleSccInterfaceWithInterface,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
@@ -370,10 +369,7 @@ installPackageV2Direct config storeRoot dependencies root = do
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
-      packageConfig
-        | isInterfaceOnlyPackage packageNameText = config {compileNoCode = True}
-        | otherwise = config
-  compiled <- compileModulesWithDependencies packageConfig storePath root resolvePackage files dependencies
+  compiled <- compileModulesWithDependencies config storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
       allTypes = compiledTypes compiled
@@ -381,7 +377,7 @@ installPackageV2Direct config storeRoot dependencies root = do
       allTypeHashes = compiledTypeHashes compiled
       written = compiledWritten compiled
       reused = compiledReused compiled
-  unless (compileNoCode packageConfig) $ do
+  unless (compileNoCode config) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
         moduleObjects =
           sortOn
@@ -1044,11 +1040,8 @@ runTypeUnit context runtimes runtime = do
           case resolveUnitResolved resolvedOutput of
             Just result -> pure result
             Nothing -> pure (resolveWithDeps availableExports (modulesInPackage resolvePackage (map sourceModuleAst sources)))
-        let checkModules
-              | isInterfaceOnlyPackage (packageName resolvePackage) = typecheckModuleSccInterfaceWithInterface
-              | otherwise = typecheckModuleSccWithInterface
-            checked =
-              checkModules
+        let checked =
+              typecheckModuleSccWithInterface
                 (tcConfig primIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
@@ -1177,11 +1170,6 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
 
--- Template Haskell supplies compiler interfaces.
--- Stage 1 does not execute its code.
-isInterfaceOnlyPackage :: Text -> Bool
-isInterfaceOnlyPackage = (== "aihc-template-haskell")
-
 compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do
   let keepGrin = compileKeepGrin config
@@ -1193,8 +1181,8 @@ compileCheckedModules config writeFc verbose prepared outputPaths checkedModules
   unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
       fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
-      fcErrors = concatMap (Fc.lintProgram . fcProgram) fcModules
-      fcReport = map (("    " <>) . show) fcErrors
+      fcErrors = [(fcModuleName fcModule, err) | fcModule <- fcModules, err <- Fc.lintProgram (fcProgram fcModule)]
+      fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
   when lint $
     unless (null fcErrors) $
       ioError
@@ -1492,7 +1480,8 @@ dataConInfoTyCons info =
 classInfoTyCons :: ClassInfo -> [TyCon]
 classInfoTyCons info =
   ciTyCon info
-    : concatMap typeTyCons (ciSuperClassTypes info)
+    : concatMap (typeTyCons . TcTyVar) (ciKindTyVars info)
+      <> concatMap typeTyCons (ciSuperClassTypes info)
       <> concatMap (typeSchemeTyCons . snd) (ciMethods info)
       <> concatMap (typeSchemeTyCons . snd) (ciDefaultSignatures info)
 

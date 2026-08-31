@@ -37,8 +37,8 @@ import System.IO (readFile)
 -- the quote [asmq_f|foo.s|] will take input from file @"foo.s"@ instead
 -- of the inline text
 quoteFile :: QuasiQuoter -> QuasiQuoter
-quoteFile (QuasiQuoter {quoteExp = qe, quotePat = qp, quoteType = qt, quoteDec = qd}) =
-  QuasiQuoter {quoteExp = get qe, quotePat = get qp, quoteType = get qt, quoteDec = get qd}
+quoteFile (QuasiQuoter qe qp qt qd) =
+  QuasiQuoter (get qe) (get qp) (get qt) (get qd)
   where
     get :: (String -> Q a) -> String -> Q a
     get old_quoter file_name = do

@@ -1,7 +1,6 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE UnboxedTuples #-}
 
 module Language.Haskell.TH.Syntax
   ( Quote (..),
@@ -197,18 +196,24 @@ import Data.Array.Byte
 import GHC.Boot.TH.Lift
 import GHC.Boot.TH.Syntax
 import GHC.Exts
-import GHC.ST
-import System.FilePath
 
 -- This module completely re-exports 'GHC.Boot.TH.Syntax',
 -- and exports additionally functions that depend on filepath.
 
 -- | The input is a filepath, which if relative is offset by the package root.
 makeRelativeToProject :: FilePath -> Q FilePath
-makeRelativeToProject fp | isRelative fp = do
-  root <- getPackageRoot
-  return (root </> fp)
-makeRelativeToProject fp = return fp
+makeRelativeToProject fp =
+  if isProjectRelative fp
+    then do
+      root <- getPackageRoot
+      return (root ++ "/" ++ fp)
+    else return fp
+
+isProjectRelative :: FilePath -> Bool
+isProjectRelative fp =
+  take 1 fp /= "/"
+    && take 1 fp /= "\\"
+    && take 1 (drop 1 fp) /= ":"
 
 -- The following two defintions are copied from 'Data.Byte.Array'
 -- in order to preserve the old export list of 'TH.Syntax'.
@@ -218,9 +223,4 @@ addrToByteArrayName :: Name
 addrToByteArrayName = mkNameG_v "ghc-internal" "GHC.Internal.Data.Array.Byte" "addrToByteArray"
 
 addrToByteArray :: Int -> Addr# -> ByteArray
-addrToByteArray (I# len) addr = runST $
-  ST $
-    \s -> case newByteArray# len s of
-      (# s', mb #) -> case copyAddrToByteArray# addr mb 0# len s' of
-        s'' -> case unsafeFreezeByteArray# mb s'' of
-          (# s''', ret #) -> (# s''', ByteArray ret #)
+addrToByteArray _ _ = error "Template Haskell byte array creation is not available"

@@ -390,9 +390,12 @@
 
       ${aihcExe} install-v2 core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
 
-      test -n "$(find "$store" -path '*/Language/Haskell/TH/resolve.cbor' -print -quit)"
-      test -n "$(find "$store" -path '*/Language/Haskell/TH/type.cbor' -print -quit)"
-      test -z "$(find "$store" -path '*/lib/libaihc-template-haskell.a' -print -quit)"
+      test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
+      archive="$(find "$store" -path '*/lib/libaihc-template-haskell.a' -print -quit)"
+      test -n "$archive"
+      test -s "$archive"
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
     '';
 

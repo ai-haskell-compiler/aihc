@@ -36,18 +36,21 @@ import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pending
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvVar)
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (when)
 import Data.Either (fromRight)
+import Data.List (partition)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -166,8 +169,10 @@ inferNameOccurrence ambient nameSyntax = do
           pending = occurrenceAnnotation (instType inst) typeArgs evidenceVars
       pure (pending, instType inst, cts)
     Just (TcMonoIdBinder ty) -> do
-      (instantiatedTy, typeArgs) <- instantiateSigmaType ty
-      pure (occurrenceAnnotation instantiatedTy typeArgs [], instantiatedTy, [])
+      (instantiatedTy, typeArgs, predicates) <- instantiateSigmaType ty
+      cts <- mapM (predToCt sp name) predicates
+      let evidenceVars = map ctEvVar cts
+      pure (occurrenceAnnotation instantiatedTy typeArgs evidenceVars, instantiatedTy, cts)
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
 
@@ -406,31 +411,62 @@ checkHigherRankArgument :: SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct])
 checkHigherRankArgument sp expectedTy arg = do
   boundary <- getUniqueBoundary
   (arg', actualTy, argCts) <- inferExpr arg
-  (skolems, expectedBody) <- skolemizeSigmaType expectedTy
+  (skolems, predicates, expectedBody) <- skolemizeSigmaType expectedTy
   unify sp (AppOrigin sp) actualTy expectedBody
   rejectEscapingHigherRankMetas sp boundary skolems actualTy
-  let annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems) arg'
-  pure (annotatedArg, argCts)
+  givenCts <- mapM makeGiven predicates
+  let (equalityCts, dictionaryCts) = partition isEqualityConstraint argCts
+  residualEqualities <- concat <$> mapM solveEqualityConstraint equalityCts
+  residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
+  let annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) arg'
+  pure (annotatedArg, residualEqualities <> residualDictionaries)
+  where
+    makeGiven predicate = do
+      evidence <- freshEvVar
+      bindEvidence evidence (EvGiven predicate)
+      pure ((mkWantedCt predicate evidence (AppOrigin sp) sp) {ctFlavor = Given})
+
+    isEqualityConstraint ct =
+      case ctPred ct of
+        EqPred {} -> True
+        _ -> False
+
+    solveEqualityConstraint ct = do
+      result <- solveEquality ct
+      pure $ case result of
+        EqSolved -> []
+        EqStuck stuck -> [stuck]
+        EqError err -> [err]
+
+    solveDictionary predicates ct = do
+      result <- solveDictWithGivens predicates ct
+      pure $ case result of
+        DictSolved -> []
+        DictStuck stuck -> [stuck]
 
 hasLeadingForAll :: TcType -> Bool
 hasLeadingForAll TcForAllTy {} = True
+hasLeadingForAll TcQualTy {} = True
 hasLeadingForAll _ = False
 
-instantiateSigmaType :: TcType -> TcM (TcType, [TcType])
+instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
 instantiateSigmaType = go []
   where
     go arguments (TcForAllTy binder body) = do
       argument <- freshMetaTv
       go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
-    go arguments ty = pure (ty, arguments)
+    go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
+    go arguments ty = pure (ty, arguments, [])
 
-skolemizeSigmaType :: TcType -> TcM ([TyVarId], TcType)
-skolemizeSigmaType = go []
+skolemizeSigmaType :: TcType -> TcM ([TyVarId], [Pred], TcType)
+skolemizeSigmaType = go [] []
   where
-    go skolems (TcForAllTy binder body) = do
+    go skolems predicates (TcForAllTy binder body) = do
       skolem <- setTyVarKind (tvKind binder) <$> freshSkolemTv (tvName binder)
-      go (skolems <> [skolem]) (applySubst (Map.singleton (tvUnique binder) (TcTyVar skolem)) body)
-    go skolems ty = pure (skolems, ty)
+      go (skolems <> [skolem]) predicates (applySubst (Map.singleton (tvUnique binder) (TcTyVar skolem)) body)
+    go skolems predicates (TcQualTy morePredicates body) =
+      go skolems (predicates <> morePredicates) body
+    go skolems predicates ty = pure (skolems, predicates, ty)
 
 rejectEscapingHigherRankMetas :: SourceSpan -> Unique -> [TyVarId] -> TcType -> TcM ()
 rejectEscapingHigherRankMetas sp (Unique boundaryInt) skolems actualTy = do
@@ -584,12 +620,16 @@ inferIf sp cond thenE elseE = do
   (cond', condTy, condCts) <- inferExpr cond
   (thenE', thenTy, thenCts) <- inferExpr thenE
   (elseE', elseTy, elseCts) <- inferExpr elseE
+  resultTy <- freshMetaTv
   condEv <- freshEvVar
   expectedBoolTy <- boolTyCon
   let condCt = mkWantedCt (EqPred condTy expectedBoolTy) condEv (AppOrigin sp) sp
-  branchEv <- freshEvVar
-  let branchCt = mkWantedCt (EqPred thenTy elseTy) branchEv (AppOrigin sp) sp
-  pure (EIf cond' thenE' elseE', thenTy, condCts ++ thenCts ++ elseCts ++ [condCt, branchCt])
+  thenEv <- freshEvVar
+  elseEv <- freshEvVar
+  let thenCt = mkWantedCt (EqPred thenTy resultTy) thenEv (AppOrigin sp) sp
+      elseCt = mkWantedCt (EqPred elseTy resultTy) elseEv (AppOrigin sp) sp
+      pending = pendingAnnotation resultTy [] [] []
+  pure (annotatePendingExprAt sp pending (EIf cond' thenE' elseE'), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
 
 inferTuple :: SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
 inferTuple sp flavor elems = do

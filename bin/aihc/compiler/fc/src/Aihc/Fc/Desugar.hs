@@ -119,16 +119,20 @@ typeEnvFromTcInterface config interface =
 
 typeEnvFromTcInterfaceWith :: ConvertEnv -> DesugarConfig -> TcInterface -> Either String TypeOf.TypeEnv
 typeEnvFromTcInterfaceWith conversionEnv config interface = do
-  declarations <- interfaceTypeDeclarations conversionEnv interface
-  typeHeaders <- mapM (convertTyConHeader conversionEnv) (tcInterfaceTyCons interface)
-  termHeaders <- mapMaybeM (convertTermHeader conversionEnv) (tcInterfaceTerms interface)
-  instanceHeaders <- mapM (convertInstanceHeader conversionEnv) (tcInterfaceInstances interface)
-  defaultMethodHeaders <- concat <$> mapM (convertDefaultMethodHeaders conversionEnv) (tcInterfaceClasses interface)
+  declarations <- withConversionContext "type declarations" (interfaceTypeDeclarations conversionEnv interface)
+  typeHeaders <- withConversionContext "type headers" (mapM (convertTyConHeader conversionEnv) (tcInterfaceTyCons interface))
+  termHeaders <- withConversionContext "term headers" (mapMaybeM (convertTermHeader conversionEnv) (tcInterfaceTerms interface))
+  instanceHeaders <- withConversionContext "instance headers" (mapM (convertInstanceHeader conversionEnv) (tcInterfaceInstances interface))
+  defaultMethodHeaders <- withConversionContext "default method headers" (concat <$> mapM (convertDefaultMethodHeaders conversionEnv) (tcInterfaceClasses interface))
   let declarationEnv = TypeOf.typeEnvFromProgram (primPackageId config) (Program emptyScopeTable emptyImports declarations)
   pure
     declarationEnv
       { TypeOf.teHeaders = TypeOf.teHeaders declarationEnv <> Map.fromList (typeHeaders <> termHeaders <> instanceHeaders <> defaultMethodHeaders)
       }
+
+withConversionContext :: String -> Either String a -> Either String a
+withConversionContext context =
+  either (Left . ((context <> ": ") <>)) Right
 
 interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
 interfaceConvertEnv config interface =
@@ -164,16 +168,21 @@ axiomEntriesFromInterface interface =
 interfaceTypeDeclarations :: ConvertEnv -> TcInterface -> Either String [Decl]
 interfaceTypeDeclarations env interface = do
   dataDeclarations <- concat <$> mapM convertDataDeclaration (tcInterfaceDataTypes interface)
-  synonymDeclarations <- mapM (convertSynonym env) (filter ((== SynonymTyCon) . tciFlavor) (tcInterfaceTyCons interface))
-  classDeclarations <- mapM (convertClass env) (tcInterfaceClasses interface)
+  synonymDeclarations <- mapM convertSynonymDeclaration (filter ((== SynonymTyCon) . tciFlavor) (tcInterfaceTyCons interface))
+  classDeclarations <- mapM convertClassDeclaration (tcInterfaceClasses interface)
   dataFamilyDeclarations <- concat <$> mapM convertDataFamilyDeclaration (tcInterfaceDataFamilyInstances interface)
   pure (dataDeclarations <> synonymDeclarations <> classDeclarations <> dataFamilyDeclarations)
   where
     convertDataDeclaration info =
-      case dtiFlavor info of
-        DataTyCon -> (: []) <$> convertDataType env info
-        NewtypeTyCon -> convertNewtype env info
-        _ -> pure []
+      withConversionContext ("data type " <> T.unpack (dtiName info)) $
+        case dtiFlavor info of
+          DataTyCon -> (: []) <$> convertDataType env info
+          NewtypeTyCon -> convertNewtype env info
+          _ -> pure []
+    convertSynonymDeclaration info =
+      withConversionContext ("type synonym " <> T.unpack (tciName info)) (convertSynonym env info)
+    convertClassDeclaration info =
+      withConversionContext ("class " <> T.unpack (ciName info)) (convertClass env info)
     convertDataFamilyDeclaration info =
       let tyCon = dfiiRepresentationTyCon info
        in convertDataFamilyInst env (tyConPackageId tyCon) (tyConModuleName tyCon) (tcInterfaceBindings interface) info
@@ -187,7 +196,11 @@ convertTermHeader :: ConvertEnv -> (TcTermKey, TypeScheme) -> Either String (May
 convertTermHeader env (key, scheme) =
   case key of
     TcTermGlobal package moduleName' identifier -> do
-      converted <- convertTypeScheme env scheme
+      converted <-
+        either
+          (\message -> Left (T.unpack moduleName' <> "." <> T.unpack identifier <> ": " <> message))
+          Right
+          (convertTypeScheme env scheme)
       pure (Just (Name identifier SortValue (OriginTop package moduleName'), converted))
     TcTermLocal {} -> pure Nothing
 
@@ -483,7 +496,7 @@ familyHeadName ty =
 
 convertClass :: ConvertEnv -> ClassInfo -> Either String Decl
 convertClass env info = do
-  let tyVars = ciTyVars info
+  let tyVars = ciKindTyVars info <> ciTyVars info
       bindersEnv = withTyVars tyVars env
       dictName = classDictTypeName (ciTyCon info)
   binders <- mapM (tyVarBinder bindersEnv) tyVars
@@ -810,10 +823,13 @@ convertSynonym env info =
   case tciTypeSynonym info of
     Just synonym
       | Just body <- tsiBody synonym -> do
-          let bindersEnv = withTyVars (tsiParams synonym) env
-          binders <- mapM (tyVarBinder bindersEnv) (tsiParams synonym)
-          result <- synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym)
-          convertedBody <- convertType bindersEnv body
+          kindVars <- extraKindVars env (tciTyCon info) (tsiParams synonym)
+          let tyVars = kindVars <> tsiParams synonym
+              bindersEnv = withTyVars tyVars env
+              bodyKind = synonymResultKind (tciKindScheme info) (tsiParams synonym)
+          binders <- withConversionContext "binders" (mapM (tyVarBinder bindersEnv) tyVars)
+          result <- withConversionContext "result" (synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym))
+          convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) body)
           pure
             ( DeclSynonym
                 SynonymDecl
@@ -829,7 +845,11 @@ convertSynonym env info =
 
 synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
 synonymResult env scheme params =
-  convertKind env (dropParams (length params) (typeSchemeBody scheme))
+  convertKind env (synonymResultKind scheme params)
+
+synonymResultKind :: TypeScheme -> [TyVarId] -> TcType
+synonymResultKind scheme params =
+  dropParams (length params) (typeSchemeBody scheme)
   where
     dropParams remaining kind
       | remaining <= 0 = kind

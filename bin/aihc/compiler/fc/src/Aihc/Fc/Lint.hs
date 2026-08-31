@@ -112,8 +112,19 @@ lintForeignImportDependency env dependency =
 lintDeclBodies :: TypeEnv -> Decl -> [LintError]
 lintDeclBodies env decl =
   case decl of
-    DeclVal declaration -> eitherToList (checkExpr env "val body" (valType declaration) (valBody declaration))
+    DeclVal declaration ->
+      map
+        (addDeclarationContext (valName declaration))
+        (eitherToList (checkExpr env "val body" (valType declaration) (valBody declaration)))
     _ -> []
+
+addDeclarationContext :: Name -> LintError -> LintError
+addDeclarationContext name lintError =
+  let contextPrefix context = T.unpack (nameText name) <> ": " <> context
+   in case lintError of
+        TypeMismatch context expected actual -> TypeMismatch (contextPrefix context) expected actual
+        KindMismatch context expected actual -> KindMismatch (contextPrefix context) expected actual
+        other -> other
 
 lintTypeDecl :: TypeEnv -> TypeDecl -> [LintError]
 lintTypeDecl env declaration =

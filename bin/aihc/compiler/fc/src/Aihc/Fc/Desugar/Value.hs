@@ -335,7 +335,7 @@ convertForeignEffect effect =
 
 desugarClassSelectors :: Syn.ClassDecl -> TcClassAnnotation -> ValueM [Decl]
 desugarClassSelectors classDecl classAnnotation = do
-  let classTyVars = tcClassTyVars classAnnotation
+  let classTyVars = tcClassKindTyVars classAnnotation <> tcClassTyVars classAnnotation
       className = Syn.unqualifiedNameText (Syn.binderHeadName (Syn.classDeclHead classDecl))
   methodTypes <- mapM (methodFieldType className classTyVars) (tcClassMethods classAnnotation)
   let fieldTypes = map tcDictBinderType (tcClassSuperClasses classAnnotation) <> methodTypes
@@ -384,43 +384,44 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
   _ <- freshUnique
   let (typeVariables, afterForAlls) = peelForAlls (tcClassMethodType method)
       (predicates, resultType) = peelConstraints afterForAlls
-  dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
-  classDictionary <-
-    case dictionaries of
-      dictionary : _ -> pure dictionary
-      [] -> freshBinder "$d" (tcClassMethodDictType method)
-  caseBinder <- freshBinder "$dict" (tcClassMethodDictType method)
-  fields <- zipWithM (freshIndexedBinder "$method") [0 :: Int ..] fieldTypes
-  selected <-
-    case drop (superClassCount + tcClassMethodIndex method) fields of
-      field : _ -> pure field
-      [] -> failValue ("invalid class method index for " <> T.unpack (tcClassMethodName method))
-  extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
-  resultType' <- convertCheckedType resultType
-  let extraDictionaries = drop 1 dictionaries
-      selectedExpr =
-        foldl
-          ExApp
-          (foldl ExTyApp (ExVar (binderName selected)) extraTypes)
-          (map (ExVar . binderName) extraDictionaries)
-      selection =
-        ExCase
-          (ExVar (binderName classDictionary))
-          caseBinder
-          resultType'
-          [Alt (AltData (classDictConName classTyCon)) [] fields selectedExpr]
-  typeBinders <- mapM convertTypeBinder typeVariables
-  methodType' <- convertCheckedType (tcClassMethodType method)
-  moduleOrigin <- gets vsModuleOrigin
-  pure
-    ( DeclVal
-        ValDecl
-          { valVis = Pub,
-            valName = topName moduleOrigin (tcClassMethodName method),
-            valType = methodType',
-            valBody = foldr ExTyLam (foldr ExLam selection dictionaries) typeBinders
-          }
-    )
+  withTypeVariables typeVariables $ do
+    dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+    classDictionary <-
+      case dictionaries of
+        dictionary : _ -> pure dictionary
+        [] -> freshBinder "$d" (tcClassMethodDictType method)
+    caseBinder <- freshBinder "$dict" (tcClassMethodDictType method)
+    fields <- zipWithM (freshIndexedBinder "$method") [0 :: Int ..] fieldTypes
+    selected <-
+      case drop (superClassCount + tcClassMethodIndex method) fields of
+        field : _ -> pure field
+        [] -> failValue ("invalid class method index for " <> T.unpack (tcClassMethodName method))
+    extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
+    resultType' <- convertCheckedType resultType
+    let extraDictionaries = drop 1 dictionaries
+        selectedExpr =
+          foldl
+            ExApp
+            (foldl ExTyApp (ExVar (binderName selected)) extraTypes)
+            (map (ExVar . binderName) extraDictionaries)
+        selection =
+          ExCase
+            (ExVar (binderName classDictionary))
+            caseBinder
+            resultType'
+            [Alt (AltData (classDictConName classTyCon)) [] fields selectedExpr]
+    typeBinders <- convertTypeBinders typeVariables
+    methodType' <- convertCheckedType (tcClassMethodType method)
+    moduleOrigin <- gets vsModuleOrigin
+    pure
+      ( DeclVal
+          ValDecl
+            { valVis = Pub,
+              valName = topName moduleOrigin (tcClassMethodName method),
+              valType = methodType',
+              valBody = foldr ExTyLam (foldr ExLam selection dictionaries) typeBinders
+            }
+      )
 
 methodFieldType :: Text -> [TyVarId] -> TcClassMethodAnnotation -> ValueM TcType
 methodFieldType className classTyVars method = do
@@ -453,7 +454,7 @@ desugarInstanceDecl declaration =
     _ -> pure []
 
 desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM Decl
-desugarInstance annotation instanceDecl = do
+desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars annotation) $ do
   let methods = Map.fromListWith appendMatches (instanceMethods instanceDecl)
   contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] (tcInstanceContextDicts annotation)
   fields <- withDictionaries contextDictionaries $ do
@@ -462,8 +463,8 @@ desugarInstance annotation instanceDecl = do
     pure (superClasses <> methodFields)
   _ <- freshUnique
   _ <- freshUnique
-  typeBinders <- mapM convertTypeBinder (tcInstanceTyVars annotation)
-  headTypes <- mapM convertCheckedType (tcInstanceHeadTypes annotation)
+  typeBinders <- convertTypeBinders (tcInstanceTyVars annotation)
+  headTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   dictionaryType <- convertCheckedType (tcInstanceDictType annotation)
   let dictionaryBinders = map dictionaryBinder contextDictionaries
       constructor = foldl ExTyApp (ExVar (classDictConName (tcInstanceClassTyCon annotation))) headTypes
@@ -495,7 +496,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
     case [candidate | candidate <- tcInstanceClassMethods annotation, tcClassMethodName candidate == methodName] of
       candidate : _ -> pure candidate
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
-  convertedHeadTypes <- mapM convertCheckedType (tcInstanceHeadTypes annotation)
+  convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
       extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
@@ -503,7 +504,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
       extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
-  extraTypeBinders <- mapM convertTypeBinder extraTyVars
+  extraTypeBinders <- convertTypeBinders extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
   let workerOrigin =
@@ -654,11 +655,23 @@ desugarMatches ty matches =
           (predicates, bodyType) = peelConstraints afterForAlls
           argumentCount = length (Syn.matchPats first)
           (argumentTypes, resultType) = peelFunctions argumentCount bodyType
-      typeBinders <- mapM convertTypeBinder typeVariables
-      dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
-      arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-      body <- withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
+      typeBinders <- convertTypeBinders typeVariables
+      (dictionaries, arguments, body) <-
+        withTypeVariables typeVariables $ do
+          dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+          arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
+          body <-
+            withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
+          pure (dictionaries, arguments, body)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
+
+withTypeVariables :: [TyVarId] -> ValueM a -> ValueM a
+withTypeVariables variables action = do
+  previous <- gets vsConvertEnv
+  modify' $ \state -> state {vsConvertEnv = withTyVars variables previous}
+  result <- action
+  modify' $ \state -> state {vsConvertEnv = previous}
+  pure result
 
 desugarMatchArguments :: TcType -> [Binder] -> [Syn.Match] -> ValueM Expr
 desugarMatchArguments _ [] (match : _) = desugarRhs (Syn.matchRhs match)
@@ -859,7 +872,7 @@ desugarNewtypePatterns resultType argument remaining matches representative data
   childType <- requiredPatternType child
   field <- freshPatternBinder child childType
   typeArguments <- newtypePatternArguments representative
-  convertedArguments <- mapM convertCheckedType typeArguments
+  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
   let key = patternKey representative
       expanded = mapMaybe (specializeMatch key 1) matches
       rootBindings = concatMap (firstPatternBindings argument) matches
@@ -880,9 +893,18 @@ desugarNewtypePatterns resultType argument remaining matches representative data
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]
 newtypePatternArguments pattern' =
-  case fromBinderType pattern' of
+  case constructorResultType (length (patternChildren pattern')) (fromBinderType pattern') of
     TcTyCon _ arguments -> pure arguments
     ty -> failValue ("newtype pattern has an invalid checked type: " <> show ty)
+
+constructorResultType :: Int -> TcType -> TcType
+constructorResultType arity ty =
+  case ty of
+    TcForAllTy _ body -> constructorResultType arity body
+    TcQualTy _ body -> constructorResultType arity body
+    TcFunTy _ result
+      | arity > 0 -> constructorResultType (arity - 1) result
+    _ -> ty
 
 desugarPatternGroup :: TcType -> [Binder] -> [Syn.Match] -> Text -> ValueM Alt
 desugarPatternGroup resultType remaining matches key = do
@@ -894,7 +916,7 @@ desugarPatternGroup resultType remaining matches key = do
   let subpatterns = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
       typeVariables = patternTypeVariables pattern'
-  typeBinders <- mapM convertTypeBinder typeVariables
+  typeBinders <- convertTypeBinders typeVariables
   fieldTypes <- patternFieldTypes pattern' subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -1044,7 +1066,7 @@ patternChildren pattern' =
       let tailPattern = Syn.PList items
           checkedTail =
             case patternType pattern' of
-              Just ty -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [])) tailPattern
+              Just ty -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) tailPattern
               Nothing -> tailPattern
        in [item, checkedTail]
     Syn.PTuple _ children -> children
@@ -1176,7 +1198,7 @@ desugarRhs rhs =
   case rhs of
     Syn.UnguardedRhs _ expression Nothing -> desugarExpr expression
     Syn.UnguardedRhs _ expression (Just declarations) -> desugarLocalDecls declarations (desugarExpr expression)
-    Syn.GuardedRhss {} -> failValue "guarded right-hand side remains after type checking"
+    Syn.GuardedRhss {} -> failValue ("guarded right-hand side remains after type checking: " <> take 160 (show rhs))
 
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
@@ -1202,44 +1224,47 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
+  let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
+  evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
-    case inner of
-      _
-        | not (null (tcAnnTypeBinders annotation)) -> desugarExpr inner
-      expression
-        | Just name <- annotatedVariable expression -> do
-            desugarVariable (Just annotation) name
-      Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _)
-        | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-          resolutionNamespace resolution == ResolutionNamespaceTerm,
-          resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
-            desugarOverloadedInteger annotation resolution value
-      Syn.EInt value numericType _
-        | numericType /= Syn.TInteger -> do
-            representation <- convertRuntimeRep (numericRepresentation numericType)
-            pure (ExLit (LitInt representation value))
-      Syn.EChar value _ -> do
-        constructor <- uniqueConstructorName "C#"
-        representation <- convertRuntimeRep WordRep
-        pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
-      Syn.ECharHash value _ -> do
-        representation <- convertRuntimeRep WordRep
-        pure (ExLit (LitChar representation value))
-      Syn.EString value _ -> desugarString annotation value
-      Syn.EStringHash value _ -> do
-        representation <- convertRuntimeRep AddrRep
-        pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
-      Syn.EList elements -> desugarList annotation elements
-      Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
-      Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
-      Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
-      Syn.EDo statements _ -> desugarDo statements
-      Syn.EIf condition thenExpression elseExpression ->
-        desugarIf (tcAnnType annotation) condition thenExpression elseExpression
-      Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
-      _ -> desugarExpr inner
-  typeBinders <- mapM convertTypeBinder (tcAnnTypeBinders annotation)
-  pure (foldr ExTyLam body typeBinders)
+    withDictionaries (zipWith Dictionary evidencePredicates evidenceBinders) $
+      case inner of
+        _
+          | not (null (tcAnnTypeBinders annotation)) || not (null evidenceBinders) -> desugarExpr inner
+        expression
+          | Just name <- annotatedVariable expression -> do
+              desugarVariable (Just annotation) name
+        Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
+              desugarOverloadedInteger annotation resolution value
+        Syn.EInt value numericType _
+          | numericType /= Syn.TInteger -> do
+              representation <- convertRuntimeRep (numericRepresentation numericType)
+              pure (ExLit (LitInt representation value))
+        Syn.EChar value _ -> do
+          constructor <- uniqueConstructorName "C#"
+          representation <- convertRuntimeRep WordRep
+          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
+        Syn.ECharHash value _ -> do
+          representation <- convertRuntimeRep WordRep
+          pure (ExLit (LitChar representation value))
+        Syn.EString value _ -> desugarString annotation value
+        Syn.EStringHash value _ -> do
+          representation <- convertRuntimeRep AddrRep
+          pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
+        Syn.EList elements -> desugarList annotation elements
+        Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
+        Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
+        Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
+        Syn.EDo statements _ -> desugarDo statements
+        Syn.EIf condition thenExpression elseExpression ->
+          desugarIf (tcAnnType annotation) condition thenExpression elseExpression
+        Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
+        _ -> desugarExpr inner
+  typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
+  pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
 
 desugarIf :: TcType -> Syn.Expr -> Syn.Expr -> Syn.Expr -> ValueM Expr
 desugarIf resultType condition thenExpression elseExpression = do
@@ -1328,7 +1353,7 @@ desugarVariable maybeAnnotation name = do
           Nothing -> do
             types <- gets vsTypes
             case Map.lookup (Syn.nameText name) types of
-              Just constructorType -> pure (TcAnnotation constructorType [] [] [] [])
+              Just constructorType -> pure (TcAnnotation constructorType [] [] [] [] [])
               Nothing -> failValue ("missing checked newtype constructor type " <> T.unpack (Syn.nameText name))
       desugarNewtypeConstructor annotation dataType
     Nothing -> do
@@ -1365,8 +1390,25 @@ desugarNewtypeConstructor annotation dataType = do
           arguments -> arguments
       tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-  convertedArguments <- mapM convertCheckedType typeArguments
+  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
   pure (ExLam argument (ExCast (ExVar (binderName argument)) (CoSym (CoAxiom axiom convertedArguments))))
+
+convertNewtypeAxiomArguments :: DataTypeInfo -> [TcType] -> ValueM [Type]
+convertNewtypeAxiomArguments dataType arguments =
+  if length arguments > length (dtiTyVars dataType)
+    then mapM convertCheckedType arguments
+    else do
+      env <- gets vsConvertEnv
+      invisibleArguments <- liftEither (invisibleKindArgs env (dtiTyCon dataType) arguments Nothing)
+      visibleArguments <- mapM convertCheckedType arguments
+      pure (invisibleArguments <> visibleArguments)
+
+convertTyConApplicationArguments :: TyCon -> [TcType] -> ValueM [Type]
+convertTyConApplicationArguments tyCon arguments = do
+  env <- gets vsConvertEnv
+  invisibleArguments <- liftEither (invisibleKindArgs env tyCon arguments Nothing)
+  visibleArguments <- mapM convertCheckedType arguments
+  pure (invisibleArguments <> visibleArguments)
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do
@@ -1516,7 +1558,7 @@ desugarDoConstructorPattern resultType binder pattern' success = do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
       let typeVariables = patternTypeVariables pattern'
-      typeBinders <- mapM convertTypeBinder typeVariables
+      typeBinders <- convertTypeBinders typeVariables
       fieldTypes <- patternFieldTypes pattern' children
       fields <- zipWithM freshPatternBinder children fieldTypes
       dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -1553,7 +1595,7 @@ desugarDoNewtypePattern resultType binder pattern' dataType success = do
   childType <- requiredPatternType child
   field <- freshPatternBinder child childType
   typeArguments <- newtypePatternArguments pattern'
-  convertedArguments <- mapM convertCheckedType typeArguments
+  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
   let tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
       unwrapped = ExCast (ExVar (binderName binder)) (CoAxiom axiom convertedArguments)
@@ -1891,7 +1933,13 @@ resolvedTermName sourceName =
           local <- Map.lookup (Syn.unqualifiedNameText localName) <$> gets vsLocals
           case local of
             Just (binder, _) -> pure (binderName binder)
-            Nothing -> failValue ("missing local value " <> T.unpack (Syn.unqualifiedNameText localName))
+            Nothing ->
+              failValue
+                ( "missing local value "
+                    <> T.unpack (Syn.unqualifiedNameText localName)
+                    <> " at "
+                    <> show (resolutionSpan resolution)
+                )
         ResolvedError message -> failValue message
     Nothing -> failValue ("missing resolved value " <> T.unpack (Syn.nameText sourceName))
 
@@ -2022,12 +2070,18 @@ applicationResultType ty =
 convertCheckedType :: TcType -> ValueM Type
 convertCheckedType ty = do
   env <- gets vsConvertEnv
-  liftEither (convertType env ty)
+  case convertType env ty of
+    Left message -> failValue (message <> " while converting " <> show ty)
+    Right converted -> pure converted
 
 convertTypeBinder :: TyVarId -> ValueM Binder
 convertTypeBinder tyVar = do
   env <- gets vsConvertEnv
   liftEither (tyVarBinder env tyVar)
+
+convertTypeBinders :: [TyVarId] -> ValueM [Binder]
+convertTypeBinders variables =
+  withTypeVariables variables (mapM convertTypeBinder variables)
 
 convertRuntimeRep :: TcType -> ValueM Type
 convertRuntimeRep runtimeRep = do

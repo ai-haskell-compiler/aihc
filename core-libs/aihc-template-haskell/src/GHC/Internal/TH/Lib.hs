@@ -39,8 +39,8 @@ import Prelude hiding (Applicative (..))
 type TExpQ :: TYPE r -> Kind.Type
 type TExpQ a = Q (TExp a)
 
-type CodeQ :: TYPE r -> Kind.Type
-type CodeQ = Code Q
+type CodeQ :: forall r. TYPE r -> Kind.Type
+type CodeQ a = Code Q a
 
 type InfoQ = Q Info
 
@@ -249,9 +249,10 @@ viewP e p = do
   pure (ViewP e' p')
 
 orP :: (Quote m) => (NonEmpty (m Pat)) -> m Pat
-orP ps = do
+orP (p :| ps) = do
+  p' <- p
   ps' <- sequenceA ps
-  pure (OrP ps')
+  pure (OrP (p' :| ps'))
 
 fieldPat :: (Quote m) => Name -> m Pat -> m FieldPat
 fieldPat n p = do
@@ -1042,10 +1043,16 @@ bang u s = do
   pure (Bang u' s')
 
 bangType :: (Quote m) => m Bang -> m Type -> m BangType
-bangType = liftA2 (,)
+bangType b t = do
+  b' <- b
+  t' <- t
+  pure (b', t')
 
 varBangType :: (Quote m) => Name -> m BangType -> m VarBangType
-varBangType v bt = (\(b, t) -> (v, b, t)) <$> bt
+varBangType v bt = addVariableToBangType v <$> bt
+
+addVariableToBangType :: Name -> BangType -> VarBangType
+addVariableToBangType v (b, t) = (v, b, t)
 
 strictType :: (Quote m) => m Strict -> m Type -> m StrictType
 strictType = bangType
@@ -1237,8 +1244,14 @@ infixPatSyn arg1 arg2 = pure $ InfixPatSyn arg1 arg2
 
 appsE :: (Quote m) => [m Exp] -> m Exp
 appsE [] = error "appsE []"
-appsE [x] = x
-appsE (x : y : zs) = appsE ((appE x y) : zs)
+appsE (x : xs) = foldl appE x xs
+
+numbered :: [a] -> [(Int, a)]
+numbered = numberFrom 0
+
+numberFrom :: Int -> [a] -> [(Int, a)]
+numberFrom _ [] = []
+numberFrom i (x : xs) = (i, x) : numberFrom (i + 1) xs
 
 -- | pure the Module at the place of splicing.  Can be used as an
 -- input for 'reifyModule'.
@@ -1313,8 +1326,7 @@ funD_doc ::
   Q Dec
 funD_doc nm cs mfun_doc arg_docs = do
   qAddModFinalizer $
-    sequence_
-      [putDoc (ArgDoc nm i) s | (i, Just s) <- zip [0 ..] arg_docs]
+    sequence_ (argumentDocActions nm (numbered arg_docs))
   let dec = funD nm cs
   case mfun_doc of
     Just fun_doc -> withDecDoc fun_doc dec
@@ -1335,7 +1347,7 @@ dataD_doc ::
   Q Dec
 dataD_doc ctxt tc tvs ksig cons_with_docs derivs mdoc = do
   qAddModFinalizer $ mapM_ docCons cons_with_docs
-  let dec = dataD ctxt tc tvs ksig (map (\(con, _, _) -> con) cons_with_docs) derivs
+  let dec = dataD ctxt tc tvs ksig (map documentationConstructor cons_with_docs) derivs
   maybe dec (flip withDecDoc dec) mdoc
 
 -- | Variant of 'newtypeD' that attaches Haddock documentation.
@@ -1369,7 +1381,7 @@ typeDataD_doc ::
   Q Dec
 typeDataD_doc tc tvs ksig cons_with_docs mdoc = do
   qAddModFinalizer $ mapM_ docCons cons_with_docs
-  let dec = typeDataD tc tvs ksig (map (\(con, _, _) -> con) cons_with_docs)
+  let dec = typeDataD tc tvs ksig (map documentationConstructor cons_with_docs)
   maybe dec (flip withDecDoc dec) mdoc
 
 -- | Variant of 'dataInstD' that attaches Haddock documentation.
@@ -1393,7 +1405,7 @@ dataInstD_doc ctxt mb_bndrs ty ksig cons_with_docs derivs mdoc = do
           mb_bndrs
           ty
           ksig
-          (map (\(con, _, _) -> con) cons_with_docs)
+          (map documentationConstructor cons_with_docs)
           derivs
   maybe dec (flip withDecDoc dec) mdoc
 
@@ -1428,8 +1440,7 @@ patSynD_doc ::
   Q Dec
 patSynD_doc name args dir pat mdoc arg_docs = do
   qAddModFinalizer $
-    sequence_
-      [putDoc (ArgDoc name i) s | (i, Just s) <- zip [0 ..] arg_docs]
+    sequence_ (argumentDocActions name (numbered arg_docs))
   let dec = patSynD name args dir pat
   maybe dec (flip withDecDoc dec) mdoc
 
@@ -1438,19 +1449,42 @@ docCons :: (Q Con, Maybe String, [Maybe String]) -> Q ()
 docCons (c, md, arg_docs) = do
   c' <- c
   -- Attach docs to the constructors
-  sequence_ [putDoc (DeclDoc nm) d | Just d <- [md], nm <- get_cons_names c']
+  sequence_ (declarationDocActions md (get_cons_names c'))
   -- Attach docs to the arguments
   case c' of
     -- Record selector documentation isn't stored in the argument map,
     -- but in the declaration map instead
     RecC _ var_bang_types ->
-      sequence_
-        [ putDoc (DeclDoc nm) arg_doc
-        | (Just arg_doc, (nm, _, _)) <- zip arg_docs var_bang_types
-        ]
+      sequence_ (recordFieldDocActions arg_docs var_bang_types)
     _ ->
-      sequence_
-        [ putDoc (ArgDoc nm i) arg_doc
-        | nm <- get_cons_names c',
-          (i, Just arg_doc) <- zip [0 ..] arg_docs
-        ]
+      sequence_ (constructorArgumentDocActions (get_cons_names c') (numbered arg_docs))
+
+argumentDocActions :: Name -> [(Int, Maybe String)] -> [Q ()]
+argumentDocActions _ [] = []
+argumentDocActions name ((index, maybeDoc) : rest) =
+  case maybeDoc of
+    Just doc -> putDoc (ArgDoc name index) doc : argumentDocActions name rest
+    Nothing -> argumentDocActions name rest
+
+declarationDocActions :: Maybe String -> [Name] -> [Q ()]
+declarationDocActions Nothing _ = []
+declarationDocActions (Just doc) names = map (putDeclarationDoc doc) names
+
+putDeclarationDoc :: String -> Name -> Q ()
+putDeclarationDoc doc name = putDoc (DeclDoc name) doc
+
+recordFieldDocActions :: [Maybe String] -> [VarBangType] -> [Q ()]
+recordFieldDocActions [] _ = []
+recordFieldDocActions _ [] = []
+recordFieldDocActions (maybeDoc : docs) ((name, _, _) : fields) =
+  case maybeDoc of
+    Just doc -> putDoc (DeclDoc name) doc : recordFieldDocActions docs fields
+    Nothing -> recordFieldDocActions docs fields
+
+constructorArgumentDocActions :: [Name] -> [(Int, Maybe String)] -> [Q ()]
+constructorArgumentDocActions [] _ = []
+constructorArgumentDocActions (name : names) docs =
+  argumentDocActions name docs ++ constructorArgumentDocActions names docs
+
+documentationConstructor :: (Q Con, Maybe String, [Maybe String]) -> Q Con
+documentationConstructor (constructor, _, _) = constructor
