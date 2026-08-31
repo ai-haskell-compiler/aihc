@@ -57,6 +57,7 @@ import Aihc.Tc.Types
     Unique (..),
     applySubst,
     applySubstPred,
+    mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
     tvUnique,
     tyConModuleName,
@@ -1121,7 +1122,7 @@ patternConstructor pattern' =
               Syn.Unboxed -> "GHC.Types"
        in AltData <$> primitiveName moduleName' constructor SortDataConstructor
     Syn.PLit literal
-      | isBoxedCharacterLiteral literal -> AltData <$> uniqueConstructorName "C#"
+      | isBoxedCharacterLiteral literal -> AltData <$> boxedCharConstructor
       | otherwise -> AltLit <$> patternLiteral literal
     Syn.PWildcard -> pure AltDefault
     Syn.PVar {} -> pure AltDefault
@@ -1144,20 +1145,9 @@ isBoxedCharacterLiteral literal =
 patternFieldTypes :: Syn.Pattern -> [Syn.Pattern] -> ValueM [TcType]
 patternFieldTypes parent children
   | Syn.PLit literal <- peelPattern parent,
-    isBoxedCharacterLiteral literal = do
-      constructorType <- lookupConstructorType "C#"
-      case firstFunctionArgument constructorType of
-        Just fieldType -> pure [fieldType]
-        Nothing -> failValue "boxed character constructor does not have one field"
+    isBoxedCharacterLiteral literal =
+      (: []) <$> boxedCharFieldType
   | otherwise = mapM requiredPatternType children
-
-firstFunctionArgument :: TcType -> Maybe TcType
-firstFunctionArgument ty =
-  case ty of
-    TcForAllTy _ body -> firstFunctionArgument body
-    TcQualTy _ body -> firstFunctionArgument body
-    TcFunTy argument _ -> Just argument
-    _ -> Nothing
 
 freshPatternBinder :: Syn.Pattern -> TcType -> ValueM Binder
 freshPatternBinder pattern' = freshBinder (fromMaybe "_pat" (barePatternName pattern'))
@@ -1272,7 +1262,7 @@ desugarAnnotatedExpr annotation inner = do
               representation <- convertRuntimeRep (numericRepresentation numericType)
               pure (ExLit (LitInt representation value))
         Syn.EChar value _ -> do
-          constructor <- uniqueConstructorName "C#"
+          constructor <- boxedCharConstructor
           representation <- convertRuntimeRep WordRep
           pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
         Syn.ECharHash value _ -> do
@@ -1466,7 +1456,7 @@ desugarString annotation value = do
         | tyConName tyCon == "[]" -> pure ty
       ty -> failValue ("string literal has non-list type " <> show ty)
   convertedType <- convertCheckedType elementType
-  charConstructor <- uniqueConstructorName "C#"
+  charConstructor <- boxedCharConstructor
   representation <- convertRuntimeRep WordRep
   nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
   consName <- primitiveName "GHC.Types" ":" SortDataConstructor
@@ -1815,8 +1805,8 @@ desugarTypeRepresentation origin ty arguments = do
   someTypeRepName <- typeableName origin "Type.Reflection" "SomeTypeRep" SortTypeConstructor
   typeRepConstructor <- typeableName origin "Type.Reflection" "TypeRep" SortDataConstructor
   tyConAxiom <- typeableName origin "Type.Reflection" "$ax$TyCon" SortAxiom
-  charName <- typeableName origin "GHC.Internal.Char" "Char" SortTypeConstructor
-  charConstructor <- typeableName origin "GHC.Internal.Char" "C#" SortDataConstructor
+  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+  charConstructor <- boxedCharConstructor
   wordRep <- convertRuntimeRep WordRep
   let someTypeRepType = TyCon someTypeRepName
       charType = TyCon charName
@@ -1999,6 +1989,14 @@ primitiveName moduleName' name sort = do
   package <- gets (cePrimPackage . vsConvertEnv)
   pure (Name name sort (OriginTop package moduleName'))
 
+boxedCharConstructor :: ValueM Name
+boxedCharConstructor = primitiveName "GHC.Types" "C#" SortDataConstructor
+
+boxedCharFieldType :: ValueM TcType
+boxedCharFieldType = do
+  package <- gets (cePrimPackage . vsConvertEnv)
+  pure (TcTyCon (mkTyConWithOrigin package "GHC.Prim" "Char#" 0) [])
+
 freshArgument :: Int -> TcType -> ValueM Binder
 freshArgument index = freshBinder (argumentName index)
 
@@ -2040,20 +2038,6 @@ lookupCheckedType name = do
   case Map.lookup name types of
     Just ty -> pure ty
     Nothing -> failValue ("missing checked type for " <> T.unpack name)
-
-lookupConstructorType :: Text -> ValueM TcType
-lookupConstructorType name = do
-  constructor <- uniqueConstructorName name
-  case nameOrigin constructor of
-    OriginTop package moduleName' -> lookupGlobalType (package, moduleName', nameText constructor)
-    OriginLocal _ -> lookupCheckedType (nameText constructor)
-
-lookupGlobalType :: (PackageId, Text, Text) -> ValueM TcType
-lookupGlobalType key@(_, _, identifier) = do
-  types <- gets vsGlobalTypes
-  case Map.lookup key types of
-    Just ty -> pure ty
-    Nothing -> failValue ("missing checked type for " <> T.unpack identifier)
 
 lookupCheckedName :: Syn.Name -> ValueM TcType
 lookupCheckedName sourceName =
