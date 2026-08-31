@@ -59,14 +59,19 @@ module Aihc.Arm64.Codegen.Runtime
 where
 
 import Aihc.Arm64.Assemble
-  ( Arm64Opcode (..),
+  ( Arm64Address (..),
+    Arm64Condition (..),
+    Arm64Instruction (..),
+    Arm64Register (..),
     Arm64Statement,
+    Arm64Value (..),
     arm64Align,
     arm64Bytes,
     arm64Global,
     arm64Instruction,
     arm64Label,
     arm64Quad,
+    arm64QuadSymbol,
     arm64Section,
   )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
@@ -82,7 +87,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -129,7 +133,7 @@ type FunctionM = StateT FunctionState (Either Arm64Error)
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocations :: !(Map GrinVar (Location Text)),
+    valueLocations :: !(Map GrinVar (Location Arm64Register)),
     valueLabelPrefix :: !Text,
     valueFunctionName :: !FunctionName,
     valueFunctionParameters :: ![GrinVar],
@@ -166,17 +170,17 @@ data NodeInfo
 
 makeNodeLines :: NodeInfo -> [Arm64Statement]
 makeNodeLines info =
-  [arm64Instruction ArmMov ["x0", "x22"]] <> infoLines info <> [arm64Instruction ArmBl ["_aihc_make_node"]]
+  [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22))] <> infoLines info <> [arm64Instruction (ArmBl "_aihc_make_node")]
   where
     infoLines nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> [immediate "x1" integer]
-        InfoAddress label -> address "x1" label
-        InfoConstructor label -> address "x1" label
+        InfoImmediate integer -> [immediate X1 integer]
+        InfoAddress label -> address X1 label
+        InfoConstructor label -> address X1 label
 
 makeNodeUncheckedLines :: NodeInfo -> [Arm64Statement]
 makeNodeUncheckedLines info =
-  init (makeNodeLines info) <> [arm64Instruction ArmBl ["_aihc_make_node_unchecked"]]
+  init (makeNodeLines info) <> [arm64Instruction (ArmBl "_aihc_make_node_unchecked")]
 
 -- | Describe a unary continuation before and after it receives its result.
 -- The result can occupy several machine slots even though it is one GRIN
@@ -222,7 +226,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
         <> moveSuppliedOverflow apply
         <> loadStored apply
         <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-        <> [arm64Instruction ArmLdr ["x8", "[x20]"], arm64Instruction ArmLdr ["x8", "[x8, #8]"], arm64Instruction ArmBr ["x8"]]
+        <> [arm64Instruction (ArmLdr X8 (Arm64Offset X20 0)), arm64Instruction (ArmLdr X8 (Arm64Offset X8 8)), arm64Instruction (ArmBr X8)]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -233,9 +237,9 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     moveSuppliedOverflow apply
       | runtimeEnterSuppliedCount apply <= length applyArgumentRegisters = []
       | otherwise =
-          [arm64Instruction ArmMov ["x9", "sp"]]
+          [arm64Instruction (ArmMov X9 (Arm64RegisterValue SP))]
             <> concat
-              [ [arm64Instruction ArmLdr ["x8", "[x9]", "#8"], storeAt "x8" "x19" targetIndex]
+              [ [arm64Instruction (ArmLdr X8 (Arm64PostIndex X9 8)), storeAt X8 X19 targetIndex]
               | sourceIndex <- [length applyArgumentRegisters .. runtimeEnterSuppliedCount apply - 1],
                 let targetIndex = runtimeEnterStoredCount apply + sourceIndex
               ]
@@ -244,16 +248,16 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
         [ if targetIndex < length applyArgumentRegisters
             then [loadByteOffset (applyArgumentRegisters !! targetIndex) applyFunctionRegister ((targetIndex + 1) * 8)]
             else
-              [ loadByteOffset "x8" applyFunctionRegister ((targetIndex + 1) * 8),
-                storeAt "x8" "x19" targetIndex
+              [ loadByteOffset X8 applyFunctionRegister ((targetIndex + 1) * 8),
+                storeAt X8 X19 targetIndex
               ]
         | targetIndex <- [0 .. runtimeEnterStoredCount apply - 1]
         ]
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
           let destination = applyArgumentRegisters !! targetIndex
-           in [arm64Instruction ArmMov [destination, source] | destination /= source]
-      | otherwise = [storeAt source "x19" targetIndex]
+           in [arm64Instruction (ArmMov destination (Arm64RegisterValue source)) | destination /= source]
+      | otherwise = [storeAt source X19 targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
 enterEntryLabel info =
@@ -277,12 +281,12 @@ sharedEnterEntryLabel apply =
     <> "_"
     <> tshow (runtimeEnterSuppliedCount apply)
 
-applyFunctionRegister, applyContinuationRegister :: Text
-applyFunctionRegister = "x20"
-applyContinuationRegister = "x21"
+applyFunctionRegister, applyContinuationRegister :: Arm64Register
+applyFunctionRegister = X20
+applyContinuationRegister = X21
 
-applyArgumentRegisters :: [Text]
-applyArgumentRegisters = ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"]
+applyArgumentRegisters :: [Arm64Register]
+applyArgumentRegisters = [X0, X1, X2, X3, X4, X5, X6, X7]
 
 applyStackBytes :: Int -> Int
 applyStackBytes suppliedCount = ((overflowCount * 8 + 15) `div` 16) * 16
@@ -292,7 +296,7 @@ applyStackBytes suppliedCount = ((overflowCount * 8 + 15) `div` 16) * 16
 restoreApplyStackLines :: Int -> [Arm64Statement]
 restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
-  | otherwise = [immediate "x8" stackBytes, arm64Instruction ArmAdd ["sp", "sp", "x8"]]
+  | otherwise = [immediate X8 stackBytes, arm64Instruction (ArmAdd SP SP (Arm64RegisterValue X8))]
 
 renderRuntimeInfos :: [RuntimeInfo] -> [Arm64Statement]
 renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInfo infos
@@ -304,13 +308,13 @@ renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInf
              arm64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
-             arm64Quad (tshow (length fields)),
-             arm64Quad (tshow (runtimeInfoRemainingArity info)),
-             arm64Quad (if null fields then "0" else bitmapLabel),
-             arm64Quad (fromMaybe "0" (runtimeInfoNext info)),
-             arm64Quad (maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)),
-             arm64Quad (tshow (continuationFrameKindCode (runtimeInfoFrameKind info))),
-             arm64Quad (tshow (runtimeInfoObjectKind info))
+             arm64Quad (fromIntegral (length fields)),
+             arm64Quad (fromIntegral (runtimeInfoRemainingArity info)),
+             if null fields then arm64Quad 0 else arm64QuadSymbol bitmapLabel,
+             maybe (arm64Quad 0) arm64QuadSymbol (runtimeInfoNext info),
+             maybe (arm64Quad 0) (const (arm64QuadSymbol (enterEntryLabel info))) (runtimeInfoEnter info),
+             arm64Quad (fromIntegral (continuationFrameKindCode (runtimeInfoFrameKind info))),
+             arm64Quad (fromIntegral (runtimeInfoObjectKind info))
            ]
       where
         fields = runtimeInfoFields info
@@ -324,14 +328,14 @@ renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInf
               ]
     identityLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> arm64Quad (tshow integer)
-        InfoAddress label -> arm64Quad label
-        InfoConstructor label -> arm64Quad label
+        InfoImmediate integer -> arm64Quad (fromIntegral integer)
+        InfoAddress label -> arm64QuadSymbol label
+        InfoConstructor label -> arm64QuadSymbol label
     entryLine nodeInfo =
       case nodeInfo of
-        InfoImmediate {} -> arm64Quad "0"
-        InfoAddress label -> arm64Quad label
-        InfoConstructor {} -> arm64Quad "0"
+        InfoImmediate {} -> arm64Quad 0
+        InfoAddress label -> arm64QuadSymbol label
+        InfoConstructor {} -> arm64Quad 0
 
 renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Arm64Statement]
 renderRuntimeSupport env extraInfos =
@@ -347,119 +351,119 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-loadLocation :: Text -> Location Text -> [Arm64Statement]
+loadLocation :: Arm64Register -> Location Arm64Register -> [Arm64Statement]
 loadLocation destination location =
   case location of
     InRegister source
       | destination == source -> []
-      | otherwise -> [arm64Instruction ArmMov [destination, source]]
-    InHeapSpill slot -> [loadAt destination "x19" slot]
+      | otherwise -> [arm64Instruction (ArmMov destination (Arm64RegisterValue source))]
+    InHeapSpill slot -> [loadAt destination X19 slot]
 
-storeLocation :: Text -> Location Text -> [Arm64Statement]
+storeLocation :: Arm64Register -> Location Arm64Register -> [Arm64Statement]
 storeLocation source location =
   case location of
     InRegister destination
       | destination == source -> []
-      | otherwise -> [arm64Instruction ArmMov [destination, source]]
-    InHeapSpill slot -> [storeAt source "x19" slot]
+      | otherwise -> [arm64Instruction (ArmMov destination (Arm64RegisterValue source))]
+    InHeapSpill slot -> [storeAt source X19 slot]
 
 renderNativeControl :: [Arm64Statement]
 renderNativeControl =
   [ arm64Section TextSection,
     arm64Align 3,
     arm64Label ".Laihc_enter",
-    arm64Instruction ArmLdr ["x9", "[x20]"],
-    arm64Instruction ArmLdr ["x10", "[x9, #64]"],
-    arm64Instruction ArmCmp ["x10", "#4"],
-    arm64Instruction ArmBEq [".Laihc_enter_indirection"],
-    arm64Instruction ArmLdr ["x9", "[x9, #48]"],
-    arm64Instruction ArmCbz ["x9", ".Laihc_invalid_enter"],
-    arm64Instruction ArmBr ["x9"],
+    arm64Instruction (ArmLdr X9 (Arm64Offset X20 0)),
+    arm64Instruction (ArmLdr X10 (Arm64Offset X9 64)),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 4)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_enter_indirection"),
+    arm64Instruction (ArmLdr X9 (Arm64Offset X9 48)),
+    arm64Instruction (ArmCbz X9 ".Laihc_invalid_enter"),
+    arm64Instruction (ArmBr X9),
     arm64Label ".Laihc_enter_indirection",
-    arm64Instruction ArmLdr ["x20", "[x20, #8]"],
-    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Instruction (ArmLdr X20 (Arm64Offset X20 8)),
+    arm64Instruction (ArmB ".Laihc_enter"),
     arm64Label ".Laihc_resume",
-    arm64Instruction ArmLdr ["w9", "[x0]"],
-    arm64Instruction ArmCmp ["w9", "#1"],
-    arm64Instruction ArmBEq [".Laihc_resume_apply"],
-    arm64Instruction ArmCmp ["w9", "#2"],
-    arm64Instruction ArmBEq [".Laihc_resume_continue"],
-    arm64Instruction ArmCmp ["w9", "#3"],
-    arm64Instruction ArmBEq [".Laihc_resume_raise"],
-    arm64Instruction ArmB [".Laihc_invalid_enter"],
+    arm64Instruction (ArmLdr W9 (Arm64Offset X0 0)),
+    arm64Instruction (ArmCmp W9 (Arm64ImmediateValue 1)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_resume_apply"),
+    arm64Instruction (ArmCmp W9 (Arm64ImmediateValue 2)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_resume_continue"),
+    arm64Instruction (ArmCmp W9 (Arm64ImmediateValue 3)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_resume_raise"),
+    arm64Instruction (ArmB ".Laihc_invalid_enter"),
     arm64Label ".Laihc_resume_continue",
-    arm64Instruction ArmLdr ["x8", "[x0, #24]"],
-    arm64Instruction ArmLdr ["x9", "[x0, #32]"],
-    arm64Instruction ArmLdr ["x20", "[x0, #8]"],
-    arm64Instruction ArmStp ["xzr", "xzr", "[x0]"],
-    arm64Instruction ArmStp ["xzr", "xzr", "[x0, #16]"],
-    arm64Instruction ArmStr ["xzr", "[x0, #32]"],
-    arm64Instruction ArmCbz ["x9", ".Laihc_enter"],
-    arm64Instruction ArmCmp ["x9", "#1"],
-    arm64Instruction ArmBNe [".Laihc_invalid_enter"],
-    arm64Instruction ArmMov ["x0", "x8"],
-    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Instruction (ArmLdr X8 (Arm64Offset X0 24)),
+    arm64Instruction (ArmLdr X9 (Arm64Offset X0 32)),
+    arm64Instruction (ArmLdr X20 (Arm64Offset X0 8)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 0)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 16)),
+    arm64Instruction (ArmStr XZR (Arm64Offset X0 32)),
+    arm64Instruction (ArmCbz X9 ".Laihc_enter"),
+    arm64Instruction (ArmCmp X9 (Arm64ImmediateValue 1)),
+    arm64Instruction (ArmBCond ArmNe ".Laihc_invalid_enter"),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X8)),
+    arm64Instruction (ArmB ".Laihc_enter"),
     arm64Label ".Laihc_resume_apply",
-    arm64Instruction ArmLdr ["x8", "[x0, #24]"],
-    arm64Instruction ArmLdr ["x9", "[x0, #32]"],
-    arm64Instruction ArmLdr ["x20", "[x0, #8]"],
-    arm64Instruction ArmLdr ["x21", "[x0, #16]"],
-    arm64Instruction ArmStp ["xzr", "xzr", "[x0]"],
-    arm64Instruction ArmStp ["xzr", "xzr", "[x0, #16]"],
-    arm64Instruction ArmStr ["xzr", "[x0, #32]"],
-    arm64Instruction ArmCbz ["x9", ".Laihc_enter"],
-    arm64Instruction ArmCmp ["x9", "#1"],
-    arm64Instruction ArmBNe [".Laihc_invalid_enter"],
-    arm64Instruction ArmMov ["x0", "x8"],
-    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Instruction (ArmLdr X8 (Arm64Offset X0 24)),
+    arm64Instruction (ArmLdr X9 (Arm64Offset X0 32)),
+    arm64Instruction (ArmLdr X20 (Arm64Offset X0 8)),
+    arm64Instruction (ArmLdr X21 (Arm64Offset X0 16)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 0)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 16)),
+    arm64Instruction (ArmStr XZR (Arm64Offset X0 32)),
+    arm64Instruction (ArmCbz X9 ".Laihc_enter"),
+    arm64Instruction (ArmCmp X9 (Arm64ImmediateValue 1)),
+    arm64Instruction (ArmBCond ArmNe ".Laihc_invalid_enter"),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X8)),
+    arm64Instruction (ArmB ".Laihc_enter"),
     arm64Label ".Laihc_resume_raise",
-    arm64Instruction ArmLdr ["x1", "[x0, #8]"],
-    arm64Instruction ArmLdr ["x2", "[x0, #16]"],
-    arm64Instruction ArmStp ["xzr", "xzr", "[x0]"],
-    arm64Instruction ArmStp ["xzr", "xzr", "[x0, #16]"],
-    arm64Instruction ArmStr ["xzr", "[x0, #32]"],
-    arm64Instruction ArmMov ["x0", "x22"],
-    arm64Instruction ArmBl ["_aihc_raise"],
-    arm64Instruction ArmB [".Laihc_resume"],
+    arm64Instruction (ArmLdr X1 (Arm64Offset X0 8)),
+    arm64Instruction (ArmLdr X2 (Arm64Offset X0 16)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 0)),
+    arm64Instruction (ArmStp XZR XZR (Arm64Offset X0 16)),
+    arm64Instruction (ArmStr XZR (Arm64Offset X0 32)),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_raise"),
+    arm64Instruction (ArmB ".Laihc_resume"),
     arm64Label ".Laihc_eval",
-    arm64Instruction ArmStr ["x0", "[x19]"],
-    arm64Instruction ArmStr ["x8", "[x19, #8]"],
+    arm64Instruction (ArmStr X0 (Arm64Offset X19 0)),
+    arm64Instruction (ArmStr X8 (Arm64Offset X19 8)),
     arm64Label ".Laihc_eval_loop",
-    arm64Instruction ArmLdr ["x9", "[x20]"],
-    arm64Instruction ArmLdr ["x10", "[x9, #64]"],
-    arm64Instruction ArmCmp ["x10", "#2"],
-    arm64Instruction ArmBEq [".Laihc_eval_thunk"],
-    arm64Instruction ArmCmp ["x10", "#4"],
-    arm64Instruction ArmBEq [".Laihc_eval_indirection"],
-    arm64Instruction ArmCmp ["x10", "#5"],
-    arm64Instruction ArmBEq [".Laihc_eval_blackhole"],
-    arm64Instruction ArmMov ["x0", "x20"],
-    arm64Instruction ArmMov ["x20", "x21"],
-    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Instruction (ArmLdr X9 (Arm64Offset X20 0)),
+    arm64Instruction (ArmLdr X10 (Arm64Offset X9 64)),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 2)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_eval_thunk"),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 4)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_eval_indirection"),
+    arm64Instruction (ArmCmp X10 (Arm64ImmediateValue 5)),
+    arm64Instruction (ArmBCond ArmEq ".Laihc_eval_blackhole"),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X20)),
+    arm64Instruction (ArmMov X20 (Arm64RegisterValue X21)),
+    arm64Instruction (ArmB ".Laihc_enter"),
     arm64Label ".Laihc_eval_thunk",
-    arm64Instruction ArmMov ["x1", "x20"],
-    arm64Instruction ArmMov ["x0", "x22"],
-    arm64Instruction ArmBl ["_aihc_begin_blackhole"],
-    arm64Instruction ArmLdr ["x21", "[x19]"],
-    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Instruction (ArmMov X1 (Arm64RegisterValue X20)),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_begin_blackhole"),
+    arm64Instruction (ArmLdr X21 (Arm64Offset X19 0)),
+    arm64Instruction (ArmB ".Laihc_enter"),
     arm64Label ".Laihc_eval_indirection",
-    arm64Instruction ArmLdr ["x9", "[x19, #8]"],
-    arm64Instruction ArmCbz ["x9", ".Laihc_eval_unlifted_indirection"],
-    arm64Instruction ArmLdr ["x20", "[x20, #8]"],
-    arm64Instruction ArmB [".Laihc_eval_loop"],
+    arm64Instruction (ArmLdr X9 (Arm64Offset X19 8)),
+    arm64Instruction (ArmCbz X9 ".Laihc_eval_unlifted_indirection"),
+    arm64Instruction (ArmLdr X20 (Arm64Offset X20 8)),
+    arm64Instruction (ArmB ".Laihc_eval_loop"),
     arm64Label ".Laihc_eval_unlifted_indirection",
-    arm64Instruction ArmLdr ["x0", "[x20, #8]"],
-    arm64Instruction ArmMov ["x20", "x21"],
-    arm64Instruction ArmB [".Laihc_enter"],
+    arm64Instruction (ArmLdr X0 (Arm64Offset X20 8)),
+    arm64Instruction (ArmMov X20 (Arm64RegisterValue X21)),
+    arm64Instruction (ArmB ".Laihc_enter"),
     arm64Label ".Laihc_eval_blackhole",
-    arm64Instruction ArmMov ["x2", "x21"],
-    arm64Instruction ArmMov ["x1", "x20"],
-    arm64Instruction ArmMov ["x0", "x22"],
-    arm64Instruction ArmBl ["_aihc_block_on_blackhole"],
-    arm64Instruction ArmB [".Laihc_resume"],
+    arm64Instruction (ArmMov X2 (Arm64RegisterValue X21)),
+    arm64Instruction (ArmMov X1 (Arm64RegisterValue X20)),
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_block_on_blackhole"),
+    arm64Instruction (ArmB ".Laihc_resume"),
     arm64Label ".Laihc_invalid_enter",
-    arm64Instruction ArmBl ["_aihc_no_match"],
-    arm64Instruction ArmBrk ["#0"]
+    arm64Instruction (ArmBl "_aihc_no_match"),
+    arm64Instruction (ArmBrk 0)
   ]
 
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Arm64Error Text
@@ -547,41 +551,40 @@ localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "_aihc_snapshot_function_" <> tshow index
   | otherwise = functionLabel index
 
-loadAt :: Text -> Text -> Int -> Arm64Statement
+loadAt :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 loadAt destination base slot = loadByteOffset destination base (slot * 8)
 
-storeAt :: Text -> Text -> Int -> Arm64Statement
+storeAt :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 storeAt source base slot = storeByteOffset source base (slot * 8)
 
-loadByteOffset :: Text -> Text -> Int -> Arm64Statement
+loadByteOffset :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 loadByteOffset destination base offset =
-  arm64Instruction ArmLdr [destination, "[" <> base <> ", #" <> tshow offset <> "]"]
+  arm64Instruction (ArmLdr destination (Arm64Offset base (fromIntegral offset)))
 
-storeByteOffset :: Text -> Text -> Int -> Arm64Statement
+storeByteOffset :: Arm64Register -> Arm64Register -> Int -> Arm64Statement
 storeByteOffset source base offset =
-  arm64Instruction ArmStr [source, "[" <> base <> ", #" <> tshow offset <> "]"]
+  arm64Instruction (ArmStr source (Arm64Offset base (fromIntegral offset)))
 
-immediate :: (Integral value, Show value) => Text -> value -> Arm64Statement
+immediate :: (Integral value) => Arm64Register -> value -> Arm64Statement
 immediate register value
-  | integer >= -65536 && integer <= 65535 = arm64Instruction ArmMov [register, "#" <> rendered]
-  | otherwise = arm64Instruction ArmLdr [register, "=" <> rendered]
+  | integer >= -65536 && integer <= 65535 = arm64Instruction (ArmMov register (Arm64ImmediateValue integer))
+  | otherwise = arm64Instruction (ArmLdrImmediate register integer)
   where
     integer = toInteger value
-    rendered = T.pack (show value)
 
-address :: Text -> Text -> [Arm64Statement]
+address :: Arm64Register -> Text -> [Arm64Statement]
 address register label =
-  [ arm64Instruction ArmAdrp [register, label <> "@PAGE"],
-    arm64Instruction ArmAdd [register, register, label <> "@PAGEOFF"]
+  [ arm64Instruction (ArmAdrp register label),
+    arm64Instruction (ArmAddPageOffset register register label)
   ]
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show
 
 materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Arm64Statement]
-materializeValue env = materializeValueTo env "x0"
+materializeValue env = materializeValueTo env X0
 
-materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Arm64Error [Arm64Statement]
+materializeValueTo :: ValueEnv -> Arm64Register -> GrinValue -> Either Arm64Error [Arm64Statement]
 materializeValueTo env destination value =
   case value of
     GrinVarValue var ->
@@ -591,7 +594,7 @@ materializeValueTo env destination value =
     GrinGlobalValue name -> Right (address destination ("_" <> renderLinkedGlobalSymbol name))
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
-materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Arm64Statement]
+materializeLiteralTo :: Arm64Register -> CompileEnv -> GrinLiteral -> Either Arm64Error [Arm64Statement]
 materializeLiteralTo destination env literal =
   case literal of
     GrinLitAddr value -> do
@@ -652,7 +655,7 @@ materializeNodeWith allocate env node = do
     then pure allocationLines
     else do
       fieldLines <- initializeNodeFields env node
-      pure $ allocationLines <> [arm64Instruction ArmMov ["x20", "x0"]] <> fieldLines <> [arm64Instruction ArmMov ["x0", "x20"]]
+      pure $ allocationLines <> [arm64Instruction (ArmMov X20 (Arm64RegisterValue X0))] <> fieldLines <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X20))]
 
 allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNode = allocateNodeWith makeNodeLines
@@ -669,7 +672,7 @@ initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statemen
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
-    pure (valueLines <> [storeAt "x0" "x20" (index + 1)])
+    pure (valueLines <> [storeAt X0 X20 (index + 1)])
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error NodeInfo
 nodeHeader env node =

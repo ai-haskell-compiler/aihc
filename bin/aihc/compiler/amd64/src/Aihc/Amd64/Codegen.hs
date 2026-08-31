@@ -16,13 +16,21 @@ module Aihc.Amd64.Codegen
 where
 
 import Aihc.Amd64.Assemble
-  ( Amd64Opcode (..),
+  ( Amd64BinarySource (..),
+    Amd64Instruction (..),
+    Amd64JumpTarget (..),
+    Amd64Memory (..),
+    Amd64MoveSource (..),
+    Amd64Register (..),
+    Amd64Rm (..),
     Amd64Statement,
+    Amd64StoreSource (..),
     amd64Align,
     amd64Global,
     amd64Instruction,
     amd64Label,
     amd64Quad,
+    amd64QuadSymbol,
     amd64Section,
     assembleElf,
   )
@@ -82,26 +90,26 @@ compileObservedFunction entryName gcProgram = do
   let resultCount = length resultReps
       statements =
         mainPrologue 0
-          <> [amd64Instruction AmdMov ["rdi", "r15"], amd64Instruction AmdCall ["aihc_alloc_linked_locals"], amd64Instruction AmdMov ["r14", "rax"]]
+          <> [amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)), amd64Instruction (AmdCall "aihc_alloc_linked_locals"), amd64Instruction (AmdMov R14 (Amd64MoveRegister RAX))]
           <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-          <> [ amd64Instruction AmdMov ["rdi", "r15"],
-               amd64Instruction AmdMov ["rsi", "rax"],
-               amd64Instruction AmdCall ["aihc_set_thread_done_continuation"]
+          <> [ amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+               amd64Instruction (AmdMov RSI (Amd64MoveRegister RAX)),
+               amd64Instruction (AmdCall "aihc_set_thread_done_continuation")
              ]
           <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-          <> [ amd64Instruction AmdMov ["r13", "rax"],
-               amd64Instruction AmdMov ["rdi", "r15"],
-               amd64Instruction AmdCall ["aihc_reset_allocation_count"],
-               amd64Instruction AmdJmp [entryLabel],
+          <> [ amd64Instruction (AmdMov R13 (Amd64MoveRegister RAX)),
+               amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+               amd64Instruction (AmdCall "aihc_reset_allocation_count"),
+               amd64Instruction (AmdJmp (Amd64JumpLabel entryLabel)),
                amd64Align 3,
                amd64Label ".Laihc_snapshot_result"
              ]
-          <> [storeAt register "r14" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-          <> [ amd64Instruction AmdMov ["rsi", "r14"],
-               amd64Instruction AmdMov ["rdx", "r15"],
-               immediate "rdi" resultCount,
-               amd64Instruction AmdCall ["aihc_snapshot_dump_result"],
-               amd64Instruction AmdXor ["eax", "eax"]
+          <> [storeAt register R14 index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
+          <> [ amd64Instruction (AmdMov RSI (Amd64MoveRegister R14)),
+               amd64Instruction (AmdMov RDX (Amd64MoveRegister R15)),
+               immediate RDI resultCount,
+               amd64Instruction (AmdCall "aihc_snapshot_dump_result"),
+               amd64Instruction (AmdXor (Amd64RmRegister EAX) (Amd64BinaryRegister EAX))
              ]
           <> mainEpilogue
           <> threadDoneContinuation
@@ -170,59 +178,59 @@ compileEntryUnit entryName gcProgram = do
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure $
     mainPrologue 0
-      <> [amd64Instruction AmdMov ["rdi", "r15"], amd64Instruction AmdCall ["aihc_alloc_linked_locals"], amd64Instruction AmdMov ["r14", "rax"]]
-      <> [ amd64Instruction AmdMov ["rdi", "r15"],
-           immediate "rsi" (7 :: Int),
-           amd64Instruction AmdXor ["edx", "edx"],
-           amd64Instruction AmdXor ["ecx", "ecx"],
-           amd64Instruction AmdCall ["aihc_ensure_heap"]
+      <> [amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)), amd64Instruction (AmdCall "aihc_alloc_linked_locals"), amd64Instruction (AmdMov R14 (Amd64MoveRegister RAX))]
+      <> [ amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+           immediate RSI (7 :: Int),
+           amd64Instruction (AmdXor (Amd64RmRegister EDX) (Amd64BinaryRegister EDX)),
+           amd64Instruction (AmdXor (Amd64RmRegister ECX) (Amd64BinaryRegister ECX)),
+           amd64Instruction (AmdCall "aihc_ensure_heap")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_final_info")
-      <> [amd64Instruction AmdMov ["r13", "rax"]]
+      <> [amd64Instruction (AmdMov R13 (Amd64MoveRegister RAX))]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_top_info")
-      <> [ amd64Instruction AmdMov ["r12", "rax"],
-           amd64Instruction AmdMov ["rdi", "r12"],
-           amd64Instruction AmdXor ["esi", "esi"],
-           amd64Instruction AmdMov ["rdx", "r13"],
-           amd64Instruction AmdCall ["aihc_set_field"]
+      <> [ amd64Instruction (AmdMov R12 (Amd64MoveRegister RAX)),
+           amd64Instruction (AmdMov RDI (Amd64MoveRegister R12)),
+           amd64Instruction (AmdXor (Amd64RmRegister ESI) (Amd64BinaryRegister ESI)),
+           amd64Instruction (AmdMov RDX (Amd64MoveRegister R13)),
+           amd64Instruction (AmdCall "aihc_set_field")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_update_info")
-      <> [ storeAt "rax" "r14" 0,
-           amd64Instruction AmdMov ["rdx", "r12"],
-           loadAt "rdi" "r14" 0,
-           amd64Instruction AmdXor ["esi", "esi"],
-           amd64Instruction AmdCall ["aihc_set_field"],
-           loadAt "rdi" "r14" 0,
-           amd64Instruction AmdMov ["esi", "1"],
-           address "rdx" (renderLinkedGlobalSymbol entryName),
-           amd64Instruction AmdCall ["aihc_set_field"]
+      <> [ storeAt RAX R14 0,
+           amd64Instruction (AmdMov RDX (Amd64MoveRegister R12)),
+           loadAt RDI R14 0,
+           amd64Instruction (AmdXor (Amd64RmRegister ESI) (Amd64BinaryRegister ESI)),
+           amd64Instruction (AmdCall "aihc_set_field"),
+           loadAt RDI R14 0,
+           amd64Instruction (AmdMov ESI (Amd64MoveImmediate 1)),
+           address RDX (renderLinkedGlobalSymbol entryName),
+           amd64Instruction (AmdCall "aihc_set_field")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
-      <> [ amd64Instruction AmdMov ["r10", "rax"],
-           amd64Instruction AmdMov ["rsi", "r10"],
-           amd64Instruction AmdMov ["rdi", "r15"],
-           amd64Instruction AmdCall ["aihc_set_thread_done_continuation"],
-           address "r11" ".Laihc_exit",
-           amd64Instruction AmdMov ["QWORD PTR [r15 + 16]", "r11"],
+      <> [ amd64Instruction (AmdMov R10 (Amd64MoveRegister RAX)),
+           amd64Instruction (AmdMov RSI (Amd64MoveRegister R10)),
+           amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+           amd64Instruction (AmdCall "aihc_set_thread_done_continuation"),
+           address R11 ".Laihc_exit",
+           amd64Instruction (AmdStore (Amd64Memory R15 16) (Amd64StoreRegister R11)),
            address applyFunctionRegister (renderLinkedGlobalSymbol entryName),
-           loadAt "rax" "r14" 0,
-           amd64Instruction AmdMov ["r13", "QWORD PTR [rax + 8]"],
-           amd64Instruction AmdMov ["r11", "1"],
-           amd64Instruction AmdJmp [".Laihc_eval"]
+           loadAt RAX R14 0,
+           amd64Instruction (AmdMov R13 (Amd64MoveMemory (Amd64Memory RAX 8))),
+           amd64Instruction (AmdMov R11 (Amd64MoveImmediate 1)),
+           amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_eval"))
          ]
       <> [ amd64Align 3,
            amd64Label ".Laihc_top_continuation",
-           amd64Instruction AmdMov ["r13", "rax"],
-           amd64Instruction AmdMov ["r12", "rdi"],
-           amd64Instruction AmdJmp [".Laihc_enter"]
+           amd64Instruction (AmdMov R13 (Amd64MoveRegister RAX)),
+           amd64Instruction (AmdMov R12 (Amd64MoveRegister RDI)),
+           amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter"))
          ]
       <> threadDoneContinuation
       <> [ amd64Align 3,
            amd64Label ".Laihc_final_continuation",
-           amd64Instruction AmdJmp [".Laihc_exit"]
+           amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_exit"))
          ]
       <> [ amd64Label ".Laihc_exit",
-           amd64Instruction AmdXor ["eax", "eax"]
+           amd64Instruction (AmdXor (Amd64RmRegister EAX) (Amd64BinaryRegister EAX))
          ]
       <> mainEpilogue
       <> staticGlobals
@@ -260,10 +268,10 @@ compileEntryUnit entryName gcProgram = do
 mainPrologue :: Int -> [Amd64Statement]
 mainPrologue globalCount =
   entryPrologue "main"
-    <> [ amd64Instruction AmdCall ["aihc_program_arguments_initialize"],
-         immediate "rdi" globalCount,
-         amd64Instruction AmdCall ["aihc_machine_new"],
-         amd64Instruction AmdMov ["r15", "rax"]
+    <> [ amd64Instruction (AmdCall "aihc_program_arguments_initialize"),
+         immediate RDI globalCount,
+         amd64Instruction (AmdCall "aihc_machine_new"),
+         amd64Instruction (AmdMov R15 (Amd64MoveRegister RAX))
        ]
 
 entryPrologue :: Text -> [Amd64Statement]
@@ -272,31 +280,31 @@ entryPrologue symbol =
     amd64Align 4,
     amd64Global symbol,
     amd64Label symbol,
-    amd64Instruction AmdPush ["rbp"],
-    amd64Instruction AmdMov ["rbp", "rsp"],
-    amd64Instruction AmdPush ["r12"],
-    amd64Instruction AmdPush ["r13"],
-    amd64Instruction AmdPush ["r14"],
-    amd64Instruction AmdPush ["r15"]
+    amd64Instruction (AmdPush RBP),
+    amd64Instruction (AmdMov RBP (Amd64MoveRegister RSP)),
+    amd64Instruction (AmdPush R12),
+    amd64Instruction (AmdPush R13),
+    amd64Instruction (AmdPush R14),
+    amd64Instruction (AmdPush R15)
   ]
 
 mainEpilogue :: [Amd64Statement]
 mainEpilogue =
-  [ amd64Instruction AmdPop ["r15"],
-    amd64Instruction AmdPop ["r14"],
-    amd64Instruction AmdPop ["r13"],
-    amd64Instruction AmdPop ["r12"],
-    amd64Instruction AmdPop ["rbp"],
-    amd64Instruction AmdRet []
+  [ amd64Instruction (AmdPop R15),
+    amd64Instruction (AmdPop R14),
+    amd64Instruction (AmdPop R13),
+    amd64Instruction (AmdPop R12),
+    amd64Instruction (AmdPop RBP),
+    amd64Instruction AmdRet
   ]
 
 threadDoneContinuation :: [Amd64Statement]
 threadDoneContinuation =
   [ amd64Align 3,
     amd64Label ".Laihc_thread_done_continuation",
-    amd64Instruction AmdMov ["rdi", "r15"],
-    amd64Instruction AmdCall ["aihc_thread_done"],
-    amd64Instruction AmdJmp [".Laihc_resume"]
+    amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+    amd64Instruction (AmdCall "aihc_thread_done"),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_resume"))
   ]
 
 threadDoneRuntimeInfos :: [RuntimeInfo]
@@ -404,18 +412,18 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
       let symbol = renderLinkedGlobalSymbol name
-          payload = if null fields && isThunk node then [amd64Quad "0"] else fields
+          payload = if null fields && isThunk node then [amd64Quad 0] else fields
       pure $
         [ amd64Section DataSection,
           amd64Align 3,
           amd64Global symbol,
           amd64Label symbol,
-          amd64Quad info
+          amd64QuadSymbol info
         ]
           <> payload
           <> [ amd64Section RootsSection,
                amd64Align 3,
-               amd64Quad symbol
+               amd64QuadSymbol symbol
              ]
     staticNodeInfo node =
       case grinNodeTag node of
@@ -426,13 +434,13 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
         fields = map grinValueRuntimeRep (grinNodeFields node)
     renderStaticValue value =
       case value of
-        GrinVarValue var -> pure (amd64Quad (renderLinkedGlobalSymbol (grinVarName var)))
-        GrinGlobalValue name -> pure (amd64Quad (renderLinkedGlobalSymbol name))
+        GrinVarValue var -> pure (amd64QuadSymbol (renderLinkedGlobalSymbol (grinVarName var)))
+        GrinGlobalValue name -> pure (amd64QuadSymbol (renderLinkedGlobalSymbol name))
         GrinLitValue literal ->
           case literal of
             GrinLitAddr bytes ->
-              maybe (Left (Amd64UnsupportedValue "unregistered Addr# literal")) (pure . amd64Quad) (Map.lookup bytes (compileAddrLiteralLabels env))
-            _ -> maybe (Left (Amd64UnsupportedValue "string literal")) (pure . amd64Quad . T.pack . show) (normalizedLiteralInteger literal)
+              maybe (Left (Amd64UnsupportedValue "unregistered Addr# literal")) (pure . amd64QuadSymbol) (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (Amd64UnsupportedValue "string literal")) (pure . amd64Quad . fromIntegral) (normalizedLiteralInteger literal)
     isThunk node =
       case grinNodeTag node of
         GrinThunk {} -> True
@@ -442,7 +450,7 @@ renderLinkedLocals :: [CompiledFunction] -> [Amd64Statement]
 renderLinkedLocals functions =
   [ amd64Section LocalsSection,
     amd64Align 3,
-    amd64Quad (tshow (maximum (2 : map compiledFunctionSlots functions)))
+    amd64Quad (fromIntegral (maximum (2 : map compiledFunctionSlots functions)))
   ]
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()

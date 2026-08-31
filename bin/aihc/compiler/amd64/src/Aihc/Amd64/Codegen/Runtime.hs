@@ -37,7 +37,6 @@ module Aihc.Amd64.Codegen.Runtime
     materializeValue,
     materializeValueTo,
     normalizedLiteralInteger,
-    offsetText,
     renderAddrLiteralPool,
     renderEnterStubs,
     renderNativeControl,
@@ -60,14 +59,23 @@ module Aihc.Amd64.Codegen.Runtime
 where
 
 import Aihc.Amd64.Assemble
-  ( Amd64Opcode (..),
+  ( Amd64Address (..),
+    Amd64BinarySource (..),
+    Amd64Instruction (..),
+    Amd64JumpTarget (..),
+    Amd64Memory (..),
+    Amd64MoveSource (..),
+    Amd64Register (..),
+    Amd64Rm (..),
     Amd64Statement,
+    Amd64StoreSource (..),
     amd64Align,
     amd64Bytes,
     amd64Global,
     amd64Instruction,
     amd64Label,
     amd64Quad,
+    amd64QuadSymbol,
     amd64Section,
   )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
@@ -83,7 +91,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -130,7 +137,7 @@ type FunctionM = StateT FunctionState (Either Amd64Error)
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocations :: !(Map GrinVar (Location Text)),
+    valueLocations :: !(Map GrinVar (Location Amd64Register)),
     valueLabelPrefix :: !Text,
     valueFunctionName :: !FunctionName,
     valueFunctionParameters :: ![GrinVar],
@@ -183,9 +190,9 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
   ]
 
 materializeValue :: ValueEnv -> GrinValue -> Either Amd64Error [Amd64Statement]
-materializeValue env = materializeValueTo env "rax"
+materializeValue env = materializeValueTo env RAX
 
-materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Amd64Error [Amd64Statement]
+materializeValueTo :: ValueEnv -> Amd64Register -> GrinValue -> Either Amd64Error [Amd64Statement]
 materializeValueTo env destination value =
   case value of
     GrinVarValue var ->
@@ -195,7 +202,7 @@ materializeValueTo env destination value =
     GrinGlobalValue name -> Right [address destination (renderLinkedGlobalSymbol name)]
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
-materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Amd64Error [Amd64Statement]
+materializeLiteralTo :: Amd64Register -> CompileEnv -> GrinLiteral -> Either Amd64Error [Amd64Statement]
 materializeLiteralTo destination env literal =
   case literal of
     GrinLitAddr value -> do
@@ -256,7 +263,7 @@ materializeNodeWith allocate env node = do
     then pure allocationLines
     else do
       fieldLines <- initializeNodeFields env node
-      pure $ allocationLines <> [amd64Instruction AmdMov ["r13", "rax"]] <> fieldLines <> [amd64Instruction AmdMov ["rax", "r13"]]
+      pure $ allocationLines <> [amd64Instruction (AmdMov R13 (Amd64MoveRegister RAX))] <> fieldLines <> [amd64Instruction (AmdMov RAX (Amd64MoveRegister R13))]
 
 allocateNode :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 allocateNode = allocateNodeWith makeNodeLines
@@ -273,7 +280,7 @@ initializeNodeFields :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statemen
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
-    pure (valueLines <> [storeAt "rax" "r13" (index + 1)])
+    pure (valueLines <> [storeAt RAX R13 (index + 1)])
 
 nodeHeader :: ValueEnv -> GrinNode -> Either Amd64Error NodeInfo
 nodeHeader env node =
@@ -298,20 +305,20 @@ data NodeInfo
 
 makeNodeLines :: NodeInfo -> [Amd64Statement]
 makeNodeLines info =
-  [ amd64Instruction AmdMov ["rdi", "r15"],
+  [ amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
     infoLine info,
-    amd64Instruction AmdCall ["aihc_make_node"]
+    amd64Instruction (AmdCall "aihc_make_node")
   ]
   where
     infoLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> immediate "rsi" integer
-        InfoAddress label -> address "rsi" label
-        InfoConstructor label -> address "rsi" label
+        InfoImmediate integer -> immediate RSI integer
+        InfoAddress label -> address RSI label
+        InfoConstructor label -> address RSI label
 
 makeNodeUncheckedLines :: NodeInfo -> [Amd64Statement]
 makeNodeUncheckedLines info =
-  init (makeNodeLines info) <> [amd64Instruction AmdCall ["aihc_make_node_unchecked"]]
+  init (makeNodeLines info) <> [amd64Instruction (AmdCall "aihc_make_node_unchecked")]
 
 renderEnterStubs :: [RuntimeInfo] -> [Amd64Statement]
 renderEnterStubs infos = concatMap renderStub uniqueTransfers
@@ -332,7 +339,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
         <> moveSuppliedOverflow apply
         <> loadStored apply
         <> restoreApplyStackLines (applyStackBytes (runtimeEnterSuppliedCount apply))
-        <> [amd64Instruction AmdMov ["r11", "QWORD PTR [r12]"], amd64Instruction AmdMov ["r11", "QWORD PTR [r11 + 8]"], amd64Instruction AmdJmp ["r11"]]
+        <> [amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory R12 0))), amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory R11 8))), amd64Instruction (AmdJmp (Amd64JumpRegister R11))]
     moveSupplied apply =
       concat
         [ placeArgument targetIndex source
@@ -342,8 +349,8 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
         ]
     moveSuppliedOverflow apply =
       concat
-        [ [ loadByteOffset "r11" "rsp" ((sourceIndex - length applyArgumentRegisters) * 8),
-            storeAt "r11" "r14" targetIndex
+        [ [ loadByteOffset R11 RSP ((sourceIndex - length applyArgumentRegisters) * 8),
+            storeAt R11 R14 targetIndex
           ]
         | sourceIndex <- [length applyArgumentRegisters .. runtimeEnterSuppliedCount apply - 1],
           let targetIndex = runtimeEnterStoredCount apply + sourceIndex
@@ -353,16 +360,16 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
         [ if targetIndex < length applyArgumentRegisters
             then [loadByteOffset (applyArgumentRegisters !! targetIndex) applyFunctionRegister ((targetIndex + 1) * 8)]
             else
-              [ loadByteOffset "r11" applyFunctionRegister ((targetIndex + 1) * 8),
-                storeAt "r11" "r14" targetIndex
+              [ loadByteOffset R11 applyFunctionRegister ((targetIndex + 1) * 8),
+                storeAt R11 R14 targetIndex
               ]
         | targetIndex <- [0 .. runtimeEnterStoredCount apply - 1]
         ]
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
           let destination = applyArgumentRegisters !! targetIndex
-           in [amd64Instruction AmdMov [destination, source] | destination /= source]
-      | otherwise = [storeAt source "r14" targetIndex]
+           in [amd64Instruction (AmdMov destination (Amd64MoveRegister source)) | destination /= source]
+      | otherwise = [storeAt source R14 targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
 enterEntryLabel info =
@@ -386,12 +393,12 @@ sharedEnterEntryLabel apply =
     <> "_"
     <> tshow (runtimeEnterSuppliedCount apply)
 
-applyFunctionRegister, applyContinuationRegister :: Text
-applyFunctionRegister = "r12"
-applyContinuationRegister = "r13"
+applyFunctionRegister, applyContinuationRegister :: Amd64Register
+applyFunctionRegister = R12
+applyContinuationRegister = R13
 
-applyArgumentRegisters :: [Text]
-applyArgumentRegisters = ["rax", "rdi", "rsi", "rdx", "rcx", "r8", "r9"]
+applyArgumentRegisters :: [Amd64Register]
+applyArgumentRegisters = [RAX, RDI, RSI, RDX, RCX, R8, R9]
 
 applyStackBytes :: Int -> Int
 applyStackBytes suppliedCount =
@@ -402,7 +409,7 @@ applyStackBytes suppliedCount =
 restoreApplyStackLines :: Int -> [Amd64Statement]
 restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
-  | otherwise = [amd64Instruction AmdAdd ["rsp", tshow stackBytes]]
+  | otherwise = [amd64Instruction (AmdAdd (Amd64RmRegister RSP) (Amd64BinaryImmediate (fromIntegral stackBytes)))]
 
 renderRuntimeInfos :: [RuntimeInfo] -> [Amd64Statement]
 renderRuntimeInfos infos =
@@ -415,13 +422,13 @@ renderRuntimeInfos infos =
              amd64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
-             amd64Quad (tshow (length fields)),
-             amd64Quad (tshow (runtimeInfoRemainingArity info)),
-             amd64Quad (if null fields then "0" else bitmapLabel),
-             amd64Quad (fromMaybe "0" (runtimeInfoNext info)),
-             amd64Quad (maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)),
-             amd64Quad (tshow (continuationFrameKindCode (runtimeInfoFrameKind info))),
-             amd64Quad (tshow (runtimeInfoObjectKind info))
+             amd64Quad (fromIntegral (length fields)),
+             amd64Quad (fromIntegral (runtimeInfoRemainingArity info)),
+             if null fields then amd64Quad 0 else amd64QuadSymbol bitmapLabel,
+             maybe (amd64Quad 0) amd64QuadSymbol (runtimeInfoNext info),
+             maybe (amd64Quad 0) (const (amd64QuadSymbol (enterEntryLabel info))) (runtimeInfoEnter info),
+             amd64Quad (fromIntegral (continuationFrameKindCode (runtimeInfoFrameKind info))),
+             amd64Quad (fromIntegral (runtimeInfoObjectKind info))
            ]
       where
         fields = runtimeInfoFields info
@@ -435,14 +442,14 @@ renderRuntimeInfos infos =
               ]
     identityLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> amd64Quad (tshow integer)
-        InfoAddress label -> amd64Quad label
-        InfoConstructor label -> amd64Quad label
+        InfoImmediate integer -> amd64Quad (fromIntegral integer)
+        InfoAddress label -> amd64QuadSymbol label
+        InfoConstructor label -> amd64QuadSymbol label
     entryLine nodeInfo =
       case nodeInfo of
-        InfoImmediate {} -> amd64Quad "0"
-        InfoAddress label -> amd64Quad label
-        InfoConstructor {} -> amd64Quad "0"
+        InfoImmediate {} -> amd64Quad 0
+        InfoAddress label -> amd64QuadSymbol label
+        InfoConstructor {} -> amd64Quad 0
 
 renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Amd64Statement]
 renderRuntimeSupport env extraInfos =
@@ -458,128 +465,128 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-loadLocation :: Text -> Location Text -> [Amd64Statement]
+loadLocation :: Amd64Register -> Location Amd64Register -> [Amd64Statement]
 loadLocation destination location =
   case location of
     InRegister source
       | destination == source -> []
-      | otherwise -> [amd64Instruction AmdMov [destination, source]]
-    InHeapSpill slot -> [loadAt destination "r14" slot]
+      | otherwise -> [amd64Instruction (AmdMov destination (Amd64MoveRegister source))]
+    InHeapSpill slot -> [loadAt destination R14 slot]
 
-storeLocation :: Text -> Location Text -> [Amd64Statement]
+storeLocation :: Amd64Register -> Location Amd64Register -> [Amd64Statement]
 storeLocation source location =
   case location of
     InRegister destination
       | destination == source -> []
-      | otherwise -> [amd64Instruction AmdMov [destination, source]]
-    InHeapSpill slot -> [storeAt source "r14" slot]
+      | otherwise -> [amd64Instruction (AmdMov destination (Amd64MoveRegister source))]
+    InHeapSpill slot -> [storeAt source R14 slot]
 
 renderNativeControl :: [Amd64Statement]
 renderNativeControl =
   [ amd64Section TextSection,
     amd64Align 4,
     amd64Label ".Laihc_enter",
-    amd64Instruction AmdMov ["r11", "QWORD PTR [r12]"],
-    amd64Instruction AmdMov ["r10", "QWORD PTR [r11 + 64]"],
-    amd64Instruction AmdCmp ["r10", "4"],
-    amd64Instruction AmdJe [".Laihc_enter_indirection"],
-    amd64Instruction AmdMov ["r11", "QWORD PTR [r11 + 48]"],
-    amd64Instruction AmdTest ["r11", "r11"],
-    amd64Instruction AmdJz [".Laihc_invalid_enter"],
-    amd64Instruction AmdJmp ["r11"],
+    amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory R12 0))),
+    amd64Instruction (AmdMov R10 (Amd64MoveMemory (Amd64Memory R11 64))),
+    amd64Instruction (AmdCmp (Amd64RmRegister R10) (Amd64BinaryImmediate 4)),
+    amd64Instruction (AmdJe ".Laihc_enter_indirection"),
+    amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory R11 48))),
+    amd64Instruction (AmdTest (Amd64RmRegister R11) R11),
+    amd64Instruction (AmdJe ".Laihc_invalid_enter"),
+    amd64Instruction (AmdJmp (Amd64JumpRegister R11)),
     amd64Label ".Laihc_enter_indirection",
-    amd64Instruction AmdMov ["r12", "QWORD PTR [r12 + 8]"],
-    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Instruction (AmdMov R12 (Amd64MoveMemory (Amd64Memory R12 8))),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter")),
     amd64Label ".Laihc_resume",
-    amd64Instruction AmdMov ["r11d", "DWORD PTR [rax]"],
-    amd64Instruction AmdCmp ["r11d", "1"],
-    amd64Instruction AmdJe [".Laihc_resume_apply"],
-    amd64Instruction AmdCmp ["r11d", "2"],
-    amd64Instruction AmdJe [".Laihc_resume_continue"],
-    amd64Instruction AmdCmp ["r11d", "3"],
-    amd64Instruction AmdJe [".Laihc_resume_raise"],
-    amd64Instruction AmdJmp [".Laihc_invalid_enter"],
+    amd64Instruction (AmdMov R11D (Amd64MoveMemory (Amd64Memory RAX 0))),
+    amd64Instruction (AmdCmp (Amd64RmRegister R11D) (Amd64BinaryImmediate 1)),
+    amd64Instruction (AmdJe ".Laihc_resume_apply"),
+    amd64Instruction (AmdCmp (Amd64RmRegister R11D) (Amd64BinaryImmediate 2)),
+    amd64Instruction (AmdJe ".Laihc_resume_continue"),
+    amd64Instruction (AmdCmp (Amd64RmRegister R11D) (Amd64BinaryImmediate 3)),
+    amd64Instruction (AmdJe ".Laihc_resume_raise"),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_invalid_enter")),
     amd64Label ".Laihc_resume_continue",
-    amd64Instruction AmdMov ["r10", "QWORD PTR [rax + 24]"],
-    amd64Instruction AmdMov ["r11", "QWORD PTR [rax + 32]"],
-    amd64Instruction AmdMov ["r12", "QWORD PTR [rax + 8]"],
-    amd64Instruction AmdMov ["QWORD PTR [rax]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 8]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 16]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 24]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 32]", "0"],
-    amd64Instruction AmdTest ["r11", "r11"],
-    amd64Instruction AmdJz [".Laihc_enter"],
-    amd64Instruction AmdCmp ["r11", "1"],
-    amd64Instruction AmdJne [".Laihc_invalid_enter"],
-    amd64Instruction AmdMov ["rax", "r10"],
-    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Instruction (AmdMov R10 (Amd64MoveMemory (Amd64Memory RAX 24))),
+    amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory RAX 32))),
+    amd64Instruction (AmdMov R12 (Amd64MoveMemory (Amd64Memory RAX 8))),
+    amd64Instruction (AmdStore (Amd64Memory RAX 0) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 8) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 16) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 24) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 32) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdTest (Amd64RmRegister R11) R11),
+    amd64Instruction (AmdJe ".Laihc_enter"),
+    amd64Instruction (AmdCmp (Amd64RmRegister R11) (Amd64BinaryImmediate 1)),
+    amd64Instruction (AmdJne ".Laihc_invalid_enter"),
+    amd64Instruction (AmdMov RAX (Amd64MoveRegister R10)),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter")),
     amd64Label ".Laihc_resume_apply",
-    amd64Instruction AmdMov ["r10", "QWORD PTR [rax + 24]"],
-    amd64Instruction AmdMov ["r11", "QWORD PTR [rax + 32]"],
-    amd64Instruction AmdMov ["r12", "QWORD PTR [rax + 8]"],
-    amd64Instruction AmdMov ["r13", "QWORD PTR [rax + 16]"],
-    amd64Instruction AmdMov ["QWORD PTR [rax]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 8]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 16]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 24]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 32]", "0"],
-    amd64Instruction AmdTest ["r11", "r11"],
-    amd64Instruction AmdJz [".Laihc_enter"],
-    amd64Instruction AmdCmp ["r11", "1"],
-    amd64Instruction AmdJne [".Laihc_invalid_enter"],
-    amd64Instruction AmdMov ["rax", "r10"],
-    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Instruction (AmdMov R10 (Amd64MoveMemory (Amd64Memory RAX 24))),
+    amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory RAX 32))),
+    amd64Instruction (AmdMov R12 (Amd64MoveMemory (Amd64Memory RAX 8))),
+    amd64Instruction (AmdMov R13 (Amd64MoveMemory (Amd64Memory RAX 16))),
+    amd64Instruction (AmdStore (Amd64Memory RAX 0) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 8) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 16) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 24) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 32) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdTest (Amd64RmRegister R11) R11),
+    amd64Instruction (AmdJe ".Laihc_enter"),
+    amd64Instruction (AmdCmp (Amd64RmRegister R11) (Amd64BinaryImmediate 1)),
+    amd64Instruction (AmdJne ".Laihc_invalid_enter"),
+    amd64Instruction (AmdMov RAX (Amd64MoveRegister R10)),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter")),
     amd64Label ".Laihc_resume_raise",
-    amd64Instruction AmdMov ["rsi", "QWORD PTR [rax + 8]"],
-    amd64Instruction AmdMov ["rdx", "QWORD PTR [rax + 16]"],
-    amd64Instruction AmdMov ["QWORD PTR [rax]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 8]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 16]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 24]", "0"],
-    amd64Instruction AmdMov ["QWORD PTR [rax + 32]", "0"],
-    amd64Instruction AmdMov ["rdi", "r15"],
-    amd64Instruction AmdCall ["aihc_raise"],
-    amd64Instruction AmdJmp [".Laihc_resume"],
+    amd64Instruction (AmdMov RSI (Amd64MoveMemory (Amd64Memory RAX 8))),
+    amd64Instruction (AmdMov RDX (Amd64MoveMemory (Amd64Memory RAX 16))),
+    amd64Instruction (AmdStore (Amd64Memory RAX 0) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 8) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 16) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 24) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdStore (Amd64Memory RAX 32) (Amd64StoreImmediate 0)),
+    amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+    amd64Instruction (AmdCall "aihc_raise"),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_resume")),
     amd64Label ".Laihc_eval",
-    amd64Instruction AmdMov ["QWORD PTR [r14]", "rax"],
-    amd64Instruction AmdMov ["QWORD PTR [r14 + 8]", "r11"],
+    amd64Instruction (AmdStore (Amd64Memory R14 0) (Amd64StoreRegister RAX)),
+    amd64Instruction (AmdStore (Amd64Memory R14 8) (Amd64StoreRegister R11)),
     amd64Label ".Laihc_eval_loop",
-    amd64Instruction AmdMov ["r11", "QWORD PTR [r12]"],
-    amd64Instruction AmdMov ["r10", "QWORD PTR [r11 + 64]"],
-    amd64Instruction AmdCmp ["r10", "2"],
-    amd64Instruction AmdJe [".Laihc_eval_thunk"],
-    amd64Instruction AmdCmp ["r10", "4"],
-    amd64Instruction AmdJe [".Laihc_eval_indirection"],
-    amd64Instruction AmdCmp ["r10", "5"],
-    amd64Instruction AmdJe [".Laihc_eval_blackhole"],
-    amd64Instruction AmdMov ["rax", "r12"],
-    amd64Instruction AmdMov ["r12", "r13"],
-    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Instruction (AmdMov R11 (Amd64MoveMemory (Amd64Memory R12 0))),
+    amd64Instruction (AmdMov R10 (Amd64MoveMemory (Amd64Memory R11 64))),
+    amd64Instruction (AmdCmp (Amd64RmRegister R10) (Amd64BinaryImmediate 2)),
+    amd64Instruction (AmdJe ".Laihc_eval_thunk"),
+    amd64Instruction (AmdCmp (Amd64RmRegister R10) (Amd64BinaryImmediate 4)),
+    amd64Instruction (AmdJe ".Laihc_eval_indirection"),
+    amd64Instruction (AmdCmp (Amd64RmRegister R10) (Amd64BinaryImmediate 5)),
+    amd64Instruction (AmdJe ".Laihc_eval_blackhole"),
+    amd64Instruction (AmdMov RAX (Amd64MoveRegister R12)),
+    amd64Instruction (AmdMov R12 (Amd64MoveRegister R13)),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter")),
     amd64Label ".Laihc_eval_thunk",
-    amd64Instruction AmdMov ["rsi", "r12"],
-    amd64Instruction AmdMov ["rdi", "r15"],
-    amd64Instruction AmdCall ["aihc_begin_blackhole"],
-    amd64Instruction AmdMov ["r13", "QWORD PTR [r14]"],
-    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Instruction (AmdMov RSI (Amd64MoveRegister R12)),
+    amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+    amd64Instruction (AmdCall "aihc_begin_blackhole"),
+    amd64Instruction (AmdMov R13 (Amd64MoveMemory (Amd64Memory R14 0))),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter")),
     amd64Label ".Laihc_eval_indirection",
-    amd64Instruction AmdCmp ["QWORD PTR [r14 + 8]", "0"],
-    amd64Instruction AmdJe [".Laihc_eval_unlifted_indirection"],
-    amd64Instruction AmdMov ["r12", "QWORD PTR [r12 + 8]"],
-    amd64Instruction AmdJmp [".Laihc_eval_loop"],
+    amd64Instruction (AmdCmp (Amd64RmMemory (Amd64Memory R14 8)) (Amd64BinaryImmediate 0)),
+    amd64Instruction (AmdJe ".Laihc_eval_unlifted_indirection"),
+    amd64Instruction (AmdMov R12 (Amd64MoveMemory (Amd64Memory R12 8))),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_eval_loop")),
     amd64Label ".Laihc_eval_unlifted_indirection",
-    amd64Instruction AmdMov ["rax", "QWORD PTR [r12 + 8]"],
-    amd64Instruction AmdMov ["r12", "r13"],
-    amd64Instruction AmdJmp [".Laihc_enter"],
+    amd64Instruction (AmdMov RAX (Amd64MoveMemory (Amd64Memory R12 8))),
+    amd64Instruction (AmdMov R12 (Amd64MoveRegister R13)),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_enter")),
     amd64Label ".Laihc_eval_blackhole",
-    amd64Instruction AmdMov ["rdx", "r13"],
-    amd64Instruction AmdMov ["rsi", "r12"],
-    amd64Instruction AmdMov ["rdi", "r15"],
-    amd64Instruction AmdCall ["aihc_block_on_blackhole"],
-    amd64Instruction AmdJmp [".Laihc_resume"],
+    amd64Instruction (AmdMov RDX (Amd64MoveRegister R13)),
+    amd64Instruction (AmdMov RSI (Amd64MoveRegister R12)),
+    amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
+    amd64Instruction (AmdCall "aihc_block_on_blackhole"),
+    amd64Instruction (AmdJmp (Amd64JumpLabel ".Laihc_resume")),
     amd64Label ".Laihc_invalid_enter",
-    amd64Instruction AmdCall ["aihc_no_match"],
-    amd64Instruction AmdUd2 []
+    amd64Instruction (AmdCall "aihc_no_match"),
+    amd64Instruction AmdUd2
   ]
 
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Amd64Error Text
@@ -668,32 +675,26 @@ localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "aihc_snapshot_function_" <> tshow index
   | otherwise = functionLabel index
 
-loadAt :: Text -> Text -> Int -> Amd64Statement
+loadAt :: Amd64Register -> Amd64Register -> Int -> Amd64Statement
 loadAt destination base slot = loadByteOffset destination base (slot * 8)
 
-storeAt :: Text -> Text -> Int -> Amd64Statement
+storeAt :: Amd64Register -> Amd64Register -> Int -> Amd64Statement
 storeAt source base slot = storeByteOffset source base (slot * 8)
 
-loadByteOffset :: Text -> Text -> Int -> Amd64Statement
+loadByteOffset :: Amd64Register -> Amd64Register -> Int -> Amd64Statement
 loadByteOffset destination base offset =
-  amd64Instruction AmdMov [destination, "QWORD PTR [" <> base <> offsetText offset <> "]"]
+  amd64Instruction (AmdMov destination (Amd64MoveMemory (Amd64Memory base (fromIntegral offset))))
 
-storeByteOffset :: Text -> Text -> Int -> Amd64Statement
+storeByteOffset :: Amd64Register -> Amd64Register -> Int -> Amd64Statement
 storeByteOffset source base offset =
-  amd64Instruction AmdMov ["QWORD PTR [" <> base <> offsetText offset <> "]", source]
+  amd64Instruction (AmdStore (Amd64Memory base (fromIntegral offset)) (Amd64StoreRegister source))
 
-offsetText :: Int -> Text
-offsetText offset
-  | offset == 0 = ""
-  | offset > 0 = " + " <> tshow offset
-  | otherwise = " - " <> tshow (abs offset)
+immediate :: (Integral value) => Amd64Register -> value -> Amd64Statement
+immediate register value = amd64Instruction (AmdMov register (Amd64MoveImmediate (fromIntegral value)))
 
-immediate :: (Show value) => Text -> value -> Amd64Statement
-immediate register value = amd64Instruction AmdMov [register, T.pack (show value)]
-
-address :: Text -> Text -> Amd64Statement
+address :: Amd64Register -> Text -> Amd64Statement
 address register label =
-  amd64Instruction AmdLea [register, "[rip + " <> label <> "]"]
+  amd64Instruction (AmdLea register (Amd64RipAddress label))
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show

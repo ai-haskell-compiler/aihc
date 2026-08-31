@@ -16,13 +16,17 @@ module Aihc.Arm64.Codegen
 where
 
 import Aihc.Arm64.Assemble
-  ( Arm64Opcode (..),
+  ( Arm64Address (..),
+    Arm64Instruction (..),
+    Arm64Register (..),
     Arm64Statement,
+    Arm64Value (..),
     arm64Align,
     arm64Global,
     arm64Instruction,
     arm64Label,
     arm64Quad,
+    arm64QuadSymbol,
     arm64Section,
     assembleMachO,
   )
@@ -81,26 +85,26 @@ compileObservedFunction entryName gcProgram = do
   let resultCount = length resultReps
       statements =
         mainPrologue 0
-          <> [arm64Instruction ArmMov ["x0", "x22"], arm64Instruction ArmBl ["_aihc_alloc_linked_locals"], arm64Instruction ArmMov ["x19", "x0"]]
+          <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)), arm64Instruction (ArmBl "_aihc_alloc_linked_locals"), arm64Instruction (ArmMov X19 (Arm64RegisterValue X0))]
           <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-          <> [ arm64Instruction ArmMov ["x1", "x0"],
-               arm64Instruction ArmMov ["x0", "x22"],
-               arm64Instruction ArmBl ["_aihc_set_thread_done_continuation"]
+          <> [ arm64Instruction (ArmMov X1 (Arm64RegisterValue X0)),
+               arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+               arm64Instruction (ArmBl "_aihc_set_thread_done_continuation")
              ]
           <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-          <> [ arm64Instruction ArmMov ["x21", "x0"],
-               arm64Instruction ArmMov ["x0", "x22"],
-               arm64Instruction ArmBl ["_aihc_reset_allocation_count"],
-               arm64Instruction ArmB [entryLabel],
+          <> [ arm64Instruction (ArmMov X21 (Arm64RegisterValue X0)),
+               arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+               arm64Instruction (ArmBl "_aihc_reset_allocation_count"),
+               arm64Instruction (ArmB entryLabel),
                arm64Align 3,
                arm64Label ".Laihc_snapshot_result"
              ]
-          <> [storeAt register "x19" index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-          <> [ arm64Instruction ArmMov ["x1", "x19"],
-               arm64Instruction ArmMov ["x2", "x22"],
-               immediate "x0" resultCount,
-               arm64Instruction ArmBl ["_aihc_snapshot_dump_result"],
-               arm64Instruction ArmMov ["w0", "#0"]
+          <> [storeAt register X19 index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
+          <> [ arm64Instruction (ArmMov X1 (Arm64RegisterValue X19)),
+               arm64Instruction (ArmMov X2 (Arm64RegisterValue X22)),
+               immediate X0 resultCount,
+               arm64Instruction (ArmBl "_aihc_snapshot_dump_result"),
+               arm64Instruction (ArmMov W0 (Arm64ImmediateValue 0))
              ]
           <> entryEpilogue
           <> threadDoneContinuation
@@ -154,60 +158,60 @@ compileEntryUnit entryName gcProgram = do
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure $
     mainPrologue 0
-      <> [arm64Instruction ArmMov ["x0", "x22"], arm64Instruction ArmBl ["_aihc_alloc_linked_locals"], arm64Instruction ArmMov ["x19", "x0"]]
-      <> [ arm64Instruction ArmMov ["x0", "x22"],
-           immediate "x1" (7 :: Int),
-           arm64Instruction ArmMov ["x2", "xzr"],
-           arm64Instruction ArmMov ["x3", "xzr"],
-           arm64Instruction ArmBl ["_aihc_ensure_heap"]
+      <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)), arm64Instruction (ArmBl "_aihc_alloc_linked_locals"), arm64Instruction (ArmMov X19 (Arm64RegisterValue X0))]
+      <> [ arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+           immediate X1 (7 :: Int),
+           arm64Instruction (ArmMov X2 (Arm64RegisterValue XZR)),
+           arm64Instruction (ArmMov X3 (Arm64RegisterValue XZR)),
+           arm64Instruction (ArmBl "_aihc_ensure_heap")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_final_info")
-      <> [arm64Instruction ArmMov ["x21", "x0"]]
+      <> [arm64Instruction (ArmMov X21 (Arm64RegisterValue X0))]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_top_info")
-      <> [ arm64Instruction ArmMov ["x20", "x0"],
-           arm64Instruction ArmMov ["x2", "x21"],
-           arm64Instruction ArmMov ["x1", "#0"],
-           arm64Instruction ArmBl ["_aihc_set_field"]
+      <> [ arm64Instruction (ArmMov X20 (Arm64RegisterValue X0)),
+           arm64Instruction (ArmMov X2 (Arm64RegisterValue X21)),
+           arm64Instruction (ArmMov X1 (Arm64ImmediateValue 0)),
+           arm64Instruction (ArmBl "_aihc_set_field")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_update_info")
-      <> [ storeAt "x0" "x19" 0,
-           arm64Instruction ArmMov ["x2", "x20"],
-           loadAt "x0" "x19" 0,
-           arm64Instruction ArmMov ["x1", "#0"],
-           arm64Instruction ArmBl ["_aihc_set_field"]
+      <> [ storeAt X0 X19 0,
+           arm64Instruction (ArmMov X2 (Arm64RegisterValue X20)),
+           loadAt X0 X19 0,
+           arm64Instruction (ArmMov X1 (Arm64ImmediateValue 0)),
+           arm64Instruction (ArmBl "_aihc_set_field")
          ]
-      <> address "x2" ("_" <> renderLinkedGlobalSymbol entryName)
-      <> [ loadAt "x0" "x19" 0,
-           arm64Instruction ArmMov ["x1", "#1"],
-           arm64Instruction ArmBl ["_aihc_set_field"]
+      <> address X2 ("_" <> renderLinkedGlobalSymbol entryName)
+      <> [ loadAt X0 X19 0,
+           arm64Instruction (ArmMov X1 (Arm64ImmediateValue 1)),
+           arm64Instruction (ArmBl "_aihc_set_field")
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
-      <> [ arm64Instruction ArmMov ["x10", "x0"],
-           arm64Instruction ArmMov ["x1", "x10"],
-           arm64Instruction ArmMov ["x0", "x22"],
-           arm64Instruction ArmBl ["_aihc_set_thread_done_continuation"],
-           arm64Instruction ArmAdr ["x9", ".Laihc_exit"],
-           arm64Instruction ArmStr ["x9", "[x22, #16]"]
+      <> [ arm64Instruction (ArmMov X10 (Arm64RegisterValue X0)),
+           arm64Instruction (ArmMov X1 (Arm64RegisterValue X10)),
+           arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+           arm64Instruction (ArmBl "_aihc_set_thread_done_continuation"),
+           arm64Instruction (ArmAdr X9 ".Laihc_exit"),
+           arm64Instruction (ArmStr X9 (Arm64Offset X22 16))
          ]
       <> address applyFunctionRegister ("_" <> renderLinkedGlobalSymbol entryName)
-      <> [ loadAt "x0" "x19" 0,
-           arm64Instruction ArmLdr ["x21", "[x0, #8]"],
-           arm64Instruction ArmMov ["x8", "#1"],
-           arm64Instruction ArmB [".Laihc_eval"]
+      <> [ loadAt X0 X19 0,
+           arm64Instruction (ArmLdr X21 (Arm64Offset X0 8)),
+           arm64Instruction (ArmMov X8 (Arm64ImmediateValue 1)),
+           arm64Instruction (ArmB ".Laihc_eval")
          ]
       <> [ arm64Align 3,
            arm64Label ".Laihc_top_continuation",
-           arm64Instruction ArmMov ["x21", "x0"],
-           arm64Instruction ArmMov ["x20", "x1"],
-           arm64Instruction ArmB [".Laihc_enter"]
+           arm64Instruction (ArmMov X21 (Arm64RegisterValue X0)),
+           arm64Instruction (ArmMov X20 (Arm64RegisterValue X1)),
+           arm64Instruction (ArmB ".Laihc_enter")
          ]
       <> threadDoneContinuation
       <> [ arm64Align 3,
            arm64Label ".Laihc_final_continuation",
-           arm64Instruction ArmB [".Laihc_exit"]
+           arm64Instruction (ArmB ".Laihc_exit")
          ]
       <> [ arm64Label ".Laihc_exit",
-           arm64Instruction ArmMov ["w0", "#0"]
+           arm64Instruction (ArmMov W0 (Arm64ImmediateValue 0))
          ]
       <> entryEpilogue
       <> staticGlobals
@@ -328,18 +332,18 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
       let symbol = "_" <> renderLinkedGlobalSymbol name
-          payload = if null fields && isThunk node then [arm64Quad "0"] else fields
+          payload = if null fields && isThunk node then [arm64Quad 0] else fields
       pure $
         [ arm64Section DataSection,
           arm64Align 3,
           arm64Global symbol,
           arm64Label symbol,
-          arm64Quad info
+          arm64QuadSymbol info
         ]
           <> payload
           <> [ arm64Section RootsSection,
                arm64Align 3,
-               arm64Quad symbol
+               arm64QuadSymbol symbol
              ]
     staticNodeInfo node =
       case grinNodeTag node of
@@ -350,13 +354,13 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
         fields = map grinValueRuntimeRep (grinNodeFields node)
     renderStaticValue value =
       case value of
-        GrinVarValue var -> pure (arm64Quad ("_" <> renderLinkedGlobalSymbol (grinVarName var)))
-        GrinGlobalValue name -> pure (arm64Quad ("_" <> renderLinkedGlobalSymbol name))
+        GrinVarValue var -> pure (arm64QuadSymbol ("_" <> renderLinkedGlobalSymbol (grinVarName var)))
+        GrinGlobalValue name -> pure (arm64QuadSymbol ("_" <> renderLinkedGlobalSymbol name))
         GrinLitValue literal ->
           case literal of
             GrinLitAddr bytes ->
-              maybe (Left (Arm64UnsupportedValue "unregistered Addr# literal")) (pure . arm64Quad) (Map.lookup bytes (compileAddrLiteralLabels env))
-            _ -> maybe (Left (Arm64UnsupportedValue "string literal")) (pure . arm64Quad . T.pack . show) (normalizedLiteralInteger literal)
+              maybe (Left (Arm64UnsupportedValue "unregistered Addr# literal")) (pure . arm64QuadSymbol) (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (Arm64UnsupportedValue "string literal")) (pure . arm64Quad . fromIntegral) (normalizedLiteralInteger literal)
     isThunk node =
       case grinNodeTag node of
         GrinThunk {} -> True
@@ -366,16 +370,16 @@ renderLinkedLocals :: [CompiledFunction] -> [Arm64Statement]
 renderLinkedLocals functions =
   [ arm64Section LocalsSection,
     arm64Align 3,
-    arm64Quad (tshow (maximum (2 : map compiledFunctionSlots functions)))
+    arm64Quad (fromIntegral (maximum (2 : map compiledFunctionSlots functions)))
   ]
 
 mainPrologue :: Int -> [Arm64Statement]
 mainPrologue globalCount =
   entryPrologue "_main"
-    <> [ arm64Instruction ArmBl ["_aihc_program_arguments_initialize"],
-         immediate "x0" globalCount,
-         arm64Instruction ArmBl ["_aihc_machine_new"],
-         arm64Instruction ArmMov ["x22", "x0"]
+    <> [ arm64Instruction (ArmBl "_aihc_program_arguments_initialize"),
+         immediate X0 globalCount,
+         arm64Instruction (ArmBl "_aihc_machine_new"),
+         arm64Instruction (ArmMov X22 (Arm64RegisterValue X0))
        ]
 
 entryPrologue :: Text -> [Arm64Statement]
@@ -384,27 +388,27 @@ entryPrologue symbol =
     arm64Align 2,
     arm64Global symbol,
     arm64Label symbol,
-    arm64Instruction ArmStp ["x29", "x30", "[sp, #-48]!"],
-    arm64Instruction ArmMov ["x29", "sp"],
-    arm64Instruction ArmStp ["x19", "x20", "[sp, #16]"],
-    arm64Instruction ArmStp ["x21", "x22", "[sp, #32]"]
+    arm64Instruction (ArmStp X29 X30 (Arm64PreIndex SP (-48))),
+    arm64Instruction (ArmMov X29 (Arm64RegisterValue SP)),
+    arm64Instruction (ArmStp X19 X20 (Arm64Offset SP 16)),
+    arm64Instruction (ArmStp X21 X22 (Arm64Offset SP 32))
   ]
 
 entryEpilogue :: [Arm64Statement]
 entryEpilogue =
-  [ arm64Instruction ArmLdp ["x21", "x22", "[sp, #32]"],
-    arm64Instruction ArmLdp ["x19", "x20", "[sp, #16]"],
-    arm64Instruction ArmLdp ["x29", "x30", "[sp]", "#48"],
-    arm64Instruction ArmRet []
+  [ arm64Instruction (ArmLdp X21 X22 (Arm64Offset SP 32)),
+    arm64Instruction (ArmLdp X19 X20 (Arm64Offset SP 16)),
+    arm64Instruction (ArmLdp X29 X30 (Arm64PostIndex SP 48)),
+    arm64Instruction ArmRet
   ]
 
 threadDoneContinuation :: [Arm64Statement]
 threadDoneContinuation =
   [ arm64Align 3,
     arm64Label ".Laihc_thread_done_continuation",
-    arm64Instruction ArmMov ["x0", "x22"],
-    arm64Instruction ArmBl ["_aihc_thread_done"],
-    arm64Instruction ArmB [".Laihc_resume"]
+    arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
+    arm64Instruction (ArmBl "_aihc_thread_done"),
+    arm64Instruction (ArmB ".Laihc_resume")
   ]
 
 threadDoneRuntimeInfos :: [RuntimeInfo]
