@@ -1145,7 +1145,7 @@ patternFieldTypes :: Syn.Pattern -> [Syn.Pattern] -> ValueM [TcType]
 patternFieldTypes parent children
   | Syn.PLit literal <- peelPattern parent,
     isBoxedCharacterLiteral literal = do
-      constructorType <- lookupCheckedType "C#"
+      constructorType <- lookupConstructorType "C#"
       case firstFunctionArgument constructorType of
         Just fieldType -> pure [fieldType]
         Nothing -> failValue "boxed character constructor does not have one field"
@@ -2036,21 +2036,24 @@ freshUnique = do
 
 lookupCheckedType :: Text -> ValueM TcType
 lookupCheckedType name = do
-  local <- Map.lookup name <$> gets vsLocalTypes
-  case local of
+  types <- gets vsLocalTypes
+  case Map.lookup name types of
     Just ty -> pure ty
-    Nothing -> do
-      matches <-
-        gets
-          ( map snd
-              . filter (\((_, _, identifier), _) -> identifier == name)
-              . Map.toList
-              . vsGlobalTypes
-          )
-      case matches of
-        [ty] -> pure ty
-        [] -> failValue ("missing checked type for " <> T.unpack name)
-        _ -> failValue ("ambiguous checked type for " <> T.unpack name)
+    Nothing -> failValue ("missing checked type for " <> T.unpack name)
+
+lookupConstructorType :: Text -> ValueM TcType
+lookupConstructorType name = do
+  constructor <- uniqueConstructorName name
+  case nameOrigin constructor of
+    OriginTop package moduleName' -> lookupGlobalType (package, moduleName', nameText constructor)
+    OriginLocal _ -> lookupCheckedType (nameText constructor)
+
+lookupGlobalType :: (PackageId, Text, Text) -> ValueM TcType
+lookupGlobalType key@(_, _, identifier) = do
+  types <- gets vsGlobalTypes
+  case Map.lookup key types of
+    Just ty -> pure ty
+    Nothing -> failValue ("missing checked type for " <> T.unpack identifier)
 
 lookupCheckedName :: Syn.Name -> ValueM TcType
 lookupCheckedName sourceName =
@@ -2085,7 +2088,7 @@ inferExprType expression =
     Syn.EInfix _ operator _ -> do
       operatorType <-
         maybe
-          (lookupCheckedType (Syn.nameText operator))
+          (lookupCheckedName operator)
           (pure . tcAnnType)
           (listToMaybe (mapMaybe Syn.fromAnnotation (Syn.nameAnns operator)))
       case applicationResultType operatorType >>= applicationResultType of
