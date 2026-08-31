@@ -7,11 +7,8 @@ where
 
 import Aihc.Amd64
   ( Amd64Error (..),
-    ObservedProgram (..),
     compileEntryObject,
     compileModuleObject,
-    compileObservedFunction,
-    snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
   )
@@ -43,6 +40,8 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Info (arch, os)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
+import Test.Amd64.Observed (compileObservedFunction)
+import Test.Native.Observed (ObservedProgram (..), snapshotSourcePath)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -332,7 +331,7 @@ snapshotTest (name, fixtureName) =
       assertBool "stores a new node field directly" ("mov qword ptr [r13 + 0x8], rax" `T.isInfixOf` T.toLower listing)
       assertBool "does not call the field store function" (not ("aihc_set_field" `T.isInfixOf` listing))
     when (fixtureName == "apply.yaml") $ do
-      assertBool "enters a closure without a transfer stub" ("aihc_snapshot_function_0" `T.isInfixOf` listing)
+      assertBool "enters a closure without a transfer stub" ("aihc_exposed_function_0" `T.isInfixOf` listing)
       assertBool "does not move an argument to the same register" (not ("mov rax, rax" `T.isInfixOf` listing))
     when (fixtureName == "store-linked.yaml") $
       assertEqual "one reservation for adjacent source stores" 2 (relocationCount "aihc_ensure_heap" listing)
@@ -354,10 +353,10 @@ snapshotTest (name, fixtureName) =
       assertBool "spills direct-call register overflow" ("sub rsp, 0x20" `T.isInfixOf` listing)
       assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` listing))
     when (fixtureName == "loop-add.yaml") $ do
-      let loopAndRest = snd (T.breakOn "<aihc_snapshot_function_0>:" listing)
-          loopAssembly = fst (T.breakOn "<aihc_snapshot_function_1>:" loopAndRest)
+      let loopAndRest = snd (T.breakOn "<aihc_exposed_function_0>:" listing)
+          loopAssembly = fst (T.breakOn "<aihc_exposed_function_1>:" loopAndRest)
       assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[r14" `T.isInfixOf` loopAssembly))
-      assertBool "self-tail-call jumps to the allocated body" ("aihc_snapshot_function_0_body" `T.isInfixOf` loopAssembly)
+      assertBool "self-tail-call jumps to the allocated body" ("aihc_exposed_function_0_body" `T.isInfixOf` loopAssembly)
       assertBool "merges case dispatch into the loop body" (not ("case_dispatch" `T.isInfixOf` loopAssembly))
       assertBool "uses the canonical label as the register entry" (not ("_register" `T.isInfixOf` loopAssembly))
     when (arch == "x86_64" && os == "linux") $ do
@@ -467,7 +466,7 @@ runObservedProgram observed =
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror"]
+        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
             <> runtimeArguments
             <> [snapshotRuntime, metadataPath, objectPath, "-o", executablePath]
         )

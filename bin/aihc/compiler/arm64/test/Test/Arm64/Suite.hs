@@ -7,11 +7,8 @@ where
 
 import Aihc.Arm64
   ( Arm64Error (..),
-    ObservedProgram (..),
     compileEntryObject,
     compileModuleObject,
-    compileObservedFunction,
-    snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
   )
@@ -43,6 +40,8 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Info (arch, os)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
+import Test.Arm64.Observed (compileObservedFunction)
+import Test.Native.Observed (ObservedProgram (..), snapshotSourcePath)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
@@ -483,13 +482,13 @@ snapshotTest (name, fixtureName) =
         Right value -> pure value
     listing <- disassembleObjectBytes (observedObject observed)
     when (fixtureName == "store-one.yaml") $ do
-      let functionListing = objectSymbolBody "_aihc_snapshot_function_0" "_aihc_snapshot_function_1" listing
+      let functionListing = objectSymbolBody "_aihc_exposed_function_0" "_aihc_exposed_function_1" listing
       assertBool "uses one instruction for a small literal" ("mov x0, #0x1" `T.isInfixOf` functionListing)
       assertBool "does not use a literal pool for a small literal" (not ("ldr x0" `T.isInfixOf` functionListing))
       assertBool "stores a new node field directly" ("str x0, [x20, #0x8]" `T.isInfixOf` functionListing)
       assertBool "does not call the field store function" (not ("_aihc_set_field" `T.isInfixOf` functionListing))
     when (fixtureName == "apply.yaml") $ do
-      assertBool "enters a closure without a transfer stub" ("_aihc_snapshot_function_0" `T.isInfixOf` listing)
+      assertBool "enters a closure without a transfer stub" ("_aihc_exposed_function_0" `T.isInfixOf` listing)
       assertBool "does not move an argument to the same register" (not ("mov x0, x0" `T.isInfixOf` listing))
     when (fixtureName == "store-linked.yaml") $
       assertEqual "one reservation for adjacent source stores" 2 (relocationCount "_aihc_ensure_heap" listing)
@@ -511,9 +510,9 @@ snapshotTest (name, fixtureName) =
       assertBool "spills direct-call register overflow" ("sub sp, sp, x8\nmov x10, sp" `T.isInfixOf` listing)
       assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` listing))
     when (fixtureName == "loop-add.yaml") $ do
-      let loopAssembly = objectSymbolBody "_aihc_snapshot_function_0" "_aihc_snapshot_function_1" listing
+      let loopAssembly = objectSymbolBody "_aihc_exposed_function_0" "_aihc_exposed_function_1" listing
       assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[x19" `T.isInfixOf` loopAssembly))
-      assertBool "self-tail-call branches to the allocated body" ("_aihc_snapshot_function_0_body" `T.isInfixOf` loopAssembly)
+      assertBool "self-tail-call branches to the allocated body" ("_aihc_exposed_function_0_body" `T.isInfixOf` loopAssembly)
       assertBool "merges case dispatch into the loop body" (not ("case_dispatch" `T.isInfixOf` loopAssembly))
       assertBool "uses the canonical label as the register entry" (not ("_register" `T.isInfixOf` loopAssembly))
     when (arch == "aarch64" && os == "darwin") $ do
@@ -623,7 +622,7 @@ runObservedProgram observed =
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror"]
+        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
             <> runtimeArguments
             <> [snapshotRuntime, metadataPath, objectPath, "-o", executablePath]
         )

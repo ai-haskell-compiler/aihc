@@ -8,7 +8,6 @@ module Aihc.Amd64.Codegen.Runtime
     FunctionM,
     FunctionState (..),
     NodeInfo (..),
-    ObservedProgram (..),
     RuntimeEnter (..),
     RuntimeInfo (..),
     RuntimeInfoKey (..),
@@ -87,7 +86,6 @@ import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (StateT)
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BL
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -115,12 +113,6 @@ data CompileEnv = CompileEnv
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
   }
-
-data ObservedProgram = ObservedProgram
-  { observedObject :: !BL.ByteString,
-    observedMetadataSource :: !Text
-  }
-  deriving (Eq, Show)
 
 data FunctionState = FunctionState
   { functionNextLabel :: !Int,
@@ -672,7 +664,7 @@ functionLabel index = ".Laihc_function_" <> tshow index
 
 localFunctionLabelWith :: Bool -> Int -> GrinFunction -> Text
 localFunctionLabelWith exposeAllFunctions index _function
-  | exposeAllFunctions = "aihc_snapshot_function_" <> tshow index
+  | exposeAllFunctions = "aihc_exposed_function_" <> tshow index
   | otherwise = functionLabel index
 
 loadAt :: Amd64Register -> Amd64Register -> Int -> Amd64Statement

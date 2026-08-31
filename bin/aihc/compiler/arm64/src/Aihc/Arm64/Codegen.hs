@@ -5,13 +5,22 @@
 -- for the C runtime and foreign functions.
 module Aihc.Arm64.Codegen
   ( Arm64Error (..),
+    assembleObject,
+    compileEnvironmentWith,
     compileEntryObject,
     compileModuleObject,
-    ObservedProgram (..),
-    compileObservedFunction,
+    entryEpilogue,
+    mainPrologue,
+    programRuntimeReps,
+    renderCompiledSupport,
+    renderLinkedLocals,
+    renderStaticGlobals,
     supportedNativePrimitiveNames,
+    threadDoneContinuation,
+    threadDoneRuntimeInfos,
     validateProgramPrimitives,
     validatePrimitiveNames,
+    validateRuntimeRep,
   )
 where
 
@@ -38,7 +47,6 @@ import Aihc.Grin.Gc
     entryGcProgram,
     gcContinuationFrames,
     gcContinuationFunctions,
-    gcFunctionContinuations,
     gcGrinProgram,
     gcUpdateFunction,
   )
@@ -62,72 +70,6 @@ compileEntryObject = do
   gcProgram <- either (Left . Arm64UnsupportedExpression . T.pack . show) Right entryGcProgram
   statements <- compileEntryUnit executableEntryName gcProgram
   assembleObject statements
-
--- | Compile a nullary function with a driver that snapshots its raw return
--- values. The driver supports cooperative scheduling but exits when the
--- observed function returns; it does not evaluate returned objects or drain
--- other runnable threads.
-compileObservedFunction :: FunctionName -> GcGrinProgram -> Either Arm64Error ObservedProgram
-compileObservedFunction entryName gcProgram = do
-  mapM_ validateRuntimeRep (programRuntimeReps program)
-  validateProgramPrimitives program
-  entryFunction <-
-    maybe (Left (Arm64MissingFunction entryName)) Right $
-      findFunction entryName (grinFunctions program)
-  case Map.lookup entryName (gcFunctionContinuations gcProgram) of
-    Just continuation
-      | grinFunctionParameters entryFunction == [continuation] -> pure ()
-    _ -> Left (Arm64UnsupportedExpression "observed entry function must have only its CPS continuation")
-  entryLabel <- functionCodeLabel compileEnv entryName
-  functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals compileEnv program
-  metadata <- renderObservedMetadata compileEnv program resultReps
-  let resultCount = length resultReps
-      statements =
-        mainPrologue 0
-          <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)), arm64Instruction (ArmBl "_aihc_alloc_linked_locals"), arm64Instruction (ArmMov X19 (Arm64RegisterValue X0))]
-          <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
-          <> [ arm64Instruction (ArmMov X1 (Arm64RegisterValue X0)),
-               arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
-               arm64Instruction (ArmBl "_aihc_set_thread_done_continuation")
-             ]
-          <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
-          <> [ arm64Instruction (ArmMov X21 (Arm64RegisterValue X0)),
-               arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
-               arm64Instruction (ArmBl "_aihc_reset_allocation_count"),
-               arm64Instruction (ArmB entryLabel),
-               arm64Align 3,
-               arm64Label ".Laihc_snapshot_result"
-             ]
-          <> [storeAt register X19 index | (index, register) <- zip [0 :: Int ..] applyArgumentRegisters, index < resultCount]
-          <> [ arm64Instruction (ArmMov X1 (Arm64RegisterValue X19)),
-               arm64Instruction (ArmMov X2 (Arm64RegisterValue X22)),
-               immediate X0 resultCount,
-               arm64Instruction (ArmBl "_aihc_snapshot_dump_result"),
-               arm64Instruction (ArmMov W0 (Arm64ImmediateValue 0))
-             ]
-          <> entryEpilogue
-          <> threadDoneContinuation
-          <> staticGlobals
-          <> renderLinkedLocals functions
-          <> renderCompiledSupport compileEnv functions observedRuntimeInfos
-  object <- assembleObject statements
-  pure ObservedProgram {observedObject = object, observedMetadataSource = metadata}
-  where
-    program = gcGrinProgram gcProgram
-    compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
-    resultReps =
-      maybe [] (runtimeRepComponents . grinFunctionResultRep) $
-        findFunction entryName (grinFunctions program)
-    observedRuntimeInfos =
-      threadDoneRuntimeInfos
-        <> continuationRuntimeInfos
-          ContinuationFrameStop
-          ".Laihc_snapshot_info"
-          ".Laihc_snapshot_applied_info"
-          ".Laihc_snapshot_result"
-          []
-          resultReps
 
 -- | Compile one library module to a relocatable object.
 compileModuleObject :: GcGrinProgram -> Either Arm64Error BL.ByteString
@@ -550,151 +492,3 @@ valueRuntimeReps value = [grinValueRuntimeRep value]
 
 nodeRuntimeReps :: GrinNode -> [GrinRep]
 nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
-
-findFunction :: FunctionName -> [GrinFunction] -> Maybe GrinFunction
-findFunction name =
-  foldr
-    (\function rest -> if grinFunctionName function == name then Just function else rest)
-    Nothing
-
-renderObservedMetadata :: CompileEnv -> GrinProgram -> [GrinRep] -> Either Arm64Error Text
-renderObservedMetadata env program resultReps = do
-  renderedResultReps <- mapM snapshotRepName resultReps
-  constructors <- mapM renderConstructorDescriptor constructorEntries
-  functions <- mapM renderFunctionDescriptor functionEntries
-  pure . T.unlines $
-    [ "#include \"aihc_snapshot.h\"",
-      "#include <stddef.h>",
-      ""
-    ]
-      <> map renderFunctionDeclaration functions
-      <> [""]
-      <> concatMap renderConstructorRepDeclaration constructors
-      <> concatMap renderFunctionRepDeclaration functions
-      <> renderRepDeclaration "result_reps" renderedResultReps
-      <> renderConstructorTable constructors
-      <> renderFunctionTable functions
-      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, const AihcMachine *machine) {",
-           "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
-           "                     aihc_allocation_count(machine),",
-           "                     " <> tshow (length constructors) <> ", " <> pointerOrNull constructors "constructors" <> ",",
-           "                     " <> tshow (length functions) <> ", " <> pointerOrNull functions "functions" <> ");",
-           "}"
-         ]
-  where
-    layouts =
-      Map.fromList [(name, concat argumentLayouts) | (name, argumentLayouts) <- grinConstructors program]
-    constructorEntries =
-      [ (index, name, fields)
-      | (index, (name, fields)) <- zip [0 :: Int ..] (Map.toAscList layouts)
-      ]
-    localFunctionEntries =
-      [ (grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function))
-      | function <- grinFunctions program
-      ]
-    functionEntries = localFunctionEntries
-
-    renderConstructorDescriptor (identifier, name, fields) = do
-      reps <- mapM snapshotRepName fields
-      pure (identifier, name, reps)
-
-    renderFunctionDescriptor (name, parameters) = do
-      label <- functionCodeLabel env name
-      reps <- mapM snapshotRepName parameters
-      pure (name, label, reps)
-
-renderFunctionDeclaration :: (FunctionName, Text, [Text]) -> Text
-renderFunctionDeclaration (_, label, _) =
-  "extern void " <> cSymbol label <> "(void);"
-
-renderConstructorRepDeclaration :: (Int, Text, [Text]) -> [Text]
-renderConstructorRepDeclaration (identifier, _, reps) =
-  renderRepDeclaration ("constructor_reps_" <> tshow identifier) reps
-
-renderFunctionRepDeclaration :: (FunctionName, Text, [Text]) -> [Text]
-renderFunctionRepDeclaration (_, label, reps) =
-  renderRepDeclaration ("function_reps_" <> cSymbol label) reps
-
-renderRepDeclaration :: Text -> [Text] -> [Text]
-renderRepDeclaration _ [] = []
-renderRepDeclaration name reps =
-  [ "static const AihcSnapshotRep "
-      <> name
-      <> "[] = {"
-      <> T.intercalate ", " reps
-      <> "};"
-  ]
-
-renderConstructorTable :: [(Int, Text, [Text])] -> [Text]
-renderConstructorTable [] = []
-renderConstructorTable constructors =
-  ["extern const char " <> cSymbol (constructorStageLabel name 0) <> "[];" | (_, name, _) <- constructors]
-    <> ["static const AihcSnapshotConstructor constructors[] = {"]
-    <> [ "  {"
-           <> "(uintptr_t)&"
-           <> cSymbol (constructorStageLabel name 0)
-           <> ", "
-           <> cString name
-           <> ", "
-           <> tshow (length reps)
-           <> ", "
-           <> pointerOrNull reps ("constructor_reps_" <> tshow identifier)
-           <> "},"
-       | (identifier, name, reps) <- constructors
-       ]
-    <> ["};"]
-
-renderFunctionTable :: [(FunctionName, Text, [Text])] -> [Text]
-renderFunctionTable [] = []
-renderFunctionTable functions =
-  ["static const AihcSnapshotFunction functions[] = {"]
-    <> [ "  {(uintptr_t)&"
-           <> cSymbol label
-           <> ", "
-           <> cString (unFunctionName name)
-           <> ", "
-           <> tshow (length reps)
-           <> ", "
-           <> pointerOrNull reps ("function_reps_" <> cSymbol label)
-           <> "},"
-       | (name, label, reps) <- functions
-       ]
-    <> ["};"]
-
-snapshotRepName :: GrinRep -> Either Arm64Error Text
-snapshotRepName runtimeRep =
-  case runtimeRep of
-    BoxedRep {} -> pure "AIHC_SNAPSHOT_POINTER"
-    SumRep {} -> pure "AIHC_SNAPSHOT_POINTER"
-    IntRep -> pure "AIHC_SNAPSHOT_INT"
-    Int8Rep -> pure "AIHC_SNAPSHOT_INT8"
-    Int16Rep -> pure "AIHC_SNAPSHOT_INT16"
-    Int32Rep -> pure "AIHC_SNAPSHOT_INT32"
-    Int64Rep -> pure "AIHC_SNAPSHOT_INT64"
-    WordRep -> pure "AIHC_SNAPSHOT_WORD"
-    Word8Rep -> pure "AIHC_SNAPSHOT_WORD8"
-    Word16Rep -> pure "AIHC_SNAPSHOT_WORD16"
-    Word32Rep -> pure "AIHC_SNAPSHOT_WORD32"
-    Word64Rep -> pure "AIHC_SNAPSHOT_WORD64"
-    AddrRep -> pure "AIHC_SNAPSHOT_ADDR"
-    FloatRep -> pure "AIHC_SNAPSHOT_FLOAT"
-    DoubleRep -> pure "AIHC_SNAPSHOT_DOUBLE"
-    _ -> Left (Arm64UnsupportedRuntimeRep runtimeRep)
-
-pointerOrNull :: [value] -> Text -> Text
-pointerOrNull values name
-  | null values = "NULL"
-  | otherwise = name
-
-cSymbol :: Text -> Text
-cSymbol = T.drop 1
-
-cString :: Text -> Text
-cString value = "\"" <> T.concatMap escape value <> "\""
-  where
-    escape '"' = "\\\""
-    escape '\\' = "\\\\"
-    escape '\n' = "\\n"
-    escape '\r' = "\\r"
-    escape '\t' = "\\t"
-    escape character = T.singleton character
