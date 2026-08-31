@@ -2,7 +2,16 @@
 
 -- | Assemble the compiler ARM64 vocabulary without an external assembler.
 module Aihc.Arm64.Assemble
-  ( assembleMachO,
+  ( Arm64Statement,
+    Arm64Opcode (..),
+    assembleMachO,
+    arm64Align,
+    arm64Bytes,
+    arm64Global,
+    arm64Instruction,
+    arm64Label,
+    arm64Quad,
+    arm64Section,
   )
 where
 
@@ -15,54 +24,178 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
 import Data.Int (Int64)
 import Data.Maybe (isJust)
+import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 
-assembleMachO :: [Text] -> Either ObjectError BL.ByteString
-assembleMachO source = parseAssembly source >>= layoutDraft >>= writeArm64MachO
+data Arm64Statement
+  = Arm64Section !SectionRole
+  | Arm64Align !Int
+  | Arm64Global !Text
+  | Arm64Label !Text
+  | Arm64Quad !Text
+  | Arm64Bytes !ByteString
+  | Arm64Instruction (Either ObjectError [Item])
 
-parseAssembly :: [Text] -> Either ObjectError Draft
-parseAssembly = foldl' parseLine (Right emptyDraft) . concatMap T.lines
+data Arm64Opcode
+  = ArmRet
+  | ArmBrk
+  | ArmBr
+  | ArmB
+  | ArmBl
+  | ArmBEq
+  | ArmBNe
+  | ArmBLo
+  | ArmCbz
+  | ArmCbnz
+  | ArmAdr
+  | ArmAdrp
+  | ArmMov
+  | ArmLdr
+  | ArmStr
+  | ArmLdp
+  | ArmStp
+  | ArmAdd
+  | ArmAdds
+  | ArmSub
+  | ArmSubs
+  | ArmCmp
+  | ArmAnd
+  | ArmOrr
+  | ArmEor
+  | ArmMvn
+  | ArmMul
+  | ArmUmulh
+  | ArmUdiv
+  | ArmMsub
+  | ArmLsl
+  | ArmLsr
+  | ArmCset
+  | ArmCsinv
+  | ArmSxtw
 
-parseLine :: Either ObjectError Draft -> Text -> Either ObjectError Draft
-parseLine result sourceLine = do
+instance IsString Arm64Statement where
+  fromString source =
+    case parseStatement (T.pack source) of
+      Right statement -> statement
+      Left objectError -> error (show objectError)
+
+assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
+assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
+
+arm64Section :: SectionRole -> Arm64Statement
+arm64Section = Arm64Section
+
+arm64Align :: Int -> Arm64Statement
+arm64Align = Arm64Align
+
+arm64Global :: Text -> Arm64Statement
+arm64Global = Arm64Global
+
+arm64Label :: Text -> Arm64Statement
+arm64Label = Arm64Label
+
+arm64Quad :: Text -> Arm64Statement
+arm64Quad = Arm64Quad
+
+arm64Bytes :: ByteString -> Arm64Statement
+arm64Bytes = Arm64Bytes
+
+arm64Instruction :: Arm64Opcode -> [Text] -> Arm64Statement
+arm64Instruction opcode = Arm64Instruction . encodeOperation (opcodeText opcode)
+
+applyStatement :: Either ObjectError Draft -> Arm64Statement -> Either ObjectError Draft
+applyStatement result statement = do
   draft <- result
+  case statement of
+    Arm64Section role -> pure (selectSection role draft)
+    Arm64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
+    Arm64Global symbol -> pure (addGlobal symbol draft)
+    Arm64Label symbol -> addItem (Label symbol) draft
+    Arm64Quad value -> parseQuad value >>= \item -> addItem item draft
+    Arm64Bytes value
+      | BS.null value -> pure draft
+      | otherwise -> addItem (Bytes value) draft
+    Arm64Instruction encoded ->
+      encoded >>= \items -> foldl' (>>=) (pure draft) [addItem item | item <- items]
+
+opcodeText :: Arm64Opcode -> Text
+opcodeText opcode =
+  case opcode of
+    ArmRet -> "ret"
+    ArmBrk -> "brk"
+    ArmBr -> "br"
+    ArmB -> "b"
+    ArmBl -> "bl"
+    ArmBEq -> "b.eq"
+    ArmBNe -> "b.ne"
+    ArmBLo -> "b.lo"
+    ArmCbz -> "cbz"
+    ArmCbnz -> "cbnz"
+    ArmAdr -> "adr"
+    ArmAdrp -> "adrp"
+    ArmMov -> "mov"
+    ArmLdr -> "ldr"
+    ArmStr -> "str"
+    ArmLdp -> "ldp"
+    ArmStp -> "stp"
+    ArmAdd -> "add"
+    ArmAdds -> "adds"
+    ArmSub -> "sub"
+    ArmSubs -> "subs"
+    ArmCmp -> "cmp"
+    ArmAnd -> "and"
+    ArmOrr -> "orr"
+    ArmEor -> "eor"
+    ArmMvn -> "mvn"
+    ArmMul -> "mul"
+    ArmUmulh -> "umulh"
+    ArmUdiv -> "udiv"
+    ArmMsub -> "msub"
+    ArmLsl -> "lsl"
+    ArmLsr -> "lsr"
+    ArmCset -> "cset"
+    ArmCsinv -> "csinv"
+    ArmSxtw -> "sxtw"
+
+parseStatement :: Text -> Either ObjectError Arm64Statement
+parseStatement sourceLine = do
   let line = T.strip sourceLine
   if T.null line
-    then pure draft
+    then Left (ObjectInvalidInput sourceLine)
     else
       if ".section " `T.isPrefixOf` line
-        then selectMachSection line draft
+        then Arm64Section <$> selectMachSection line
         else
           if ".p2align " `T.isPrefixOf` line
-            then parseAlignment line >>= \alignment -> addItem (Align alignment (alignmentFill draft)) draft
+            then Arm64Align <$> parseAlignment line
             else
               if ".globl " `T.isPrefixOf` line
-                then pure (addGlobal (T.drop 7 line) draft)
+                then pure (Arm64Global (T.drop 7 line))
                 else
                   if ".quad " `T.isPrefixOf` line
-                    then parseQuad (T.drop 6 line) >>= \item -> addItem item draft
+                    then pure (Arm64Quad (T.drop 6 line))
                     else
                       if ".byte " `T.isPrefixOf` line
-                        then parseBytes (T.drop 6 line) >>= \bytes -> addItem (Bytes bytes) draft
+                        then Arm64Bytes <$> parseBytes (T.drop 6 line)
                         else
                           if line == ".ltorg"
-                            then pure draft
+                            then pure (Arm64Bytes BS.empty)
                             else
                               if ":" `T.isSuffixOf` line
-                                then addItem (Label (T.dropEnd 1 line)) draft
-                                else encodeInstruction line >>= \items -> foldl' (>>=) (pure draft) [addItem item | item <- items]
+                                then pure (Arm64Label (T.dropEnd 1 line))
+                                else parseInstruction line
 
-selectMachSection :: Text -> Draft -> Either ObjectError Draft
-selectMachSection line draft
-  | "__TEXT,__text" `T.isInfixOf` line = pure (selectSection TextSection draft)
-  | "__TEXT,__const" `T.isInfixOf` line = pure (selectSection TextConstantsSection draft)
-  | "__DATA,__const" `T.isInfixOf` line = pure (selectSection ReadOnlySection draft)
-  | "__DATA,__data" `T.isInfixOf` line = pure (selectSection DataSection draft)
-  | "__DATA,__aihc_roots" `T.isInfixOf` line = pure (selectSection RootsSection draft)
-  | "__DATA,__aihc_locals" `T.isInfixOf` line = pure (selectSection LocalsSection draft)
+selectMachSection :: Text -> Either ObjectError SectionRole
+selectMachSection line
+  | "__TEXT,__text" `T.isInfixOf` line = pure TextSection
+  | "__TEXT,__const" `T.isInfixOf` line = pure TextConstantsSection
+  | "__DATA,__const" `T.isInfixOf` line = pure ReadOnlySection
+  | "__DATA,__data" `T.isInfixOf` line = pure DataSection
+  | "__DATA,__aihc_roots" `T.isInfixOf` line = pure RootsSection
+  | "__DATA,__aihc_locals" `T.isInfixOf` line = pure LocalsSection
   | otherwise = Left (ObjectInvalidInput line)
 
 parseAlignment :: Text -> Either ObjectError Int
@@ -110,10 +243,56 @@ parseRegister name
       pure (Register (fromIntegral value) 32 False)
   | otherwise = Left (ObjectInvalidInput name)
 
-encodeInstruction :: Text -> Either ObjectError [Item]
-encodeInstruction line =
+parseInstruction :: Text -> Either ObjectError Arm64Statement
+parseInstruction line =
   case T.break isSpace line of
-    (operation, rest) -> encodeOperation operation (splitOperands (T.strip rest))
+    (operation, rest) -> do
+      opcode <- parseOpcode operation
+      pure (arm64Instruction opcode (splitOperands (T.strip rest)))
+
+parseOpcode :: Text -> Either ObjectError Arm64Opcode
+parseOpcode operation =
+  case lookup operation [(opcodeText opcode, opcode) | opcode <- allOpcodes] of
+    Just opcode -> pure opcode
+    Nothing -> Left (ObjectInvalidInput operation)
+  where
+    allOpcodes =
+      [ ArmRet,
+        ArmBrk,
+        ArmBr,
+        ArmB,
+        ArmBl,
+        ArmBEq,
+        ArmBNe,
+        ArmBLo,
+        ArmCbz,
+        ArmCbnz,
+        ArmAdr,
+        ArmAdrp,
+        ArmMov,
+        ArmLdr,
+        ArmStr,
+        ArmLdp,
+        ArmStp,
+        ArmAdd,
+        ArmAdds,
+        ArmSub,
+        ArmSubs,
+        ArmCmp,
+        ArmAnd,
+        ArmOrr,
+        ArmEor,
+        ArmMvn,
+        ArmMul,
+        ArmUmulh,
+        ArmUdiv,
+        ArmMsub,
+        ArmLsl,
+        ArmLsr,
+        ArmCset,
+        ArmCsinv,
+        ArmSxtw
+      ]
 
 encodeOperation :: Text -> [Text] -> Either ObjectError [Item]
 encodeOperation operation operands =

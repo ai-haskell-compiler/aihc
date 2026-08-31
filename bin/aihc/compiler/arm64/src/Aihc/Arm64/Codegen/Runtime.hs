@@ -58,6 +58,15 @@ module Aihc.Arm64.Codegen.Runtime
   )
 where
 
+import Aihc.Arm64.Assemble
+  ( Arm64Opcode (..),
+    Arm64Statement,
+    arm64Bytes,
+    arm64Global,
+    arm64Instruction,
+    arm64Label,
+    arm64Quad,
+  )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
@@ -105,12 +114,12 @@ data ObservedProgram = ObservedProgram
 data FunctionState = FunctionState
   { functionNextLabel :: !Int,
     functionNextSlot :: !Int,
-    functionBlocksRev :: ![BlockLayout.Block Text Text]
+    functionBlocksRev :: ![BlockLayout.Block Text Arm64Statement]
   }
 
 data CompiledFunction = CompiledFunction
   { compiledFunctionSlots :: !Int,
-    compiledFunctionLines :: ![Text]
+    compiledFunctionLines :: ![Arm64Statement]
   }
 
 type FunctionM = StateT FunctionState (Either Arm64Error)
@@ -152,20 +161,17 @@ data NodeInfo
   | InfoAddress !Text
   | InfoConstructor !Text
 
-makeNodeLines :: NodeInfo -> [Text]
+makeNodeLines :: NodeInfo -> [Arm64Statement]
 makeNodeLines info =
-  [ "  mov x0, x22",
-    infoLine info,
-    "  bl _aihc_make_node"
-  ]
+  ["  mov x0, x22"] <> infoLines info <> ["  bl _aihc_make_node"]
   where
-    infoLine nodeInfo =
+    infoLines nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> immediate "x1" integer
+        InfoImmediate integer -> [immediate "x1" integer]
         InfoAddress label -> address "x1" label
         InfoConstructor label -> address "x1" label
 
-makeNodeUncheckedLines :: NodeInfo -> [Text]
+makeNodeUncheckedLines :: NodeInfo -> [Arm64Statement]
 makeNodeUncheckedLines info =
   init (makeNodeLines info) <> ["  bl _aihc_make_node_unchecked"]
 
@@ -194,7 +200,7 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       runtimeObjectClosure
   ]
 
-renderEnterStubs :: [RuntimeInfo] -> [Text]
+renderEnterStubs :: [RuntimeInfo] -> [Arm64Statement]
 renderEnterStubs infos = concatMap renderStub uniqueTransfers
   where
     uniqueTransfers =
@@ -207,7 +213,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     renderStub apply =
       [ ".section __TEXT,__text,regular,pure_instructions",
         ".p2align 3",
-        sharedEnterEntryLabel apply <> ":"
+        arm64Label (sharedEnterEntryLabel apply)
       ]
         <> moveSupplied apply
         <> moveSuppliedOverflow apply
@@ -233,9 +239,9 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     loadStored apply =
       concat
         [ if targetIndex < length applyArgumentRegisters
-            then ["  ldr " <> applyArgumentRegisters !! targetIndex <> ", [" <> applyFunctionRegister <> ", #" <> tshow ((targetIndex + 1) * 8) <> "]"]
+            then [loadByteOffset (applyArgumentRegisters !! targetIndex) applyFunctionRegister ((targetIndex + 1) * 8)]
             else
-              [ "  ldr x8, [" <> applyFunctionRegister <> ", #" <> tshow ((targetIndex + 1) * 8) <> "]",
+              [ loadByteOffset "x8" applyFunctionRegister ((targetIndex + 1) * 8),
                 storeAt "x8" "x19" targetIndex
               ]
         | targetIndex <- [0 .. runtimeEnterStoredCount apply - 1]
@@ -243,7 +249,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
           let destination = applyArgumentRegisters !! targetIndex
-           in ["  mov " <> destination <> ", " <> source | destination /= source]
+           in [arm64Instruction ArmMov [destination, source] | destination /= source]
       | otherwise = [storeAt source "x19" targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
@@ -280,28 +286,28 @@ applyStackBytes suppliedCount = ((overflowCount * 8 + 15) `div` 16) * 16
   where
     overflowCount = max 0 (suppliedCount - length applyArgumentRegisters)
 
-restoreApplyStackLines :: Int -> [Text]
+restoreApplyStackLines :: Int -> [Arm64Statement]
 restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
   | otherwise = [immediate "x8" stackBytes, "  add sp, sp, x8"]
 
-renderRuntimeInfos :: [RuntimeInfo] -> [Text]
+renderRuntimeInfos :: [RuntimeInfo] -> [Arm64Statement]
 renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo infos
   where
     renderInfo info =
       bitmapLines
-        <> [".globl " <> runtimeInfoLabel info | "_aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
+        <> [arm64Global (runtimeInfoLabel info) | "_aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
         <> [ ".p2align 3",
-             runtimeInfoLabel info <> ":",
+             arm64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
-             "  .quad " <> tshow (length fields),
-             "  .quad " <> tshow (runtimeInfoRemainingArity info),
-             "  .quad " <> if null fields then "0" else bitmapLabel,
-             "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
-             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info),
-             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
-             "  .quad " <> tshow (runtimeInfoObjectKind info)
+             arm64Quad (tshow (length fields)),
+             arm64Quad (tshow (runtimeInfoRemainingArity info)),
+             arm64Quad (if null fields then "0" else bitmapLabel),
+             arm64Quad (fromMaybe "0" (runtimeInfoNext info)),
+             arm64Quad (maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)),
+             arm64Quad (tshow (continuationFrameKindCode (runtimeInfoFrameKind info))),
+             arm64Quad (tshow (runtimeInfoObjectKind info))
            ]
       where
         fields = runtimeInfoFields info
@@ -310,21 +316,21 @@ renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo i
           if null fields
             then []
             else
-              [ bitmapLabel <> ":",
-                "  .byte " <> T.intercalate ", " [if isPointerRuntimeRep runtimeRep then "1" else "0" | runtimeRep <- fields]
+              [ arm64Label bitmapLabel,
+                arm64Bytes (BS.pack [if isPointerRuntimeRep runtimeRep then 1 else 0 | runtimeRep <- fields])
               ]
     identityLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> "  .quad " <> tshow integer
-        InfoAddress label -> "  .quad " <> label
-        InfoConstructor label -> "  .quad " <> label
+        InfoImmediate integer -> arm64Quad (tshow integer)
+        InfoAddress label -> arm64Quad label
+        InfoConstructor label -> arm64Quad label
     entryLine nodeInfo =
       case nodeInfo of
-        InfoImmediate {} -> "  .quad 0"
-        InfoAddress label -> "  .quad " <> label
-        InfoConstructor {} -> "  .quad 0"
+        InfoImmediate {} -> arm64Quad "0"
+        InfoAddress label -> arm64Quad label
+        InfoConstructor {} -> arm64Quad "0"
 
-renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Text]
+renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Arm64Statement]
 renderRuntimeSupport env extraInfos =
   renderEnterStubs infos
     <> renderAddrLiteralPool env
@@ -338,23 +344,23 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-loadLocation :: Text -> Location Text -> [Text]
+loadLocation :: Text -> Location Text -> [Arm64Statement]
 loadLocation destination location =
   case location of
     InRegister source
       | destination == source -> []
-      | otherwise -> ["  mov " <> destination <> ", " <> source]
+      | otherwise -> [arm64Instruction ArmMov [destination, source]]
     InHeapSpill slot -> [loadAt destination "x19" slot]
 
-storeLocation :: Text -> Location Text -> [Text]
+storeLocation :: Text -> Location Text -> [Arm64Statement]
 storeLocation source location =
   case location of
     InRegister destination
       | destination == source -> []
-      | otherwise -> ["  mov " <> destination <> ", " <> source]
+      | otherwise -> [arm64Instruction ArmMov [destination, source]]
     InHeapSpill slot -> [storeAt source "x19" slot]
 
-renderNativeControl :: [Text]
+renderNativeControl :: [Arm64Statement]
 renderNativeControl =
   [ ".section __TEXT,__text,regular,pure_instructions",
     ".p2align 3",
@@ -517,17 +523,15 @@ runtimeInfoKeyNext (ClosureRuntimeInfo functionName fields (layout : rest)) =
 runtimeInfoKeyNext ClosureRuntimeInfo {} = Nothing
 runtimeInfoKeyNext ThunkRuntimeInfo {} = Nothing
 
-renderAddrLiteralPool :: CompileEnv -> [Text]
+renderAddrLiteralPool :: CompileEnv -> [Arm64Statement]
 renderAddrLiteralPool env =
   case Map.toAscList (compileAddrLiteralLabels env) of
     [] -> []
     literals -> [".section __TEXT,__const"] <> concatMap renderLiteral literals
   where
     renderLiteral (value, label) =
-      ["  .p2align 3", label <> ":"]
-        <> map renderBytes (chunksOf 32 (BS.unpack value <> [0]))
-
-    renderBytes bytes = "  .byte " <> T.intercalate ", " (map tshow bytes)
+      ["  .p2align 3", arm64Label label]
+        <> map (arm64Bytes . BS.pack) (chunksOf 32 (BS.unpack value <> [0]))
 
     chunksOf _ [] = []
     chunksOf size bytes = take size bytes : chunksOf size (drop size bytes)
@@ -540,49 +544,51 @@ localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "_aihc_snapshot_function_" <> tshow index
   | otherwise = functionLabel index
 
-loadAt :: Text -> Text -> Int -> Text
+loadAt :: Text -> Text -> Int -> Arm64Statement
 loadAt destination base slot = loadByteOffset destination base (slot * 8)
 
-storeAt :: Text -> Text -> Int -> Text
+storeAt :: Text -> Text -> Int -> Arm64Statement
 storeAt source base slot = storeByteOffset source base (slot * 8)
 
-loadByteOffset :: Text -> Text -> Int -> Text
+loadByteOffset :: Text -> Text -> Int -> Arm64Statement
 loadByteOffset destination base offset =
-  "  ldr " <> destination <> ", [" <> base <> ", #" <> tshow offset <> "]"
+  arm64Instruction ArmLdr [destination, "[" <> base <> ", #" <> tshow offset <> "]"]
 
-storeByteOffset :: Text -> Text -> Int -> Text
+storeByteOffset :: Text -> Text -> Int -> Arm64Statement
 storeByteOffset source base offset =
-  "  str " <> source <> ", [" <> base <> ", #" <> tshow offset <> "]"
+  arm64Instruction ArmStr [source, "[" <> base <> ", #" <> tshow offset <> "]"]
 
-immediate :: (Integral value, Show value) => Text -> value -> Text
+immediate :: (Integral value, Show value) => Text -> value -> Arm64Statement
 immediate register value
-  | integer >= -65536 && integer <= 65535 = "  mov " <> register <> ", #" <> rendered
-  | otherwise = "  ldr " <> register <> ", =" <> rendered
+  | integer >= -65536 && integer <= 65535 = arm64Instruction ArmMov [register, "#" <> rendered]
+  | otherwise = arm64Instruction ArmLdr [register, "=" <> rendered]
   where
     integer = toInteger value
     rendered = T.pack (show value)
 
-address :: Text -> Text -> Text
+address :: Text -> Text -> [Arm64Statement]
 address register label =
-  "  adrp " <> register <> ", " <> label <> "@PAGE\n  add " <> register <> ", " <> register <> ", " <> label <> "@PAGEOFF"
+  [ arm64Instruction ArmAdrp [register, label <> "@PAGE"],
+    arm64Instruction ArmAdd [register, register, label <> "@PAGEOFF"]
+  ]
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show
 
-materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Text]
+materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Arm64Statement]
 materializeValue env = materializeValueTo env "x0"
 
-materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Arm64Error [Text]
+materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Arm64Error [Arm64Statement]
 materializeValueTo env destination value =
   case value of
     GrinVarValue var ->
       case Map.lookup var (valueLocations env) of
         Just location -> Right (loadLocation destination location)
-        Nothing -> Right [address destination ("_" <> renderLinkedGlobalSymbol (grinVarName var))]
-    GrinGlobalValue name -> Right [address destination ("_" <> renderLinkedGlobalSymbol name)]
+        Nothing -> Right (address destination ("_" <> renderLinkedGlobalSymbol (grinVarName var)))
+    GrinGlobalValue name -> Right (address destination ("_" <> renderLinkedGlobalSymbol name))
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
-materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Text]
+materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Arm64Statement]
 materializeLiteralTo destination env literal =
   case literal of
     GrinLitAddr value -> do
@@ -591,7 +597,7 @@ materializeLiteralTo destination env literal =
           (Left (Arm64UnsupportedValue "unregistered Addr# literal"))
           Right
           (Map.lookup value (compileAddrLiteralLabels env))
-      pure [address destination label]
+      pure (address destination label)
     _ ->
       case normalizedLiteralInteger literal of
         Just integer -> Right [immediate destination integer]
@@ -630,13 +636,13 @@ normalizeSigned bits integer =
 normalizeUnsigned :: Int -> Integer -> Integer
 normalizeUnsigned bits integer = integer `mod` (2 ^ bits)
 
-materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 materializeNode = materializeNodeWith allocateNode
 
-materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 materializeNodeUnchecked = materializeNodeWith allocateNodeUnchecked
 
-materializeNodeWith :: (ValueEnv -> GrinNode -> Either Arm64Error [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNodeWith :: (ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]) -> ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 materializeNodeWith allocate env node = do
   allocationLines <- allocate env node
   if null (grinNodeFields node)
@@ -645,18 +651,18 @@ materializeNodeWith allocate env node = do
       fieldLines <- initializeNodeFields env node
       pure $ allocationLines <> ["  mov x20, x0"] <> fieldLines <> ["  mov x0, x20"]
 
-allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNode = allocateNodeWith makeNodeLines
 
-allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNodeUnchecked = allocateNodeWith makeNodeUncheckedLines
 
-allocateNodeWith :: (NodeInfo -> [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeWith :: (NodeInfo -> [Arm64Statement]) -> ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 allocateNodeWith make env node = do
   info <- nodeHeader env node
   pure (make info)
 
-initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Arm64Statement]
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field

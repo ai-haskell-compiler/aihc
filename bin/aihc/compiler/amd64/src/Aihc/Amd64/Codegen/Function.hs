@@ -7,6 +7,13 @@ module Aihc.Amd64.Codegen.Function
   )
 where
 
+import Aihc.Amd64.Assemble
+  ( Amd64Opcode (..),
+    Amd64Statement,
+    amd64Global,
+    amd64Instruction,
+    amd64Label,
+  )
 import Aihc.Amd64.Codegen.Runtime
 import Aihc.Amd64.RegisterAllocate qualified as RegisterAllocate
 import Aihc.Grin.Syntax
@@ -68,13 +75,13 @@ compileFunction env function = do
       entry =
         exportLines env function label
           <> [ ".p2align 3",
-               label <> ":"
+               amd64Label label
              ]
           <> registerParameterCopies
       blocks =
         BlockLayout.renderBlocks
-          (<> ":")
-          ("  jmp " <>)
+          amd64Label
+          (amd64Instruction AmdJmp . pure)
           (BlockLayout.layoutBlocks bodyLabel (reverse (functionBlocksRev finalState)))
   pure
     CompiledFunction
@@ -82,7 +89,7 @@ compileFunction env function = do
         compiledFunctionLines = entry <> blocks
       }
 
-reserveLocalsLines :: [CompiledFunction] -> [Text]
+reserveLocalsLines :: [CompiledFunction] -> [Amd64Statement]
 reserveLocalsLines functions =
   [ immediate "rsi" maximumSlots,
     "  mov rdi, r15",
@@ -92,12 +99,12 @@ reserveLocalsLines functions =
   where
     maximumSlots = maximum (2 : map compiledFunctionSlots functions)
 
-exportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
+exportLines :: CompileEnv -> GrinFunction -> Text -> [Amd64Statement]
 exportLines env _function label
-  | compileExposeAllFunctions env = [".globl " <> label]
+  | compileExposeAllFunctions env = [amd64Global label]
   | otherwise = []
 
-compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
+compileExpr :: ValueEnv -> [Amd64Statement] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
   case expression of
     GrinConstant {} -> unsupportedExpression "direct-style constant return after CPS"
@@ -165,9 +172,10 @@ compileExpr env prefix label expression =
           slowApplyLines =
             stackRestoreLines
               <> [ loadAt "rsi" "r14" scratch,
-                   immediate "rdx" (length arguments),
-                   slotPointer "rcx" argumentSlots,
-                   "  lea r8, [r14 + " <> tshow (continuationSlot * 8) <> "]",
+                   immediate "rdx" (length arguments)
+                 ]
+              <> slotPointer "rcx" argumentSlots
+              <> [ amd64Instruction AmdLea ["r8", "[r14 + " <> tshow (continuationSlot * 8) <> "]"],
                    "  mov rdi, r15",
                    "  call aihc_apply_slow",
                    loadAt applyFunctionRegister "r14" continuationSlot
@@ -181,12 +189,12 @@ compileExpr env prefix label expression =
                ]
             <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
             <> saveApplyOverflowLines "r14" argumentSlots
-            <> [ "  mov r11, QWORD PTR [" <> applyFunctionRegister <> "]",
+            <> [ amd64Instruction AmdMov ["r11", "QWORD PTR [" <> applyFunctionRegister <> "]"],
                  "  mov r11, QWORD PTR [r11 + 48]",
                  "  test r11, r11",
-                 "  jz " <> slowLabel,
+                 amd64Instruction AmdJz [slowLabel],
                  "  jmp r11",
-                 slowLabel <> ":"
+                 amd64Label slowLabel
                ]
             <> slowApplyLines
         )
@@ -259,7 +267,7 @@ compileExpr env prefix label expression =
         pure (loadLocation "r13" location <> fieldLines)
       compileExpr env (prefix <> allocationLines <> initializationLines) label body
 
-compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
+compileCpsPrimitive :: ValueEnv -> [Amd64Statement] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
 compileCpsPrimitive env prefix label name arguments continuation =
   case nativeCpsPrimitiveCall name of
     Just runtimeCall
@@ -285,7 +293,7 @@ compileCpsPrimitive env prefix label name arguments continuation =
         ( prefix
             <> storedLines
             <> renderCpsCallArguments runtimeCall argumentSlots continuationSlot
-            <> ["  call " <> nativeCpsCallSymbol runtimeCall]
+            <> [amd64Instruction AmdCall [nativeCpsCallSymbol runtimeCall]]
             <> returnLines
         )
         successor
@@ -293,7 +301,7 @@ compileCpsPrimitive env prefix label name arguments continuation =
     unsupportedCpsPrimitive =
       lift (Left (Amd64UnsupportedExpression ("CPS primitive call " <> name)))
 
-renderCpsCallArguments :: NativeCpsCall -> [Int] -> Int -> [Text]
+renderCpsCallArguments :: NativeCpsCall -> [Int] -> Int -> [Amd64Statement]
 renderCpsCallArguments runtimeCall operandSlots continuationSlot =
   ["  mov rdi, r15"]
     <> [loadAt register "r14" slot | (register, slot) <- zip (drop 1 foreignArgumentRegisters) operandSlots]
@@ -301,7 +309,7 @@ renderCpsCallArguments runtimeCall operandSlots continuationSlot =
        | nativeCpsCallPassContinuation runtimeCall
        ]
 
-compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
+compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Amd64Statement]
 compileDirectBinding env vars expression =
   case expression of
     GrinConstant values
@@ -324,9 +332,10 @@ compileDirectBinding env vars expression =
                 ( argumentLines
                     <> [ "  mov rdi, r15",
                          loadAt "rsi" "r14" requiredSlot,
-                         immediate "rdx" (length roots),
-                         slotPointer "rcx" rootSlots,
-                         "  call aihc_ensure_heap"
+                         immediate "rdx" (length roots)
+                       ]
+                    <> slotPointer "rcx" rootSlots
+                    <> [ "  call aihc_ensure_heap"
                        ]
                     <> resultLines
                 )
@@ -363,7 +372,7 @@ compileDirectBinding env vars expression =
             )
         _ -> lift (Left (Amd64UnsupportedExpression "internal quotRemWord2# arity"))
     GrinPrimitiveCall _ name [value, amount]
-      | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "shr")] -> do
+      | Just opcode <- lookup name [("uncheckedShiftL#", AmdShl), ("uncheckedShiftRL#", AmdShr)] -> do
           savedCountRegister <- freshSlot
           valueLines <- liftEither (materializeValueTo env "r10" value)
           amountLines <- liftEither (materializeValue env amount)
@@ -371,7 +380,7 @@ compileDirectBinding env vars expression =
             ( [storeAt "rcx" "r14" savedCountRegister]
                 <> valueLines
                 <> amountLines
-                <> ["  mov rcx, rax", "  " <> instruction <> " r10, cl", "  mov rax, r10", loadAt "rcx" "r14" savedCountRegister]
+                <> ["  mov rcx, rax", amd64Instruction opcode ["r10", "cl"], "  mov rax, r10", loadAt "rcx" "r14" savedCountRegister]
             )
     GrinPrimitiveCall _ "nullAddr#" [] ->
       storeSingleResult ["  xor rax, rax"]
@@ -427,18 +436,18 @@ compileDirectBinding env vars expression =
                  loadAt (if passMachine then "rdx" else "rsi") "r14" valueSlot
                ]
             <> ["  mov rdi, r15" | passMachine]
-            <> ["  call " <> symbol]
+            <> [amd64Instruction AmdCall [symbol]]
             <> resultLines
         )
 
     singleResultBinaryPrimitives =
       concat
-        [ binary "add" ["+#", "plusWord#"],
-          binary "sub" ["-#", "minusWord#"],
-          binary "imul" ["*#", "timesWord#"],
-          binary "and" ["and#"],
-          binary "or" ["or#"],
-          binary "xor" ["xor#"],
+        [ binary AmdAdd ["+#", "plusWord#"],
+          binary AmdSub ["-#", "minusWord#"],
+          binary AmdImul ["*#", "timesWord#"],
+          binary AmdAnd ["and#"],
+          binary AmdOr ["or#"],
+          binary AmdXor ["xor#"],
           comparison "e" ["==#", "eqWord#"],
           comparison "l" ["<#"],
           comparison "ne" ["neWord#"],
@@ -450,10 +459,10 @@ compileDirectBinding env vars expression =
         <> [ ("compareInt#", ["  cmp r10, rax", "  setg al", "  setl r10b", "  movzx rax, al", "  movzx r10, r10b", "  sub rax, r10"])
            ]
     pairResultBinaryPrimitives =
-      [ carry "addIntC#" "add" "o",
-        carry "subIntC#" "sub" "o",
-        carry "addWordC#" "add" "c",
-        carry "subWordC#" "sub" "c"
+      [ carry "addIntC#" AmdAdd AmdSeto,
+        carry "subIntC#" AmdSub AmdSeto,
+        carry "addWordC#" AmdAdd AmdSetc,
+        carry "subWordC#" AmdSub AmdSetc
       ]
     singleResultDividendPrimitives =
       [ ("quotWord#", ["  xor rdx, rdx", "  div r10"]),
@@ -468,26 +477,37 @@ compileDirectBinding env vars expression =
         : [ (name, [])
           | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
-    binary instruction names =
-      [(name, ["  " <> instruction <> " r10, rax", "  mov rax, r10"]) | name <- names]
+    binary opcode names =
+      [(name, [amd64Instruction opcode ["r10", "rax"], "  mov rax, r10"]) | name <- names]
     comparison condition names =
-      [(name, ["  cmp r10, rax", "  set" <> condition <> " al", "  movzx rax, al"]) | name <- names]
-    carry name instruction condition =
+      [(name, ["  cmp r10, rax", amd64Instruction (conditionOpcode condition) ["al"], "  movzx rax, al"]) | name <- names]
+    carry name opcode setOpcode =
       ( name,
         ( "r10",
           "r11",
-          ["  " <> instruction <> " r10, rax", "  set" <> condition <> " r11b", "  movzx r11, r11b"]
+          [amd64Instruction opcode ["r10", "rax"], amd64Instruction setOpcode ["r11b"], "  movzx r11, r11b"]
         )
       )
+    conditionOpcode :: Text -> Amd64Opcode
+    conditionOpcode condition =
+      case condition of
+        "e" -> AmdSete
+        "ne" -> AmdSetne
+        "b" -> AmdSetb
+        "be" -> AmdSetbe
+        "a" -> AmdSeta
+        "ae" -> AmdSetae
+        "l" -> AmdSetl
+        _ -> error "unsupported AMD64 condition"
 
-compileForeignCallLines :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
+compileForeignCallLines :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Amd64Statement]
 compileForeignCallLines env = compileCallLines env False
 
-compileRuntimeCallLines :: ValueEnv -> NativeRuntimeCall -> [GrinValue] -> FunctionM [Text]
+compileRuntimeCallLines :: ValueEnv -> NativeRuntimeCall -> [GrinValue] -> FunctionM [Amd64Statement]
 compileRuntimeCallLines env runtimeCall =
   compileCallLines env (nativeRuntimeCallPassMachine runtimeCall) (nativeRuntimeCallForeignCall runtimeCall)
 
-compileCallLines :: ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
+compileCallLines :: ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> FunctionM [Amd64Statement]
 compileCallLines env passMachine foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
       operandArity = length (grinForeignArgumentTypes signature)
@@ -509,24 +529,24 @@ compileCallLines env passMachine foreignCall arguments = do
                 argumentLines
                   <> ["  mov rdi, r15" | passMachine]
                   <> loadAbiArguments
-                  <> ["  call " <> grinForeignCallSymbol foreignCall]
+                  <> [amd64Instruction AmdCall [grinForeignCallSymbol foreignCall]]
                   <> normalizeForeignResult (grinForeignResultType signature)
           pure callLines
 
-materializeIntoFreshSlots :: ValueEnv -> [GrinValue] -> FunctionM ([Text], [Int])
+materializeIntoFreshSlots :: ValueEnv -> [GrinValue] -> FunctionM ([Amd64Statement], [Int])
 materializeIntoFreshSlots env values = do
   slots <- freshSlots (length values)
   lines' <- materializeIntoSlots env (zip values slots)
   pure (lines', slots)
 
-materializeIntoSlots :: ValueEnv -> [(GrinValue, Int)] -> FunctionM [Text]
+materializeIntoSlots :: ValueEnv -> [(GrinValue, Int)] -> FunctionM [Amd64Statement]
 materializeIntoSlots env = fmap concat . mapM store
   where
     store (value, slot) = do
       lines' <- liftEither (materializeValue env value)
       pure (lines' <> [storeAt "rax" "r14" slot])
 
-normalizeForeignResult :: GrinForeignType -> [Text]
+normalizeForeignResult :: GrinForeignType -> [Amd64Statement]
 normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt -> []
@@ -537,7 +557,7 @@ normalizeForeignResult foreignType =
 foreignArgumentRegisters :: [Text]
 foreignArgumentRegisters = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 
-compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
+compileCase :: ValueEnv -> [Amd64Statement] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
   (resultLocation, scrutineeLines) <- case scrutinee of
     GrinVarValue var | Just location <- Map.lookup var (valueLocations env) -> pure (location, [])
@@ -569,7 +589,7 @@ compileCase env prefix label scrutinee binder alternatives = do
       lines' <- liftEither (materializeValue env scrutinee)
       pure (InHeapSpill slot, lines' <> [storeAt "rax" "r14" slot])
 
-alternativePrefix :: ValueEnv -> Location Text -> GrinAlt -> FunctionM [Text]
+alternativePrefix :: ValueEnv -> Location Text -> GrinAlt -> FunctionM [Amd64Statement]
 alternativePrefix env resultLocation alternative =
   case grinAltCon alternative of
     GrinDataAlt _ -> do
@@ -586,7 +606,7 @@ alternativePrefix env resultLocation alternative =
     isLive binder = binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
     liveIndexedBinders = filter (isLive . snd) (zip [0 ..] (grinAltBinders alternative))
 
-caseChecks :: Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
+caseChecks :: Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Amd64Statement], BlockLayout.Terminator Text)
 caseChecks resultLocation scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
@@ -603,7 +623,7 @@ caseChecks resultLocation scrutineeIsPointer targets = do
                  loadByteOffset "r10" "r10" 0,
                  address "r11" identity,
                  "  cmp r10, r11",
-                 "  je " <> target
+                 amd64Instruction AmdJe [target]
                ]
       GrinLitAlt _
         | scrutineeIsPointer ->
@@ -613,14 +633,14 @@ caseChecks resultLocation scrutineeIsPointer targets = do
           Just integer ->
             pure $
               loadLocation "r10" resultLocation
-                <> [immediate "r11" integer, "  cmp r10, r11", "  je " <> target]
+                <> [immediate "r11" integer, "  cmp r10, r11", amd64Instruction AmdJe [target]]
           Nothing -> lift (Left (Amd64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   pure $ case defaultTarget of
     target : _ -> (checks, BlockLayout.Jump target)
     [] -> (checks <> ["  call aihc_no_match", "  ud2"], BlockLayout.Exit)
 
-moveEntryParameters :: [(Text, Location Text)] -> [Text]
+moveEntryParameters :: [(Text, Location Text)] -> [Amd64Statement]
 moveEntryParameters pairs =
   spillMoves <> renderRegisterMovesWithoutValues registerMoves
   where
@@ -635,7 +655,7 @@ moveEntryParameters pairs =
         source /= destination
       ]
 
-moveValuesToRegisters :: ValueEnv -> [GrinValue] -> [Text] -> Either Amd64Error [Text]
+moveValuesToRegisters :: ValueEnv -> [GrinValue] -> [Text] -> Either Amd64Error [Amd64Statement]
 moveValuesToRegisters env values registers =
   renderRegisterMoves
     env
@@ -644,7 +664,7 @@ moveValuesToRegisters env values registers =
       moveSource env value /= MoveRegister destination
     ]
 
-moveValuesToLocations :: ValueEnv -> [GrinValue] -> [Location Text] -> FunctionM [Text]
+moveValuesToLocations :: ValueEnv -> [GrinValue] -> [Location Text] -> FunctionM [Amd64Statement]
 moveValuesToLocations env values destinations
   | and (zipWith alreadyThere values destinations) = pure []
   | otherwise = do
@@ -673,25 +693,25 @@ moveSource env value =
     GrinGlobalValue {} -> MoveValue value
     GrinLitValue {} -> MoveValue value
 
-renderRegisterMoves :: ValueEnv -> [(Text, MoveSource)] -> Either Amd64Error [Text]
+renderRegisterMoves :: ValueEnv -> [(Text, MoveSource)] -> Either Amd64Error [Amd64Statement]
 renderRegisterMoves env = renderRegisterMovesWith emitMove
   where
     emitMove destination source =
       case source of
-        MoveRegister register -> pure ["  mov " <> destination <> ", " <> register]
+        MoveRegister register -> pure [amd64Instruction AmdMov [destination, register]]
         MoveSpill slot -> pure [loadAt destination "r14" slot]
         MoveValue value -> materializeValueTo env destination value
 
-renderRegisterMovesWithoutValues :: [(Text, MoveSource)] -> [Text]
+renderRegisterMovesWithoutValues :: [(Text, MoveSource)] -> [Amd64Statement]
 renderRegisterMovesWithoutValues = fromRight [] . renderRegisterMovesWith emitMove
   where
     emitMove destination source =
       case source of
-        MoveRegister register -> pure ["  mov " <> destination <> ", " <> register]
+        MoveRegister register -> pure [amd64Instruction AmdMov [destination, register]]
         MoveSpill slot -> pure [loadAt destination "r14" slot]
         MoveValue {} -> Left (Amd64UnsupportedExpression "value in entry register transfer")
 
-renderRegisterMovesWith :: (Text -> MoveSource -> Either Amd64Error [Text]) -> [(Text, MoveSource)] -> Either Amd64Error [Text]
+renderRegisterMovesWith :: (Text -> MoveSource -> Either Amd64Error [Amd64Statement]) -> [(Text, MoveSource)] -> Either Amd64Error [Amd64Statement]
 renderRegisterMovesWith emitMove = go
   where
     go [] = pure []
@@ -705,7 +725,7 @@ renderRegisterMovesWith emitMove = go
           case [source | (_, MoveRegister source) <- moves] of
             source : _ -> do
               rest <- go (map (replaceSource source "r10") moves)
-              pure (["  mov r10, " <> source] <> rest)
+              pure ([amd64Instruction AmdMov ["r10", source]] <> rest)
             [] -> Left (Amd64UnsupportedExpression "unresolvable register transfer")
 
 takeSafeMove :: [(Text, MoveSource)] -> Maybe ((Text, MoveSource), [(Text, MoveSource)])
@@ -725,36 +745,36 @@ replaceSource old new (destination, source) =
       _ -> source
   )
 
-saveValueOverflowLines :: ValueEnv -> [GrinValue] -> Either Amd64Error [Text]
+saveValueOverflowLines :: ValueEnv -> [GrinValue] -> Either Amd64Error [Amd64Statement]
 saveValueOverflowLines env values
   | stackBytes == 0 = pure []
   | otherwise = do
       stores <-
         fmap concat . forM (zip [0 :: Int ..] (drop (length applyArgumentRegisters) values)) $ \(index, value) -> do
           lines' <- materializeValueTo env "r11" value
-          pure (lines' <> ["  mov QWORD PTR [rsp + " <> tshow (index * 8) <> "], r11"])
-      pure (["  sub rsp, " <> tshow stackBytes] <> stores)
+          pure (lines' <> [storeByteOffset "r11" "rsp" (index * 8)])
+      pure ([amd64Instruction AmdSub ["rsp", tshow stackBytes]] <> stores)
   where
     stackBytes = applyStackBytes (length values)
 
-saveApplyOverflowLines :: Text -> [Int] -> [Text]
+saveApplyOverflowLines :: Text -> [Int] -> [Amd64Statement]
 saveApplyOverflowLines base slots
   | stackBytes == 0 = []
   | otherwise =
-      ["  sub rsp, " <> tshow stackBytes]
+      [amd64Instruction AmdSub ["rsp", tshow stackBytes]]
         <> concat
-          [ [loadAt "r11" base slot, "  mov QWORD PTR [rsp + " <> tshow (index * 8) <> "], r11"]
+          [ [loadAt "r11" base slot, storeByteOffset "r11" "rsp" (index * 8)]
           | (index, slot) <- zip [0 :: Int ..] (drop (length applyArgumentRegisters) slots)
           ]
   where
     stackBytes = applyStackBytes (length slots)
 
-moveDirectOverflowLines :: Text -> Int -> [Text]
+moveDirectOverflowLines :: Text -> Int -> [Amd64Statement]
 moveDirectOverflowLines base valueCount
   | stackBytes == 0 = []
   | otherwise =
       concat
-        [ [ "  mov r11, QWORD PTR [rsp + " <> tshow ((targetIndex - length applyArgumentRegisters) * 8) <> "]",
+        [ [ loadByteOffset "r11" "rsp" ((targetIndex - length applyArgumentRegisters) * 8),
             storeAt "r11" base targetIndex
           ]
         | targetIndex <- [length applyArgumentRegisters .. valueCount - 1]
@@ -787,7 +807,7 @@ freshLabel parent kind = do
   modify' $ \current -> current {functionNextLabel = identifier + 1}
   pure (parent <> "_" <> kind <> "_" <> tshow identifier)
 
-addBlock :: Text -> [Text] -> BlockLayout.Terminator Text -> FunctionM ()
+addBlock :: Text -> [Amd64Statement] -> BlockLayout.Terminator Text -> FunctionM ()
 addBlock label instructions terminator =
   modify' $ \state ->
     state
@@ -795,11 +815,11 @@ addBlock label instructions terminator =
           BlockLayout.Block label instructions terminator : functionBlocksRev state
       }
 
-slotPointer :: Text -> [Int] -> Text
+slotPointer :: Text -> [Int] -> [Amd64Statement]
 slotPointer register slots =
   case slots of
-    first : _ -> "  lea " <> register <> ", [r14" <> offsetText (first * 8) <> "]"
-    [] -> "  xor " <> register <> ", " <> register
+    first : _ -> [amd64Instruction AmdLea [register, "[r14" <> offsetText (first * 8) <> "]"]]
+    [] -> [amd64Instruction AmdXor [register, register]]
 
 liftEither :: Either Amd64Error value -> FunctionM value
 liftEither = lift

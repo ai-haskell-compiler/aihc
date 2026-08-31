@@ -15,7 +15,15 @@ module Aihc.Amd64.Codegen
   )
 where
 
-import Aihc.Amd64.Assemble (assembleElf)
+import Aihc.Amd64.Assemble
+  ( Amd64Opcode (..),
+    Amd64Statement,
+    amd64Global,
+    amd64Instruction,
+    amd64Label,
+    amd64Quad,
+    assembleElf,
+  )
 import Aihc.Amd64.Codegen.Function
 import Aihc.Amd64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
@@ -81,7 +89,7 @@ compileObservedFunction entryName gcProgram = do
           <> [ "  mov r13, rax",
                "  mov rdi, r15",
                "  call aihc_reset_allocation_count",
-               "  jmp " <> entryLabel,
+               amd64Instruction AmdJmp [entryLabel],
                ".p2align 3",
                ".Laihc_snapshot_result:"
              ]
@@ -130,10 +138,10 @@ validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 compileModuleObject :: GcGrinProgram -> Either Amd64Error BL.ByteString
 compileModuleObject gcProgram = compileModuleStatements gcProgram >>= assembleObject
 
-assembleObject :: [Text] -> Either Amd64Error BL.ByteString
+assembleObject :: [Amd64Statement] -> Either Amd64Error BL.ByteString
 assembleObject = either (Left . Amd64ObjectError . T.pack . show) pure . assembleElf
 
-compileModuleStatements :: GcGrinProgram -> Either Amd64Error [Text]
+compileModuleStatements :: GcGrinProgram -> Either Amd64Error [Amd64Statement]
 compileModuleStatements gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -152,7 +160,7 @@ compileModuleStatements gcProgram = do
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
 
-compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error [Text]
+compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error [Amd64Statement]
 compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -247,7 +255,7 @@ compileEntryUnit entryName gcProgram = do
           [pointerRep]
         <> threadDoneRuntimeInfos
 
-mainPrologue :: Int -> [Text]
+mainPrologue :: Int -> [Amd64Statement]
 mainPrologue globalCount =
   entryPrologue "main"
     <> [ "  call aihc_program_arguments_initialize",
@@ -256,13 +264,13 @@ mainPrologue globalCount =
          "  mov r15, rax"
        ]
 
-entryPrologue :: Text -> [Text]
+entryPrologue :: Text -> [Amd64Statement]
 entryPrologue symbol =
   [ ".intel_syntax noprefix",
     ".text",
     ".p2align 4",
-    ".globl " <> symbol,
-    symbol <> ":",
+    amd64Global symbol,
+    amd64Label symbol,
     "  push rbp",
     "  mov rbp, rsp",
     "  push r12",
@@ -271,7 +279,7 @@ entryPrologue symbol =
     "  push r15"
   ]
 
-mainEpilogue :: [Text]
+mainEpilogue :: [Amd64Statement]
 mainEpilogue =
   [ "  pop r15",
     "  pop r14",
@@ -281,7 +289,7 @@ mainEpilogue =
     "  ret"
   ]
 
-threadDoneContinuation :: [Text]
+threadDoneContinuation :: [Amd64Statement]
 threadDoneContinuation =
   [ ".p2align 3",
     ".Laihc_thread_done_continuation:",
@@ -300,13 +308,13 @@ threadDoneRuntimeInfos =
     []
     [BoxedRep Lifted]
 
-renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Text]
+renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Amd64Statement]
 renderCompiledSupport env functions runtimeInfos =
   renderNativeControl
     <> concatMap compiledFunctionLines functions
     <> renderRuntimeSupport env runtimeInfos
 
-nonExecutableStack :: [Text]
+nonExecutableStack :: [Amd64Statement]
 nonExecutableStack = [".section .note.GNU-stack,\"\",@progbits"]
 
 compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
@@ -378,7 +386,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames program =
       ]
     third (_, _, value) = value
 
-renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Amd64Error [Text]
+renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Amd64Error [Amd64Statement]
 renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
   where
     declaredGlobals = grinGlobals program
@@ -395,18 +403,18 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
       let symbol = renderLinkedGlobalSymbol name
-          payload = if null fields && isThunk node then ["  .quad 0"] else fields
+          payload = if null fields && isThunk node then [amd64Quad "0"] else fields
       pure $
         [ ".section .data",
           ".p2align 3",
-          ".globl " <> symbol,
-          symbol <> ":",
-          "  .quad " <> info
+          amd64Global symbol,
+          amd64Label symbol,
+          amd64Quad info
         ]
           <> payload
           <> [ ".section aihc_roots,\"aw\"",
                ".p2align 3",
-               "  .quad " <> symbol
+               amd64Quad symbol
              ]
     staticNodeInfo node =
       case grinNodeTag node of
@@ -417,23 +425,23 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
         fields = map grinValueRuntimeRep (grinNodeFields node)
     renderStaticValue value =
       case value of
-        GrinVarValue var -> pure ("  .quad " <> renderLinkedGlobalSymbol (grinVarName var))
-        GrinGlobalValue name -> pure ("  .quad " <> renderLinkedGlobalSymbol name)
+        GrinVarValue var -> pure (amd64Quad (renderLinkedGlobalSymbol (grinVarName var)))
+        GrinGlobalValue name -> pure (amd64Quad (renderLinkedGlobalSymbol name))
         GrinLitValue literal ->
           case literal of
             GrinLitAddr bytes ->
-              maybe (Left (Amd64UnsupportedValue "unregistered Addr# literal")) (pure . ("  .quad " <>)) (Map.lookup bytes (compileAddrLiteralLabels env))
-            _ -> maybe (Left (Amd64UnsupportedValue "string literal")) (pure . ("  .quad " <>) . T.pack . show) (normalizedLiteralInteger literal)
+              maybe (Left (Amd64UnsupportedValue "unregistered Addr# literal")) (pure . amd64Quad) (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (Amd64UnsupportedValue "string literal")) (pure . amd64Quad . T.pack . show) (normalizedLiteralInteger literal)
     isThunk node =
       case grinNodeTag node of
         GrinThunk {} -> True
         _ -> False
 
-renderLinkedLocals :: [CompiledFunction] -> [Text]
+renderLinkedLocals :: [CompiledFunction] -> [Amd64Statement]
 renderLinkedLocals functions =
   [ ".section aihc_locals,\"aw\"",
     ".p2align 3",
-    "  .quad " <> tshow (maximum (2 : map compiledFunctionSlots functions))
+    amd64Quad (tshow (maximum (2 : map compiledFunctionSlots functions)))
   ]
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()

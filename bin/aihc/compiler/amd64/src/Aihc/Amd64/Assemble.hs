@@ -2,7 +2,16 @@
 
 -- | Assemble the compiler AMD64 vocabulary without an external assembler.
 module Aihc.Amd64.Assemble
-  ( assembleElf,
+  ( Amd64Statement,
+    Amd64Opcode (..),
+    assembleElf,
+    amd64Align,
+    amd64Bytes,
+    amd64Global,
+    amd64Instruction,
+    amd64Label,
+    amd64Quad,
+    amd64Section,
   )
 where
 
@@ -15,53 +24,186 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
+import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64, Word8)
 import Text.Read (readMaybe)
 
-assembleElf :: [Text] -> Either ObjectError BL.ByteString
-assembleElf source = parseAssembly source >>= layoutDraft >>= writeAmd64Elf
+data Amd64Statement
+  = Amd64Section !SectionRole
+  | Amd64Align !Int
+  | Amd64Global !Text
+  | Amd64Label !Text
+  | Amd64Quad !Text
+  | Amd64Bytes !ByteString
+  | Amd64Instruction (Either ObjectError [Item])
 
-parseAssembly :: [Text] -> Either ObjectError Draft
-parseAssembly = foldl' parseLine (Right emptyDraft) . concatMap T.lines
+data Amd64Opcode
+  = AmdRet
+  | AmdUd2
+  | AmdPush
+  | AmdPop
+  | AmdCall
+  | AmdJmp
+  | AmdJe
+  | AmdJz
+  | AmdJne
+  | AmdMov
+  | AmdMovsxd
+  | AmdMovzx
+  | AmdLea
+  | AmdAdd
+  | AmdSub
+  | AmdAnd
+  | AmdOr
+  | AmdXor
+  | AmdImul
+  | AmdCmp
+  | AmdTest
+  | AmdShl
+  | AmdShr
+  | AmdNot
+  | AmdMul
+  | AmdDiv
+  | AmdSeto
+  | AmdSetc
+  | AmdSetb
+  | AmdSetae
+  | AmdSete
+  | AmdSetne
+  | AmdSetbe
+  | AmdSeta
+  | AmdSetl
+  | AmdSetge
+  | AmdSetle
+  | AmdSetg
 
-parseLine :: Either ObjectError Draft -> Text -> Either ObjectError Draft
-parseLine result sourceLine = do
+instance IsString Amd64Statement where
+  fromString source =
+    case parseStatement (T.pack source) of
+      Right statement -> statement
+      Left objectError -> error (show objectError)
+
+assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
+assembleElf statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeAmd64Elf
+
+amd64Section :: SectionRole -> Amd64Statement
+amd64Section = Amd64Section
+
+amd64Align :: Int -> Amd64Statement
+amd64Align = Amd64Align
+
+amd64Global :: Text -> Amd64Statement
+amd64Global = Amd64Global
+
+amd64Label :: Text -> Amd64Statement
+amd64Label = Amd64Label
+
+amd64Quad :: Text -> Amd64Statement
+amd64Quad = Amd64Quad
+
+amd64Bytes :: ByteString -> Amd64Statement
+amd64Bytes = Amd64Bytes
+
+amd64Instruction :: Amd64Opcode -> [Text] -> Amd64Statement
+amd64Instruction opcode = Amd64Instruction . encodeOperation (opcodeText opcode)
+
+applyStatement :: Either ObjectError Draft -> Amd64Statement -> Either ObjectError Draft
+applyStatement result statement = do
   draft <- result
-  let line = T.strip sourceLine
-  if T.null line || line == ".intel_syntax noprefix"
-    then pure draft
-    else
-      if line == ".text"
-        then pure (selectSection TextSection draft)
-        else
-          if ".section " `T.isPrefixOf` line
-            then selectElfSection line draft
-            else
-              if ".p2align " `T.isPrefixOf` line
-                then parseAlignment line >>= \alignment -> addItem (Align alignment (alignmentFill draft)) draft
-                else
-                  if ".globl " `T.isPrefixOf` line
-                    then pure (addGlobal (T.drop 7 line) draft)
-                    else
-                      if ".quad " `T.isPrefixOf` line
-                        then parseQuad (T.drop 6 line) >>= \item -> addItem item draft
-                        else
-                          if ".byte " `T.isPrefixOf` line
-                            then parseBytes (T.drop 6 line) >>= \valueBytes -> addItem (Bytes valueBytes) draft
-                            else
-                              if ":" `T.isSuffixOf` line
-                                then addItem (Label (T.dropEnd 1 line)) draft
-                                else encodeInstruction line >>= \items -> foldl' (>>=) (pure draft) [addItem item | item <- items]
+  case statement of
+    Amd64Section role -> pure (selectSection role draft)
+    Amd64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
+    Amd64Global symbol -> pure (addGlobal symbol draft)
+    Amd64Label symbol -> addItem (Label symbol) draft
+    Amd64Quad value -> parseQuad value >>= \item -> addItem item draft
+    Amd64Bytes value
+      | BS.null value -> pure draft
+      | otherwise -> addItem (Bytes value) draft
+    Amd64Instruction encoded ->
+      encoded >>= \items -> foldl' (>>=) (pure draft) [addItem item | item <- items]
 
-selectElfSection :: Text -> Draft -> Either ObjectError Draft
-selectElfSection line draft
-  | ".rodata" `T.isPrefixOf` name = pure (selectSection ReadOnlySection draft)
-  | ".data" `T.isPrefixOf` name = pure (selectSection DataSection draft)
-  | "aihc_roots" `T.isPrefixOf` name = pure (selectSection RootsSection draft)
-  | "aihc_locals" `T.isPrefixOf` name = pure (selectSection LocalsSection draft)
-  | ".note.GNU-stack" `T.isPrefixOf` name = pure (selectSection NoExecuteStackSection draft)
+opcodeText :: Amd64Opcode -> Text
+opcodeText opcode =
+  case opcode of
+    AmdRet -> "ret"
+    AmdUd2 -> "ud2"
+    AmdPush -> "push"
+    AmdPop -> "pop"
+    AmdCall -> "call"
+    AmdJmp -> "jmp"
+    AmdJe -> "je"
+    AmdJz -> "jz"
+    AmdJne -> "jne"
+    AmdMov -> "mov"
+    AmdMovsxd -> "movsxd"
+    AmdMovzx -> "movzx"
+    AmdLea -> "lea"
+    AmdAdd -> "add"
+    AmdSub -> "sub"
+    AmdAnd -> "and"
+    AmdOr -> "or"
+    AmdXor -> "xor"
+    AmdImul -> "imul"
+    AmdCmp -> "cmp"
+    AmdTest -> "test"
+    AmdShl -> "shl"
+    AmdShr -> "shr"
+    AmdNot -> "not"
+    AmdMul -> "mul"
+    AmdDiv -> "div"
+    AmdSeto -> "seto"
+    AmdSetc -> "setc"
+    AmdSetb -> "setb"
+    AmdSetae -> "setae"
+    AmdSete -> "sete"
+    AmdSetne -> "setne"
+    AmdSetbe -> "setbe"
+    AmdSeta -> "seta"
+    AmdSetl -> "setl"
+    AmdSetge -> "setge"
+    AmdSetle -> "setle"
+    AmdSetg -> "setg"
+
+parseStatement :: Text -> Either ObjectError Amd64Statement
+parseStatement sourceLine = do
+  let line = T.strip sourceLine
+  if T.null line
+    then Left (ObjectInvalidInput sourceLine)
+    else
+      if line == ".intel_syntax noprefix"
+        then pure (Amd64Bytes BS.empty)
+        else
+          if line == ".text"
+            then pure (Amd64Section TextSection)
+            else
+              if ".section " `T.isPrefixOf` line
+                then Amd64Section <$> selectElfSection line
+                else
+                  if ".p2align " `T.isPrefixOf` line
+                    then Amd64Align <$> parseAlignment line
+                    else
+                      if ".globl " `T.isPrefixOf` line
+                        then pure (Amd64Global (T.drop 7 line))
+                        else
+                          if ".quad " `T.isPrefixOf` line
+                            then pure (Amd64Quad (T.drop 6 line))
+                            else
+                              if ".byte " `T.isPrefixOf` line
+                                then Amd64Bytes <$> parseBytes (T.drop 6 line)
+                                else
+                                  if ":" `T.isSuffixOf` line
+                                    then pure (Amd64Label (T.dropEnd 1 line))
+                                    else parseInstruction line
+
+selectElfSection :: Text -> Either ObjectError SectionRole
+selectElfSection line
+  | ".rodata" `T.isPrefixOf` name = pure ReadOnlySection
+  | ".data" `T.isPrefixOf` name = pure DataSection
+  | "aihc_roots" `T.isPrefixOf` name = pure RootsSection
+  | "aihc_locals" `T.isPrefixOf` name = pure LocalsSection
+  | ".note.GNU-stack" `T.isPrefixOf` name = pure NoExecuteStackSection
   | otherwise = Left (ObjectInvalidInput line)
   where
     name = T.strip (T.drop 9 line)
@@ -131,10 +273,59 @@ parseOperand source
           pure (MemoryOperand register (fromIntegral displacement))
         _ -> Left (ObjectInvalidInput source)
 
-encodeInstruction :: Text -> Either ObjectError [Item]
-encodeInstruction line =
+parseInstruction :: Text -> Either ObjectError Amd64Statement
+parseInstruction line =
   case T.break isSpace line of
-    (operation, rest) -> encodeOperation operation (splitOperands (T.strip rest))
+    (operation, rest) -> do
+      opcode <- parseOpcode operation
+      pure (amd64Instruction opcode (splitOperands (T.strip rest)))
+
+parseOpcode :: Text -> Either ObjectError Amd64Opcode
+parseOpcode operation =
+  case lookup operation [(opcodeText opcode, opcode) | opcode <- allOpcodes] of
+    Just opcode -> pure opcode
+    Nothing -> Left (ObjectInvalidInput operation)
+  where
+    allOpcodes =
+      [ AmdRet,
+        AmdUd2,
+        AmdPush,
+        AmdPop,
+        AmdCall,
+        AmdJmp,
+        AmdJe,
+        AmdJz,
+        AmdJne,
+        AmdMov,
+        AmdMovsxd,
+        AmdMovzx,
+        AmdLea,
+        AmdAdd,
+        AmdSub,
+        AmdAnd,
+        AmdOr,
+        AmdXor,
+        AmdImul,
+        AmdCmp,
+        AmdTest,
+        AmdShl,
+        AmdShr,
+        AmdNot,
+        AmdMul,
+        AmdDiv,
+        AmdSeto,
+        AmdSetc,
+        AmdSetb,
+        AmdSetae,
+        AmdSete,
+        AmdSetne,
+        AmdSetbe,
+        AmdSeta,
+        AmdSetl,
+        AmdSetge,
+        AmdSetle,
+        AmdSetg
+      ]
 
 encodeOperation :: Text -> [Text] -> Either ObjectError [Item]
 encodeOperation operation operands =

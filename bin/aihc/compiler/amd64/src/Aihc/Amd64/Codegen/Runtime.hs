@@ -59,6 +59,15 @@ module Aihc.Amd64.Codegen.Runtime
   )
 where
 
+import Aihc.Amd64.Assemble
+  ( Amd64Opcode (..),
+    Amd64Statement,
+    amd64Bytes,
+    amd64Global,
+    amd64Instruction,
+    amd64Label,
+    amd64Quad,
+  )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
@@ -106,12 +115,12 @@ data ObservedProgram = ObservedProgram
 data FunctionState = FunctionState
   { functionNextLabel :: !Int,
     functionNextSlot :: !Int,
-    functionBlocksRev :: ![BlockLayout.Block Text Text]
+    functionBlocksRev :: ![BlockLayout.Block Text Amd64Statement]
   }
 
 data CompiledFunction = CompiledFunction
   { compiledFunctionSlots :: !Int,
-    compiledFunctionLines :: ![Text]
+    compiledFunctionLines :: ![Amd64Statement]
   }
 
 type FunctionM = StateT FunctionState (Either Amd64Error)
@@ -170,10 +179,10 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       runtimeObjectClosure
   ]
 
-materializeValue :: ValueEnv -> GrinValue -> Either Amd64Error [Text]
+materializeValue :: ValueEnv -> GrinValue -> Either Amd64Error [Amd64Statement]
 materializeValue env = materializeValueTo env "rax"
 
-materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Amd64Error [Text]
+materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Amd64Error [Amd64Statement]
 materializeValueTo env destination value =
   case value of
     GrinVarValue var ->
@@ -183,7 +192,7 @@ materializeValueTo env destination value =
     GrinGlobalValue name -> Right [address destination (renderLinkedGlobalSymbol name)]
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
-materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Amd64Error [Text]
+materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Amd64Error [Amd64Statement]
 materializeLiteralTo destination env literal =
   case literal of
     GrinLitAddr value -> do
@@ -231,13 +240,13 @@ normalizeSigned bits integer =
 normalizeUnsigned :: Int -> Integer -> Integer
 normalizeUnsigned bits integer = integer `mod` (2 ^ bits)
 
-materializeNode :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+materializeNode :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 materializeNode = materializeNodeWith allocateNode
 
-materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 materializeNodeUnchecked = materializeNodeWith allocateNodeUnchecked
 
-materializeNodeWith :: (ValueEnv -> GrinNode -> Either Amd64Error [Text]) -> ValueEnv -> GrinNode -> Either Amd64Error [Text]
+materializeNodeWith :: (ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]) -> ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 materializeNodeWith allocate env node = do
   allocationLines <- allocate env node
   if null (grinNodeFields node)
@@ -246,18 +255,18 @@ materializeNodeWith allocate env node = do
       fieldLines <- initializeNodeFields env node
       pure $ allocationLines <> ["  mov r13, rax"] <> fieldLines <> ["  mov rax, r13"]
 
-allocateNode :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+allocateNode :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 allocateNode = allocateNodeWith makeNodeLines
 
-allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 allocateNodeUnchecked = allocateNodeWith makeNodeUncheckedLines
 
-allocateNodeWith :: (NodeInfo -> [Text]) -> ValueEnv -> GrinNode -> Either Amd64Error [Text]
+allocateNodeWith :: (NodeInfo -> [Amd64Statement]) -> ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 allocateNodeWith make env node = do
   info <- nodeHeader env node
   pure (make info)
 
-initializeNodeFields :: ValueEnv -> GrinNode -> Either Amd64Error [Text]
+initializeNodeFields :: ValueEnv -> GrinNode -> Either Amd64Error [Amd64Statement]
 initializeNodeFields env node =
   fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     valueLines <- materializeValue env field
@@ -284,7 +293,7 @@ data NodeInfo
   | InfoAddress !Text
   | InfoConstructor !Text
 
-makeNodeLines :: NodeInfo -> [Text]
+makeNodeLines :: NodeInfo -> [Amd64Statement]
 makeNodeLines info =
   [ "  mov rdi, r15",
     infoLine info,
@@ -297,11 +306,11 @@ makeNodeLines info =
         InfoAddress label -> address "rsi" label
         InfoConstructor label -> address "rsi" label
 
-makeNodeUncheckedLines :: NodeInfo -> [Text]
+makeNodeUncheckedLines :: NodeInfo -> [Amd64Statement]
 makeNodeUncheckedLines info =
   init (makeNodeLines info) <> ["  call aihc_make_node_unchecked"]
 
-renderEnterStubs :: [RuntimeInfo] -> [Text]
+renderEnterStubs :: [RuntimeInfo] -> [Amd64Statement]
 renderEnterStubs infos = concatMap renderStub uniqueTransfers
   where
     uniqueTransfers =
@@ -314,7 +323,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     renderStub apply =
       [ ".text",
         ".p2align 4",
-        sharedEnterEntryLabel apply <> ":"
+        amd64Label (sharedEnterEntryLabel apply)
       ]
         <> moveSupplied apply
         <> moveSuppliedOverflow apply
@@ -330,7 +339,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
         ]
     moveSuppliedOverflow apply =
       concat
-        [ [ "  mov r11, QWORD PTR [rsp + " <> tshow ((sourceIndex - length applyArgumentRegisters) * 8) <> "]",
+        [ [ loadByteOffset "r11" "rsp" ((sourceIndex - length applyArgumentRegisters) * 8),
             storeAt "r11" "r14" targetIndex
           ]
         | sourceIndex <- [length applyArgumentRegisters .. runtimeEnterSuppliedCount apply - 1],
@@ -349,7 +358,7 @@ renderEnterStubs infos = concatMap renderStub uniqueTransfers
     placeArgument targetIndex source
       | targetIndex < length applyArgumentRegisters =
           let destination = applyArgumentRegisters !! targetIndex
-           in ["  mov " <> destination <> ", " <> source | destination /= source]
+           in [amd64Instruction AmdMov [destination, source] | destination /= source]
       | otherwise = [storeAt source "r14" targetIndex]
 
 enterEntryLabel :: RuntimeInfo -> Text
@@ -387,29 +396,29 @@ applyStackBytes suppliedCount =
   where
     overflowCount = max 0 (suppliedCount - length applyArgumentRegisters)
 
-restoreApplyStackLines :: Int -> [Text]
+restoreApplyStackLines :: Int -> [Amd64Statement]
 restoreApplyStackLines stackBytes
   | stackBytes == 0 = []
-  | otherwise = ["  add rsp, " <> tshow stackBytes]
+  | otherwise = [amd64Instruction AmdAdd ["rsp", tshow stackBytes]]
 
-renderRuntimeInfos :: [RuntimeInfo] -> [Text]
+renderRuntimeInfos :: [RuntimeInfo] -> [Amd64Statement]
 renderRuntimeInfos infos =
   [".section .rodata"] <> concatMap renderInfo infos
   where
     renderInfo info =
       bitmapLines
-        <> [".globl " <> runtimeInfoLabel info | "aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
+        <> [amd64Global (runtimeInfoLabel info) | "aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
         <> [ ".p2align 3",
-             runtimeInfoLabel info <> ":",
+             amd64Label (runtimeInfoLabel info),
              identityLine (runtimeInfoIdentity info),
              entryLine (runtimeInfoIdentity info),
-             "  .quad " <> tshow (length fields),
-             "  .quad " <> tshow (runtimeInfoRemainingArity info),
-             "  .quad " <> if null fields then "0" else bitmapLabel,
-             "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
-             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info),
-             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
-             "  .quad " <> tshow (runtimeInfoObjectKind info)
+             amd64Quad (tshow (length fields)),
+             amd64Quad (tshow (runtimeInfoRemainingArity info)),
+             amd64Quad (if null fields then "0" else bitmapLabel),
+             amd64Quad (fromMaybe "0" (runtimeInfoNext info)),
+             amd64Quad (maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)),
+             amd64Quad (tshow (continuationFrameKindCode (runtimeInfoFrameKind info))),
+             amd64Quad (tshow (runtimeInfoObjectKind info))
            ]
       where
         fields = runtimeInfoFields info
@@ -418,21 +427,21 @@ renderRuntimeInfos infos =
           if null fields
             then []
             else
-              [ bitmapLabel <> ":",
-                "  .byte " <> T.intercalate ", " [if isPointerRuntimeRep runtimeRep then "1" else "0" | runtimeRep <- fields]
+              [ amd64Label bitmapLabel,
+                amd64Bytes (BS.pack [if isPointerRuntimeRep runtimeRep then 1 else 0 | runtimeRep <- fields])
               ]
     identityLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> "  .quad " <> tshow integer
-        InfoAddress label -> "  .quad " <> label
-        InfoConstructor label -> "  .quad " <> label
+        InfoImmediate integer -> amd64Quad (tshow integer)
+        InfoAddress label -> amd64Quad label
+        InfoConstructor label -> amd64Quad label
     entryLine nodeInfo =
       case nodeInfo of
-        InfoImmediate {} -> "  .quad 0"
-        InfoAddress label -> "  .quad " <> label
-        InfoConstructor {} -> "  .quad 0"
+        InfoImmediate {} -> amd64Quad "0"
+        InfoAddress label -> amd64Quad label
+        InfoConstructor {} -> amd64Quad "0"
 
-renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Text]
+renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Amd64Statement]
 renderRuntimeSupport env extraInfos =
   renderEnterStubs infos
     <> renderAddrLiteralPool env
@@ -446,23 +455,23 @@ runtimeObjectClosure = 1
 runtimeObjectThunk = 2
 runtimeObjectPartialConstructor = 3
 
-loadLocation :: Text -> Location Text -> [Text]
+loadLocation :: Text -> Location Text -> [Amd64Statement]
 loadLocation destination location =
   case location of
     InRegister source
       | destination == source -> []
-      | otherwise -> ["  mov " <> destination <> ", " <> source]
+      | otherwise -> [amd64Instruction AmdMov [destination, source]]
     InHeapSpill slot -> [loadAt destination "r14" slot]
 
-storeLocation :: Text -> Location Text -> [Text]
+storeLocation :: Text -> Location Text -> [Amd64Statement]
 storeLocation source location =
   case location of
     InRegister destination
       | destination == source -> []
-      | otherwise -> ["  mov " <> destination <> ", " <> source]
+      | otherwise -> [amd64Instruction AmdMov [destination, source]]
     InHeapSpill slot -> [storeAt source "r14" slot]
 
-renderNativeControl :: [Text]
+renderNativeControl :: [Amd64Statement]
 renderNativeControl =
   [ ".text",
     ".p2align 4",
@@ -633,7 +642,7 @@ runtimeInfoKeyNext (ClosureRuntimeInfo functionName fields (layout : rest)) =
 runtimeInfoKeyNext ClosureRuntimeInfo {} = Nothing
 runtimeInfoKeyNext ThunkRuntimeInfo {} = Nothing
 
-renderAddrLiteralPool :: CompileEnv -> [Text]
+renderAddrLiteralPool :: CompileEnv -> [Amd64Statement]
 renderAddrLiteralPool env =
   case Map.toAscList (compileAddrLiteralLabels env) of
     [] -> []
@@ -642,10 +651,8 @@ renderAddrLiteralPool env =
         <> concatMap renderLiteral literals
   where
     renderLiteral (value, label) =
-      ["  .p2align 3", label <> ":"]
-        <> map renderBytes (chunksOf 32 (BS.unpack value <> [0]))
-
-    renderBytes bytes = "  .byte " <> T.intercalate ", " (map tshow bytes)
+      ["  .p2align 3", amd64Label label]
+        <> map (amd64Bytes . BS.pack) (chunksOf 32 (BS.unpack value <> [0]))
 
     chunksOf _ [] = []
     chunksOf size bytes = take size bytes : chunksOf size (drop size bytes)
@@ -658,19 +665,19 @@ localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "aihc_snapshot_function_" <> tshow index
   | otherwise = functionLabel index
 
-loadAt :: Text -> Text -> Int -> Text
+loadAt :: Text -> Text -> Int -> Amd64Statement
 loadAt destination base slot = loadByteOffset destination base (slot * 8)
 
-storeAt :: Text -> Text -> Int -> Text
+storeAt :: Text -> Text -> Int -> Amd64Statement
 storeAt source base slot = storeByteOffset source base (slot * 8)
 
-loadByteOffset :: Text -> Text -> Int -> Text
+loadByteOffset :: Text -> Text -> Int -> Amd64Statement
 loadByteOffset destination base offset =
-  "  mov " <> destination <> ", QWORD PTR [" <> base <> offsetText offset <> "]"
+  amd64Instruction AmdMov [destination, "QWORD PTR [" <> base <> offsetText offset <> "]"]
 
-storeByteOffset :: Text -> Text -> Int -> Text
+storeByteOffset :: Text -> Text -> Int -> Amd64Statement
 storeByteOffset source base offset =
-  "  mov QWORD PTR [" <> base <> offsetText offset <> "], " <> source
+  amd64Instruction AmdMov ["QWORD PTR [" <> base <> offsetText offset <> "]", source]
 
 offsetText :: Int -> Text
 offsetText offset
@@ -678,12 +685,12 @@ offsetText offset
   | offset > 0 = " + " <> tshow offset
   | otherwise = " - " <> tshow (abs offset)
 
-immediate :: (Show value) => Text -> value -> Text
-immediate register value = "  mov " <> register <> ", " <> T.pack (show value)
+immediate :: (Show value) => Text -> value -> Amd64Statement
+immediate register value = amd64Instruction AmdMov [register, T.pack (show value)]
 
-address :: Text -> Text -> Text
+address :: Text -> Text -> Amd64Statement
 address register label =
-  "  lea " <> register <> ", [rip + " <> label <> "]"
+  amd64Instruction AmdLea [register, "[rip + " <> label <> "]"]
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show

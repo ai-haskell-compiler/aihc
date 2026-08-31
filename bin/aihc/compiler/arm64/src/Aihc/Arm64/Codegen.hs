@@ -15,7 +15,15 @@ module Aihc.Arm64.Codegen
   )
 where
 
-import Aihc.Arm64.Assemble (assembleMachO)
+import Aihc.Arm64.Assemble
+  ( Arm64Opcode (..),
+    Arm64Statement,
+    arm64Global,
+    arm64Instruction,
+    arm64Label,
+    arm64Quad,
+    assembleMachO,
+  )
 import Aihc.Arm64.Codegen.Function
 import Aihc.Arm64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
@@ -80,7 +88,7 @@ compileObservedFunction entryName gcProgram = do
           <> [ "  mov x21, x0",
                "  mov x0, x22",
                "  bl _aihc_reset_allocation_count",
-               "  b " <> entryLabel,
+               arm64Instruction ArmB [entryLabel],
                ".p2align 3",
                ".Laihc_snapshot_result:"
              ]
@@ -118,10 +126,10 @@ compileObservedFunction entryName gcProgram = do
 compileModuleObject :: GcGrinProgram -> Either Arm64Error BL.ByteString
 compileModuleObject gcProgram = compileModuleStatements gcProgram >>= assembleObject
 
-assembleObject :: [Text] -> Either Arm64Error BL.ByteString
+assembleObject :: [Arm64Statement] -> Either Arm64Error BL.ByteString
 assembleObject = either (Left . Arm64ObjectError . T.pack . show) pure . assembleMachO
 
-compileModuleStatements :: GcGrinProgram -> Either Arm64Error [Text]
+compileModuleStatements :: GcGrinProgram -> Either Arm64Error [Arm64Statement]
 compileModuleStatements gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -135,7 +143,7 @@ compileModuleStatements gcProgram = do
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
 
-compileEntryUnit :: Text -> GcGrinProgram -> Either Arm64Error [Text]
+compileEntryUnit :: Text -> GcGrinProgram -> Either Arm64Error [Arm64Statement]
 compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -163,10 +171,11 @@ compileEntryUnit entryName gcProgram = do
            "  mov x2, x20",
            loadAt "x0" "x19" 0,
            "  mov x1, #0",
-           "  bl _aihc_set_field",
-           loadAt "x0" "x19" 0,
+           "  bl _aihc_set_field"
+         ]
+      <> address "x2" ("_" <> renderLinkedGlobalSymbol entryName)
+      <> [ loadAt "x0" "x19" 0,
            "  mov x1, #1",
-           address "x2" ("_" <> renderLinkedGlobalSymbol entryName),
            "  bl _aihc_set_field"
          ]
       <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
@@ -175,9 +184,10 @@ compileEntryUnit entryName gcProgram = do
            "  mov x0, x22",
            "  bl _aihc_set_thread_done_continuation",
            "  adr x9, .Laihc_exit",
-           "  str x9, [x22, #16]",
-           address applyFunctionRegister ("_" <> renderLinkedGlobalSymbol entryName),
-           loadAt "x0" "x19" 0,
+           "  str x9, [x22, #16]"
+         ]
+      <> address applyFunctionRegister ("_" <> renderLinkedGlobalSymbol entryName)
+      <> [ loadAt "x0" "x19" 0,
            "  ldr x21, [x0, #8]",
            "  mov x8, #1",
            "  b .Laihc_eval"
@@ -298,7 +308,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames program =
       ]
     third (_, _, value) = value
 
-renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Arm64Error [Text]
+renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Arm64Error [Arm64Statement]
 renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
   where
     declaredGlobals = grinGlobals program
@@ -315,18 +325,18 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
       let symbol = "_" <> renderLinkedGlobalSymbol name
-          payload = if null fields && isThunk node then ["  .quad 0"] else fields
+          payload = if null fields && isThunk node then [arm64Quad "0"] else fields
       pure $
         [ ".section __DATA,__data",
           ".p2align 3",
-          ".globl " <> symbol,
-          symbol <> ":",
-          "  .quad " <> info
+          arm64Global symbol,
+          arm64Label symbol,
+          arm64Quad info
         ]
           <> payload
           <> [ ".section __DATA,__aihc_roots,regular,no_dead_strip",
                ".p2align 3",
-               "  .quad " <> symbol
+               arm64Quad symbol
              ]
     staticNodeInfo node =
       case grinNodeTag node of
@@ -337,26 +347,26 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
         fields = map grinValueRuntimeRep (grinNodeFields node)
     renderStaticValue value =
       case value of
-        GrinVarValue var -> pure ("  .quad _" <> renderLinkedGlobalSymbol (grinVarName var))
-        GrinGlobalValue name -> pure ("  .quad _" <> renderLinkedGlobalSymbol name)
+        GrinVarValue var -> pure (arm64Quad ("_" <> renderLinkedGlobalSymbol (grinVarName var)))
+        GrinGlobalValue name -> pure (arm64Quad ("_" <> renderLinkedGlobalSymbol name))
         GrinLitValue literal ->
           case literal of
             GrinLitAddr bytes ->
-              maybe (Left (Arm64UnsupportedValue "unregistered Addr# literal")) (pure . ("  .quad " <>)) (Map.lookup bytes (compileAddrLiteralLabels env))
-            _ -> maybe (Left (Arm64UnsupportedValue "string literal")) (pure . ("  .quad " <>) . T.pack . show) (normalizedLiteralInteger literal)
+              maybe (Left (Arm64UnsupportedValue "unregistered Addr# literal")) (pure . arm64Quad) (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (Arm64UnsupportedValue "string literal")) (pure . arm64Quad . T.pack . show) (normalizedLiteralInteger literal)
     isThunk node =
       case grinNodeTag node of
         GrinThunk {} -> True
         _ -> False
 
-renderLinkedLocals :: [CompiledFunction] -> [Text]
+renderLinkedLocals :: [CompiledFunction] -> [Arm64Statement]
 renderLinkedLocals functions =
   [ ".section __DATA,__aihc_locals,regular,no_dead_strip",
     ".p2align 3",
-    "  .quad " <> tshow (maximum (2 : map compiledFunctionSlots functions))
+    arm64Quad (tshow (maximum (2 : map compiledFunctionSlots functions)))
   ]
 
-mainPrologue :: Int -> [Text]
+mainPrologue :: Int -> [Arm64Statement]
 mainPrologue globalCount =
   entryPrologue "_main"
     <> [ "  bl _aihc_program_arguments_initialize",
@@ -365,19 +375,19 @@ mainPrologue globalCount =
          "  mov x22, x0"
        ]
 
-entryPrologue :: Text -> [Text]
+entryPrologue :: Text -> [Arm64Statement]
 entryPrologue symbol =
   [ ".section __TEXT,__text,regular,pure_instructions",
     ".p2align 2",
-    ".globl " <> symbol,
-    symbol <> ":",
+    arm64Global symbol,
+    arm64Label symbol,
     "  stp x29, x30, [sp, #-48]!",
     "  mov x29, sp",
     "  stp x19, x20, [sp, #16]",
     "  stp x21, x22, [sp, #32]"
   ]
 
-entryEpilogue :: [Text]
+entryEpilogue :: [Arm64Statement]
 entryEpilogue =
   [ "  ldp x21, x22, [sp, #32]",
     "  ldp x19, x20, [sp, #16]",
@@ -385,7 +395,7 @@ entryEpilogue =
     "  ret"
   ]
 
-threadDoneContinuation :: [Text]
+threadDoneContinuation :: [Arm64Statement]
 threadDoneContinuation =
   [ ".p2align 3",
     ".Laihc_thread_done_continuation:",
@@ -404,15 +414,13 @@ threadDoneRuntimeInfos =
     []
     [BoxedRep Lifted]
 
-renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Text]
+renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Arm64Statement]
 renderCompiledSupport env functions runtimeInfos =
   renderNativeControl
     <> concatMap renderFunction functions
     <> renderRuntimeSupport env runtimeInfos
   where
-    renderFunction function =
-      let functionLines = compiledFunctionLines function
-       in functionLines <> [".ltorg" | any (T.isInfixOf ", =") functionLines]
+    renderFunction = compiledFunctionLines
 
 -- | Reject primitives that reachable native code would not execute correctly.
 -- Relocatable library objects may carry dormant primitive declarations, but
