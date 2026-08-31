@@ -11,8 +11,6 @@ expected: |-
   global "\NULTest\NULpairWith" = (P$grin_closure_0/1)
 
   $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    function_whnf%-1000000001 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) global-ref "\NULTest\NULPair"
-    apply @(BoxedRep Lifted) (function_whnf%-1000000001 :: BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
+    store (CTest.Pair/1 (x%-1000000000 :: BoxedRep Lifted))
 status: pass
-reason: keeps a partially applied constructor on the general apply path
+reason: stores a partially applied constructor directly with its remaining arity

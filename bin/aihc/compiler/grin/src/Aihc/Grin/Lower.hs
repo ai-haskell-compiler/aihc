@@ -412,9 +412,10 @@ lowerApplication env function argument = do
       | "(#" `T.isPrefixOf` Fc.nameText name -> lowerTupleArguments env arguments
     (_, (Fc.ExVar name, arguments))
       | resultRep == liftedGrinRep,
+        not ("(#" `T.isPrefixOf` Fc.nameText name),
         Just arity <- Map.lookup name (lowerConstructorArities env),
-        length arguments == arity ->
-          lowerSaturatedConstructor env name arguments
+        length arguments <= arity ->
+          lowerConstructorApplication env name (arity - length arguments) arguments
     _ ->
       lowerLazySingle env "function" function $ \functionValue -> do
         evaluated <- freshVar "function_whnf" liftedGrinRep
@@ -441,10 +442,10 @@ lowerTupleArguments env = go []
     go values (argument : arguments) =
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
-lowerSaturatedConstructor :: LowerEnv -> Fc.Name -> [Fc.Expr] -> LowerM GrinExpr
-lowerSaturatedConstructor env name = go []
+lowerConstructorApplication :: LowerEnv -> Fc.Name -> Int -> [Fc.Expr] -> LowerM GrinExpr
+lowerConstructorApplication env name remaining = go []
   where
-    go values [] = pure (GrinStore (GrinNode (GrinConstructor (constructorTag name) 0) values))
+    go values [] = pure (GrinStore (GrinNode (GrinConstructor (constructorTag name) remaining) values))
     go values (argument : arguments) =
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
