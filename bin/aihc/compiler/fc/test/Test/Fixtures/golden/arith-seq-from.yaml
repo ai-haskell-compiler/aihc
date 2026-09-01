@@ -4,8 +4,7 @@ modules:
 - |
   module Test where
   import GHC.Classes (Enum)
-  data Bool = False | True
-  result :: Enum Bool => Bool -> [Bool]
+  result :: Enum a => a -> [a]
   result expr = [expr ..]
 expected: |-
   scope 1 = "" Test
@@ -28,14 +27,10 @@ expected: |-
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub type 1.tBool :: 3.tType {
-      pub 1.vFalse :: 1.tBool;
-      pub 1.vTrue :: 1.tBool
-  }
-
-  pub val 1.vresult :: 2.t$Dict$Enum 1.tBool 3.→ 1.tBool 3.→ 3.t[] 1.tBool
-   = λ($d0 : 2.t$Dict$Enum 1.tBool).
-    λ(x : 1.tBool).
-      2.venumFrom @1.tBool $d0 x
+  pub val 1.vresult :: ∀(a : 3.tType). 2.t$Dict$Enum a 3.→ a 3.→ 3.t[] a
+   = Λ(a : 3.tType).
+    λ($d0 : 2.t$Dict$Enum a).
+      λ(x : a).
+        2.venumFrom @a $d0 x
 status: pass
 reason: Desugars an open arithmetic sequence through the resolved enumFrom function.
