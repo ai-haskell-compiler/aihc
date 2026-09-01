@@ -1318,6 +1318,7 @@ desugarAnnotatedExpr annotation inner = do
           representation <- convertRuntimeRep AddrRep
           pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
         Syn.EList elements -> desugarList annotation elements
+        Syn.EListComp expression statements -> desugarListComp annotation expression statements
         Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
         Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
@@ -1493,6 +1494,173 @@ desugarList annotation elements = do
   let nil = ExTyApp (ExVar nilName) convertedType
       cons = ExTyApp (ExVar consName) convertedType
   pure (foldr (ExApp . ExApp cons) nil elements')
+
+desugarListComp :: TcAnnotation -> Syn.Expr -> [Syn.CompStmt] -> ValueM Expr
+desugarListComp annotation expression statements = do
+  elementType <- listElementType "list comprehension result" (tcAnnType annotation)
+  convertedElementType <- convertCheckedType elementType
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  let nil = ExTyApp (ExVar nilName) convertedElementType
+      cons = ExTyApp (ExVar consName) convertedElementType
+  desugarListCompStatements elementType cons expression statements nil
+
+desugarListCompStatements :: TcType -> Expr -> Syn.Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
+desugarListCompStatements resultElementType cons expression statements rest =
+  case statements of
+    [] -> do
+      expression' <- desugarExpr expression
+      pure (ExApp (ExApp cons expression') rest)
+    statement : remaining ->
+      case statement of
+        Syn.CompAnn _ inner -> desugarListCompStatements resultElementType cons expression (inner : remaining) rest
+        Syn.CompGen pattern' source ->
+          desugarListCompGenerator resultElementType cons expression pattern' source remaining rest
+        Syn.CompGuard guard -> do
+          success <- desugarListCompStatements resultElementType cons expression remaining rest
+          desugarListCompGuard resultElementType guard success rest
+        Syn.CompLetDecls declarations ->
+          desugarLocalDecls declarations (desugarListCompStatements resultElementType cons expression remaining rest)
+        unsupported -> failValue ("unsupported list comprehension statement: " <> take 80 (show unsupported))
+
+desugarListCompGenerator :: TcType -> Expr -> Syn.Expr -> Syn.Pattern -> Syn.Expr -> [Syn.CompStmt] -> Expr -> ValueM Expr
+desugarListCompGenerator resultElementType cons expression pattern' source remaining rest = do
+  sourceType <- requiredExprType source
+  sourceElementType <- listElementType "list comprehension generator" sourceType
+  resultListType <- listTypeFromElement resultElementType
+  function <- freshBinder "_list_comp" (TcFunTy sourceType resultListType)
+  argument <- freshBinder "_list_comp_list" sourceType
+  item <- freshPatternBinder pattern' sourceElementType
+  items <- freshBinder "_list_comp_tail" sourceType
+  caseBinder <- freshBinder "_list_comp_scrut" sourceType
+  resultType <- convertCheckedType resultListType
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  let recursiveCall = ExApp (ExVar (binderName function)) (ExVar (binderName items))
+  success <-
+    desugarListCompPattern
+      resultListType
+      item
+      sourceElementType
+      pattern'
+      (desugarListCompStatements resultElementType cons expression remaining recursiveCall)
+      recursiveCall
+  source' <- desugarExpr source
+  let loop =
+        ExCase
+          (ExVar (binderName argument))
+          caseBinder
+          resultType
+          [ Alt (AltData nilName) [] [] rest,
+            Alt (AltData consName) [] [item, items] success
+          ]
+  pure (ExRec [Bind function (ExLam argument loop)] (ExApp (ExVar (binderName function)) source'))
+
+desugarListCompGuard :: TcType -> Syn.Expr -> Expr -> Expr -> ValueM Expr
+desugarListCompGuard resultElementType guard success failure = do
+  guard' <- desugarExpr guard
+  guardType <- requiredExprType guard
+  binder <- freshBinder "_list_comp_guard" guardType
+  resultType <- convertCheckedType =<< listTypeFromElement resultElementType
+  trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
+  falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
+  pure
+    ( ExCase
+        guard'
+        binder
+        resultType
+        [ Alt (AltData trueName) [] [] success,
+          Alt (AltData falseName) [] [] failure
+        ]
+    )
+
+desugarListCompPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompPattern resultType binder ty pattern' success failure =
+  case pattern' of
+    Syn.PAnn _ inner -> desugarListCompPattern resultType binder ty inner success failure
+    Syn.PParen inner -> desugarListCompPattern resultType binder ty inner success failure
+    Syn.PStrict inner -> desugarListCompPattern resultType binder ty inner success failure
+    Syn.PIrrefutable inner -> desugarListCompPattern resultType binder ty inner success failure
+    Syn.PTypeSig inner _ -> desugarListCompPattern resultType binder ty inner success failure
+    Syn.PVar name -> do
+      locals <- binderEntry name binder ty
+      withLocals locals success
+    Syn.PWildcard -> success
+    Syn.PAs name inner -> do
+      locals <- binderEntry name binder ty
+      withLocals locals (desugarListCompPattern resultType binder ty inner success failure)
+    _ -> desugarListCompConstructorPattern resultType binder pattern' success failure
+
+desugarListCompConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompConstructorPattern resultType binder pattern' success failure = do
+  maybeNewtype <- doPatternNewtype pattern'
+  case maybeNewtype of
+    Just dataType -> desugarListCompNewtypePattern resultType binder pattern' dataType success failure
+    Nothing -> do
+      let children = patternChildren pattern'
+          predicates = patternGivenPredicates pattern'
+          typeVariables = patternTypeVariables pattern'
+      typeBinders <- convertTypeBinders typeVariables
+      fieldTypes <- patternFieldTypes pattern' children
+      fields <- zipWithM freshPatternBinder children fieldTypes
+      dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+      constructor <- patternConstructor pattern'
+      resultType' <- convertCheckedType resultType
+      caseBinder <- freshBinderFromType "_list_comp_pattern" (binderType binder)
+      body <-
+        withDictionaries
+          (zipWith Dictionary predicates dictionaries)
+          (desugarListCompChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+      pure
+        ( ExCase
+            (ExVar (binderName binder))
+            caseBinder
+            resultType'
+            [ Alt constructor typeBinders (dictionaries <> fields) body,
+              Alt AltDefault [] [] failure
+            ]
+        )
+
+desugarListCompChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompChildPatterns resultType children success failure =
+  case children of
+    [] -> success
+    (binder, ty, pattern') : remaining ->
+      desugarListCompPattern
+        resultType
+        binder
+        ty
+        pattern'
+        (desugarListCompChildPatterns resultType remaining success failure)
+        failure
+
+desugarListCompNewtypePattern :: TcType -> Binder -> Syn.Pattern -> DataTypeInfo -> ValueM Expr -> Expr -> ValueM Expr
+desugarListCompNewtypePattern resultType binder pattern' dataType success failure = do
+  child <-
+    case patternChildren pattern' of
+      [fieldPattern] -> pure fieldPattern
+      _ -> failValue ("newtype list comprehension pattern does not have one field: " <> T.unpack (dtiName dataType))
+  childType <- requiredPatternType child
+  field <- freshPatternBinder child childType
+  typeArguments <- newtypePatternArguments pattern'
+  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
+  let tyCon = dtiTyCon dataType
+      axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+      unwrapped = ExCast (ExVar (binderName binder)) (CoAxiom axiom convertedArguments)
+  body <- desugarListCompPattern resultType field childType child success failure
+  pure (ExLet (Bind field unwrapped) body)
+
+listElementType :: String -> TcType -> ValueM TcType
+listElementType label ty =
+  case ty of
+    TcTyCon tyCon [elementType]
+      | tyConName tyCon == "[]" -> pure elementType
+    _ -> failValue (label <> " does not have a checked list type: " <> show ty)
+
+listTypeFromElement :: TcType -> ValueM TcType
+listTypeFromElement elementType = do
+  package <- gets (cePrimPackage . vsConvertEnv)
+  pure (TcTyCon (mkTyConWithOrigin package "GHC.Types" "[]" 1) [elementType])
 
 desugarArithSeq :: Syn.ArithSeq -> ValueM Expr
 desugarArithSeq arithSeq =
