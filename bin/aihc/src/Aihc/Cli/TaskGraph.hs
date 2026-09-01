@@ -3,6 +3,7 @@ module Aihc.Cli.TaskGraph
     TaskId (..),
     TaskKind (..),
     TaskTiming (..),
+    renderDuration,
     renderTaskTimeline,
     runTaskGraph,
   )
