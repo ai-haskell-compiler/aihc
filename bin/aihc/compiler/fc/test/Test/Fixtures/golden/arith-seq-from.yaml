@@ -1,0 +1,73 @@
+---
+extensions: []
+modules:
+- |
+  module GHC.Enum where
+  class Enum a where
+    enumFrom :: a -> [a]
+- |
+  module Test where
+  import GHC.Enum (Enum)
+  data Bool = False | True
+  result :: Enum Bool => Bool -> [Bool]
+  result expr = [expr ..]
+expected: |-
+  scope 1 = "" GHC.Enum
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.t$Dict$Enum (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Enum :: ∀(a : 2.tType). (a 2.→ 2.t[] a) 2.→ 1.t$Dict$Enum a
+  }
+
+  pub val 1.venumFrom :: ∀(a : 2.tType). 1.t$Dict$Enum a 2.→ a 2.→ 2.t[] a
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Enum a).
+      case $d0 as ($dict : 1.t$Dict$Enum a) return (a 2.→ 2.t[] a) of {
+          1.v$Dict$Enum ($method0 : a 2.→ 2.t[] a) →
+              $method0
+      }
+  scope 1 = "" GHC.Enum
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    1.t$Dict$Enum :: ∀(a : 3.tType). 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.t[] :: ∀(a : 3.tType). 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    1.venumFrom :: ∀(a : 3.tType). 1.t$Dict$Enum a 3.→ a 3.→ 3.t[] a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 2.tBool :: 3.tType {
+      pub 2.vFalse :: 2.tBool;
+      pub 2.vTrue :: 2.tBool
+  }
+
+  pub val 2.vresult :: 1.t$Dict$Enum 2.tBool 3.→ 2.tBool 3.→ 3.t[] 2.tBool
+   = λ($d0 : 1.t$Dict$Enum 2.tBool).
+    λ(x : 2.tBool).
+      1.venumFrom @2.tBool $d0 x
+status: pass
+reason: Desugars an open arithmetic sequence through the resolved enumFrom function.

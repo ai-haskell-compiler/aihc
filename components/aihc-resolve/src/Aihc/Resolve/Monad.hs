@@ -36,6 +36,7 @@ data ModuleInfo = ModuleInfo
     moduleInfoExplicitPreludeImport :: !Bool,
     moduleInfoGhcBaseScope :: !Scope,
     moduleInfoGhcClassesScope :: !Scope,
+    moduleInfoGhcEnumScope :: !Scope,
     moduleInfoGhcNumScope :: !Scope
   }
 

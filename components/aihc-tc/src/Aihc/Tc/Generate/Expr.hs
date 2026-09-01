@@ -14,6 +14,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
     DoFlavor (..),
@@ -31,7 +32,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
@@ -123,6 +124,8 @@ inferExprAt ambient expr = case expr of
     inferList (exprSpan expr `orSourceSpan` ambient) elems
   EListComp body quals ->
     inferListComp (exprSpan expr `orSourceSpan` ambient) body quals
+  EArithSeq arithSeq ->
+    inferArithSeq (exprSpan expr `orSourceSpan` ambient) arithSeq
   EDo stmts flavor ->
     inferDo (exprSpan expr `orSourceSpan` ambient) flavor stmts
   other -> do
@@ -259,6 +262,12 @@ isDoBindResolution :: ResolutionAnnotation -> Bool
 isDoBindResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionIdentifier resolution == IdentifierNamed ">>="
+
+isArithSeqResolution :: ResolutionAnnotation -> Bool
+isArithSeqResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionIdentifier resolution
+      `elem` map IdentifierNamed ["enumFrom", "enumFromThen", "enumFromTo", "enumFromThenTo"]
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
@@ -726,6 +735,75 @@ inferList sp elems = do
           ev
           (AppOrigin elemSp)
           elemSp
+
+inferArithSeq :: SourceSpan -> ArithSeq -> TcM (Expr, TcType, [Ct])
+inferArithSeq sp arithSeq = do
+  (arithSeq', resultTy, cts) <- inferArithSeqNode sp arithSeq
+  let pending = pendingAnnotation resultTy [] [] []
+  pure (annotatePendingExprAt sp pending (EArithSeq arithSeq'), resultTy, cts)
+
+inferArithSeqNode :: SourceSpan -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
+inferArithSeqNode sp arithSeq =
+  case arithSeq of
+    ArithSeqAnn ann inner
+      | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+        isArithSeqResolution resolution ->
+          inferResolvedArithSeq sp ann resolution inner
+      | otherwise -> do
+          (inner', resultTy, cts) <- inferArithSeqNode sp inner
+          pure (ArithSeqAnn ann inner', resultTy, cts)
+    _ -> abortTc "arithmetic sequence is missing its resolved method"
+
+inferResolvedArithSeq :: SourceSpan -> Annotation -> ResolutionAnnotation -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
+inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
+  (arithSeq', argumentTypes, argumentCts) <- inferArithSeqForm arithSeq
+  let methodName = displayIdentifier (resolutionIdentifier resolution)
+  (methodTy, typeArgs, methodCts) <- inferResolvedArithSeqMethod sp methodName resolution
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = foldr TcFunTy resultTy argumentTypes
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf methodName) sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      annotated = ArithSeqAnn (mkAnnotation methodPending) (ArithSeqAnn resolutionAnn arithSeq')
+  pure (annotated, resultTy, argumentCts <> methodCts <> [methodEquality])
+
+inferResolvedArithSeqMethod :: SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedArithSeqMethod sp methodName resolution = do
+  mBinder <- lookupResolvedTerm methodName (resolutionTarget resolution)
+  case mBinder of
+    Just (TcIdBinder scheme _) -> do
+      inst <- instantiateWithArgs scheme
+      cts <- mapM (predToCt sp methodName) (instPreds inst)
+      pure (instType inst, instTypeArgs inst, cts)
+    Just (TcMonoIdBinder ty) -> pure (ty, [], [])
+    Nothing ->
+      abortTc ("resolved arithmetic sequence method is missing from the type environment: " <> show (resolutionTarget resolution))
+
+inferArithSeqForm :: ArithSeq -> TcM (ArithSeq, [TcType], [Ct])
+inferArithSeqForm arithSeq =
+  case arithSeq of
+    ArithSeqAnn ann inner -> do
+      (inner', types, cts) <- inferArithSeqForm inner
+      pure (ArithSeqAnn ann inner', types, cts)
+    ArithSeqFrom from -> inferForm ArithSeqFrom [from]
+    ArithSeqFromThen from thenExpr -> inferForm2 ArithSeqFromThen from thenExpr
+    ArithSeqFromTo from to -> inferForm2 ArithSeqFromTo from to
+    ArithSeqFromThenTo from thenExpr to -> do
+      results <- mapM inferExpr [from, thenExpr, to]
+      case results of
+        [(from', fromTy, fromCts), (thenExpr', thenTy, thenCts), (to', toTy, toCts)] ->
+          pure (ArithSeqFromThenTo from' thenExpr' to', [fromTy, thenTy, toTy], fromCts <> thenCts <> toCts)
+        _ -> abortTc "arithmetic sequence has an invalid argument count"
+  where
+    inferForm constructor expressions = do
+      results <- mapM inferExpr expressions
+      case results of
+        [(expression', ty, cts)] -> pure (constructor expression', [ty], cts)
+        _ -> abortTc "arithmetic sequence has an invalid argument count"
+    inferForm2 constructor first second = do
+      (first', firstTy, firstCts) <- inferExpr first
+      (second', secondTy, secondCts) <- inferExpr second
+      pure (constructor first' second', [firstTy, secondTy], firstCts <> secondCts)
 
 instantiateListConstructor :: SourceSpan -> Text -> TcM Instantiation
 instantiateListConstructor sp name = do

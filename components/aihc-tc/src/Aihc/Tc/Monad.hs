@@ -47,6 +47,7 @@ module Aihc.Tc.Monad
     lookupKnownTerm,
     lookupResolvedTerm,
     resolvedTermKey,
+    resolvedTargetTermKey,
     resolvedTermTarget,
     resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
@@ -394,7 +395,10 @@ lookupTermKey key =
 
 resolvedTermKey :: Name -> TcM TcTermKey
 resolvedTermKey name =
-  resolvedNameTermKey (nameText name) =<< resolvedTermTarget name
+  resolvedTargetTermKey (nameText name) =<< resolvedTermTarget name
+
+resolvedTargetTermKey :: Text -> ResolvedName -> TcM TcTermKey
+resolvedTargetTermKey = resolvedNameTermKey
 
 resolvedUnqualifiedTermKey :: UnqualifiedName -> TcM TcTermKey
 resolvedUnqualifiedTermKey name =

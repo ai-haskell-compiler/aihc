@@ -245,6 +245,7 @@ moduleInfo package exports modu =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
       moduleInfoGhcBaseScope = lookupImportedModule package Nothing "GHC.Base" exports,
       moduleInfoGhcClassesScope = lookupImportedModule package Nothing "GHC.Classes" exports,
+      moduleInfoGhcEnumScope = lookupImportedModule package Nothing "GHC.Enum" exports,
       moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports
     }
 
@@ -801,6 +802,10 @@ builtinSyntaxTerm info name =
     "fromInteger" -> lookupTerm name (moduleInfoGhcNumScope info)
     "negate" -> lookupTerm name (moduleInfoGhcNumScope info)
     "==" -> lookupTerm name (moduleInfoGhcClassesScope info)
+    "enumFrom" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFromThen" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFromTo" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFromThenTo" -> lookupTerm name (moduleInfoGhcEnumScope info)
     _ -> ResolvedError "unknown built-in syntax term"
 
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
@@ -950,14 +955,24 @@ resolveArithSeq arithSeq =
   case arithSeq of
     ArithSeqAnn ann inner ->
       ArithSeqAnn ann <$> withPushedSpan ann (resolveArithSeq inner)
-    ArithSeqFrom from ->
-      ArithSeqFrom <$> resolveExpr from
-    ArithSeqFromThen from then' ->
-      ArithSeqFromThen <$> resolveExpr from <*> resolveExpr then'
-    ArithSeqFromTo from to ->
-      ArithSeqFromTo <$> resolveExpr from <*> resolveExpr to
-    ArithSeqFromThenTo from then' to ->
-      ArithSeqFromThenTo <$> resolveExpr from <*> resolveExpr then' <*> resolveExpr to
+    ArithSeqFrom from -> do
+      resolved <- ArithSeqFrom <$> resolveExpr from
+      annotateArithSeqMethod "enumFrom" resolved
+    ArithSeqFromThen from then' -> do
+      resolved <- ArithSeqFromThen <$> resolveExpr from <*> resolveExpr then'
+      annotateArithSeqMethod "enumFromThen" resolved
+    ArithSeqFromTo from to -> do
+      resolved <- ArithSeqFromTo <$> resolveExpr from <*> resolveExpr to
+      annotateArithSeqMethod "enumFromTo" resolved
+    ArithSeqFromThenTo from then' to -> do
+      resolved <- ArithSeqFromThenTo <$> resolveExpr from <*> resolveExpr then' <*> resolveExpr to
+      annotateArithSeqMethod "enumFromThenTo" resolved
+
+annotateArithSeqMethod :: Text -> ArithSeq -> ResolveM ArithSeq
+annotateArithSeqMethod name arithSeq = do
+  sp <- currentSpan
+  annotation <- syntaxTermAnnotation sp name
+  pure (ArithSeqAnn (mkAnnotation annotation) arithSeq)
 
 resolveBoundDecls :: Map.Map Text ResolvedName -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBoundDecls binderTargets =
