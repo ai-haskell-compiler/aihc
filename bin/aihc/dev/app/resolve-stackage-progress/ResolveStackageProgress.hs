@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveError (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveError (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
@@ -304,7 +304,10 @@ resolveOnePackageOrThrow _offline pkg info depExports = do
         [] -> do
           let modules = map fst pairs
               srcTexts = Map.fromList [(path, src) | (_, (path, src)) <- pairs]
-              resolveResult = resolveWithDeps depExports (modulesInPackage (Package pkg (PackageId pkg)) modules)
+              package = Package pkg (PackageId pkg)
+              packageModules = modulesInPackage package modules
+              builtinScope = builtinFunctionScope package depExports packageModules
+              resolveResult = resolveWithDeps builtinScope depExports packageModules
           case resolveErrors resolveResult of
             [] -> pure (PkgSuccess (extractInterface resolveResult))
             resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcTexts) resolveErrs)))
@@ -313,6 +316,14 @@ renderResolveError :: Map FilePath Text -> ResolveError -> String
 renderResolveError srcTexts (ResolveResolutionError errSpan _ _ msg) =
   renderSpanHeader errSpan ++ renderSourceSnippet srcTexts errSpan ++ "  " ++ msg ++ "."
 renderResolveError _ (ResolveNotImplemented msg) = "not implemented: " ++ msg
+
+builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
+builtinFunctionScope currentPackage dependencyExports packageModules =
+  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  where
+    allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
+    lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 -- | Extract the source line containing 'offset' by scanning byte-by-byte.
 -- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.

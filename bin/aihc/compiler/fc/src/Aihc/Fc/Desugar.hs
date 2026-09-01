@@ -7,6 +7,7 @@ module Aihc.Fc.Desugar
     desugarPrepared,
     emptyDesugarEnv,
     prepareDesugar,
+    prepareDesugarIncremental,
     prepareDesugarMany,
     DesugarEnv,
     typeEnvFromTcInterface,
@@ -259,7 +260,7 @@ emptyDesugarEnv config =
 
 -- | Convert exactly the facts in one type interface.
 prepareDesugar :: DesugarConfig -> TcInterface -> Either String DesugarEnv
-prepareDesugar config interface = prepareDesugarMany config [interface]
+prepareDesugar config = prepareDesugarIncremental config []
 
 -- | Convert each interface with the shared kind data from every interface.
 prepareDesugarMany :: DesugarConfig -> [TcInterface] -> Either String DesugarEnv
@@ -267,6 +268,36 @@ prepareDesugarMany config interfaces = do
   let conversion = mergeConvertEnvs config (map (interfaceConvertEnv config) interfaces)
   envs <- mapM (prepareDesugarWith config conversion) interfaces
   pure (foldr (<>) (emptyDesugarEnv config) envs)
+
+-- | Convert facts that parent environments do not contain.
+prepareDesugarIncremental :: DesugarConfig -> [DesugarEnv] -> TcInterface -> Either String DesugarEnv
+prepareDesugarIncremental config parents interface = do
+  let newInterface = removePreparedFacts parents interface
+      conversion = mergeConvertEnvs config (interfaceConvertEnv config newInterface : map deConvert parents)
+  local <- prepareDesugarWith config conversion newInterface
+  pure (foldr (<>) (emptyDesugarEnv config) (local : parents))
+
+removePreparedFacts :: [DesugarEnv] -> TcInterface -> TcInterface
+removePreparedFacts parents interface =
+  TcInterface
+    { tcInterfaceTerms = filter ((`Set.notMember` termKeys) . fst) (tcInterfaceTerms interface),
+      tcInterfaceTyCons = filter ((`Set.notMember` tyConKeys) . tyConSourceKey) (tcInterfaceTyCons interface),
+      tcInterfaceDataTypes = filter ((`Set.notMember` dataTypeKeys) . dataTypeSourceKey) (tcInterfaceDataTypes interface),
+      tcInterfaceClasses = filter ((`Set.notMember` classKeys) . classSourceKey) (tcInterfaceClasses interface),
+      tcInterfaceInstances = filter ((`Set.notMember` termKeys) . instanceTermKey) (tcInterfaceInstances interface),
+      tcInterfaceDataFamilyInstances = filter ((`Set.notMember` dataFamilyKeys) . dataFamilyAxiomKey) (tcInterfaceDataFamilyInstances interface),
+      tcInterfaceTypeFamilyInstances = filter ((`Set.notMember` typeFamilyKeys) . typeFamilyAxiomKey) (tcInterfaceTypeFamilyInstances interface)
+    }
+  where
+    termKeys = Set.unions (map (Map.keysSet . deBindings) parents)
+    tyConKeys = Set.unions (map (Map.keysSet . deTyCons) parents)
+    dataTypeKeys = Set.unions (map (Map.keysSet . deDataTypes) parents)
+    classKeys = Set.unions (map (Map.keysSet . deClasses) parents)
+    dataFamilyKeys = Set.unions (map (Map.keysSet . deDataFamilyInstances) parents)
+    typeFamilyKeys = Set.unions (map (Map.keysSet . deTypeFamilyInstances) parents)
+    instanceTermKey info =
+      let (package, moduleName') = iiDictOrigin info
+       in TcTermGlobal (PackageId package) moduleName' (iiDictName info)
 
 prepareDesugarWith :: DesugarConfig -> ConvertEnv -> TcInterface -> Either String DesugarEnv
 prepareDesugarWith config conversion interface = do

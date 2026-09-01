@@ -38,8 +38,12 @@ import Aihc.Resolve
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
+    collectModuleExports,
     displayIdentifier,
+    emptyScope,
+    lookupImportedModule,
     resolveWithDeps,
+    unionScope,
     unnamedPackage,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
@@ -178,7 +182,14 @@ evaluateResolverCase meta =
    in case sequence parsedModules of
         Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
         Right modules ->
-          let result = resolveWithDeps mempty modules
+          let exports = collectModuleExports modules
+              lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name exports
+              builtinScope =
+                foldr
+                  (unionScope . lookupBuiltin)
+                  emptyScope
+                  builtinModuleNames
+              result = resolveWithDeps builtinScope mempty modules
               fixtureResult = result {resolvedModules = drop supportModuleCount (resolvedModules result)}
               actualAnnotated = showAnnotated fixtureResult
               outputMatches = actualAnnotated == caseAnnotated meta
@@ -207,6 +218,9 @@ evaluateResolverCase meta =
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showAnnotated = renderAnnotatedResolveResult (map snd (caseModules meta))
+
+builtinModuleNames :: [Text]
+builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 listSupportModule :: Text
 listSupportModule =

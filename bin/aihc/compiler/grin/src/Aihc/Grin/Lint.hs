@@ -306,7 +306,10 @@ exprRuntimeReps expr =
     GrinUpdateBlackhole _ value -> Just [grinValueRuntimeRep value]
     GrinEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
     GrinCpsEval {} -> Nothing
-    GrinCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
+    GrinCall runtimeRep _ _ ->
+      case runtimeRepComponents runtimeRep of
+        [] -> Nothing
+        components -> Just components
     GrinPrimitiveCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinCpsPrimitiveCall {} -> Nothing
     GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
