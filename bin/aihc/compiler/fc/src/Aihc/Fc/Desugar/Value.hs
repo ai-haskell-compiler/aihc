@@ -257,7 +257,9 @@ annotatedForeignDecl = go Nothing Nothing
 desugarForeign :: TcAnnotation -> Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
 desugarForeign annotation foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
-    Syn.CPrim -> (: []) <$> makeForeignImport Prim []
+    Syn.CPrim -> do
+      primitiveSeq <- validatePrimitiveSeqOrigin foreignDecl
+      if primitiveSeq then pure [] else (: []) <$> makeForeignImport Prim []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
       unless (Syn.foreignSafety foreignDecl == Just Syn.Unsafe) (failValue "System FC accepts only unsafe foreign imports")
@@ -290,6 +292,17 @@ desugarForeign annotation foreignPlan foreignDecl =
                 foreignImportType = ty
               }
         )
+
+validatePrimitiveSeqOrigin :: Syn.ForeignDecl -> ValueM Bool
+validatePrimitiveSeqOrigin foreignDecl =
+  if Syn.unqualifiedNameText (Syn.foreignName foreignDecl) == "seq"
+    then do
+      moduleOrigin <- gets vsModuleOrigin
+      primitivePackage <- gets (cePrimPackage . vsConvertEnv)
+      unless (moduleOrigin == (primitivePackage, "GHC.Prim")) $
+        failValue "System FC accepts a foreign primitive named seq only in the configured GHC.Prim module"
+      pure True
+    else pure False
 
 foreignImportPlanDependencies :: TcAnnotation -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies annotation plan = do
@@ -1379,8 +1392,10 @@ desugarInfixOperator operator =
       variable <- resolvedTermName operator
       types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-      pure (foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence)
-    Nothing -> ExVar <$> resolvedTermName operator
+      desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
+    Nothing -> do
+      variable <- resolvedTermName operator
+      desugarTermReference variable [] [] []
 
 desugarSectionL :: TcAnnotation -> Syn.Expr -> Syn.Name -> ValueM Expr
 desugarSectionL annotation operand operator = do
@@ -1422,12 +1437,61 @@ desugarVariable maybeAnnotation name = do
     Nothing -> do
       variable <- resolvedTermName name
       case maybeAnnotation of
-        Nothing -> pure (ExVar variable)
+        Nothing -> desugarTermReference variable [] [] []
         Just annotation -> do
           inferredTypes <- localOccurrenceTypeArguments name annotation
           types <- mapM convertCheckedType inferredTypes
           evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-          pure (foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence)
+          desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
+
+seqTermArgumentTypes :: TcAnnotation -> [TcType]
+seqTermArgumentTypes annotation
+  | null (tcAnnTermArgTypes annotation) =
+      let (_, afterForAlls) = peelForAlls (tcAnnType annotation)
+          (_, bodyType) = peelConstraints afterForAlls
+       in fst (peelFunctions 2 bodyType)
+  | otherwise = tcAnnTermArgTypes annotation
+
+desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
+desugarTermReference variable types evidence termArgumentTypes
+  | nameText variable /= "seq" = pure ordinaryReference
+  | OriginLocal {} <- nameOrigin variable = pure ordinaryReference
+  | OriginTop package moduleName' <- nameOrigin variable = do
+      moduleOrigin <- gets vsModuleOrigin
+      primitivePackage <- gets (cePrimPackage . vsConvertEnv)
+      if (package, moduleName') == (primitivePackage, "GHC.Prim")
+        then do
+          unless (null evidence) (failValue "GHC.Prim.seq has unexpected evidence arguments")
+          desugarPrimitiveSeq termArgumentTypes
+        else
+          if (package, moduleName') == moduleOrigin
+            then pure ordinaryReference
+            else failValue "System FC accepts an imported seq only from the configured GHC.Prim module"
+  where
+    ordinaryReference = foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence
+
+desugarPrimitiveSeq :: [TcType] -> ValueM Expr
+desugarPrimitiveSeq termArgumentTypes =
+  case termArgumentTypes of
+    [firstType, secondType] -> do
+      first <- freshBinder "seq_first" firstType
+      second <- freshBinder "seq_second" secondType
+      evaluated <- freshBinder "seq_evaluated" firstType
+      resultType <- convertCheckedType secondType
+      pure
+        ( ExLam
+            first
+            ( ExLam
+                second
+                ( ExCase
+                    (ExVar (binderName first))
+                    evaluated
+                    resultType
+                    [Alt AltDefault [] [] (ExVar (binderName second))]
+                )
+            )
+        )
+    argumentTypes -> failValue ("GHC.Prim.seq has " <> show (length argumentTypes) <> " checked term argument types")
 
 newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do
@@ -2095,7 +2159,7 @@ desugarResolvedOccurrence annotation resolution = do
   name <- resolvedAnnotationName resolution
   types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
   evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-  pure (foldl ExApp (foldl ExTyApp (ExVar name) types) evidence)
+  desugarTermReference name types evidence (seqTermArgumentTypes annotation)
 
 resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
 resolvedAnnotationName resolution =

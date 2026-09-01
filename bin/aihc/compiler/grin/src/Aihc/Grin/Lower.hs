@@ -214,7 +214,7 @@ foreignConstructorNames declaration =
   [name | Fc.ForeignConstructor name <- Fc.foreignImportDependencies declaration]
 
 compilerPrimitives :: [Text]
-compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "seq"]
+compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#"]
 
 lowerPrimitiveBody :: GrinRep -> Text -> [[GrinValue]] -> LowerM GrinExpr
 lowerPrimitiveBody resultRep name valueGroups =
@@ -224,9 +224,6 @@ lowerPrimitiveBody resultRep name valueGroups =
     ("raise#", (exception : _) : _) -> pure (GrinThrow exception)
     ("catch#", (action : _) : (handler : _) : state) ->
       lowerCatch resultRep action handler (concat state)
-    ("seq", (first : _) : second : _) -> do
-      evaluated <- freshVar "seq" liftedGrinRep
-      pure (GrinBind [evaluated] (GrinEval liftedGrinRep first) (GrinConstant second))
     _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 
 lowerForeignBody :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM GrinExpr
@@ -503,7 +500,7 @@ lowerArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments continuation)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
+specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3)]
 
 lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
@@ -519,11 +516,6 @@ lowerSpecialApplication env resultRep name arguments =
       lowerLazySingle env "action" action $ \actionValue ->
         lowerLazySingle env "handler" handler $ \handlerValue ->
           lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
-    ("seq", first : second : _) ->
-      lowerLazySingle env "seq_argument" first $ \firstValue -> do
-        evaluated <- freshVar "seq" liftedGrinRep
-        rest <- lowerArgument env second (pure . GrinConstant)
-        pure (GrinBind [evaluated] (GrinEval liftedGrinRep firstValue) rest)
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
 
 lowerCatch :: GrinRep -> GrinValue -> GrinValue -> [GrinValue] -> LowerM GrinExpr

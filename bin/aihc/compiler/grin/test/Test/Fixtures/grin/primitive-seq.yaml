@@ -7,26 +7,38 @@ expected: |-
 
   global "\NULTest\NULSecond" = (CTest.Second)
 
-  global "\NULTest\NULseq" = (P$grin_seq_foreign_0/2)
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
-  global "\NULTest\NULvalue" = (F$grin_value_thunk_1)
+  $grin_closure_3 (seq_first%-1000000000 :: BoxedRep Lifted) (seq_second%-1000000001 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value%-1000000002 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (seq_first%-1000000000 :: BoxedRep Lifted)
+    case (case_value%-1000000002 :: BoxedRep Lifted) as seq_evaluated%-1000000003 :: BoxedRep Lifted of
+      _ ->
+        eval @(BoxedRep Lifted) (seq_second%-1000000001 :: BoxedRep Lifted)
 
-  $grin_seq_foreign_0 (foreign_argument_0%-1000000000 :: BoxedRep Lifted) (foreign_argument_1%-1000000001 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    seq%-1000000002 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (foreign_argument_0%-1000000000 :: BoxedRep Lifted)
-    constant (foreign_argument_1%-1000000001 :: BoxedRep Lifted)
+  $grin_function_thunk_2 -> BoxedRep Lifted =
+    store (P$grin_closure_3/2)
 
-  $grin_value_thunk_1 -> BoxedRep Lifted =
-    seq%-1000000003 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) global-ref "\NULTest\NULFirst"
-    constant global-ref "\NULTest\NULSecond"
+  $grin_function_thunk_1 -> BoxedRep Lifted =
+    function%-1000000004 :: BoxedRep Lifted <-
+      store (F$grin_function_thunk_2)
+    function_whnf%-1000000005 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (function%-1000000004 :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf%-1000000005 :: BoxedRep Lifted) global-ref "\NULTest\NULFirst"
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    function%-1000000006 :: BoxedRep Lifted <-
+      store (F$grin_function_thunk_1)
+    function_whnf%-1000000007 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (function%-1000000006 :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf%-1000000007 :: BoxedRep Lifted) global-ref "\NULTest\NULSecond"
 extensions: []
 source: |
   module Test where
+  import GHC.Prim (seq)
   data First = First
   data Second = Second
-  foreign import prim seq :: a -> b -> b
   value :: Second
   value = seq First Second
-reason: lowers the compiler primitive to explicit evaluation
+reason: lowers the System FC seq lambda through ordinary GRIN closure conversion
 status: pass
