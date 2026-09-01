@@ -14,4 +14,4 @@ modules:
 output: ': True (: False [])'
 reason: evaluates a list comprehension let qualifier scoped over later qualifiers
   and the body
-status: xfail
+status: pass

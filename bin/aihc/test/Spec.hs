@@ -35,10 +35,17 @@ main = do
 configureTestRoot :: IO ()
 configureTestRoot = do
   configured <- lookupEnv "AIHC_TEST_ROOT"
-  case configured of
-    Just _ -> pure ()
-    Nothing -> getCurrentDirectory >>= findRoot >>= setEnv "AIHC_TEST_ROOT"
+  root <- maybe (getCurrentDirectory >>= findRoot) pure configured
+  setDefault "AIHC_TEST_ROOT" root
+  setDefault "AIHC_BASE_SRC" (root </> "core-libs" </> "aihc-base")
+  setDefault "AIHC_PRIM_SRC" (root </> "core-libs" </> "aihc-prim")
+  setDefault "AIHC_EVAL_FIXTURES" (root </> "test" </> "Test" </> "Fixtures" </> "eval")
   where
+    setDefault name value = do
+      current <- lookupEnv name
+      case current of
+        Just _ -> pure ()
+        Nothing -> setEnv name value
     findRoot directory = do
       exists <- doesFileExist (directory </> "bin" </> "aihc" </> "aihc.cabal")
       if exists

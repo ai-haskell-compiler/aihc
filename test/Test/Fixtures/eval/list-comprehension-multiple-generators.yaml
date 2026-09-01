@@ -11,4 +11,4 @@ modules:
   ys = [True, False]
 output: ': (False,True) (: (False,False) (: (True,True) (: (True,False) [])))'
 reason: evaluates multiple list comprehension generators in nested-loop order
-status: xfail
+status: pass

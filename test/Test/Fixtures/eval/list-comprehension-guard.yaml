@@ -10,4 +10,4 @@ modules:
   xs = [False, True, False, True]
 output: ': True (: True [])'
 reason: evaluates a list comprehension boolean guard as element filtering
-status: xfail
+status: pass

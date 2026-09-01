@@ -39,7 +39,18 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve
+  ( Package (..),
+    PackageId (..),
+    ResolveResult (..),
+    Scope,
+    collectModuleExportsWithDeps,
+    emptyScope,
+    lookupImportedModule,
+    resolveWithDeps,
+    unionScope,
+    unnamedPackage,
+  )
 import Aihc.Tc (TcBindingResult, TcInterface, emptyTcInterface, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
@@ -247,7 +258,8 @@ compileEvalCase tc =
         Left errMsg -> pure (Left errMsg)
         Right deps ->
           let allModules = addListSupport (deps <> evalModules)
-              resolved = resolveWithDeps mempty (map modulePackage allModules)
+              packageModules = map modulePackage allModules
+              resolved = resolveWithDeps (evalBuiltinScope packageModules) mempty packageModules
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
                   let moduleAsts = map snd resolvedModules
@@ -277,6 +289,13 @@ compileEvalCase tc =
       | Surface.moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (unnamedPackage, modu)
+
+evalBuiltinScope :: [(Package, Module)] -> Scope
+evalBuiltinScope packageModules =
+  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num"]
+  where
+    allExports = collectModuleExportsWithDeps mempty packageModules
+    lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports
 
 parseInputs :: EvalCase -> Either String ([Module], Expr)
 parseInputs tc = do
