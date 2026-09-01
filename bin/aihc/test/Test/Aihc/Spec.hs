@@ -61,6 +61,7 @@ tests =
           testCase "accepts type-check warnings" test_installV2TypeWarning,
           testCase "loads the implicit Prelude type interface" test_installV2ImplicitPrelude,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
+          testCase "limits instances to the transitive import graph" test_installV2InstanceVisibility,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "prints timings independently from verbose output" test_installV2TimingOutput,
           testCase "reports all frontend errors in stable dependency order" test_installV2ResolveError,
@@ -517,7 +518,7 @@ test_installV2AihcPrim = do
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
         loader = Fc.storeModuleLoader targetStoreRoot
-    assertBool "package artifact version sets the package hash" ("4472358042b0f972" `isSuffixOf` packageDir)
+    assertBool "package artifact version sets the package hash" ("ff25baf152cf478e" `isSuffixOf` packageDir)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"
@@ -721,6 +722,20 @@ test_installV2LocalDependencies = do
         unusedTypeBytes <- BS.readFile unusedTypePath
         assertEqual "reinstall does not read or replace the unused module" "invalid unused type artifact" unusedTypeBytes
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
+
+test_installV2InstanceVisibility :: Assertion
+test_installV2InstanceVisibility = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/instance-visibility"
+  withTempDir "aihc-install-v2-instance-visibility" $ \root -> do
+    let install source store =
+          installV2
+            (InstallV2Options (fixtureRoot </> source) (Just (root </> store)) False False False False True False False AppleArm64)
+    withoutResult <- try (install "without" "without-store") :: IO (Either IOException InstallV2Result)
+    case withoutResult of
+      Left _ -> pure ()
+      Right _ -> assertFailure "an unrelated module supplied an instance"
+    _ <- install "with" "with-store"
+    pure ()
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
