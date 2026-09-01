@@ -107,8 +107,9 @@ buildFcPrograms extensions sources = do
   if not (all tcModuleSuccess fixtureTcResults)
     then Left ("typecheck error: " <> unlines [show diagnostic | result <- fixtureTcResults, diagnostic <- tcModuleDiagnostics result])
     else do
-      let fixtureBindings = concatMap tcModuleBindings fixtureTcResults
-          fixtureResults = map (desugarModuleFc desugarConfig fixtureBindings tcInterface) fixtureTcResults
+      let availableInterface = supportTcInterface primitiveSupport <> tcInterface
+          fixtureBindings = concatMap tcModuleBindings fixtureTcResults
+          fixtureResults = map (desugarModuleFc desugarConfig fixtureBindings availableInterface) fixtureTcResults
       if not (all dsSuccess fixtureResults)
         then Left (unlines (concatMap dsErrors fixtureResults))
         else do

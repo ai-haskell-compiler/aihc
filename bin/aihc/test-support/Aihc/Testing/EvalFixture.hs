@@ -386,9 +386,9 @@ typecheckDependencyModules :: [Module] -> ([Module], TcInterface)
 typecheckDependencyModules modules =
   let (checkedPrim, primInterface) =
         typecheckModuleSccWithInterface config emptyTcInterface (sortOn moduleOrder primModules)
-      (checkedOther, completeInterface) =
+      (checkedOther, localInterface) =
         typecheckModulesWithInterface config primInterface orderedOtherModules
-   in (checkedPrim <> checkedOther, completeInterface)
+   in (checkedPrim <> checkedOther, primInterface <> localInterface)
   where
     config = tcConfig (PackageId "aihc-prim")
     moduleKey = fromMaybe "Main" . Surface.moduleName

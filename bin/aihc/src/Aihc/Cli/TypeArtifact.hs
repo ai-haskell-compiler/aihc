@@ -2,6 +2,7 @@ module Aihc.Cli.TypeArtifact
   ( TypeArtifact (..),
     decodeTypeArtifact,
     encodeTypeArtifact,
+    encodeTypeArtifactParts,
     encodeTypeInterface,
   )
 where
@@ -57,17 +58,20 @@ data TypeArtifact = TypeArtifact
 type TyConTable = Array Int TyCon
 
 encodeTypeArtifact :: TypeArtifact -> BL.ByteString
-encodeTypeArtifact artifact =
-  let tyCons = Set.toAscList (interfaceTyCons (typeArtifactInterface artifact))
-      tyConTable = Map.fromList (zip tyCons [0 ..])
-   in Builder.toLazyByteString $
-        cborArray 5
-          <> cborText "aihc-type"
-          <> cborText (typeArtifactModuleName artifact)
-          <> encodeList encodeHash (typeArtifactInputHashes artifact)
-          <> encodeList putTyConDefinition tyCons
-          <> putInterface tyConTable (typeArtifactInterface artifact)
+encodeTypeArtifact = fst . encodeTypeArtifactParts
+
+encodeTypeArtifactParts :: TypeArtifact -> (BL.ByteString, BL.ByteString)
+encodeTypeArtifactParts artifact =
+  ( Builder.toLazyByteString $
+      cborArray 5
+        <> cborText "aihc-type"
+        <> cborText (typeArtifactModuleName artifact)
+        <> encodeList encodeHash (typeArtifactInputHashes artifact)
+        <> Builder.lazyByteString interfaceBytes,
+    interfaceBytes
+  )
   where
+    interfaceBytes = encodeTypeInterface (typeArtifactInterface artifact)
     encodeHash (name, digest) = cborArray 2 <> cborText name <> cborText digest
 
 encodeTypeInterface :: TcInterface -> BL.ByteString
