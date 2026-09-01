@@ -35,7 +35,7 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( ClassInfo (ciName),
     InstanceInfo (iiDictName),
@@ -225,7 +225,7 @@ renderTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
+          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               case typecheckModuleGraph (supportTcInterface primitiveSupport) (map snd resolvedModules) of
                 Left errMsg -> Left errMsg
@@ -313,7 +313,7 @@ preparePrimitiveSupport primitiveModules =
   case mapM (uncurry parsePrimitiveModule) primitiveModules of
     Left errMsg -> Left ("parse error: " <> errMsg)
     Right modules ->
-      case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
+      case resolveWithDeps emptyScope mempty (modulesInPackage primitivePackage modules) of
         resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
           let primitiveAsts = map snd resolvedModules
               (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface primitiveAsts
@@ -332,6 +332,16 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
+
+fixtureBuiltinScope :: [Module] -> Scope
+fixtureBuiltinScope modules =
+  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  where
+    dependencyExports = supportScopes primitiveSupport
+    packageModules = modulesInPackage fixturePackage modules
+    allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
+    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

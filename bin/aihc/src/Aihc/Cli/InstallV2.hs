@@ -62,9 +62,13 @@ import Aihc.Resolve
     ResolveResult (..),
     ResolvedName (..),
     Scope (..),
+    collectModuleExportsWithDeps,
+    emptyScope,
     extractInterfaceWithDeps,
+    lookupImportedModule,
     modulesInPackage,
     resolveWithDeps,
+    unionScope,
   )
 import Aihc.Tc
   ( ClassInfo (..),
@@ -943,7 +947,8 @@ runResolveUnit context runtimes runtime = do
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
       dependenciesSucceeded = all resolveUnitSuccess dependencyResults
-  let resolved = resolveWithDeps availableExports packageModules
+  let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
+      resolved = resolveWithDeps builtinScope availableExports packageModules
       errors = resolveErrors resolved
       unitExports = extractInterfaceWithDeps availableExports resolved
       success = parseSuccess && dependenciesSucceeded && null errors
@@ -1013,7 +1018,10 @@ runTypeUnit context runtimes runtime = do
         resolved <-
           case resolveUnitResolved resolvedOutput of
             Just result -> pure result
-            Nothing -> pure (resolveWithDeps availableExports (modulesInPackage resolvePackage (map sourceModuleAst sources)))
+            Nothing ->
+              let packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
+                  builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
+               in pure (resolveWithDeps builtinScope availableExports packageModules)
         let checked =
               typecheckModuleSccWithInterface
                 (tcConfig primIdentity)
@@ -1142,6 +1150,14 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
+
+builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
+builtinFunctionScope currentPackage dependencyExports packageModules =
+  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  where
+    allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
+    lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> Fc.DesugarEnv -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do
