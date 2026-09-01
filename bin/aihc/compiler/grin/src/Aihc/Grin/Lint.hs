@@ -93,20 +93,13 @@ lintFunction env function =
     <> lintExpr env bound (grinFunctionBody function)
   where
     bound = Set.fromList (grinFunctionParameters function)
-    resultErrors
-      | isCpsFunction = []
-      | otherwise =
-          case exprRuntimeReps (grinFunctionBody function) of
-            Just actual
-              | actual /= expected ->
-                  [GrinLintResultLayout "function result" expected actual]
-            _ -> []
+    resultErrors =
+      case exprRuntimeReps (grinFunctionBody function) of
+        Just actual
+          | actual /= expected ->
+              [GrinLintResultLayout "function result" expected actual]
+        _ -> []
     expected = runtimeRepComponents (grinFunctionResultRep function)
-    isCpsFunction =
-      "$cps$" `T.isPrefixOf` unFunctionName (grinFunctionName function)
-        || case reverse (grinFunctionParameters function) of
-          continuation : _ -> grinVarName continuation == "$cps_return"
-          [] -> False
 
 lintFunctionResult :: LintEnv -> GrinRep -> GrinExpr -> [GrinLintError]
 lintFunctionResult env resultRep expr =
@@ -313,7 +306,10 @@ exprRuntimeReps expr =
     GrinUpdateBlackhole _ value -> Just [grinValueRuntimeRep value]
     GrinEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
     GrinCpsEval {} -> Nothing
-    GrinCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
+    GrinCall runtimeRep _ _ ->
+      case runtimeRepComponents runtimeRep of
+        [] -> Nothing
+        components -> Just components
     GrinPrimitiveCall runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinCpsPrimitiveCall {} -> Nothing
     GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
