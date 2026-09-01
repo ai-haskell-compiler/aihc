@@ -1,0 +1,36 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  import GHC.Classes (Enum)
+  result :: Enum a => a -> [a]
+  result expr = [expr ..]
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Classes
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.t$Dict$Enum :: ∀(a : 3.tType). 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.t[] :: ∀(a : 3.tType). 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    2.venumFrom :: ∀(a : 3.tType). 2.t$Dict$Enum a 3.→ a 3.→ 3.t[] a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub val 1.vresult :: ∀(a : 3.tType). 2.t$Dict$Enum a 3.→ a 3.→ 3.t[] a
+   = Λ(a : 3.tType).
+    λ($d0 : 2.t$Dict$Enum a).
+      λ(x : a).
+        2.venumFrom @a $d0 x
+status: pass
+reason: Desugars an open arithmetic sequence through the resolved enumFrom function.

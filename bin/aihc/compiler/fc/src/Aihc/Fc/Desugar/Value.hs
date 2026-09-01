@@ -1255,6 +1255,7 @@ desugarAnnotatedExpr annotation inner = do
           representation <- convertRuntimeRep AddrRep
           pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
         Syn.EList elements -> desugarList annotation elements
+        Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
         Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
@@ -1431,6 +1432,35 @@ desugarList annotation elements = do
   let nil = ExTyApp (ExVar nilName) convertedType
       cons = ExTyApp (ExVar consName) convertedType
   pure (foldr (ExApp . ExApp cons) nil elements')
+
+desugarArithSeq :: Syn.ArithSeq -> ValueM Expr
+desugarArithSeq arithSeq =
+  case arithSeq of
+    Syn.ArithSeqAnn annotation inner
+      | Just tcAnnotation <- Syn.fromAnnotation annotation ->
+          desugarCheckedArithSeq tcAnnotation inner
+      | otherwise -> desugarArithSeq inner
+    _ -> failValue "arithmetic sequence is missing its checked method"
+
+desugarCheckedArithSeq :: TcAnnotation -> Syn.ArithSeq -> ValueM Expr
+desugarCheckedArithSeq tcAnnotation arithSeq =
+  case arithSeq of
+    Syn.ArithSeqAnn annotation inner
+      | Just resolution <- Syn.fromAnnotation annotation -> do
+          method <- desugarResolvedOccurrence tcAnnotation resolution
+          arguments <- mapM desugarExpr (arithSeqArguments inner)
+          pure (foldl ExApp method arguments)
+      | otherwise -> desugarCheckedArithSeq tcAnnotation inner
+    _ -> failValue "arithmetic sequence is missing its resolved method"
+
+arithSeqArguments :: Syn.ArithSeq -> [Syn.Expr]
+arithSeqArguments arithSeq =
+  case arithSeq of
+    Syn.ArithSeqAnn _ inner -> arithSeqArguments inner
+    Syn.ArithSeqFrom from -> [from]
+    Syn.ArithSeqFromThen from thenExpression -> [from, thenExpression]
+    Syn.ArithSeqFromTo from to -> [from, to]
+    Syn.ArithSeqFromThenTo from thenExpression to -> [from, thenExpression, to]
 
 desugarString :: TcAnnotation -> Text -> ValueM Expr
 desugarString annotation value = do

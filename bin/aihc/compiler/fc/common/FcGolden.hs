@@ -104,7 +104,7 @@ primitiveSupport = unsafePerformIO $ do
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
-  mapM (loadOne sourceRoot) ["GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
   where
     loadOne sourceRoot relativePath = do
       let path = sourceRoot </> relativePath
@@ -116,7 +116,7 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
   where
     findUp directory = do
       let candidate = directory </> "core-libs/aihc-prim/src"
-          files = [candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
+          files = [candidate </> "GHC/Classes.hs", candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
       exists <- and <$> mapM doesFileExist files
       if exists
         then pure candidate
