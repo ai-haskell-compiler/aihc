@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     qualifyName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope, unnamedPackage)
 import Control.Exception (bracket)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString qualified as BS
@@ -50,7 +50,10 @@ test_extractsInterfaceForGeneratedPathsPackage =
 
     files <- findTargetFiles root
     modules <- mapM (parseFileInfo root) files
-    let result = resolveWithDeps baseExports (modulesInPackage unnamedPackage modules)
+    let builtinScope =
+          lookupImportedModule unnamedPackage Nothing "GHC.Classes" baseExports
+            `unionScope` lookupImportedModule unnamedPackage Nothing "GHC.Num" baseExports
+        result = resolveWithDeps builtinScope baseExports (modulesInPackage unnamedPackage modules)
     assertEqual "expected generated Paths package to resolve cleanly" [] (resolveErrors result)
 
     let iface = extractInterface result

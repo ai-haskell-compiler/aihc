@@ -214,8 +214,8 @@ transformTail updateName parent bound resultRep continuation expression =
             (GrinCpsEval runtimeRep value continuation (GrinVarValue updateVar))
         )
     GrinCpsEval {} -> alreadyTransformed
-    GrinCall runtimeRep functionName arguments ->
-      pure (GrinCall runtimeRep functionName (arguments <> [continuation]))
+    GrinCall _ functionName arguments ->
+      pure (GrinCall cpsResultRep functionName (arguments <> [continuation]))
     GrinPrimitiveCall runtimeRep name arguments
       | isControlPrimitive name ->
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
@@ -377,6 +377,9 @@ makeUpdateFunction updateName = do
                 )
             )
       }
+
+cpsResultRep :: GrinRep
+cpsResultRep = TupleRep []
 
 isDirectExpression :: GrinExpr -> Bool
 isDirectExpression expression =
