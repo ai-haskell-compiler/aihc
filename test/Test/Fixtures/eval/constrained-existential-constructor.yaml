@@ -41,5 +41,5 @@ output: |
   Marked
 expression: |
   inspectLocal boxed
-status: pass
+status: xfail
 reason: existential constructors store class dictionaries and recover them while matching

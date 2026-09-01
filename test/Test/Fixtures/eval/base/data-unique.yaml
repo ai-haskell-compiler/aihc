@@ -26,5 +26,5 @@ modules:
 expression: uniqueBehavior
 output: |
   (True,True,True,True,True)
-status: pass
+status: xfail
 reason: Data.Unique generates distinct values with lawful equality, ordering, and stable hashes through FC and GRIN

@@ -7,5 +7,5 @@ modules:
     foreign import prim seq :: a -> b -> b
 output: ""
 expression: seq
-status: fail
+status: xfail
 reason: seq requires GHC's representation-polymorphic scheme, not only its lifted specialization

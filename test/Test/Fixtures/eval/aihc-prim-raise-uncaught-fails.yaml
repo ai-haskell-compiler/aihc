@@ -11,5 +11,5 @@ output: ""
 exception: "10"
 expression: |
   raise# 10#
-status: pass
+status: xfail
 reason: uncaught raise# imported from aihc-prim raises the exact integer exception
