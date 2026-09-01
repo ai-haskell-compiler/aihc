@@ -47,6 +47,7 @@ module Aihc.Tc.Monad
     lookupKnownTerm,
     lookupResolvedTerm,
     resolvedTermKey,
+    resolvedTargetTermKey,
     resolvedTermTarget,
     resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
@@ -101,7 +102,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey, instanceInfoKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -265,9 +266,9 @@ data TcState = TcState
     -- | Class instances in scope.
     tcsInstances :: ![InstanceInfo],
     -- | Standalone data-family instance equations in scope.
-    tcsDataFamilyInstances :: ![DataFamilyInstanceInfo],
-    -- | Type-family equations in scope. Closed-family order stays unchanged.
-    tcsTypeFamilyInstances :: ![TypeFamilyInstanceInfo],
+    tcsDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
+    -- | Type-family equations in scope.
+    tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
     -- | Names of GADT constructors (have non-trivial result types).
     tcsGadtCons :: !(Set Text)
   }
@@ -288,8 +289,8 @@ initTcState =
       tcsDataTypes = Map.empty,
       tcsClasses = Map.empty,
       tcsInstances = [],
-      tcsDataFamilyInstances = [],
-      tcsTypeFamilyInstances = [],
+      tcsDataFamilyInstances = Map.empty,
+      tcsTypeFamilyInstances = Map.empty,
       tcsGadtCons = Set.empty
     }
 
@@ -394,7 +395,10 @@ lookupTermKey key =
 
 resolvedTermKey :: Name -> TcM TcTermKey
 resolvedTermKey name =
-  resolvedNameTermKey (nameText name) =<< resolvedTermTarget name
+  resolvedTargetTermKey (nameText name) =<< resolvedTermTarget name
+
+resolvedTargetTermKey :: Text -> ResolvedName -> TcM TcTermKey
+resolvedTargetTermKey = resolvedNameTermKey
 
 resolvedUnqualifiedTermKey :: UnqualifiedName -> TcM TcTermKey
 resolvedUnqualifiedTermKey name =
@@ -631,23 +635,25 @@ getInstances = lift $ gets tcsInstances
 
 addDataFamilyInstance :: DataFamilyInstanceInfo -> TcM ()
 addDataFamilyInstance instanceInfo = do
+  let key = dataFamilyAxiomKey instanceInfo
   instances <- lift $ gets tcsDataFamilyInstances
-  when (any ((== dfiiAxiomName instanceInfo) . dfiiAxiomName) instances) $
-    abortTc ("duplicate data family instance state key: " <> show (dfiiAxiomName instanceInfo))
-  lift $ modify' $ \state -> state {tcsDataFamilyInstances = instanceInfo : instances}
+  when (Map.member key instances) $
+    abortTc ("duplicate data family instance state key: " <> show key)
+  lift $ modify' $ \state -> state {tcsDataFamilyInstances = Map.insert key instanceInfo instances}
 
 getDataFamilyInstances :: TcM [DataFamilyInstanceInfo]
-getDataFamilyInstances = lift $ gets tcsDataFamilyInstances
+getDataFamilyInstances = lift $ gets (Map.elems . tcsDataFamilyInstances)
 
 addTypeFamilyInstance :: TypeFamilyInstanceInfo -> TcM ()
 addTypeFamilyInstance instanceInfo = do
+  let key = typeFamilyAxiomKey instanceInfo
   instances <- lift $ gets tcsTypeFamilyInstances
-  when (any ((== tfiiAxiomName instanceInfo) . tfiiAxiomName) instances) $
-    abortTc ("duplicate type family instance state key: " <> show (tfiiAxiomName instanceInfo))
-  lift $ modify' $ \state -> state {tcsTypeFamilyInstances = instances <> [instanceInfo]}
+  when (Map.member key instances) $
+    abortTc ("duplicate type family instance state key: " <> show key)
+  lift $ modify' $ \state -> state {tcsTypeFamilyInstances = Map.insert key instanceInfo instances}
 
 getTypeFamilyInstances :: TcM [TypeFamilyInstanceInfo]
-getTypeFamilyInstances = lift $ gets tcsTypeFamilyInstances
+getTypeFamilyInstances = lift $ gets (Map.elems . tcsTypeFamilyInstances)
 
 addClass :: ClassInfo -> TcM ()
 addClass classInfo = do

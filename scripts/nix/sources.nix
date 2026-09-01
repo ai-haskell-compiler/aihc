@@ -119,6 +119,7 @@ in rec {
   aihcSrc =
     mkRootSubsetSrc [
       "bin/aihc/"
+      "core-libs/aihc-prim/src/GHC/Classes.hs"
       "core-libs/aihc-prim/src/GHC/Prim.hs"
       "core-libs/aihc-prim/src/GHC/Tuple.hs"
       "core-libs/aihc-prim/src/GHC/Types.hs"

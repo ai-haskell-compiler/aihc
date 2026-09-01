@@ -5,9 +5,7 @@ modules:
 - |
   module Test where
 
-  import GHC.Prim (Char#)
-
-  data Char = C# Char#
+  import GHC.Types (Char)
 
   text :: [Char]
   text = "ab"
@@ -20,6 +18,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
+    3.tChar :: 3.tType;
     2.tChar# :: 3.tTYPE 3.vWordRep;
     3.tLevity :: 3.tType;
     3.tLiftedRep :: 3.tRuntimeRep;
@@ -29,6 +28,7 @@ expected: |-
     3.t[] :: ∀(a : 3.tType). 3.tType;
     3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
     3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 3.tChar;
     3.vLifted :: 3.tLevity;
     3.vWordRep :: 3.tRuntimeRep;
     3.v[] :: ∀(a : 3.tType). 3.t[] a
@@ -37,14 +37,10 @@ expected: |-
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub type 1.tChar :: 3.tType {
-      pub 1.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 1.tChar
-  }
+  pub val 1.vtext :: 3.t[] 3.tChar
+   = 3.v: @3.tChar (3.vC# 'a'#3.vWordRep) (3.v: @3.tChar (3.vC# 'b'#3.vWordRep) (3.v[] @3.tChar))
 
-  pub val 1.vtext :: 3.t[] 1.tChar
-   = 3.v: @1.tChar (1.vC# 'a'#3.vWordRep) (3.v: @1.tChar (1.vC# 'b'#3.vWordRep) (3.v[] @1.tChar))
-
-  pub val 1.vempty :: 3.t[] 1.tChar
-   = 3.v[] @1.tChar
+  pub val 1.vempty :: 3.t[] 3.tChar
+   = 3.v[] @3.tChar
 status: pass
 reason: String literals desugar to boxed character lists.

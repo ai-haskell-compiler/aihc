@@ -397,9 +397,10 @@ getDataFamilyInstanceInfo table = do
 
 putTypeFamilyInstanceInfo :: Map TyCon Word64 -> TypeFamilyInstanceInfo -> Builder.Builder
 putTypeFamilyInstanceInfo table info =
-  cborArray 6
+  cborArray 7
     <> cborText (tfiiFamilyName info)
     <> cborText (tfiiAxiomName info)
+    <> putOrigin (tfiiOrigin info)
     <> encodeList (putTyVar table) (tfiiTyVars info)
     <> putType table (tfiiLeft info)
     <> putType table (tfiiRight info)
@@ -407,14 +408,15 @@ putTypeFamilyInstanceInfo table info =
 
 getTypeFamilyInstanceInfo :: TyConTable -> Get.Get TypeFamilyInstanceInfo
 getTypeFamilyInstanceInfo table = do
-  expectArray 6
+  expectArray 7
   tfiiFamilyName <- getText
   tfiiAxiomName <- getText
+  tfiiOrigin <- getOrigin
   tfiiTyVars <- getList (getTyVar table)
   tfiiLeft <- getType table
   tfiiRight <- getType table
   tfiiClosed <- getBool
-  pure TypeFamilyInstanceInfo {tfiiFamilyName, tfiiAxiomName, tfiiTyVars, tfiiLeft, tfiiRight, tfiiClosed}
+  pure TypeFamilyInstanceInfo {tfiiFamilyName, tfiiAxiomName, tfiiOrigin, tfiiTyVars, tfiiLeft, tfiiRight, tfiiClosed}
 
 putOrigin :: (PackageId, Text) -> Builder.Builder
 putOrigin (packageId, moduleName) = cborArray 2 <> putPackageId packageId <> cborText moduleName
