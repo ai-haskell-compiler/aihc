@@ -3,14 +3,6 @@ extensions:
 - DerivingStrategies
 modules:
 - |
-  module GHC.Classes where
-
-  import GHC.Types (Bool)
-
-  class Eq a where
-    (==) :: a -> a -> Bool
-    (/=) :: a -> a -> Bool
-- |
   {-# LANGUAGE DerivingStrategies #-}
   module Test where
 

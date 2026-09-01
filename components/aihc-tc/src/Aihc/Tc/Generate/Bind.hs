@@ -15,6 +15,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    ArithSeq (..),
     CaseAlt (..),
     Decl (..),
     Expr (..),
@@ -33,6 +34,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
@@ -565,12 +567,30 @@ freeVarsExpr expr =
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
     EList items -> Set.unions <$> mapM freeVarsExpr items
+    EArithSeq arithSeq -> freeVarsArithSeq arithSeq
     ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
     EApp f a -> do
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
     _ -> pure Set.empty
+
+freeVarsArithSeq :: ArithSeq -> TcM (Set.Set TcTermKey)
+freeVarsArithSeq arithSeq =
+  case arithSeq of
+    ArithSeqAnn ann inner -> do
+      innerVars <- freeVarsArithSeq inner
+      case fromAnnotation ann :: Maybe ResolutionAnnotation of
+        Just resolution
+          | resolutionNamespace resolution == ResolutionNamespaceTerm,
+            IdentifierNamed methodName <- resolutionIdentifier resolution -> do
+              methodKey <- resolvedTargetTermKey methodName (resolutionTarget resolution)
+              pure (Set.insert methodKey innerVars)
+        _ -> pure innerVars
+    ArithSeqFrom from -> freeVarsExpr from
+    ArithSeqFromThen from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
+    ArithSeqFromTo from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to
+    ArithSeqFromThenTo from thenExpr to -> Set.unions <$> mapM freeVarsExpr [from, thenExpr, to]
 
 freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set TcTermKey)
 freeVarsAlt (CaseAlt _ pat rhs) = do

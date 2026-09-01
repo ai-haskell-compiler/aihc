@@ -9,7 +9,6 @@ module Aihc.Fc.Convert
     withTyVars,
     withKindEnv,
     withClassTyCons,
-    withAxioms,
     convertKind,
     convertRep,
     convertType,
@@ -35,6 +34,7 @@ import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Types
   ( Pred (..),
+    TcAxiomKey (..),
     TcKindEnv,
     TcType (..),
     TcTypeKey,
@@ -92,8 +92,7 @@ data ConvertEnv = ConvertEnv
   { cePrimPackage :: PackageId,
     ceTyVars :: Map Unique TyVarId,
     ceKindEnv :: TcKindEnv,
-    ceClassTyCons :: Set TcTypeKey,
-    ceAxioms :: Map Text Name
+    ceClassTyCons :: Set TcTypeKey
   }
 
 emptyConvertEnv :: PackageId -> ConvertEnv
@@ -102,17 +101,12 @@ emptyConvertEnv package =
     { cePrimPackage = package,
       ceTyVars = Map.empty,
       ceKindEnv = Map.empty,
-      ceClassTyCons = Set.empty,
-      ceAxioms = Map.empty
+      ceClassTyCons = Set.empty
     }
 
 withClassTyCons :: [TcTypeKey] -> ConvertEnv -> ConvertEnv
 withClassTyCons keys env =
   env {ceClassTyCons = Set.fromList keys <> ceClassTyCons env}
-
-withAxioms :: [(Text, Name)] -> ConvertEnv -> ConvertEnv
-withAxioms axioms env =
-  env {ceAxioms = Map.fromList axioms <> ceAxioms env}
 
 classDictTypeName :: TyCon -> Name
 classDictTypeName tyCon =
@@ -122,9 +116,9 @@ classDictConName :: TyCon -> Name
 classDictConName tyCon =
   Name ("$Dict$" <> tyConName tyCon) SortDataConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
 
-lookupAxiomName :: ConvertEnv -> Text -> Name
-lookupAxiomName env name =
-  Map.findWithDefault (Name name SortAxiom (OriginLocal (Unique 0))) name (ceAxioms env)
+lookupAxiomName :: TcAxiomKey -> Name
+lookupAxiomName (TcAxiomKey package moduleName' name) =
+  Name name SortAxiom (OriginTop package moduleName')
 
 withTyVar :: TyVarId -> ConvertEnv -> ConvertEnv
 withTyVar tyVar env =

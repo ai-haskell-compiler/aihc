@@ -1,0 +1,16 @@
+extensions: []
+source: |
+  module Test where
+  data Pair a b = Pair a b
+  pairWith x = Pair x
+expected: |-
+  constructor Test.Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  global "\NULTest\NULPair" = (CTest.Pair/2)
+
+  global "\NULTest\NULpairWith" = (P$grin_closure_0/1)
+
+  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CTest.Pair/1 (x%-1000000000 :: BoxedRep Lifted))
+status: pass
+reason: stores a partially applied constructor directly with its remaining arity

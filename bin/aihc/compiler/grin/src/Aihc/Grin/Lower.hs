@@ -31,7 +31,9 @@ data LowerEnv = LowerEnv
   { lowerTypes :: !TypeOf.TypeEnv,
     lowerLocals :: !(Map Fc.Name [GrinVar]),
     lowerTypeSubstitution :: !(Map Fc.Name Fc.Type),
-    lowerGlobalNames :: !(Map Fc.Name Text)
+    lowerGlobalNames :: !(Map Fc.Name Text),
+    lowerConstructorArities :: !(Map Fc.Name Int),
+    lowerLocalFunctionArities :: !(Map Fc.Name Int)
   }
 
 data LowerState = LowerState
@@ -66,7 +68,9 @@ lowerProgram program = do
   primPackage <- maybe (Left "System FC program needs a GHC.Types scope") Right (Wired.primPackageFromScopes (Fc.programScopes program))
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
-      env = LowerEnv types Map.empty Map.empty globals
+      constructorArities = constructorArityTable types
+      localFunctionArities = localFunctionArityTable program
+      env = LowerEnv types Map.empty Map.empty globals constructorArities localFunctionArities
       initialState = LowerState (-1000000000) 0 []
   (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
@@ -138,11 +142,14 @@ lowerValueDecl env declaration = do
       pure mempty {topGlobals = [(globalName, node)]}
 
 isFunctionExpression :: Fc.Expr -> Bool
-isFunctionExpression expression =
+isFunctionExpression = (> 0) . functionArity
+
+functionArity :: Fc.Expr -> Int
+functionArity expression =
   case expression of
-    Fc.ExLam {} -> True
-    Fc.ExTyLam _ body -> isFunctionExpression body
-    _ -> False
+    Fc.ExLam _ body -> 1 + functionArity body
+    Fc.ExTyLam _ body -> functionArity body
+    _ -> 0
 
 lowerForeignDecl :: LowerEnv -> Fc.ForeignImportDecl -> LowerM TopParts
 lowerForeignDecl env declaration = do
@@ -419,6 +426,15 @@ lowerApplication env function argument = do
           lowerSpecialApplication env resultRep (Fc.nameText name) arguments
     (TupleRep {}, (Fc.ExVar name, arguments))
       | "(#" `T.isPrefixOf` Fc.nameText name -> lowerTupleArguments env arguments
+    (_, (Fc.ExVar name, arguments))
+      | resultRep == liftedGrinRep,
+        not ("(#" `T.isPrefixOf` Fc.nameText name),
+        Just arity <- Map.lookup name (lowerConstructorArities env),
+        length arguments <= arity ->
+          lowerConstructorApplication env name (arity - length arguments) arguments
+    (_, (Fc.ExVar name, arguments))
+      | Map.member name (lowerLocalFunctionArities env) ->
+          lowerLocalFunctionApplication env resultRep name arguments
     _ ->
       lowerLazySingle env "function" function $ \functionValue -> do
         evaluated <- freshVar "function_whnf" liftedGrinRep
@@ -444,6 +460,27 @@ lowerTupleArguments env = go []
     go values [] = pure (GrinConstant values)
     go values (argument : arguments) =
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
+
+lowerConstructorApplication :: LowerEnv -> Fc.Name -> Int -> [Fc.Expr] -> LowerM GrinExpr
+lowerConstructorApplication env name remaining = go []
+  where
+    go values [] = pure (GrinStore (GrinNode (GrinConstructor (constructorTag name) remaining) values))
+    go values (argument : arguments) =
+      lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
+
+lowerLocalFunctionApplication :: LowerEnv -> GrinRep -> Fc.Name -> [Fc.Expr] -> LowerM GrinExpr
+lowerLocalFunctionApplication env resultRep name arguments = do
+  globalName <- lookupGlobalName env name
+  go (GrinGlobalValue globalName) arguments
+  where
+    go functionValue [argument] =
+      lowerArgument env argument (pure . GrinApply resultRep functionValue)
+    go functionValue (argument : remaining) =
+      lowerArgument env argument $ \argumentValues -> do
+        applied <- freshVar "function_application" liftedGrinRep
+        rest <- go (GrinVarValue applied) remaining
+        pure (GrinBind [applied] (GrinApply liftedGrinRep functionValue argumentValues) rest)
+    go _ [] = throwLower "GRIN local function application needs an argument"
 
 specialPrimitiveArities :: Map Text Int
 specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
@@ -915,6 +952,24 @@ globalNameTable types =
     [ (name, stableGlobalName name)
     | name <- Map.keys (TypeOf.teHeaders types),
       Fc.nameSort name `elem` [Fc.SortValue, Fc.SortDataConstructor]
+    ]
+
+constructorArityTable :: TypeOf.TypeEnv -> Map Fc.Name Int
+constructorArityTable types =
+  Map.mapMaybeWithKey constructorArity (TypeOf.teHeaders types)
+  where
+    constructorArity name sourceType
+      | Fc.nameSort name == Fc.SortDataConstructor =
+          either (const Nothing) (Just . length) (constructorArgumentTypes sourceType)
+      | otherwise = Nothing
+
+localFunctionArityTable :: Fc.Program -> Map Fc.Name Int
+localFunctionArityTable program =
+  Map.fromList
+    [ (Fc.valName declaration, arity)
+    | Fc.DeclVal declaration <- Fc.programDecls program,
+      let arity = functionArity (Fc.valBody declaration),
+      arity > 0
     ]
 
 stableGlobalName :: Fc.Name -> Text

@@ -9,6 +9,7 @@
 module GHC.Types
   ( List (..),
     Int (..),
+    Char (..),
     Float (..),
     Double (..),
     Bool (..),
@@ -91,13 +92,15 @@ module GHC.Types
   )
 where
 
-import GHC.Prim (Double#, Float#, Int#)
+import GHC.Prim (Char#, Double#, Float#, Int#)
 
 data List a = [] | a : [a]
 
 infixr 5 :
 
 data Int = I# Int#
+
+data Char = C# Char#
 
 data Float = F# Float#
 
