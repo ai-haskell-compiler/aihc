@@ -2,7 +2,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module GHC.Base
+module GHC.Prim.Base
   ( List (..),
     String,
     Maybe (..),
@@ -17,8 +17,8 @@ module GHC.Base
   )
 where
 
-import GHC.IO (IO (..))
 import GHC.Prim (RealWorld, State#, divInt#)
+import GHC.Prim.IO (IO (..))
 import GHC.Types (Char, List (..), Type)
 
 type String = [Char]

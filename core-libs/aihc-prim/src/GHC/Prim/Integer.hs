@@ -1,7 +1,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module GHC.Internal.Integer
+module GHC.Prim.Integer
   ( Integer (..),
     compareInteger#,
     eqInteger#,

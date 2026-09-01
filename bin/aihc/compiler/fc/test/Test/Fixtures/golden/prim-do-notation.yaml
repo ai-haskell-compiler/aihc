@@ -3,14 +3,14 @@ extensions: []
 modules:
 - |
   module Main where
-  import GHC.Base (Monad, return)
+  import GHC.Prim.Base (Monad, return)
   identityAction :: Monad m => m a -> m a
   identityAction action = do
     value <- action
     return value
 expected: |-
   scope 1 = "" Main
-  scope 2 = "aihc-prim" GHC.Base
+  scope 2 = "aihc-prim" GHC.Prim.Base
   scope 3 = "aihc-prim" GHC.Types
 
   import headers

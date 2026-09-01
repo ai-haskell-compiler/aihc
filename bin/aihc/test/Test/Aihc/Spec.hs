@@ -100,7 +100,7 @@ test_buildExeSourceDirectories = do
             }
         unusedResolve = installV2StorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
         unusedType = installV2StorePath installed </> "Data" </> "Bool" </> "type.cbor"
-        requiredFc = installV2StorePath primitive </> "GHC" </> "Base" </> "core"
+        requiredFc = installV2StorePath primitive </> "GHC" </> "Prim" </> "Base" </> "core"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
     withCurrentDirectory root (runBuildExe options)

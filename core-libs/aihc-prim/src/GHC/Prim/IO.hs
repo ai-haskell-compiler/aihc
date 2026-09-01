@@ -2,7 +2,7 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module GHC.IO
+module GHC.Prim.IO
   ( IO (..),
     MaskingState (..),
     stToIO,

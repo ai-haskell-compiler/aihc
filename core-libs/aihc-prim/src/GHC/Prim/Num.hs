@@ -1,6 +1,6 @@
 {-# LANGUAGE MagicHash #-}
 
-module GHC.Num
+module GHC.Prim.Num
   ( Num (..),
     integerAdd,
     integerFromTwoWords#,
@@ -9,7 +9,8 @@ module GHC.Num
   )
 where
 
-import GHC.Internal.Integer
+import GHC.Prim ((*#), (+#), (-#), (<#))
+import GHC.Prim.Integer
   ( Integer,
     integerAbs,
     integerAdd,
@@ -21,7 +22,6 @@ import GHC.Internal.Integer
     integerSub,
     integerToInt#,
   )
-import GHC.Prim ((*#), (+#), (-#), (<#))
 import GHC.Types (Int (..))
 
 class Num a where

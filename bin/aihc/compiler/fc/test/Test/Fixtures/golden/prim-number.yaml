@@ -3,38 +3,38 @@ extensions: []
 modules:
 - |
   module Main where
-  import GHC.Num (Num)
+  import GHC.Prim.Num (Num)
   one :: Num a => a
   one = 1
 expected: |-
   scope 1 = "" Main
-  scope 2 = "aihc-prim" GHC.Internal.Integer
-  scope 3 = "aihc-prim" GHC.Num
-  scope 4 = "aihc-prim" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Prim.Integer
+  scope 4 = "aihc-prim" GHC.Prim.Num
   scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    3.t$Dict$Num :: ∀(a : 5.tType). 5.tType;
-    4.tInt# :: 5.tTYPE 5.vIntRep;
-    2.tInteger :: 5.tType;
+    4.t$Dict$Num :: ∀(a : 5.tType). 5.tType;
+    2.tInt# :: 5.tTYPE 5.vIntRep;
+    3.tInteger :: 5.tType;
     5.tLevity :: 5.tType;
     5.tLiftedRep :: 5.tRuntimeRep;
     5.tRuntimeRep :: 5.tType;
     5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.tType;
     5.tType :: 5.tType;
     5.vBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    2.vIS :: FUN @5.vIntRep @5.tLiftedRep 4.tInt# 2.tInteger;
+    3.vIS :: FUN @5.vIntRep @5.tLiftedRep 2.tInt# 3.tInteger;
     5.vIntRep :: 5.tRuntimeRep;
     5.vLifted :: 5.tLevity;
-    3.vfromInteger :: ∀(a : 5.tType). 3.t$Dict$Num a 5.→ 2.tInteger 5.→ a
+    4.vfromInteger :: ∀(a : 5.tType). 4.t$Dict$Num a 5.→ 3.tInteger 5.→ a
 
   import synonyms
     5.tLiftedRep = 5.vBoxedRep 5.vLifted;
     5.tType = 5.tTYPE 5.tLiftedRep
 
-  pub val 1.vone :: ∀(a : 5.tType). 3.t$Dict$Num a 5.→ a
+  pub val 1.vone :: ∀(a : 5.tType). 4.t$Dict$Num a 5.→ a
    = Λ(a : 5.tType).
-    λ($d0 : 3.t$Dict$Num a).
-      3.vfromInteger @a $d0 (2.vIS 1#5.vIntRep)
+    λ($d0 : 4.t$Dict$Num a).
+      4.vfromInteger @a $d0 (3.vIS 1#5.vIntRep)
 status: pass
 reason: type-checks and desugars a number with only aihc-prim built-ins

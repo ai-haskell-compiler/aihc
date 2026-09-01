@@ -107,12 +107,12 @@ loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
   mapM
     (loadOne sourceRoot)
-    [ "GHC/Base.hs",
-      "GHC/Classes.hs",
-      "GHC/IO.hs",
-      "GHC/Internal/Integer.hs",
-      "GHC/Num.hs",
+    [ "GHC/Classes.hs",
       "GHC/Prim.hs",
+      "GHC/Prim/Base.hs",
+      "GHC/Prim/IO.hs",
+      "GHC/Prim/Integer.hs",
+      "GHC/Prim/Num.hs",
       "GHC/Tuple.hs",
       "GHC/Types.hs"
     ]
@@ -128,12 +128,12 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
     findUp directory = do
       let candidate = directory </> "core-libs/aihc-prim/src"
           files =
-            [ candidate </> "GHC/Base.hs",
-              candidate </> "GHC/Classes.hs",
-              candidate </> "GHC/IO.hs",
-              candidate </> "GHC/Internal/Integer.hs",
-              candidate </> "GHC/Num.hs",
+            [ candidate </> "GHC/Classes.hs",
               candidate </> "GHC/Prim.hs",
+              candidate </> "GHC/Prim/Base.hs",
+              candidate </> "GHC/Prim/IO.hs",
+              candidate </> "GHC/Prim/Integer.hs",
+              candidate </> "GHC/Prim/Num.hs",
               candidate </> "GHC/Tuple.hs",
               candidate </> "GHC/Types.hs"
             ]
@@ -301,9 +301,9 @@ fixturePrimitiveModuleNames modules = selectedNames
   where
     localNames = mapMaybe moduleName modules
     legacyNames = ["GHC.Classes", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
-    allNames = ["GHC.Base", "GHC.Classes", "GHC.IO", "GHC.Internal.Integer", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
+    allNames = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.IO", "GHC.Prim.Integer", "GHC.Prim.Num", "GHC.Tuple", "GHC.Types"]
     selectedNames
-      | any (`elem` allNames) localNames = legacyNames
+      | any (`elem` ("GHC.Base" : "GHC.Num" : allNames)) localNames = legacyNames
       | otherwise = allNames
 
 fixtureBuiltinScope :: [Module] -> Scope
@@ -314,7 +314,9 @@ fixtureBuiltinScope modules =
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+    builtinFunctionModules
+      | any ((`elem` ["GHC.Base", "GHC.Num"]) . fromMaybe "" . moduleName) modules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+      | otherwise = ["GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
