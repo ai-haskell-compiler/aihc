@@ -98,7 +98,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceInfoKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -562,8 +562,8 @@ data GlobalStateKeys = GlobalStateKeys
     globalDataTypeKeys :: !(Set.Set TcTypeKey),
     globalClassKeys :: !(Set.Set Text),
     globalInstanceKeys :: !(Set.Set ((Text, Text), Text)),
-    globalDataFamilyInstanceKeys :: !(Set.Set Text),
-    globalTypeFamilyInstanceKeys :: !(Set.Set Text)
+    globalDataFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
+    globalTypeFamilyInstanceKeys :: !(Set.Set TcAxiomKey)
   }
 
 globalStateKeys :: TcState -> GlobalStateKeys
@@ -574,8 +574,8 @@ globalStateKeys state =
       globalDataTypeKeys = Map.keysSet (tcsDataTypes state),
       globalClassKeys = Map.keysSet (tcsClasses state),
       globalInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances state)),
-      globalDataFamilyInstanceKeys = Set.fromList (map dfiiAxiomName (tcsDataFamilyInstances state)),
-      globalTypeFamilyInstanceKeys = Set.fromList (map tfiiAxiomName (tcsTypeFamilyInstances state))
+      globalDataFamilyInstanceKeys = Map.keysSet (tcsDataFamilyInstances state),
+      globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state)
     }
 
 defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
@@ -586,8 +586,8 @@ defaultGlobalKindMetas initialKeys = do
   dataTypes <- traverseNewMap globalDataTypeKeys defaultDataTypeKinds (tcsDataTypes state)
   classes <- traverseNewMap globalClassKeys defaultClassKinds (tcsClasses state)
   instances <- mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (tcsInstances state)
-  dataFamilyInstances <- mapM (traverseNewList globalDataFamilyInstanceKeys dfiiAxiomName defaultDataFamilyInstanceKinds) (tcsDataFamilyInstances state)
-  typeFamilyInstances <- mapM (traverseNewList globalTypeFamilyInstanceKeys tfiiAxiomName defaultTypeFamilyInstanceKinds) (tcsTypeFamilyInstances state)
+  dataFamilyInstances <- traverseNewMap globalDataFamilyInstanceKeys defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
+  typeFamilyInstances <- traverseNewMap globalTypeFamilyInstanceKeys defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
   lift $
     modify' $ \current ->
       current
@@ -775,7 +775,7 @@ annotateDeclTc origin classMethods checkedValueTypes decl =
     DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
     DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
     DeclTypeFamilyDecl familyDecl -> annotateTypeFamilyDeclTc familyDecl
-    DeclTypeFamilyInst familyInst -> annotateTypeFamilyInstTc familyInst
+    DeclTypeFamilyInst familyInst -> annotateTypeFamilyInstTc origin familyInst
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
@@ -904,18 +904,15 @@ annotateName :: TcAnnotation -> Name -> Name
 annotateName tcAnn name =
   name {nameAnns = nameAnns name <> [mkAnnotation tcAnn]}
 
-annotateTypeFamilyInstTc :: TypeFamilyInst -> TcM Decl
-annotateTypeFamilyInstTc familyInst = do
+annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
+annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
   familyInstances <- getTypeFamilyInstances
-  case find (sameTypeFamilyInstance familyInst) familyInstances of
+  let expectedKey =
+        TcAxiomKey (PackageId packageName) moduleName' (sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst))
+  case find ((== expectedKey) . typeFamilyAxiomKey) familyInstances of
     Just familyInstance ->
       pure (DeclAnn (mkAnnotation familyInstance) (DeclTypeFamilyInst familyInst))
     Nothing -> pure (DeclTypeFamilyInst familyInst)
-
-sameTypeFamilyInstance :: TypeFamilyInst -> TypeFamilyInstanceInfo -> Bool
-sameTypeFamilyInstance familyInst info =
-  tfiiAxiomName info == sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst)
-    && not (tfiiClosed info)
 
 annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
 annotateDataFamilyInstTc familyInst = do
@@ -2066,8 +2063,8 @@ registerStructuralDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
 registerStructuralDecl origin (DeclData dataDecl) = registerDataConstructors origin dataDecl
 registerStructuralDecl origin (DeclNewtype newtypeDecl) = registerNewtypeConstructor origin newtypeDecl
 registerStructuralDecl origin (DeclDataFamilyInst familyInst) = registerDataFamilyInstance origin familyInst
-registerStructuralDecl _ (DeclTypeFamilyDecl familyDecl) = registerClosedTypeFamilyEquations familyDecl
-registerStructuralDecl _ (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance familyInst
+registerStructuralDecl origin (DeclTypeFamilyDecl familyDecl) = registerClosedTypeFamilyEquations origin familyDecl
+registerStructuralDecl origin (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance origin familyInst
 registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
 registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
@@ -2511,17 +2508,17 @@ typeFamilyResultKindType familyDecl =
     Just (TypeFamilyKindSig ty) -> Just ty
     _ -> Nothing
 
-registerClosedTypeFamilyEquations :: TypeFamilyDecl -> TcM [TcBindingResult]
-registerClosedTypeFamilyEquations familyDecl =
+registerClosedTypeFamilyEquations :: (Text, Text) -> TypeFamilyDecl -> TcM [TcBindingResult]
+registerClosedTypeFamilyEquations origin familyDecl =
   case typeFamilyDeclEquations familyDecl of
     Nothing -> pure []
     Just equations -> do
-      mapM_ (registerTypeFamilyEquation True (typeFamilyDeclParams familyDecl)) equations
+      mapM_ (registerTypeFamilyEquation origin True (typeFamilyDeclParams familyDecl)) equations
       pure []
 
-registerTypeFamilyInstance :: TypeFamilyInst -> TcM [TcBindingResult]
-registerTypeFamilyInstance familyInst = do
-  registerTypeFamilyEquation False (typeFamilyInstForall familyInst) $
+registerTypeFamilyInstance :: (Text, Text) -> TypeFamilyInst -> TcM [TcBindingResult]
+registerTypeFamilyInstance origin familyInst = do
+  registerTypeFamilyEquation origin False (typeFamilyInstForall familyInst) $
     TypeFamilyEq
       { typeFamilyEqAnns = [],
         typeFamilyEqForall = typeFamilyInstForall familyInst,
@@ -2531,8 +2528,8 @@ registerTypeFamilyInstance familyInst = do
       }
   pure []
 
-registerTypeFamilyEquation :: Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM ()
-registerTypeFamilyEquation isClosed extraBinders equation = do
+registerTypeFamilyEquation :: (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM ()
+registerTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equation = do
   paramInfos <- typeFamilyEquationParams extraBinders equation
   let tvEnv =
         Map.fromList
@@ -2557,6 +2554,7 @@ registerTypeFamilyEquation isClosed extraBinders equation = do
                     TypeFamilyInstanceInfo
                       { tfiiFamilyName = familyName,
                         tfiiAxiomName = axiomName,
+                        tfiiOrigin = (PackageId packageName, moduleName'),
                         tfiiTyVars = map paramTyVar paramInfos,
                         tfiiLeft = lhs,
                         tfiiRight = rhs,

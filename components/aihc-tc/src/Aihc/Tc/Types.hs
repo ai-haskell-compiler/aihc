@@ -10,6 +10,7 @@ module Aihc.Tc.Types
     setTyVarKind,
     TcType (..),
     TcTypeKey,
+    TcAxiomKey (..),
     TcKindEnv,
     TyCon (TyCon, tyConName, tyConArity),
     tyConKey,
@@ -133,6 +134,14 @@ pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ _ tyConName tyConArit
 {-# COMPLETE TyCon #-}
 
 type TcTypeKey = (PackageId, Text, ResolutionNamespace, Text)
+
+-- | Package, module, and axiom name. This identity is unique across modules.
+data TcAxiomKey = TcAxiomKey
+  { axiomKeyPackage :: !PackageId,
+    axiomKeyModule :: !Text,
+    axiomKeyName :: !Text
+  }
+  deriving (Eq, Ord, Show, Read)
 
 type TcKindEnv = Map TcTypeKey TypeScheme
 
