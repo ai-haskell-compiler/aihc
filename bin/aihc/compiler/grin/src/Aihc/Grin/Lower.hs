@@ -539,7 +539,7 @@ lowerCatch resultRep action handler stateValues = do
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
-        grinFunctionParameters = handlerCapture : stateCaptures <> [exception],
+        grinFunctionParameters = handlerCapture : exception : stateCaptures,
         grinFunctionResultRep = resultRep,
         grinFunctionBody =
           GrinBind
@@ -559,8 +559,8 @@ lowerCatch resultRep action handler stateValues = do
             [wrapper]
             ( GrinStore
                 ( GrinNode
-                    (GrinClosure functionName [[liftedGrinRep]])
-                    (GrinVarValue evaluatedHandler : stateValues)
+                    (GrinClosure functionName [liftedGrinRep : map grinValueRuntimeRep stateValues])
+                    [GrinVarValue evaluatedHandler]
                 )
             )
             (GrinCatch resultRep action (GrinVarValue wrapper) stateValues)
