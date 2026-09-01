@@ -243,10 +243,14 @@ moduleInfo package exports modu =
           foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
       moduleInfoExplicitPreludeImport =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
-      moduleInfoGhcBaseScope = lookupImportedModule package Nothing "GHC.Base" exports,
-      moduleInfoGhcClassesScope = lookupImportedModule package Nothing "GHC.Classes" exports,
-      moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports
+      moduleInfoBuiltinScope =
+        List.foldl'
+          unionScope
+          emptyScope
+          (map (\name -> lookupImportedModule package Nothing name exports) builtinModuleNames)
     }
+  where
+    builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 resolveModuleImports :: Package -> ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports package exports =
@@ -750,7 +754,7 @@ resolveIntegerLiteral expr = do
   let resolved =
         if RebindableSyntax `elem` moduleInfoExtensions info
           then rebindableFromInteger info scope
-          else lookupTerm "fromInteger" (moduleInfoGhcNumScope info)
+          else lookupTerm "fromInteger" (moduleInfoBuiltinScope info)
       annotation =
         ResolutionAnnotation sp (IdentifierNamed "fromInteger") ResolutionNamespaceTerm resolved
   pure (EAnn (mkAnnotation annotation) expr)
@@ -797,15 +801,11 @@ resolveSyntaxTerm name = do
 
 builtinSyntaxTerm :: ModuleInfo -> Text -> ResolvedName
 builtinSyntaxTerm info name =
-  case name of
-    "fromInteger" -> lookupTerm name (moduleInfoGhcNumScope info)
-    "negate" -> lookupTerm name (moduleInfoGhcNumScope info)
-    "==" -> lookupTerm name (moduleInfoGhcClassesScope info)
-    "enumFrom" -> lookupTerm name (moduleInfoGhcClassesScope info)
-    "enumFromThen" -> lookupTerm name (moduleInfoGhcClassesScope info)
-    "enumFromTo" -> lookupTerm name (moduleInfoGhcClassesScope info)
-    "enumFromThenTo" -> lookupTerm name (moduleInfoGhcClassesScope info)
-    _ -> ResolvedError "unknown built-in syntax term"
+  if name `elem` builtinSyntaxTermNames
+    then lookupTerm name (moduleInfoBuiltinScope info)
+    else ResolvedError "unknown built-in syntax term"
+  where
+    builtinSyntaxTermNames = ["fromInteger", "negate", "==", "enumFrom", "enumFromThen", "enumFromTo", "enumFromThenTo"]
 
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
 rebindableSyntaxTerm info scope name =
@@ -940,13 +940,12 @@ doBindAnnotation :: SourceSpan -> ResolveM ResolutionAnnotation
 doBindAnnotation sp = do
   scope <- currentScope
   info <- currentModuleInfo
-  -- GHC wires ordinary do notation to the canonical Monad method even when
-  -- GHC.Base is not imported. RebindableSyntax deliberately restores lexical
-  -- lookup so user-defined bind operators can replace it.
+  -- Ordinary do notation uses the built-in Monad method.
+  -- RebindableSyntax uses lexical lookup instead.
   let resolved =
         if RebindableSyntax `elem` moduleInfoExtensions info
           then rebindableSyntaxTerm info scope ">>="
-          else lookupTerm ">>=" (moduleInfoGhcBaseScope info)
+          else lookupTerm ">>=" (moduleInfoBuiltinScope info)
   pure (ResolutionAnnotation sp (IdentifierNamed ">>=") ResolutionNamespaceTerm resolved)
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
