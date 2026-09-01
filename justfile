@@ -1,10 +1,6 @@
 # Test runner for aihc project
 # See https://just.systems for Just documentation
 
-# Print install-v2 stage timings for keep-grin, aihc-prim, and aihc-base.
-bench-install:
-  bash benchmarks/install-v2-timings.sh
-
 # Run all tests with hidden successes (1000 Hedgehog tests per property)
 test:
   cabal test -v0 all --test-options='--hide-successes --hedgehog-tests 1000 --hedgehog-shrinks 10000'
