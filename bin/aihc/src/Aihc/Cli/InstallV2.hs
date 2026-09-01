@@ -1081,9 +1081,9 @@ runTypeUnit context runtimes runtime = do
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
       unitSet = Set.fromList unitNames
-  atomically $
-    putTMVar
-      (runtimeTypeResult runtime)
+  -- Force the type result before this type-check task ends.
+  typeResult <-
+    evaluate
       TypeUnitResult
         { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
           typeUnitHashes = ownTypeHashes,
@@ -1096,6 +1096,7 @@ runTypeUnit context runtimes runtime = do
           typeUnitDesugarInterface = mergeTcInterfaces [importedTypes, completeInterface],
           typeUnitSuccess = success
         }
+  atomically (putTMVar (runtimeTypeResult runtime) typeResult)
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
