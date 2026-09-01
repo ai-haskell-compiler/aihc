@@ -30,6 +30,7 @@ import Aihc.Cli.TaskGraph
     TaskId (..),
     TaskKind (..),
     TaskTiming,
+    renderDuration,
     renderTaskTimeline,
     runTaskGraph,
   )
@@ -111,6 +112,7 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
@@ -125,6 +127,7 @@ import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
+import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
@@ -263,6 +266,25 @@ data CompiledPackageModules = CompiledPackageModules
     compiledReused :: !(Set.Set Text)
   }
 
+data BackendPhaseTimings = BackendPhaseTimings
+  { backendDesugarNs :: !Word64,
+    backendGrinNs :: !Word64,
+    backendNativeNs :: !Word64,
+    backendOtherNs :: !Word64
+  }
+
+instance Semigroup BackendPhaseTimings where
+  left <> right =
+    BackendPhaseTimings
+      { backendDesugarNs = backendDesugarNs left + backendDesugarNs right,
+        backendGrinNs = backendGrinNs left + backendGrinNs right,
+        backendNativeNs = backendNativeNs left + backendNativeNs right,
+        backendOtherNs = backendOtherNs left + backendOtherNs right
+      }
+
+instance Monoid BackendPhaseTimings where
+  mempty = BackendPhaseTimings 0 0 0 0
+
 data PackageTaskContext = PackageTaskContext
   { taskModuleCompileConfig :: !ModuleCompileConfig,
     taskStorePath :: !FilePath,
@@ -272,7 +294,8 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyExports :: !ModuleExports,
     taskDependencyScopeHashes :: !(Map.Map Text Text),
     taskDependencyTypes :: !(Map.Map Text TcInterface),
-    taskDependencyTypeHashes :: !(Map.Map Text Text)
+    taskDependencyTypeHashes :: !(Map.Map Text Text),
+    taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
 runInstallV2 :: InstallV2Options -> IO ()
@@ -450,6 +473,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+  backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
           { taskModuleCompileConfig = config,
@@ -460,12 +484,18 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskDependencyExports = dependencyExports,
             taskDependencyScopeHashes = dependencyScopeHashes,
             taskDependencyTypes = dependencyTypes,
-            taskDependencyTypeHashes = dependencyTypeHashes
+            taskDependencyTypeHashes = dependencyTypeHashes,
+            taskBackendPhaseTimings = backendPhaseTimings
           }
   verbose ("Compute " <> show (length units) <> " SCC units")
   (runtimes, taskTimings) <- runPackageTasks taskContext (max 1 capabilities) units
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
-  compilePrintTimings config (renderTaskTimeline (compileUseColor config) (importTimings <> taskTimings))
+  phaseTimings <- readIORef backendPhaseTimings
+  compilePrintTimings
+    config
+    ( renderTaskTimeline (compileUseColor config) (importTimings <> taskTimings)
+        <> renderBackendPhaseTotals phaseTimings
+    )
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
@@ -1051,9 +1081,9 @@ runTypeUnit context runtimes runtime = do
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
       unitSet = Set.fromList unitNames
-  atomically $
-    putTMVar
-      (runtimeTypeResult runtime)
+  -- Force the type result before this type-check task ends.
+  typeResult <-
+    evaluate
       TypeUnitResult
         { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
           typeUnitHashes = ownTypeHashes,
@@ -1066,26 +1096,33 @@ runTypeUnit context runtimes runtime = do
           typeUnitDesugarInterface = mergeTcInterfaces [importedTypes, completeInterface],
           typeUnitSuccess = success
         }
+  atomically (putTMVar (runtimeTypeResult runtime) typeResult)
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
 
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
+  started <- getMonotonicTimeNSec
   result <- atomically (readTMVar (runtimeTypeResult runtime))
   case typeUnitPendingCompile result of
     Just pending | typeUnitSuccess result -> do
       let config = taskModuleCompileConfig context
           storePath = taskStorePath context
-      compileCheckedModules
-        config
-        (pendingWriteFc pending)
-        (compileVerbose config)
-        (taskPrimIdentity context)
-        (typeUnitDesugarInterface result)
-        (moduleOutputPaths storePath (compileTarget config))
-        (pendingModules pending)
-    _ -> pure ()
+      phaseTimings <-
+        compileCheckedModules
+          config
+          (pendingWriteFc pending)
+          (compileVerbose config)
+          (taskPrimIdentity context)
+          (typeUnitDesugarInterface result)
+          (moduleOutputPaths storePath (compileTarget config))
+          (pendingModules pending)
+      ended <- getMonotonicTimeNSec
+      atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended phaseTimings, ()))
+    _ -> do
+      ended <- getMonotonicTimeNSec
+      atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended mempty, ()))
 
 applyInstanceFacts :: TcInterface -> TcInterface -> TcInterface
 applyInstanceFacts instances direct =
@@ -1134,40 +1171,80 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
-compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
-compileCheckedModules config writeFc verbose primIdentity interface outputPaths checkedModules = do
-  let keepGrin = compileKeepGrin config
-      keepNative = compileKeepNative config
-      lint = compileLint config
-      target = compileTarget config
-      bindings = concatMap tcModuleBindings checkedModules
-      desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
-  unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
-  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-      fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
-      fcErrors = [(fcModuleName fcModule, err) | fcModule <- fcModules, err <- Fc.lintProgram (fcProgram fcModule)]
-      fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
-  when lint $
-    unless (null fcErrors) $
-      ioError
-        ( userError
-            ( unlines
-                ( ["FC lint failed:"]
-                    <> fcReport
-                )
-            )
-        )
-  when writeFc (mapM_ writeFcModule fcModules)
-  let (emptyFcModules, nonemptyFcModules) = spanEmptyModules fcModules
-  mapM_ writeEmptyModule emptyFcModules
-  grinModules <- mapM lowerGrinModule nonemptyFcModules
-  when keepGrin (mapM_ writeGrinModule grinModules)
-  nativeModules <- mapM (generateNativeModule target) grinModules
-  mapM_ writeNativeSourceFile nativeModules
-  mapM_ compileNativeSourceFile nativeModules
-  when keepNative (mapM_ writeNativeDisassembly nativeModules)
-  unless keepNative (mapM_ removeNativeSourceFile nativeModules)
+measureTime :: IO a -> IO (a, Word64)
+measureTime action = do
+  start <- getMonotonicTimeNSec
+  value <- action
+  end <- getMonotonicTimeNSec
+  pure (value, end - start)
+
+withOtherTime :: Word64 -> Word64 -> BackendPhaseTimings -> BackendPhaseTimings
+withOtherTime started ended timings =
+  timings
+    { backendOtherNs = extra
+    }
   where
+    accounted = backendDesugarNs timings + backendGrinNs timings + backendNativeNs timings
+    elapsed = ended - started
+    extra
+      | elapsed > accounted = elapsed - accounted
+      | otherwise = 0
+
+renderBackendPhaseTotals :: BackendPhaseTimings -> String
+renderBackendPhaseTotals timings =
+  unlines
+    [ "desugar total: " <> renderDuration (backendDesugarNs timings),
+      "grin total: " <> renderDuration (backendGrinNs timings),
+      "native total: " <> renderDuration (backendNativeNs timings),
+      "other total: " <> renderDuration (backendOtherNs timings)
+    ]
+
+compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
+compileCheckedModules config writeFc verbose primIdentity interface outputPaths checkedModules = do
+  (splitModules, desugarNs) <- measureTime $ do
+    let bindings = concatMap tcModuleBindings checkedModules
+        desugarResults = map (Fc.desugarModuleFc (DesugarConfig primIdentity) bindings interface) checkedModules
+    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
+    let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+        fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
+        fcErrors = [(fcModuleName fcModule, err) | fcModule <- fcModules, err <- Fc.lintProgram (fcProgram fcModule)]
+        fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
+    when lint $
+      unless (null fcErrors) $
+        ioError
+          ( userError
+              ( unlines
+                  ( ["FC lint failed:"]
+                      <> fcReport
+                  )
+              )
+          )
+    when writeFc (mapM_ writeFcModule fcModules)
+    pure (spanEmptyModules fcModules)
+  let (emptyFcModules, nonemptyFcModules) = splitModules
+  (grinModules, grinNs) <- measureTime $ do
+    grinModules <- mapM lowerGrinModule nonemptyFcModules
+    when keepGrin (mapM_ writeGrinModule grinModules)
+    pure grinModules
+  (_, nativeNs) <- measureTime $ do
+    mapM_ writeEmptyModule emptyFcModules
+    nativeModules <- mapM (generateNativeModule target) grinModules
+    mapM_ writeNativeSourceFile nativeModules
+    mapM_ compileNativeSourceFile nativeModules
+    when keepNative (mapM_ writeNativeDisassembly nativeModules)
+    unless keepNative (mapM_ removeNativeSourceFile nativeModules)
+  pure
+    BackendPhaseTimings
+      { backendDesugarNs = desugarNs,
+        backendGrinNs = grinNs,
+        backendNativeNs = nativeNs,
+        backendOtherNs = 0
+      }
+  where
+    keepGrin = compileKeepGrin config
+    keepNative = compileKeepNative config
+    lint = compileLint config
+    target = compileTarget config
     spanEmptyModules = foldr split ([], [])
       where
         split fcModule (emptyModules, nonemptyModules)
