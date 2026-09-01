@@ -235,9 +235,17 @@ renderTaskTimeline useColor timings =
           ".=idle"
         ]
     renderKindTotal kind =
-      kindSymbol useColor kind
-        <> " total: "
-        <> renderDuration (sum [timingEnd timing - timingStart timing | timing <- timings, timingKind timing == kind])
+      let matching = [timing | timing <- timings, timingKind timing == kind]
+          totalNs = sum [timingEnd timing - timingStart timing | timing <- matching]
+          spanNs =
+            case matching of
+              [] -> 0
+              _ -> maximum (map timingEnd matching) - minimum (map timingStart matching)
+       in kindSymbol useColor kind
+            <> " total: "
+            <> renderDuration totalNs
+            <> ", spanning "
+            <> renderSpanDuration spanNs
 
 kindSymbol :: Bool -> TaskKind -> String
 kindSymbol useColor kind = colorize useColor (kindColor kind) [kindGlyph kind]
@@ -264,20 +272,34 @@ colorize useColor color value
   | otherwise = value
 
 renderDuration :: Word64 -> String
-renderDuration nanoseconds
-  | nanoseconds >= 60000000000 = renderScaledDuration 60000000000 "min"
-  | nanoseconds >= 1000000000 = renderScaledDuration 1000000000 "s"
-  | nanoseconds >= 1000000 = renderScaledDuration 1000000 "ms"
-  | nanoseconds >= 1000 = renderScaledDuration 1000 "µs"
-  | otherwise = renderScaledDuration 1 "ns"
+renderDuration = renderScaledDuration durationDecimalPlaces
+
+renderSpanDuration :: Word64 -> String
+renderSpanDuration = renderScaledDuration spanDecimalPlaces
+
+renderScaledDuration :: (Double -> Int) -> Word64 -> String
+renderScaledDuration decimalPlaces nanoseconds
+  | nanoseconds >= 60000000000 = renderUnit 60000000000 "min"
+  | nanoseconds >= 1000000000 = renderUnit 1000000000 "s"
+  | nanoseconds >= 1000000 = renderUnit 1000000 "ms"
+  | nanoseconds >= 1000 = renderUnit 1000 "µs"
+  | otherwise = renderUnit 1 "ns"
   where
-    renderScaledDuration divisor unit =
+    renderUnit divisor unit =
       let value = fromIntegral nanoseconds / divisor :: Double
-          decimalPlaces
-            | value >= 100 = 1
-            | value >= 10 = 2
-            | otherwise = 3
-       in showFFloat (Just decimalPlaces) value "" <> " " <> unit
+       in showFFloat (Just (decimalPlaces value)) value "" <> " " <> unit
+
+durationDecimalPlaces :: Double -> Int
+durationDecimalPlaces value
+  | value >= 100 = 1
+  | value >= 10 = 2
+  | otherwise = 3
+
+spanDecimalPlaces :: Double -> Int
+spanDecimalPlaces value
+  | value >= 100 = 0
+  | value >= 10 = 1
+  | otherwise = 2
 
 padLeft :: Int -> String -> String
 padLeft width value = replicate (max 0 (width - length value)) ' ' <> value

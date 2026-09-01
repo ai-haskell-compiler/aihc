@@ -285,12 +285,20 @@ test_installV2TimingOutput = do
       "timing output contains the stage symbols"
       ("▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
     assertBool "timing output contains frontend time" ("Frontend time:" `isInfixOf` timingOutput)
+    assertBool "parse total includes a span" (hasStageSpan "▁ total:" timingOutput)
+    assertBool "resolve total includes a span" (hasStageSpan "▂ total:" timingOutput)
+    assertBool "type-check total includes a span" (hasStageSpan "▄ total:" timingOutput)
+    assertBool "backend total includes a span" (hasStageSpan "█ total:" timingOutput)
     assertBool "timing output contains desugar total" ("desugar total:" `isInfixOf` timingOutput)
     assertBool "timing output contains grin total" ("grin total:" `isInfixOf` timingOutput)
     assertBool "timing output contains native total" ("native total:" `isInfixOf` timingOutput)
     assertBool "timing output contains other total" ("other total:" `isInfixOf` timingOutput)
     assertBool "timing output does not contain verbose output" (not ("Read Cabal package:" `isInfixOf` timingOutput))
     assertBool "redirected timing output does not contain colors" ('\ESC' `notElem` timingOutput)
+
+hasStageSpan :: String -> String -> Bool
+hasStageSpan label output =
+  any (\line -> label `isInfixOf` line && ", spanning " `isInfixOf` line) (lines output)
 
 captureStdout :: IO value -> IO String
 captureStdout action =
