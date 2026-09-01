@@ -269,7 +269,8 @@ data CompiledPackageModules = CompiledPackageModules
 data BackendPhaseTimings = BackendPhaseTimings
   { backendDesugarNs :: !Word64,
     backendGrinNs :: !Word64,
-    backendNativeNs :: !Word64
+    backendNativeNs :: !Word64,
+    backendOtherNs :: !Word64
   }
 
 instance Semigroup BackendPhaseTimings where
@@ -277,11 +278,12 @@ instance Semigroup BackendPhaseTimings where
     BackendPhaseTimings
       { backendDesugarNs = backendDesugarNs left + backendDesugarNs right,
         backendGrinNs = backendGrinNs left + backendGrinNs right,
-        backendNativeNs = backendNativeNs left + backendNativeNs right
+        backendNativeNs = backendNativeNs left + backendNativeNs right,
+        backendOtherNs = backendOtherNs left + backendOtherNs right
       }
 
 instance Monoid BackendPhaseTimings where
-  mempty = BackendPhaseTimings 0 0 0
+  mempty = BackendPhaseTimings 0 0 0 0
 
 data PackageTaskContext = PackageTaskContext
   { taskModuleCompileConfig :: !ModuleCompileConfig,
@@ -1079,9 +1081,9 @@ runTypeUnit context runtimes runtime = do
           (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
       backendInterface = addReferencedFacts availableBackendFacts completeInterface
       unitSet = Set.fromList unitNames
-  -- Force the type result before this type-check task ends.
-  typeResult <-
-    evaluate
+  atomically $
+    putTMVar
+      (runtimeTypeResult runtime)
       TypeUnitResult
         { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
           typeUnitHashes = ownTypeHashes,
@@ -1094,13 +1096,13 @@ runTypeUnit context runtimes runtime = do
           typeUnitDesugarInterface = mergeTcInterfaces [importedTypes, completeInterface],
           typeUnitSuccess = success
         }
-  atomically (putTMVar (runtimeTypeResult runtime) typeResult)
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
 
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
+  started <- getMonotonicTimeNSec
   result <- atomically (readTMVar (runtimeTypeResult runtime))
   case typeUnitPendingCompile result of
     Just pending | typeUnitSuccess result -> do
@@ -1115,8 +1117,11 @@ runBackendUnit context runtime = do
           (typeUnitDesugarInterface result)
           (moduleOutputPaths storePath (compileTarget config))
           (pendingModules pending)
-      atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> phaseTimings, ()))
-    _ -> pure ()
+      ended <- getMonotonicTimeNSec
+      atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended phaseTimings, ()))
+    _ -> do
+      ended <- getMonotonicTimeNSec
+      atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended mempty, ()))
 
 applyInstanceFacts :: TcInterface -> TcInterface -> TcInterface
 applyInstanceFacts instances direct =
@@ -1172,12 +1177,25 @@ measureTime action = do
   end <- getMonotonicTimeNSec
   pure (value, end - start)
 
+withOtherTime :: Word64 -> Word64 -> BackendPhaseTimings -> BackendPhaseTimings
+withOtherTime started ended timings =
+  timings
+    { backendOtherNs = extra
+    }
+  where
+    accounted = backendDesugarNs timings + backendGrinNs timings + backendNativeNs timings
+    elapsed = ended - started
+    extra
+      | elapsed > accounted = elapsed - accounted
+      | otherwise = 0
+
 renderBackendPhaseTotals :: BackendPhaseTimings -> String
 renderBackendPhaseTotals timings =
   unlines
     [ "desugar total: " <> renderDuration (backendDesugarNs timings),
       "grin total: " <> renderDuration (backendGrinNs timings),
-      "native total: " <> renderDuration (backendNativeNs timings)
+      "native total: " <> renderDuration (backendNativeNs timings),
+      "other total: " <> renderDuration (backendOtherNs timings)
     ]
 
 compileCheckedModules :: ModuleCompileConfig -> Bool -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO BackendPhaseTimings
@@ -1218,7 +1236,8 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
     BackendPhaseTimings
       { backendDesugarNs = desugarNs,
         backendGrinNs = grinNs,
-        backendNativeNs = nativeNs
+        backendNativeNs = nativeNs,
+        backendOtherNs = 0
       }
   where
     keepGrin = compileKeepGrin config

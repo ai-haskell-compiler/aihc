@@ -288,6 +288,7 @@ test_installV2TimingOutput = do
     assertBool "timing output contains desugar total" ("desugar total:" `isInfixOf` timingOutput)
     assertBool "timing output contains grin total" ("grin total:" `isInfixOf` timingOutput)
     assertBool "timing output contains native total" ("native total:" `isInfixOf` timingOutput)
+    assertBool "timing output contains other total" ("other total:" `isInfixOf` timingOutput)
     assertBool "timing output does not contain verbose output" (not ("Read Cabal package:" `isInfixOf` timingOutput))
     assertBool "redirected timing output does not contain colors" ('\ESC' `notElem` timingOutput)
 
