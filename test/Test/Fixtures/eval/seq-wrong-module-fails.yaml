@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Bool = False | True
+    data Unit = Unit
+
+    foreign import prim seq :: a -> b -> b
+
+    result :: Bool
+    result = seq Unit True
+output: ""
+expression: result
+status: fail
+reason: System FC accepts imported seq only from the configured GHC.Prim module

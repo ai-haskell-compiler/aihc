@@ -1,0 +1,28 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (seq)
+    import Prelude (Bool (True))
+
+    data Unit = Unit
+
+    mySeq :: (# #) -> (# #)
+    mySeq = seq Unit
+
+    result :: Bool
+    result =
+      case mySeq (# #) of
+        (# #) ->
+          case seq Unit (# #) of
+            (# #) -> True
+output: |
+  True
+expression: result
+status: pass
+reason: seq supports direct and partial applications with a zero-width result

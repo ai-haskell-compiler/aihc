@@ -1,0 +1,99 @@
+---
+extensions:
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (seq)
+
+    data Bool = False | True
+    data Unit = Unit
+
+    seq0Lifted :: Unit -> Bool -> Bool
+    seq0Lifted = seq
+
+    seq1Lifted :: Bool -> Bool
+    seq1Lifted = seq Unit
+
+    seq1Unboxed :: (# #) -> (# #)
+    seq1Unboxed = seq Unit
+
+    seq2Lifted :: Bool
+    seq2Lifted = seq Unit True
+
+    seq2Unboxed :: Unit -> (# #)
+    seq2Unboxed value = seq value (# #)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tTuple0# :: 2.tTYPE (2.vTupleRep (2.v[] 2.tRuntimeRep));
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.v(##) :: 2.tTuple0#;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity;
+    2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+    2.v[] :: ∀(a : 2.tType). 2.t[] a
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vFalse :: 1.tBool;
+      pub 1.vTrue :: 1.tBool
+  }
+
+  pub type 1.tUnit :: 2.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub val 1.vseq0Lifted :: 1.tUnit 2.→ 1.tBool 2.→ 1.tBool
+   = λ(seq_first : 1.tUnit).
+    λ(seq_second : 1.tBool).
+      case seq_first as (seq_evaluated : 1.tUnit) return (1.tBool) of {
+          _ →
+              seq_second
+      }
+
+  pub val 1.vseq1Lifted :: 1.tBool 2.→ 1.tBool
+   = (λ(seq_first : 1.tUnit).
+    λ(seq_second : 1.tBool).
+      case seq_first as (seq_evaluated : 1.tUnit) return (1.tBool) of {
+          _ →
+              seq_second
+      }) 1.vUnit
+
+  pub val 1.vseq1Unboxed :: FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tTuple0# 2.tTuple0#
+   = (λ(seq_first : 1.tUnit).
+    λ(seq_second : 2.tTuple0#).
+      case seq_first as (seq_evaluated : 1.tUnit) return (2.tTuple0#) of {
+          _ →
+              seq_second
+      }) 1.vUnit
+
+  pub val 1.vseq2Lifted :: 1.tBool
+   = (λ(seq_first : 1.tUnit).
+    λ(seq_second : 1.tBool).
+      case seq_first as (seq_evaluated : 1.tUnit) return (1.tBool) of {
+          _ →
+              seq_second
+      }) 1.vUnit 1.vTrue
+
+  pub val 1.vseq2Unboxed :: FUN @2.tLiftedRep @(2.vTupleRep (2.v[] 2.tRuntimeRep)) 1.tUnit 2.tTuple0#
+   = λ(x : 1.tUnit).
+    (λ(seq_first : 1.tUnit).
+      λ(seq_second : 2.tTuple0#).
+        case seq_first as (seq_evaluated : 1.tUnit) return (2.tTuple0#) of {
+            _ →
+                seq_second
+        }) x 2.v(##)
+status: pass
+reason: seq applications support zero, one, and two arguments with lifted and unboxed results.
