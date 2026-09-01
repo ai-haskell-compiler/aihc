@@ -2,6 +2,7 @@ module Aihc.Cli.TypeArtifact
   ( TypeArtifact (..),
     decodeTypeArtifact,
     encodeTypeArtifact,
+    encodeTypeArtifactFromInterface,
     encodeTypeInterface,
   )
 where
@@ -59,17 +60,24 @@ type TyConTable = Array Int TyCon
 
 encodeTypeArtifact :: TypeArtifact -> BL.ByteString
 encodeTypeArtifact artifact =
-  let tyCons = Set.toAscList (interfaceTyCons (typeArtifactInterface artifact))
-      tyConTable = Map.fromList (zip tyCons [0 ..])
-   in builderBytes $
-        cborArray 5
-          <> cborText "aihc-type"
-          <> cborText (typeArtifactModuleName artifact)
-          <> encodeList encodeHash (typeArtifactInputHashes artifact)
-          <> encodeList putTyConDefinition tyCons
-          <> putInterface tyConTable (typeArtifactInterface artifact)
+  encodeTypeArtifactFromInterface
+    (typeArtifactModuleName artifact)
+    (typeArtifactInputHashes artifact)
+    (encodeTypeInterface (typeArtifactInterface artifact))
+
+-- | Wrap encoded interface bytes as a type artifact.
+-- The interface bytes are CBOR items 4 and 5 of the artifact array.
+encodeTypeArtifactFromInterface :: Text -> [(Text, Text)] -> BL.ByteString -> BL.ByteString
+encodeTypeArtifactFromInterface name hashes interfaceBytes =
+  builderBytes
+    ( cborArray 5
+        <> cborText "aihc-type"
+        <> cborText name
+        <> encodeList encodeHash hashes
+    )
+    <> interfaceBytes
   where
-    encodeHash (name, digest) = cborArray 2 <> cborText name <> cborText digest
+    encodeHash (hashName, digest) = cborArray 2 <> cborText hashName <> cborText digest
 
 encodeTypeInterface :: TcInterface -> BL.ByteString
 encodeTypeInterface interface =

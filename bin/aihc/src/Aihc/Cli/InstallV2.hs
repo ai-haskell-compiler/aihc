@@ -33,7 +33,7 @@ import Aihc.Cli.TaskGraph
     renderTaskTimeline,
     runTaskGraph,
   )
-import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
+import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactFromInterface, encodeTypeInterface)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
@@ -1036,9 +1036,17 @@ runTypeUnit context runtimes runtime = do
       diagnostics = concatMap tcModuleDiagnostics (fst initialChecked)
       typeSuccess = all tcModuleSuccess (fst initialChecked)
       success = resolveSuccess && dependencySuccess && typeSuccess
+  let encodedTypes =
+        [ (source, name, encodeTypeInterface interface)
+        | (source, name, interface) <- zip3 sources unitNames unitTypes
+        ]
+      ownTypeHashes =
+        Map.fromList
+          [ (name, T.pack (stableHash [BL.toStrict interfaceBytes]))
+          | (_, name, interfaceBytes) <- encodedTypes
+          ]
   when success $
-    mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip sources unitTypes)
-  let ownTypeHashes = updateTypeHashes Map.empty (zip unitNames unitTypes)
+    mapM_ (\(source, _, interfaceBytes) -> writeTypeArtifact verbose typeInputs typePath source interfaceBytes) encodedTypes
   pendingCompile <-
     if compileNoCode config || not success
       then pure Nothing
@@ -1522,19 +1530,13 @@ typeTyCons ty = case ty of
   TcQualTy predicates body -> concatMap predTyCons predicates <> typeTyCons body
   TcAppTy function argument -> typeTyCons function <> typeTyCons argument
 
-writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO ()
-writeTypeArtifact verbose hashes artifactPath source interface = do
+writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> FilePath) -> SourceModule -> BL.ByteString -> IO ()
+writeTypeArtifact verbose hashes artifactPath source interfaceBytes = do
   let path = artifactPath source
       name = fromMaybe "Main" (moduleName (sourceModuleAst source))
   createDirectoryIfMissing True (takeDirectory path)
-  BL.writeFile path (encodeTypeArtifact (TypeArtifact name hashes interface))
+  BL.writeFile path (encodeTypeArtifactFromInterface name hashes interfaceBytes)
   verbose ("Write type interface: " <> T.unpack name)
-
-updateTypeHashes :: Map.Map Text Text -> [(Text, TcInterface)] -> Map.Map Text Text
-updateTypeHashes = foldl' insertHash
-  where
-    insertHash result (name, interface) =
-      Map.insert name (T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) result
 
 updateScopeHashes :: Package -> ModuleExports -> Map.Map Text Text -> [SourceModule] -> Map.Map Text Text
 updateScopeHashes package exports = foldl' update
