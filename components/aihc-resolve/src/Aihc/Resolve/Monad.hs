@@ -12,6 +12,7 @@ module Aihc.Resolve.Monad
     withPushedSpan,
     freshLocal,
     withResetLocalSupply,
+    reportResolveError,
   )
 where
 
@@ -37,8 +38,9 @@ data ModuleInfo = ModuleInfo
     moduleInfoBuiltinScope :: !Scope
   }
 
-newtype ResolveState = ResolveState
-  { stateNextLocal :: Int
+data ResolveState = ResolveState
+  { stateNextLocal :: !Int,
+    stateErrors :: [ResolveError]
   }
 
 newtype ResolveM a = ResolveM
@@ -66,12 +68,12 @@ instance Monad ResolveM where
       let (result, state') = unResolveM action env state
        in unResolveM (next result) env state'
 
-runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, a)
+runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, a, [ResolveError])
 runResolveM scope moduleInfo nextLocal action =
   let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = NoSourceSpan}
-      initialState = ResolveState {stateNextLocal = nextLocal}
+      initialState = ResolveState {stateNextLocal = nextLocal, stateErrors = []}
       (result, finalState) = unResolveM action initialEnv initialState
-   in (stateNextLocal finalState, result)
+   in (stateNextLocal finalState, result, reverse (stateErrors finalState))
 
 asks :: (ResolveEnv -> a) -> ResolveM a
 asks f = ResolveM $ \env state -> (f env, state)
@@ -130,3 +132,7 @@ withResetLocalSupply action = do
   result <- action
   modify' (\state -> state {stateNextLocal = savedNextLocal})
   pure result
+
+reportResolveError :: ResolveError -> ResolveM ()
+reportResolveError err =
+  modify' (\state -> state {stateErrors = err : stateErrors state})

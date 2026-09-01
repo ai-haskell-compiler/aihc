@@ -503,7 +503,7 @@ test_installV2AihcPrim = do
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
         loader = Fc.storeModuleLoader targetStoreRoot
-    assertBool "package artifact version sets the package hash" ("4472358042b0f972" `isSuffixOf` packageDir)
+    assertBool "package artifact version sets the package hash" ("ff25baf152cf478e" `isSuffixOf` packageDir)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"

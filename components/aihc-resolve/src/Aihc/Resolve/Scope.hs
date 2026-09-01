@@ -5,12 +5,16 @@ module Aihc.Resolve.Scope
     OperatorFixity (..),
     ModuleExports,
     ModuleKey (..),
+    ExportEnv,
     collectModuleExports,
     collectModuleExportsWithDeps,
+    mkExportEnv,
     moduleScope,
     moduleKey,
     matchingModuleScopes,
+    matchingModuleScopesEnv,
     lookupImportedModule,
+    lookupImportedModuleEnv,
     emptyScope,
     unionScope,
     insertTerm,
@@ -76,18 +80,19 @@ import Aihc.Resolve.Span (spanStartNameSpan)
 import Aihc.Resolve.Types
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
 data Scope = Scope
-  { scopeTerms :: Map.Map Text ResolvedName,
-    scopeTypes :: Map.Map Text ResolvedName,
-    scopeConstructors :: Map.Map Text [Text],
-    scopeRecordFields :: Map.Map Text [Text],
-    scopeMethods :: Map.Map Text [Text],
-    scopeFixities :: Map.Map Text OperatorFixity,
-    scopeQualifiedModules :: Map.Map Text Scope
+  { scopeTerms :: !(Map.Map Text ResolvedName),
+    scopeTypes :: !(Map.Map Text ResolvedName),
+    scopeConstructors :: !(Map.Map Text [Text]),
+    scopeRecordFields :: !(Map.Map Text [Text]),
+    scopeMethods :: !(Map.Map Text [Text]),
+    scopeFixities :: !(Map.Map Text OperatorFixity),
+    scopeQualifiedModules :: !(Map.Map Text Scope)
   }
   deriving (Eq)
 
@@ -105,44 +110,67 @@ data ModuleKey = ModuleKey
 
 type ModuleExports = Map.Map ModuleKey Scope
 
+-- | Name-indexed view of 'ModuleExports' for import lookup.
+data ExportEnv = ExportEnv
+  { exportEnvScopes :: !ModuleExports,
+    exportEnvByName :: !(Map.Map Text [(Package, Scope)])
+  }
+
+mkExportEnv :: ModuleExports -> ExportEnv
+mkExportEnv exports =
+  ExportEnv
+    { exportEnvScopes = exports,
+      exportEnvByName =
+        Map.fromListWith
+          (++)
+          [ (name, [(package, scope)])
+          | (ModuleKey package name, scope) <- Map.toList exports
+          ]
+    }
+
 collectModuleExports :: [(Package, Module)] -> ModuleExports
 collectModuleExports = collectModuleExportsWithDeps Map.empty
 
 -- | Extract interfaces for a compilation unit while allowing its explicit
 -- export lists to re-export names supplied by predecessor units.
 collectModuleExportsWithDeps :: ModuleExports -> [(Package, Module)] -> ModuleExports
-collectModuleExportsWithDeps depExports packageModules = Map.restrictKeys (closeExports initialExports) moduleKeys
+collectModuleExportsWithDeps depExports packageModules = closeLocal initialLocal
   where
-    moduleKeys = Map.keysSet localExports
-    localExports =
+    localKeys = [exportKey package modu | (package, modu) <- packageModules]
+    initialLocal = Map.fromList [(key, emptyScope) | key <- localKeys]
+    topLevels =
       Map.fromList
-        [ (exportKey package modu, emptyScope)
+        [ (exportKey package modu, topLevelScope package modu)
         | (package, modu) <- packageModules
         ]
-    initialExports =
-      localExports `Map.union` depExports
 
-    closeExports exports =
-      let exports' =
-            Map.fromList [(exportKey package modu, exportedScope package exports modu) | (package, modu) <- packageModules]
-              `Map.union` depExports
-       in if exports' == exports then exports else closeExports exports'
+    closeLocal local =
+      let env = mkExportEnv (local `Map.union` depExports)
+          local' =
+            Map.fromList
+              [ (exportKey package modu, exportedScope package env topLevels modu)
+              | (package, modu) <- packageModules
+              ]
+       in if local' == local then local else closeLocal local'
+
     exportKey package modu = ModuleKey package (moduleKey modu)
 
-exportedScope :: Package -> ModuleExports -> Module -> Scope
-exportedScope package exports modu =
+exportedScope :: Package -> ExportEnv -> Map.Map ModuleKey Scope -> Module -> Scope
+exportedScope package env topLevels modu =
   case moduleExports modu of
-    Nothing -> topLevelScope package modu
+    Nothing -> ownTopLevel
     Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
-    availableScope = topLevelScope package modu `unionScope` importedScope package exports modu
+    ownKey = ModuleKey package (moduleKey modu)
+    ownTopLevel = Map.findWithDefault emptyScope ownKey topLevels
+    availableScope = ownTopLevel `unionScope` importedScope package env modu
 
     exportSpecScope spec =
       case spec of
         ExportAnn _ inner -> exportSpecScope inner
         ExportModule _ exportModuleName
-          | exportModuleName == moduleKey modu -> topLevelScope package modu
-          | otherwise -> lookupImportedModule package Nothing exportModuleName exports
+          | exportModuleName == moduleKey modu -> ownTopLevel
+          | otherwise -> lookupImportedModuleEnv package Nothing exportModuleName env
         ExportVar _ _ name -> selectTerm (nameText name) availableScope
         ExportAbs _ _ name -> selectType (nameText name) availableScope
         ExportAll _ _ name -> selectTypeWithMembers (nameText name) availableScope (allTypeMembers (nameText name) availableScope)
@@ -153,26 +181,34 @@ exportedScope package exports modu =
 selectTerm :: Text -> Scope -> Scope
 selectTerm name scope =
   emptyScope
-    { scopeTerms = Map.filterWithKey (\n _ -> n == name) (scopeTerms scope),
-      scopeFixities = Map.filterWithKey (\n _ -> n == name) (scopeFixities scope)
+    { scopeTerms = lookupSingleton name (scopeTerms scope),
+      scopeFixities = lookupSingleton name (scopeFixities scope)
     }
 
 selectType :: Text -> Scope -> Scope
 selectType name scope =
   emptyScope
-    { scopeTypes = Map.filterWithKey (\n _ -> n == name) (scopeTypes scope)
+    { scopeTypes = lookupSingleton name (scopeTypes scope)
     }
 
 selectTypeWithMembers :: Text -> Scope -> [Text] -> Scope
 selectTypeWithMembers name scope members =
   selectType name scope
     `unionScope` emptyScope
-      { scopeTerms = Map.filterWithKey (\n _ -> n `elem` members) (scopeTerms scope),
-        scopeConstructors = Map.filterWithKey (\n _ -> n == name) (scopeConstructors scope),
-        scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` members) (scopeRecordFields scope),
-        scopeMethods = Map.filterWithKey (\n _ -> n == name) (scopeMethods scope),
-        scopeFixities = Map.filterWithKey (\n _ -> n `elem` members) (scopeFixities scope)
+      { scopeTerms = Map.restrictKeys (scopeTerms scope) memberSet,
+        scopeConstructors = lookupSingleton name (scopeConstructors scope),
+        scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) memberSet,
+        scopeMethods = lookupSingleton name (scopeMethods scope),
+        scopeFixities = Map.restrictKeys (scopeFixities scope) memberSet
       }
+  where
+    memberSet = Set.fromList members
+
+lookupSingleton :: (Ord k) => k -> Map.Map k a -> Map.Map k a
+lookupSingleton name entries =
+  case Map.lookup name entries of
+    Just value -> Map.singleton name value
+    Nothing -> Map.empty
 
 allTypeMembers :: Text -> Scope -> [Text]
 allTypeMembers name scope =
@@ -377,23 +413,23 @@ bars n
   | n <= 0 = ""
   | otherwise = T.replicate n "|"
 
-moduleScope :: Package -> ModuleExports -> Module -> Scope
-moduleScope packageId exports modu =
+moduleScope :: Package -> ExportEnv -> Module -> Scope
+moduleScope packageId env modu =
   ownScope
-    `unionScope` importedScope packageId exports modu
+    `unionScope` importedScope packageId env modu
     `unionScope` implicitPrelude
     `unionScope` listConstructorScope
     `unionScope` builtinScope
   where
     ownScope = topLevelScope packageId modu
-    preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
+    preludeScope = lookupImportedModuleEnv packageId Nothing "Prelude" env
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
-    ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
+    ghcTypesScope = lookupImportedModuleEnv packageId Nothing "GHC.Types" env
     listConstructorScope = selectTerm ":" ghcTypesScope `unionScope` selectTerm "[]" ghcTypesScope
 
-importedScope :: Package -> ModuleExports -> Module -> Scope
-importedScope packageId exports modu =
+importedScope :: Package -> ExportEnv -> Module -> Scope
+importedScope packageId env modu =
   List.foldl' addImport emptyScope (moduleImports modu)
   where
     addImport acc importDecl
@@ -405,48 +441,54 @@ importedScope packageId exports modu =
       where
         originModule = importDeclModule importDecl
         qualifier = fromMaybe originModule (importDeclAs importDecl)
-        imported = filterImportSpec (importDeclSpec importDecl) (lookupImportedModule packageId (importDeclPackage importDecl) originModule exports)
+        imported = filterImportSpec (importDeclSpec importDecl) (lookupImportedModuleEnv packageId (importDeclPackage importDecl) originModule env)
 
 lookupImportedModule :: Package -> Maybe Text -> Text -> ModuleExports -> Scope
 lookupImportedModule currentPackage requestedPackage moduleName' exports =
+  lookupImportedModuleEnv currentPackage requestedPackage moduleName' (mkExportEnv exports)
+
+lookupImportedModuleEnv :: Package -> Maybe Text -> Text -> ExportEnv -> Scope
+lookupImportedModuleEnv currentPackage requestedPackage moduleName' env =
   case matchingScopes of
     [scope] -> scope
     _ -> emptyScope
   where
-    matchingScopes = matchingModuleScopes currentPackage requestedPackage moduleName' exports
+    matchingScopes = matchingModuleScopesEnv currentPackage requestedPackage moduleName' env
 
 matchingModuleScopes :: Package -> Maybe Text -> Text -> ModuleExports -> [Scope]
 matchingModuleScopes currentPackage requestedPackage moduleName' exports =
-  [ scope
-  | (ModuleKey package name, scope) <- Map.toList exports,
-    name == moduleName',
-    packageMatches package
-  ]
+  matchingModuleScopesEnv currentPackage requestedPackage moduleName' (mkExportEnv exports)
+
+matchingModuleScopesEnv :: Package -> Maybe Text -> Text -> ExportEnv -> [Scope]
+matchingModuleScopesEnv currentPackage requestedPackage moduleName' env =
+  case requestedPackage of
+    Just "this" ->
+      maybeToList (Map.lookup (ModuleKey currentPackage moduleName') (exportEnvScopes env))
+    Just requested ->
+      [scope | (package, scope) <- named, packageName package == requested]
+    Nothing ->
+      map snd named
   where
-    packageMatches package = case requestedPackage of
-      Nothing -> True
-      Just "this" -> package == currentPackage
-      Just requested -> requested == packageName package
+    named = Map.findWithDefault [] moduleName' (exportEnvByName env)
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
   case maybeSpec of
     Nothing -> scope
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      let allowedTypes = allowedTypeNames importSpecItems
-          allowedTerms = allowedTermNames scope importSpecItems
+      let allowedTypes = Set.fromList (allowedTypeNames importSpecItems)
+          allowedTerms = Set.fromList (allowedTermNames scope importSpecItems)
        in Scope
-            { scopeTerms =
-                Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeTerms scope),
-              scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeTypes scope),
-              scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeConstructors scope),
-              scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeRecordFields scope),
-              scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeMethods scope),
-              scopeFixities = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeFixities scope),
+            { scopeTerms = Map.restrictKeys (scopeTerms scope) allowedTerms,
+              scopeTypes = Map.restrictKeys (scopeTypes scope) allowedTypes,
+              scopeConstructors = Map.restrictKeys (scopeConstructors scope) allowedTypes,
+              scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) allowedTerms,
+              scopeMethods = Map.restrictKeys (scopeMethods scope) allowedTypes,
+              scopeFixities = Map.restrictKeys (scopeFixities scope) allowedTerms,
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
-      filterScopeByNames (`notElem` (allowedTypeNames importSpecItems <> allowedTermNames scope importSpecItems)) scope
+      hideScopeNames (Set.fromList (allowedTypeNames importSpecItems <> allowedTermNames scope importSpecItems)) scope
 
 allowedTypeNames :: [ImportItem] -> [Text]
 allowedTypeNames = mapMaybe (fmap renderUnqualifiedName . importItemTypeName)
@@ -590,15 +632,15 @@ lookupFixity name scope =
 defaultOperatorFixity :: OperatorFixity
 defaultOperatorFixity = OperatorFixity InfixL 9
 
-filterScopeByNames :: (Text -> Bool) -> Scope -> Scope
-filterScopeByNames keep scope =
+hideScopeNames :: Set.Set Text -> Scope -> Scope
+hideScopeNames hidden scope =
   Scope
-    { scopeTerms = Map.filterWithKey (\name _ -> keep name) (scopeTerms scope),
-      scopeTypes = Map.filterWithKey (\name _ -> keep name) (scopeTypes scope),
-      scopeConstructors = Map.filterWithKey (\name _ -> keep name) (scopeConstructors scope),
-      scopeRecordFields = Map.filterWithKey (\name _ -> keep name) (scopeRecordFields scope),
-      scopeMethods = Map.filterWithKey (\name _ -> keep name) (scopeMethods scope),
-      scopeFixities = Map.filterWithKey (\name _ -> keep name) (scopeFixities scope),
+    { scopeTerms = Map.withoutKeys (scopeTerms scope) hidden,
+      scopeTypes = Map.withoutKeys (scopeTypes scope) hidden,
+      scopeConstructors = Map.withoutKeys (scopeConstructors scope) hidden,
+      scopeRecordFields = Map.withoutKeys (scopeRecordFields scope) hidden,
+      scopeMethods = Map.withoutKeys (scopeMethods scope) hidden,
+      scopeFixities = Map.withoutKeys (scopeFixities scope) hidden,
       scopeQualifiedModules = scopeQualifiedModules scope
     }
 

@@ -2,7 +2,7 @@ module Aihc.Cli.ResolveArtifact
   ( ResolveArtifact (..),
     decodeResolveArtifact,
     encodeResolveArtifact,
-    encodeResolveScope,
+    hashResolveScope,
   )
 where
 
@@ -10,7 +10,7 @@ import Aihc.Parser.Syntax (FixityAssoc (..), Name (..), NameType (..), renderUnq
 import Aihc.Resolve (OperatorFixity (..), PackageId (..), ResolvedName (..), Scope (..))
 import Control.Monad (replicateM, unless)
 import Data.Binary.Get qualified as Get
-import Data.Bits (shiftR)
+import Data.Bits (shiftR, xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
@@ -37,8 +37,55 @@ encodeResolveArtifact artifact =
       <> encodeHashes (resolveArtifactInputHashes artifact)
       <> encodeScope (resolveArtifactScope artifact)
 
-encodeResolveScope :: Scope -> BL.ByteString
-encodeResolveScope = Builder.toLazyByteString . encodeScope
+hashResolveScope :: Scope -> Word64
+hashResolveScope scope =
+  foldl'
+    mix
+    0
+    [ hashResolvedMap (scopeTerms scope),
+      hashResolvedMap (scopeTypes scope),
+      hashTextListMap (scopeConstructors scope),
+      hashTextListMap (scopeRecordFields scope),
+      hashTextListMap (scopeMethods scope),
+      hashFixities (scopeFixities scope)
+    ]
+
+mix :: Word64 -> Word64 -> Word64
+mix hash value = (hash `xor` value) * 1099511628211
+
+hashText :: Word64 -> Text -> Word64
+hashText = T.foldl' (\hash character -> mix hash (fromIntegral (fromEnum character)))
+
+hashResolvedMap :: Map.Map Text ResolvedName -> Word64
+hashResolvedMap =
+  Map.foldlWithKey' (\hash name resolved -> hashResolved (hashText hash name) resolved) 14695981039346656037
+
+hashTextListMap :: Map.Map Text [Text] -> Word64
+hashTextListMap =
+  Map.foldlWithKey' (\hash name values -> foldl' hashText (hashText hash name) values) 14695981039346656037
+
+hashFixities :: Map.Map Text OperatorFixity -> Word64
+hashFixities =
+  Map.foldlWithKey'
+    ( \hash name (OperatorFixity association precedence) ->
+        mix (mix (hashText hash name) (fixityTag association)) (fromIntegral precedence)
+    )
+    14695981039346656037
+  where
+    fixityTag Infix = 0
+    fixityTag InfixL = 1
+    fixityTag InfixR = 2
+
+hashResolved :: Word64 -> ResolvedName -> Word64
+hashResolved hash resolved =
+  case resolved of
+    ResolvedTopLevel (PackageId packageId) name ->
+      hashText
+        (hashText (mix (hashText (mix hash 0) packageId) (fromIntegral (nameTypeTag (nameType name)))) (fromMaybe "" (nameQualifier name)))
+        (nameText name)
+    ResolvedSyntax -> mix hash 1
+    ResolvedLocal unique name -> hashText (mix (mix hash 2) (fromIntegral unique)) (renderUnqualifiedName name)
+    ResolvedError message -> hashText (mix hash 3) (T.pack message)
 
 decodeResolveArtifact :: BS.ByteString -> Either String ResolveArtifact
 decodeResolveArtifact bytes =

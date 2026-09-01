@@ -9,6 +9,7 @@ module Aihc.Resolve
     pattern PResolution,
     pattern TResolution,
     resolveWithDeps,
+    resolveWithExports,
     extractInterface,
     extractInterfaceWithDeps,
     OperatorFixity (..),
@@ -112,82 +113,11 @@ import Aihc.Resolve.Span
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
-import Data.Data (Data, cast, gmapQ)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
-
-collectResolveErrors :: (Data a) => a -> [ResolveError]
-collectResolveErrors node =
-  ownResolveErrors node <> concat (gmapQ collectResolveErrors node)
-
-ownResolveErrors :: (Data a) => a -> [ResolveError]
-ownResolveErrors node =
-  declResolutionErrors (cast node)
-    <> classDeclItemResolutionErrors (cast node)
-    <> importResolutionErrors (cast node)
-    <> importItemResolutionErrors (cast node)
-    <> nameResolutionErrors (cast node)
-    <> unqualifiedNameResolutionErrors (cast node)
-    <> patternResolutionErrors (cast node)
-    <> typeResolutionErrors (cast node)
-    <> exprResolutionErrors (cast node)
-
-declResolutionErrors :: Maybe Decl -> [ResolveError]
-declResolutionErrors maybeDecl =
-  case maybeDecl of
-    Just (DeclResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
-
-classDeclItemResolutionErrors :: Maybe ClassDeclItem -> [ResolveError]
-classDeclItemResolutionErrors maybeItem =
-  case maybeItem of
-    Just (ClassItemAnn ann _) -> maybeToList (fromAnnotation ann >>= annotationResolveError)
-    _ -> []
-
-importResolutionErrors :: Maybe ImportDecl -> [ResolveError]
-importResolutionErrors maybeImport =
-  case maybeImport of
-    Just importDecl -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (importDeclAnns importDecl))
-    _ -> []
-
-importItemResolutionErrors :: Maybe ImportItem -> [ResolveError]
-importItemResolutionErrors maybeItem =
-  case maybeItem of
-    Just (ImportAnn ann _) -> maybeToList (fromAnnotation ann >>= annotationResolveError)
-    _ -> []
-
-nameResolutionErrors :: Maybe Name -> [ResolveError]
-nameResolutionErrors maybeName =
-  case maybeName of
-    Just name -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (nameAnns name))
-    _ -> []
-
-unqualifiedNameResolutionErrors :: Maybe UnqualifiedName -> [ResolveError]
-unqualifiedNameResolutionErrors maybeName =
-  case maybeName of
-    Just name -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (unqualifiedNameAnns name))
-    _ -> []
-
-patternResolutionErrors :: Maybe Pattern -> [ResolveError]
-patternResolutionErrors maybePattern =
-  case maybePattern of
-    Just (PResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
-
-typeResolutionErrors :: Maybe Type -> [ResolveError]
-typeResolutionErrors maybeType =
-  case maybeType of
-    Just (TResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
-
-exprResolutionErrors :: Maybe Expr -> [ResolveError]
-exprResolutionErrors maybeExpr =
-  case maybeExpr of
-    Just (EResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
 
 annotationResolveError :: ResolutionAnnotation -> Maybe ResolveError
 annotationResolveError resolution =
@@ -203,21 +133,67 @@ annotationResolveError resolution =
     ResolvedSyntax -> Nothing
     _ -> Nothing
 
+reportAnnotationError :: ResolutionAnnotation -> ResolveM ()
+reportAnnotationError resolution =
+  mapM_ reportResolveError (annotationResolveError resolution)
+
+reportUnhandledSyntax :: ResolutionNamespace -> ResolveM ()
+reportUnhandledSyntax namespace = do
+  span' <- currentSpan
+  reportResolveError
+    ResolveResolutionError
+      { resolveErrorSpan = span',
+        resolveErrorName = "unhandled",
+        resolveErrorNamespace = namespace,
+        resolveErrorMessage = "unhandled syntax"
+      }
+
+markUnhandled :: ResolutionNamespace -> (SourceSpan -> a -> a) -> a -> ResolveM a
+markUnhandled namespace annotate node = do
+  reportUnhandledSyntax namespace
+  annotate <$> currentSpan <*> pure node
+
+importDeclErrors :: ImportDecl -> [ResolveError]
+importDeclErrors importDecl =
+  mapMaybe annotationResolveError (mapMaybe fromAnnotation (importDeclAnns importDecl))
+    <> concatMap importItemErrors (importSpecItems =<< maybeToList (importDeclSpec importDecl))
+
+importItemErrors :: ImportItem -> [ResolveError]
+importItemErrors item =
+  case item of
+    ImportAnn ann inner ->
+      maybeToList (fromAnnotation ann >>= annotationResolveError) <> importItemErrors inner
+    ImportItemWith _ _ members -> concatMap bundledMemberErrors members
+    ImportItemAllWith _ _ _ members -> concatMap bundledMemberErrors members
+    _ -> []
+
+bundledMemberErrors :: IEBundledMember -> [ResolveError]
+bundledMemberErrors member =
+  mapMaybe annotationResolveError (mapMaybe fromAnnotation (nameAnns (ieBundledMemberName member)))
+
 resolveWithDeps :: Scope -> ModuleExports -> [(Package, Module)] -> ResolveResult
 resolveWithDeps builtinScope depExports packageModules =
-  ResolveResult
-    { resolvedModules = packageModules',
-      resolveErrors = collectResolveErrors modules'
-    }
+  fst (resolveWithExports builtinScope depExports packageModules)
+
+resolveWithExports :: Scope -> ModuleExports -> [(Package, Module)] -> (ResolveResult, ModuleExports)
+resolveWithExports builtinScope depExports packageModules =
+  ( ResolveResult
+      { resolvedModules = packageModules',
+        resolveErrors = concat errors
+      },
+    ownExports
+  )
   where
     step currentNextLocal (package, modu) =
-      let (nextLocal', modu') = resolveModule builtinScope package exports currentNextLocal modu
-       in (nextLocal', modu')
+      let (nextLocal', modu', moduleErrors) = resolveModule builtinScope package env currentNextLocal modu
+       in (nextLocal', (modu', moduleErrors))
     (_, resolved) = mapAccumL step 0 packageModules
-    modules' = resolved
+    modules' = map fst resolved
+    errors = map snd resolved
     packageModules' = zip (map fst packageModules) modules'
     ownExports = collectModuleExportsWithDeps depExports packageModules
     exports = ownExports `Map.union` depExports
+    env = mkExportEnv exports
 
 extractInterface :: ResolveResult -> ModuleExports
 extractInterface = collectModuleExports . resolvedModules
@@ -225,18 +201,19 @@ extractInterface = collectModuleExports . resolvedModules
 extractInterfaceWithDeps :: ModuleExports -> ResolveResult -> ModuleExports
 extractInterfaceWithDeps depExports = collectModuleExportsWithDeps depExports . resolvedModules
 
-resolveModule :: Scope -> Package -> ModuleExports -> Int -> Module -> (Int, Module)
-resolveModule builtinScope package exports nextLocal modu =
-  let imports' = resolveModuleImports package exports (moduleImports modu)
+resolveModule :: Scope -> Package -> ExportEnv -> Int -> Module -> (Int, Module, [ResolveError])
+resolveModule builtinScope package env nextLocal modu =
+  let imports' = resolveModuleImports package env (moduleImports modu)
       modu' = modu {moduleImports = imports'}
-      scope = moduleScope package exports modu'
-      (nextLocal', decls') =
+      scope = moduleScope package env modu'
+      (nextLocal', decls', bodyErrors) =
         runResolveM
           scope
           (moduleInfo builtinScope modu')
           nextLocal
           (resolveBindingGroup (topLevelTermDefinition scope) Map.empty (moduleDecls modu))
-   in (nextLocal', modu' {moduleDecls = decls'})
+      importErrors = concatMap importDeclErrors imports'
+   in (nextLocal', modu' {moduleDecls = decls'}, importErrors <> bodyErrors)
 
 moduleInfo :: Scope -> Module -> ModuleInfo
 moduleInfo builtinScope modu =
@@ -249,8 +226,8 @@ moduleInfo builtinScope modu =
       moduleInfoBuiltinScope = builtinScope
     }
 
-resolveModuleImports :: Package -> ModuleExports -> [ImportDecl] -> [ImportDecl]
-resolveModuleImports package exports =
+resolveModuleImports :: Package -> ExportEnv -> [ImportDecl] -> [ImportDecl]
+resolveModuleImports package env =
   map resolveModuleImport
   where
     resolveModuleImport importDecl
@@ -259,7 +236,7 @@ resolveModuleImports package exports =
       | null matches = annotateImport (missingModuleImportAnnotation "not found" importDecl) importDecl
       | otherwise = annotateImport (missingModuleImportAnnotation "ambiguous" importDecl) importDecl
       where
-        matches = matchingModuleScopes package (importDeclPackage importDecl) (importDeclModule importDecl) exports
+        matches = matchingModuleScopesEnv package (importDeclPackage importDecl) (importDeclModule importDecl) env
 
 missingModuleImportAnnotation :: String -> ImportDecl -> ResolutionAnnotation
 missingModuleImportAnnotation message importDecl =
@@ -366,7 +343,7 @@ resolveDeclWithSignatureScope termDefinition signatureScopes decl =
     DeclTypeSig names ty -> do
       sp <- currentSpan
       (binderScope, ty') <- resolveTypeSignature ty
-      let names' = map (resolveTermDefinitionAt sp termDefinition) names
+      names' <- mapM (resolveTermDefinitionAt sp termDefinition) names
       let signatureScopes' =
             List.foldl'
               (\acc name -> Map.insert (renderUnqualifiedName name) binderScope acc)
@@ -401,7 +378,7 @@ resolveDeclCore termDefinition decl =
       scope <- currentScope
       sp <- currentSpan
       let rendered = renderUnqualifiedName name
-          name' = resolveUnqualifiedNameTo sp ResolutionNamespaceType (lookupType rendered scope) name
+      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceType (lookupType rendered scope) name
       DeclStandaloneKindSig name' <$> resolveType kind
     DeclTypeData dataDecl ->
       DeclTypeData <$> resolveDataDecl "type data " dataDecl
@@ -419,12 +396,12 @@ resolveDeclCore termDefinition decl =
     DeclFixity {} -> pure decl
     DeclForeign foreignDecl ->
       DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
-    DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclRoleAnnotation {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledDecl decl
     DeclPragma pragma
       | ignoredInlinePragma (pragmaType pragma) -> pure decl
-      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+      | otherwise -> markUnhandled ResolutionNamespaceTerm annotateUnhandledDecl decl
+    DeclPatSyn {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledDecl decl
+    DeclPatSynSig {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledDecl decl
     DeclInstance instanceDecl ->
       DeclInstance <$> resolveInstanceDecl instanceDecl
     DeclStandaloneDeriving derivingDecl ->
@@ -457,7 +434,7 @@ resolveValueDecl termDefinition valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
       sp <- currentSpan
-      let name' = resolveTermDefinitionAt sp termDefinition name
+      name' <- resolveTermDefinitionAt sp termDefinition name
       FunctionBind name' <$> mapM resolveMatch matches
     PatternBind multTag pat rhs ->
       PatternBind multTag <$> resolvePatternDefinition termDefinition pat <*> resolveRhs rhs
@@ -465,7 +442,7 @@ resolveValueDecl termDefinition valueDecl =
 resolveForeignDecl :: TermDefinition -> ForeignDecl -> ResolveM ForeignDecl
 resolveForeignDecl termDefinition foreignDecl = do
   sp <- currentSpan
-  let name' = resolveTermDefinitionAt sp termDefinition (foreignName foreignDecl)
+  name' <- resolveTermDefinitionAt sp termDefinition (foreignName foreignDecl)
   ty' <- resolveType (foreignType foreignDecl)
   pure foreignDecl {foreignName = name', foreignType = ty'}
 
@@ -477,10 +454,14 @@ resolveClassDecl classDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "class " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case classDeclHead classDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <-
+    case classDeclHead classDecl of
+      PrefixBinderHead name params -> do
+        name' <- resolveHeadName name
+        pure (PrefixBinderHead name' params)
+      InfixBinderHead lhs name rhs params -> do
+        name' <- resolveHeadName name
+        pure (InfixBinderHead lhs name' rhs params)
   context' <- traverse (mapM resolveType) (classDeclContext classDecl)
   items' <- mapM resolveClassDeclItem (classDeclItems classDecl)
   pure
@@ -497,19 +478,19 @@ resolveClassDeclItem classDeclItem =
     ClassItemTypeSig names ty -> do
       scope <- currentScope
       sp <- currentSpan
-      let names' = map (resolveTermDefinitionAt sp (topLevelTermDefinition scope)) names
+      names' <- mapM (resolveTermDefinitionAt sp (topLevelTermDefinition scope)) names
       ClassItemTypeSig names' <$> resolveType ty
     ClassItemDefaultSig name ty -> ClassItemDefaultSig name <$> resolveType ty
     ClassItemDefault valueDecl -> do
       scope <- currentScope
       ClassItemDefault <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
-    ClassItemFixity {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemFixity {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledClassDeclItem classDeclItem
     ClassItemPragma pragma
       | ignoredInlinePragma (pragmaType pragma) -> pure classDeclItem
-      | otherwise -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+      | otherwise -> markUnhandled ResolutionNamespaceTerm annotateUnhandledClassDeclItem classDeclItem
+    ClassItemTypeFamilyDecl {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledClassDeclItem classDeclItem
+    ClassItemDataFamilyDecl {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledClassDeclItem classDeclItem
+    ClassItemDefaultTypeInst {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledClassDeclItem classDeclItem
 
 resolveInstanceDecl :: InstanceDecl -> ResolveM InstanceDecl
 resolveInstanceDecl instanceDecl = do
@@ -537,11 +518,11 @@ resolveInstanceDeclItem instanceDeclItem =
       InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
     InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
-    InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
-    InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemTypeFamilyInst {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledInstanceDeclItem instanceDeclItem
+    InstanceItemDataFamilyInst {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledInstanceDeclItem instanceDeclItem
     InstanceItemPragma pragma
       | ignoredInlinePragma (pragmaType pragma) -> pure instanceDeclItem
-      | otherwise -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+      | otherwise -> markUnhandled ResolutionNamespaceTerm annotateUnhandledInstanceDeclItem instanceDeclItem
 
 resolveStandaloneDerivingDecl :: StandaloneDerivingDecl -> ResolveM StandaloneDerivingDecl
 resolveStandaloneDerivingDecl derivingDecl = do
@@ -728,20 +709,20 @@ resolveExpr expr =
     EDo stmts flavor -> do
       (_, stmts') <- resolveDoStmts stmts
       pure (EDo stmts' flavor)
-    EQuasiQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    EQuasiQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
     EListComp body stmts -> do
       (scope, stmts') <- resolveCompStmts stmts
       body' <- withScope scope (resolveExpr body)
       pure (EListComp body' stmts')
-    EListCompParallel {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHExpQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHTypedQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHDeclQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHTypeQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHPatQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHTypeNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    EProc {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    EListCompParallel {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHExpQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHTypedQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHDeclQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHTypeQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHPatQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHNameQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    ETHTypeNameQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
+    EProc {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledExpr expr
 
 resolveIntegerLiteral :: Expr -> ResolveM Expr
 resolveIntegerLiteral expr = do
@@ -754,6 +735,7 @@ resolveIntegerLiteral expr = do
           else lookupTerm "fromInteger" (moduleInfoBuiltinScope info)
       annotation =
         ResolutionAnnotation sp (IdentifierNamed "fromInteger") ResolutionNamespaceTerm resolved
+  reportAnnotationError annotation
   pure (EAnn (mkAnnotation annotation) expr)
 
 rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
@@ -785,7 +767,9 @@ literalSpan ambient _ = ambient
 syntaxTermAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
 syntaxTermAnnotation sp name = do
   resolved <- resolveSyntaxTerm name
-  pure (ResolutionAnnotation sp (IdentifierNamed name) ResolutionNamespaceTerm resolved)
+  let annotation = ResolutionAnnotation sp (IdentifierNamed name) ResolutionNamespaceTerm resolved
+  reportAnnotationError annotation
+  pure annotation
 
 resolveSyntaxTerm :: Text -> ResolveM ResolvedName
 resolveSyntaxTerm name = do
@@ -943,7 +927,9 @@ doBindAnnotation sp = do
         if RebindableSyntax `elem` moduleInfoExtensions info
           then rebindableSyntaxTerm info scope ">>="
           else lookupTerm ">>=" (moduleInfoBuiltinScope info)
-  pure (ResolutionAnnotation sp (IdentifierNamed ">>=") ResolutionNamespaceTerm resolved)
+      annotation = ResolutionAnnotation sp (IdentifierNamed ">>=") ResolutionNamespaceTerm resolved
+  reportAnnotationError annotation
+  pure annotation
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =
@@ -995,7 +981,7 @@ bindPattern pat =
       sp <- currentSpan
       resolvedName <- freshLocal name
       let key = renderUnqualifiedName name
-          name' = resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName name
+      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName name
       pure (termScope key resolvedName, PVar name')
     PTypeBinder binder -> do
       let binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
@@ -1037,8 +1023,8 @@ bindPattern pat =
       here <- currentSpan
       let aliasKey = renderUnqualifiedName alias
       aliasResolved <- freshLocal alias
-      let alias' = resolveUnqualifiedNameTo (spanStartNameSpan here aliasKey) ResolutionNamespaceTerm aliasResolved alias
-          aliasScope = termScope aliasKey aliasResolved
+      alias' <- resolveUnqualifiedNameTo (spanStartNameSpan here aliasKey) ResolutionNamespaceTerm aliasResolved alias
+      let aliasScope = termScope aliasKey aliasResolved
       (innerScope, inner') <- bindPattern inner
       pure (unionScope innerScope aliasScope, PAs alias' inner')
     PStrict inner -> do
@@ -1074,6 +1060,7 @@ bindPattern pat =
       pure (emptyScope, PSplice expr')
     PQuasiQuote {} -> do
       sp <- currentSpan
+      reportUnhandledSyntax ResolutionNamespaceTerm
       pure (emptyScope, annotateUnhandledPattern sp pat)
   where
     traverseTyVarBinderKind binder = do
@@ -1091,7 +1078,7 @@ resolvePatternDefinition termDefinition pat =
       PAnn ann <$> withPushedSpan ann (resolvePatternDefinition termDefinition inner)
     PVar name -> do
       sp <- currentSpan
-      pure (PVar (resolveTermDefinitionAt sp termDefinition name))
+      PVar <$> resolveTermDefinitionAt sp termDefinition name
     PTypeBinder binder -> do
       kind' <- traverse resolveType (tyVarBinderKind binder)
       pure (PTypeBinder (binder {tyVarBinderKind = kind'}))
@@ -1099,7 +1086,7 @@ resolvePatternDefinition termDefinition pat =
       PTypeSyntax form <$> resolveType ty
     PWildcard -> pure pat
     PLit lit -> annotateIntegerPatternLiteral (PLit lit) lit
-    PQuasiQuote {} -> annotateUnhandledPattern <$> currentSpan <*> pure pat
+    PQuasiQuote {} -> markUnhandled ResolutionNamespaceTerm annotateUnhandledPattern pat
     PTuple flavor pats ->
       PTuple flavor <$> mapM (resolvePatternDefinition termDefinition) pats
     PUnboxedSum alt arity inner ->
@@ -1114,7 +1101,8 @@ resolvePatternDefinition termDefinition pat =
       PView <$> withResetLocalSupply (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
     PAs alias inner -> do
       sp <- currentSpan
-      PAs (resolveTermDefinitionAt sp termDefinition alias) <$> resolvePatternDefinition termDefinition inner
+      alias' <- resolveTermDefinitionAt sp termDefinition alias
+      PAs alias' <$> resolvePatternDefinition termDefinition inner
     PStrict inner ->
       PStrict <$> resolvePatternDefinition termDefinition inner
     PIrrefutable inner ->
@@ -1163,20 +1151,25 @@ resolveDataDecl keyword dataDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan keyword declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case dataDeclHead dataDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <-
+    case dataDeclHead dataDecl of
+      PrefixBinderHead name params -> do
+        name' <- resolveHeadName name
+        pure (PrefixBinderHead name' params)
+      InfixBinderHead lhs name rhs params -> do
+        name' <- resolveHeadName name
+        pure (InfixBinderHead lhs name' rhs params)
   context' <- mapM resolveType (dataDeclContext dataDecl)
   kind' <- traverse resolveType (dataDeclKind dataDecl)
   constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl)
+  constructors'' <- mapM (resolveDataConDefinitions scope) constructors'
   deriving' <- mapM resolveDerivingClause (dataDeclDeriving dataDecl)
   pure
     dataDecl
       { dataDeclHead = head',
         dataDeclContext = context',
         dataDeclKind = kind',
-        dataDeclConstructors = map (resolveDataConDefinitions scope) constructors',
+        dataDeclConstructors = constructors'',
         dataDeclDeriving = deriving'
       }
 
@@ -1248,10 +1241,14 @@ resolveDataFamilyDecl familyDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "data family " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case dataFamilyDeclHead familyDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <-
+    case dataFamilyDeclHead familyDecl of
+      PrefixBinderHead name params -> do
+        name' <- resolveHeadName name
+        pure (PrefixBinderHead name' params)
+      InfixBinderHead lhs name rhs params -> do
+        name' <- resolveHeadName name
+        pure (InfixBinderHead lhs name' rhs params)
   kind' <- traverse resolveType (dataFamilyDeclKind familyDecl)
   pure familyDecl {dataFamilyDeclHead = head', dataFamilyDeclKind = kind'}
 
@@ -1266,12 +1263,13 @@ resolveDataFamilyInst familyInst = do
         <*> traverse resolveType (dataFamilyInstKind familyInst)
         <*> mapM resolveDataConDecl (dataFamilyInstConstructors familyInst)
         <*> mapM resolveDerivingClause (dataFamilyInstDeriving familyInst)
+  constructors'' <- mapM (resolveDataConDefinitions scope) constructors'
   pure
     familyInst
       { dataFamilyInstForall = forallBinders',
         dataFamilyInstHead = head',
         dataFamilyInstKind = kind',
-        dataFamilyInstConstructors = map (resolveDataConDefinitions scope) constructors',
+        dataFamilyInstConstructors = constructors'',
         dataFamilyInstDeriving = deriving'
       }
 
@@ -1283,10 +1281,14 @@ resolveTypeSynDecl typeSynDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "type " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case typeSynHead typeSynDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <-
+    case typeSynHead typeSynDecl of
+      PrefixBinderHead name params -> do
+        name' <- resolveHeadName name
+        pure (PrefixBinderHead name' params)
+      InfixBinderHead lhs name rhs params -> do
+        name' <- resolveHeadName name
+        pure (InfixBinderHead lhs name' rhs params)
   body' <- resolveType (typeSynBody typeSynDecl)
   pure typeSynDecl {typeSynHead = head', typeSynBody = body'}
 
@@ -1298,18 +1300,23 @@ resolveNewtypeDecl newtypeDecl = do
         let rendered = renderUnqualifiedName name
             span' = declKeywordNameSpan "newtype " declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
-      head' =
-        case newtypeDeclHead newtypeDecl of
-          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
-          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  head' <-
+    case newtypeDeclHead newtypeDecl of
+      PrefixBinderHead name params -> do
+        name' <- resolveHeadName name
+        pure (PrefixBinderHead name' params)
+      InfixBinderHead lhs name rhs params -> do
+        name' <- resolveHeadName name
+        pure (InfixBinderHead lhs name' rhs params)
   kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
   constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl)
+  constructor'' <- traverse (resolveDataConDefinitions scope) constructor'
   deriving' <- mapM resolveDerivingClause (newtypeDeclDeriving newtypeDecl)
   pure
     newtypeDecl
       { newtypeDeclHead = head',
         newtypeDeclKind = kind',
-        newtypeDeclConstructor = resolveDataConDefinitions scope <$> constructor',
+        newtypeDeclConstructor = constructor'',
         newtypeDeclDeriving = deriving'
       }
 
@@ -1419,7 +1426,7 @@ resolveType ty =
     TSplice expr ->
       TSplice <$> withResetLocalSupply (resolveExpr expr)
     TWildcard -> pure ty
-    TQuasiQuote {} -> annotateUnhandledType <$> currentSpan <*> pure ty
+    TQuasiQuote {} -> markUnhandled ResolutionNamespaceType annotateUnhandledType ty
 
 resolveArrowKind :: ArrowKind -> ResolveM ArrowKind
 resolveArrowKind arrowKind =
@@ -1513,40 +1520,44 @@ topLevelTermDefinition :: Scope -> TermDefinition
 topLevelTermDefinition scope name =
   Just (lookupTerm (renderUnqualifiedName name) scope)
 
-resolveTermDefinitionAt :: SourceSpan -> TermDefinition -> UnqualifiedName -> UnqualifiedName
+resolveTermDefinitionAt :: SourceSpan -> TermDefinition -> UnqualifiedName -> ResolveM UnqualifiedName
 resolveTermDefinitionAt span' termDefinition name =
   case termDefinition name of
     Just resolved ->
       resolveUnqualifiedNameTo (spanStartNameSpan span' (renderUnqualifiedName name)) ResolutionNamespaceTerm resolved name
-    Nothing -> name
+    Nothing -> pure name
 
-resolveUnqualifiedNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> UnqualifiedName -> UnqualifiedName
-resolveUnqualifiedNameTo span' namespace resolved name =
-  name
-    { unqualifiedNameAnns =
-        mkAnnotation (ResolutionAnnotation span' (IdentifierNamed (renderUnqualifiedName name)) namespace resolved)
-          : unqualifiedNameAnns name
-    }
+resolveUnqualifiedNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> UnqualifiedName -> ResolveM UnqualifiedName
+resolveUnqualifiedNameTo span' namespace resolved name = do
+  let resolution = ResolutionAnnotation span' (IdentifierNamed (renderUnqualifiedName name)) namespace resolved
+  reportAnnotationError resolution
+  pure
+    name
+      { unqualifiedNameAnns =
+          mkAnnotation resolution : unqualifiedNameAnns name
+      }
 
-resolveNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> Name -> Name
-resolveNameTo span' namespace resolved name =
-  name
-    { nameAnns =
-        mkAnnotation (ResolutionAnnotation span' (IdentifierNamed (nameText name)) namespace resolved)
-          : nameAnns name
-    }
+resolveNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> Name -> ResolveM Name
+resolveNameTo span' namespace resolved name = do
+  let resolution = ResolutionAnnotation span' (IdentifierNamed (nameText name)) namespace resolved
+  reportAnnotationError resolution
+  pure
+    name
+      { nameAnns =
+          mkAnnotation resolution : nameAnns name
+      }
 
 resolveTermUse :: Name -> ResolveM Name
 resolveTermUse name = do
   sp <- currentSpan
   scope <- currentScope
-  pure (resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name)
+  resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name
 
 resolveTermUseAtName :: Name -> ResolveM Name
 resolveTermUseAtName name = do
   sp <- currentSpan
   scope <- currentScope
-  pure (resolveNameTo (spanStartNameSpan sp (nameText name)) ResolutionNamespaceTerm (resolveTermName scope name) name)
+  resolveNameTo (spanStartNameSpan sp (nameText name)) ResolutionNamespaceTerm (resolveTermName scope name) name
 
 data ResolvedInfixOp = ResolvedInfixOp
   { resolvedInfixIndex :: !Int,
@@ -1571,24 +1582,26 @@ reassociateResolvedInfixExpr operands names fallbackExpr = do
         | (index, name) <- zip [0 :: Int ..] names
         ]
   case ambiguousInfixOp ops of
-    Just op ->
-      pure (buildLeftInfixExpr fallbackExpr operands (replaceAt (resolvedInfixIndex op) (ambiguousFixityName sp op) names))
+    Just op -> do
+      name' <- ambiguousFixityName sp op
+      pure (buildLeftInfixExpr fallbackExpr operands (replaceAt (resolvedInfixIndex op) name' names))
     Nothing ->
       pure (rebuildInfixExpr operands ops)
 
-ambiguousFixityName :: SourceSpan -> ResolvedInfixOp -> Name
-ambiguousFixityName ambient op =
-  name
-    { nameAnns =
-        mkAnnotation
-          ( ResolutionAnnotation
-              (effectiveResolutionSpan (spanStartNameSpan ambient (nameText name)) (sourceSpanFromAnns (nameAnns name)))
-              (IdentifierNamed (nameText name))
-              ResolutionNamespaceTerm
-              (ResolvedError "ambiguous fixity")
-          )
-          : filter (not . isResolutionAnnotation) (nameAnns name)
-    }
+ambiguousFixityName :: SourceSpan -> ResolvedInfixOp -> ResolveM Name
+ambiguousFixityName ambient op = do
+  let resolution =
+        ResolutionAnnotation
+          (effectiveResolutionSpan (spanStartNameSpan ambient (nameText name)) (sourceSpanFromAnns (nameAnns name)))
+          (IdentifierNamed (nameText name))
+          ResolutionNamespaceTerm
+          (ResolvedError "ambiguous fixity")
+  reportAnnotationError resolution
+  pure
+    name
+      { nameAnns =
+          mkAnnotation resolution : filter (not . isResolutionAnnotation) (nameAnns name)
+      }
   where
     name = resolvedInfixName op
 
@@ -1664,11 +1677,11 @@ resolveTypeConstructorUse promotion name =
     Unpromoted -> do
       sp <- currentSpan
       scope <- currentScope
-      pure (resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name)
+      resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name
     Promoted -> do
       sp <- currentSpan
       scope <- currentScope
-      pure (resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name)
+      resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name
 
 typePromotionNamespace :: TypePromotion -> ResolutionNamespace
 typePromotionNamespace promotion =
@@ -1681,7 +1694,7 @@ resolveTypeUseAtName name = do
   sp <- currentSpan
   scope <- currentScope
   let nameSpan = effectiveResolutionSpan (spanStartNameSpan sp (nameText name)) (sourceSpanFromAnns (nameAnns name))
-  pure (resolveNameTo nameSpan ResolutionNamespaceType (resolveTypeName scope name) name)
+  resolveNameTo nameSpan ResolutionNamespaceType (resolveTypeName scope name) name
 
 resolveScopedTypeVariableUse :: UnqualifiedName -> ResolveM UnqualifiedName
 resolveScopedTypeVariableUse name = do
@@ -1689,31 +1702,34 @@ resolveScopedTypeVariableUse name = do
   scope <- currentScope
   let rendered = renderUnqualifiedName name
       resolved = lookupType rendered scope
-  pure $
-    case resolved of
-      ResolvedError _ -> name
-      _ -> resolveUnqualifiedNameTo sp ResolutionNamespaceType resolved name
+  case resolved of
+    ResolvedError _ -> pure name
+    _ -> resolveUnqualifiedNameTo sp ResolutionNamespaceType resolved name
 
-resolveDataConDefinitions :: Scope -> DataConDecl -> DataConDecl
+resolveDataConDefinitions :: Scope -> DataConDecl -> ResolveM DataConDecl
 resolveDataConDefinitions scope =
   go NoSourceSpan
   where
     go ambient current =
       case current of
-        DataConAnn ann inner -> DataConAnn ann (go (pushSpanFromAnn ambient ann) inner)
-        PrefixCon forallVars context name bangTypes ->
-          PrefixCon forallVars context (resolveConstructor ambient name) bangTypes
-        RecordCon forallVars context name fields ->
-          RecordCon forallVars context (resolveConstructor ambient name) fields
-        InfixCon forallVars context lhs name rhs ->
-          InfixCon forallVars context lhs (resolveConstructor ambient name) rhs
-        GadtCon forallVars context names body ->
-          GadtCon forallVars context (map (resolveConstructor ambient) names) body
-        TupleCon {} -> current
-        UnboxedSumCon {} -> current
+        DataConAnn ann inner -> DataConAnn ann <$> go (pushSpanFromAnn ambient ann) inner
+        PrefixCon forallVars context name bangTypes -> do
+          name' <- resolveConstructor ambient name
+          pure (PrefixCon forallVars context name' bangTypes)
+        RecordCon forallVars context name fields -> do
+          name' <- resolveConstructor ambient name
+          pure (RecordCon forallVars context name' fields)
+        InfixCon forallVars context lhs name rhs -> do
+          name' <- resolveConstructor ambient name
+          pure (InfixCon forallVars context lhs name' rhs)
+        GadtCon forallVars context names body -> do
+          names' <- mapM (resolveConstructor ambient) names
+          pure (GadtCon forallVars context names' body)
+        TupleCon {} -> pure current
+        UnboxedSumCon {} -> pure current
         ListCon {} ->
           let resolution = ResolutionAnnotation ambient IdentifierList ResolutionNamespaceTerm ResolvedSyntax
-           in DataConAnn (mkAnnotation resolution) current
+           in pure (DataConAnn (mkAnnotation resolution) current)
 
     resolveConstructor span' name =
       let rendered = renderUnqualifiedName name

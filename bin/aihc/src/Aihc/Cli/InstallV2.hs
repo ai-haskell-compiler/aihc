@@ -23,7 +23,7 @@ import Aihc.Cli.PackagePlan
     parseInterfaceFile,
     renderHumanDiagnostic,
   )
-import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
+import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, hashResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TaskGraph
   ( Task (..),
@@ -64,10 +64,10 @@ import Aihc.Resolve
     Scope (..),
     collectModuleExportsWithDeps,
     emptyScope,
-    extractInterfaceWithDeps,
     lookupImportedModule,
     modulesInPackage,
     resolveWithDeps,
+    resolveWithExports,
     unionScope,
   )
 import Aihc.Tc
@@ -102,15 +102,17 @@ import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tvKind, tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
-import Control.Exception (IOException, bracket, evaluate, throwIO, try)
+import Control.Exception (IOException, bracket, evaluate, finally, throwIO, try)
 import Control.Monad (filterM, forM, unless, when)
 import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
@@ -272,7 +274,8 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyExports :: !ModuleExports,
     taskDependencyScopeHashes :: !(Map.Map Text Text),
     taskDependencyTypes :: !(Map.Map Text TcInterface),
-    taskDependencyTypeHashes :: !(Map.Map Text Text)
+    taskDependencyTypeHashes :: !(Map.Map Text Text),
+    taskPendingWrites :: !(IORef [IO ()])
   }
 
 runInstallV2 :: InstallV2Options -> IO ()
@@ -450,6 +453,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+  pendingWrites <- newIORef []
   let taskContext =
         PackageTaskContext
           { taskModuleCompileConfig = config,
@@ -460,10 +464,13 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskDependencyExports = dependencyExports,
             taskDependencyScopeHashes = dependencyScopeHashes,
             taskDependencyTypes = dependencyTypes,
-            taskDependencyTypeHashes = dependencyTypeHashes
+            taskDependencyTypeHashes = dependencyTypeHashes,
+            taskPendingWrites = pendingWrites
           }
   verbose ("Compute " <> show (length units) <> " SCC units")
-  (runtimes, taskTimings) <- runPackageTasks taskContext (max 1 capabilities) units
+  (runtimes, taskTimings) <-
+    runPackageTasks taskContext (max 1 capabilities) units
+      `finally` (mapConcurrently_ id =<< readIORef pendingWrites)
   resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
   compilePrintTimings config (renderTaskTimeline (compileUseColor config) (importTimings <> taskTimings))
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
@@ -581,7 +588,7 @@ loadInstalledV2Package requirements storePath = do
       types
         | null selectedModules = Map.empty
         | otherwise = LazyMap.insert ("$package-instances:" <> packageManifestIdentity manifest) instances moduleTypes
-      scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
+      scopeHashes = Map.fromList [(name, T.pack (scopeDigest (hashResolveScope scope))) | (name, scope, _) <- entries]
       typeHashes = LazyMap.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
   pure
     InstalledV2Package
@@ -947,12 +954,14 @@ runResolveUnit context runtimes runtime = do
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
       dependenciesSucceeded = all resolveUnitSuccess dependencyResults
-  let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
-      resolved = resolveWithDeps builtinScope availableExports packageModules
+      builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
+      (resolved, unitExports) = resolveWithExports builtinScope availableExports packageModules
       errors = resolveErrors resolved
-      unitExports = extractInterfaceWithDeps availableExports resolved
       success = parseSuccess && dependenciesSucceeded && null errors
-  when success (mapM_ (\source -> writeArtifact verbose hashes unitExports resolvePackage (resolvePath source) source) sources)
+  when success $
+    atomicModifyIORef'
+      (taskPendingWrites context)
+      (\pending -> (map (\source -> writeArtifact verbose hashes unitExports resolvePackage (resolvePath source) source) sources <> pending, ()))
   let ownScopeHashes = updateScopeHashes resolvePackage unitExports Map.empty sources
   atomically $
     putTMVar
@@ -1130,7 +1139,12 @@ builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
-    allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
+    unitNames = map (fromMaybe "Main" . moduleName . snd) packageModules
+    needsLocalBuiltins = any (`elem` builtinFunctionModules) unitNames
+    allExports
+      | needsLocalBuiltins =
+          collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
+      | otherwise = dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
@@ -1542,8 +1556,14 @@ updateScopeHashes package exports = foldl' update
     update hashes source =
       let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
           scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
-          scopeBytes = BL.toStrict (encodeResolveScope scope)
-       in Map.insert name (T.pack (stableHash [scopeBytes])) hashes
+          digest = T.pack (scopeDigest (hashResolveScope scope))
+       in digest `seq` Map.insert name digest hashes
+
+scopeDigest :: Word64 -> String
+scopeDigest hash =
+  replicate (16 - length rendered) '0' <> rendered
+  where
+    rendered = showHex hash ""
 
 moduleDirectory :: Module -> FilePath
 moduleDirectory = moduleNameDirectory . fromMaybe "Main" . moduleName
@@ -1556,7 +1576,7 @@ writeArtifact verbose hashes exports package path source = do
   createDirectoryIfMissing True (takeDirectory path)
   let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
       scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
-  BL.writeFile path (encodeResolveArtifact (ResolveArtifact name hashes scope))
+  BS.writeFile path (BL.toStrict (encodeResolveArtifact (ResolveArtifact name hashes scope)))
   verbose ("Write resolve context: " <> T.unpack name)
 
 stableHash :: [BS.ByteString] -> String
@@ -1567,4 +1587,4 @@ stableHash chunks = replicate (16 - length rendered) '0' <> rendered
     hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * 1099511628211)
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-9"
+packageArtifactFormatVersion = "aihc-artifacts-10"
