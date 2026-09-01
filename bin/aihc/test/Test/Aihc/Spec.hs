@@ -61,6 +61,7 @@ tests =
           testCase "accepts type-check warnings" test_installV2TypeWarning,
           testCase "loads the implicit Prelude type interface" test_installV2ImplicitPrelude,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
+          testCase "limits instances to the transitive import graph" test_installV2InstanceVisibility,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "prints timings independently from verbose output" test_installV2TimingOutput,
           testCase "reports all frontend errors in stable dependency order" test_installV2ResolveError,
@@ -76,10 +77,12 @@ test_buildExeSourceDirectories = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
   entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/generated-entry-collision"
   baseRoot <- findCoreLibraryRoot "aihc-base"
+  primitiveRoot <- findCoreLibraryRoot "aihc-prim"
   let target = fromMaybe Llvm hostNativeTarget
   withTempDir "aihc-build-exe" $ \root -> do
     let storeRoot = root </> "store"
         output = root </> "program"
+    primitive <- installV2 (InstallV2Options primitiveRoot (Just storeRoot) False False False False False False False target)
     installed <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False False False False False target)
     manifestResult <- readPackageManifest (packageManifestPath (installV2StorePath installed))
     manifest <- either assertFailure pure manifestResult
@@ -98,7 +101,7 @@ test_buildExeSourceDirectories = do
             }
         unusedResolve = installV2StorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
         unusedType = installV2StorePath installed </> "Data" </> "Bool" </> "type.cbor"
-        requiredFc = installV2StorePath installed </> "GHC" </> "Base" </> "core"
+        requiredFc = installV2StorePath primitive </> "GHC" </> "Prim" </> "Base" </> "core"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
     withCurrentDirectory root (runBuildExe options)
@@ -285,8 +288,20 @@ test_installV2TimingOutput = do
       "timing output contains the stage symbols"
       ("▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
     assertBool "timing output contains frontend time" ("Frontend time:" `isInfixOf` timingOutput)
+    assertBool "parse total includes a span" (hasStageSpan "▁ total:" timingOutput)
+    assertBool "resolve total includes a span" (hasStageSpan "▂ total:" timingOutput)
+    assertBool "type-check total includes a span" (hasStageSpan "▄ total:" timingOutput)
+    assertBool "backend total includes a span" (hasStageSpan "█ total:" timingOutput)
+    assertBool "timing output contains desugar total" ("desugar total:" `isInfixOf` timingOutput)
+    assertBool "timing output contains grin total" ("grin total:" `isInfixOf` timingOutput)
+    assertBool "timing output contains native total" ("native total:" `isInfixOf` timingOutput)
+    assertBool "timing output contains other total" ("other total:" `isInfixOf` timingOutput)
     assertBool "timing output does not contain verbose output" (not ("Read Cabal package:" `isInfixOf` timingOutput))
     assertBool "redirected timing output does not contain colors" ('\ESC' `notElem` timingOutput)
+
+hasStageSpan :: String -> String -> Bool
+hasStageSpan label output =
+  any (\line -> label `isInfixOf` line && ", spanning " `isInfixOf` line) (lines output)
 
 captureStdout :: IO value -> IO String
 captureStdout action =
@@ -503,7 +518,7 @@ test_installV2AihcPrim = do
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
         loader = Fc.storeModuleLoader targetStoreRoot
-    assertBool "package artifact version sets the package hash" ("4472358042b0f972" `isSuffixOf` packageDir)
+    assertBool "package artifact version sets the package hash" ("ff25baf152cf478e" `isSuffixOf` packageDir)
     mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
     mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
     coreFiles <- listNamedFiles packageDir "core"
@@ -707,6 +722,20 @@ test_installV2LocalDependencies = do
         unusedTypeBytes <- BS.readFile unusedTypePath
         assertEqual "reinstall does not read or replace the unused module" "invalid unused type artifact" unusedTypeBytes
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
+
+test_installV2InstanceVisibility :: Assertion
+test_installV2InstanceVisibility = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/instance-visibility"
+  withTempDir "aihc-install-v2-instance-visibility" $ \root -> do
+    let install source store =
+          installV2
+            (InstallV2Options (fixtureRoot </> source) (Just (root </> store)) False False False False True False False AppleArm64)
+    withoutResult <- try (install "without" "without-store") :: IO (Either IOException InstallV2Result)
+    case withoutResult of
+      Left _ -> pure ()
+      Right _ -> assertFailure "an unrelated module supplied an instance"
+    _ <- install "with" "with-store"
+    pure ()
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

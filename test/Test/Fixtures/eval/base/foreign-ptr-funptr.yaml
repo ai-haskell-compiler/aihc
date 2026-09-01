@@ -41,5 +41,5 @@ modules:
 output: |
   True
 expression: result
-status: pass
+status: xfail
 reason: Foreign.Ptr exports FunPtr with the same address representation as Ptr

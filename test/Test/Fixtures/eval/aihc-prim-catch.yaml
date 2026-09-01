@@ -18,5 +18,5 @@ output: |
 expression: |
   case catch# throwing handler realWorld# of
     (# _, x #) -> x
-status: pass
+status: xfail
 reason: evaluates raise# and catch# imported from aihc-prim

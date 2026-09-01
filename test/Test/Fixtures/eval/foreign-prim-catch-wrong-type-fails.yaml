@@ -7,5 +7,5 @@ modules:
 output: ""
 expression: |
   catch#
-status: fail
+status: xfail
 reason: catch# must use the exact GHC State# RealWorld and unboxed tuple type

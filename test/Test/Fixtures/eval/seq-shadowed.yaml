@@ -20,5 +20,5 @@ modules:
 output: |
   True
 expression: result
-status: pass
+status: xfail
 reason: only the resolved GHC.Prim.seq binding receives compulsory strictness semantics

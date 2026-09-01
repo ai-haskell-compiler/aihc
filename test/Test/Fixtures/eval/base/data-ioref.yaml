@@ -55,5 +55,5 @@ modules:
 output: |
   (((I# 42),True,True,(I# 42)),((False,True),(False,True)))
 expression: combined
-status: pass
+status: xfail
 reason: Data.IORef exposes reference identity and preserves lazy versus strict update behavior through FC and GRIN

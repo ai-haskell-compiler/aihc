@@ -1,6 +1,7 @@
 ---
 extensions:
 - MagicHash
+- RebindableSyntax
 modules:
 - |
   module Types where
@@ -8,24 +9,11 @@ modules:
   (==) :: Int -> Int -> Bool
   (==) (I# x) (I# y) = True
 - |
-  module GHC.Num where
-  import GHC.Prim (Int#)
-  import GHC.Types (Int (..))
-  data Integer = IS Int#
-  class Num a where
-    fromInteger :: Integer -> a
-  instance Num Int where
-    fromInteger (IS x) = I# x
-  instance Num Integer where
-    fromInteger x = x
-- |
-  module Prelude (Int, Integer) where
-  import GHC.Num (Integer)
-  import GHC.Types (Int)
-- |
   {-# LANGUAGE RebindableSyntax #-}
   module Main where
-  import GHC.Num (fromInteger)
+  import GHC.Prim.Integer (Integer)
+  import GHC.Prim.Num (fromInteger)
+  import GHC.Types (Int)
   import Types ((==))
   asInt :: Int
   asInt = 1 :: Int
@@ -68,108 +56,60 @@ expected: |-
                       3.vTrue
               }
       }
-  scope 1 = "" GHC.Num
-  scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Types
+  scope 1 = "" Main
+  scope 2 = "" Types
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Prim.Integer
+  scope 5 = "aihc-prim" GHC.Prim.Num
+  scope 6 = "aihc-prim" GHC.Tuple
+  scope 7 = "aihc-prim" GHC.Types
 
   import headers
-    3.tInt :: 3.tType;
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    5.t$Dict$Num :: ∀(a : 7.tType). 7.tType;
+    7.tBool :: 7.tType;
+    7.tInt :: 7.tType;
+    3.tInt# :: 7.tTYPE 7.vIntRep;
+    4.tInteger :: 7.tType;
+    7.tLevity :: 7.tType;
+    7.tLiftedRep :: 7.tRuntimeRep;
+    7.tRuntimeRep :: 7.tType;
+    7.tTYPE :: ∀(rep : 7.tRuntimeRep). 7.tType;
+    7.tType :: 7.tType;
+    6.tUnit :: 7.tType;
+    5.v$fNumInt :: 5.t$Dict$Num 7.tInt;
+    5.v$fNumInteger :: 5.t$Dict$Num 4.tInteger;
+    6.v() :: 6.tUnit;
+    2.v== :: 7.tInt 7.→ 7.tInt 7.→ 7.tBool;
+    7.vBoxedRep :: 7.tLevity 7.→ 7.tRuntimeRep;
+    7.vFalse :: 7.tBool;
+    4.vIS :: FUN @7.vIntRep @7.tLiftedRep 3.tInt# 4.tInteger;
+    7.vIntRep :: 7.tRuntimeRep;
+    7.vLifted :: 7.tLevity;
+    7.vTrue :: 7.tBool;
+    5.vfromInteger :: ∀(a : 7.tType). 5.t$Dict$Num a 7.→ 4.tInteger 7.→ a
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    7.tLiftedRep = 7.vBoxedRep 7.vLifted;
+    7.tType = 7.tTYPE 7.tLiftedRep
 
-  pub type 1.tInteger :: 3.tType {
-      pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
-  }
+  pub val 1.vasInt :: 7.tInt
+   = 5.vfromInteger @7.tInt 5.v$fNumInt (4.vIS 1#7.vIntRep)
 
-  pub type 1.t$Dict$Num (a : 3.tType) :: 3.tType {
-      pub 1.v$Dict$Num :: ∀(a : 3.tType). (1.tInteger 3.→ a) 3.→ 1.t$Dict$Num a
-  }
+  pub val 1.vasInteger :: 4.tInteger
+   = 5.vfromInteger @4.tInteger 5.v$fNumInteger (4.vIS 1#7.vIntRep)
 
-  pub val 1.vfromInteger :: ∀(a : 3.tType). 1.t$Dict$Num a 3.→ 1.tInteger 3.→ a
-   = Λ(a : 3.tType).
-    λ($d0 : 1.t$Dict$Num a).
-      case $d0 as ($dict : 1.t$Dict$Num a) return (1.tInteger 3.→ a) of {
-          1.v$Dict$Num ($method0 : 1.tInteger 3.→ a) →
-              $method0
-      }
-
-  pub val 1.v$fNumInt :: 1.t$Dict$Num 3.tInt
-   = 1.v$Dict$Num @3.tInt (λ(x : 1.tInteger).
-    case x as (_scrut : 1.tInteger) return (3.tInt) of {
-        1.vIS (x{1} : 2.tInt#) →
-            3.vI# x{1}
-    })
-
-  pub val 1.v$fNumInteger :: 1.t$Dict$Num 1.tInteger
-   = 1.v$Dict$Num @1.tInteger (λ(x : 1.tInteger).
-    x)
-  scope 1 = "" Prelude
-  scope 2 = "aihc-prim" GHC.Types
-  scope 1 = "" GHC.Num
-  scope 2 = "" Main
-  scope 3 = "" Types
-  scope 4 = "aihc-prim" GHC.Prim
-  scope 5 = "aihc-prim" GHC.Tuple
-  scope 6 = "aihc-prim" GHC.Types
-
-  import headers
-    1.t$Dict$Num :: ∀(a : 6.tType). 6.tType;
-    6.tBool :: 6.tType;
-    6.tInt :: 6.tType;
-    4.tInt# :: 6.tTYPE 6.vIntRep;
-    1.tInteger :: 6.tType;
-    6.tLevity :: 6.tType;
-    6.tLiftedRep :: 6.tRuntimeRep;
-    6.tRuntimeRep :: 6.tType;
-    6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.tType;
-    6.tType :: 6.tType;
-    5.tUnit :: 6.tType;
-    1.v$fNumInt :: 1.t$Dict$Num 6.tInt;
-    1.v$fNumInteger :: 1.t$Dict$Num 1.tInteger;
-    5.v() :: 5.tUnit;
-    3.v== :: 6.tInt 6.→ 6.tInt 6.→ 6.tBool;
-    6.vBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;
-    6.vFalse :: 6.tBool;
-    1.vIS :: FUN @6.vIntRep @6.tLiftedRep 4.tInt# 1.tInteger;
-    6.vIntRep :: 6.tRuntimeRep;
-    6.vLifted :: 6.tLevity;
-    6.vTrue :: 6.tBool;
-    1.vfromInteger :: ∀(a : 6.tType). 1.t$Dict$Num a 6.→ 1.tInteger 6.→ a
-
-  import synonyms
-    6.tLiftedRep = 6.vBoxedRep 6.vLifted;
-    6.tType = 6.tTYPE 6.tLiftedRep
-
-  pub val 2.vasInt :: 6.tInt
-   = 1.vfromInteger @6.tInt 1.v$fNumInt (1.vIS 1#6.vIntRep)
-
-  pub val 2.vasInteger :: 1.tInteger
-   = 1.vfromInteger @1.tInteger 1.v$fNumInteger (1.vIS 1#6.vIntRep)
-
-  pub val 2.vcaseInt :: 5.tUnit
+  pub val 1.vcaseInt :: 6.tUnit
    = let {
-      _case : 6.tInt =
-          1.vfromInteger @6.tInt 1.v$fNumInt (1.vIS 1#6.vIntRep)
+      _case : 7.tInt =
+          5.vfromInteger @7.tInt 5.v$fNumInt (4.vIS 1#7.vIntRep)
   } in
-      case 3.v== _case (1.vfromInteger @6.tInt 1.v$fNumInt (1.vIS 1#6.vIntRep)) as (_case_guard : 6.tBool) return (5.tUnit) of {
-          6.vTrue →
-              5.v();
-          6.vFalse →
-              case _case as (_case_nomatch : 6.tInt) return (5.tUnit) of {
+      case 2.v== _case (5.vfromInteger @7.tInt 5.v$fNumInt (4.vIS 1#7.vIntRep)) as (_case_guard : 7.tBool) return (6.tUnit) of {
+          7.vTrue →
+              6.v();
+          7.vFalse →
+              case _case as (_case_nomatch : 7.tInt) return (6.tUnit) of {
 
               }
       }
 status: pass
-reason: The real primitive modules provide IntRep and Unit for lint.
+reason: desugars concrete Int and Integer literals with primitive instances

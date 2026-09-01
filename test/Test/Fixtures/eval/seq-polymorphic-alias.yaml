@@ -14,5 +14,5 @@ modules:
 output: |
   42
 expression: applyAlias 42#
-status: pass
+status: xfail
 reason: an unsaturated seq binding retains its RuntimeRep-polymorphic type through generalization

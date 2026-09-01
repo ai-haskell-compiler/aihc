@@ -13,6 +13,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import System.Directory (doesFileExist, getCurrentDirectory)
+import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))
 
 data ObservedProgram = ObservedProgram
@@ -164,8 +165,18 @@ tshow :: (Show value) => value -> Text
 tshow = T.pack . show
 
 snapshotSourcePath :: IO FilePath
-snapshotSourcePath = getCurrentDirectory >>= findRoot
+snapshotSourcePath = do
+  configured <- lookupEnv "AIHC_TEST_ROOT"
+  case configured of
+    Just root -> findConfigured root
+    Nothing -> getCurrentDirectory >>= findRoot
   where
+    findConfigured root = do
+      let candidate = root </> "bin" </> "aihc" </> "compiler" </> "native" </> "test" </> "Test" </> "Runtime" </> "aihc_snapshot.c"
+      exists <- doesFileExist candidate
+      if exists
+        then pure candidate
+        else findRoot root
     findRoot directory = do
       let candidate = directory </> "compiler" </> "native" </> "test" </> "Test" </> "Runtime" </> "aihc_snapshot.c"
       exists <- doesFileExist candidate

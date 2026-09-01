@@ -14,8 +14,12 @@ library
     GHC.Magic
     GHC.Magic.Dict
     GHC.Prim
+    GHC.Prim.Base
     GHC.Prim.Exception
     GHC.Prim.Ext
+    GHC.Prim.IO
+    GHC.Prim.Integer
+    GHC.Prim.Num
     GHC.Prim.Panic
     GHC.Prim.PtrEq
     GHC.Prim.Unicode

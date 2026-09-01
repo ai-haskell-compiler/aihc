@@ -35,6 +35,7 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Data.Yaml qualified as Y
 import System.Directory (createDirectory, doesDirectoryExist, findExecutable, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
@@ -596,8 +597,17 @@ loadSnapshotCase name fixtureName = do
       }
 
 snapshotFixtureRoot :: IO FilePath
-snapshotFixtureRoot = getCurrentDirectory >>= findRoot
+snapshotFixtureRoot = do
+  configured <- lookupEnv "AIHC_TEST_ROOT"
+  case configured of
+    Just root -> validate (root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot")
+    Nothing -> getCurrentDirectory >>= findRoot
   where
+    validate candidate = do
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else assertFailure "GRIN snapshot fixture root is missing"
     findRoot directory = do
       let candidate = directory </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
       exists <- doesDirectoryExist candidate

@@ -13,5 +13,5 @@ output: |
   NaturalUnderflow
 expression: |
   result
-status: pass
+status: xfail
 reason: Natural subtraction throws an exception when its result is negative

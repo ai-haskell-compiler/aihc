@@ -12,6 +12,7 @@ module Aihc.Tc.Generate.Decl
     moduleBindings,
     moduleInstances,
     moduleClasses,
+    defaultMethodName,
     TcBindingResult (..),
   )
 where
@@ -116,6 +117,7 @@ import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds
 import Control.Monad (foldM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
+import Data.Char (isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
@@ -1410,7 +1412,11 @@ valueDeclBinderName valueDecl =
     PatternBind _ pat _ -> patternBinderName pat
 
 defaultMethodName :: Text -> Text
-defaultMethodName methodName = "$dm" <> methodName
+defaultMethodName methodName = "$dm" <> T.concatMap encodeCharacter methodName
+  where
+    encodeCharacter character
+      | isAlphaNum character || character `elem` ("_$#'" :: String) = T.singleton character
+      | otherwise = "$" <> T.pack (show (ord character)) <> "$"
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets

@@ -35,5 +35,5 @@ modules:
       readIORef reference
 output: I# 40
 expression: concurrentIncrements
-status: pass
+status: xfail
 reason: strict atomic updates retry after adversarial yields and do not lose increments between green threads

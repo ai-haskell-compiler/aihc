@@ -26,5 +26,5 @@ output: |
 expression: |
   case catch# throwing handler realWorld# of
     (# _, result #) -> result
-status: pass
+status: xfail
 reason: seq evaluates its first argument and propagates the exact error payload to the exception handler

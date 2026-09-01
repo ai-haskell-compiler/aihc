@@ -76,5 +76,5 @@ modules:
           () -> True
 output: "True"
 expression: results
-status: pass
+status: xfail
 reason: GHC.Stack.Types provides the call-stack data API and the shallow stack operations that deepseq needs

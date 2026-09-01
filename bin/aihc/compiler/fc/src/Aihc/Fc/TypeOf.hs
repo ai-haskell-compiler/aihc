@@ -4,6 +4,7 @@ module Aihc.Fc.TypeOf
     emptyTypeEnv,
     typeEnvFromProgram,
     typeEnvFromPrograms,
+    unionTypeEnv,
     extendTypeEnvWithPrograms,
     typeOf,
     unfoldType,
@@ -49,6 +50,16 @@ emptyTypeEnv primPackage =
       teSynonyms = Map.empty,
       teAxioms = Map.empty,
       teBinders = Map.empty
+    }
+
+unionTypeEnv :: TypeEnv -> TypeEnv -> TypeEnv
+unionTypeEnv left right =
+  TypeEnv
+    { tePrimPackage = tePrimPackage left,
+      teHeaders = teHeaders left `Map.union` teHeaders right,
+      teSynonyms = teSynonyms left `Map.union` teSynonyms right,
+      teAxioms = teAxioms left `Map.union` teAxioms right,
+      teBinders = teBinders left `Map.union` teBinders right
     }
 
 typeEnvFromProgram :: PackageId -> Program -> TypeEnv

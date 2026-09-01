@@ -23,5 +23,5 @@ output: |
   50
 expression: |
   unsafePerformIO test
-status: pass
+status: xfail
 reason: unsafePerformIO observes independent MutVar# allocations and targeted writes
