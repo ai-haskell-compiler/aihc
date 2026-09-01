@@ -422,8 +422,7 @@ lowerApplication env function argument = do
         length arguments <= arity ->
           lowerConstructorApplication env name (arity - length arguments) arguments
     (_, (Fc.ExVar name, arguments))
-      | Just arity <- Map.lookup name (lowerLocalFunctionArities env),
-        length arguments <= arity ->
+      | Map.member name (lowerLocalFunctionArities env) ->
           lowerLocalFunctionApplication env resultRep name arguments
     _ ->
       lowerLazySingle env "function" function $ \functionValue -> do
