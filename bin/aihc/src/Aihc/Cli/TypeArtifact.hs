@@ -39,6 +39,7 @@ import Data.Binary.Get qualified as Get
 import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Builder.Extra (toLazyByteStringWith, untrimmedStrategy)
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -60,7 +61,7 @@ encodeTypeArtifact :: TypeArtifact -> BL.ByteString
 encodeTypeArtifact artifact =
   let tyCons = Set.toAscList (interfaceTyCons (typeArtifactInterface artifact))
       tyConTable = Map.fromList (zip tyCons [0 ..])
-   in Builder.toLazyByteString $
+   in builderBytes $
         cborArray 5
           <> cborText "aihc-type"
           <> cborText (typeArtifactModuleName artifact)
@@ -74,7 +75,11 @@ encodeTypeInterface :: TcInterface -> BL.ByteString
 encodeTypeInterface interface =
   let tyCons = Set.toAscList (interfaceTyCons interface)
       tyConTable = Map.fromList (zip tyCons [0 ..])
-   in Builder.toLazyByteString (encodeList putTyConDefinition tyCons <> putInterface tyConTable interface)
+   in builderBytes (encodeList putTyConDefinition tyCons <> putInterface tyConTable interface)
+
+builderBytes :: Builder.Builder -> BL.ByteString
+builderBytes = toLazyByteStringWith (untrimmedStrategy 32768 32768) mempty
+{-# INLINE builderBytes #-}
 
 decodeTypeArtifact :: BL.ByteString -> TypeArtifact
 decodeTypeArtifact = Get.runGet getArtifact
@@ -182,6 +187,7 @@ getTyConDefinition = do
 
 putTyCon :: Map TyCon Word64 -> TyCon -> Builder.Builder
 putTyCon table tyCon = cborWord (Map.findWithDefault (error "missing type constructor index") tyCon table)
+{-# INLINE putTyCon #-}
 
 getTyCon :: TyConTable -> Get.Get TyCon
 getTyCon table = (table !) . fromIntegral <$> getWord
@@ -218,6 +224,7 @@ putType table ty = case ty of
   TcForAllTy variable body -> sum2 4 (putTyVar table variable) (putType table body)
   TcQualTy predicates body -> sum2 5 (encodeList (putPred table) predicates) (putType table body)
   TcAppTy function argument -> sum2 6 (putType table function) (putType table argument)
+{-# INLINE putType #-}
 
 getType :: TyConTable -> Get.Get TcType
 getType table = do
@@ -438,97 +445,130 @@ getNamedScheme table = expectArray 2 >> ((,) <$> getText <*> getTypeScheme table
 
 interfaceTyCons :: TcInterface -> Set.Set TyCon
 interfaceTyCons interface =
-  Set.unions
-    [ Set.unions (map (typeSchemeTyCons . snd) (tcInterfaceTerms interface)),
-      Set.unions (map tyConInfoTyCons (tcInterfaceTyCons interface)),
-      Set.unions (map dataTypeInfoTyCons (tcInterfaceDataTypes interface)),
-      Set.unions (map classInfoTyCons (tcInterfaceClasses interface)),
-      Set.unions (map instanceInfoTyCons (tcInterfaceInstances interface)),
-      Set.unions (map dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)),
-      Set.unions (map typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface))
-    ]
+  addTypeFamilyInstanceInfos (tcInterfaceTypeFamilyInstances interface) $
+    addDataFamilyInstanceInfos (tcInterfaceDataFamilyInstances interface) $
+      addInstanceInfos (tcInterfaceInstances interface) $
+        addClassInfos (tcInterfaceClasses interface) $
+          addDataTypeInfos (tcInterfaceDataTypes interface) $
+            addTyConInfos (tcInterfaceTyCons interface) $
+              addTerms (tcInterfaceTerms interface) Set.empty
 
-tyConInfoTyCons :: TyConInfo -> Set.Set TyCon
-tyConInfoTyCons info =
-  Set.insert (tciTyCon info) $
-    typeSchemeTyCons (tciKindScheme info)
-      <> maybe mempty typeSynonymInfoTyCons (tciTypeSynonym info)
+addTerms :: [(TcTermKey, TypeScheme)] -> Set.Set TyCon -> Set.Set TyCon
+addTerms terms acc = foldl' (\tyCons (_, scheme) -> addTypeScheme scheme tyCons) acc terms
 
-typeSynonymInfoTyCons :: TypeSynonymInfo -> Set.Set TyCon
-typeSynonymInfoTyCons info =
-  Set.unions (map tyVarTyCons (tsiParams info))
-    <> maybe mempty typeTyCons (tsiBody info)
+addTyConInfos :: [TyConInfo] -> Set.Set TyCon -> Set.Set TyCon
+addTyConInfos = flip (foldl' (flip addTyConInfo))
 
-dataTypeInfoTyCons :: DataTypeInfo -> Set.Set TyCon
-dataTypeInfoTyCons info =
-  Set.insert (dtiTyCon info) $
-    Set.unions (map tyVarTyCons (dtiTyVars info))
-      <> typeTyCons (dtiResultKind info)
-      <> Set.unions (map dataConInfoTyCons (dtiConstructors info))
+addTyConInfo :: TyConInfo -> Set.Set TyCon -> Set.Set TyCon
+addTyConInfo info acc =
+  addMaybe addTypeSynonymInfo (tciTypeSynonym info) $
+    addTypeScheme (tciKindScheme info) (Set.insert (tciTyCon info) acc)
 
-dataConInfoTyCons :: DataConInfo -> Set.Set TyCon
-dataConInfoTyCons info =
-  Set.unions (map tyVarTyCons (dciUnivTyVars info <> dciExTyVars info))
-    <> Set.unions (map predTyCons (dciTheta info))
-    <> Set.unions (map (typeTyCons . dcfiType) (dciFields info))
-    <> typeTyCons (dciResTy info)
+addTypeSynonymInfo :: TypeSynonymInfo -> Set.Set TyCon -> Set.Set TyCon
+addTypeSynonymInfo info acc =
+  addMaybe addType (tsiBody info) (addTyVars (tsiParams info) acc)
 
-classInfoTyCons :: ClassInfo -> Set.Set TyCon
-classInfoTyCons info =
-  Set.insert (ciTyCon info) $
-    Set.unions (map tyVarTyCons (ciKindTyVars info <> ciTyVars info))
-      <> Set.unions (map typeTyCons (ciSuperClassTypes info))
-      <> Set.unions (map (typeSchemeTyCons . snd) (ciMethods info <> ciDefaultSignatures info))
+addDataTypeInfos :: [DataTypeInfo] -> Set.Set TyCon -> Set.Set TyCon
+addDataTypeInfos = flip (foldl' (flip addDataTypeInfo))
 
-instanceInfoTyCons :: InstanceInfo -> Set.Set TyCon
-instanceInfoTyCons info =
-  typeTyCons (iiDictType info)
-    <> Set.unions (map tyVarTyCons (iiTyVars info))
-    <> Set.unions (map predTyCons (iiContext info))
-    <> Set.unions (map typeTyCons (iiHead info))
+addDataTypeInfo :: DataTypeInfo -> Set.Set TyCon -> Set.Set TyCon
+addDataTypeInfo info acc =
+  addDataConInfos (dtiConstructors info) $
+    addType (dtiResultKind info) $
+      addTyVars (dtiTyVars info) (Set.insert (dtiTyCon info) acc)
 
-dataFamilyInstanceInfoTyCons :: DataFamilyInstanceInfo -> Set.Set TyCon
-dataFamilyInstanceInfoTyCons info =
-  Set.insert (dfiiRepresentationTyCon info) $
-    typeTyCons (dfiiFamilyType info)
-      <> Set.unions (map tyVarTyCons (dfiiTyVars info))
+addDataConInfos :: [DataConInfo] -> Set.Set TyCon -> Set.Set TyCon
+addDataConInfos = flip (foldl' (flip addDataConInfo))
 
-typeFamilyInstanceInfoTyCons :: TypeFamilyInstanceInfo -> Set.Set TyCon
-typeFamilyInstanceInfoTyCons info =
-  Set.unions (map tyVarTyCons (tfiiTyVars info))
-    <> typeTyCons (tfiiLeft info)
-    <> typeTyCons (tfiiRight info)
+addDataConInfo :: DataConInfo -> Set.Set TyCon -> Set.Set TyCon
+addDataConInfo info acc =
+  addType (dciResTy info) $
+    addDataConFields (dciFields info) $
+      addPreds (dciTheta info) $
+        addTyVars (dciUnivTyVars info <> dciExTyVars info) acc
 
-typeSchemeTyCons :: TypeScheme -> Set.Set TyCon
-typeSchemeTyCons (ForAll variables predicates body) =
-  Set.unions (map tyVarTyCons variables)
-    <> Set.unions (map predTyCons predicates)
-    <> typeTyCons body
+addDataConFields :: [DataConFieldInfo] -> Set.Set TyCon -> Set.Set TyCon
+addDataConFields = flip (foldl' (\tyCons field -> addType (dcfiType field) tyCons))
 
-tyVarTyCons :: TyVarId -> Set.Set TyCon
-tyVarTyCons = typeTyCons . tvKind
+addClassInfos :: [ClassInfo] -> Set.Set TyCon -> Set.Set TyCon
+addClassInfos = flip (foldl' (flip addClassInfo))
 
-predTyCons :: Pred -> Set.Set TyCon
-predTyCons predicate = case predicate of
-  ClassPred tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
-  EqPred left right -> typeTyCons left <> typeTyCons right
+addClassInfo :: ClassInfo -> Set.Set TyCon -> Set.Set TyCon
+addClassInfo info acc =
+  addNamedSchemes (ciMethods info <> ciDefaultSignatures info) $
+    addTypes (ciSuperClassTypes info) $
+      addTyVars (ciKindTyVars info <> ciTyVars info) (Set.insert (ciTyCon info) acc)
+
+addInstanceInfos :: [InstanceInfo] -> Set.Set TyCon -> Set.Set TyCon
+addInstanceInfos = flip (foldl' (flip addInstanceInfo))
+
+addInstanceInfo :: InstanceInfo -> Set.Set TyCon -> Set.Set TyCon
+addInstanceInfo info acc =
+  addTypes (iiHead info) $
+    addPreds (iiContext info) $
+      addTyVars (iiTyVars info) (addType (iiDictType info) acc)
+
+addDataFamilyInstanceInfos :: [DataFamilyInstanceInfo] -> Set.Set TyCon -> Set.Set TyCon
+addDataFamilyInstanceInfos = flip (foldl' (flip addDataFamilyInstanceInfo))
+
+addDataFamilyInstanceInfo :: DataFamilyInstanceInfo -> Set.Set TyCon -> Set.Set TyCon
+addDataFamilyInstanceInfo info acc =
+  addTyVars (dfiiTyVars info) $
+    addType (dfiiFamilyType info) (Set.insert (dfiiRepresentationTyCon info) acc)
+
+addTypeFamilyInstanceInfos :: [TypeFamilyInstanceInfo] -> Set.Set TyCon -> Set.Set TyCon
+addTypeFamilyInstanceInfos = flip (foldl' (flip addTypeFamilyInstanceInfo))
+
+addTypeFamilyInstanceInfo :: TypeFamilyInstanceInfo -> Set.Set TyCon -> Set.Set TyCon
+addTypeFamilyInstanceInfo info acc =
+  addType (tfiiRight info) $
+    addType (tfiiLeft info) (addTyVars (tfiiTyVars info) acc)
+
+addNamedSchemes :: [(Text, TypeScheme)] -> Set.Set TyCon -> Set.Set TyCon
+addNamedSchemes schemes acc = foldl' (\tyCons (_, scheme) -> addTypeScheme scheme tyCons) acc schemes
+
+addTypeScheme :: TypeScheme -> Set.Set TyCon -> Set.Set TyCon
+addTypeScheme (ForAll variables predicates body) acc =
+  addType body (addPreds predicates (addTyVars variables acc))
+
+addTyVars :: [TyVarId] -> Set.Set TyCon -> Set.Set TyCon
+addTyVars = flip (foldl' (flip addTyVar))
+
+addTyVar :: TyVarId -> Set.Set TyCon -> Set.Set TyCon
+addTyVar variable = addType (tvKind variable)
+
+addPreds :: [Pred] -> Set.Set TyCon -> Set.Set TyCon
+addPreds = flip (foldl' (flip addPred))
+
+addPred :: Pred -> Set.Set TyCon -> Set.Set TyCon
+addPred predicate acc = case predicate of
+  ClassPred tyCon arguments -> addTypes arguments (Set.insert tyCon acc)
+  EqPred left right -> addType right (addType left acc)
   QuantifiedPred variables antecedents consequent ->
-    Set.unions (map tyVarTyCons variables)
-      <> Set.unions (map predTyCons antecedents)
-      <> predTyCons consequent
+    addPred consequent (addPreds antecedents (addTyVars variables acc))
 
-typeTyCons :: TcType -> Set.Set TyCon
-typeTyCons ty = case ty of
-  TcTyVar variable -> tyVarTyCons variable
-  TcMetaTv {} -> mempty
-  TcTyCon tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
-  TcFunTy argument result -> typeTyCons argument <> typeTyCons result
-  TcForAllTy variable body -> tyVarTyCons variable <> typeTyCons body
-  TcQualTy predicates body -> Set.unions (map predTyCons predicates) <> typeTyCons body
-  TcAppTy function argument -> typeTyCons function <> typeTyCons argument
+addTypes :: [TcType] -> Set.Set TyCon -> Set.Set TyCon
+addTypes = flip (foldl' (flip addType))
+
+addType :: TcType -> Set.Set TyCon -> Set.Set TyCon
+addType ty acc = case ty of
+  TcTyVar variable -> addTyVar variable acc
+  TcMetaTv {} -> acc
+  TcTyCon tyCon arguments -> addTypes arguments (Set.insert tyCon acc)
+  TcFunTy argument result -> addType result (addType argument acc)
+  TcForAllTy variable body -> addType body (addTyVar variable acc)
+  TcQualTy predicates body -> addType body (addPreds predicates acc)
+  TcAppTy function argument -> addType argument (addType function acc)
+{-# INLINE addType #-}
+
+addMaybe :: (value -> Set.Set TyCon -> Set.Set TyCon) -> Maybe value -> Set.Set TyCon -> Set.Set TyCon
+addMaybe add value acc = case value of
+  Nothing -> acc
+  Just item -> add item acc
 
 encodeList :: (value -> Builder.Builder) -> [value] -> Builder.Builder
 encodeList encode values = cborArray (length values) <> foldMap encode values
+{-# INLINE encodeList #-}
 
 getList :: Get.Get value -> Get.Get [value]
 getList getValue = getArrayLength >>= (`replicateM` getValue)
@@ -597,9 +637,11 @@ getTagged label values = do
 
 sum1 :: Word64 -> Builder.Builder -> Builder.Builder
 sum1 tag first = cborArray 2 <> cborWord tag <> first
+{-# INLINE sum1 #-}
 
 sum2 :: Word64 -> Builder.Builder -> Builder.Builder -> Builder.Builder
 sum2 tag first second = cborArray 3 <> cborWord tag <> first <> second
+{-# INLINE sum2 #-}
 
 expectArray :: Int -> Get.Get ()
 expectArray expected = do
@@ -613,19 +655,23 @@ expectText expected = do
 
 cborArray :: Int -> Builder.Builder
 cborArray = cborMajor 4 . fromIntegral
+{-# INLINE cborArray #-}
 
 cborText :: Text -> Builder.Builder
 cborText value = cborMajor 3 (fromIntegral (BS.length bytes)) <> Builder.byteString bytes
   where
     bytes = TE.encodeUtf8 value
+{-# INLINE cborText #-}
 
 cborInt :: Int -> Builder.Builder
 cborInt value
   | value >= 0 = cborMajor 0 (fromIntegral value)
   | otherwise = cborMajor 1 (fromIntegral (-1 - value))
+{-# INLINE cborInt #-}
 
 cborWord :: Word64 -> Builder.Builder
 cborWord = cborMajor 0
+{-# INLINE cborWord #-}
 
 cborMajor :: Word8 -> Word64 -> Builder.Builder
 cborMajor major value
@@ -634,6 +680,7 @@ cborMajor major value
   | value <= 65535 = Builder.word8 (major * 32 + 25) <> Builder.word16BE (fromIntegral value)
   | value <= 4294967295 = Builder.word8 (major * 32 + 26) <> Builder.word32BE (fromIntegral value)
   | otherwise = Builder.word8 (major * 32 + 27) <> Builder.word64BE value
+{-# INLINE cborMajor #-}
 
 getArrayLength :: Get.Get Int
 getArrayLength = fromIntegral <$> getMajor 4
