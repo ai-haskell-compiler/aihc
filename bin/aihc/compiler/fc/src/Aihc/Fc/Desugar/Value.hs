@@ -523,15 +523,7 @@ desugarInstanceMethod annotation dictionaries methods methodName =
     Just (methodType, matches) -> withDictionaries dictionaries (desugarMatches methodType matches)
     Nothing
       | methodName `elem` tcInstanceDefaultMethods annotation -> desugarDefaultMethod annotation dictionaries methodName
-      | otherwise ->
-          failValue
-            ( "missing method "
-                <> T.unpack methodName
-                <> " in instance dictionary for "
-                <> T.unpack (tyConName (tcInstanceClassTyCon annotation))
-                <> " "
-                <> show (tcInstanceHeadTypes annotation)
-            )
+      | otherwise -> failValue ("missing method " <> T.unpack methodName <> " in instance dictionary")
 
 desugarDefaultMethod :: TcInstanceAnnotation -> [Dictionary] -> Text -> ValueM Expr
 desugarDefaultMethod annotation dictionaries methodName = do
@@ -706,9 +698,7 @@ desugarTopValue top = do
   body <-
     case topGroup top of
       FunctionGroup _ _ matches _ -> desugarMatches (topType top) matches
-      PatternGroup key name pattern' rhs _
-        | isJust (barePatternName pattern') -> desugarMatches (topType top) [emptyMatch rhs]
-        | otherwise -> desugarPatternBindingScheme key name pattern' rhs (topType top)
+      PatternGroup _ _ _ rhs _ -> desugarMatches (topType top) [emptyMatch rhs]
   ty <- convertCheckedType (topType top)
   pure
     ValDecl
@@ -720,8 +710,7 @@ desugarTopValue top = do
 
 desugarPatternBinding :: TcTermKey -> Text -> Syn.Pattern -> Syn.Rhs Syn.Expr -> TcType -> ValueM Expr
 desugarPatternBinding key name pattern' rhs resultType = do
-  constructorType <- patternConstructorResultType pattern'
-  let sourceType = fromMaybe resultType (patternType pattern' <|> constructorType)
+  let sourceType = fromMaybe resultType (patternType pattern')
   source <- desugarRhs rhs
   sourceBinder <- freshPatternBinder pattern' sourceType
   selected <-
@@ -731,36 +720,6 @@ desugarPatternBinding key name pattern' rhs resultType = do
         Just (binder, _) -> pure (ExVar (binderName binder))
         Nothing -> failValue ("pattern binding does not bind " <> T.unpack name)
   pure (ExLet (Bind sourceBinder source) selected)
-
-patternConstructorResultType :: Syn.Pattern -> ValueM (Maybe TcType)
-patternConstructorResultType pattern' =
-  case patternConstructorSourceName pattern' of
-    Nothing -> pure Nothing
-    Just constructorName -> do
-      constructors <- Map.findWithDefault [] (Syn.nameText constructorName) <$> gets vsConstructorInfos
-      pure $
-        case nameTermKey constructorName of
-          Just (TcTermGlobal package moduleName' _) ->
-            dciResTy
-              <$> listToMaybe
-                [ candidate
-                | candidate <- constructors,
-                  dciOrigin candidate == (package, moduleName')
-                ]
-          _ -> dciResTy <$> listToMaybe constructors
-
-desugarPatternBindingScheme :: TcTermKey -> Text -> Syn.Pattern -> Syn.Rhs Syn.Expr -> TcType -> ValueM Expr
-desugarPatternBindingScheme key name pattern' rhs ty = do
-  let (typeVariables, afterForAlls) = peelForAlls ty
-      (predicates, resultType) = peelConstraints afterForAlls
-  typeBinders <- convertTypeBinders typeVariables
-  withTypeVariables typeVariables $ do
-    dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
-    body <-
-      withDictionaries
-        (zipWith Dictionary predicates dictionaries)
-        (desugarPatternBinding key name pattern' rhs resultType)
-    pure (foldr ExTyLam (foldr ExLam body dictionaries) typeBinders)
 
 emptyMatch :: Syn.Rhs Syn.Expr -> Syn.Match
 emptyMatch rhs =
@@ -1038,7 +997,7 @@ newtypeFieldType dataType scrutineeType child =
     [constructor]
       | Just fieldType <- foreignConstructorField scrutineeType constructor ->
           pure fieldType
-    _ -> requiredPatternTypeFor "newtype match field" child
+    _ -> requiredPatternType child
 
 newtypePatternArguments :: Syn.Pattern -> ValueM [TcType]
 newtypePatternArguments pattern' =
@@ -1066,11 +1025,7 @@ desugarPatternGroup resultType remaining restTypes scrutineeType caseBinder work
       predicates = patternGivenPredicates pattern'
       typeVariables = patternTypeVariables pattern'
   typeBinders <- convertTypeBinders typeVariables
-  fieldTypes <-
-    case (peelPattern pattern', scrutineeType) of
-      (Syn.PTuple _ fields, TcTyCon _ types)
-        | length fields == length types -> pure types
-      _ -> patternFieldTypes pattern' subpatterns
+  fieldTypes <- patternFieldTypes pattern' subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
   rooted <- mapM (extendMatchWork caseBinder scrutineeType) works
@@ -1270,12 +1225,7 @@ patternFieldTypes parent children
   | Syn.PLit literal <- peelPattern parent,
     isBoxedCharacterLiteral literal =
       (: []) <$> boxedCharFieldType
-  | Syn.PTuple _ fields <- peelPattern parent,
-    length fields == length children,
-    Just (TcTyCon _ fieldTypes) <- patternType parent,
-    length fieldTypes == length children =
-      pure fieldTypes
-  | otherwise = mapM (requiredPatternTypeFor "constructor field") children
+  | otherwise = mapM requiredPatternType children
 
 freshPatternBinder :: Syn.Pattern -> TcType -> ValueM Binder
 freshPatternBinder pattern' = freshBinder (fromMaybe "_pat" (barePatternName pattern'))
@@ -1308,11 +1258,11 @@ peelPattern pattern' =
     Syn.PTypeSig inner _ -> peelPattern inner
     _ -> pattern'
 
-requiredPatternTypeFor :: String -> Syn.Pattern -> ValueM TcType
-requiredPatternTypeFor context pattern' =
+requiredPatternType :: Syn.Pattern -> ValueM TcType
+requiredPatternType pattern' =
   case patternType pattern' of
     Just ty -> pure ty
-    Nothing -> failValue ("missing checked " <> context <> " type: " <> take 240 (show pattern'))
+    Nothing -> failValue ("missing checked pattern type: " <> take 80 (show pattern'))
 
 patternType :: Syn.Pattern -> Maybe TcType
 patternType pattern' =
@@ -1356,8 +1306,6 @@ desugarExpr expression =
       | otherwise -> desugarExpr inner
     Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
-    Syn.EInfix left operator right
-      | Syn.nameText operator == "$" -> ExApp <$> desugarExpr left <*> desugarExpr right
     Syn.EInfix left operator right -> do
       operator' <- desugarInfixOperator operator
       (ExApp . ExApp operator' <$> desugarExpr left) <*> desugarExpr right
@@ -1562,7 +1510,7 @@ convertTyConApplicationArguments tyCon arguments = do
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do
-  types <- mapM (requiredPatternTypeFor "lambda argument") patterns
+  types <- mapM requiredPatternType patterns
   binders <- zipWithM freshPatternBinder patterns types
   locals <- concat <$> mapM (\(pattern', binder, ty) -> patternMatchBindings pattern' binder ty) (zip3 patterns binders types)
   body' <- withLocals locals (desugarExpr body)
@@ -1727,7 +1675,7 @@ desugarListCompNewtypePattern resultType binder pattern' dataType success failur
     case patternChildren pattern' of
       [fieldPattern] -> pure fieldPattern
       _ -> failValue ("newtype list comprehension pattern does not have one field: " <> T.unpack (dtiName dataType))
-  childType <- requiredPatternTypeFor "newtype list comprehension field" child
+  childType <- requiredPatternType child
   field <- freshPatternBinder child childType
   typeArguments <- newtypePatternArguments pattern'
   convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
@@ -1959,7 +1907,7 @@ desugarDoNewtypePattern resultType binder pattern' dataType success = do
     case patternChildren pattern' of
       [fieldPattern] -> pure fieldPattern
       _ -> failValue ("newtype do pattern does not have one field: " <> T.unpack (dtiName dataType))
-  childType <- requiredPatternTypeFor "newtype do field" child
+  childType <- requiredPatternType child
   field <- freshPatternBinder child childType
   typeArguments <- newtypePatternArguments pattern'
   convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
@@ -2073,7 +2021,7 @@ desugarLocalDecls declarations body = do
           FunctionGroup _ _ matches _ -> desugarMatches ty matches
           PatternGroup key name pattern' sourceRhs _
             | isJust (barePatternName pattern') -> desugarMatches ty [emptyMatch sourceRhs]
-            | otherwise -> desugarPatternBindingScheme key name pattern' sourceRhs ty
+            | otherwise -> desugarPatternBinding key name pattern' sourceRhs ty
       recursive <-
         case group of
           FunctionGroup {} -> pure True
