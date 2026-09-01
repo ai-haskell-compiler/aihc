@@ -94,35 +94,49 @@ loadFcCases = do
 
 primitiveSupport :: PrimitiveSupport
 primitiveSupport = unsafePerformIO $ do
-  primitiveModules <- loadPrimitiveModules
+  primitiveModules <- loadPrimitiveModules True
   case preparePrimitiveSupport primitiveModules of
     Left errMsg -> fail errMsg
     Right support -> pure support
 {-# NOINLINE primitiveSupport #-}
 
-loadPrimitiveModules :: IO [(FilePath, Text)]
-loadPrimitiveModules = do
-  sourceRoot <- findPrimitiveSourceRoot
-  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+primitiveSupportWithoutNum :: PrimitiveSupport
+primitiveSupportWithoutNum = unsafePerformIO $ do
+  primitiveModules <- loadPrimitiveModules False
+  case preparePrimitiveSupport primitiveModules of
+    Left errMsg -> fail errMsg
+    Right support -> pure support
+{-# NOINLINE primitiveSupportWithoutNum #-}
+
+loadPrimitiveModules :: Bool -> IO [(FilePath, Text)]
+loadPrimitiveModules includeNum = do
+  (primitiveRoot, baseRoot) <- findSupportSourceRoots
+  mapM
+    loadOne
+    ( map (primitiveRoot </>) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+        <> [baseRoot </> path | includeNum, path <- ["GHC/Int.hs", "GHC/Internal/Integer.hs", "GHC/Num.hs"]]
+    )
   where
-    loadOne sourceRoot relativePath = do
-      let path = sourceRoot </> relativePath
+    loadOne path = do
       source <- TIO.readFile path
       pure (path, source)
 
-findPrimitiveSourceRoot :: IO FilePath
-findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+findSupportSourceRoots :: IO (FilePath, FilePath)
+findSupportSourceRoots = getCurrentDirectory >>= findUp
   where
     findUp directory = do
-      let candidate = directory </> "core-libs/aihc-prim/src"
-          files = [candidate </> "GHC/Classes.hs", candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
+      let primitiveRoot = directory </> "core-libs/aihc-prim/src"
+          baseRoot = directory </> "core-libs/aihc-base/src"
+          files =
+            map (primitiveRoot </>) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+              <> map (baseRoot </>) ["GHC/Int.hs", "GHC/Internal/Integer.hs", "GHC/Num.hs"]
       exists <- and <$> mapM doesFileExist files
       if exists
-        then pure candidate
+        then pure (primitiveRoot, baseRoot)
         else do
           let parent = takeDirectory directory
           if parent == directory
-            then fail "Cannot find the aihc-prim source modules."
+            then fail "Cannot find the FC support source modules."
             else findUp parent
 
 loadFcCase :: FilePath -> IO FcCase
@@ -190,20 +204,21 @@ renderFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
-            ResolveResult {resolvedModules, resolveErrors = []} ->
-              let fixtureAsts = map snd resolvedModules
-                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) (supportTcInterface primitiveSupport) fixtureAsts
-               in if all tcModuleSuccess fixtureTcResults
-                    then do
-                      env <- prepareDesugar desugarConfig (supportTcInterface primitiveSupport <> tcInterface)
-                      let fixtureResults = map (\checked -> desugarPrepared env (tcModuleBindings checked) checked) fixtureTcResults
-                      if all dsSuccess fixtureResults
-                        then lintAndRenderResults fixtureResults
-                        else Left (unlines (concatMap dsErrors fixtureResults))
-                    else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
-            ResolveResult {resolveErrors} ->
-              Left ("resolve error: " <> show resolveErrors)
+          let support = fixturePrimitiveSupport modules
+           in case resolveWithDeps (fixtureBuiltinScope support modules) (supportScopes support) (modulesInPackage fixturePackage modules) of
+                ResolveResult {resolvedModules, resolveErrors = []} ->
+                  let fixtureAsts = map snd resolvedModules
+                      (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) (supportTcInterface support) fixtureAsts
+                   in if all tcModuleSuccess fixtureTcResults
+                        then do
+                          env <- prepareDesugar desugarConfig (supportTcInterface support <> tcInterface)
+                          let fixtureResults = map (\checked -> desugarPrepared env (tcModuleBindings checked) checked) fixtureTcResults
+                          if all dsSuccess fixtureResults
+                            then lintAndRenderResults fixtureResults
+                            else Left (unlines (concatMap dsErrors fixtureResults))
+                        else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
+                ResolveResult {resolveErrors} ->
+                  Left ("resolve error: " <> show resolveErrors)
   where
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
@@ -261,15 +276,20 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
 
-fixtureBuiltinScope :: [Module] -> Scope
-fixtureBuiltinScope modules =
+fixtureBuiltinScope :: PrimitiveSupport -> [Module] -> Scope
+fixtureBuiltinScope support modules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
-    dependencyExports = supportScopes primitiveSupport
+    dependencyExports = supportScopes support
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+
+fixturePrimitiveSupport :: [Module] -> PrimitiveSupport
+fixturePrimitiveSupport modules
+  | any ((== Just "GHC.Num") . moduleName) modules = primitiveSupportWithoutNum
+  | otherwise = primitiveSupport
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
