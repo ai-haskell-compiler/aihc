@@ -1,0 +1,25 @@
+extensions: []
+source: |
+  module Test where
+  data Result = Result
+  class Read a where
+    reads :: Result -> a
+expected: |-
+  constructor Test.Result []
+
+  constructor Test.$Dict$Read [BoxedRep Lifted]
+
+  global "\NULTest\NULResult" = (CTest.Result)
+
+  global "\NULTest\NUL$Dict$Read" = (CTest.$Dict$Read/1)
+
+  global "\NULTest\NULreads" = (P$grin_closure_0/1)
+
+  $grin_closure_0 ($d0%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value%-1000000001 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0%-1000000000 :: BoxedRep Lifted)
+    case (case_value%-1000000001 :: BoxedRep Lifted) as $dict%-1000000002 :: BoxedRep Lifted of
+      data Test.$Dict$Read ($method0%-1000000003 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method0%-1000000003 :: BoxedRep Lifted)
+status: pass
+reason: emits a class method selector as a direct global closure

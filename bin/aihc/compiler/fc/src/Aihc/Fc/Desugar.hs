@@ -19,6 +19,7 @@ import Aihc.Fc.Convert
 import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, emptyPreparedValueInterface, mergePreparedValueInterfaces, prepareValueInterface)
 import Aihc.Fc.Imports (PreparedImports, emptyImports, importsForProgramPrepared, mergePreparedImports, prepareImports)
 import Aihc.Fc.Name
+import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
@@ -374,7 +375,7 @@ desugarCheckedWithAvailable desugarEnv moduleBindings checked = do
       baseProgram = Program emptyScopeTable emptyImports decls
       imports = importsForProgramPrepared (deImports desugarEnv) baseProgram
       scopes = buildScopes (primPackageId config) moduleOrigin imports decls
-  pure (tidyProgramWithTidiedImports (Program scopes imports decls))
+  pure (tidyProgramWithTidiedImports (normalizeProgram (Program scopes imports decls)))
 
 localBindingMap :: PackageId -> Text -> [TcBindingResult] -> Map.Map TcTermKey TcBindingResult
 localBindingMap package moduleName' =

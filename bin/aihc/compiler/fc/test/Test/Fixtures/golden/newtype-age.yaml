@@ -31,7 +31,6 @@ expected: |-
   axiom 1.$ax$Age : 1.tAge ~R 1.tInt
 
   pub val 1.vone :: 1.tAge
-   = (λ(_newtype : 1.tInt).
-    _newtype ▷ sym (axiom-co 1.$ax$Age)) 1.vI
+   = 1.vI ▷ sym (axiom-co 1.$ax$Age)
 status: pass
 reason: A newtype becomes an empty type, a representational axiom, and a cast.

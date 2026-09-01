@@ -3,22 +3,17 @@ expected: |-
 
   global "\NULDependency\NULBox" = (CDependency.Box/1)
 
-  global "\NULDependency\NULidentity" = (F$grin_identity_thunk_0)
+  global "\NULDependency\NULidentity" = (P$grin_closure_0/1)
 
-  global "\NULDependency\NULcaf" = (F$grin_caf_thunk_2)
+  global "\NULDependency\NULcaf" = (F$grin_caf_thunk_1)
 
-  $grin_closure_1 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
+  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
 
-  $grin_identity_thunk_0 -> BoxedRep Lifted =
-    store (P$grin_closure_1/1)
-
-  $grin_caf_thunk_2 -> BoxedRep Lifted =
-    argument%-1000000002 :: IntRep <-
+  $grin_caf_thunk_1 -> BoxedRep Lifted =
+    argument%-1000000001 :: IntRep <-
       constant (7 :: IntRep)
-    function_whnf%-1000000001 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) global-ref "\NULDependency\NULBox"
-    apply @(BoxedRep Lifted) (function_whnf%-1000000001 :: BoxedRep Lifted) (argument%-1000000002 :: IntRep)
+    store (CDependency.Box (argument%-1000000001 :: IntRep))
   global "\NULTarget\NULuseFunction" = (F$grin_useFunction_thunk_0)
 
   global "\NULTarget\NULuseCaf" = (F$grin_useCaf_thunk_1)
