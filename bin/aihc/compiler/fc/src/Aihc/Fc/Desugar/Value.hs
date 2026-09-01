@@ -33,6 +33,7 @@ import Aihc.Tc
     TcInterface (..),
     TcTermKey (..),
     TyConFlavor (..),
+    defaultMethodName,
   )
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
@@ -408,7 +409,7 @@ desugarDefaultWorker annotation valueDecl = do
     ( DeclVal
         ValDecl
           { valVis = Pub,
-            valName = topName moduleOrigin ("$dm" <> methodName),
+            valName = topName moduleOrigin (defaultMethodName methodName),
             valType = convertedType,
             valBody = body
           }
@@ -546,7 +547,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
         case tcInstanceClassOrigin annotation of
           Just (packageName, moduleName') -> OriginTop (PackageId packageName) moduleName'
           Nothing -> OriginLocal (Unique 0)
-      worker = foldl ExTyApp (ExVar (Name ("$dm" <> methodName) SortValue workerOrigin)) (convertedHeadTypes <> convertedExtraTypes)
+      worker = foldl ExTyApp (ExVar (Name (defaultMethodName methodName) SortValue workerOrigin)) (convertedHeadTypes <> convertedExtraTypes)
       dictionaryArguments = map (ExVar . binderName . dictionaryBinder) dictionaries
   moduleOrigin <- gets vsModuleOrigin
   let selfName = topName moduleOrigin (tcInstanceDictName annotation)

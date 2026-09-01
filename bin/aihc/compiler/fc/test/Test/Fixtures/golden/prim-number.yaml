@@ -3,6 +3,8 @@ extensions: []
 modules:
 - |
   module Main where
+  import GHC.Prim.Num (Num)
+  one :: Num a => a
   one = 1
 expected: |-
   scope 1 = "" Main
@@ -35,4 +37,4 @@ expected: |-
     λ($d0 : 4.t$Dict$Num a).
       4.vfromInteger @a $d0 (3.vIS 1#5.vIntRep)
 status: pass
-reason: desugars default integer literals through GHC.Prim.Num.fromInteger
+reason: type-checks and desugars a number with only aihc-prim built-ins

@@ -48,6 +48,7 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    defaultMethodName,
     tcModuleDiagnostics,
     tcModuleSuccess,
     typeFamilyAxiomKey,
@@ -258,7 +259,7 @@ headerIndex convertEnv interface =
         Just (package, moduleName') <- [ciOrigin info],
         methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
-        let workerName = Name ("$dm" <> methodName) SortValue (OriginTop (PackageId package) moduleName')
+        let workerName = Name (defaultMethodName methodName) SortValue (OriginTop (PackageId package) moduleName')
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     familyFacts =
@@ -345,7 +346,7 @@ bindingsFromInterface interface =
         Just (package, moduleName') <- [ciOrigin info],
         methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
-        let workerName = "$dm" <> methodName
+        let workerName = defaultMethodName methodName
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =

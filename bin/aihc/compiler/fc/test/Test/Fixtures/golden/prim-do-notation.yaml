@@ -2,15 +2,14 @@
 extensions: []
 modules:
 - |
-  module Test where
+  module Main where
   import GHC.Prim.Base (Monad, return)
-  data Pair a = Pair a a
-  select :: Monad m => m (Pair a) -> m a
-  select action = do
-    Pair first _ <- action
-    return first
+  identityAction :: Monad m => m a -> m a
+  identityAction action = do
+    value <- action
+    return value
 expected: |-
-  scope 1 = "" Test
+  scope 1 = "" Main
   scope 2 = "aihc-prim" GHC.Prim.Base
   scope 3 = "aihc-prim" GHC.Types
 
@@ -30,19 +29,12 @@ expected: |-
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub type 1.tPair (a : 3.tType) :: 3.tType {
-      pub 1.vPair :: ∀(a : 3.tType). a 3.→ a 3.→ 1.tPair a
-  }
-
-  pub val 1.vselect :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ m (1.tPair a) 3.→ m a
+  pub val 1.videntityAction :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ m a 3.→ m a
    = Λ(m : 3.tType 3.→ 3.tType).
     Λ(a : 3.tType).
       λ($d0 : 2.t$Dict$Monad m).
-        λ(x : m (1.tPair a)).
-          2.v>>= @m @(1.tPair a) @a $d0 x (λ(_pat : 1.tPair a).
-            case _pat as (_do_scrut : 1.tPair a) return (m a) of {
-                1.vPair (first : a) (_pat{1} : a) →
-                    2.vreturn @m @a $d0 first
-            })
+        λ(x : m a).
+          2.v>>= @m @a @a $d0 x (λ(value : a).
+            2.vreturn @m @a $d0 value)
 status: pass
-reason: desugars a constructor pattern in do notation with primitive built-ins
+reason: type-checks and desugars do notation with only aihc-prim built-ins

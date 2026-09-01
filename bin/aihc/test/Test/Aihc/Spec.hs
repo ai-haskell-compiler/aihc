@@ -76,10 +76,12 @@ test_buildExeSourceDirectories = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
   entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/generated-entry-collision"
   baseRoot <- findCoreLibraryRoot "aihc-base"
+  primitiveRoot <- findCoreLibraryRoot "aihc-prim"
   let target = fromMaybe Llvm hostNativeTarget
   withTempDir "aihc-build-exe" $ \root -> do
     let storeRoot = root </> "store"
         output = root </> "program"
+    primitive <- installV2 (InstallV2Options primitiveRoot (Just storeRoot) False False False False False False False target)
     installed <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False False False False False target)
     manifestResult <- readPackageManifest (packageManifestPath (installV2StorePath installed))
     manifest <- either assertFailure pure manifestResult
@@ -98,7 +100,7 @@ test_buildExeSourceDirectories = do
             }
         unusedResolve = installV2StorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
         unusedType = installV2StorePath installed </> "Data" </> "Bool" </> "type.cbor"
-        requiredFc = installV2StorePath installed </> "GHC" </> "Base" </> "core"
+        requiredFc = installV2StorePath primitive </> "GHC" </> "Prim" </> "Base" </> "core"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
     withCurrentDirectory root (runBuildExe options)

@@ -400,9 +400,9 @@ implicitSourceDependencies currentPackage extensions =
 compilerDependencies :: [SourceDependency]
 compilerDependencies =
   [ SourceDependency (Just "aihc-prim") "GHC.Types",
-    SourceDependency (Just "aihc-base") "GHC.Base",
+    SourceDependency (Just "aihc-prim") "GHC.Prim.Base",
     SourceDependency (Just "aihc-prim") "GHC.Classes",
-    SourceDependency (Just "aihc-base") "GHC.Num"
+    SourceDependency (Just "aihc-prim") "GHC.Prim.Num"
   ]
 
 isLocalSourceDependency :: SourceDependency -> Bool

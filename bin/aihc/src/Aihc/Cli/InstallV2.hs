@@ -1161,7 +1161,7 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
   verbose ("Write package instances: " <> path)
 
 wiredTypeModules :: [Text]
-wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
+wiredTypeModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Num", "GHC.Tuple", "GHC.Types"]
 
 builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =
@@ -1169,7 +1169,7 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
   where
     allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+    builtinFunctionModules = ["GHC.Classes", "GHC.Prim.Base", "GHC.Prim.Num"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do
