@@ -1,0 +1,95 @@
+---
+extensions:
+- MagicHash
+- RebindableSyntax
+modules:
+- |
+  module GHC.Num where
+
+  import GHC.Prim (Int#)
+  import GHC.Types (Int(I#))
+
+  data Integer = IS Int#
+  fromInteger :: Integer -> Int
+  fromInteger (IS value) = I# value
+- |
+  module Test where
+
+  import GHC.Num (fromInteger)
+  import GHC.Types (Int(I#))
+
+  unit :: ()
+  unit = () where I# n# = 10
+expected: |-
+  scope 1 = "" GHC.Num
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.tType;
+    2.tInt# :: 3.tTYPE 3.vIntRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt;
+    3.vIntRep :: 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tInteger :: 3.tType {
+      pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
+  }
+
+  pub val 1.vfromInteger :: 1.tInteger 3.→ 3.tInt
+   = λ(x : 1.tInteger).
+    case x as (_scrut : 1.tInteger) return (3.tInt) of {
+        1.vIS (value : 2.tInt#) →
+            3.vI# value
+    }
+  scope 1 = "" GHC.Num
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Prim
+  scope 4 = "aihc-prim" GHC.Tuple
+  scope 5 = "aihc-prim" GHC.Types
+
+  import headers
+    5.tInt :: 5.tType;
+    3.tInt# :: 5.tTYPE 5.vIntRep;
+    1.tInteger :: 5.tType;
+    5.tLevity :: 5.tType;
+    5.tLiftedRep :: 5.tRuntimeRep;
+    5.tRuntimeRep :: 5.tType;
+    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.tType;
+    5.tType :: 5.tType;
+    4.tUnit :: 5.tType;
+    4.v() :: 4.tUnit;
+    5.vBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
+    5.vI# :: FUN @5.vIntRep @5.tLiftedRep 3.tInt# 5.tInt;
+    1.vIS :: FUN @5.vIntRep @5.tLiftedRep 3.tInt# 1.tInteger;
+    5.vIntRep :: 5.tRuntimeRep;
+    5.vLifted :: 5.tLevity;
+    1.vfromInteger :: 1.tInteger 5.→ 5.tInt
+
+  import synonyms
+    5.tLiftedRep = 5.vBoxedRep 5.vLifted;
+    5.tType = 5.tTYPE 5.tLiftedRep
+
+  pub val 2.vunit :: 4.tUnit
+   = rec {
+      _pat_rhs : 5.tInt =
+          1.vfromInteger (1.vIS 10#5.vIntRep);
+      n# : 3.tInt# =
+          case _pat_rhs as (_do_scrut : 5.tInt) return (3.tInt#) of {
+              5.vI# (n#{1} : 3.tInt#) →
+                  n#{1}
+          }
+  } in
+      4.v()
+status: pass
+reason: a local constructor pattern binding lowers its bound field

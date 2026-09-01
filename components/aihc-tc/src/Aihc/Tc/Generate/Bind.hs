@@ -47,7 +47,7 @@ import Control.Monad (foldM)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe, maybeToList)
+import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -213,8 +213,13 @@ inferLocalSingleDecl inferExpr sigs placeholders decl =
               (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs placeholders name rhs
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
-              (rhs', _ty, cts) <- inferRhsWithLocals inferExpr rhs
-              pure (DeclValue (PatternBind mult pat rhs'), cts)
+              (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
+              let sourceSpan = NoSourceSpan
+              patCheck <- checkPatternsWithGivens sourceSpan [(pat, rhsTy)]
+              patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
+              cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
+              let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+              pure (DeclValue (PatternBind mult pat' rhs'), cts)
         FunctionBind name matches -> do
           (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)
@@ -260,6 +265,11 @@ tiePlaceholder placeholders key ty cts =
       ev <- freshEvVar
       let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
       pure (cts ++ [eqCt])
+
+tiePatternPlaceholder :: Map TcTermKey TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
+tiePatternPlaceholder placeholders cts (name, ty) = do
+  key <- resolvedLocalTermKey name
+  tiePlaceholder placeholders key ty cts
 
 tcMatches :: InferExpr -> [Match] -> TcM ([Match], TcType, [Ct])
 tcMatches _ [] = do
@@ -377,8 +387,21 @@ groupBinders group =
     SingleDecl decl ->
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]
-        DeclValue (PatternBind _ pat _) -> maybeToList (patternBinderName pat)
+        DeclValue (PatternBind _ pat _) -> patternBinderNames pat
         _ -> []
+
+patternBinderNames :: Pattern -> [UnqualifiedName]
+patternBinderNames pat =
+  case pat of
+    PVar name -> [name]
+    PAnn _ inner -> patternBinderNames inner
+    PParen inner -> patternBinderNames inner
+    PAs name inner -> name : patternBinderNames inner
+    PStrict inner -> patternBinderNames inner
+    PIrrefutable inner -> patternBinderNames inner
+    PCon _ _ pats -> concatMap patternBinderNames pats
+    PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
+    _ -> []
 
 extractFunctionBind :: Decl -> Maybe (UnqualifiedName, [Match])
 extractFunctionBind decl =
