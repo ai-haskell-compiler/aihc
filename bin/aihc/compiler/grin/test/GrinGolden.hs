@@ -25,7 +25,7 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcInterface,
     emptyTcInterface,
@@ -95,7 +95,7 @@ buildFcPrograms :: [Extension] -> [Text] -> Either String [Fc.Program]
 buildFcPrograms extensions sources = do
   modules <- traverse (parseFixtureModule extensions) sources
   resolved <-
-    case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
+    case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
       result@ResolveResult {resolveErrors = []} -> Right result
       ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
   let fixtureAsts = map snd (resolvedModules resolved)
@@ -158,7 +158,7 @@ preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport sources = do
   modules <- traverse (uncurry parsePrimitiveModule) sources
   resolved <-
-    case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
+    case resolveWithDeps emptyScope mempty (modulesInPackage primitivePackage modules) of
       result@ResolveResult {resolveErrors = []} -> Right result
       ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
   let primitiveAsts = map snd (resolvedModules resolved)
@@ -194,6 +194,16 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
+
+fixtureBuiltinScope :: [Module] -> Scope
+fixtureBuiltinScope modules =
+  foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
+  where
+    dependencyExports = supportScopes primitiveSupport
+    packageModules = modulesInPackage fixturePackage modules
+    allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
+    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}

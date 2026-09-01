@@ -21,6 +21,9 @@ module Aihc.Resolve
     modulesInPackage,
     collectModuleExports,
     collectModuleExportsWithDeps,
+    lookupImportedModule,
+    emptyScope,
+    unionScope,
     ResolveError (..),
     ResolveResult (..),
     resolvedModuleAsts,
@@ -200,15 +203,15 @@ annotationResolveError resolution =
     ResolvedSyntax -> Nothing
     _ -> Nothing
 
-resolveWithDeps :: ModuleExports -> [(Package, Module)] -> ResolveResult
-resolveWithDeps depExports packageModules =
+resolveWithDeps :: Scope -> ModuleExports -> [(Package, Module)] -> ResolveResult
+resolveWithDeps builtinScope depExports packageModules =
   ResolveResult
     { resolvedModules = packageModules',
       resolveErrors = collectResolveErrors modules'
     }
   where
     step currentNextLocal (package, modu) =
-      let (nextLocal', modu') = resolveModule package exports currentNextLocal modu
+      let (nextLocal', modu') = resolveModule builtinScope package exports currentNextLocal modu
        in (nextLocal', modu')
     (_, resolved) = mapAccumL step 0 packageModules
     modules' = resolved
@@ -222,35 +225,29 @@ extractInterface = collectModuleExports . resolvedModules
 extractInterfaceWithDeps :: ModuleExports -> ResolveResult -> ModuleExports
 extractInterfaceWithDeps depExports = collectModuleExportsWithDeps depExports . resolvedModules
 
-resolveModule :: Package -> ModuleExports -> Int -> Module -> (Int, Module)
-resolveModule package exports nextLocal modu =
+resolveModule :: Scope -> Package -> ModuleExports -> Int -> Module -> (Int, Module)
+resolveModule builtinScope package exports nextLocal modu =
   let imports' = resolveModuleImports package exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope package exports modu'
       (nextLocal', decls') =
         runResolveM
           scope
-          (moduleInfo package exports modu')
+          (moduleInfo builtinScope modu')
           nextLocal
           (resolveBindingGroup (topLevelTermDefinition scope) Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
 
-moduleInfo :: Package -> ModuleExports -> Module -> ModuleInfo
-moduleInfo package exports modu =
+moduleInfo :: Scope -> Module -> ModuleInfo
+moduleInfo builtinScope modu =
   ModuleInfo
     { moduleInfoExtensions =
         applyImpliedExtensions $
           foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
       moduleInfoExplicitPreludeImport =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
-      moduleInfoBuiltinScope =
-        List.foldl'
-          unionScope
-          emptyScope
-          (map (\name -> lookupImportedModule package Nothing name exports) builtinModuleNames)
+      moduleInfoBuiltinScope = builtinScope
     }
-  where
-    builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num"]
 
 resolveModuleImports :: Package -> ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports package exports =
