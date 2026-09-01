@@ -6,6 +6,48 @@ modules:
   import GHC.Types (Bool)
 
   select fn list = [x | x <- list, fn x]
-expected: ''
-status: xfail
-reason: FC desugaring does not support EListComp expressions.
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.tType;
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.v: :: ∀(a : 2.tType). a 2.→ 2.t[] a 2.→ 2.t[] a;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vFalse :: 2.tBool;
+    2.vLifted :: 2.tLevity;
+    2.vTrue :: 2.tBool;
+    2.v[] :: ∀(a : 2.tType). 2.t[] a
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub val 1.vselect :: ∀(a : 2.tType). (a 2.→ 2.tBool) 2.→ 2.t[] a 2.→ 2.t[] a
+   = Λ(a : 2.tType).
+    λ(x : a 2.→ 2.tBool).
+      λ(y : 2.t[] a).
+        rec {
+            _list_comp : 2.t[] a 2.→ 2.t[] a =
+                λ(_list_comp_list : 2.t[] a).
+                  case _list_comp_list as (_list_comp_scrut : 2.t[] a) return (2.t[] a) of {
+                      2.v[] →
+                          2.v[] @a;
+                      2.v: (x{1} : a) (_list_comp_tail : 2.t[] a) →
+                          case x x{1} as (_list_comp_guard : 2.tBool) return (2.t[] a) of {
+                              2.vTrue →
+                                  2.v: @a x{1} (_list_comp _list_comp_tail);
+                              2.vFalse →
+                                  _list_comp _list_comp_tail
+                          }
+                  }
+        } in
+            _list_comp y
+status: pass
+reason: ''
