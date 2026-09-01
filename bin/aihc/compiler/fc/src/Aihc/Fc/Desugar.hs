@@ -56,6 +56,7 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     dataFamilyAxiomKey,
+    defaultMethodName,
     tcModuleDiagnostics,
     tcModuleSuccess,
     typeFamilyAxiomKey,
@@ -212,7 +213,7 @@ convertDefaultMethodHeaders env info =
       ]
     convertDefaultMethod package moduleName' (methodName, scheme) = do
       converted <- convertTypeScheme env scheme
-      pure (Name ("$dm" <> methodName) SortValue (OriginTop (PackageId package) moduleName'), converted)
+      pure (Name (defaultMethodName methodName) SortValue (OriginTop (PackageId package) moduleName'), converted)
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
       case ordinaryScheme of
         ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
@@ -336,7 +337,7 @@ bindingsFromInterface interface =
         Just (package, moduleName') <- [ciOrigin info],
         methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
-        let workerName = "$dm" <> methodName
+        let workerName = defaultMethodName methodName
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =

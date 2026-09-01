@@ -23,6 +23,7 @@ module Aihc.Tc
     TcConfig,
     tcConfig,
     TcBindingResult (..),
+    defaultMethodName,
     TcTermKey (..),
     tcTermKeyIdentifier,
     TcInterface (..),
@@ -121,7 +122,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -261,7 +262,7 @@ tcInterfaceBindings interface =
       [ TcBindingResult workerName workerName (interfaceSchemeType workerScheme)
       | methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
-        let workerName = T.pack "$dm" <> methodName
+        let workerName = defaultMethodName methodName
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =

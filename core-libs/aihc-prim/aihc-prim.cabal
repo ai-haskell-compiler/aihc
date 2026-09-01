@@ -8,11 +8,17 @@ extra-source-files: LICENSE.unicode
 
 library
   exposed-modules:
+    GHC.Base
     GHC.CString
     GHC.Classes
     GHC.Debug
+    GHC.IO
+    GHC.Integer
+    GHC.Internal.Integer
     GHC.Magic
     GHC.Magic.Dict
+    GHC.Num
+    GHC.Num.Integer
     GHC.Prim
     GHC.Prim.Exception
     GHC.Prim.Ext

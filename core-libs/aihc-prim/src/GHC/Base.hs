@@ -17,11 +17,9 @@ module GHC.Base
   )
 where
 
-import Data.Kind (Type)
 import GHC.IO (IO (..))
-import GHC.Internal.Char (Char)
 import GHC.Prim (RealWorld, State#, divInt#)
-import GHC.Types (List (..))
+import GHC.Types (Char, List (..), Type)
 
 type String = [Char]
 

@@ -9,7 +9,6 @@ module GHC.Num
   )
 where
 
-import GHC.Int (Int (..))
 import GHC.Internal.Integer
   ( Integer,
     integerAbs,
@@ -23,6 +22,7 @@ import GHC.Internal.Integer
     integerToInt#,
   )
 import GHC.Prim ((*#), (+#), (-#), (<#))
+import GHC.Types (Int (..))
 
 class Num a where
   (+) :: a -> a -> a

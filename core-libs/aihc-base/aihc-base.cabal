@@ -113,7 +113,6 @@ library
     Foreign.Storable
     GHC.Arr
     GHC.ArrayArray
-    GHC.Base
     GHC.Bits
     GHC.ByteOrder
     GHC.Char
@@ -146,7 +145,6 @@ library
     GHC.GHCi
     GHC.GHCi.Helpers
     GHC.Generics
-    GHC.IO
     GHC.IO.Buffer
     GHC.IO.BufferedIO
     GHC.IO.Device
@@ -176,7 +174,6 @@ library
     GHC.IORef
     GHC.InfoProv
     GHC.Int
-    GHC.Integer
     GHC.Integer.Logarithms
     GHC.IsList
     GHC.Ix
@@ -184,9 +181,7 @@ library
     GHC.MVar
     GHC.Maybe
     GHC.Natural
-    GHC.Num
     GHC.Num.BigNat
-    GHC.Num.Integer
     GHC.Num.Natural
     GHC.OldList
     GHC.OverloadedLabels
@@ -253,7 +248,6 @@ library
     GHC.IO.Runtime
     GHC.Internal.Char
     GHC.Internal.Classes
-    GHC.Internal.Integer
     GHC.Read.Lex
 
   hs-source-dirs: src

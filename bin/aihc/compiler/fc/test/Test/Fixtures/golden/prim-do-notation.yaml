@@ -1,0 +1,40 @@
+---
+extensions: []
+modules:
+- |
+  module Main where
+  import GHC.Base (Monad, return)
+  identityAction :: Monad m => m a -> m a
+  identityAction action = do
+    value <- action
+    return value
+expected: |-
+  scope 1 = "" Main
+  scope 2 = "aihc-prim" GHC.Base
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.t$Dict$Monad :: ∀(m : 3.tType 3.→ 3.tType). 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    2.v>>= :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType) (b : 3.tType). 2.t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    2.vreturn :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ a 3.→ m a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub val 1.videntityAction :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ m a 3.→ m a
+   = Λ(m : 3.tType 3.→ 3.tType).
+    Λ(a : 3.tType).
+      λ($d0 : 2.t$Dict$Monad m).
+        λ(x : m a).
+          2.v>>= @m @a @a $d0 x (λ(value : a).
+            2.vreturn @m @a $d0 value)
+status: pass
+reason: type-checks and desugars do notation with only aihc-prim built-ins
