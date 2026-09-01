@@ -51,6 +51,7 @@ import Data.Word (Word64, Word8)
 data TypeArtifact = TypeArtifact
   { typeArtifactModuleName :: !Text,
     typeArtifactInputHashes :: ![(Text, Text)],
+    typeArtifactInstanceProviders :: !(Map Text [(PackageId, Text)]),
     typeArtifactInterface :: TcInterface
   }
   deriving (Show)
@@ -63,16 +64,19 @@ encodeTypeArtifact = fst . encodeTypeArtifactParts
 encodeTypeArtifactParts :: TypeArtifact -> (BL.ByteString, BL.ByteString)
 encodeTypeArtifactParts artifact =
   ( Builder.toLazyByteString $
-      cborArray 5
+      cborArray 6
         <> cborText "aihc-type"
         <> cborText (typeArtifactModuleName artifact)
         <> encodeList encodeHash (typeArtifactInputHashes artifact)
+        <> encodeList encodeModuleProviders (Map.toAscList (typeArtifactInstanceProviders artifact))
         <> Builder.lazyByteString interfaceBytes,
     interfaceBytes
   )
   where
     interfaceBytes = encodeTypeInterface (typeArtifactInterface artifact)
     encodeHash (name, digest) = cborArray 2 <> cborText name <> cborText digest
+    encodeModuleProviders (name, providers) = cborArray 2 <> cborText name <> encodeList encodeProvider providers
+    encodeProvider (packageId, moduleName) = cborArray 2 <> putPackageId packageId <> cborText moduleName
 
 encodeTypeInterface :: TcInterface -> BL.ByteString
 encodeTypeInterface interface =
@@ -85,17 +89,20 @@ decodeTypeArtifact = Get.runGet getArtifact
 
 getArtifact :: Get.Get TypeArtifact
 getArtifact = do
-  expectArray 5
+  expectArray 6
   expectText "aihc-type"
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
+  typeArtifactInstanceProviders <- Map.fromList <$> getList getModuleProviders
   tyCons <- getList getTyConDefinition
   let tyConTable = listArray (0, length tyCons - 1) tyCons
   interfaceBytes <- Get.getRemainingLazyByteString
   let typeArtifactInterface = Get.runGet (getInterface tyConTable) interfaceBytes
-  pure TypeArtifact {typeArtifactModuleName, typeArtifactInputHashes, typeArtifactInterface}
+  pure TypeArtifact {typeArtifactModuleName, typeArtifactInputHashes, typeArtifactInstanceProviders, typeArtifactInterface}
   where
     getHash = expectArray 2 >> ((,) <$> getText <*> getText)
+    getModuleProviders = expectArray 2 >> ((,) <$> getText <*> getList getProvider)
+    getProvider = expectArray 2 >> ((,) <$> getPackageId <*> getText)
 
 putInterface :: Map TyCon Word64 -> TcInterface -> Builder.Builder
 putInterface table interface =

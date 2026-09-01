@@ -160,8 +160,12 @@ data InstalledV2Package = InstalledV2Package
     installedV2Exports :: !ModuleExports,
     installedV2Types :: !(Map.Map Text TcInterface),
     installedV2ScopeHashes :: !(Map.Map Text Text),
-    installedV2TypeHashes :: !(Map.Map Text Text)
+    installedV2TypeHashes :: !(Map.Map Text Text),
+    installedV2InstanceFacts :: !TcInterface,
+    installedV2InstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
   }
+
+type InstanceProvider = (PackageId, Text)
 
 data ModuleOutputPaths = ModuleOutputPaths
   { outputFcPath :: !FilePath,
@@ -262,6 +266,8 @@ data CompiledPackageModules = CompiledPackageModules
     compiledTypes :: !(Map.Map Text TcInterface),
     compiledScopeHashes :: !(Map.Map Text Text),
     compiledTypeHashes :: !(Map.Map Text Text),
+    compiledInstanceFacts :: !TcInterface,
+    compiledInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     compiledWritten :: !(Set.Set Text),
     compiledReused :: !(Set.Set Text)
   }
@@ -295,6 +301,8 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyScopeHashes :: !(Map.Map Text Text),
     taskDependencyTypes :: !(Map.Map Text TcInterface),
     taskDependencyTypeHashes :: !(Map.Map Text Text),
+    taskDependencyInstanceFacts :: !TcInterface,
+    taskDependencyInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
@@ -436,7 +444,9 @@ installPackageV2Direct config storeRoot dependencies root = do
         installedV2Exports = ownExports,
         installedV2Types = Map.restrictKeys allTypes exposedNames,
         installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
-        installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
+        installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames,
+        installedV2InstanceFacts = compiledInstanceFacts compiled,
+        installedV2InstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
       }
 
 compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
@@ -472,6 +482,8 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       dependencyTypes = LazyMap.unions (map installedV2Types loadedDependencies)
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
+      dependencyInstanceFacts = mergeTcInterfaces (map installedV2InstanceFacts loadedDependencies)
+      dependencyInstanceProviders = Map.unions (map installedV2InstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
   backendPhaseTimings <- newIORef mempty
   let taskContext =
@@ -485,6 +497,8 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskDependencyScopeHashes = dependencyScopeHashes,
             taskDependencyTypes = dependencyTypes,
             taskDependencyTypeHashes = dependencyTypeHashes,
+            taskDependencyInstanceFacts = dependencyInstanceFacts,
+            taskDependencyInstanceProviders = dependencyInstanceProviders,
             taskBackendPhaseTimings = backendPhaseTimings
           }
   verbose ("Compute " <> show (length units) <> " SCC units")
@@ -510,8 +524,14 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
       allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
       allTypes = localTypes `LazyMap.union` dependencyTypes
       allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
-      packageInstanceInterface = mergeTcInterfaces (map typeUnitOwnInstanceInterface typeResults)
-  writePackageInstanceArtifact verbose outputRoot allTypeHashes packageInstanceInterface
+      packageInstanceInterface = mergeTcInterfaces (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
+      instanceProviders =
+        Map.fromList
+          [ (sourceName source, interfaceInstanceProviders (typeUnitInstanceInterface result))
+          | (runtime, result) <- zip runtimes typeResults,
+            source <- sourceUnitSources (runtimeUnit runtime)
+          ]
+  writePackageInstanceArtifact verbose outputRoot allTypeHashes instanceProviders packageInstanceInterface
   pure
     CompiledPackageModules
       { compiledSources = parsed,
@@ -519,6 +539,8 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
         compiledTypes = allTypes,
         compiledScopeHashes = allScopeHashes,
         compiledTypeHashes = allTypeHashes,
+        compiledInstanceFacts = packageInstanceInterface,
+        compiledInstanceProviders = instanceProviders,
         compiledWritten = Set.unions (map typeUnitWritten typeResults),
         compiledReused = Set.unions (map typeUnitReused typeResults)
       }
@@ -603,13 +625,13 @@ loadInstalledV2Package requirements storePath = do
   manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
   let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
   entries <- mapM loadModule selectedModules
-  instances <- if null selectedModules then pure mempty else loadPackageInstances
+  (instanceFacts', instanceProviders) <-
+    if null selectedModules
+      then pure (mempty, Map.empty)
+      else loadPackageInstances selectedModules
   let package = Package (packageManifestName manifest) (PackageId (packageManifestIdentity manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
-      moduleTypes = LazyMap.fromList [(name, interface) | (name, _, interface) <- entries]
-      types
-        | null selectedModules = Map.empty
-        | otherwise = LazyMap.insert ("$package-instances:" <> packageManifestIdentity manifest) instances moduleTypes
+      types = LazyMap.fromList [(name, interface) | (name, _, interface) <- entries]
       scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
       typeHashes = LazyMap.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
   pure
@@ -618,7 +640,9 @@ loadInstalledV2Package requirements storePath = do
         installedV2Exports = exports,
         installedV2Types = types,
         installedV2ScopeHashes = scopeHashes,
-        installedV2TypeHashes = typeHashes
+        installedV2TypeHashes = typeHashes,
+        installedV2InstanceFacts = instanceFacts',
+        installedV2InstanceProviders = instanceProviders
       }
   where
     moduleRequired manifest name =
@@ -638,16 +662,18 @@ loadInstalledV2Package requirements storePath = do
       unless (typeArtifactModuleName typeArtifact == name) (ioError (userError ("Type artifact module name does not match " <> typePath)))
       pure (name, resolveArtifactScope resolveArtifact, typeArtifactInterface typeArtifact)
 
-    loadPackageInstances = do
+    loadPackageInstances selected = do
       let path = storePath </> "instances.cbor"
       exists <- doesFileExist path
       if not exists
-        then pure mempty
+        then pure (mempty, Map.empty)
         else do
           bytes <- BL.readFile path
           let artifact = decodeTypeArtifact bytes
           unless (typeArtifactModuleName artifact == "$package-instances") (ioError (userError ("Package instance artifact name does not match " <> path)))
-          pure (typeArtifactInterface artifact)
+          let providers = Map.restrictKeys (Map.map Set.fromList (typeArtifactInstanceProviders artifact)) (Set.fromList selected)
+              visibleProviders = Set.unions (Map.elems providers)
+          pure (selectInstanceProviders (typeArtifactInterface artifact) visibleProviders, providers)
 
 parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do
@@ -1010,6 +1036,8 @@ runTypeUnit context runtimes runtime = do
       dependencyScopeHashes = taskDependencyScopeHashes context
       dependencyTypes = taskDependencyTypes context
       dependencyTypeHashes = taskDependencyTypeHashes context
+      dependencyInstanceFacts = taskDependencyInstanceFacts context
+      dependencyInstanceProviders = taskDependencyInstanceProviders context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
@@ -1028,9 +1056,16 @@ runTypeUnit context runtimes runtime = do
             <> scopeInputs
             <> [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
+      externalInstanceProviders =
+        Set.unions
+          [ Map.findWithDefault Set.empty name dependencyInstanceProviders
+          | name <- dependencyNames,
+            name `notElem` unitNames
+          ]
+      externalInstanceInterface = selectInstanceProviders dependencyInstanceFacts externalInstanceProviders
       importedInstanceInterface =
         mergeTcInterfaces
-          (map instanceInterface (Map.elems dependencyTypes) <> map typeUnitInstanceInterface dependencyResults)
+          (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
       importedTypes =
         mergeTcInterfaces
           ( importedInstanceInterface
@@ -1127,23 +1162,38 @@ instanceFacts interface =
       tcInterfaceTypeFamilyInstances = tcInterfaceTypeFamilyInstances interface
     }
 
-instanceInterface :: TcInterface -> TcInterface
-instanceInterface interface
-  | null (tcInterfaceInstances interface)
-      && null (tcInterfaceDataFamilyInstances interface)
-      && null (tcInterfaceTypeFamilyInstances interface) =
-      mempty
-  | otherwise =
-      interface
-        { tcInterfaceTerms = []
-        }
+interfaceInstanceProviders :: TcInterface -> Set.Set InstanceProvider
+interfaceInstanceProviders interface =
+  Set.fromList
+    ( map (first PackageId . iiDictOrigin) (tcInterfaceInstances interface)
+        <> map (tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
+        <> map tfiiOrigin (tcInterfaceTypeFamilyInstances interface)
+    )
+  where
+    first transform (left, right) = (transform left, right)
+    tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
-writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text Text -> TcInterface -> IO ()
-writePackageInstanceArtifact verbose storePath typeHashes interface = do
+selectInstanceProviders :: TcInterface -> Set.Set InstanceProvider -> TcInterface
+selectInstanceProviders complete providers
+  | Set.null providers = mempty
+  | otherwise =
+      addReferencedFacts
+        complete
+        mempty
+          { tcInterfaceInstances = filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstances complete),
+            tcInterfaceDataFamilyInstances = filter ((`Set.member` providers) . tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances complete),
+            tcInterfaceTypeFamilyInstances = filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstances complete)
+          }
+  where
+    first transform (left, right) = (transform left, right)
+    tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
+
+writePackageInstanceArtifact :: (String -> IO ()) -> FilePath -> Map.Map Text Text -> Map.Map Text (Set.Set InstanceProvider) -> TcInterface -> IO ()
+writePackageInstanceArtifact verbose storePath typeHashes providers interface = do
   let path = storePath </> "instances.cbor"
       hashes = sortOn fst [("type:" <> name, digest) | (name, digest) <- Map.toList typeHashes]
   createDirectoryIfMissing True storePath
-  BL.writeFile path (encodeTypeArtifact (TypeArtifact "$package-instances" hashes interface))
+  BL.writeFile path (encodeTypeArtifact (TypeArtifact "$package-instances" hashes (Map.map Set.toAscList providers) interface))
   verbose ("Write package instances: " <> path)
 
 wiredTypeModules :: [Text]
@@ -1589,7 +1639,7 @@ writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> Fil
 writeTypeArtifact verbose hashes artifactPath source interface = do
   let path = artifactPath source
       name = fromMaybe "Main" (moduleName (sourceModuleAst source))
-      (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name hashes interface)
+      (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name hashes Map.empty interface)
   createDirectoryIfMissing True (takeDirectory path)
   BL.writeFile path artifactBytes
   verbose ("Write type interface: " <> T.unpack name)
@@ -1626,4 +1676,4 @@ stableHash chunks = replicate (16 - length rendered) '0' <> rendered
     hashChunk = BS.foldl' (\hash byte -> (hash `xor` fromIntegral byte) * 1099511628211)
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-9"
+packageArtifactFormatVersion = "aihc-artifacts-10"
