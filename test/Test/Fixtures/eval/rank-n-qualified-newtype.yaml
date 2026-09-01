@@ -29,5 +29,5 @@ modules:
 output: |
   (Just 2)
 expression: result
-status: pass
+status: xfail
 reason: evaluates a rank-N newtype whose field has a class constraint

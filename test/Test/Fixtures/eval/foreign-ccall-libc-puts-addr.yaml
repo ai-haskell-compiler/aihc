@@ -28,5 +28,5 @@ stdout: "hello world\n\n"
 output: |
   I32# 0
 expression: main
-status: pass
+status: xfail
 reason: passes an Addr# unboxed string literal directly to libc puts

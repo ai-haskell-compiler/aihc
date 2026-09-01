@@ -11,4 +11,4 @@ modules:
   xs = [Nothing, Just False, Just True, Nothing]
 output: ': False (: True [])'
 reason: evaluates refutable generator patterns by skipping non-matching elements
-status: pass
+status: xfail

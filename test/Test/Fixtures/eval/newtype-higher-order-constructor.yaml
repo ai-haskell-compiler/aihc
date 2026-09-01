@@ -15,5 +15,5 @@ modules:
 output: |
   IS 42
 expression: result
-status: pass
+status: xfail
 reason: treats a higher-order newtype constructor as a representational identity

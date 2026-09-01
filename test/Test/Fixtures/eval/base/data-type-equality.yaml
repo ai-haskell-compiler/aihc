@@ -67,4 +67,4 @@ output: |
   True
 expression: result
 status: pass
-reason: Data.Type.Equality exports :~: and :~~: for deepseq NFData instances and constructor proofs
+reason: "Data.Type.Equality exports :~: and :~~: for deepseq NFData instances and constructor proofs"

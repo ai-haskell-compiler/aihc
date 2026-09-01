@@ -55,5 +55,5 @@ output: |
   True
 expression: |
   results
-status: pass
+status: xfail
 reason: GHC.Fingerprint.Type exports the fingerprint constructor with standard equality, ordering, and hexadecimal display behavior

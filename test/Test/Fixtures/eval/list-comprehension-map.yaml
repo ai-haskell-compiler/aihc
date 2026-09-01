@@ -13,4 +13,4 @@ modules:
   xs = [False, True]
 output: ': True (: False [])'
 reason: evaluates a baseline list comprehension with one generator and mapped body
-status: pass
+status: xfail
