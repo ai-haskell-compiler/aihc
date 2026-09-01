@@ -214,7 +214,7 @@ headerIndex convertEnv interface =
     tyConFacts =
       [ (tyConNameFc convertEnv (tciTyCon info), HeaderTyCon info)
       | info <- tcInterfaceTyCons interface,
-        tciFlavor info `notElem` [SynonymTyCon, ClassTyCon, DataTyCon, NewtypeTyCon]
+        tciFlavor info `notElem` [SynonymTyCon, ClassTyCon]
       ]
     dataTypeFacts =
       [ (tyConNameFc convertEnv (dtiTyCon info), HeaderDataType info)
