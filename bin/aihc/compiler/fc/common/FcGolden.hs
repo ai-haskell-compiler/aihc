@@ -11,7 +11,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, desugarPrepared, lintProgram, parseProgram, prepareDesugar, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, lintProgram, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -197,8 +197,8 @@ renderFcCase tc =
                   (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
-                      env <- prepareDesugar desugarConfig (primitiveInterface <> tcInterface)
-                      let fixtureResults = map (\checked -> desugarPrepared env (tcModuleBindings checked) checked) fixtureTcResults
+                      let availableInterface = primitiveInterface <> tcInterface
+                          fixtureResults = map (\checked -> desugarModuleFc desugarConfig (tcModuleBindings checked) availableInterface checked) fixtureTcResults
                       if all dsSuccess fixtureResults
                         then lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
