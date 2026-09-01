@@ -12,6 +12,6 @@ expected: |-
     eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
 
   $grin_unit_thunk_1 -> BoxedRep Lifted =
-    apply @(BoxedRep Lifted) global-ref "\NULTest\NULidentity" global-ref "aihc-prim\NULGHC.Tuple\NUL()"
+    call @(BoxedRep Lifted) $grin_closure_0 global-ref "aihc-prim\NULGHC.Tuple\NUL()"
 status: pass
-reason: applies a local function directly when one argument saturates its known arity
+reason: calls a local function directly when one argument saturates its known arity
