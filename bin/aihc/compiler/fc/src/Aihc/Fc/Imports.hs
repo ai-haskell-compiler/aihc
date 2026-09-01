@@ -1,11 +1,7 @@
 -- | Select and check the facts that a System FC program imports.
 module Aihc.Fc.Imports
   ( emptyImports,
-    importsForProgram,
-    importsForProgramPrepared,
-    mergePreparedImports,
-    prepareImports,
-    PreparedImports,
+    importsForProgramLookup,
     unusedImports,
   )
 where
@@ -13,73 +9,70 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
+  ( TypeEnv (..),
+    emptyTypeEnv,
+    typeEnvFromProgram,
+    unionTypeEnv,
+  )
+import Aihc.Resolve (PackageId)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 
 type References = Set Name
 
-data PreparedImports = PreparedImports
-  { preparedAvailable :: !TypeEnv,
-    preparedAvailableNames :: !(Set Name)
-  }
-
 emptyImports :: Imports
 emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
 
--- | Select the transitive import closure from the type-check interface.
-importsForProgram :: TypeEnv -> Program -> Imports
-importsForProgram available = importsForProgramPrepared (prepareImports available)
+-- | Convert each used name when the import closure first needs it.
+importsForProgramLookup :: PackageId -> (Name -> Either String (Maybe TypeEnv)) -> Program -> Either String Imports
+importsForProgramLookup primPackage lookupFact program = do
+  let localProgram = program {programImports = emptyImports}
+      localNames = namesInTypeEnv (typeEnvFromProgram primPackage localProgram)
+      roots =
+        ( foldMap declReferences (programDecls program)
+            <> referencesFromImports (programImports program)
+        )
+          `Set.difference` localNames
+  (available, selectedNames) <- closeLookup lookupFact localNames primPackage roots
+  let selectedImports = importsForNames available selectedNames
+  pure (mergeImports selectedImports (programImports program))
 
-prepareImports :: TypeEnv -> PreparedImports
-prepareImports available = PreparedImports available (namesInTypeEnv available)
-
-mergePreparedImports :: [PreparedImports] -> PreparedImports
-mergePreparedImports prepared =
-  PreparedImports
-    { preparedAvailable = mergeTypeEnvs (map preparedAvailable prepared),
-      preparedAvailableNames = Set.unions (map preparedAvailableNames prepared)
-    }
-
-mergeTypeEnvs :: [TypeEnv] -> TypeEnv
-mergeTypeEnvs [] = error "cannot merge an empty list of type environments"
-mergeTypeEnvs environments@(first : _) =
-  TypeEnv
-    { tePrimPackage = tePrimPackage first,
-      teHeaders = Map.unions (map teHeaders environments),
-      teSynonyms = Map.unions (map teSynonyms environments),
-      teAxioms = Map.unions (map teAxioms environments),
-      teBinders = Map.unions (map teBinders environments)
-    }
-
-importsForProgramPrepared :: PreparedImports -> Program -> Imports
-importsForProgramPrepared prepared program = mergeImports selectedImports existingImports
+closeLookup ::
+  (Name -> Either String (Maybe TypeEnv)) ->
+  Set Name ->
+  PackageId ->
+  Set Name ->
+  Either String (TypeEnv, Set Name)
+closeLookup lookupFact localNames primPackage = go Set.empty Set.empty (emptyTypeEnv primPackage)
   where
-    available = preparedAvailable prepared
-    existingImports = programImports program
-    localProgram = program {programImports = emptyImports}
-    localNames = namesInTypeEnv (typeEnvFromProgram (tePrimPackage available) localProgram)
-    roots =
-      ( foldMap declReferences (programDecls program)
-          <> referencesFromImports existingImports
-      )
-        `Set.difference` localNames
-    selectedNames = reachableNames available localNames (roots `Set.intersection` preparedAvailableNames prepared)
-    selectedImports = importsForNames available selectedNames
-
-reachableNames :: TypeEnv -> Set Name -> Set Name -> Set Name
-reachableNames available localNames = go Set.empty
-  where
-    go visited pending =
+    go visited selected env pending =
       case Set.minView pending of
-        Nothing -> visited
-        Just (name, rest) ->
-          let visited' = Set.insert name visited
-              newNames =
-                referencesForName available name
-                  `Set.difference` localNames
-                  `Set.difference` visited'
-           in go visited' (rest <> newNames)
+        Nothing -> Right (env, selected)
+        Just (name, rest)
+          | Set.member name visited -> go visited selected env rest
+          | Set.member name localNames -> go (Set.insert name visited) selected env rest
+          | nameInTypeEnv env name ->
+              go
+                (Set.insert name visited)
+                (Set.insert name selected)
+                env
+                (rest <> (referencesForName env name `Set.difference` localNames `Set.difference` visited))
+          | otherwise ->
+              case lookupFact name of
+                Left message -> Left message
+                Right Nothing -> go (Set.insert name visited) selected env rest
+                Right (Just fragment) ->
+                  let env' = unionTypeEnv env fragment
+                      newNames = referencesForName env' name `Set.difference` localNames `Set.difference` visited
+                   in go (Set.insert name visited) (Set.insert name selected) env' (rest <> newNames)
+
+nameInTypeEnv :: TypeEnv -> Name -> Bool
+nameInTypeEnv env name =
+  Map.member name (teHeaders env)
+    || Map.member name (teSynonyms env)
+    || Map.member name (teAxioms env)
+    || Map.member name (teBinders env)
 
 referencesForName :: TypeEnv -> Name -> References
 referencesForName available name =
