@@ -19,8 +19,6 @@ expected: |-
       eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
     case (case_value%-1000000001 :: BoxedRep Lifted) as _scrut%-1000000002 :: BoxedRep Lifted of
       data Test.Box (value%-1000000003 :: BoxedRep Lifted) ->
-        function_whnf%-1000000004 :: BoxedRep Lifted <-
-          eval @(BoxedRep Lifted) global-ref "\NULTest\NULBox"
-        apply @(BoxedRep Lifted) (function_whnf%-1000000004 :: BoxedRep Lifted) (value%-1000000003 :: BoxedRep Lifted)
+        store (CTest.Box (value%-1000000003 :: BoxedRep Lifted))
 status: pass
 reason: preserves the lifted representation of an existential constructor field
