@@ -46,6 +46,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -88,7 +89,6 @@ loadFcCases = do
   if not exists
     then pure []
     else do
-      primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
       mapM loadFcCase paths
 
@@ -111,12 +111,20 @@ loadPrimitiveModules = do
       pure (path, source)
 
 findPrimitiveSourceRoot :: IO FilePath
-findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+findPrimitiveSourceRoot = do
+  configuredRoot <- lookupEnv "AIHC_PRIM_SRC"
+  case configuredRoot of
+    Just root -> requireModules (root </> "src")
+    Nothing -> getCurrentDirectory >>= findUp
   where
+    requireModules candidate = do
+      exists <- and <$> mapM (doesFileExist . (candidate </>)) primitiveModulePaths
+      if exists
+        then pure candidate
+        else fail "Cannot find the aihc-prim source modules."
     findUp directory = do
       let candidate = directory </> "core-libs/aihc-prim/src"
-          files = map (candidate </>) primitiveModulePaths
-      exists <- and <$> mapM doesFileExist files
+      exists <- and <$> mapM (doesFileExist . (candidate </>)) primitiveModulePaths
       if exists
         then pure candidate
         else do
