@@ -13,6 +13,7 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
+import GHC.Classes (Enum (..))
 import GHC.Int (Int (..))
 import GHC.Internal.Char (Char)
 import GHC.Internal.Classes (Eq (..), Ord (..))
@@ -23,16 +24,6 @@ import GHC.Prim (int2Word#, not#, uncheckedShiftRL#, word2Int#, (+#))
 class Bounded a where
   minBound :: a
   maxBound :: a
-
-class Enum a where
-  succ :: a -> a
-  pred :: a -> a
-  toEnum :: Int -> a
-  fromEnum :: a -> Int
-  enumFrom :: a -> [a]
-  enumFromThen :: a -> a -> [a]
-  enumFromTo :: a -> a -> [a]
-  enumFromThenTo :: a -> a -> a -> [a]
 
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
 boundedEnumFrom value = enumFromTo value maxBound

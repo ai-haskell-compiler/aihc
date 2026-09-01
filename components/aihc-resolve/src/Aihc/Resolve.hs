@@ -245,7 +245,6 @@ moduleInfo package exports modu =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
       moduleInfoGhcBaseScope = lookupImportedModule package Nothing "GHC.Base" exports,
       moduleInfoGhcClassesScope = lookupImportedModule package Nothing "GHC.Classes" exports,
-      moduleInfoGhcEnumScope = lookupImportedModule package Nothing "GHC.Enum" exports,
       moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports
     }
 
@@ -802,10 +801,10 @@ builtinSyntaxTerm info name =
     "fromInteger" -> lookupTerm name (moduleInfoGhcNumScope info)
     "negate" -> lookupTerm name (moduleInfoGhcNumScope info)
     "==" -> lookupTerm name (moduleInfoGhcClassesScope info)
-    "enumFrom" -> lookupTerm name (moduleInfoGhcEnumScope info)
-    "enumFromThen" -> lookupTerm name (moduleInfoGhcEnumScope info)
-    "enumFromTo" -> lookupTerm name (moduleInfoGhcEnumScope info)
-    "enumFromThenTo" -> lookupTerm name (moduleInfoGhcEnumScope info)
+    "enumFrom" -> lookupTerm name (moduleInfoGhcClassesScope info)
+    "enumFromThen" -> lookupTerm name (moduleInfoGhcClassesScope info)
+    "enumFromTo" -> lookupTerm name (moduleInfoGhcClassesScope info)
+    "enumFromThenTo" -> lookupTerm name (moduleInfoGhcClassesScope info)
     _ -> ResolvedError "unknown built-in syntax term"
 
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName

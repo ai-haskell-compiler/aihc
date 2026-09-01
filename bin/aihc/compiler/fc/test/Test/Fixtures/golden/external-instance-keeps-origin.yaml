@@ -3,97 +3,72 @@ extensions: []
 modules:
 - |
   module Types where
-  data Bool = False | True
-
-  class Eq a where
-    (==) :: a -> a -> Bool
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
 
   instance Eq Bool where
-    False == False = True
-    False == True = False
-    True == False = False
-    True == True = True
+    _ == _ = True
+    _ /= _ = False
 - |
   module Test where
   import Types
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool)
 
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
 expected: |-
   scope 1 = "" Types
-  scope 2 = "aihc-prim" GHC.Types
-
-  import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
-
-  import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
-
-  pub type 1.tBool :: 2.tType {
-      pub 1.vFalse :: 1.tBool;
-      pub 1.vTrue :: 1.tBool
-  }
-
-  pub type 1.t$Dict$Eq (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Eq :: ∀(a : 2.tType). (a 2.→ a 2.→ 1.tBool) 2.→ 1.t$Dict$Eq a
-  }
-
-  pub val 1.v== :: ∀(a : 2.tType). 1.t$Dict$Eq a 2.→ a 2.→ a 2.→ 1.tBool
-   = Λ(a : 2.tType).
-    λ($d0 : 1.t$Dict$Eq a).
-      case $d0 as ($dict : 1.t$Dict$Eq a) return (a 2.→ a 2.→ 1.tBool) of {
-          1.v$Dict$Eq ($method0 : a 2.→ a 2.→ 1.tBool) →
-              $method0
-      }
-
-  pub val 1.v$fEqBool :: 1.t$Dict$Eq 1.tBool
-   = 1.v$Dict$Eq @1.tBool (λ(x : 1.tBool).
-    λ(y : 1.tBool).
-      case x as (_scrut : 1.tBool) return (1.tBool) of {
-          1.vFalse →
-              case y as (_scrut{1} : 1.tBool) return (1.tBool) of {
-                  1.vFalse →
-                      1.vTrue;
-                  1.vTrue →
-                      1.vFalse
-              };
-          1.vTrue →
-              case y as (_scrut{1} : 1.tBool) return (1.tBool) of {
-                  1.vFalse →
-                      1.vFalse;
-                  1.vTrue →
-                      1.vTrue
-              }
-      })
-  scope 1 = "" Test
-  scope 2 = "" Types
+  scope 2 = "aihc-prim" GHC.Classes
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
     2.t$Dict$Eq :: ∀(a : 3.tType). 3.tType;
-    2.tBool :: 3.tType;
+    3.tBool :: 3.tType;
     3.tLevity :: 3.tType;
     3.tLiftedRep :: 3.tRuntimeRep;
     3.tRuntimeRep :: 3.tType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
     3.tType :: 3.tType;
-    2.v$fEqBool :: 2.t$Dict$Eq 2.tBool;
-    2.v== :: ∀(a : 3.tType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 2.tBool;
+    2.v$Dict$Eq :: ∀(a : 3.tType). (a 3.→ a 3.→ 3.tBool) 3.→ (a 3.→ a 3.→ 3.tBool) 3.→ 2.t$Dict$Eq a;
     3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    3.vFalse :: 3.tBool;
+    3.vLifted :: 3.tLevity;
+    3.vTrue :: 3.tBool
 
   import synonyms
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub val 1.veqBool :: 2.tBool 3.→ 2.tBool 3.→ 2.tBool
-   = 2.v== @2.tBool 2.v$fEqBool
+  pub val 1.v$fEqBool :: 2.t$Dict$Eq 3.tBool
+   = 2.v$Dict$Eq @3.tBool (λ(x : 3.tBool).
+    λ(y : 3.tBool).
+      3.vTrue) (λ(x : 3.tBool).
+    λ(y : 3.tBool).
+      3.vFalse)
+  scope 1 = "" Test
+  scope 2 = "" Types
+  scope 3 = "aihc-prim" GHC.Classes
+  scope 4 = "aihc-prim" GHC.Types
+
+  import headers
+    3.t$Dict$Eq :: ∀(a : 4.tType). 4.tType;
+    4.tBool :: 4.tType;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    4.tType :: 4.tType;
+    2.v$fEqBool :: 3.t$Dict$Eq 4.tBool;
+    3.v== :: ∀(a : 4.tType). 3.t$Dict$Eq a 4.→ a 4.→ a 4.→ 4.tBool;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.vLifted :: 4.tLevity
+
+  import synonyms
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
+
+  pub val 1.veqBool :: 4.tBool 4.→ 4.tBool 4.→ 4.tBool
+   = 3.v== @4.tBool 2.v$fEqBool
 status: pass
 reason: keeps the defining module origin on an imported instance dictionary
