@@ -93,13 +93,20 @@ lintFunction env function =
     <> lintExpr env bound (grinFunctionBody function)
   where
     bound = Set.fromList (grinFunctionParameters function)
-    resultErrors =
-      case exprRuntimeReps (grinFunctionBody function) of
-        Just actual
-          | actual /= expected ->
-              [GrinLintResultLayout "function result" expected actual]
-        _ -> []
+    resultErrors
+      | isCpsFunction = []
+      | otherwise =
+          case exprRuntimeReps (grinFunctionBody function) of
+            Just actual
+              | actual /= expected ->
+                  [GrinLintResultLayout "function result" expected actual]
+            _ -> []
     expected = runtimeRepComponents (grinFunctionResultRep function)
+    isCpsFunction =
+      "$cps$" `T.isPrefixOf` unFunctionName (grinFunctionName function)
+        || case reverse (grinFunctionParameters function) of
+          continuation : _ -> grinVarName continuation == "$cps_return"
+          [] -> False
 
 lintFunctionResult :: LintEnv -> GrinRep -> GrinExpr -> [GrinLintError]
 lintFunctionResult env resultRep expr =

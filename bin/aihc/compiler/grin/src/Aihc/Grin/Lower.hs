@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Conservative lowering from System FC to GRIN.
 module Aihc.Grin.Lower
@@ -33,7 +34,7 @@ data LowerEnv = LowerEnv
     lowerTypeSubstitution :: !(Map Fc.Name Fc.Type),
     lowerGlobalNames :: !(Map Fc.Name Text),
     lowerConstructorArities :: !(Map Fc.Name Int),
-    lowerLocalFunctionArities :: !(Map Fc.Name Int)
+    lowerLocalFunctions :: !(Map Fc.Name (Int, Maybe (FunctionName, GrinRep)))
   }
 
 data LowerState = LowerState
@@ -69,9 +70,12 @@ lowerProgram program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      localFunctionArities = localFunctionArityTable program
-      env = LowerEnv types Map.empty Map.empty globals constructorArities localFunctionArities
+      localFunctionArities = Map.map (,Nothing) (localFunctionArityTable program)
+      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities localFunctionArities
       initialState = LowerState (-1000000000) 0 []
+  (discoveryParts, discoveryState) <- runStateT (mconcat <$> mapM (lowerDecl baseEnv) (Fc.programDecls program)) initialState
+  localFunctions <- localFunctionTable baseEnv program discoveryParts discoveryState
+  let env = baseEnv {lowerLocalFunctions = localFunctions}
   (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
     ( normalizeGrinProgram
@@ -422,8 +426,8 @@ lowerApplication env function argument = do
         length arguments <= arity ->
           lowerConstructorApplication env name (arity - length arguments) arguments
     (_, (Fc.ExVar name, arguments))
-      | Map.member name (lowerLocalFunctionArities env) ->
-          lowerLocalFunctionApplication env resultRep name arguments
+      | Just localFunction <- Map.lookup name (lowerLocalFunctions env) ->
+          lowerLocalFunctionApplication env resultRep name localFunction arguments
     _ ->
       lowerLazySingle env "function" function $ \functionValue -> do
         evaluated <- freshVar "function_whnf" liftedGrinRep
@@ -457,19 +461,46 @@ lowerConstructorApplication env name remaining = go []
     go values (argument : arguments) =
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
-lowerLocalFunctionApplication :: LowerEnv -> GrinRep -> Fc.Name -> [Fc.Expr] -> LowerM GrinExpr
-lowerLocalFunctionApplication env resultRep name arguments = do
-  globalName <- lookupGlobalName env name
-  go (GrinGlobalValue globalName) arguments
+lowerLocalFunctionApplication :: LowerEnv -> GrinRep -> Fc.Name -> (Int, Maybe (FunctionName, GrinRep)) -> [Fc.Expr] -> LowerM GrinExpr
+lowerLocalFunctionApplication env resultRep name (arity, maybeFunctionEntry) arguments
+  | length arguments < arity = do
+      globalName <- lookupGlobalName env name
+      lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
+  | Just (functionName, functionResultRep) <- maybeFunctionEntry,
+    functionResultRep == directResultRep =
+      lowerArguments env saturatedArguments $ \argumentValues ->
+        case remainingArguments of
+          [] -> pure (GrinCall resultRep functionName argumentValues)
+          _ -> do
+            applied <- freshVar "function_application" liftedGrinRep
+            rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
+            pure (GrinBind [applied] (GrinCall liftedGrinRep functionName argumentValues) rest)
+  | otherwise = do
+      globalName <- lookupGlobalName env name
+      lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
   where
-    go functionValue [argument] =
-      lowerArgument env argument (pure . GrinApply resultRep functionValue)
+    (saturatedArguments, remainingArguments) = splitAt arity arguments
+    directResultRep
+      | null remainingArguments = resultRep
+      | otherwise = liftedGrinRep
+
+lowerDynamicApplication :: LowerEnv -> GrinRep -> GrinValue -> [Fc.Expr] -> LowerM GrinExpr
+lowerDynamicApplication env resultRep = go
+  where
+    go functionValue [argument] = lowerArgument env argument (pure . GrinApply resultRep functionValue)
     go functionValue (argument : remaining) =
       lowerArgument env argument $ \argumentValues -> do
         applied <- freshVar "function_application" liftedGrinRep
         rest <- go (GrinVarValue applied) remaining
         pure (GrinBind [applied] (GrinApply liftedGrinRep functionValue argumentValues) rest)
     go _ [] = throwLower "GRIN local function application needs an argument"
+
+lowerArguments :: LowerEnv -> [Fc.Expr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerArguments env = go []
+  where
+    go values [] continuation = continuation values
+    go values (argument : arguments) continuation =
+      lowerArgument env argument (\newValues -> go (values <> newValues) arguments continuation)
 
 specialPrimitiveArities :: Map Text Int
 specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
@@ -960,6 +991,26 @@ localFunctionArityTable program =
       let arity = functionArity (Fc.valBody declaration),
       arity > 0
     ]
+
+localFunctionTable :: LowerEnv -> Fc.Program -> TopParts -> LowerState -> Either String (Map Fc.Name (Int, Maybe (FunctionName, GrinRep)))
+localFunctionTable env program parts state = Map.fromList <$> traverse localFunction declarations
+  where
+    globals = Map.fromList (topGlobals parts)
+    functions = Map.fromList [(grinFunctionName function, function) | function <- lowerFunctionsRev state]
+    declarations =
+      [ (Fc.valName declaration, arity)
+      | Fc.DeclVal declaration <- Fc.programDecls program,
+        let arity = functionArity (Fc.valBody declaration),
+        arity > 0
+      ]
+    localFunction (name, arity) = do
+      globalName <- maybe (Left ("GRIN has no global name for: " <> show name)) Right (Map.lookup name (lowerGlobalNames env))
+      case Map.lookup globalName globals of
+        Just (GrinNode (GrinClosure functionName _) []) ->
+          case Map.lookup functionName functions of
+            Just function -> Right (name, (arity, Just (functionName, grinFunctionResultRep function)))
+            Nothing -> Left ("GRIN has no local function definition for: " <> show name)
+        _ -> Left ("GRIN has no local function entry for: " <> show name)
 
 stableGlobalName :: Fc.Name -> Text
 stableGlobalName name =
