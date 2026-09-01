@@ -39,7 +39,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Syn
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc
   ( ClassInfo (..),
     DataConFieldInfo (..),
@@ -53,19 +53,24 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    dataFamilyAxiomKey,
     tcModuleDiagnostics,
     tcModuleSuccess,
+    typeFamilyAxiomKey,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
+    TcAxiomKey (..),
     TcType (..),
+    TcTypeKey,
     TyVarId,
     TypeScheme (..),
     Unique (..),
     tyConKey,
     tyConModuleName,
     tyConName,
+    tyConNamespace,
     tyConPackageId,
     typeSchemeBody,
     pattern KFun,
@@ -89,11 +94,11 @@ data FcDesugarResult = FcDesugarResult
 -- | Converted desugar facts for one interface. Merge with '(<>)'.
 data DesugarEnv = DesugarEnv
   { deConfig :: !DesugarConfig,
-    deDataTypes :: ![DataTypeInfo],
-    deTyCons :: ![TyConInfo],
-    deClasses :: ![ClassInfo],
-    deDataFamilyInstances :: ![DataFamilyInstanceInfo],
-    deTypeFamilyInstances :: ![TypeFamilyInstanceInfo],
+    deDataTypes :: !(Map.Map TcTypeKey DataTypeInfo),
+    deTyCons :: !(Map.Map TcTypeKey TyConInfo),
+    deClasses :: !(Map.Map TcTypeKey ClassInfo),
+    deDataFamilyInstances :: !(Map.Map TcAxiomKey DataFamilyInstanceInfo),
+    deTypeFamilyInstances :: !(Map.Map TcAxiomKey TypeFamilyInstanceInfo),
     deImports :: !PreparedImports,
     deBindings :: !(Map.Map TcTermKey TcBindingResult),
     deValues :: !PreparedValueInterface,
@@ -104,20 +109,16 @@ instance Semigroup DesugarEnv where
   left <> right =
     DesugarEnv
       { deConfig = deConfig left,
-        deDataTypes = keepFirst (tyConKey . dtiTyCon) (deDataTypes left <> deDataTypes right),
-        deTyCons = keepFirst (tyConKey . tciTyCon) (deTyCons left <> deTyCons right),
-        deClasses = keepFirst (tyConKey . ciTyCon) (deClasses left <> deClasses right),
-        deDataFamilyInstances = keepFirst dfiiAxiomName (deDataFamilyInstances left <> deDataFamilyInstances right),
-        deTypeFamilyInstances = keepFirst tfiiAxiomName (deTypeFamilyInstances left <> deTypeFamilyInstances right),
+        deDataTypes = Map.union (deDataTypes left) (deDataTypes right),
+        deTyCons = Map.union (deTyCons left) (deTyCons right),
+        deClasses = Map.union (deClasses left) (deClasses right),
+        deDataFamilyInstances = Map.union (deDataFamilyInstances left) (deDataFamilyInstances right),
+        deTypeFamilyInstances = Map.union (deTypeFamilyInstances left) (deTypeFamilyInstances right),
         deImports = mergePreparedImports [deImports left, deImports right],
         deBindings = Map.union (deBindings left) (deBindings right),
         deValues = mergePreparedValueInterfaces [deValues left, deValues right],
         deConvert = mergeConvertEnvs (deConfig left) [deConvert left, deConvert right]
       }
-
-keepFirst :: (Ord key) => (value -> key) -> [value] -> [value]
-keepFirst key values =
-  Map.elems (Map.fromList [(key value, value) | value <- reverse values])
 
 newtype DesugarConfig = DesugarConfig
   { primPackageId :: PackageId
@@ -147,34 +148,9 @@ withConversionContext context =
 
 interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
 interfaceConvertEnv config interface =
-  withAxioms
-    (axiomEntriesFromInterface interface)
-    ( withKindEnv
-        (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
-        (withClassTyCons (map (tyConKey . ciTyCon) (tcInterfaceClasses interface)) (emptyConvertEnv (primPackageId config)))
-    )
-
-axiomEntriesFromInterface :: TcInterface -> [(Text, Name)]
-axiomEntriesFromInterface interface =
-  concatMap newtypeEntry (tcInterfaceDataTypes interface)
-    <> concatMap dataFamilyEntry (tcInterfaceDataFamilyInstances interface)
-  where
-    newtypeEntry info
-      | dtiFlavor info == NewtypeTyCon =
-          let tyCon = dtiTyCon info
-              name = Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-           in [(dtiName info, name), ("$ax$" <> dtiName info, name)]
-      | otherwise = []
-    dataFamilyEntry info =
-      let tyCon = dfiiRepresentationTyCon info
-          origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
-          familyName = Name (dfiiAxiomName info) SortAxiom origin
-          representationName = tyConName tyCon
-          representationAxiom = Name ("$ax$" <> T.drop 1 representationName) SortAxiom origin
-       in [ (dfiiAxiomName info, familyName),
-            (representationName, representationAxiom),
-            ("$ax$" <> T.drop 1 representationName, representationAxiom)
-          ]
+  withKindEnv
+    (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
+    (withClassTyCons (map (tyConKey . ciTyCon) (tcInterfaceClasses interface)) (emptyConvertEnv (primPackageId config)))
 
 interfaceTypeDeclarations :: ConvertEnv -> TcInterface -> Either String [Decl]
 interfaceTypeDeclarations env interface = do
@@ -269,11 +245,11 @@ emptyDesugarEnv :: DesugarConfig -> DesugarEnv
 emptyDesugarEnv config =
   DesugarEnv
     { deConfig = config,
-      deDataTypes = [],
-      deTyCons = [],
-      deClasses = [],
-      deDataFamilyInstances = [],
-      deTypeFamilyInstances = [],
+      deDataTypes = Map.empty,
+      deTyCons = Map.empty,
+      deClasses = Map.empty,
+      deDataFamilyInstances = Map.empty,
+      deTypeFamilyInstances = Map.empty,
       deImports = prepareImports (TypeOf.emptyTypeEnv (primPackageId config)),
       deBindings = Map.empty,
       deValues = emptyPreparedValueInterface,
@@ -298,11 +274,11 @@ prepareDesugarWith config conversion interface = do
   pure
     DesugarEnv
       { deConfig = config,
-        deDataTypes = tcInterfaceDataTypes interface,
-        deTyCons = tcInterfaceTyCons interface,
-        deClasses = tcInterfaceClasses interface,
-        deDataFamilyInstances = tcInterfaceDataFamilyInstances interface,
-        deTypeFamilyInstances = tcInterfaceTypeFamilyInstances interface,
+        deDataTypes = Map.fromList [(dataTypeSourceKey info, info) | info <- tcInterfaceDataTypes interface],
+        deTyCons = Map.fromList [(tyConSourceKey info, info) | info <- tcInterfaceTyCons interface],
+        deClasses = Map.fromList [(classSourceKey info, info) | info <- tcInterfaceClasses interface],
+        deDataFamilyInstances = Map.fromList [(dataFamilyAxiomKey info, info) | info <- tcInterfaceDataFamilyInstances interface],
+        deTypeFamilyInstances = Map.fromList [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances interface],
         deImports = prepareImports available,
         deBindings = bindings,
         deValues = prepareValueInterface interface,
@@ -348,8 +324,7 @@ mergeConvertEnvs config environments =
     { cePrimPackage = primPackageId config,
       ceTyVars = Map.empty,
       ceKindEnv = Map.unions (map ceKindEnv environments),
-      ceClassTyCons = Set.unions (map ceClassTyCons environments),
-      ceAxioms = Map.unions (map ceAxioms environments)
+      ceClassTyCons = Set.unions (map ceClassTyCons environments)
     }
 
 desugarPrepared :: DesugarEnv -> [TcBindingResult] -> Module -> FcDesugarResult
@@ -378,18 +353,21 @@ desugarCheckedWithAvailable desugarEnv moduleBindings checked = do
   let config = deConfig desugarEnv
       (packageId, currentModule) = resolvedModuleOrigin checked
       moduleOrigin = (packageId, currentModule)
-      localTyCon tyCon = tyConPackageId tyCon == packageId && tyConModuleName tyCon == currentModule
-      dataTypes = filter (localTyCon . dtiTyCon) (deDataTypes desugarEnv)
-      tyCons = filter (localTyCon . tciTyCon) (deTyCons desugarEnv)
-      classes = filter (localTyCon . ciTyCon) (deClasses desugarEnv)
-      dataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (deDataFamilyInstances desugarEnv)
-      typeFamilyInstances = deTypeFamilyInstances desugarEnv
       convertEnv = deConvert desugarEnv
       bindings = Map.union (localBindingMap packageId currentModule moduleBindings) (deBindings desugarEnv)
   typeDecls <-
     concat
       <$> mapM
-        (dsDecl convertEnv packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
+        ( dsDecl
+            convertEnv
+            packageId
+            currentModule
+            (deDataTypes desugarEnv)
+            (deTyCons desugarEnv)
+            (deClasses desugarEnv)
+            (deTypeFamilyInstances desugarEnv)
+            bindings
+        )
         (Syn.moduleDecls checked)
   valueDecls <- desugarValues convertEnv moduleBindings (deValues desugarEnv) moduleOrigin checked
   let decls = typeDecls <> valueDecls
@@ -407,23 +385,22 @@ dsDecl ::
   ConvertEnv ->
   PackageId ->
   Text ->
-  [DataTypeInfo] ->
-  [TyConInfo] ->
-  [ClassInfo] ->
-  [DataFamilyInstanceInfo] ->
-  [TypeFamilyInstanceInfo] ->
+  Map.Map TcTypeKey DataTypeInfo ->
+  Map.Map TcTypeKey TyConInfo ->
+  Map.Map TcTypeKey ClassInfo ->
+  Map.Map TcAxiomKey TypeFamilyInstanceInfo ->
   Map.Map TcTermKey TcBindingResult ->
   Syn.Decl ->
   Either String [Decl]
-dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings decl =
+dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings decl =
   case decl of
     Syn.DeclAnn ann inner
       | Just familyInfo <- fromAnnotation ann ->
           convertDataFamilyInst env package moduleName' bindings familyInfo
       | Just familyEquation <- fromAnnotation ann ->
-          (: []) <$> convertTypeFamilyEquation env package moduleName' familyEquation
+          (: []) <$> convertTypeFamilyEquation env familyEquation
       | otherwise ->
-          dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings inner
+          dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
     _ ->
       case peelDeclAnn decl of
         Syn.DeclData dataDecl -> do
@@ -447,8 +424,15 @@ dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances type
           typeDecl <- convertEmptyFamily env (map tyVarBinderName (typeFamilyDeclParams familyDecl)) Nominal info
           axioms <-
             mapM
-              (convertTypeFamilyEquation env package moduleName')
-              [equation | equation <- typeFamilyInstances, tfiiFamilyName equation == familyName, tfiiClosed equation]
+              (convertTypeFamilyEquation env)
+              [ equation
+              | equation <- Map.elems typeFamilyInstances,
+                tfiiClosed equation,
+                tfiiFamilyName equation == familyName,
+                let (originPackage, originModule) = tfiiOrigin equation,
+                originPackage == package,
+                originModule == moduleName'
+              ]
           pure (typeDecl : axioms)
         Syn.DeclForeign foreignDecl ->
           case Syn.foreignCallConv foreignDecl of
@@ -457,52 +441,44 @@ dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances type
             callConv -> Left ("unsupported System FC foreign calling convention: " <> show callConv)
         _ -> Right []
 
-lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> [DataTypeInfo] -> Either String DataTypeInfo
+sourceTyConKey :: PackageId -> Text -> Text -> TcTypeKey
+sourceTyConKey package moduleName' name =
+  (package, moduleName', ResolutionNamespaceType, name)
+
+dataTypeSourceKey :: DataTypeInfo -> TcTypeKey
+dataTypeSourceKey info =
+  let tyCon = dtiTyCon info
+   in (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, dtiName info)
+
+tyConSourceKey :: TyConInfo -> TcTypeKey
+tyConSourceKey info =
+  let tyCon = tciTyCon info
+   in (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, tciName info)
+
+classSourceKey :: ClassInfo -> TcTypeKey
+classSourceKey info =
+  let tyCon = ciTyCon info
+   in (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, ciName info)
+
+lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map TcTypeKey DataTypeInfo -> Either String DataTypeInfo
 lookupDataType flavor package moduleName' name dataTypes =
-  case matches of
-    [info] -> Right info
-    [] -> Left ("missing checked data type " <> T.unpack moduleName' <> "." <> T.unpack name)
-    _ -> Left ("duplicate checked data type " <> T.unpack moduleName' <> "." <> T.unpack name)
-  where
-    matches =
-      [ info
-      | info <- dataTypes,
-        dtiName info == name,
-        dtiFlavor info == flavor,
-        tyConPackageId (dtiTyCon info) == package,
-        tyConModuleName (dtiTyCon info) == moduleName'
-      ]
+  case Map.lookup (sourceTyConKey package moduleName' name) dataTypes of
+    Just info
+      | dtiFlavor info == flavor -> Right info
+    _ -> Left ("missing checked data type " <> T.unpack moduleName' <> "." <> T.unpack name)
 
-lookupClassInfo :: PackageId -> Text -> Text -> [ClassInfo] -> Either String ClassInfo
+lookupClassInfo :: PackageId -> Text -> Text -> Map.Map TcTypeKey ClassInfo -> Either String ClassInfo
 lookupClassInfo package moduleName' name classes =
-  case matches of
-    [info] -> Right info
-    [] -> Left ("missing checked class " <> T.unpack moduleName' <> "." <> T.unpack name)
-    _ -> Left ("duplicate checked class " <> T.unpack moduleName' <> "." <> T.unpack name)
-  where
-    matches =
-      [ info
-      | info <- classes,
-        ciName info == name,
-        tyConPackageId (ciTyCon info) == package,
-        tyConModuleName (ciTyCon info) == moduleName'
-      ]
+  case Map.lookup (sourceTyConKey package moduleName' name) classes of
+    Just info -> Right info
+    Nothing -> Left ("missing checked class " <> T.unpack moduleName' <> "." <> T.unpack name)
 
-lookupTyConFlavor :: TyConFlavor -> PackageId -> Text -> Text -> [TyConInfo] -> Either String TyConInfo
+lookupTyConFlavor :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map TcTypeKey TyConInfo -> Either String TyConInfo
 lookupTyConFlavor flavor package moduleName' name tyCons =
-  case matches of
-    [info] -> Right info
-    [] -> Left ("missing checked type constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
-    _ -> Left ("duplicate checked type constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
-  where
-    matches =
-      [ info
-      | info <- tyCons,
-        tciName info == name,
-        tciFlavor info == flavor,
-        tyConPackageId (tciTyCon info) == package,
-        tyConModuleName (tciTyCon info) == moduleName'
-      ]
+  case Map.lookup (sourceTyConKey package moduleName' name) tyCons of
+    Just info
+      | tciFlavor info == flavor -> Right info
+    _ -> Left ("missing checked type constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
 
 typeFamilyDeclName :: TypeFamilyDecl -> Text
 typeFamilyDeclName familyDecl =
@@ -742,9 +718,10 @@ constructorFieldType ty =
     TyFun _ _ argument _ -> Right argument
     _ -> Left "newtype family constructor is not a function"
 
-convertTypeFamilyEquation :: ConvertEnv -> PackageId -> Text -> TypeFamilyInstanceInfo -> Either String Decl
-convertTypeFamilyEquation env package moduleName' info = do
+convertTypeFamilyEquation :: ConvertEnv -> TypeFamilyInstanceInfo -> Either String Decl
+convertTypeFamilyEquation env info = do
   let bindersEnv = withTyVars (tfiiTyVars info) env
+      TcAxiomKey package moduleName' axiomName = typeFamilyAxiomKey info
   binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
   left <- convertType bindersEnv (tfiiLeft info)
   right <- convertType bindersEnv (tfiiRight info)
@@ -752,7 +729,7 @@ convertTypeFamilyEquation env package moduleName' info = do
     ( DeclAxiom
         AxiomDecl
           { axiomVis = Private,
-            axiomName = Name (tfiiAxiomName info) SortAxiom (OriginTop package moduleName'),
+            axiomName = Name axiomName SortAxiom (OriginTop package moduleName'),
             axiomBinders = binders,
             axiomRole = Nominal,
             axiomLeft = left,
@@ -760,21 +737,8 @@ convertTypeFamilyEquation env package moduleName' info = do
           }
     )
 
-lookupSynonym :: PackageId -> Text -> Text -> [TyConInfo] -> Either String TyConInfo
-lookupSynonym package moduleName' name tyCons =
-  case matches of
-    [info] -> Right info
-    [] -> Left ("missing checked type synonym " <> T.unpack moduleName' <> "." <> T.unpack name)
-    _ -> Left ("duplicate checked type synonym " <> T.unpack moduleName' <> "." <> T.unpack name)
-  where
-    matches =
-      [ info
-      | info <- tyCons,
-        tciName info == name,
-        tciFlavor info == SynonymTyCon,
-        tyConPackageId (tciTyCon info) == package,
-        tyConModuleName (tciTyCon info) == moduleName'
-      ]
+lookupSynonym :: PackageId -> Text -> Text -> Map.Map TcTypeKey TyConInfo -> Either String TyConInfo
+lookupSynonym = lookupTyConFlavor SynonymTyCon
 
 convertDataType :: ConvertEnv -> DataTypeInfo -> Either String Decl
 convertDataType env info = do

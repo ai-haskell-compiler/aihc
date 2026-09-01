@@ -41,6 +41,7 @@ module Aihc.Tc
     -- * Re-exports for convenience
     TcType (..),
     TcTypeKey,
+    TcAxiomKey (..),
     TcKindEnv,
     TyCon (..),
     tyConKey,
@@ -60,9 +61,11 @@ module Aihc.Tc
     DataConFieldUnpack (..),
     DataConSourceForm (..),
     dataConArgTypes,
+    dataFamilyAxiomKey,
     dataFamilyAxiomName,
     dataFamilyRepresentationName,
     TypeFamilyInstanceInfo (..),
+    typeFamilyAxiomKey,
     typeFamilyAxiomName,
     ClassInfo (..),
     TyConFlavor (..),
@@ -116,7 +119,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -186,8 +189,8 @@ mergeTcInterfaces interfaces =
       tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dataTypeKey (concatMap tcInterfaceDataTypes interfaces),
       tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (concatMap tcInterfaceClasses interfaces),
       tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (concatMap tcInterfaceInstances interfaces),
-      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dfiiAxiomName (concatMap tcInterfaceDataFamilyInstances interfaces),
-      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" tfiiAxiomName (concatMap tcInterfaceTypeFamilyInstances interfaces)
+      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dataFamilyAxiomKey (concatMap tcInterfaceDataFamilyInstances interfaces),
+      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" typeFamilyAxiomKey (concatMap tcInterfaceTypeFamilyInstances interfaces)
     }
 
 -- | Keep only facts that the selected modules define.
@@ -213,24 +216,9 @@ restrictTcInterfaceToModules package names interface =
     localInstance info =
       let (packageName, moduleName') = iiDictOrigin info
        in packageName == packageIdText package && localModule moduleName'
-    localTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
-
-    typeTyCons ty =
-      case ty of
-        TcTyVar {} -> []
-        TcMetaTv {} -> []
-        TcTyCon tyCon arguments -> tyCon : concatMap typeTyCons arguments
-        TcFunTy argument result -> typeTyCons argument <> typeTyCons result
-        TcForAllTy _ body -> typeTyCons body
-        TcQualTy predicates body -> concatMap predicateTyCons predicates <> typeTyCons body
-        TcAppTy function argument -> typeTyCons function <> typeTyCons argument
-
-    predicateTyCons predicate =
-      case predicate of
-        ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
-        EqPred left right -> typeTyCons left <> typeTyCons right
-        QuantifiedPred variables antecedents consequent ->
-          concatMap (typeTyCons . tvKind) variables <> concatMap predicateTyCons antecedents <> predicateTyCons consequent
+    localTypeFamilyInstance info =
+      let (originPackage, originModule) = tfiiOrigin info
+       in originPackage == package && localModule originModule
 
 mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
 mergeInterfaceEntries label key values = reverse ordered
@@ -404,8 +392,14 @@ initialTcState imported =
       tcsDataTypes = mapFromListNoDuplicates "imported data type state" [(dataTypeKey dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
       tcsClasses = mapFromListNoDuplicates "imported class state" [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
       tcsInstances = mergeInterfaceEntries "imported instance state" instanceInfoKey (tcInterfaceInstances imported),
-      tcsDataFamilyInstances = mergeInterfaceEntries "imported data family instance state" dfiiAxiomName (tcInterfaceDataFamilyInstances imported),
-      tcsTypeFamilyInstances = mergeInterfaceEntries "imported type family instance state" tfiiAxiomName (tcInterfaceTypeFamilyInstances imported)
+      tcsDataFamilyInstances =
+        mapFromListNoDuplicates
+          "imported data family instance state"
+          [(dataFamilyAxiomKey info, info) | info <- tcInterfaceDataFamilyInstances imported],
+      tcsTypeFamilyInstances =
+        mapFromListNoDuplicates
+          "imported type family instance state"
+          [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances imported]
     }
 
 tcInterfaceFromState :: TcState -> TcInterface
@@ -416,8 +410,8 @@ tcInterfaceFromState state =
       tcInterfaceDataTypes = Map.elems (tcsDataTypes state),
       tcInterfaceClasses = Map.elems (tcsClasses state),
       tcInterfaceInstances = mergeInterfaceEntries "instance state" instanceInfoKey (tcsInstances state),
-      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance state" dfiiAxiomName (tcsDataFamilyInstances state),
-      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance state" tfiiAxiomName (tcsTypeFamilyInstances state)
+      tcInterfaceDataFamilyInstances = Map.elems (tcsDataFamilyInstances state),
+      tcInterfaceTypeFamilyInstances = Map.elems (tcsTypeFamilyInstances state)
     }
 
 exportedGlobalTerms :: TcState -> [(TcTermKey, TypeScheme)]

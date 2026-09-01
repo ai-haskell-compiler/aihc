@@ -1967,9 +1967,8 @@ convertCoercion coercion =
     Ev.TyConAppCo tyCon arguments -> do
       env <- gets vsConvertEnv
       CoTyConApp (tyConNameFc env tyCon) <$> mapM convertCoercion arguments
-    Ev.AxiomInstCo name arguments -> do
-      env <- gets vsConvertEnv
-      CoAxiom (lookupAxiomName env name) <$> mapM convertCheckedType arguments
+    Ev.AxiomInstCo key arguments ->
+      CoAxiom (lookupAxiomName key) <$> mapM convertCheckedType arguments
 
 resolvedTermName :: Syn.Name -> ValueM Name
 resolvedTermName sourceName =

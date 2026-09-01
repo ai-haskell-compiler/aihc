@@ -254,7 +254,7 @@ renderCoercion coercion =
     Sym co -> "sym (" <> renderCoercion co <> ")"
     Trans left right -> "trans (" <> renderCoercion left <> ") (" <> renderCoercion right <> ")"
     TyConAppCo tyCon args -> T.unpack (tyConName tyCon) <> " " <> unwords (map renderCoercion args)
-    AxiomInstCo name tys -> T.unpack name <> renderTypeArgs tys
+    AxiomInstCo key tys -> show key <> renderTypeArgs tys
 
 renderEvVar :: EvVar -> String
 renderEvVar (EvVar (Unique unique)) = "ev" <> show unique

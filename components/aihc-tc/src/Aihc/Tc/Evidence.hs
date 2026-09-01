@@ -77,5 +77,5 @@ data Coercion
   | -- | Lift through type constructor: @T co1 ... con@.
     TyConAppCo !TyCon ![Coercion]
   | -- | Type family / newtype axiom instantiation (future).
-    AxiomInstCo !Text ![TcType]
+    AxiomInstCo !TcAxiomKey ![TcType]
   deriving (Eq, Show, Read)

@@ -38,17 +38,17 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
 import Aihc.Tc
   ( ClassInfo (ciName),
-    DataFamilyInstanceInfo (dfiiAxiomName),
     InstanceInfo (iiDictName),
     TcConfig,
     TcInterface (..),
     TyConInfo (tciTyCon),
-    TypeFamilyInstanceInfo (tfiiAxiomName),
+    dataFamilyAxiomKey,
     dataTypeKey,
     emptyTcInterface,
     tcConfig,
     tcModuleDiagnostics,
     tcModuleSuccess,
+    typeFamilyAxiomKey,
     typecheckModuleSccWithInterface,
   )
 import Control.Exception (ErrorCall, displayException, evaluate, try)
@@ -299,8 +299,8 @@ subtractInterface imported complete =
       tcInterfaceDataTypes = withoutImported dataTypeKey (tcInterfaceDataTypes imported) (tcInterfaceDataTypes complete),
       tcInterfaceClasses = withoutImported ciName (tcInterfaceClasses imported) (tcInterfaceClasses complete),
       tcInterfaceInstances = withoutImported iiDictName (tcInterfaceInstances imported) (tcInterfaceInstances complete),
-      tcInterfaceDataFamilyInstances = withoutImported dfiiAxiomName (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete),
-      tcInterfaceTypeFamilyInstances = withoutImported tfiiAxiomName (tcInterfaceTypeFamilyInstances imported) (tcInterfaceTypeFamilyInstances complete)
+      tcInterfaceDataFamilyInstances = withoutImported dataFamilyAxiomKey (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete),
+      tcInterfaceTypeFamilyInstances = withoutImported typeFamilyAxiomKey (tcInterfaceTypeFamilyInstances imported) (tcInterfaceTypeFamilyInstances complete)
     }
 
 withoutImported :: (Ord key) => (value -> key) -> [value] -> [value] -> [value]

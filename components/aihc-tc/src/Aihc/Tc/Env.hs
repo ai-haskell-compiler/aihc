@@ -27,11 +27,13 @@ module Aihc.Tc.Env
 
     -- * Data family instances
     DataFamilyInstanceInfo (..),
+    dataFamilyAxiomKey,
     dataFamilyAxiomName,
     dataFamilyRepresentationName,
 
     -- * Type family equations
     TypeFamilyInstanceInfo (..),
+    typeFamilyAxiomKey,
     typeFamilyAxiomName,
   )
 where
@@ -194,6 +196,13 @@ data DataFamilyInstanceInfo = DataFamilyInstanceInfo
   }
   deriving (Eq, Show, Read)
 
+dataFamilyAxiomKey :: DataFamilyInstanceInfo -> TcAxiomKey
+dataFamilyAxiomKey info =
+  TcAxiomKey
+    (tyConPackageId (dfiiRepresentationTyCon info))
+    (tyConModuleName (dfiiRepresentationTyCon info))
+    (dfiiAxiomName info)
+
 dataFamilyRepresentationName :: Text -> Text -> Text
 dataFamilyRepresentationName familyName firstConstructor =
   "$R$" <> familyName <> "$" <> firstConstructor
@@ -207,12 +216,18 @@ dataFamilyAxiomName familyName firstConstructor =
 data TypeFamilyInstanceInfo = TypeFamilyInstanceInfo
   { tfiiFamilyName :: !Text,
     tfiiAxiomName :: !Text,
+    tfiiOrigin :: !(PackageId, Text),
     tfiiTyVars :: ![TyVarId],
     tfiiLeft :: !TcType,
     tfiiRight :: !TcType,
     tfiiClosed :: !Bool
   }
   deriving (Eq, Show, Read)
+
+typeFamilyAxiomKey :: TypeFamilyInstanceInfo -> TcAxiomKey
+typeFamilyAxiomKey info =
+  let (package, moduleName') = tfiiOrigin info
+   in TcAxiomKey package moduleName' (tfiiAxiomName info)
 
 typeFamilyAxiomName :: Text -> Int -> Text
 typeFamilyAxiomName familyName index =

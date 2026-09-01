@@ -67,7 +67,7 @@ genInterface = do
   tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])
   tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] False)
-  tcInterfaceTypeFamilyInstances <- optionalEntry (TypeFamilyInstanceInfo "F" "$axF" [] ty ty False)
+  tcInterfaceTypeFamilyInstances <- optionalEntry (TypeFamilyInstanceInfo "F" "$axF" (packageId, moduleName) [] ty ty False)
   pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances, tcInterfaceTypeFamilyInstances}
 
 optionalEntry :: value -> Gen [value]
