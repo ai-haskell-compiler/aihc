@@ -25,11 +25,10 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcInterface,
     emptyTcInterface,
-    restrictTcInterfaceToModules,
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -41,8 +40,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
-import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -105,17 +103,7 @@ primitiveSupport = unsafePerformIO $ do
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
-  mapM
-    (loadOne sourceRoot)
-    [ "GHC/Classes.hs",
-      "GHC/Prim.hs",
-      "GHC/Prim/Base.hs",
-      "GHC/Prim/IO.hs",
-      "GHC/Prim/Integer.hs",
-      "GHC/Prim/Num.hs",
-      "GHC/Tuple.hs",
-      "GHC/Types.hs"
-    ]
+  mapM (loadOne sourceRoot) primitiveModulePaths
   where
     loadOne sourceRoot relativePath = do
       let path = sourceRoot </> relativePath
@@ -127,16 +115,7 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
   where
     findUp directory = do
       let candidate = directory </> "core-libs/aihc-prim/src"
-          files =
-            [ candidate </> "GHC/Classes.hs",
-              candidate </> "GHC/Prim.hs",
-              candidate </> "GHC/Prim/Base.hs",
-              candidate </> "GHC/Prim/IO.hs",
-              candidate </> "GHC/Prim/Integer.hs",
-              candidate </> "GHC/Prim/Num.hs",
-              candidate </> "GHC/Tuple.hs",
-              candidate </> "GHC/Types.hs"
-            ]
+          files = map (candidate </>) primitiveModulePaths
       exists <- and <$> mapM doesFileExist files
       if exists
         then pure candidate
@@ -211,10 +190,10 @@ renderFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (fixtureBuiltinScope modules) (fixtureDependencyExports modules) (modulesInPackage fixturePackage modules) of
+          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
-                  primitiveInterface = fixturePrimitiveInterface modules
+                  primitiveInterface = supportTcInterface primitiveSupport
                   (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
@@ -283,40 +262,27 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
 
-fixtureDependencyExports :: [Module] -> ModuleExports
-fixtureDependencyExports modules =
-  Map.filterWithKey
-    (\(ModuleKey _ name) _ -> name `elem` fixturePrimitiveModuleNames modules && Just name `notElem` map moduleName modules)
-    (supportScopes primitiveSupport)
-
-fixturePrimitiveInterface :: [Module] -> TcInterface
-fixturePrimitiveInterface modules =
-  restrictTcInterfaceToModules
-    (PackageId "aihc-prim")
-    (fixturePrimitiveModuleNames modules)
-    (supportTcInterface primitiveSupport)
-
-fixturePrimitiveModuleNames :: [Module] -> [Text]
-fixturePrimitiveModuleNames modules = selectedNames
-  where
-    localNames = mapMaybe moduleName modules
-    legacyNames = ["GHC.Classes", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
-    allNames = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.IO", "GHC.Prim.Integer", "GHC.Prim.Num", "GHC.Tuple", "GHC.Types"]
-    selectedNames
-      | any (`elem` ("GHC.Base" : "GHC.Num" : allNames)) localNames = legacyNames
-      | otherwise = allNames
+primitiveModulePaths :: [FilePath]
+primitiveModulePaths =
+  [ "GHC/Classes.hs",
+    "GHC/Prim.hs",
+    "GHC/Prim/Base.hs",
+    "GHC/Prim/IO.hs",
+    "GHC/Prim/Integer.hs",
+    "GHC/Prim/Num.hs",
+    "GHC/Tuple.hs",
+    "GHC/Types.hs"
+  ]
 
 fixtureBuiltinScope :: [Module] -> Scope
 fixtureBuiltinScope modules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
-    dependencyExports = fixtureDependencyExports modules
+    dependencyExports = supportScopes primitiveSupport
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules
-      | any ((`elem` ["GHC.Base", "GHC.Num"]) . fromMaybe "" . moduleName) modules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
-      | otherwise = ["GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
+    builtinFunctionModules = ["GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}

@@ -1,79 +1,38 @@
 ---
-extensions:
-- MagicHash
+extensions: []
 modules:
-- |
-  module GHC.Num where
-  import GHC.Prim (Int#)
-  data Integer = IS Int#
-  class Num a where
-    fromInteger :: Integer -> a
 - |
   module Main where
   one = 1
 expected: |-
-  scope 1 = "" GHC.Num
+  scope 1 = "" Main
   scope 2 = "aihc-prim" GHC.Prim
-  scope 3 = "aihc-prim" GHC.Types
+  scope 3 = "aihc-prim" GHC.Prim.Integer
+  scope 4 = "aihc-prim" GHC.Prim.Num
+  scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    4.t$Dict$Num :: ∀(a : 5.tType). 5.tType;
+    2.tInt# :: 5.tTYPE 5.vIntRep;
+    3.tInteger :: 5.tType;
+    5.tLevity :: 5.tType;
+    5.tLiftedRep :: 5.tRuntimeRep;
+    5.tRuntimeRep :: 5.tType;
+    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.tType;
+    5.tType :: 5.tType;
+    5.vBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
+    3.vIS :: FUN @5.vIntRep @5.tLiftedRep 2.tInt# 3.tInteger;
+    5.vIntRep :: 5.tRuntimeRep;
+    5.vLifted :: 5.tLevity;
+    4.vfromInteger :: ∀(a : 5.tType). 4.t$Dict$Num a 5.→ 3.tInteger 5.→ a
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    5.tLiftedRep = 5.vBoxedRep 5.vLifted;
+    5.tType = 5.tTYPE 5.tLiftedRep
 
-  pub type 1.tInteger :: 3.tType {
-      pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
-  }
-
-  pub type 1.t$Dict$Num (a : 3.tType) :: 3.tType {
-      pub 1.v$Dict$Num :: ∀(a : 3.tType). (1.tInteger 3.→ a) 3.→ 1.t$Dict$Num a
-  }
-
-  pub val 1.vfromInteger :: ∀(a : 3.tType). 1.t$Dict$Num a 3.→ 1.tInteger 3.→ a
-   = Λ(a : 3.tType).
-    λ($d0 : 1.t$Dict$Num a).
-      case $d0 as ($dict : 1.t$Dict$Num a) return (1.tInteger 3.→ a) of {
-          1.v$Dict$Num ($method0 : 1.tInteger 3.→ a) →
-              $method0
-      }
-  scope 1 = "" GHC.Num
-  scope 2 = "" Main
-  scope 3 = "aihc-prim" GHC.Prim
-  scope 4 = "aihc-prim" GHC.Types
-
-  import headers
-    1.t$Dict$Num :: ∀(a : 4.tType). 4.tType;
-    3.tInt# :: 4.tTYPE 4.vIntRep;
-    1.tInteger :: 4.tType;
-    4.tLevity :: 4.tType;
-    4.tLiftedRep :: 4.tRuntimeRep;
-    4.tRuntimeRep :: 4.tType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
-    4.tType :: 4.tType;
-    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    1.vIS :: FUN @4.vIntRep @4.tLiftedRep 3.tInt# 1.tInteger;
-    4.vIntRep :: 4.tRuntimeRep;
-    4.vLifted :: 4.tLevity;
-    1.vfromInteger :: ∀(a : 4.tType). 1.t$Dict$Num a 4.→ 1.tInteger 4.→ a
-
-  import synonyms
-    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
-    4.tType = 4.tTYPE 4.tLiftedRep
-
-  pub val 2.vone :: ∀(a : 4.tType). 1.t$Dict$Num a 4.→ a
-   = Λ(a : 4.tType).
-    λ($d0 : 1.t$Dict$Num a).
-      1.vfromInteger @a $d0 (1.vIS 1#4.vIntRep)
+  pub val 1.vone :: ∀(a : 5.tType). 4.t$Dict$Num a 5.→ a
+   = Λ(a : 5.tType).
+    λ($d0 : 4.t$Dict$Num a).
+      4.vfromInteger @a $d0 (3.vIS 1#5.vIntRep)
 status: pass
-reason: desugars default integer literals through GHC.Num.fromInteger applied to an
-  Integer constructor value
+reason: desugars default integer literals through GHC.Prim.Num.fromInteger
