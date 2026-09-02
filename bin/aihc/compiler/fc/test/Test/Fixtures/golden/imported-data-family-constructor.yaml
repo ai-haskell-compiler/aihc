@@ -1,0 +1,111 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Base where
+    data Unit = Unit
+    data family Payload a
+    data instance Payload Unit = PayloadUnit Unit
+    newtype instance Payload [a] = PayloadList [a]
+  - |
+    module Test where
+    import Base
+    build :: Unit -> Payload Unit
+    build value = PayloadUnit value
+    unwrap :: Payload Unit -> Unit
+    unwrap payload = case payload of
+      PayloadUnit value -> value
+    wrap :: [a] -> Payload [a]
+    wrap values = PayloadList values
+    items :: Payload [a] -> [a]
+    items (PayloadList values) = values
+expected: |-
+  scope 1 = "" Base
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tUnit :: 2.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub type 1.tPayload (a : 2.tType) :: 2.tType @N {}
+
+  type 1.t$R$Payload$PayloadUnit :: 2.tType {
+      1.vPayloadUnit :: 1.tUnit 2.→ 1.t$R$Payload$PayloadUnit
+  }
+
+  axiom 1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~N 1.t$R$Payload$PayloadUnit
+
+  type 1.t$R$Payload$PayloadList (a : 2.tType) :: 2.tType {}
+
+  axiom 1.$ax$R$Payload$PayloadList (a : 2.tType) : 1.t$R$Payload$PayloadList a ~R 2.t[] a
+
+  axiom 1.$ax$Payload$PayloadList (a : 2.tType) : 1.tPayload (2.t[] a) ~N 1.t$R$Payload$PayloadList a
+  scope 1 = "" Base
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    1.t$R$Payload$PayloadList :: ∀(a : 3.tType). 3.tType;
+    1.t$R$Payload$PayloadUnit :: 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    1.tPayload :: 3.tType 3.→ 3.tType;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    1.tUnit :: 3.tType;
+    3.t[] :: ∀(a : 3.tType). 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    1.vPayloadUnit :: 1.tUnit 3.→ 1.t$R$Payload$PayloadUnit
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  import axioms
+    1.$ax$Payload$PayloadList (a : 3.tType) : 1.tPayload (3.t[] a) ~N 1.t$R$Payload$PayloadList a;
+    1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~N 1.t$R$Payload$PayloadUnit;
+    1.$ax$R$Payload$PayloadList (a : 3.tType) : 1.t$R$Payload$PayloadList a ~R 3.t[] a
+
+  pub val 2.vbuild :: 1.tUnit 3.→ 1.tPayload 1.tUnit
+   = λ(x : 1.tUnit).
+    (λ(_field : 1.tUnit).
+      (1.vPayloadUnit _field) ▷ sym (axiom-co 1.$ax$Payload$PayloadUnit)) x
+
+  pub val 2.vunwrap :: 1.tPayload 1.tUnit 3.→ 1.tUnit
+   = λ(x : 1.tPayload 1.tUnit).
+    case x ▷ axiom-co 1.$ax$Payload$PayloadUnit as (_scrut : 1.t$R$Payload$PayloadUnit) return (1.tUnit) of {
+        1.vPayloadUnit (value : 1.tUnit) →
+            value
+    }
+
+  pub val 2.vwrap :: ∀(a : 3.tType). 3.t[] a 3.→ 1.tPayload (3.t[] a)
+   = Λ(a : 3.tType).
+    λ(x : 3.t[] a).
+      x ▷ trans (sym (axiom-co 1.$ax$R$Payload$PayloadList @a)) (sym (axiom-co 1.$ax$Payload$PayloadList @a))
+
+  pub val 2.vitems :: ∀(a : 3.tType). 1.tPayload (3.t[] a) 3.→ 3.t[] a
+   = Λ(a : 3.tType).
+    λ(x : 1.tPayload (3.t[] a)).
+      let {
+          values : 3.t[] a =
+              x ▷ trans (axiom-co 1.$ax$Payload$PayloadList @a) (axiom-co 1.$ax$R$Payload$PayloadList @a)
+      } in
+          values
+status: pass
+reason: An imported data-family constructor needs the instance axioms and the representation type in the import headers.

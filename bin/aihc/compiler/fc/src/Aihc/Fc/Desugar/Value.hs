@@ -27,6 +27,7 @@ import Aihc.Resolve
 import Aihc.Tc
   ( DataConFieldInfo (..),
     DataConInfo (..),
+    DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
     InstanceInfo (..),
     TcBindingResult (..),
@@ -99,14 +100,16 @@ data ValueState = ValueState
     vsDictionaries :: !(Map Text Binder),
     vsConstructors :: !(Map Text [Name]),
     vsConstructorInfos :: !(Map Text [DataConInfo]),
-    vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo)
+    vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
+    vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo)
   }
 
 data PreparedValueInterface = PreparedValueInterface
   { preparedTypes :: !(Map TcTermKey TcType),
     preparedConstructors :: !(Map Text [Name]),
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
-    preparedNewtypeConstructors :: !(Map TcTermKey DataTypeInfo)
+    preparedNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
+    preparedFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo)
   }
 
 type ValueM = StateT ValueState (Either String)
@@ -142,7 +145,8 @@ emptyPreparedValueInterface =
     { preparedTypes = Map.empty,
       preparedConstructors = Map.empty,
       preparedConstructorInfos = Map.empty,
-      preparedNewtypeConstructors = Map.empty
+      preparedNewtypeConstructors = Map.empty,
+      preparedFamilyConstructors = Map.empty
     }
 
 prepareValueInterface :: TcInterface -> PreparedValueInterface
@@ -151,7 +155,8 @@ prepareValueInterface interface =
     { preparedTypes = termTypes,
       preparedConstructors = constructors,
       preparedConstructorInfos = constructorInfos,
-      preparedNewtypeConstructors = newtypes
+      preparedNewtypeConstructors = newtypes,
+      preparedFamilyConstructors = familyConstructors
     }
   where
     termTypes =
@@ -192,6 +197,13 @@ prepareValueInterface interface =
           constructor <- dtiConstructors dataType,
           let (package, moduleName') = dciOrigin constructor
         ]
+    familyConstructors =
+      Map.fromList
+        [ (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) constructorName, info)
+        | info <- tcInterfaceDataFamilyInstances interface,
+          let tyCon = dfiiRepresentationTyCon info,
+          constructorName <- dfiiConstructorNames info
+        ]
 
 mergePreparedValueInterfaces :: [PreparedValueInterface] -> PreparedValueInterface
 mergePreparedValueInterfaces interfaces =
@@ -199,7 +211,8 @@ mergePreparedValueInterfaces interfaces =
     { preparedTypes = Map.unions (map preparedTypes interfaces),
       preparedConstructors = Map.unionsWith mergeCandidates (map preparedConstructors interfaces),
       preparedConstructorInfos = Map.unionsWith mergeCandidates (map preparedConstructorInfos interfaces),
-      preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces)
+      preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces),
+      preparedFamilyConstructors = Map.unions (map preparedFamilyConstructors interfaces)
     }
   where
     mergeCandidates left right = List.nub (left <> right)
@@ -222,7 +235,8 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsDictionaries = Map.empty,
             vsConstructors = preparedConstructors interface,
             vsConstructorInfos = preparedConstructorInfos interface,
-            vsNewtypeConstructors = preparedNewtypeConstructors interface
+            vsNewtypeConstructors = preparedNewtypeConstructors interface,
+            vsFamilyConstructors = preparedFamilyConstructors interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -814,10 +828,12 @@ desugarMatchArguments resultType binders@(argument : arguments) argumentTypes wo
       nextWorks <- mapM (extendMatchWork argument ty) works
       desugarMatchArguments resultType arguments restTypes (map dropMatchWorkPattern nextWorks)
   | otherwise = do
+      maybeFamily <- firstFamilyPattern (map fst works)
       maybeNewtype <- firstNewtypePattern (map fst works)
-      case maybeNewtype of
-        Just (pattern', dataType) -> desugarNewtypePatterns resultType argument arguments argumentTypes works pattern' dataType
-        Nothing -> desugarDataPatterns resultType argument arguments argumentTypes works
+      case (maybeFamily, maybeNewtype) of
+        (Just (pattern', info), _) -> desugarFamilyPatterns resultType argument arguments argumentTypes works pattern' info
+        (_, Just (pattern', dataType)) -> desugarNewtypePatterns resultType argument arguments argumentTypes works pattern' dataType
+        _ -> desugarDataPatterns resultType argument arguments argumentTypes works
 
 emptyMatchWork :: Syn.Match -> MatchWork
 emptyMatchWork match = (match, [])
@@ -971,20 +987,71 @@ overloadedIntegerValue literal =
 
 desugarDataPatterns :: TcType -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
 desugarDataPatterns resultType argument arguments argumentTypes works = do
-  (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   caseBinder <- freshBinderFromType "_scrut" (binderType argument)
+  desugarScrutineePatterns resultType (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+
+-- | Match a scrutinee expression against constructor patterns. The root
+-- binder gets the variable bindings of the first pattern. It has the checked
+-- scrutinee type. The case binder has the type of the scrutinee expression.
+desugarScrutineePatterns :: TcType -> Expr -> Binder -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarScrutineePatterns resultType scrutinee caseBinder root arguments argumentTypes works = do
+  (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   resultType' <- convertCheckedType resultType
   let keys = patternKeys (map fst works)
       defaultWorks = filter (firstPatternIsDefault . fst) works
-  constructorAlternatives <- mapM (desugarPatternGroup resultType arguments restTypes scrutineeType caseBinder works) keys
+  constructorAlternatives <- mapM (desugarPatternGroup resultType arguments restTypes scrutineeType root works) keys
   defaultAlternatives <-
     case defaultWorks of
       [] -> pure []
       _ -> do
-        updated <- mapM (extendMatchWork caseBinder scrutineeType) defaultWorks
+        updated <- mapM (extendMatchWork root scrutineeType) defaultWorks
         body <- desugarMatchArguments resultType arguments restTypes (map dropMatchWorkPattern updated)
         pure [Alt AltDefault [] [] body]
-  pure (ExCase (ExVar (binderName argument)) caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
+  pure (ExCase scrutinee caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
+
+firstFamilyPattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataFamilyInstanceInfo))
+firstFamilyPattern matches = do
+  families <- gets vsFamilyConstructors
+  pure $ do
+    pattern' <-
+      listToMaybe
+        [ candidate
+        | match <- matches,
+          candidate : _ <- [Syn.matchPats match],
+          not (patternIsDefault candidate)
+        ]
+    name <- patternConstructorSourceName pattern'
+    key <- nameTermKey name
+    info <- Map.lookup key families
+    pure (pattern', info)
+
+-- | A data-family pattern matches the representation type. Cast the
+-- scrutinee with the family axiom. A newtype instance also casts with the
+-- representation axiom, and then binds the field.
+desugarFamilyPatterns :: TcType -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr
+desugarFamilyPatterns resultType argument remaining argumentTypes works representative info = do
+  (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
+  instanceArguments <- familyInstanceArguments info scrutineeType
+  axiomArguments <- mapM convertCheckedType instanceArguments
+  let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
+      scrutinee = ExVar (binderName argument)
+  if dfiiIsNewtype info
+    then do
+      child <-
+        case patternChildren representative of
+          [pattern'] -> pure pattern'
+          _ -> failValue ("newtype family pattern does not have one field: " <> T.unpack (dfiiFamilyName info))
+      childType <- requiredPatternType child
+      field <- freshPatternBinder child childType
+      rooted <- mapM (extendMatchWork argument scrutineeType) works
+      expanded <- mapMaybeM (specializeMatchWork (patternKey representative) 1 [field] [childType]) rooted
+      let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
+      body <- desugarMatchArguments resultType (field : remaining) (childType : restTypes) expanded
+      pure (ExLet (Bind field unwrapped) body)
+    else do
+      representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+      caseBinder <- freshBinderFromType "_scrut" representationType
+      desugarScrutineePatterns resultType (ExCast scrutinee familyCoercion) caseBinder argument remaining argumentTypes works
 
 firstNewtypePattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataTypeInfo))
 firstNewtypePattern matches = do
@@ -1488,17 +1555,16 @@ desugarApplication function argument = do
 
 desugarVariable :: Maybe TcAnnotation -> Syn.Name -> ValueM Expr
 desugarVariable maybeAnnotation name = do
+  maybeFamily <- familyConstructorData name
   maybeNewtype <- newtypeConstructorData name
-  case maybeNewtype of
-    Just dataType -> do
-      annotation <-
-        case maybeAnnotation of
-          Just value -> pure value
-          Nothing -> do
-            constructorType <- lookupBindingType =<< requiredNameTermKey name
-            pure (TcAnnotation constructorType [] [] [] [] [])
+  case (maybeFamily, maybeNewtype) of
+    (Just info, _) -> do
+      annotation <- constructorAnnotation
+      desugarFamilyConstructor name annotation info
+    (_, Just dataType) -> do
+      annotation <- constructorAnnotation
       desugarNewtypeConstructor annotation dataType
-    Nothing -> do
+    _ -> do
       variable <- resolvedTermName name
       case maybeAnnotation of
         Nothing -> desugarTermReference variable [] [] []
@@ -1507,6 +1573,13 @@ desugarVariable maybeAnnotation name = do
           types <- mapM convertCheckedType inferredTypes
           evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
           desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
+  where
+    constructorAnnotation =
+      case maybeAnnotation of
+        Just value -> pure value
+        Nothing -> do
+          constructorType <- lookupBindingType =<< requiredNameTermKey name
+          pure (TcAnnotation constructorType [] [] [] [] [])
 
 seqTermArgumentTypes :: TcAnnotation -> [TcType]
 seqTermArgumentTypes annotation
@@ -1561,6 +1634,72 @@ newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do
   newtypes <- gets vsNewtypeConstructors
   pure (nameTermKey name >>= (`Map.lookup` newtypes))
+
+familyConstructorData :: Syn.Name -> ValueM (Maybe DataFamilyInstanceInfo)
+familyConstructorData name = do
+  families <- gets vsFamilyConstructors
+  pure (nameTermKey name >>= (`Map.lookup` families))
+
+-- | A data-family constructor builds the representation type. The source
+-- program sees the family type. Cast the built value with the family axiom.
+-- A newtype instance has no constructor in System FC. Cast its field with
+-- the representation axiom and then with the family axiom.
+desugarFamilyConstructor :: Syn.Name -> TcAnnotation -> DataFamilyInstanceInfo -> ValueM Expr
+desugarFamilyConstructor name annotation info = do
+  let (_, afterForAlls) = peelForAlls (tcAnnType annotation)
+      (_, bodyType) = peelConstraints afterForAlls
+      (fieldTypes, resultType) = splitFunctionType bodyType
+  instanceArguments <- familyInstanceArguments info resultType
+  axiomArguments <- mapM convertCheckedType instanceArguments
+  fields <- mapM (freshBinder "_field") fieldTypes
+  let familyCoercion = CoSym (CoAxiom (familyAxiomName info) axiomArguments)
+  body <-
+    if dfiiIsNewtype info
+      then case fields of
+        [field] ->
+          pure (ExCast (ExVar (binderName field)) (CoTrans (CoSym (CoAxiom (familyRepresentationAxiomName info) axiomArguments)) familyCoercion))
+        _ -> failValue ("newtype family constructor does not have one field: " <> T.unpack (Syn.nameText name))
+      else do
+        constructor <- resolvedTermName name
+        types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+        evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+        let applied = foldl ExApp (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence) (map (ExVar . binderName) fields)
+        pure (ExCast applied familyCoercion)
+  pure (foldr ExLam body fields)
+
+splitFunctionType :: TcType -> ([TcType], TcType)
+splitFunctionType ty =
+  case ty of
+    TcFunTy argument result ->
+      let (arguments, final) = splitFunctionType result
+       in (argument : arguments, final)
+    _ -> ([], ty)
+
+-- | Match the instance head against a family type. The result gives the
+-- instance type variables in declaration order.
+familyInstanceArguments :: DataFamilyInstanceInfo -> TcType -> ValueM [TcType]
+familyInstanceArguments info familyType =
+  case matchTypes [dfiiFamilyType info] [familyType] of
+    Nothing -> failValue ("data-family instance " <> T.unpack (dfiiFamilyName info) <> " does not match the type " <> show familyType)
+    Just substitution ->
+      mapM
+        ( \tyVar ->
+            maybe
+              (failValue ("data-family instance " <> T.unpack (dfiiFamilyName info) <> " has an unbound type variable"))
+              pure
+              (Map.lookup (tvUnique tyVar) substitution)
+        )
+        (dfiiTyVars info)
+
+familyAxiomName :: DataFamilyInstanceInfo -> Name
+familyAxiomName info =
+  let tyCon = dfiiRepresentationTyCon info
+   in Name (dfiiAxiomName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+
+familyRepresentationAxiomName :: DataFamilyInstanceInfo -> Name
+familyRepresentationAxiomName info =
+  let tyCon = dfiiRepresentationTyCon info
+   in Name ("$ax$" <> T.drop 1 (tyConName tyCon)) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
 
 desugarNewtypeConstructor :: TcAnnotation -> DataTypeInfo -> ValueM Expr
 desugarNewtypeConstructor annotation dataType = do

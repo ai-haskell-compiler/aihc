@@ -1,0 +1,55 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Unit = Unit
+    data family Payload a
+    data instance Payload Unit = PayloadUnit Unit
+    build :: Unit -> Payload Unit
+    build value = PayloadUnit value
+    unwrap :: Payload Unit -> Unit
+    unwrap payload = case payload of
+      PayloadUnit value -> value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tUnit :: 2.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub type 1.tPayload (a : 2.tType) :: 2.tType @N {}
+
+  type 1.t$R$Payload$PayloadUnit :: 2.tType {
+      1.vPayloadUnit :: 1.tUnit 2.→ 1.t$R$Payload$PayloadUnit
+  }
+
+  axiom 1.$ax$Payload$PayloadUnit : 1.tPayload 1.tUnit ~N 1.t$R$Payload$PayloadUnit
+
+  pub val 1.vbuild :: 1.tUnit 2.→ 1.tPayload 1.tUnit
+   = λ(x : 1.tUnit).
+    (λ(_field : 1.tUnit).
+      (1.vPayloadUnit _field) ▷ sym (axiom-co 1.$ax$Payload$PayloadUnit)) x
+
+  pub val 1.vunwrap :: 1.tPayload 1.tUnit 2.→ 1.tUnit
+   = λ(x : 1.tPayload 1.tUnit).
+    case x ▷ axiom-co 1.$ax$Payload$PayloadUnit as (_scrut : 1.t$R$Payload$PayloadUnit) return (1.tUnit) of {
+        1.vPayloadUnit (value : 1.tUnit) →
+            value
+    }
+status: pass
+reason: A data-family constructor builds the representation type. The desugarer casts the value with the family axiom, and casts the scrutinee before a match.
