@@ -16,6 +16,7 @@ annotated:
   │    └─ t GHC.Prim
   └─ v Main
   f x# = addInt# x# 1#
+  │ │    │       │  └─ t GHC.Prim
   │ │    │       └─ v 2
   │ │    └─ v GHC.Prim
   │ └─ v 2

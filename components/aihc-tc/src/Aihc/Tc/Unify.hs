@@ -71,7 +71,7 @@ unifyMetaTv u ty = do
     TcMetaTv u' | u == u' -> pure (Right ())
     _ ->
       if occursIn u ty'
-        then pure $ Left $ OccursCheckError u ty'
+        then pure $ Left $ OccursCheckError (TcMetaTv u) ty'
         else do
           declaredKind <- readMetaTvKind u
           solvedKind <- tcTypeKind ty'

@@ -1,0 +1,19 @@
+annotated:
+- |-
+  module Test where
+  x :: ()
+  x = ([], [])
+      └─ error: expression has type ([t0], [t1]), but expected () from the type signature for x
+  y :: t0 -> ()
+  y t = ([], t)
+        └─ error: expression has type ([t1], t0), but expected () from the type signature for y
+extensions: []
+modules:
+- |
+  module Test where
+  x :: ()
+  x = ([], [])
+  y :: t0 -> ()
+  y t = ([], t)
+reason: unsolved meta-variables get stable display names in order of appearance and do not clash with rigid names
+status: pass

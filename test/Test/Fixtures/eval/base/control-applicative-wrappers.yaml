@@ -38,5 +38,5 @@ output: |
   ((: True (: False [])),((: True []),(: True (: False []))))
 expression: |
   (constResult, (zipListResult, zipListPureResult))
-status: xfail
+status: pass
 reason: Control.Applicative exports Const and ZipList with their access functions and applicative behavior

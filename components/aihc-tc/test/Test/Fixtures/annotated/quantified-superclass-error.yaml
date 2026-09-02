@@ -14,7 +14,7 @@ annotated:
 
   use :: NFData1 f => f a -> f a
   use value = rnf value
-              └─ error: unsolved constraint NFData ?17
+              └─ error: unsolved constraint NFData f a
 extensions:
 - KindSignatures
 - QuantifiedConstraints

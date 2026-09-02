@@ -158,8 +158,11 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport sources = do
   modules <- traverse (uncurry parsePrimitiveModule) sources
+  let packageModules = modulesInPackage primitivePackage modules
+      exports = collectModuleExportsWithDeps mempty packageModules
+      builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
   resolved <-
-    case resolveWithDeps emptyScope mempty (modulesInPackage primitivePackage modules) of
+    case resolveWithDeps builtinScope mempty packageModules of
       result@ResolveResult {resolveErrors = []} -> Right result
       ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
   let primitiveAsts = map snd (resolvedModules resolved)
@@ -204,7 +207,7 @@ fixtureBuiltinScope modules =
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}

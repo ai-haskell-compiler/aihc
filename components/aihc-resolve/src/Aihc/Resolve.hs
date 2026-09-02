@@ -655,12 +655,12 @@ resolveExpr expr =
       EVar <$> resolveTermUse name
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
     EInt _ TInteger _ -> resolveIntegerLiteral expr
-    EInt {} -> pure expr
+    EInt _ numericType _ -> resolvePrimitiveLiteralType numericType expr
     EFloat {} -> pure expr
     EChar {} -> pure expr
-    ECharHash {} -> pure expr
+    ECharHash {} -> resolvePrimitiveLiteralTypeName "Char#" expr
     EString {} -> pure expr
-    EStringHash {} -> pure expr
+    EStringHash {} -> resolvePrimitiveLiteralTypeName "Addr#" expr
     EOverloadedLabel {} -> pure expr
     EIf cond trueBranch falseBranch ->
       EIf <$> resolveExpr cond <*> resolveExpr trueBranch <*> resolveExpr falseBranch
@@ -755,6 +755,36 @@ resolveIntegerLiteral expr = do
       annotation =
         ResolutionAnnotation sp (IdentifierNamed "fromInteger") ResolutionNamespaceTerm resolved
   pure (EAnn (mkAnnotation annotation) expr)
+
+resolvePrimitiveLiteralType :: NumericType -> Expr -> ResolveM Expr
+resolvePrimitiveLiteralType numericType expr =
+  case primitiveNumericTypeName numericType of
+    Just name -> resolvePrimitiveLiteralTypeName name expr
+    Nothing -> resolveIntegerLiteral expr
+
+resolvePrimitiveLiteralTypeName :: Text -> Expr -> ResolveM Expr
+resolvePrimitiveLiteralTypeName name expr = do
+  sp <- currentSpan
+  info <- currentModuleInfo
+  let resolved = lookupType name (moduleInfoBuiltinScope info)
+      annotation =
+        ResolutionAnnotation sp (IdentifierNamed name) ResolutionNamespaceType resolved
+  pure (EAnn (mkAnnotation annotation) expr)
+
+primitiveNumericTypeName :: NumericType -> Maybe Text
+primitiveNumericTypeName numericType =
+  case numericType of
+    TInteger -> Nothing
+    TIntHash -> Just "Int#"
+    TWordHash -> Just "Word#"
+    TInt8Hash -> Just "Int8#"
+    TInt16Hash -> Just "Int16#"
+    TInt32Hash -> Just "Int32#"
+    TInt64Hash -> Just "Int64#"
+    TWord8Hash -> Just "Word8#"
+    TWord16Hash -> Just "Word16#"
+    TWord32Hash -> Just "Word32#"
+    TWord64Hash -> Just "Word64#"
 
 rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
 rebindableFromInteger info scope =

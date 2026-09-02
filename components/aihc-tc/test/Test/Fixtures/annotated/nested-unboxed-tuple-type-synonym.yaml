@@ -4,7 +4,7 @@ annotated:
   data Void
        └─ type: Type
   type X = (# (# #), Void #)
-       └─ type: TYPE ('TupleRep (': ('TupleRep '[]) (': ('BoxedRep 'Lifted) '[])))
+       └─ type: GHC.Types.TYPE ('GHC.Types.TupleRep ('GHC.Types.: ('GHC.Types.TupleRep 'GHC.Types.[]) ('GHC.Types.: ('GHC.Types.BoxedRep 'GHC.Types.Lifted) 'GHC.Types.[])))
 extensions:
 - UnboxedTuples
 modules:

@@ -3,7 +3,7 @@ annotated:
   module GHC.Num where
   import GHC.Prim (Int#)
   data Integer = IS Int#
-       │         └─ type: Int# → Integer
+       │         └─ type: GHC.Prim.Int# → Integer
        └─ type: Type
   class Num a where
   └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
@@ -20,7 +20,7 @@ annotated:
     1 -> ()
     ││    └─ type: ()
     └─ type: a; type-args: a; evidence: given Num a
-    └─ type: a → a → Bool; type-args: a; evidence: given Eq a
+    └─ type: a → a → GHC.Types.Bool; type-args: a; evidence: given Eq a
 extensions:
 - LambdaCase
 - MagicHash

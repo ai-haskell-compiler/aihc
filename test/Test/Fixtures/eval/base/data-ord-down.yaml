@@ -25,5 +25,4 @@ expression: |
       show (Down True) == "Down True",
       (read "Down False" :: Down Bool) == Down False
     ]
-status: xfail
-reason: Data.Ord Down reverses ordering and supports its public wrapper instances
+status: pass

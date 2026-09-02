@@ -2,7 +2,7 @@ annotated:
 - |-
   module Test where
   type Nil = (# #)
-       └─ type: TYPE ('TupleRep '[])
+       └─ type: GHC.Types.TYPE ('GHC.Types.TupleRep 'GHC.Types.[])
 extensions:
 - UnboxedTuples
 modules:

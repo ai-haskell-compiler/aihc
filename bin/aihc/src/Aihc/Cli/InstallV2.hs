@@ -860,8 +860,8 @@ renderTypeErrorKind kind =
   case kind of
     UnificationError left right _ _ ->
       "could not match " <> renderTcType left <> " with " <> renderTcType right
-    OccursCheckError unique ty ->
-      "occurs check failed: " <> show unique <> " occurs in " <> renderTcType ty
+    OccursCheckError variable ty ->
+      "occurs check failed: " <> renderTcType variable <> " occurs in " <> renderTcType ty
     UnboundVariable name ->
       "unbound variable " <> name
     KindMismatch expected actual ->
@@ -1207,7 +1207,7 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
   where
     allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim.Base", "GHC.Prim.Num"]
+    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Num"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do

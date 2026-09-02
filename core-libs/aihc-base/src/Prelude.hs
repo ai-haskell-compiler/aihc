@@ -104,6 +104,7 @@ module Prelude
     showParen,
     shows,
     showString,
+    read,
     reads,
     readParen,
     lex,
@@ -490,6 +491,20 @@ defaultReadListParser _ = readList
 
 reads :: (Read a) => ReadS a
 reads = readsPrec minPrec
+
+read :: (Read a) => String -> a
+read input =
+  case completePreludeReads (reads input) of
+    [value] -> value
+    [] -> error "Prelude.read: no parse"
+    _ -> error "Prelude.read: ambiguous parse"
+
+completePreludeReads :: [(a, String)] -> [a]
+completePreludeReads [] = []
+completePreludeReads ((value, rest) : results) =
+  case lex rest of
+    [([], [])] -> value : completePreludeReads results
+    _ -> completePreludeReads results
 
 readParen :: Bool -> ReadS a -> ReadS a
 readParen required parser =

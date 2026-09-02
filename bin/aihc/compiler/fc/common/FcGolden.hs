@@ -245,24 +245,27 @@ preparePrimitiveSupport primitiveModules =
   case mapM (uncurry parsePrimitiveModule) primitiveModules of
     Left errMsg -> Left ("parse error: " <> errMsg)
     Right modules ->
-      case resolveWithDeps emptyScope mempty (modulesInPackage primitivePackage modules) of
-        resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
-          let primitiveAsts = map snd resolvedModules
-              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (primPackageId desugarConfig)) emptyTcInterface primitiveAsts
-           in if all tcModuleSuccess primitiveTcResults
-                then
-                  let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
-                      primitiveResults = map (desugarModuleFc desugarConfig primitiveBindings tcInterface) primitiveTcResults
-                   in if all dsSuccess primitiveResults
-                        then
-                          Right
-                            PrimitiveSupport
-                              { supportScopes = extractInterface resolved,
-                                supportTcInterface = tcInterface
-                              }
-                        else Left (unlines (concatMap dsErrors primitiveResults))
-                else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip primitiveAsts primitiveTcResults, diagnostic <- tcModuleDiagnostics result])
-        ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+      let packageModules = modulesInPackage primitivePackage modules
+          exports = collectModuleExportsWithDeps mempty packageModules
+          builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
+       in case resolveWithDeps builtinScope mempty packageModules of
+            resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+              let primitiveAsts = map snd resolvedModules
+                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (primPackageId desugarConfig)) emptyTcInterface primitiveAsts
+               in if all tcModuleSuccess primitiveTcResults
+                    then
+                      let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
+                          primitiveResults = map (desugarModuleFc desugarConfig primitiveBindings tcInterface) primitiveTcResults
+                       in if all dsSuccess primitiveResults
+                            then
+                              Right
+                                PrimitiveSupport
+                                  { supportScopes = extractInterface resolved,
+                                    supportTcInterface = tcInterface
+                                  }
+                            else Left (unlines (concatMap dsErrors primitiveResults))
+                    else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip primitiveAsts primitiveTcResults, diagnostic <- tcModuleDiagnostics result])
+            ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
@@ -290,7 +293,7 @@ fixtureBuiltinScope modules =
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
+    builtinFunctionModules = ["GHC.Prim", "GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}

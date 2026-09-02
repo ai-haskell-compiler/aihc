@@ -300,7 +300,7 @@ compileEvalCase tc =
 
 evalBuiltinScope :: [(Package, Module)] -> Scope
 evalBuiltinScope packageModules =
-  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num"]
+  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
   where
     allExports = collectModuleExportsWithDeps mempty packageModules
     lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports
@@ -398,8 +398,8 @@ renderTcErrorKind errorKind =
   case errorKind of
     UnificationError left right _ _ ->
       "could not match " <> renderTcType left <> " with " <> renderTcType right
-    OccursCheckError unique ty ->
-      "occurs check failed: " <> show unique <> " occurs in " <> renderTcType ty
+    OccursCheckError variable ty ->
+      "occurs check failed: " <> renderTcType variable <> " occurs in " <> renderTcType ty
     UnboundVariable name ->
       "unbound variable " <> name
     KindMismatch expected actual ->

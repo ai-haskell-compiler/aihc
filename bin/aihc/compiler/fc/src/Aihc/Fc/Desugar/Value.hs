@@ -87,7 +87,7 @@ import Data.Char (isAsciiUpper)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -262,7 +262,114 @@ desugarEarlyDecl declaration =
                 <$> desugarClassSelectors classDecl classAnnotation
                 <*> desugarClassDefaults classDecl
           | otherwise -> desugarEarlyDecl inner
+        Syn.DeclData dataDecl -> desugarRecordSelectors (Syn.dataDeclConstructors dataDecl)
+        Syn.DeclNewtype newtypeDecl -> desugarRecordSelectors (maybeToList (Syn.newtypeDeclConstructor newtypeDecl))
         _ -> pure []
+
+-- | Make one selector function for each record label of a data or newtype
+-- declaration. The type checker registers the selector type. A data
+-- selector matches each constructor that has the label. A newtype selector
+-- casts with the representation axiom.
+desugarRecordSelectors :: [Syn.DataConDecl] -> ValueM [Decl]
+desugarRecordSelectors declarations = do
+  moduleOrigin <- gets vsModuleOrigin
+  infos <- gets vsConstructorInfos
+  let constructors =
+        [ constructor
+        | name <- concatMap recordConstructorNames declarations,
+          constructor <- Map.findWithDefault [] name infos,
+          dciOrigin constructor == moduleOrigin
+        ]
+      labels =
+        List.nub
+          [ label
+          | constructor <- constructors,
+            field <- dciFields constructor,
+            Just label <- [dcfiLabel field]
+          ]
+  mapM (desugarRecordSelector constructors) labels
+
+recordConstructorNames :: Syn.DataConDecl -> [Text]
+recordConstructorNames declaration =
+  case declaration of
+    Syn.DataConAnn _ inner -> recordConstructorNames inner
+    Syn.RecordCon _ _ constructor _ -> [Syn.unqualifiedNameText constructor]
+    Syn.GadtCon _ _ constructors (Syn.GadtRecordBody _ _) -> map Syn.unqualifiedNameText constructors
+    _ -> []
+
+desugarRecordSelector :: [DataConInfo] -> Text -> ValueM Decl
+desugarRecordSelector constructors label = do
+  moduleOrigin <- gets vsModuleOrigin
+  let (package, moduleName') = moduleOrigin
+  bindingTypes <- gets vsBindingTypes
+  selectorType <-
+    case Map.lookup (TcTermGlobal package moduleName' label) bindingTypes of
+      Just ty -> pure ty
+      Nothing -> failValue ("record selector does not have a checked type: " <> T.unpack label)
+  let (typeVariables, afterForAlls) = peelForAlls selectorType
+      (predicates, body) = peelConstraints afterForAlls
+  (scrutineeType, fieldType) <-
+    case body of
+      TcFunTy argument result -> pure (argument, result)
+      _ -> failValue ("record selector does not have a function type: " <> T.unpack label)
+  withTypeVariables typeVariables $ do
+    dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
+    argument <- freshBinder "$record" scrutineeType
+    selection <- desugarRecordSelection label scrutineeType fieldType argument constructors
+    typeBinders <- convertTypeBinders typeVariables
+    selectorType' <- convertCheckedType selectorType
+    pure
+      ( DeclVal
+          ValDecl
+            { valVis = Pub,
+              valName = topName moduleOrigin label,
+              valType = selectorType',
+              valBody = foldr ExTyLam (foldr ExLam selection (dictionaries <> [argument])) typeBinders
+            }
+      )
+
+desugarRecordSelection :: Text -> TcType -> TcType -> Binder -> [DataConInfo] -> ValueM Expr
+desugarRecordSelection label scrutineeType fieldType argument constructors = do
+  newtypes <- gets vsNewtypeConstructors
+  let newtypeInfos =
+        [ dataType
+        | constructor <- constructors,
+          let (package, moduleName') = dciOrigin constructor,
+          Just dataType <- [Map.lookup (TcTermGlobal package moduleName' (dciName constructor)) newtypes]
+        ]
+  case newtypeInfos of
+    dataType : _ -> do
+      typeArguments <-
+        case scrutineeType of
+          TcTyCon _ arguments -> pure arguments
+          _ -> failValue ("newtype record selector does not select from a type constructor: " <> T.unpack label)
+      convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
+      let tyCon = dtiTyCon dataType
+          axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+      pure (ExCast (ExVar (binderName argument)) (CoAxiom axiom convertedArguments))
+    [] -> do
+      caseBinder <- freshBinder "$record_scrut" scrutineeType
+      fieldType' <- convertCheckedType fieldType
+      alternatives <- concat <$> mapM (recordSelectorAlternative label) constructors
+      pure (ExCase (ExVar (binderName argument)) caseBinder fieldType' alternatives)
+
+recordSelectorAlternative :: Text -> DataConInfo -> ValueM [Alt]
+recordSelectorAlternative label constructor =
+  case List.findIndex ((== Just label) . dcfiLabel) (dciFields constructor) of
+    Nothing -> pure []
+    Just index -> do
+      let (package, moduleName') = dciOrigin constructor
+          existentials = dciExTyVars constructor
+      typeBinders <- convertTypeBinders existentials
+      withTypeVariables existentials $ do
+        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] (dciTheta constructor)
+        fields <- zipWithM (freshIndexedBinder "$field") [0 :: Int ..] (map dcfiType (dciFields constructor))
+        selected <-
+          case drop index fields of
+            field : _ -> pure field
+            [] -> failValue ("record selector field index is out of range: " <> T.unpack label)
+        let constructorName = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
+        pure [Alt (AltData constructorName) typeBinders (dictionaries <> fields) (ExVar (binderName selected))]
 
 annotatedForeignDecl :: Syn.Decl -> Maybe (TcAnnotation, Maybe TcForeignImportAnnotation, Syn.ForeignDecl)
 annotatedForeignDecl = go Nothing Nothing
@@ -1446,6 +1553,11 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
               desugarOverloadedInteger annotation resolution value
+        Syn.EAnn resolutionAnnotation primitiveLiteral
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceType,
+            isPrimitiveLiteral primitiveLiteral ->
+              desugarAnnotatedExpr annotation primitiveLiteral
         Syn.EInt value numericType _
           | numericType /= Syn.TInteger -> do
               representation <- convertRuntimeRep (numericRepresentation numericType)
@@ -2597,6 +2709,14 @@ lookupLocal key displayName = do
   case local of
     Just entry -> pure entry
     Nothing -> failValue ("missing local value " <> T.unpack displayName)
+
+isPrimitiveLiteral :: Syn.Expr -> Bool
+isPrimitiveLiteral expression =
+  case expression of
+    Syn.EInt _ numericType _ -> numericType /= Syn.TInteger
+    Syn.ECharHash {} -> True
+    Syn.EStringHash {} -> True
+    _ -> False
 
 lookupBindingType :: TcTermKey -> ValueM TcType
 lookupBindingType key = do
