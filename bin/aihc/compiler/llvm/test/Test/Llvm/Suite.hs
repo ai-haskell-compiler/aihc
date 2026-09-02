@@ -8,7 +8,7 @@ import Aihc.Grin.Syntax
 import Aihc.Llvm (compileEntry, compileModule, validatePrimitiveNames)
 import Aihc.Native
   ( NativeTarget (Llvm),
-    RuntimeGarbageCollector (RuntimeGcCalloc),
+    RuntimeGarbageCollector (..),
     RuntimePlan (..),
     executableEntryName,
     runtimePlan,
@@ -41,6 +41,8 @@ tests =
       testCase "executes Int# addition" (testProgram "*" intAddProgram),
       testCase "preserves first-match case semantics" (testProgram "F" firstMatchCaseProgram),
       testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
+      testCase "keeps static root entries in llvm.used" testStaticRootEntries,
+      testCase "traces an updated static thunk across collections" (testProgramWith RuntimeGcSemispace ["-DAIHC_SEMISPACE_BYTES=1024"] "S" staticRootProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
       testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram),
       testCase "exits directly with an unboxed process status" testProcessExit
@@ -321,6 +323,83 @@ thunkEntryProgram =
     output = GrinVar "output" 91 Int32Rep
     unitValue = GrinVar "()" 92 lifted
 
+-- | Root entries are private constants that no code references. Without
+-- @llvm.used@, optimization removes them and the collector gets an empty root
+-- section.
+testStaticRootEntries :: IO ()
+testStaticRootEntries = do
+  sources <- compile thunkEntryProgram
+  case sources of
+    [moduleSource, _entrySource] -> do
+      let usedLines = filter ("@llvm.used = appending global" `T.isPrefixOf`) (T.lines moduleSource)
+      assertEqual "one llvm.used declaration" 1 (length usedLines)
+      assertBool "llvm.used lists the main root" (any ("_root" `T.isInfixOf`) usedLines)
+      assertBool "llvm.used lives in llvm.metadata" (any ("section \"llvm.metadata\"" `T.isInfixOf`) usedLines)
+    _ -> assertFailure "LLVM compilation did not return two units"
+
+-- | The static @caf@ thunk is updated with a heap box. The action then
+-- allocates enough garbage for several collections and reads the box through
+-- the static thunk again. The output is wrong or the program stops when the
+-- collector does not trace the static thunk.
+staticRootProgram :: GrinProgram
+staticRootProgram =
+  GrinProgram
+    { grinConstructors = [("()", []), ("Box", [[Int32Rep]]), ("Pad", replicate 4 [IntRep])],
+      grinPrimitives = [],
+      grinForeignCalls = [putcharCall],
+      grinGlobals =
+        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
+          (grinVarName cafThunk, GrinNode (GrinThunk cafFunction) [])
+        ],
+      grinFunctions =
+        [ function cafFunction $
+            GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum 'S')))]),
+          function mainFunction $
+            GrinBind [first] (GrinEval lifted (GrinGlobalValue (grinVarName cafThunk))) $
+              GrinCall lifted (chainFunction 0) []
+        ]
+          <> [ function (chainFunction index) $
+                 GrinBind [padding index] (GrinStore (GrinNode (GrinConstructor "Pad" 0) (replicate 4 (intValue 0)))) $
+                   GrinCall lifted (chainFunction (index + 1)) []
+             | index <- [0 .. chainLength - 1]
+             ]
+          <> [ function (chainFunction chainLength) $
+                 GrinBind [second] (GrinEval lifted (GrinGlobalValue (grinVarName cafThunk))) $
+                   GrinCase
+                     (GrinVarValue second)
+                     caseBinder
+                     [ GrinAlt (GrinDataAlt "Box") [character] $
+                         GrinBind [output] (GrinForeignCallExpr putcharCall [GrinVarValue character]) $
+                           GrinConstant [GrinGlobalValue (grinVarName unitValue)],
+                       GrinAlt GrinDefaultAlt [] $
+                         GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum '?')))]) $
+                           GrinConstant [GrinGlobalValue (grinVarName unitValue)]
+                     ]
+             ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    chainLength = 100
+    function name body =
+      GrinFunction
+        { grinFunctionName = name,
+          grinFunctionParameters = [],
+          grinFunctionResultRep = lifted,
+          grinFunctionBody = body
+        }
+    cafFunction = FunctionName "$static_root_caf"
+    mainFunction = FunctionName "$static_root_main"
+    chainFunction index = FunctionName ("$static_root_chain_" <> T.pack (show (index :: Int)))
+    mainClosure = GrinVar "main" 300 lifted
+    cafThunk = GrinVar "caf" 301 lifted
+    padding index = GrinVar "padding" (500 + index) lifted
+    first = GrinVar "first" 700 lifted
+    second = GrinVar "second" 701 lifted
+    caseBinder = GrinVar "case_binder" 702 lifted
+    character = GrinVar "character" 703 Int32Rep
+    output = GrinVar "output" 704 Int32Rep
+    unitValue = GrinVar "()" 705 lifted
+
 putcharCall :: GrinForeignCall
 putcharCall =
   GrinForeignCall
@@ -400,7 +479,7 @@ testProcessExit = do
     "LLVM main must not recover an exit status after the tail-call chain"
     (not ("call i64 @aihc_get_exit_status" `T.isInfixOf` source))
   withTempDirectory "aihc-llvm-exit" $ \directory -> do
-    runtimeArguments <- llvmRuntimeArguments
+    runtimeArguments <- llvmRuntimeArguments RuntimeGcCalloc
     let modulePath = directory </> "program.ll"
         entryPath = directory </> "entry.ll"
         executablePath = directory </> "program"
@@ -444,10 +523,15 @@ processExitProgram =
     mainClosure = GrinVar "main" 120 (BoxedRep Lifted)
 
 testProgram :: String -> GrinProgram -> IO ()
-testProgram expected program = do
+testProgram = testProgramWith RuntimeGcCalloc []
+
+-- | Compile and run one program against the selected collector. The extra
+-- arguments reach the C compiler for the runtime and the generated modules.
+testProgramWith :: RuntimeGarbageCollector -> [String] -> String -> GrinProgram -> IO ()
+testProgramWith collector extraArguments expected program = do
   sources <- compile program
   withTempDirectory "aihc-llvm" $ \directory -> do
-    runtimeArguments <- llvmRuntimeArguments
+    runtimeArguments <- llvmRuntimeArguments collector
     let modulePath = directory </> "program.ll"
         entryPath = directory </> "entry.ll"
         executablePath = directory </> "program"
@@ -460,6 +544,7 @@ testProgram expected program = do
       readProcessWithExitCode
         "clang"
         ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module", "-O2"]
+            <> extraArguments
             <> runtimeArguments
             <> [modulePath, entryPath, "-o", executablePath]
         )
@@ -469,9 +554,9 @@ testProgram expected program = do
     assertEqual ("generated program stderr: " <> programErr) ExitSuccess programExit
     assertEqual "generated program stdout" expected programOut
 
-llvmRuntimeArguments :: IO [String]
-llvmRuntimeArguments = do
-  plan <- runtimePlan Llvm RuntimeGcCalloc
+llvmRuntimeArguments :: RuntimeGarbageCollector -> IO [String]
+llvmRuntimeArguments collector = do
+  plan <- runtimePlan Llvm collector
   pure
     ( ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
         <> runtimeSources plan

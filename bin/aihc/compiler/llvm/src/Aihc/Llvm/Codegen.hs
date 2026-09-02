@@ -1165,9 +1165,25 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
         GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
         GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
+-- | Render each static object and its collector root entry. The root entries
+-- are private constants that no code references, so @llvm.used@ must keep
+-- them. Without it, global dead-code elimination removes every entry and the
+-- collector sees an empty root section.
 renderStaticGlobals :: CompileEnv -> GrinProgram -> Either LlvmError [Text]
-renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals env program = do
+  rendered <- mapM renderGlobal globals
+  pure (concat rendered <> usedRoots)
   where
+    usedRoots
+      | null globals = []
+      | otherwise =
+          [ "@llvm.used = appending global ["
+              <> tshow (length globals)
+              <> " x ptr] ["
+              <> T.intercalate ", " ["ptr @" <> renderLinkedGlobalSymbol name <> "_root" | (name, _) <- globals]
+              <> "], section \"llvm.metadata\"",
+            ""
+          ]
     declaredGlobals = grinGlobals program
     declaredNames = map fst declaredGlobals
     constructorLayouts = grinConstructors program
