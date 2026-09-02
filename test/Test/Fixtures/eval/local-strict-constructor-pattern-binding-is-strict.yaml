@@ -1,0 +1,21 @@
+dependencies:
+  - aihc-base
+evaluators:
+  - fc
+extensions:
+  - BangPatterns
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Int(I#))
+
+    unit :: ()
+    unit = () where !(I# n#) = error "this exception should be forced"
+output: ""
+exception: this exception should be forced
+expression: |
+  unit
+status: pass
+reason: a strict local constructor pattern binding evaluates its right-hand side
