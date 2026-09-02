@@ -39,6 +39,16 @@ the program when the live data and the pending reservation do not fit in that
 capacity. It does not count the second space, auxiliary runtime allocations, or
 static objects.
 
+The `-Zs` option decides static object liveness from static reference tables
+instead of keeping every static object alive. It is off by default because the
+tables do not yet name everything a running program reaches.
+
+The `-Zp` option overwrites the indirection target of every static object a
+collection did not mark. A table that is missing an entry retains nothing and
+therefore goes unnoticed until the collected value is read, so this option
+turns the omission into a crash at the next use of that CAF. It is the tool for
+closing the gap that keeps `-Zs` off.
+
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining
 bits point to an aligned, statically emitted info table.
@@ -52,8 +62,8 @@ blackhole:             [header] [environment / reserved target...]
 ```
 
 Each info table records the object's identity, populated field count, remaining
-logical arity, pointer bitmap, next application-stage table, and an optional
-native apply entry. Application changes the header to the statically known next
+logical arity, pointer bitmap, next application-stage table, an optional native
+apply entry, and the static reference table of the object's code. Application changes the header to the statically known next
 table. Consequently every managed object pays only for its tagged header and
 payload; arity, tracing metadata, and apply code consume no per-object shape
 word.
@@ -100,6 +110,37 @@ already blocked operation. Stored values, queued put values, continuations, and
 their suspended threads are collector roots. The cells themselves are
 auxiliary allocations owned for the machine's lifetime; weak pointers and
 finalization are intentionally outside the initial interface.
+
+## Static objects
+
+Static objects live in an object-file data section and never move. Keeping all
+of them alive is wasteful: an evaluated CAF is an indirection into the managed
+heap, so treating every static object as a root retains everything any CAF has
+ever produced. That is still what the collector does by default.
+
+Every info table carries a static reference table, which names the static
+objects that object's code reaches without going through a heap object,
+together with the tables of the functions it calls by name. Under `-Zs` a
+collection marks the objects named by the running function's table, by the
+table of anything it traces, and by anything a live object points at, and scans
+only those.
+
+That set is not yet complete. Compiling the examples against the core libraries
+and running them under `-Zs` collects CAFs the program still needs, so the
+option stays off until the tables name everything a running program reaches.
+
+Compiled functions publish their own table in `aihc_current_srt` on entry.
+After CPS conversion every call is a tail call, so a running function has no
+heap object of its own to carry its table, and a collection can happen at one
+of its safepoints or inside a runtime helper it called. Suspended code is an
+ordinary continuation closure and reaches its table through its info table.
+
+The static-root section lists the static objects worth marking: updateable
+thunks, which become indirections, and objects that have fields. The collector
+hashes those addresses once into a side table with one mark byte per entry,
+which also tells it whether any pointer outside the heap belongs to a static
+object at all. Nullary constructors have no entry, because a pointer to one
+needs no action either way.
 
 ## IO manager
 

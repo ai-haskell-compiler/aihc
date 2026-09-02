@@ -19,6 +19,7 @@
 | Artifact store | An immutable collection of package artifact directories. |
 | Static object | A native runtime object that the compiler puts directly in an object-file data section. |
 | CAF | A top-level updateable thunk stored as a writable static object. |
+| Static reference table | The static objects one function's code reaches without going through a heap object, plus the tables of the functions it calls directly. |
 
 Name resolution and type checking process all modules in one compilation unit together. All later phases process each module separately.
 
@@ -578,7 +579,7 @@ Each module object must contain:
 - Native relocations for all cross-symbol references.
 - Read-only info tables and other constant data.
 - Writable static objects for CAFs and other mutable static values.
-- Static-root section entries for static objects that can contain heap pointers.
+- Static-root section entries for static objects the collector has to mark.
 - Unwind or debug sections when the selected compiler options request them.
 
 The object must use one uniform value ABI. References to external Haskell values are object addresses used through `eval` and `apply`.
@@ -599,13 +600,29 @@ Use native relocations for info tables and captured static values. The native li
 
 Reserve at least one payload word for an updateable zero-field thunk. Evaluation uses this word for the indirection target.
 
-Put one pointer to each applicable static object in the target's AIHC static-root section.
+Put one pointer to each static object the collector has to mark in the target's AIHC static-root section. A static object needs marking when it is an updateable thunk, because evaluating it makes it an indirection into the managed heap, or when it has any fields. Nullary constructors need no entry: they never move and never retain anything.
 
-The moving collector must scan these static objects during each collection. It must use the current info table and its pointer bitmap.
+The test is the field count rather than the field representations. The collector follows an object's info table and its pointer bitmap, and a constructor's bitmap comes from the declared layout rather than from the values one object stores, so leaving that decision entirely with the bitmap costs only the occasional scan of a static node whose fields are all unboxed.
 
-The collector must not move a static object. It must update each heap pointer in the static object's fields.
+The collector must not move a static object. When it marks one, it must scan the object with its current info table and its pointer bitmap, and update each heap pointer in the object's fields.
 
 This design does not require a CAF initializer. It also does not require a per-module initializer function.
+
+### Static reference tables
+
+An evaluated CAF holds the value it produced, so treating every static object as a root keeps everything any CAF has ever produced. Static reference tables give the collector a basis for deciding which static objects are live instead. The runtime does not yet use them by default; see the RTS notes for the current state.
+
+Emit one static reference table for each function whose code reaches a static object that needs marking. The table names the static objects the function's code mentions directly, and the tables of the functions it calls by name.
+
+Tables are chained rather than flattened. The reachable set is the same as a transitive closure over known calls, but every reference stays an ordinary relocation and the analysis never needs the whole program.
+
+A node the function stores on the heap contributes no entry. The stored object carries its own info table, and that table names the target function's table, so the collector reaches it exactly while the object lives.
+
+Put a pointer to the table in the info table of every closure and thunk whose entry is that function. Constructor info tables have no table: a constructor has no code.
+
+Compiled functions must publish their own table on entry. After CPS conversion every call is a tail call, so a running function has no heap object of its own to carry its table, and a collection can happen at one of its safepoints or inside a runtime helper it called. A function with no table must publish an empty one rather than leave behind the table of a function that has already transferred control away.
+
+A table record is word-uniform: a mutable walk link, the object count, the child count, then the static object addresses followed by the addresses of the child tables. The link is mutable, so records belong in a writable section even though info tables are read-only.
 
 ### Native linking
 
