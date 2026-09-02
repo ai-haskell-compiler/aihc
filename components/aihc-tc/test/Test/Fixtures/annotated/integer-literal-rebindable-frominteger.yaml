@@ -1,0 +1,28 @@
+extensions:
+- MagicHash
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  one = 1
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: Type
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+  one = 1
+  │     └─ type: a; type-args: a; evidence: given Num a
+  └─ type: ∀ a. (Num a) ⇒ a
+reason: RebindableSyntax uses the resolved local fromInteger method for integer literals.
+status: pass

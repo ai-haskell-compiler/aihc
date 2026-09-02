@@ -1,0 +1,16 @@
+extensions:
+- ExtendedLiterals
+- MagicHash
+modules:
+- |
+  module Test where
+  int8Value = 1#Int8
+annotated:
+- |-
+  module Test where
+  int8Value = 1#Int8
+  ││           └─ type: Int8#
+  └─ type: Int8#
+  └─ error: top-level binding int8Value has unlifted type Int8#
+reason: The Int8# literal uses the TYPE Int8Rep kind from the GHC.Prim source interface.
+status: pass
