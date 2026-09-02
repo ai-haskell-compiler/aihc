@@ -1,0 +1,50 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    x :: () -> ()
+    x a = a
+    {-# RULES "x/x" forall a. x (x a) = x a #-}
+    {-# SPECIALISE x :: () -> () #-}
+    {-# ANN x "hint" #-}
+    class C a where
+      method :: a -> a
+      other :: a -> a
+      other = method
+      {-# MINIMAL method #-}
+    instance C () where
+      method value = value
+      {-# SPECIALIZE instance C () #-}
+annotated:
+  - |
+    module Main where
+    x :: () -> ()
+    │    │     └─ t Builtin ()
+    │    └─ t Builtin ()
+    └─ v Main
+    x a = a
+    │ │   └─ v 0
+    │ └─ v 0
+    └─ v Main
+    {-# RULES "x/x" forall a. x (x a) = x a #-}
+    {-# SPECIALISE x :: () -> () #-}
+    {-# ANN x "hint" #-}
+    class C a where
+          └─ t Main
+      method :: a -> a
+      └─ v Main
+      other :: a -> a
+      └─ v Main
+      other = method
+      │       └─ v Main
+      └─ v Main
+      {-# MINIMAL method #-}
+    instance C () where
+             │ └─ t Builtin ()
+             └─ t Main
+      method value = value
+      │      └─ v 0  └─ v 0
+      └─ v Main
+      {-# SPECIALIZE instance C () #-}
+status: pass
+reason: RULES, SPECIALISE, ANN, and MINIMAL pragmas are accepted without resolver diagnostics

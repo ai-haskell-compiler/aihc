@@ -81,6 +81,7 @@ import Aihc.Parser.Syntax
     PragmaType (..),
     RecordField (..),
     Rhs (..),
+    RoleAnnotation (..),
     SourceSpan (..),
     StandaloneDerivingDecl (..),
     TyVarBinder (..),
@@ -118,6 +119,7 @@ import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 collectResolveErrors :: (Data a) => a -> [ResolveError]
 collectResolveErrors node =
@@ -419,9 +421,15 @@ resolveDeclCore termDefinition decl =
     DeclFixity {} -> pure decl
     DeclForeign foreignDecl ->
       DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
-    DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclRoleAnnotation roleAnnotation -> do
+      scope <- currentScope
+      sp <- currentSpan
+      let name = roleAnnotationName roleAnnotation
+          rendered = renderUnqualifiedName name
+          name' = resolveUnqualifiedNameTo sp ResolutionNamespaceType (lookupType rendered scope) name
+      pure (DeclRoleAnnotation roleAnnotation {roleAnnotationName = name'})
     DeclPragma pragma
-      | ignoredInlinePragma (pragmaType pragma) -> pure decl
+      | ignoredPragma (pragmaType pragma) -> pure decl
       | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -438,8 +446,10 @@ resolveDeclCore termDefinition decl =
     DeclDataFamilyInst dataFamilyInst ->
       DeclDataFamilyInst <$> resolveDataFamilyInst dataFamilyInst
 
-ignoredInlinePragma :: PragmaType -> Bool
-ignoredInlinePragma pragma =
+-- | Pragmas that only give optimisation or documentation hints.
+-- The resolver accepts them and does not resolve their contents.
+ignoredPragma :: PragmaType -> Bool
+ignoredPragma pragma =
   case pragma of
     PragmaInline kind _
       | kind == "INLINE"
@@ -450,7 +460,25 @@ ignoredInlinePragma pragma =
           || kind == "NOINLINABLE"
           || kind == "CONLIKE" ->
           True
+    PragmaUnknown rawText ->
+      case T.words (T.toUpper (T.drop 3 rawText)) of
+        keyword : _ -> keyword `elem` ignoredPragmaKeywords
+        [] -> False
     _ -> False
+
+-- | Keywords of hint pragmas that do not change name resolution.
+ignoredPragmaKeywords :: [Text]
+ignoredPragmaKeywords =
+  [ "RULES",
+    "SPECIALISE",
+    "SPECIALIZE",
+    "SPECIALISE_INLINE",
+    "SPECIALIZE_INLINE",
+    "MINIMAL",
+    "COMPLETE",
+    "ANN",
+    "OPAQUE"
+  ]
 
 resolveValueDecl :: TermDefinition -> ValueDecl -> ResolveM ValueDecl
 resolveValueDecl termDefinition valueDecl =
@@ -505,7 +533,7 @@ resolveClassDeclItem classDeclItem =
       ClassItemDefault <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
     ClassItemFixity {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemPragma pragma
-      | ignoredInlinePragma (pragmaType pragma) -> pure classDeclItem
+      | ignoredPragma (pragmaType pragma) -> pure classDeclItem
       | otherwise -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
@@ -540,7 +568,7 @@ resolveInstanceDeclItem instanceDeclItem =
     InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemPragma pragma
-      | ignoredInlinePragma (pragmaType pragma) -> pure instanceDeclItem
+      | ignoredPragma (pragmaType pragma) -> pure instanceDeclItem
       | otherwise -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
 
 resolveStandaloneDerivingDecl :: StandaloneDerivingDecl -> ResolveM StandaloneDerivingDecl
