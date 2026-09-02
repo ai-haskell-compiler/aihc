@@ -557,12 +557,10 @@ lookupResolvedTypeSyntax :: ResolutionAnnotation -> TcM (Maybe TyConInfo)
 lookupResolvedTypeSyntax resolution =
   case resolution of
     ResolutionAnnotation
-      { resolutionIdentifier = identifier,
-        resolutionNamespace = namespace,
+      { resolutionNamespace = namespace,
         resolutionTarget = ResolvedTopLevel packageId resolvedName
-      } -> do
-        exact <- lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
-        maybe (lookupTyConInNamespace namespace (displayIdentifier identifier)) (pure . Just) exact
+      } ->
+        lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
     ResolutionAnnotation
       { resolutionTarget = ResolvedError {}
       } -> pure Nothing

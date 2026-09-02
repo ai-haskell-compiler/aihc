@@ -1553,6 +1553,11 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
               desugarOverloadedInteger annotation resolution value
+        Syn.EAnn resolutionAnnotation primitiveLiteral
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceType,
+            isPrimitiveLiteral primitiveLiteral ->
+              desugarAnnotatedExpr annotation primitiveLiteral
         Syn.EInt value numericType _
           | numericType /= Syn.TInteger -> do
               representation <- convertRuntimeRep (numericRepresentation numericType)
@@ -2704,6 +2709,14 @@ lookupLocal key displayName = do
   case local of
     Just entry -> pure entry
     Nothing -> failValue ("missing local value " <> T.unpack displayName)
+
+isPrimitiveLiteral :: Syn.Expr -> Bool
+isPrimitiveLiteral expression =
+  case expression of
+    Syn.EInt _ numericType _ -> numericType /= Syn.TInteger
+    Syn.ECharHash {} -> True
+    Syn.EStringHash {} -> True
+    _ -> False
 
 lookupBindingType :: TcTermKey -> ValueM TcType
 lookupBindingType key = do

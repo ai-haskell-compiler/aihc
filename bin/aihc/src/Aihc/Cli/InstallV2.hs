@@ -1207,7 +1207,7 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
   where
     allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Classes", "GHC.Prim.Base", "GHC.Prim.Num"]
+    builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Num"]
 
 measureTime :: IO a -> IO (a, Word64)
 measureTime action = do

@@ -3,14 +3,14 @@ annotated:
   module Test where
   import GHC.Prim (Int#)
   foreign import prim (+#) :: Int# -> Int# -> Int#
-  └─ type: Int# → Int# → Int#
+  └─ type: GHC.Prim.Int# → GHC.Prim.Int# → GHC.Prim.Int#
   int# = 10#
-  ││      └─ type: Int#
-  └─ type: Int#
+  ││      └─ type: GHC.Prim.Int#
+  └─ type: GHC.Prim.Int#
   └─ error: top-level binding int# has unlifted type Int#
   word# = 10##
-  ││       └─ type: Word#
-  └─ type: Word#
+  ││       └─ type: GHC.Prim.Word#
+  └─ type: GHC.Prim.Word#
   └─ error: top-level binding word# has unlifted type Word#
 extensions:
 - MagicHash

@@ -6,8 +6,8 @@ annotated:
   │      │ │      │     └─ type: a
   │      │ │      └─ type: [a]; type-args: a
   │      │ └─ type: [a]
-  │      └─ type: a → Bool
-  └─ type: ∀ a. (a → Bool) → [a] → [a]
+  │      └─ type: a → GHC.Types.Bool
+  └─ type: ∀ a. (a → GHC.Types.Bool) → [a] → [a]
 extensions: []
 modules:
 - |
