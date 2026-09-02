@@ -5,6 +5,7 @@ module Aihc.Tc.Generate.Bind
   ( InferExpr,
     inferLocalDecls,
     inferRhsWithLocals,
+    boolTyCon,
     collectRawSigs,
     sigToScheme,
     skolemize,
@@ -19,6 +20,8 @@ import Aihc.Parser.Syntax
     CaseAlt (..),
     Decl (..),
     Expr (..),
+    GuardQualifier (..),
+    GuardedRhs (..),
     Match (..),
     NameType (..),
     Pattern (..),
@@ -35,15 +38,18 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
+import Aihc.Tc.Env (TyConInfo (..))
+import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Generalize (environmentMetaVars, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (solveConstraints)
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (foldM)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Control.Monad (foldM, forM_)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -69,12 +75,13 @@ inferLocalDecls inferExpr decls body = do
     let bindingCts = concatMap snd groupResults
     if shouldGen
       then do
-        _ <- solveConstraints bindingCts
-        polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap) binders
+        solveResult <- solveConstraints bindingCts
+        residuals <- partitionLocalResiduals binderSet placeholderMap groups binders solveResult
+        polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap residuals) binders
         decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
-          pure (decls', bodyResult, bodyTy, bodyCts)
+          pure (decls', bodyResult, bodyTy, localResidualOuterCts residuals ++ bodyCts)
       else do
         monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
         decls' <- annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
@@ -145,9 +152,74 @@ inferRhsWithLocals inferExpr rhs =
         Just decls -> do
           (decls', expr', ty, cts) <- inferLocalDecls inferExpr decls (inferExpr expr)
           pure (UnguardedRhs sp expr' (Just decls'), ty, cts)
-    GuardedRhss {} -> do
-      ty <- freshMetaTv
-      pure (rhs, ty, [])
+    GuardedRhss anns guardedRhss maybeDecls ->
+      case maybeDecls of
+        Nothing -> do
+          (guardedRhss', ty, cts) <- inferGuardedRhss inferExpr guardedRhss
+          pure (GuardedRhss anns guardedRhss' Nothing, ty, cts)
+        Just decls -> do
+          (decls', guardedRhss', ty, cts) <- inferLocalDecls inferExpr decls (inferGuardedRhss inferExpr guardedRhss)
+          pure (GuardedRhss anns guardedRhss' (Just decls'), ty, cts)
+
+-- | Infer guarded alternatives. Each body has the shared result type.
+inferGuardedRhss :: InferExpr -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
+inferGuardedRhss inferExpr guardedRhss = do
+  resultTy <- freshMetaTv
+  results <- mapM (inferGuardedRhs inferExpr resultTy) guardedRhss
+  pure (map fst results, resultTy, concatMap snd results)
+
+inferGuardedRhs :: InferExpr -> TcType -> GuardedRhs Expr -> TcM (GuardedRhs Expr, [Ct])
+inferGuardedRhs inferExpr resultTy guardedRhs = do
+  let sp = sourceSpanFromAnnotations (guardedRhsAnns guardedRhs)
+  (qualifiers', body', cts) <-
+    inferGuardQualifiers inferExpr sp resultTy (guardedRhsGuards guardedRhs) $ do
+      (body', bodyTy, bodyCts) <- inferExpr (guardedRhsBody guardedRhs)
+      ev <- freshEvVar
+      let bodyCt = mkWantedCt (EqPred bodyTy resultTy) ev (AppOrigin sp) sp
+      pure (body', bodyCts ++ [bodyCt])
+  pure (guardedRhs {guardedRhsGuards = qualifiers', guardedRhsBody = body'}, cts)
+
+-- | Infer guard qualifiers from left to right. A pattern guard and a let
+-- guard bind names for the qualifiers and the body that follow them.
+inferGuardQualifiers :: InferExpr -> SourceSpan -> TcType -> [GuardQualifier] -> TcM (a, [Ct]) -> TcM ([GuardQualifier], a, [Ct])
+inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
+  case qualifiers of
+    [] -> do
+      (result, cts) <- rest
+      pure ([], result, cts)
+    GuardAnn ann inner : more -> do
+      (qualifiers', result, cts) <- inferGuardQualifiers inferExpr sp resultTy (inner : more) rest
+      case qualifiers' of
+        inner' : more' -> pure (GuardAnn ann inner' : more', result, cts)
+        [] -> pure ([], result, cts)
+    GuardExpr condition : more -> do
+      (condition', conditionTy, conditionCts) <- inferExpr condition
+      boolTy <- boolTyCon
+      ev <- freshEvVar
+      let conditionCt = mkWantedCt (EqPred conditionTy boolTy) ev (AppOrigin sp) sp
+      (more', result, cts) <- inferGuardQualifiers inferExpr sp resultTy more rest
+      pure (GuardExpr condition' : more', result, conditionCts ++ [conditionCt] ++ cts)
+    GuardPat pat scrutinee : more -> do
+      (scrutinee', scrutineeTy, scrutineeCts) <- inferExpr scrutinee
+      patCheck <- checkPattern sp pat scrutineeTy
+      (more', result, cts) <- withPatternBindings (pcBindings patCheck) (inferGuardQualifiers inferExpr sp resultTy more rest)
+      remainingCts <- solvePatternBranch sp patCheck resultTy cts
+      let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+      pure (GuardPat pat' scrutinee' : more', result, scrutineeCts ++ remainingCts)
+    GuardLet decls : more -> do
+      (decls', (more', result), _ty, cts) <-
+        inferLocalDecls inferExpr decls $ do
+          (more', result, cts) <- inferGuardQualifiers inferExpr sp resultTy more rest
+          pure ((more', result), resultTy, cts)
+      pure (GuardLet decls' : more', result, cts)
+
+-- | The 'Bool' type that guards and conditions have.
+boolTyCon :: TcM TcType
+boolTyCon = do
+  maybeInfo <- lookupTyCon "Bool"
+  case maybeInfo of
+    Just info -> pure (TcTyCon (tciTyCon info) [])
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 typeKindType <*> pure []
 
 placeholderFor :: Map TcTermKey TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcTermKey, TcType)
 placeholderFor sigs name = do
@@ -173,8 +245,8 @@ withReboundLocalBinders ((name, binder) : rest) action = do
   key <- resolvedLocalTermKey name
   rebindTermEnv key binder (withReboundLocalBinders rest action)
 
-generalizedBinder :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
-generalizedBinder sigs ignored placeholders name =
+generalizedBinder :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> LocalResiduals -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
+generalizedBinder sigs ignored placeholders residuals name =
   do
     key <- resolvedLocalTermKey name
     case Map.lookup key sigs of
@@ -185,9 +257,94 @@ generalizedBinder sigs ignored placeholders name =
           Nothing -> do
             ty <- freshMetaTv
             pure (name, TcMonoIdBinder ty)
-          Just ty -> do
-            scheme <- generalizeAndCommitIgnoring ignored ty []
-            pure (name, TcIdBinder scheme Closed)
+          Just ty
+            | key `Set.member` localResidualMonomorphic residuals -> do
+                ty' <- zonkType ty
+                pure (name, TcMonoIdBinder ty')
+            | otherwise -> do
+                let preds = Map.findWithDefault [] key (localResidualPreds residuals)
+                scheme <- generalizeAndCommitIgnoring ignored ty preds
+                pure (name, TcIdBinder scheme Closed)
+
+-- | Residual constraints of a local binding group after the group solve.
+data LocalResiduals = LocalResiduals
+  { -- | Predicates that each generalized binder abstracts over.
+    localResidualPreds :: Map TcTermKey [Pred],
+    -- | Binders that the monomorphism restriction keeps monomorphic.
+    localResidualMonomorphic :: Set.Set TcTermKey,
+    -- | Constraints that the enclosing scope must solve.
+    localResidualOuterCts :: [Ct]
+  }
+
+-- | Split the residual constraints of a local binding group.
+--
+-- A class constraint on a type variable that a function binder generalizes
+-- becomes a dictionary parameter of that binder. The monomorphism
+-- restriction keeps a pattern binding or a zero-argument binding
+-- monomorphic when a constraint mentions its type. All other constraints
+-- go to the enclosing scope.
+partitionLocalResiduals :: Set.Set TcTermKey -> Map TcTermKey TcType -> [DeclGroup] -> [UnqualifiedName] -> SolveResult -> TcM LocalResiduals
+partitionLocalResiduals binderSet placeholders groups binders solveResult = do
+  residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+  envMetaVars <- environmentMetaVars binderSet
+  restricted <- restrictedBinderKeys groups
+  binderInfos <- traverse (binderMetaInfo placeholders) binders
+  let step (preds, monomorphic, outerCts, givens) ct =
+        let predicate = ctPred ct
+            generalizable = filter (`notElem` envMetaVars) (predMetaVars predicate)
+            owners = [key | (key, metas) <- binderInfos, any (`elem` metas) generalizable]
+            restrictedOwners = filter (`Set.member` restricted) owners
+         in if null generalizable || null owners || not (null restrictedOwners) || not (isClassPred predicate)
+              then (preds, Set.union (Set.fromList restrictedOwners) monomorphic, outerCts ++ [ct], givens)
+              else (foldr (\key -> Map.insertWith (flip (++)) key [predicate]) preds owners, monomorphic, outerCts, givens ++ [ct])
+      (localPreds, monomorphicKeys, outer, givenCts) = foldl step (Map.empty, Set.empty, [], []) residualCts
+  forM_ givenCts $ \ct ->
+    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+  pure
+    LocalResiduals
+      { localResidualPreds = localPreds,
+        localResidualMonomorphic = monomorphicKeys,
+        localResidualOuterCts = outer
+      }
+  where
+    zonkCtPred ct = do
+      predicate <- zonkPred (ctPred ct)
+      pure (ct {ctPred = predicate})
+    isClassPred ClassPred {} = True
+    isClassPred _ = False
+    binderMetaInfo placeholderMap name = do
+      key <- resolvedLocalTermKey name
+      ty <- maybe (pure Nothing) (fmap Just . zonkType) (Map.lookup key placeholderMap)
+      pure (key, maybe [] typeMetaVars ty)
+
+-- | Binders that the monomorphism restriction applies to: pattern bindings
+-- and function bindings without arguments.
+restrictedBinderKeys :: [DeclGroup] -> TcM (Set.Set TcTermKey)
+restrictedBinderKeys groups = Set.fromList . concat <$> mapM restrictedKeys groups
+  where
+    restrictedKeys group =
+      case group of
+        MergedFunctionBind name _ (match : _)
+          | null (matchPats match) -> (: []) <$> resolvedLocalTermKey name
+        MergedFunctionBind {} -> pure []
+        SingleDecl decl ->
+          case peelDeclAnn decl of
+            DeclValue (PatternBind _ pat _) -> patternBinderKeyList pat
+            DeclValue (FunctionBind name (match : _))
+              | null (matchPats match) -> (: []) <$> resolvedLocalTermKey name
+            _ -> pure []
+
+-- | Free meta-variables of a zonked type.
+typeMetaVars :: TcType -> [Unique]
+typeMetaVars ty =
+  case ty of
+    TcMetaTv unique -> [unique]
+    TcTyVar _ -> []
+    TcTyCon _ args -> concatMap typeMetaVars args
+    TcFunTy a b -> typeMetaVars a ++ typeMetaVars b
+    TcForAllTy _ body -> typeMetaVars body
+    TcQualTy ps body -> concatMap predMetaVars ps ++ typeMetaVars body
+    TcAppTy f a -> typeMetaVars f ++ typeMetaVars a
 
 inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
 inferLocalGroup inferExpr sigs placeholders group =
