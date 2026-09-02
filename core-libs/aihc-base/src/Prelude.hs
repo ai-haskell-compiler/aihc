@@ -206,6 +206,7 @@ import GHC.Real
     (^^),
   )
 import GHC.Tuple ()
+import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
 
 type ReadS a = String -> [(a, String)]
@@ -217,8 +218,11 @@ type Prec = Int
 minPrec :: Prec
 minPrec = 0
 
-($) :: (a -> b) -> a -> b
-function $ argument = function argument
+-- | Function application. The result type can have any runtime
+-- representation, as in GHC. The definition returns the function itself, so
+-- the value that the definition returns is always lifted.
+($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+($) function = function
 
 infixr 0 $
 
