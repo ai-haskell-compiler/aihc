@@ -23,4 +23,4 @@ expression: concurrentPairIsDistinct
 output: |
   True
 status: xfail
-reason: Data.Unique uses an atomic global source so concurrent callers cannot receive the same value
+reason: runtime_apply_nonfunction

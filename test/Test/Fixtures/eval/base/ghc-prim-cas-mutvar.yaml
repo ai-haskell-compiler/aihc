@@ -32,5 +32,4 @@ modules:
 output: |
   (True,False,True,False)
 expression: casContract
-status: xfail
-reason: casMutVar# matches GHC's name, failure-flag convention, and returned final value on success and failure
+status: pass
