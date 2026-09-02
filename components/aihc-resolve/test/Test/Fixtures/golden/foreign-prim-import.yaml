@@ -12,6 +12,8 @@ annotated:
                        │      └─ t GHC.Prim
                        └─ v Main
   x# = (+#) 10# 32#
+  │     │   │   └─ t GHC.Prim
+  │     │   └─ t GHC.Prim
   │     └─ v Main
   └─ v Main
 extensions:

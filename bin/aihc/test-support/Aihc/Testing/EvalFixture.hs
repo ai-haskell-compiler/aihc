@@ -300,7 +300,7 @@ compileEvalCase tc =
 
 evalBuiltinScope :: [(Package, Module)] -> Scope
 evalBuiltinScope packageModules =
-  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num"]
+  foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
   where
     allExports = collectModuleExportsWithDeps mempty packageModules
     lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports

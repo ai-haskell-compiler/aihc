@@ -23,17 +23,19 @@ annotated:
     import GHC.Types
     type RepValue :: RuntimeRep -> Type
     data RepValue (r :: RuntimeRep) = RepValue
-         └─ type: RuntimeRep → Type   └─ type: ∀ r. RepValue r
+         │                            └─ type: ∀ r. RepValue r
+         └─ type: GHC.Types.RuntimeRep → Type
     type Payload :: TYPE r -> Type
     data Payload (a :: TYPE r) = Payload
-         └─ type: TYPE r → Type  └─ type: ∀ r a. Payload a
+         │                       └─ type: ∀ r a. Payload a
+         └─ type: GHC.Types.TYPE r → Type
     type Pair# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r1, r2])
     data Pair# (a :: TYPE r1) (b :: TYPE r2) = (# a, b #)
          │                                     └─ type: ∀ r1 r2 a b. a → b → Pair# a b
-         └─ type: TYPE r1 → TYPE r2 → TYPE ('TupleRep (': r1 (': r2 '[])))
+         └─ type: GHC.Types.TYPE r1 → GHC.Types.TYPE r2 → GHC.Types.TYPE ('GHC.Types.TupleRep ('GHC.Types.: r1 ('GHC.Types.: r2 'GHC.Types.[])))
     type Token# :: TYPE ('TupleRep '[])
     data Token#
-         └─ type: TYPE ('TupleRep '[])
+         └─ type: GHC.Types.TYPE ('GHC.Types.TupleRep 'GHC.Types.[])
     type Boxed = Payload Int
          └─ type: Type
 status: pass

@@ -1,0 +1,24 @@
+extensions:
+- ExtendedLiterals
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int8#
+- |
+  module Main where
+  data Int8#
+  int8Value = 1#Int8
+annotated:
+- |-
+  module GHC.Prim where
+  data Int8#
+       └─ t GHC.Prim
+- |-
+  module Main where
+  data Int8#
+       └─ t Main
+  int8Value = 1#Int8
+  └─ v Main   └─ t GHC.Prim
+reason: Primitive literal types use the canonical GHC.Prim identity.
+status: pass

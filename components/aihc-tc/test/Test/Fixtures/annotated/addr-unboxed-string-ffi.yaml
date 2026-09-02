@@ -10,11 +10,11 @@ annotated:
        └─ type: Type → Type
 
   foreign import ccall unsafe puts :: Addr# -> IO CInt
-  └─ type: Addr# → IO CInt
+  └─ type: GHC.Prim.Addr# → IO CInt
 
   main :: IO CInt
   main = puts "hello world\n"#
-  │           └─ type: Addr#
+  │           └─ type: GHC.Prim.Addr#
   └─ type: IO CInt
 extensions:
 - ForeignFunctionInterface
