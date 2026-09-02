@@ -36,8 +36,8 @@ modules:
     sixteen :: Word64
     sixteen = word64At "\16\0\0\0\0\0\0\0"#
 
-    maximum :: Word64
-    maximum = word64At "\255\255\255\255\255\255\255\255"#
+    largest :: Word64
+    largest = word64At "\255\255\255\255\255\255\255\255"#
 
     results :: Bool
     results =
@@ -49,11 +49,11 @@ modules:
           Fingerprint one two < Fingerprint one sixteen,
           show (Fingerprint zero zero) == "00000000000000000000000000000000",
           show (Fingerprint fifteen sixteen) == "000000000000000f0000000000000010",
-          show (Fingerprint maximum one) == "ffffffffffffffff0000000000000001"
+          show (Fingerprint largest one) == "ffffffffffffffff0000000000000001"
         ]
 output: |
   True
 expression: |
   results
-status: xfail
+status: pass
 reason: GHC.Fingerprint.Type exports the fingerprint constructor with standard equality, ordering, and hexadecimal display behavior
