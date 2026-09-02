@@ -272,6 +272,11 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
     go values [] = continuation (reverse values)
     go values (((sourceType, value), expectedRep) : rest)
       | grinValueRuntimeRep value == expectedRep = go (value : values) rest
+      -- A byte array argument passes the address of its payload.
+      | grinValueRuntimeRep value == BoxedRep Unlifted && expectedRep == AddrRep = do
+          contents <- freshVar "foreign_contents" AddrRep
+          body <- go (GrinVarValue contents : values) rest
+          pure (GrinBind [contents] (GrinPrimitiveCall AddrRep "byteArrayContents#" [value]) body)
       | isLiftedRuntimeRep (grinValueRuntimeRep value) = do
           (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
           evaluated <- freshVar "foreign_box" liftedGrinRep

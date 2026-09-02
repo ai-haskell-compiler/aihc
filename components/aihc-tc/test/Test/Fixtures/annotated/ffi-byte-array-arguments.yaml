@@ -1,0 +1,46 @@
+annotated:
+- |-
+  module Test where
+
+  import GHC.Prim (Addr#, ByteArray#, MutableByteArray#)
+
+  data RealWorld
+       └─ type: Type
+  data IO a
+       └─ type: Type → Type
+  data Ptr a = Ptr Addr#
+       │       └─ type: ∀ a. GHC.Prim.Addr# → Ptr a
+       └─ type: Type → Type
+  data Word64#
+       └─ type: Type
+  data Word64 = W64# Word64#
+       │        └─ type: Word64# → Word64
+       └─ type: Type
+  newtype CSize = CSize Word64
+          │       └─ type: Word64 → CSize
+          └─ type: Type
+
+  foreign import ccall unsafe "memcpy"
+  └─ type: GHC.Prim.MutableByteArray# RealWorld → GHC.Prim.ByteArray# → CSize → IO (Ptr ())
+    c_memcpy :: MutableByteArray# RealWorld -> ByteArray# -> CSize -> IO (Ptr ())
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnliftedFFITypes
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Addr#, ByteArray#, MutableByteArray#)
+
+  data RealWorld
+  data IO a
+  data Ptr a = Ptr Addr#
+  data Word64#
+  data Word64 = W64# Word64#
+  newtype CSize = CSize Word64
+
+  foreign import ccall unsafe "memcpy"
+    c_memcpy :: MutableByteArray# RealWorld -> ByteArray# -> CSize -> IO (Ptr ())
+reason: byte array arguments and CSize are accepted foreign import value types
+status: pass
