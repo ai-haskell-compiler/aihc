@@ -191,7 +191,6 @@ executable aihc-dev
   hs-source-dirs:
     dev/exe
     dev/src
-    dev/app/resolve-stackage-progress
     compiler/grin/fuzz
     compiler/grin/test
 
@@ -206,9 +205,6 @@ executable aihc-dev
     Aihc.Dev.Fuzz.Registry
     Aihc.Dev.Fuzz.TUI
     Aihc.Grin.Fuzz
-    BootInterface
-    ResolvePackage
-    ResolveStackageProgress
     Test.Grin.Arbitrary
 
   build-depends:
@@ -216,10 +212,7 @@ executable aihc-dev
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc:compiler,
-    aihc-cpp,
-    aihc-hackage,
     aihc-parser,
-    aihc-resolve,
     aihc-tc,
     aihc-tc:fuzz,
     async,
@@ -339,7 +332,6 @@ test-suite dev-spec
   hs-source-dirs:
     dev/test
     dev/src
-    dev/app/resolve-stackage-progress
     compiler/grin/fuzz
     compiler/grin/test
 
@@ -355,25 +347,17 @@ test-suite dev-spec
     Aihc.Dev.Fuzz.Registry
     Aihc.Dev.Fuzz.TUI
     Aihc.Grin.Fuzz
-    BootInterface
-    ResolvePackage
-    ResolveStackageProgress
     Test.ExtractHiCompare
     Test.Fuzz
     Test.Grin.Arbitrary
-    Test.ResolvePackage
-    Test.ResolveStackageProgress.PathsModule
 
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc:compiler,
-    aihc-cpp,
-    aihc-hackage,
     aihc-internal,
     aihc-parser,
-    aihc-resolve,
     aihc-tc,
     aihc-tc:fuzz,
     aihc-template-haskell,

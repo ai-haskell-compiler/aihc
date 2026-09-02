@@ -9,9 +9,7 @@ main =
   defaultMain . testGroup "aihc-dev" $
     [ testProperty "Hedgehog options" prop_dummy
     -- extractHiCompareTests,
-    -- fuzzTests,
-    -- resolvePackageTests,
-    -- resolveStackagePathsModuleTests
+    -- fuzzTests
     ]
 
 prop_dummy :: Property
