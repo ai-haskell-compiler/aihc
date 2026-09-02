@@ -20,8 +20,6 @@ let
       version = "1.5.2.0";
       hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
       modules = ["Control.DeepSeq"];
-      # The FC lint reports a type mismatch in the `$dmrnf` default method.
-      lint = false;
     }
   ];
 
