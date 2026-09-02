@@ -301,7 +301,7 @@ data RealWorld
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 
-foreign import prim unsafeCoerce# :: a -> b
+foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
 
 foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
 
