@@ -1,0 +1,20 @@
+extensions: []
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import GHC.Char (eqChar, neChar)
+
+    results :: Bool
+    results =
+      eqChar 'a' 'a'
+        && not (eqChar 'a' 'b')
+        && neChar 'a' 'b'
+        && not (neChar '\x03BB' '\x03BB')
+output: "True"
+expression: results
+status: pass
+reason: GHC.Char compares characters by code point without the Eq class

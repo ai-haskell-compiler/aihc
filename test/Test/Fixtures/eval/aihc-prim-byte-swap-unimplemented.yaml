@@ -1,0 +1,17 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+output: |
+  I# 16777216
+expression: |
+  I# (word2Int# (byteSwap32# 1##))
+status: xfail
+reason: byteSwap32# has a declaration only, thus no backend gives it a runtime yet

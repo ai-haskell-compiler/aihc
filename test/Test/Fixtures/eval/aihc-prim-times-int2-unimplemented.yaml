@@ -1,0 +1,23 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    lowWord :: Int# -> Int# -> Int#
+    lowWord left right =
+      case timesInt2# left right of
+        (# _, _, low #) -> low
+output: |
+  I# 15
+expression: |
+  I# (lowWord 3# 5#)
+status: xfail
+reason: timesInt2# has a declaration only, thus no backend gives it a runtime yet

@@ -1,0 +1,17 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+output: |
+  I# 3
+expression: |
+  I# (double2Int# (int2Double# 3#))
+status: xfail
+reason: the Float# and Double# conversions have declarations only, thus no backend gives them a runtime yet
