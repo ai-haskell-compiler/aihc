@@ -447,7 +447,6 @@
     src = hackage.fetchPackage pkgs package;
     targets = package.targets or hackageInstallTargets;
     lintFlag = pkgs.lib.optionalString (package.lint or true) "--lint";
-    modulePaths = map (module: builtins.replaceStrings ["."] ["/"] module) package.modules;
   in
     pkgs.runCommand "aihc-hackage-install-${package.name}-${package.version}" {
       nativeBuildInputs = [
@@ -472,10 +471,6 @@
         '')
         targets}
 
-      ${pkgs.lib.concatMapStringsSep "\n" (modulePath: ''
-          test -n "$(find "$store" -path '*/${modulePath}/core' -print -quit)"
-        '')
-        modulePaths}
       archive_count=0
       while IFS= read -r -d "" archive; do
         test -s "$archive"

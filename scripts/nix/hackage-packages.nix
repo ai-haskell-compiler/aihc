@@ -9,7 +9,6 @@
 #   name     Hackage package name.
 #   version  Exact Hackage version.
 #   hash     SRI hash of the unpacked tarball.
-#   modules  Library modules whose installed `core` files must exist.
 #   lint     Optional. Pass `--lint` to `aihc install-v2`. Defaults to true.
 #   targets  Optional list of targets. Defaults to the host targets that the
 #            example tests use.
@@ -19,7 +18,6 @@ let
       name = "deepseq";
       version = "1.5.2.0";
       hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
-      modules = ["Control.DeepSeq"];
     }
   ];
 
