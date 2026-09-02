@@ -43,6 +43,8 @@ data TcErrorKind
     UnsolvedWanted !Pred !CtOrigin
   | -- | A source top-level value has an unlifted runtime representation.
     TopLevelUnliftedBinding !Text !TcType
+  | -- | A source function argument has no fixed runtime representation.
+    RepresentationPolymorphicFunctionArgument !Text !TcType
   | -- | Other error with a message.
     OtherError !String
   deriving (Show)

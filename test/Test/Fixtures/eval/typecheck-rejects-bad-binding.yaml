@@ -9,5 +9,6 @@ output: |
   True
 expression: |
   bad
+error: 'typecheck error: Test: could not match Bool with ()'
 status: fail
 reason: FC eval fixtures must reject modules that real type checking rejects

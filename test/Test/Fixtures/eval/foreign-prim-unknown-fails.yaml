@@ -7,5 +7,6 @@ modules:
 output: ""
 expression: |
   mystery# 1#
+error: 'InterpretPrimitiveArity "mystery#" 1'
 status: fail
 reason: unknown foreign import prim declarations are rejected before evaluation

@@ -17,5 +17,6 @@ modules:
       return True)
 output: ""
 expression: strictModification
+error: 'uncaught exception: False'
 status: fail
 reason: modifySTRef' forces an updated value to weak head normal form before returning
