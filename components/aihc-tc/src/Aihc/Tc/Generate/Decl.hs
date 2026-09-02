@@ -1243,23 +1243,35 @@ tcInstanceItemBody classInfo givens headTys item =
     InstanceItemBind (FunctionBind name matches) -> do
       ForAll methodTyVars methodGivens methodTy <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
-      results <- mapM (tcMatchEquation Nothing argTys resTy) matches
-      solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
-      let methodName = unqualifiedNameText name
-          checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-          checkedBind = InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results])
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
+      (results, failed) <-
+        withErrorTracking $ do
+          results <- mapM (tcMatchEquation Nothing argTys resTy) matches
+          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+          pure results
+      -- A body with a type error keeps pending annotations that have no
+      -- evidence. Keep the unchecked body so finalization does not abort.
+      if failed
+        then pure item
+        else do
+          let methodName = unqualifiedNameText name
+              checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
+              checkedBind = InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results])
+          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
           ForAll methodTyVars methodGivens methodTy <- methodExpectedScheme classInfo headTys methodName
-          results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
-          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+          (results, failed) <-
+            withErrorTracking $ do
+              results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
+              solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+              pure results
           case results of
-            [(match, _cts, _impls)] ->
-              let checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-                  checkedBind = replaceInstancePatternBindRhs (matchRhs match) item
-               in pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
+            [(match, _cts, _impls)]
+              | not failed ->
+                  let checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
+                      checkedBind = replaceInstancePatternBindRhs (matchRhs match) item
+                   in pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
             _ -> pure item
         Nothing -> pure item
     _ -> pure item
