@@ -1079,32 +1079,16 @@ numericLiteralType numericType =
     TWord64Hash -> primType "Word64#"
 
 primType :: Text -> TcM TcType
-primType name = knownTyConTypeWithKind "GHC.Prim" name (primitiveTypeKind name)
-
-primitiveTypeKind :: Text -> TcType
-primitiveTypeKind name =
-  KTYPE $ case name of
-    "Int#" -> intRep
-    "Int8#" -> int8Rep
-    "Int16#" -> int16Rep
-    "Int32#" -> int32Rep
-    "Int64#" -> int64Rep
-    "Word#" -> wordRep
-    "Word8#" -> word8Rep
-    "Word16#" -> word16Rep
-    "Word32#" -> word32Rep
-    "Word64#" -> word64Rep
-    "Char#" -> wordRep
-    "Addr#" -> addrRep
-    _ -> liftedRep
+primType name = do
+  maybeInfo <- lookupTyConQualified "GHC.Prim" name
+  case maybeInfo of
+    Just info -> pure (TcTyCon (tciTyCon info) [])
+    Nothing -> abortTc ("missing checked type constructor for GHC.Prim." <> show name)
 
 knownTyConType :: Text -> Text -> TcM TcType
-knownTyConType moduleName name = knownTyConTypeWithKind moduleName name typeKindType
-
-knownTyConTypeWithKind :: Text -> Text -> TcType -> TcM TcType
-knownTyConTypeWithKind moduleName name kind = do
+knownTyConType moduleName name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name 0 kind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon moduleName name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType
