@@ -278,7 +278,7 @@ exprCallsC expression =
     GrinUpdate {} -> True
     GrinUpdateBlackhole {} -> True
     GrinForeignCallExpr {} -> True
-    GrinPrimitiveCall _ name _ -> name `notElem` ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "chr#", "realWorld#"]
+    GrinPrimitiveCall _ name _ -> name `notElem` ["+#", "-#", "*#", "compareInt#", "<#", "==#", ">#", ">=#", "<=#", "/=#", "ord#", "chr#", "realWorld#"]
     _ -> False
 
 -- | Some expressions make several C calls while consuming their operands, so

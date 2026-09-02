@@ -31,13 +31,13 @@ import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Word (Word32, Word64, Word8)
+import Data.Word (Word16, Word32, Word64, Word8)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argInt64, argPtr, argWord64, callFFI, retCInt, retInt64, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
-import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
+import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Mem.StableName qualified as Host
@@ -794,6 +794,27 @@ evalPrimitive "<#" [left, right] =
   evalIntPrimitive "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
 evalPrimitive "==#" [left, right] =
   evalIntPrimitive "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
+evalPrimitive ">#" [left, right] =
+  evalIntPrimitive ">#" (\leftInt rightInt -> if leftInt > rightInt then 1 else 0) left right
+evalPrimitive ">=#" [left, right] =
+  evalIntPrimitive ">=#" (\leftInt rightInt -> if leftInt >= rightInt then 1 else 0) left right
+evalPrimitive "<=#" [left, right] =
+  evalIntPrimitive "<=#" (\leftInt rightInt -> if leftInt <= rightInt then 1 else 0) left right
+evalPrimitive "/=#" [left, right] =
+  evalIntPrimitive "/=#" (\leftInt rightInt -> if leftInt /= rightInt then 1 else 0) left right
+evalPrimitive "eqWord64#" [left, right] = evalWord64Comparison "eqWord64#" (==) left right
+evalPrimitive "neWord64#" [left, right] = evalWord64Comparison "neWord64#" (/=) left right
+evalPrimitive "ltWord64#" [left, right] = evalWord64Comparison "ltWord64#" (<) left right
+evalPrimitive "leWord64#" [left, right] = evalWord64Comparison "leWord64#" (<=) left right
+evalPrimitive "gtWord64#" [left, right] = evalWord64Comparison "gtWord64#" (>) left right
+evalPrimitive "geWord64#" [left, right] = evalWord64Comparison "geWord64#" (>=) left right
+evalPrimitive "wordToWord8#" [value] = evalWordNarrow "wordToWord8#" Word8Rep 0xff value
+evalPrimitive "wordToWord16#" [value] = evalWordNarrow "wordToWord16#" Word16Rep 0xffff value
+evalPrimitive "wordToWord32#" [value] = evalWordNarrow "wordToWord32#" Word32Rep 0xffffffff value
+evalPrimitive "wordToWord64#" [value] = evalWordNarrow "wordToWord64#" Word64Rep wordMask value
+evalPrimitive "word16ToWord#" [value] =
+  (: []) . wordRuntimeValue <$> expectRuntimeRepPrimitiveArgument "word16ToWord#" Word16Rep value
+evalPrimitive "touch#" [_] = pure []
 evalPrimitive "ord#" [value] = do
   charValue <- expectCharPrimitiveArgument "ord#" value
   pure [RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue)))]
@@ -921,6 +942,68 @@ evalPrimitive "indexWord32OffAddr#" [address, index] =
   (: []) . RuntimeLit . GrinLitInt Word32Rep <$> indexAddressPrimitive "indexWord32OffAddr#" 4 readAddressWord32 address index
 evalPrimitive "indexWord64OffAddr#" [address, index] =
   (: []) . RuntimeLit . GrinLitInt Word64Rep <$> indexAddressPrimitive "indexWord64OffAddr#" 8 readAddressWord64 address index
+evalPrimitive "indexWord16OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> indexAddressPrimitive "indexWord16OffAddr#" 2 readAddressWord16 address index
+evalPrimitive "readWord8OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word8Rep <$> indexAddressPrimitive "readWord8OffAddr#" 1 readAddressWord8 address index
+evalPrimitive "readWord16OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> indexAddressPrimitive "readWord16OffAddr#" 2 readAddressWord16 address index
+evalPrimitive "readWord32OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> indexAddressPrimitive "readWord32OffAddr#" 4 readAddressWord32 address index
+evalPrimitive "readWord64OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> indexAddressPrimitive "readWord64OffAddr#" 8 readAddressWord64 address index
+evalPrimitive "indexWord8OffAddrAsWord16#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readAddressPrimitive "indexWord8OffAddrAsWord16#" 1 2 readAddressWord16 address offset
+evalPrimitive "indexWord8OffAddrAsWord32#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readAddressPrimitive "indexWord8OffAddrAsWord32#" 1 4 readAddressWord32 address offset
+evalPrimitive "indexWord8OffAddrAsWord64#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readAddressPrimitive "indexWord8OffAddrAsWord64#" 1 8 readAddressWord64 address offset
+evalPrimitive "readWord8OffAddrAsWord16#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readAddressPrimitive "readWord8OffAddrAsWord16#" 1 2 readAddressWord16 address offset
+evalPrimitive "readWord8OffAddrAsWord32#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readAddressPrimitive "readWord8OffAddrAsWord32#" 1 4 readAddressWord32 address offset
+evalPrimitive "readWord8OffAddrAsWord64#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readAddressPrimitive "readWord8OffAddrAsWord64#" 1 8 readAddressWord64 address offset
+evalPrimitive "writeWord8OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeWord8OffAddr#" 1 Word8Rep writeAddressWord8 address index value
+evalPrimitive "writeWord16OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeWord16OffAddr#" 2 Word16Rep writeAddressWord16 address index value
+evalPrimitive "writeWord32OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeWord32OffAddr#" 4 Word32Rep writeAddressWord32 address index value
+evalPrimitive "writeWord64OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeWord64OffAddr#" 8 Word64Rep writeAddressWord64 address index value
+evalPrimitive "writeWord8OffAddrAsWord16#" [address, offset, value] =
+  writeAddressPrimitive "writeWord8OffAddrAsWord16#" 1 Word16Rep writeAddressWord16 address offset value
+evalPrimitive "writeWord8OffAddrAsWord32#" [address, offset, value] =
+  writeAddressPrimitive "writeWord8OffAddrAsWord32#" 1 Word32Rep writeAddressWord32 address offset value
+evalPrimitive "writeWord8OffAddrAsWord64#" [address, offset, value] =
+  writeAddressPrimitive "writeWord8OffAddrAsWord64#" 1 Word64Rep writeAddressWord64 address offset value
+evalPrimitive "plusAddr#" [address, offset] = do
+  byteOffset <- expectIntPrimitiveArgument "plusAddr#" offset
+  (: []) <$> addressPlus "plusAddr#" address byteOffset
+evalPrimitive "minusAddr#" [left, right] = do
+  leftPointer <- expectAddress "minusAddr#" left
+  rightPointer <- expectAddress "minusAddr#" right
+  pure [intRuntimeValue (toInteger (leftPointer `minusPtr` rightPointer))]
+evalPrimitive "eqAddr#" [left, right] = evalAddressComparison "eqAddr#" (==) left right
+evalPrimitive "neAddr#" [left, right] = evalAddressComparison "neAddr#" (/=) left right
+evalPrimitive "ltAddr#" [left, right] = evalAddressComparison "ltAddr#" (<) left right
+evalPrimitive "leAddr#" [left, right] = evalAddressComparison "leAddr#" (<=) left right
+evalPrimitive "gtAddr#" [left, right] = evalAddressComparison "gtAddr#" (>) left right
+evalPrimitive "geAddr#" [left, right] = evalAddressComparison "geAddr#" (>=) left right
+evalPrimitive "addr2Int#" [address] = do
+  pointer <- expectAddress "addr2Int#" address
+  pure [intRuntimeValue (addressOrdinal pointer)]
+evalPrimitive "int2Addr#" [value] = do
+  ordinal <- expectIntPrimitiveArgument "int2Addr#" value
+  pure [RuntimeAddress (intPtrToPtr (IntPtr (fromInteger ordinal)))]
+evalPrimitive "cstringLength#" [address] =
+  case address of
+    RuntimeLit (GrinLitAddr bytes) -> pure [intRuntimeValue (toInteger (BS.length (BS.takeWhile (/= 0) bytes)))]
+    RuntimeAddress pointer -> do
+      bytes <- liftEvalIO (BS.packCString (castPtr pointer))
+      pure [intRuntimeValue (toInteger (BS.length bytes))]
+    other -> throwInterpret (InterpretForeignTypeError "cstringLength#" other)
 evalPrimitive "indexWordArray#" [value, index] = do
   byteArray <- expectByteArrayPrimitiveArgument "indexWordArray#" value
   wordIndex <- expectIntPrimitiveArgument "indexWordArray#" index
@@ -955,6 +1038,27 @@ evalPrimitive "copyByteArray#" [sourceValue, sourceOffset, destinationValue, des
         (min sourceLength destinationLength)
     )
   pure []
+evalPrimitive "copyMutableByteArray#" arguments = evalPrimitive "copyByteArray#" arguments
+evalPrimitive "copyMutableByteArrayToAddr#" arguments = evalPrimitive "copyByteArrayToAddr#" arguments
+evalPrimitive "copyByteArrayToAddr#" [value, offset, destination, byteCount] = do
+  byteArray <- expectByteArrayPrimitiveArgument "copyByteArrayToAddr#" value
+  checkedOffset <- expectIntPrimitiveArgument "copyByteArrayToAddr#" offset
+  checkedLength <- expectIntPrimitiveArgument "copyByteArrayToAddr#" byteCount
+  (sourceOffset, sourceLength) <- checkedByteArrayRange "copyByteArrayToAddr#" byteArray checkedOffset checkedLength
+  pointer <- expectAddress "copyByteArrayToAddr#" destination
+  liftEvalIO (copyBytes pointer (grinByteArrayContents byteArray `plusPtr` sourceOffset) sourceLength)
+  pure []
+evalPrimitive "compareByteArrays#" [leftValue, leftOffset, rightValue, rightOffset, byteCount] = do
+  left <- expectByteArrayPrimitiveArgument "compareByteArrays#" leftValue
+  right <- expectByteArrayPrimitiveArgument "compareByteArrays#" rightValue
+  checkedLeftOffset <- expectIntPrimitiveArgument "compareByteArrays#" leftOffset
+  checkedRightOffset <- expectIntPrimitiveArgument "compareByteArrays#" rightOffset
+  checkedLength <- expectIntPrimitiveArgument "compareByteArrays#" byteCount
+  (leftStart, leftLength) <- checkedByteArrayRange "compareByteArrays#" left checkedLeftOffset checkedLength
+  (rightStart, rightLength) <- checkedByteArrayRange "compareByteArrays#" right checkedRightOffset checkedLength
+  leftBytes <- liftEvalIO (peekArray leftLength (castPtr (grinByteArrayContents left `plusPtr` leftStart)) :: IO [Word8])
+  rightBytes <- liftEvalIO (peekArray rightLength (castPtr (grinByteArrayContents right `plusPtr` rightStart)) :: IO [Word8])
+  pure [intRuntimeValue (compareOrdinal (compare leftBytes rightBytes))]
 evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount] = do
   byteArray <- expectByteArrayPrimitiveArgument "copyAddrToByteArray#" value
   checkedOffset <- expectIntPrimitiveArgument "copyAddrToByteArray#" offset
@@ -1313,9 +1417,14 @@ checkedAddressRange symbol offset byteCount =
     intLimit = toInteger (maxBound :: Int)
 
 indexAddressPrimitive :: Text -> Int -> (Ptr () -> Int -> IO Integer) -> RuntimeValue -> RuntimeValue -> EvalM Integer
-indexAddressPrimitive symbol elementSize readElement address indexValue = do
+indexAddressPrimitive symbol elementSize = readAddressPrimitive symbol elementSize elementSize
+
+-- | Read one element at a scaled index. Literal addresses stay bounds checked.
+-- Runtime addresses trust the program in the same way as native code.
+readAddressPrimitive :: Text -> Int -> Int -> (Ptr () -> Int -> IO Integer) -> RuntimeValue -> RuntimeValue -> EvalM Integer
+readAddressPrimitive symbol stride elementSize readElement address indexValue = do
   index <- expectIntPrimitiveArgument symbol indexValue
-  (byteOffset, _) <- checkedAddressRange symbol (index * toInteger elementSize) (toInteger elementSize)
+  (byteOffset, _) <- checkedAddressRange symbol (index * toInteger stride) (toInteger elementSize)
   case address of
     RuntimeLit (GrinLitAddr bytes)
       | byteOffset + elementSize <= BS.length bytes ->
@@ -1325,8 +1434,77 @@ indexAddressPrimitive symbol elementSize readElement address indexValue = do
     RuntimeAddress pointer -> liftEvalIO (readElement pointer byteOffset)
     other -> throwInterpret (InterpretPrimitiveTypeError symbol other)
 
+writeAddressPrimitive :: Text -> Int -> GrinRep -> (Ptr () -> Int -> Integer -> IO ()) -> RuntimeValue -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+writeAddressPrimitive symbol stride valueRep writeElement address indexValue value = do
+  index <- expectIntPrimitiveArgument symbol indexValue
+  element <- expectRuntimeRepPrimitiveArgument symbol valueRep value
+  pointer <- expectAddress symbol address
+  liftEvalIO (writeElement pointer (fromInteger (index * toInteger stride)) element)
+  pure []
+
+addressPlus :: Text -> RuntimeValue -> Integer -> EvalM RuntimeValue
+addressPlus symbol address byteOffset =
+  case address of
+    RuntimeAddress pointer -> pure (RuntimeAddress (pointer `plusPtr` fromInteger byteOffset))
+    RuntimeLit (GrinLitAddr bytes)
+      | byteOffset >= 0 && byteOffset <= toInteger (BS.length bytes) ->
+          pure (RuntimeLit (GrinLitAddr (BS.drop (fromInteger byteOffset) bytes)))
+      | otherwise ->
+          throwInterpret (InterpretInvalidByteArrayRange symbol byteOffset 0 (BS.length bytes))
+    other -> throwInterpret (InterpretForeignTypeError symbol other)
+
+evalAddressComparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalAddressComparison symbol comparison left right =
+  case (left, right) of
+    (RuntimeLit (GrinLitAddr leftBytes), RuntimeLit (GrinLitAddr rightBytes)) ->
+      -- Literal addresses have no runtime location. Their bytes give a
+      -- consistent order for the comparison.
+      pure [intRuntimeValue (if comparison 0 (compareOrdinal (compare rightBytes leftBytes)) then 1 else 0)]
+    _ -> do
+      leftPointer <- expectAddress symbol left
+      rightPointer <- expectAddress symbol right
+      pure [intRuntimeValue (if comparison (addressOrdinal leftPointer) (addressOrdinal rightPointer) then 1 else 0)]
+
+addressOrdinal :: Ptr () -> Integer
+addressOrdinal pointer =
+  case ptrToIntPtr pointer of
+    IntPtr value -> toInteger value
+
+compareOrdinal :: Ordering -> Integer
+compareOrdinal ordering =
+  case ordering of
+    LT -> -1
+    EQ -> 0
+    GT -> 1
+
+evalWord64Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWord64Comparison name comparison left right = do
+  leftWord <- expectRuntimeRepPrimitiveArgument name Word64Rep left
+  rightWord <- expectRuntimeRepPrimitiveArgument name Word64Rep right
+  pure [intRuntimeValue (if comparison leftWord rightWord then 1 else 0)]
+
+evalWordNarrow :: Text -> GrinRep -> Integer -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordNarrow name resultRep mask value = do
+  word <- expectWordPrimitiveArgument name value
+  pure [RuntimeLit (GrinLitInt resultRep (word .&. mask))]
+
 readAddressWord8 :: Ptr () -> Int -> IO Integer
 readAddressWord8 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word8)
+
+readAddressWord16 :: Ptr () -> Int -> IO Integer
+readAddressWord16 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word16)
+
+writeAddressWord8 :: Ptr () -> Int -> Integer -> IO ()
+writeAddressWord8 pointer offset value = pokeByteOff pointer offset (fromInteger value :: Word8)
+
+writeAddressWord16 :: Ptr () -> Int -> Integer -> IO ()
+writeAddressWord16 pointer offset value = pokeByteOff pointer offset (fromInteger value :: Word16)
+
+writeAddressWord32 :: Ptr () -> Int -> Integer -> IO ()
+writeAddressWord32 pointer offset value = pokeByteOff pointer offset (fromInteger value :: Word32)
+
+writeAddressWord64 :: Ptr () -> Int -> Integer -> IO ()
+writeAddressWord64 pointer offset value = pokeByteOff pointer offset (fromInteger value :: Word64)
 
 readAddressWord32 :: Ptr () -> Int -> IO Integer
 readAddressWord32 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word32)

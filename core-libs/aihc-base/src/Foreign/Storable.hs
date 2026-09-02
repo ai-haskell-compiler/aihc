@@ -1,10 +1,30 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module Foreign.Storable
   ( Storable (..),
   )
 where
 
-import Foreign.Ptr (Ptr, plusPtr)
-import Prelude (IO, Int, Num (..), undefined)
+import GHC.IO (IO (..))
+import GHC.Int (Int (..))
+import GHC.Prim
+  ( int2Word#,
+    readWord16OffAddr#,
+    readWord32OffAddr#,
+    readWord64OffAddr#,
+    readWord8OffAddr#,
+    word2Int#,
+    word64ToWord#,
+    wordToWord64#,
+    writeWord16OffAddr#,
+    writeWord32OffAddr#,
+    writeWord64OffAddr#,
+    writeWord8OffAddr#,
+  )
+import GHC.Ptr (Ptr (..), plusPtr)
+import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
+import Prelude (Num (..), undefined)
 
 class Storable a where
   sizeOf :: a -> Int
@@ -25,3 +45,99 @@ class Storable a where
 
 pointerElement :: Ptr a -> a
 pointerElement _ = undefined
+
+instance Storable Word8 where
+  sizeOf _ = 1
+  alignment _ = 1
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord8OffAddr# address index state of
+            (# readState, value #) -> (# readState, W8# value #)
+      )
+  pokeElemOff (Ptr address) (I# index) (W8# value) =
+    IO
+      ( \state ->
+          case writeWord8OffAddr# address index value state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Word16 where
+  sizeOf _ = 2
+  alignment _ = 2
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord16OffAddr# address index state of
+            (# readState, value #) -> (# readState, W16# value #)
+      )
+  pokeElemOff (Ptr address) (I# index) (W16# value) =
+    IO
+      ( \state ->
+          case writeWord16OffAddr# address index value state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Word32 where
+  sizeOf _ = 4
+  alignment _ = 4
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord32OffAddr# address index state of
+            (# readState, value #) -> (# readState, W32# value #)
+      )
+  pokeElemOff (Ptr address) (I# index) (W32# value) =
+    IO
+      ( \state ->
+          case writeWord32OffAddr# address index value state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Word64 where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord64OffAddr# address index state of
+            (# readState, value #) -> (# readState, W64# value #)
+      )
+  pokeElemOff (Ptr address) (I# index) (W64# value) =
+    IO
+      ( \state ->
+          case writeWord64OffAddr# address index value state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Word where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord64OffAddr# address index state of
+            (# readState, value #) -> (# readState, W# (word64ToWord# value) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (W# value) =
+    IO
+      ( \state ->
+          case writeWord64OffAddr# address index (wordToWord64# value) state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Int where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord64OffAddr# address index state of
+            (# readState, value #) -> (# readState, I# (word2Int# (word64ToWord# value)) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (I# value) =
+    IO
+      ( \state ->
+          case writeWord64OffAddr# address index (wordToWord64# (int2Word# value)) state of
+            nextState -> (# nextState, () #)
+      )

@@ -15,9 +15,8 @@ module GHC.Ptr
   )
 where
 
-import GHC.Base (String)
-import GHC.Int (Int)
-import GHC.Prim (Addr#, nullAddr#, raise#)
+import GHC.Int (Int (..))
+import GHC.Prim (Addr#, addr2Int#, int2Word#, minusAddr#, nullAddr#, plusAddr#, remWord#, word2Int#, (-#))
 
 data Ptr a = Ptr Addr#
 
@@ -32,19 +31,18 @@ nullFunPtr = FunPtr nullAddr#
 castPtr :: Ptr a -> Ptr b
 castPtr (Ptr address) = Ptr address
 
--- | Address arithmetic needs the plusAddr# primitive, which is not available.
 plusPtr :: Ptr a -> Int -> Ptr b
-plusPtr _ _ = pointerError "GHC.Ptr.plusPtr: address arithmetic is not available"
+plusPtr (Ptr address) (I# offset) = Ptr (plusAddr# address offset)
 
--- | Address arithmetic needs the minusAddr# primitive, which is not available.
 minusPtr :: Ptr a -> Ptr b -> Int
-minusPtr _ _ = pointerError "GHC.Ptr.minusPtr: address arithmetic is not available"
+minusPtr (Ptr left) (Ptr right) = I# (minusAddr# left right)
 
+-- | Round a pointer up to the next multiple of the alignment.
 alignPtr :: Ptr a -> Int -> Ptr a
-alignPtr _ _ = pointerError "GHC.Ptr.alignPtr: address arithmetic is not available"
-
-pointerError :: String -> a
-pointerError = raise#
+alignPtr pointer@(Ptr address) (I# alignment) =
+  case word2Int# (remWord# (int2Word# (addr2Int# address)) (int2Word# alignment)) of
+    0# -> pointer
+    remainder -> Ptr (plusAddr# address (alignment -# remainder))
 
 castFunPtr :: FunPtr a -> FunPtr b
 castFunPtr (FunPtr address) = FunPtr address

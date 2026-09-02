@@ -470,13 +470,16 @@ compileDirectBinding env vars expression =
           binary ArmAnd ["and#"],
           binary (\destination left right -> ArmOrr destination left (Arm64RegisterValue right)) ["or#"],
           binary ArmEor ["xor#"],
-          comparison ArmEq ["==#", "eqWord#"],
+          comparison ArmEq ["==#", "eqWord#", "eqWord64#"],
           comparison ArmLt ["<#"],
-          comparison ArmNe ["neWord#"],
-          comparison ArmCc ["ltWord#"],
-          comparison ArmLs ["leWord#"],
-          comparison ArmHi ["gtWord#"],
-          comparison ArmCs ["geWord#"]
+          comparison ArmGt [">#"],
+          comparison ArmGe [">=#"],
+          comparison ArmLe ["<=#"],
+          comparison ArmNe ["/=#", "neWord#", "neWord64#"],
+          comparison ArmCc ["ltWord#", "ltWord64#"],
+          comparison ArmLs ["leWord#", "leWord64#"],
+          comparison ArmHi ["gtWord#", "gtWord64#"],
+          comparison ArmCs ["geWord#", "geWord64#"]
         ]
         <> [ ("compareInt#", [arm64Instruction (ArmCmp X9 (Arm64RegisterValue X0)), arm64Instruction (ArmCset X0 ArmGt), arm64Instruction (ArmCsinv X0 X0 XZR ArmGe)]),
              ("quotWord#", [arm64Instruction (ArmUdiv X0 X9 X0)]),
@@ -495,7 +498,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", [arm64Instruction (ArmMvn X0 X0)])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary opcode names =
       [(name, [arm64Instruction (opcode X0 X9 X0)]) | name <- names]

@@ -939,6 +939,180 @@ uint64_t aihc_addr_index_word64(void *address, int64_t index) {
   return value;
 }
 
+static uint8_t *aihc_addr_byte_offset(void *opaque_address, int64_t offset) {
+  if (opaque_address == NULL) {
+    aihc_fail("invalid address offset");
+  }
+  return (uint8_t *)opaque_address + offset;
+}
+
+uint64_t aihc_addr_index_word16(void *address, int64_t index) {
+  uint16_t value;
+  memcpy(&value, aihc_addr_element(address, index, sizeof(value)),
+         sizeof(value));
+  return value;
+}
+
+uint64_t aihc_addr_write_word8(void *address, int64_t index, uint64_t value) {
+  uint8_t narrowed = (uint8_t)value;
+  memcpy((void *)aihc_addr_element(address, index, sizeof(narrowed)), &narrowed,
+         sizeof(narrowed));
+  return 0;
+}
+
+uint64_t aihc_addr_write_word16(void *address, int64_t index, uint64_t value) {
+  uint16_t narrowed = (uint16_t)value;
+  memcpy((void *)aihc_addr_element(address, index, sizeof(narrowed)), &narrowed,
+         sizeof(narrowed));
+  return 0;
+}
+
+uint64_t aihc_addr_write_word32(void *address, int64_t index, uint64_t value) {
+  uint32_t narrowed = (uint32_t)value;
+  memcpy((void *)aihc_addr_element(address, index, sizeof(narrowed)), &narrowed,
+         sizeof(narrowed));
+  return 0;
+}
+
+uint64_t aihc_addr_write_word64(void *address, int64_t index, uint64_t value) {
+  memcpy((void *)aihc_addr_element(address, index, sizeof(value)), &value,
+         sizeof(value));
+  return 0;
+}
+
+uint64_t aihc_addr_index_byte_word16(void *address, int64_t offset) {
+  uint16_t value;
+  memcpy(&value, aihc_addr_byte_offset(address, offset), sizeof(value));
+  return value;
+}
+
+uint64_t aihc_addr_index_byte_word32(void *address, int64_t offset) {
+  uint32_t value;
+  memcpy(&value, aihc_addr_byte_offset(address, offset), sizeof(value));
+  return value;
+}
+
+uint64_t aihc_addr_index_byte_word64(void *address, int64_t offset) {
+  uint64_t value;
+  memcpy(&value, aihc_addr_byte_offset(address, offset), sizeof(value));
+  return value;
+}
+
+uint64_t aihc_addr_write_byte_word16(void *address, int64_t offset,
+                                     uint64_t value) {
+  uint16_t narrowed = (uint16_t)value;
+  memcpy(aihc_addr_byte_offset(address, offset), &narrowed, sizeof(narrowed));
+  return 0;
+}
+
+uint64_t aihc_addr_write_byte_word32(void *address, int64_t offset,
+                                     uint64_t value) {
+  uint32_t narrowed = (uint32_t)value;
+  memcpy(aihc_addr_byte_offset(address, offset), &narrowed, sizeof(narrowed));
+  return 0;
+}
+
+uint64_t aihc_addr_write_byte_word64(void *address, int64_t offset,
+                                     uint64_t value) {
+  memcpy(aihc_addr_byte_offset(address, offset), &value, sizeof(value));
+  return 0;
+}
+
+void *aihc_addr_plus(void *address, int64_t offset) {
+  return (uint8_t *)address + offset;
+}
+
+uint64_t aihc_addr_minus(void *left, void *right) {
+  return (uint64_t)((uint8_t *)left - (uint8_t *)right);
+}
+
+uint64_t aihc_addr_eq(void *left, void *right) { return left == right; }
+
+uint64_t aihc_addr_ne(void *left, void *right) { return left != right; }
+
+uint64_t aihc_addr_lt(void *left, void *right) {
+  return (uintptr_t)left < (uintptr_t)right;
+}
+
+uint64_t aihc_addr_le(void *left, void *right) {
+  return (uintptr_t)left <= (uintptr_t)right;
+}
+
+uint64_t aihc_addr_gt(void *left, void *right) {
+  return (uintptr_t)left > (uintptr_t)right;
+}
+
+uint64_t aihc_addr_ge(void *left, void *right) {
+  return (uintptr_t)left >= (uintptr_t)right;
+}
+
+uint64_t aihc_addr_to_int(void *address) { return (uintptr_t)address; }
+
+void *aihc_int_to_addr(int64_t value) { return (void *)(uintptr_t)value; }
+
+uint64_t aihc_addr_cstring_length(void *address) {
+  const uint8_t *bytes = address;
+  if (bytes == NULL) {
+    aihc_fail("invalid C string address");
+  }
+  uint64_t length = 0;
+  while (bytes[length] != 0) {
+    length += 1;
+  }
+  return length;
+}
+
+uint64_t aihc_touch(uint64_t value) {
+  (void)value;
+  return 0;
+}
+
+uint64_t aihc_word_to_word8(uint64_t value) { return (uint8_t)value; }
+
+uint64_t aihc_word_to_word16(uint64_t value) { return (uint16_t)value; }
+
+uint64_t aihc_word_to_word32(uint64_t value) { return (uint32_t)value; }
+
+uint64_t aihc_byte_array_copy_to_addr(void *opaque_array,
+                                      int64_t requested_offset,
+                                      void *destination,
+                                      int64_t requested_length) {
+  AihcByteArray *array = opaque_array;
+  size_t offset = aihc_byte_array_size(requested_offset);
+  size_t length = aihc_byte_array_size(requested_length);
+  if (array == NULL || offset > array->size || length > array->size - offset ||
+      (destination == NULL && length != 0)) {
+    aihc_fail("invalid byte array copy");
+  }
+  if (length != 0) {
+    memcpy(destination, array->contents + offset, length);
+  }
+  return 0;
+}
+
+uint64_t aihc_byte_array_compare(void *opaque_left, int64_t left_requested,
+                                 void *opaque_right, int64_t right_requested,
+                                 int64_t requested_length) {
+  AihcByteArray *left = opaque_left;
+  AihcByteArray *right = opaque_right;
+  size_t left_offset = aihc_byte_array_size(left_requested);
+  size_t right_offset = aihc_byte_array_size(right_requested);
+  size_t length = aihc_byte_array_size(requested_length);
+  if (left == NULL || right == NULL || left_offset > left->size ||
+      length > left->size - left_offset || right_offset > right->size ||
+      length > right->size - right_offset) {
+    aihc_fail("invalid byte array comparison");
+  }
+  const uint8_t *left_bytes = left->contents + left_offset;
+  const uint8_t *right_bytes = right->contents + right_offset;
+  for (size_t index = 0; index < length; index += 1) {
+    if (left_bytes[index] != right_bytes[index]) {
+      return left_bytes[index] < right_bytes[index] ? (uint64_t)-1 : 1;
+    }
+  }
+  return 0;
+}
+
 static size_t aihc_byte_array_word_offset(AihcByteArray *array,
                                           int64_t requested_index) {
   if (array == NULL || requested_index < 0 ||

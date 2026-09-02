@@ -313,6 +313,32 @@ runtimeFunctionTypes =
     ("aihc_addr_index_word8", ([I32, I64], [I64])),
     ("aihc_addr_index_word32", ([I32, I64], [I64])),
     ("aihc_addr_index_word64", ([I32, I64], [I64])),
+    ("aihc_addr_index_word16", ([I32, I64], [I64])),
+    ("aihc_addr_write_word8", ([I32, I64, I64], [I64])),
+    ("aihc_addr_write_word16", ([I32, I64, I64], [I64])),
+    ("aihc_addr_write_word32", ([I32, I64, I64], [I64])),
+    ("aihc_addr_write_word64", ([I32, I64, I64], [I64])),
+    ("aihc_addr_index_byte_word16", ([I32, I64], [I64])),
+    ("aihc_addr_index_byte_word32", ([I32, I64], [I64])),
+    ("aihc_addr_index_byte_word64", ([I32, I64], [I64])),
+    ("aihc_addr_write_byte_word16", ([I32, I64, I64], [I64])),
+    ("aihc_addr_write_byte_word32", ([I32, I64, I64], [I64])),
+    ("aihc_addr_write_byte_word64", ([I32, I64, I64], [I64])),
+    ("aihc_addr_plus", ([I32, I64], [I32])),
+    ("aihc_addr_minus", ([I32, I32], [I64])),
+    ("aihc_addr_eq", ([I32, I32], [I64])),
+    ("aihc_addr_ne", ([I32, I32], [I64])),
+    ("aihc_addr_lt", ([I32, I32], [I64])),
+    ("aihc_addr_le", ([I32, I32], [I64])),
+    ("aihc_addr_gt", ([I32, I32], [I64])),
+    ("aihc_addr_ge", ([I32, I32], [I64])),
+    ("aihc_addr_to_int", ([I32], [I64])),
+    ("aihc_int_to_addr", ([I64], [I32])),
+    ("aihc_addr_cstring_length", ([I32], [I64])),
+    ("aihc_touch", ([I64], [I64])),
+    ("aihc_word_to_word8", ([I64], [I64])),
+    ("aihc_word_to_word16", ([I64], [I64])),
+    ("aihc_word_to_word32", ([I64], [I64])),
     ("aihc_byte_array_new", ([I64], [I32])),
     ("aihc_byte_array_new_pinned", ([I64], [I32])),
     ("aihc_byte_array_new_aligned_pinned", ([I64, I64], [I32])),
@@ -326,6 +352,8 @@ runtimeFunctionTypes =
     ("aihc_byte_array_read_word", ([I32, I64], [I64])),
     ("aihc_byte_array_write_word", ([I32, I64, I64], [I64])),
     ("aihc_byte_array_copy", ([I32, I64, I32, I64, I64], [I64])),
+    ("aihc_byte_array_copy_to_addr", ([I32, I64, I32, I64], [I64])),
+    ("aihc_byte_array_compare", ([I32, I64, I32, I64, I64], [I64])),
     ("aihc_wasm_times_word2_high", ([I64, I64], [I64])),
     ("aihc_wasm_quot_rem_word2_quotient", ([I64, I64, I64], [I64])),
     ("aihc_wasm_transfer_direct", ([I32, I32, I64, I32], [])),
@@ -507,12 +535,22 @@ compileDirectBinding env vars expression =
             name
             [ ("<#", "i64.lt_s"),
               ("==#", "i64.eq"),
+              (">#", "i64.gt_s"),
+              (">=#", "i64.ge_s"),
+              ("<=#", "i64.le_s"),
+              ("/=#", "i64.ne"),
               ("eqWord#", "i64.eq"),
               ("neWord#", "i64.ne"),
               ("ltWord#", "i64.lt_u"),
               ("leWord#", "i64.le_u"),
               ("gtWord#", "i64.gt_u"),
-              ("geWord#", "i64.ge_u")
+              ("geWord#", "i64.ge_u"),
+              ("eqWord64#", "i64.eq"),
+              ("neWord64#", "i64.ne"),
+              ("ltWord64#", "i64.lt_u"),
+              ("leWord64#", "i64.le_u"),
+              ("gtWord64#", "i64.gt_u"),
+              ("geWord64#", "i64.ge_u")
             ] ->
           comparisonPrimitive operator left right
     GrinPrimitiveCall _ name [left, right]
@@ -545,7 +583,7 @@ compileDirectBinding env vars expression =
       | Just operator <- lookup name [("uncheckedShiftL#", "i64.shl"), ("uncheckedShiftRL#", "i64.shr_u")] ->
           binaryPrimitive operator value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#"] -> storeSingle (materializeValue env value)
     GrinPrimitiveCall _ name [value]
       | Just operator <- lookup name [("clz#", "i64.clz"), ("ctz#", "i64.ctz"), ("popCnt#", "i64.popcnt")] ->
           storeSingle (materializeValue env value <> [operator])

@@ -1,3 +1,5 @@
+{-# LANGUAGE MagicHash #-}
+
 module Foreign.Ptr
   ( Ptr (..),
     FunPtr (..),
@@ -20,6 +22,8 @@ module Foreign.Ptr
   )
 where
 
+import GHC.Int (Int (..))
+import GHC.Prim (addr2Int#, int2Addr#, int2Word#, word2Int#)
 import GHC.Ptr
   ( FunPtr (..),
     Ptr (..),
@@ -33,7 +37,8 @@ import GHC.Ptr
     nullPtr,
     plusPtr,
   )
-import Prelude (IO, Int, Word, error, return)
+import GHC.Word (Word (..))
+import Prelude (IO, return)
 
 freeHaskellFunPtr :: FunPtr a -> IO ()
 freeHaskellFunPtr _ = return ()
@@ -43,13 +48,13 @@ newtype IntPtr = IntPtr Int
 newtype WordPtr = WordPtr Word
 
 ptrToIntPtr :: Ptr a -> IntPtr
-ptrToIntPtr _ = error "Foreign.Ptr.ptrToIntPtr: address conversion is not available"
+ptrToIntPtr (Ptr address) = IntPtr (I# (addr2Int# address))
 
 intPtrToPtr :: IntPtr -> Ptr a
-intPtrToPtr _ = error "Foreign.Ptr.intPtrToPtr: address conversion is not available"
+intPtrToPtr (IntPtr (I# value)) = Ptr (int2Addr# value)
 
 ptrToWordPtr :: Ptr a -> WordPtr
-ptrToWordPtr _ = error "Foreign.Ptr.ptrToWordPtr: address conversion is not available"
+ptrToWordPtr (Ptr address) = WordPtr (W# (int2Word# (addr2Int# address)))
 
 wordPtrToPtr :: WordPtr -> Ptr a
-wordPtrToPtr _ = error "Foreign.Ptr.wordPtrToPtr: address conversion is not available"
+wordPtrToPtr (WordPtr (W# value)) = Ptr (int2Addr# (word2Int# value))

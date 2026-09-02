@@ -1,0 +1,42 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int Int Int Int Int Int Int
+
+    touched :: IO Int
+    touched = IO (\state -> case touch# results state of
+      state1 -> (# state1, I# 1# #))
+
+    results :: Results
+    results = case wordToWord64# 300## of
+      bigger -> case wordToWord64# 7## of
+        smaller ->
+          Results
+            (I# (word2Int# (word8ToWord# (wordToWord8# 300##))))
+            (I# (word2Int# (word16ToWord# (wordToWord16# 70000##))))
+            (I# (word2Int# (word32ToWord# (wordToWord32# 4294967297##))))
+            (I# (eqWord64# bigger bigger))
+            (I# (ltWord64# smaller bigger))
+            (I# (geWord64# smaller bigger))
+            (I# (3# >=# 3#))
+            (I# (2# ># 3#))
+            (I# (2# <=# 3#))
+            (I# (2# /=# 3#))
+output: |
+  ((Results (I# 44) (I# 4464) (I# 1) (I# 1) (I# 1) (I# 0) (I# 1) (I# 0) (I# 1) (I# 1)),(I# 1))
+expression: |
+  (results, unsafePerformIO touched)
+status: pass
+reason: word narrowing, Word64# comparisons, and the remaining Int# comparisons follow GHC semantics

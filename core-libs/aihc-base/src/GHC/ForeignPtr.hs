@@ -28,11 +28,11 @@ module GHC.ForeignPtr
 where
 
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Foreign.Ptr (FunPtr, Ptr (..), plusPtr)
+import Foreign.Ptr (FunPtr, Ptr (..))
 import Foreign.Storable (Storable (..))
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
-import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, plusAddr#, touch#)
 import Prelude (Maybe (..), Num (..), error, return, sequence_, undefined, (>>=))
 
 data ForeignPtr a = ForeignPtr Addr# ForeignPtrContents
@@ -58,14 +58,16 @@ castForeignPtr :: ForeignPtr a -> ForeignPtr b
 castForeignPtr (ForeignPtr address contents) = ForeignPtr address contents
 
 plusForeignPtr :: ForeignPtr a -> Int -> ForeignPtr b
-plusForeignPtr (ForeignPtr address contents) offset =
-  case plusPtr (Ptr address) offset of
-    Ptr moved -> ForeignPtr moved contents
+plusForeignPtr (ForeignPtr address contents) (I# offset) = ForeignPtr (plusAddr# address offset) contents
 
--- | Liveness hints need the touch# primitive, which is not available.
--- The pointer stays reachable through the foreign pointer value.
+-- | Keep the backing allocation alive until this point.
 touchForeignPtr :: ForeignPtr a -> IO ()
-touchForeignPtr _ = return ()
+touchForeignPtr (ForeignPtr _ contents) =
+  IO
+    ( \state ->
+        case touch# contents state of
+          nextState -> (# nextState, () #)
+    )
 
 withForeignPtr :: ForeignPtr a -> (Ptr a -> IO b) -> IO b
 withForeignPtr pointer action = do

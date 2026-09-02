@@ -1,0 +1,38 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newPinnedByteArray# 16# state of
+      (# state1, buffer #) -> case mutableByteArrayContents# buffer of
+       base -> case writeWord8OffAddrAsWord64# base 1# (wordToWord64# 0x0807060504030201##) state1 of
+          state2 -> case writeWord8OffAddrAsWord16# base 9# (wordToWord16# 0xbbaa##) state2 of
+            state3 -> case readWord8OffAddrAsWord32# base 1# state3 of
+              (# state4, low #) -> case readWord8OffAddrAsWord16# base 9# state4 of
+                (# state5, tail #) -> case readWord8OffAddr# base 8# state5 of
+                  (# state6, top #) ->
+                    (# state6,
+                       Results
+                         (I# (word2Int# (word32ToWord# low)))
+                         (I# (word2Int# (word16ToWord# tail)))
+                         (I# (word2Int# (word8ToWord# top)))
+                         (I# (word2Int# (word64ToWord# (indexWord8OffAddrAsWord64# base 1#)))) #))
+output: |
+  Results (I# 67305985) (I# 48042) (I# 8) (I# 578437695752307201)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: byte offset address reads and writes use unaligned little endian access like GHC

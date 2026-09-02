@@ -687,12 +687,22 @@ compileDirectBinding env vars expression =
             name
             [ ("<#", "slt"),
               ("==#", "eq"),
+              (">#", "sgt"),
+              (">=#", "sge"),
+              ("<=#", "sle"),
+              ("/=#", "ne"),
               ("eqWord#", "eq"),
               ("neWord#", "ne"),
               ("ltWord#", "ult"),
               ("leWord#", "ule"),
               ("gtWord#", "ugt"),
-              ("geWord#", "uge")
+              ("geWord#", "uge"),
+              ("eqWord64#", "eq"),
+              ("neWord64#", "ne"),
+              ("ltWord64#", "ult"),
+              ("leWord64#", "ule"),
+              ("gtWord64#", "ugt"),
+              ("geWord64#", "uge")
             ] ->
           comparisonPrimitive predicate left right
     GrinPrimitiveCall _ name [left, right]
@@ -773,7 +783,7 @@ compileDirectBinding env vars expression =
       | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
           binaryPrimitive instruction value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           materializeValue env value >>= storeOne
     GrinPrimitiveCall _ "newArray#" [size, initial] -> do
       (lines', operands) <- materializeValues env [size, initial]

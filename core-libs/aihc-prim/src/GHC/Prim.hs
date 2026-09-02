@@ -110,6 +110,55 @@ module GHC.Prim
     Word64#,
     xor#,
     nullAddr#,
+    plusAddr#,
+    minusAddr#,
+    eqAddr#,
+    neAddr#,
+    ltAddr#,
+    leAddr#,
+    gtAddr#,
+    geAddr#,
+    addr2Int#,
+    int2Addr#,
+    indexWord16OffAddr#,
+    indexWord8OffAddrAsWord16#,
+    indexWord8OffAddrAsWord32#,
+    indexWord8OffAddrAsWord64#,
+    readWord8OffAddr#,
+    readWord16OffAddr#,
+    readWord32OffAddr#,
+    readWord64OffAddr#,
+    readWord8OffAddrAsWord16#,
+    readWord8OffAddrAsWord32#,
+    readWord8OffAddrAsWord64#,
+    writeWord8OffAddr#,
+    writeWord16OffAddr#,
+    writeWord32OffAddr#,
+    writeWord64OffAddr#,
+    writeWord8OffAddrAsWord16#,
+    writeWord8OffAddrAsWord32#,
+    writeWord8OffAddrAsWord64#,
+    cstringLength#,
+    compareByteArrays#,
+    copyMutableByteArray#,
+    copyByteArrayToAddr#,
+    copyMutableByteArrayToAddr#,
+    wordToWord8#,
+    wordToWord16#,
+    wordToWord32#,
+    wordToWord64#,
+    word16ToWord#,
+    eqWord64#,
+    neWord64#,
+    ltWord64#,
+    leWord64#,
+    gtWord64#,
+    geWord64#,
+    (>#),
+    (>=#),
+    (<=#),
+    (/=#),
+    touch#,
     sameMutableByteArray#,
     setByteArray#,
     indexAddrArray#,
@@ -428,6 +477,106 @@ foreign import prim writeWordArray# :: MutableByteArray# d -> Int# -> Word# -> S
 foreign import prim copyByteArray# :: ByteArray# -> Int# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
 
 foreign import prim nullAddr# :: Addr#
+
+foreign import prim plusAddr# :: Addr# -> Int# -> Addr#
+
+foreign import prim minusAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim eqAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim neAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim ltAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim leAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim gtAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim geAddr# :: Addr# -> Addr# -> Int#
+
+foreign import prim addr2Int# :: Addr# -> Int#
+
+foreign import prim int2Addr# :: Int# -> Addr#
+
+foreign import prim indexWord16OffAddr# :: Addr# -> Int# -> Word16#
+
+foreign import prim indexWord8OffAddrAsWord16# :: Addr# -> Int# -> Word16#
+
+foreign import prim indexWord8OffAddrAsWord32# :: Addr# -> Int# -> Word32#
+
+foreign import prim indexWord8OffAddrAsWord64# :: Addr# -> Int# -> Word64#
+
+foreign import prim readWord8OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word8# #)
+
+foreign import prim readWord16OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word16# #)
+
+foreign import prim readWord32OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word32# #)
+
+foreign import prim readWord64OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word64# #)
+
+foreign import prim readWord8OffAddrAsWord16# :: Addr# -> Int# -> State# d -> (# State# d, Word16# #)
+
+foreign import prim readWord8OffAddrAsWord32# :: Addr# -> Int# -> State# d -> (# State# d, Word32# #)
+
+foreign import prim readWord8OffAddrAsWord64# :: Addr# -> Int# -> State# d -> (# State# d, Word64# #)
+
+foreign import prim writeWord8OffAddr# :: Addr# -> Int# -> Word8# -> State# d -> State# d
+
+foreign import prim writeWord16OffAddr# :: Addr# -> Int# -> Word16# -> State# d -> State# d
+
+foreign import prim writeWord32OffAddr# :: Addr# -> Int# -> Word32# -> State# d -> State# d
+
+foreign import prim writeWord64OffAddr# :: Addr# -> Int# -> Word64# -> State# d -> State# d
+
+foreign import prim writeWord8OffAddrAsWord16# :: Addr# -> Int# -> Word16# -> State# d -> State# d
+
+foreign import prim writeWord8OffAddrAsWord32# :: Addr# -> Int# -> Word32# -> State# d -> State# d
+
+foreign import prim writeWord8OffAddrAsWord64# :: Addr# -> Int# -> Word64# -> State# d -> State# d
+
+foreign import prim cstringLength# :: Addr# -> Int#
+
+foreign import prim compareByteArrays# :: ByteArray# -> Int# -> ByteArray# -> Int# -> Int# -> Int#
+
+foreign import prim copyMutableByteArray# :: MutableByteArray# d -> Int# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim copyByteArrayToAddr# :: ByteArray# -> Int# -> Addr# -> Int# -> State# d -> State# d
+
+foreign import prim copyMutableByteArrayToAddr# :: MutableByteArray# d -> Int# -> Addr# -> Int# -> State# d -> State# d
+
+foreign import prim wordToWord8# :: Word# -> Word8#
+
+foreign import prim wordToWord16# :: Word# -> Word16#
+
+foreign import prim wordToWord32# :: Word# -> Word32#
+
+foreign import prim wordToWord64# :: Word# -> Word64#
+
+foreign import prim word16ToWord# :: Word16# -> Word#
+
+foreign import prim eqWord64# :: Word64# -> Word64# -> Int#
+
+foreign import prim neWord64# :: Word64# -> Word64# -> Int#
+
+foreign import prim ltWord64# :: Word64# -> Word64# -> Int#
+
+foreign import prim leWord64# :: Word64# -> Word64# -> Int#
+
+foreign import prim gtWord64# :: Word64# -> Word64# -> Int#
+
+foreign import prim geWord64# :: Word64# -> Word64# -> Int#
+
+foreign import prim (>#) :: Int# -> Int# -> Int#
+
+foreign import prim (>=#) :: Int# -> Int# -> Int#
+
+foreign import prim (<=#) :: Int# -> Int# -> Int#
+
+foreign import prim (/=#) :: Int# -> Int# -> Int#
+
+-- | Keep a value alive until this point. The runtime does not move or free
+-- byte arrays that are still referenced, so the primitive has no effect.
+foreign import prim touch# :: a -> State# d -> State# d
 
 foreign import prim setByteArray# :: MutableByteArray# d -> Int# -> Int# -> Int# -> State# d -> State# d
 

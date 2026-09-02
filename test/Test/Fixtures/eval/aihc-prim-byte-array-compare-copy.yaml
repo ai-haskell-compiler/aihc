@@ -1,0 +1,39 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newPinnedByteArray# 8# state of
+      (# state1, first #) -> case newPinnedByteArray# 8# state1 of
+        (# state2, second #) -> case copyAddrToByteArray# "abcdefgh"# first 0# 8# state2 of
+          state3 -> case copyMutableByteArray# first 2# second 0# 4# state3 of
+            state4 -> case copyMutableByteArrayToAddr# first 4# (plusAddr# (mutableByteArrayContents# second) 4#) 4# state4 of
+              state5 -> case unsafeFreezeByteArray# first state5 of
+                (# state6, frozenFirst #) -> case unsafeFreezeByteArray# second state6 of
+                  (# state7, frozenSecond #) ->
+                    (# state7,
+                       Results
+                         (I# (word2Int# (word8ToWord# (indexWord8OffAddr# (byteArrayContents# frozenSecond) 0#))))
+                         (I# (word2Int# (word8ToWord# (indexWord8OffAddr# (byteArrayContents# frozenSecond) 7#))))
+                         (I# (compareByteArrays# frozenFirst 2# frozenSecond 0# 4#))
+                         (I# (compareByteArrays# frozenFirst 0# frozenSecond 0# 4#))
+                         (I# (compareByteArrays# frozenSecond 0# frozenFirst 0# 4#)) #))
+output: |
+  Results (I# 99) (I# 104) (I# 0) (I# -1) (I# 1)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: byte array copies between arrays and addresses and lexicographic comparisons follow GHC semantics

@@ -1,0 +1,49 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newPinnedByteArray# 16# state of
+      (# state1, buffer #) -> case mutableByteArrayContents# buffer of
+       base -> case plusAddr# base 4# of
+        moved -> case writeWord8OffAddr# base 0# (wordToWord8# 65##) state1 of
+          state2 -> case writeWord16OffAddr# moved 1# (wordToWord16# 0x1234##) state2 of
+            state3 -> case writeWord32OffAddr# base 3# (wordToWord32# 0xdeadbeef##) state3 of
+              state4 -> case readWord8OffAddr# base 0# state4 of
+                (# state5, byte #) -> case readWord16OffAddr# base 3# state5 of
+                  (# state6, half #) -> case readWord32OffAddr# base 3# state6 of
+                    (# state7, word #) ->
+                      (# state7,
+                         Results
+                           (I# (word2Int# (word8ToWord# byte)))
+                           (I# (word2Int# (word16ToWord# half)))
+                           (I# (word2Int# (word32ToWord# word)))
+                           (I# (minusAddr# moved base))
+                           (I# (eqAddr# (plusAddr# moved (-4#)) base))
+                           (I# (ltAddr# base moved))
+                           (I# (minusAddr# (plusAddr# base 0#) moved)) #))
+
+    literal :: Int
+    literal = I# (word2Int# (word8ToWord# (indexWord8OffAddr# (plusAddr# "hello"# 1#) 0#)))
+
+    literalLength :: Int
+    literalLength = I# (cstringLength# "hello"#)
+output: |
+  ((Results (I# 65) (I# 4660) (I# 3735928559) (I# 4) (I# 1) (I# 1) (I# -4)),(I# 101),(I# 5))
+expression: |
+  (unsafePerformIO test, literal, literalLength)
+status: pass
+reason: address arithmetic, sized address writes and reads, and C string length follow GHC semantics
