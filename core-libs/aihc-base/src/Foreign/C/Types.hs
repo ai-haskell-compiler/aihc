@@ -33,6 +33,7 @@ where
 
 import Data.Int (Int16, Int32, Int64, Int8)
 import Data.Word (Word16, Word32, Word64, Word8)
+import GHC.Num (Num (..))
 import GHC.Types (Double, Float)
 
 newtype CBool = CBool Word8
@@ -72,6 +73,15 @@ newtype CShort = CShort Int16
 newtype CSigAtomic = CSigAtomic Int32
 
 newtype CSize = CSize Word64
+
+instance Num CSize where
+  CSize left + CSize right = CSize (left + right)
+  CSize left - CSize right = CSize (left - right)
+  CSize left * CSize right = CSize (left * right)
+  negate (CSize value) = CSize (negate value)
+  abs (CSize value) = CSize (abs value)
+  signum (CSize value) = CSize (signum value)
+  fromInteger value = CSize (fromInteger value)
 
 newtype CTime = CTime Int64
 

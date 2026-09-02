@@ -1,0 +1,50 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int8, Int64)
+    import Data.Word (Word, Word8, Word32)
+    import Foreign.C.Types (CSize (..))
+    import GHC.Prim (double2Int#, float2Int#)
+    import GHC.Types (Double (..), Float (..), Int (..))
+
+    word8Wrap :: Word8
+    word8Wrap = 250 + 10
+
+    word32Wrap :: Word32
+    word32Wrap = negate 1 - 4294967290
+
+    wordValue :: Word
+    wordValue = maxBound - (7 * 6 - 2)
+
+    int8Wrap :: Int8
+    int8Wrap = 100 + 100
+
+    int64Value :: Int64
+    int64Value = abs (negate 40) + signum (negate 5) * negate 2
+
+    floatValue :: Int
+    floatValue =
+      case abs (negate 40 :: Float) + 2 * signum 9 of
+        F# value -> I# (float2Int# value)
+
+    doubleValue :: Int
+    doubleValue =
+      case (negate 3 :: Double) * 4 - signum (negate 1) of
+        D# value -> I# (double2Int# value)
+
+    floatOrder :: Bool
+    floatOrder = (1 :: Float) < 2 && (2 :: Double) == 2 && compare (3 :: Float) 1 == GT
+
+    sizeValue :: CSize
+    sizeValue = 40 + 2
+output: |
+  ((W8# 4),(W32# 5),True,(I8# -56),(I64# 42),(I# 42),(I# -11),True,(W64# 42))
+expression: |
+  (word8Wrap, word32Wrap, wordValue == maxBound - 40, int8Wrap, int64Value, floatValue, doubleValue, floatOrder, sizeValue)
+status: pass
+reason: Num instances for the sized integers, Word, Float, Double, and CSize with wraparound and sign operations

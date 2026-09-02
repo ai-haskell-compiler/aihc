@@ -321,7 +321,7 @@ data ThreadId#
 type StableName# :: Type -> UnliftedType
 data StableName# a
 
-type StablePtr# :: Type -> UnliftedType
+type StablePtr# :: Type -> TYPE 'AddrRep
 data StablePtr# a
 
 type RealWorld :: Type
