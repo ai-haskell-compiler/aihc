@@ -8,15 +8,17 @@ modules:
   - |
     module Test where
 
-    import GHC.Prim (catch#, raise#, realWorld#)
+    import GHC.Prim (catch#, raise#, realWorld#, State#, RealWorld)
 
     error :: [Char] -> ()
     error message = raise# message
 
+    throwing :: State# RealWorld -> (# State# RealWorld, Bool #)
     throwing state =
       case error "bang" of
         !_ -> (# state, False #)
 
+    handler :: [Char] -> State# RealWorld -> (# State# RealWorld, Bool #)
     handler exception state =
       case exception of
         ['b', 'a', 'n', 'g'] -> (# state, True #)
@@ -26,5 +28,5 @@ output: |
 expression: |
   case catch# throwing handler realWorld# of
     (# _, result #) -> result
-status: xfail
+status: pass
 reason: a bang wildcard is infallible but still evaluates its scrutinee before entering the right-hand side
