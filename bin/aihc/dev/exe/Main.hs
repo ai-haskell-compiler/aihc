@@ -10,8 +10,6 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
 import Options.Applicative
-import ResolvePackage qualified as RP
-import ResolveStackageProgress qualified as RSP
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
@@ -35,8 +33,6 @@ data Command
   | CoreLibsProgress
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Fuzz FuzzCLI.Command
-  | ResolvePackage RP.Options
-  | ResolveStackageProgress RSP.Options
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -88,18 +84,6 @@ commandParser =
           ( info
               (Fuzz <$> FuzzCLI.commandParser <**> helper)
               (progDesc "Continuously run Hedgehog properties in parallel")
-          )
-        <> command
-          "resolve"
-          ( info
-              (ResolvePackage <$> RP.optionsParser <**> helper)
-              (progDesc "Resolve names in a Stackage package and print its resolver interface")
-          )
-        <> command
-          "resolve-stackage-progress"
-          ( info
-              (ResolveStackageProgress <$> RSP.optionsParser <**> helper)
-              (progDesc "Test name resolver on Stackage snapshot packages")
           )
     )
 
@@ -170,7 +154,3 @@ runCommand (ExtractResolveIface opts) = do
   BL.writeFile outputPath (encodePretty resolveIface)
 runCommand (Fuzz fuzzCommand) =
   Fuzz.runCommand fuzzCommand
-runCommand (ResolvePackage opts) =
-  RP.run opts
-runCommand (ResolveStackageProgress opts) =
-  RSP.run opts
