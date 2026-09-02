@@ -11,9 +11,9 @@ import Data.Bool (not)
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
 import GHC.Internal.Integer (Integer, compareInteger#, eqInteger#)
-import GHC.Prim (Int#, Word#, compareInt#, eqWord#, ltWord#, word8ToWord#, (==#))
+import GHC.Prim (Int#, Word#, compareInt#, eqWord#, ltWord#, word64ToWord#, word8ToWord#, (==#))
 import GHC.Types (Bool (..), Ordering (..))
-import GHC.Word (Word (..), Word8 (..))
+import GHC.Word (Word (..), Word64 (..), Word8 (..))
 
 instance Eq Bool where
   False == False = True
@@ -53,6 +53,10 @@ instance Eq Word where
 
 instance Eq Word8 where
   W8# left == W8# right = wordEquals (word8ToWord# left) (word8ToWord# right)
+  left /= right = not (left == right)
+
+instance Eq Word64 where
+  W64# left == W64# right = wordEquals (word64ToWord# left) (word64ToWord# right)
   left /= right = not (left == right)
 
 instance Ord Bool where
@@ -109,6 +113,15 @@ instance Ord Word8 where
   max = classesMaxBy compareWord8
   min = classesMinBy compareWord8
 
+instance Ord Word64 where
+  compare = compareWord64
+  left < right = classesLessBy compareWord64 left right
+  left <= right = classesLessOrEqualBy compareWord64 left right
+  left > right = classesGreaterBy compareWord64 left right
+  left >= right = classesGreaterOrEqualBy compareWord64 left right
+  max = classesMaxBy compareWord64
+  min = classesMinBy compareWord64
+
 compareBool :: Bool -> Bool -> Ordering
 compareBool False False = EQ
 compareBool False True = LT
@@ -135,6 +148,9 @@ compareWord (W# left) (W# right) = compareWord# left right
 
 compareWord8 :: Word8 -> Word8 -> Ordering
 compareWord8 (W8# left) (W8# right) = compareWord# (word8ToWord# left) (word8ToWord# right)
+
+compareWord64 :: Word64 -> Word64 -> Ordering
+compareWord64 (W64# left) (W64# right) = compareWord# (word64ToWord# left) (word64ToWord# right)
 
 wordEquals :: Word# -> Word# -> Bool
 wordEquals left right =
