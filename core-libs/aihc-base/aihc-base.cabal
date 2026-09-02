@@ -76,6 +76,7 @@ library
     Data.STRef.Lazy
     Data.STRef.Strict
     Data.Semigroup
+    Data.Semigroup.Internal
     Data.String
     Data.Traversable
     Data.Tuple
@@ -253,6 +254,7 @@ library
     GHC.IO.Runtime
     GHC.Internal.Char
     GHC.Internal.Classes
+    GHC.Internal.Data.NonEmpty
     GHC.Internal.Integer
     GHC.Read.Lex
 

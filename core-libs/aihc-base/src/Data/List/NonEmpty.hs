@@ -75,6 +75,7 @@ where
 
 import Control.Applicative (Alternative (many))
 import Data.Semigroup (Semigroup (..))
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import Prelude
   ( Applicative (..),
     Bool (..),
@@ -92,10 +93,6 @@ import Prelude
     (++),
     (.),
   )
-
-data NonEmpty a = (:|) a [a]
-
-infixr 5 :|
 
 infixr 5 <|
 

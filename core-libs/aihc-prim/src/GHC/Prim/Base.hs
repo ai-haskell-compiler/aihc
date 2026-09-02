@@ -28,13 +28,16 @@ data Maybe a = Nothing | Just a
 class Functor (f :: Type -> Type) where
   fmap :: (a -> b) -> f a -> f b
 
+{- HLINT ignore "Use const" -}
 class (Functor f) => Applicative (f :: Type -> Type) where
   pure :: a -> f a
   (<*>) :: f (a -> b) -> f a -> f b
   (*>) :: f a -> f b -> f b
+  (<*) :: f a -> f b -> f a
   first *> second = fmap (\_ value -> value) first <*> second
+  first <* second = fmap (\value _ -> value) first <*> second
 
-infixl 4 <*>, *>
+infixl 4 <*>, *>, <*
 
 class (Applicative m) => Monad (m :: Type -> Type) where
   (>>=) :: m a -> (a -> m b) -> m b

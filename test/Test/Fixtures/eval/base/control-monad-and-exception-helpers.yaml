@@ -1,0 +1,37 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (assert, bracket, finally, onException, SomeException, catch, throwIO, Exception)
+    import Control.Monad (foldM, forM_, unless, when, (<$!>))
+    import Data.IORef (modifyIORef, newIORef, readIORef, writeIORef)
+
+    data Boom = Boom
+
+    instance Exception Boom
+
+    results :: IO (Int, Int, Int, Int, Int)
+    results = do
+      counter <- newIORef (0 :: Int)
+      when True (modifyIORef counter (+ 1))
+      when False (modifyIORef counter (+ 100))
+      unless False (modifyIORef counter (+ 2))
+      forM_ [1, 2, 3 :: Int] (\value -> modifyIORef counter (+ value))
+      whenTotal <- readIORef counter
+      folded <- foldM (\total value -> return (total + value)) 0 [1, 2, 3, 4 :: Int]
+      strict <- (+ 1) <$!> return (10 :: Int)
+      cleanups <- newIORef (0 :: Int)
+      _ <- finally (return ()) (modifyIORef cleanups (+ 1))
+      _ <- bracket (return (5 :: Int)) (\_ -> modifyIORef cleanups (+ 1)) return
+      catch (onException (throwIO Boom) (modifyIORef cleanups (+ 1))) (\exception -> let _ = (exception :: SomeException) in return ())
+      catch (finally (throwIO Boom) (modifyIORef cleanups (+ 1))) (\exception -> let _ = (exception :: SomeException) in return ())
+      cleanupCount <- readIORef cleanups
+      return (whenTotal, folded, strict, cleanupCount, assert False 7)
+output: |
+  ((I# 9),(I# 10),(I# 11),(I# 4),(I# 7))
+expression: results
+status: pass
+reason: Control.Monad exports the standard monad helpers and Control.Exception exports the cleanup combinators and assert

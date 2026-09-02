@@ -1,7 +1,24 @@
 {-# LANGUAGE MagicHash #-}
 
 module GHC.Exts
-  ( Addr#,
+  ( module GHC.Prim,
+    IsList (..),
+    Item,
+    IsString (..),
+    Char (..),
+    Int8 (..),
+    Int16 (..),
+    Int32 (..),
+    Int64 (..),
+    FunPtr (..),
+    Constraint,
+    lazy,
+    inline,
+    oneShot,
+    runRW#,
+    build,
+    augment,
+    Addr#,
     ByteArray#,
     copyAddrToByteArray#,
     Int#,
@@ -88,13 +105,27 @@ module GHC.Exts
   )
 where
 
+import Data.String (IsString (..))
+import GHC.Base (augment, build)
+import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Char (Char (..))
+import GHC.IsList (IsList (..), Item)
 import GHC.Prim
-import GHC.Ptr (Ptr (..))
-import GHC.Types (Bool (..), Double (..), Float (..), Int (..), RuntimeRep (..), TYPE)
+import GHC.Ptr (FunPtr (..), Ptr (..))
+import GHC.Types (Bool (..), Constraint, Double (..), Float (..), Int (..), RuntimeRep (..), TYPE, isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
-isTrue# :: Int# -> Bool
-isTrue# value =
-  case value ==# 0# of
-    0# -> True
-    _ -> False
+-- | The value is returned unchanged. Strictness analysis does not apply.
+lazy :: a -> a
+lazy value = value
+
+-- | The value is returned unchanged. Inlining hints do not apply.
+inline :: a -> a
+inline value = value
+
+-- | The function is returned unchanged. Arity hints do not apply.
+oneShot :: (a -> b) -> a -> b
+oneShot function = function
+
+runRW# :: (State# RealWorld -> o) -> o
+runRW# action = action realWorld#

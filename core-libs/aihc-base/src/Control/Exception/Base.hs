@@ -4,6 +4,7 @@
 module Control.Exception.Base
   ( Exception (..),
     SomeException (..),
+    IOException,
     catch,
     catchJust,
     evaluate,
@@ -13,13 +14,20 @@ module Control.Exception.Base
     throwIO,
     try,
     tryJust,
+    onException,
+    finally,
+    bracket,
+    bracket_,
+    bracketOnError,
+    assert,
   )
 where
 
 import GHC.Exception (Exception (..), SomeException (..), throw)
 import GHC.IO (IO (..))
+import GHC.IO.Exception (IOException)
 import GHC.Prim (catch#, raise#)
-import Prelude (Either (..), Maybe (..), pure, seq, (.), (>>=))
+import Prelude (Bool, Either (..), Maybe (..), const, pure, seq, (.), (>>), (>>=))
 
 throwIO :: (Exception e) => e -> IO a
 throwIO exception = IO (\_state -> raise# (toException exception))
@@ -80,3 +88,34 @@ evaluate value =
     ( \state ->
         seq value (# state, value #)
     )
+
+-- | Run the second action when the first action raises an exception.
+-- Asynchronous exception masking is not available in this runtime.
+onException :: IO a -> IO b -> IO a
+onException action cleanup =
+  catchSomeException action (\exception -> cleanup >> throwIO exception)
+
+finally :: IO a -> IO b -> IO a
+finally action cleanup = do
+  result <- action `onException` cleanup
+  _ <- cleanup
+  pure result
+
+bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+bracket acquire release use = do
+  resource <- acquire
+  result <- use resource `onException` release resource
+  _ <- release resource
+  pure result
+
+bracket_ :: IO a -> IO b -> IO c -> IO c
+bracket_ before after use = bracket before (const after) (const use)
+
+bracketOnError :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+bracketOnError acquire release use = do
+  resource <- acquire
+  use resource `onException` release resource
+
+-- | Assertions are not checked. The value is returned unchanged.
+assert :: Bool -> a -> a
+assert _ value = value

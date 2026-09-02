@@ -13,6 +13,7 @@ module GHC.Types
     Float (..),
     Double (..),
     Bool (..),
+    isTrue#,
     Ordering (..),
     Constraint,
     TYPE,
@@ -356,3 +357,8 @@ data Tuple63# (a1 :: TYPE r1) (a2 :: TYPE r2) (a3 :: TYPE r3) (a4 :: TYPE r4) (a
 
 type Tuple64# :: TYPE r1 -> TYPE r2 -> TYPE r3 -> TYPE r4 -> TYPE r5 -> TYPE r6 -> TYPE r7 -> TYPE r8 -> TYPE r9 -> TYPE r10 -> TYPE r11 -> TYPE r12 -> TYPE r13 -> TYPE r14 -> TYPE r15 -> TYPE r16 -> TYPE r17 -> TYPE r18 -> TYPE r19 -> TYPE r20 -> TYPE r21 -> TYPE r22 -> TYPE r23 -> TYPE r24 -> TYPE r25 -> TYPE r26 -> TYPE r27 -> TYPE r28 -> TYPE r29 -> TYPE r30 -> TYPE r31 -> TYPE r32 -> TYPE r33 -> TYPE r34 -> TYPE r35 -> TYPE r36 -> TYPE r37 -> TYPE r38 -> TYPE r39 -> TYPE r40 -> TYPE r41 -> TYPE r42 -> TYPE r43 -> TYPE r44 -> TYPE r45 -> TYPE r46 -> TYPE r47 -> TYPE r48 -> TYPE r49 -> TYPE r50 -> TYPE r51 -> TYPE r52 -> TYPE r53 -> TYPE r54 -> TYPE r55 -> TYPE r56 -> TYPE r57 -> TYPE r58 -> TYPE r59 -> TYPE r60 -> TYPE r61 -> TYPE r62 -> TYPE r63 -> TYPE r64 -> TYPE ('TupleRep '[r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16, r17, r18, r19, r20, r21, r22, r23, r24, r25, r26, r27, r28, r29, r30, r31, r32, r33, r34, r35, r36, r37, r38, r39, r40, r41, r42, r43, r44, r45, r46, r47, r48, r49, r50, r51, r52, r53, r54, r55, r56, r57, r58, r59, r60, r61, r62, r63, r64])
 data Tuple64# (a1 :: TYPE r1) (a2 :: TYPE r2) (a3 :: TYPE r3) (a4 :: TYPE r4) (a5 :: TYPE r5) (a6 :: TYPE r6) (a7 :: TYPE r7) (a8 :: TYPE r8) (a9 :: TYPE r9) (a10 :: TYPE r10) (a11 :: TYPE r11) (a12 :: TYPE r12) (a13 :: TYPE r13) (a14 :: TYPE r14) (a15 :: TYPE r15) (a16 :: TYPE r16) (a17 :: TYPE r17) (a18 :: TYPE r18) (a19 :: TYPE r19) (a20 :: TYPE r20) (a21 :: TYPE r21) (a22 :: TYPE r22) (a23 :: TYPE r23) (a24 :: TYPE r24) (a25 :: TYPE r25) (a26 :: TYPE r26) (a27 :: TYPE r27) (a28 :: TYPE r28) (a29 :: TYPE r29) (a30 :: TYPE r30) (a31 :: TYPE r31) (a32 :: TYPE r32) (a33 :: TYPE r33) (a34 :: TYPE r34) (a35 :: TYPE r35) (a36 :: TYPE r36) (a37 :: TYPE r37) (a38 :: TYPE r38) (a39 :: TYPE r39) (a40 :: TYPE r40) (a41 :: TYPE r41) (a42 :: TYPE r42) (a43 :: TYPE r43) (a44 :: TYPE r44) (a45 :: TYPE r45) (a46 :: TYPE r46) (a47 :: TYPE r47) (a48 :: TYPE r48) (a49 :: TYPE r49) (a50 :: TYPE r50) (a51 :: TYPE r51) (a52 :: TYPE r52) (a53 :: TYPE r53) (a54 :: TYPE r54) (a55 :: TYPE r55) (a56 :: TYPE r56) (a57 :: TYPE r57) (a58 :: TYPE r58) (a59 :: TYPE r59) (a60 :: TYPE r60) (a61 :: TYPE r61) (a62 :: TYPE r62) (a63 :: TYPE r63) (a64 :: TYPE r64) = (# a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31, a32, a33, a34, a35, a36, a37, a38, a39, a40, a41, a42, a43, a44, a45, a46, a47, a48, a49, a50, a51, a52, a53, a54, a55, a56, a57, a58, a59, a60, a61, a62, a63, a64 #)
+
+-- | Convert a primitive comparison result to a boolean.
+isTrue# :: Int# -> Bool
+isTrue# 1# = True
+isTrue# _ = False
