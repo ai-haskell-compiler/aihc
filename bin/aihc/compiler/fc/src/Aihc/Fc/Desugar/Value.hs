@@ -2536,7 +2536,7 @@ desugarOverloadedInteger annotation resolution value = do
 
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
-  constructor <- uniqueConstructorName "IS"
+  constructor <- primitiveName "GHC.Prim.Integer" "IS" SortDataConstructor
   intRepresentation <- convertRuntimeRep IntRep
   wordRepresentation <- convertRuntimeRep WordRep
   let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer))
@@ -2562,14 +2562,6 @@ desugarIntegerLiteral value = do
     maxWord = wordBase - 1
     maxInt = 9223372036854775807
     minInt = -9223372036854775808
-
-uniqueConstructorName :: Text -> ValueM Name
-uniqueConstructorName name = do
-  constructors <- Map.findWithDefault [] name <$> gets vsConstructors
-  case constructors of
-    [constructor] -> pure constructor
-    [] -> failValue ("missing constructor " <> T.unpack name)
-    _ -> failValue ("ambiguous constructor " <> T.unpack name)
 
 convertCoercion :: Ev.Coercion -> ValueM Coercion
 convertCoercion coercion =
