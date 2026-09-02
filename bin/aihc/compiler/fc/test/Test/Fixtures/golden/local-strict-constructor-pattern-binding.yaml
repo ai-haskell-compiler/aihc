@@ -1,0 +1,60 @@
+---
+extensions:
+- BangPatterns
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Types (Int(I#))
+
+  unit :: ()
+  unit = () where !(I# n#) = 10
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Prim.Integer
+  scope 4 = "aihc-prim" GHC.Prim.Num
+  scope 5 = "aihc-prim" GHC.Tuple
+  scope 6 = "aihc-prim" GHC.Types
+
+  import headers
+    4.t$Dict$Num :: ∀(a : 6.tType). 6.tType;
+    6.tInt :: 6.tType;
+    2.tInt# :: 6.tTYPE 6.vIntRep;
+    3.tInteger :: 6.tType;
+    6.tLevity :: 6.tType;
+    6.tLiftedRep :: 6.tRuntimeRep;
+    6.tRuntimeRep :: 6.tType;
+    6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.tType;
+    6.tType :: 6.tType;
+    5.tUnit :: 6.tType;
+    4.v$fNumInt :: 4.t$Dict$Num 6.tInt;
+    5.v() :: 5.tUnit;
+    6.vBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;
+    6.vI# :: FUN @6.vIntRep @6.tLiftedRep 2.tInt# 6.tInt;
+    3.vIS :: FUN @6.vIntRep @6.tLiftedRep 2.tInt# 3.tInteger;
+    6.vIntRep :: 6.tRuntimeRep;
+    6.vLifted :: 6.tLevity;
+    4.vfromInteger :: ∀(a : 6.tType). 4.t$Dict$Num a 6.→ 3.tInteger 6.→ a
+
+  import synonyms
+    6.tLiftedRep = 6.vBoxedRep 6.vLifted;
+    6.tType = 6.tTYPE 6.tLiftedRep
+
+  pub val 1.vunit :: 5.tUnit
+   = rec {
+      _pat_rhs : 6.tInt =
+          4.vfromInteger @6.tInt 4.v$fNumInt (3.vIS 10#6.vIntRep);
+      n# : 2.tInt# =
+          case _pat_rhs as (_do_scrut : 6.tInt) return (2.tInt#) of {
+              6.vI# (n#{1} : 2.tInt#) →
+                  n#{1}
+          }
+  } in
+      case _pat_rhs as (_do_scrut : 6.tInt) return (5.tUnit) of {
+          6.vI# (n#{1} : 2.tInt#) →
+              5.v()
+      }
+status: pass
+reason: a strict local constructor pattern binding lowers its bound field
