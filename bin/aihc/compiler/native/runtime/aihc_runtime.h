@@ -176,6 +176,14 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
   return value->fields;
 }
 
+/* The static reference table of the function the machine is running. Compiled
+   functions store their own table here on entry, so a collection triggered
+   anywhere inside a function - at one of its safepoints or inside a runtime
+   helper it called - still sees the static objects that function's code can
+   reach. Continuations that are merely suspended need no entry here: they are
+   heap objects whose info tables carry their tables. */
+extern const AihcSrt *aihc_current_srt;
+
 AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info);
 AihcValue *aihc_make_node_unchecked(AihcMachine *machine, const AihcInfo *info);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,

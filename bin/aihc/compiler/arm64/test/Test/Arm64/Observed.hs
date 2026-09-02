@@ -80,6 +80,7 @@ compileObservedFunction entryName gcProgram = do
           <> entryEpilogue
           <> threadDoneContinuation
           <> staticGlobals
+          <> renderStaticReferenceTables compileEnv
           <> renderLinkedLocals functions
           <> renderCompiledSupport compileEnv functions observedRuntimeInfos
   object <- assembleObject statements

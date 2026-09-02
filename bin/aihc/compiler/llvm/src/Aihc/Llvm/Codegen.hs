@@ -18,6 +18,7 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( NativeRuntimeCall (..),
@@ -63,6 +64,8 @@ data CompileEnv = CompileEnv
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
+    compileStaticReferences :: !StaticReferences,
+    compileSrtLabels :: !(Map FunctionName Text),
     compileAllowUnsupportedPrimitives :: !Bool
   }
 
@@ -75,7 +78,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoEnter :: !(Maybe RuntimeEnter),
     runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind),
-    runtimeInfoObjectKind :: !Int
+    runtimeInfoObjectKind :: !Int,
+    runtimeInfoSrt :: !(Maybe Text)
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -139,6 +143,7 @@ compileEntryUnit entryName gcProgram = do
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
           <> staticGlobals
+          <> renderStaticReferenceTables env
           <> renderLinkedLocals functions
           <> renderEnterStubs (compileRuntimeInfos env <> specialInfos)
           <> concatMap compiledFunctionLines functions
@@ -149,7 +154,7 @@ compileEntryUnit entryName gcProgram = do
   where
     program = gcGrinProgram gcProgram
     env = compileEnvironment EntryUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) program
-    specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind) runtimeObjectClosure
+    specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind) runtimeObjectClosure Nothing
     continuationEnter target stored supplied = RuntimeEnter target stored supplied True
 
 compileModule :: GcGrinProgram -> Either LlvmError Text
@@ -166,6 +171,7 @@ compileModule gcProgram = do
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env)
           <> staticGlobals
+          <> renderStaticReferenceTables env
           <> renderLinkedLocals functions
           <> renderEnterStubs (compileRuntimeInfos env)
           <> concatMap compiledFunctionLines functions
@@ -191,6 +197,8 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
       compileAddrLiteralLabels = Map.fromList [(bytes, llvmLabel label) | (bytes, label) <- buildAddrLiteralPool program],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
       compileRuntimeInfos = map third (constructorEntries <> functionEntries),
+      compileStaticReferences = staticReferences,
+      compileSrtLabels = srtLabels,
       compileAllowUnsupportedPrimitives = unitKind == LibraryUnit
     }
   where
@@ -200,8 +208,14 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
         [ (grinFunctionName function, localFunctionLabel index function)
         | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
         ]
+    staticReferences = programStaticReferences program
+    srtLabels =
+      Map.fromList
+        [ (name, "aihc_llvm_srt_" <> tshow index)
+        | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
+        ]
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just (renderLinkedConstructorInfoSymbol name 0)) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
+      [ (key, label, RuntimeInfo label (Just (renderLinkedConstructorInfoSymbol name 0)) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key) Nothing)
       | (name, layouts) <- constructorLayouts,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -237,6 +251,7 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
             (runtimeEnter key)
             (runtimeInfoFunctionName key >>= (`Map.lookup` continuationFrames))
             (runtimeInfoKeyObjectKind key)
+            (runtimeInfoFunctionName key >>= (`Map.lookup` srtLabels))
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         let label = "aihc_llvm_function_info_" <> tshow index
@@ -293,7 +308,16 @@ compileFunction env function = do
         ]
           <> ["  " <> localSlotRef slot <> " = alloca i64, align 8" | slot <- [0 .. slotCount - 1]]
           <> parameterStores
+          <> currentSrtStore
           <> ["  br label %body"]
+      -- Every function publishes its own table, including the empty one, so a
+      -- collection never sees a table left behind by a function that has
+      -- already transferred control away.
+      currentSrtStore =
+        [ "  store ptr "
+            <> maybe "null" ("@" <>) (Map.lookup (grinFunctionName function) (compileSrtLabels env))
+            <> ", ptr @aihc_current_srt, align 8"
+        ]
       blocks = concatMap renderBlock (reverse (functionBlocksRev final))
   pure (CompiledFunction (header <> blocks <> ["}", ""]) slotCount)
   where
@@ -1254,6 +1278,40 @@ renderStaticGlobals env program = do
         GrinThunk {} -> True
         _ -> False
 
+-- | Render one record per non-empty static reference table. The first word is
+-- the collector's walk link and stays writable; the counts and entries are
+-- fixed. Info tables and other tables reach a record by symbol, so the linker
+-- keeps a record exactly as long as it keeps something that names it.
+renderStaticReferenceTables :: CompileEnv -> [Text]
+renderStaticReferenceTables env =
+  concatMap renderTable (Map.toList (staticReferenceTables (compileStaticReferences env)))
+  where
+    renderTable (name, table) =
+      case Map.lookup name (compileSrtLabels env) of
+        Nothing -> []
+        Just label ->
+          [ "@"
+              <> label
+              <> " = internal global ["
+              <> tshow (3 + length words')
+              <> " x i64] [i64 0, i64 "
+              <> tshow (length (srtObjects table))
+              <> ", i64 "
+              <> tshow (length (srtChildren table))
+              <> T.concat [", i64 " <> word | word <- words']
+              <> "], align 8",
+            ""
+          ]
+      where
+        words' =
+          [ "ptrtoint (ptr @" <> renderLinkedGlobalSymbol object <> " to i64)"
+          | object <- srtObjects table
+          ]
+            <> [ "ptrtoint (ptr @" <> childLabel <> " to i64)"
+               | child <- srtChildren table,
+                 Just childLabel <- [Map.lookup child (compileSrtLabels env)]
+               ]
+
 renderLinkedLocals :: [CompiledFunction] -> [Text]
 renderLinkedLocals functions =
   [ "@aihc_llvm_linked_locals = private constant i64 "
@@ -1705,7 +1763,9 @@ renderRuntimeInfos infos = concatMap bitmap infos <> map definition infos <> [""
         <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info))
         <> ", i64 "
         <> tshow (runtimeInfoObjectKind info)
-        <> ", ptr null }, align 8"
+        <> ", ptr "
+        <> maybe "null" ("@" <>) (runtimeInfoSrt info)
+        <> " }, align 8"
 
 renderForeignDeclarations :: GrinProgram -> [Text]
 renderForeignDeclarations program =
@@ -1741,7 +1801,13 @@ renderExternalFunctionDeclarations env program =
     <> ["" | not (null externalGlobals && null externalConstructorInfos)]
   where
     definedGlobals = Set.fromList (map fst (grinGlobals program) <> [name | (name, layouts) <- grinConstructors program, null layouts])
-    externalGlobals = Set.toAscList (Set.fromList (grinProgramGlobalReferences program) `Set.difference` definedGlobals)
+    -- Static reference tables name imported objects as well as local ones, so
+    -- their names need declarations here even when no expression in this
+    -- module mentions them explicitly.
+    tableObjects =
+      Set.fromList (concatMap srtObjects (Map.elems (staticReferenceTables (compileStaticReferences env))))
+    externalGlobals =
+      Set.toAscList ((Set.fromList (grinProgramGlobalReferences program) <> tableObjects) `Set.difference` definedGlobals)
     definedInfos = Set.fromList (map runtimeInfoLabel (compileRuntimeInfos env))
     externalConstructorInfos = Set.toAscList (programConstructorReferences program `Set.difference` definedInfos)
 
@@ -1792,7 +1858,8 @@ llvmPreamble =
 
 renderRuntimeDeclarations :: [Text]
 renderRuntimeDeclarations =
-  [ "declare ptr @aihc_machine_new(i64)",
+  [ "@aihc_current_srt = external global ptr",
+    "declare ptr @aihc_machine_new(i64)",
     "declare void @aihc_program_arguments_initialize(i32, ptr)",
     "declare ptr @aihc_make_node(ptr, ptr)",
     "declare ptr @aihc_make_node_unchecked(ptr, ptr)",

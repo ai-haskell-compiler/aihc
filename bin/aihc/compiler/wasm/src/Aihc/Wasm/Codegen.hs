@@ -15,6 +15,7 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( NativeRuntimeCall (..),
@@ -52,6 +53,8 @@ data CompileEnv = CompileEnv
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
+    compileStaticReferences :: !StaticReferences,
+    compileSrtLabels :: !(Map FunctionName Text),
     compileAllowUnsupportedPrimitives :: !Bool
   }
 
@@ -82,7 +85,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoAdapter :: !(Maybe RuntimeAdapter),
     runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind),
-    runtimeInfoObjectKind :: !Int
+    runtimeInfoObjectKind :: !Int,
+    runtimeInfoSrt :: !(Maybe Text)
   }
 
 data RuntimeInfoKey
@@ -113,7 +117,7 @@ compileEntryUnit entryName gcProgram = do
   updateArity <- functionArity env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
   staticGlobals <- renderStaticGlobals env program
-  let specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing (Just frameKind) runtimeObjectClosure
+  let specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing (Just frameKind) runtimeObjectClosure Nothing
       updateInfo label fields remaining next enter =
         RuntimeInfo
           label
@@ -125,6 +129,7 @@ compileEntryUnit entryName gcProgram = do
           (Just (RuntimeAdapter updateLabel updateArity enter))
           (Just ContinuationFrameUpdate)
           runtimeObjectClosure
+          Nothing
       specialInfos =
         [ specialInfo "aihc_wasm_final_info" "aihc_wasm_final_continuation" [] 1 (Just "aihc_wasm_final_applied_info") ContinuationFrameStop,
           specialInfo "aihc_wasm_final_applied_info" "aihc_wasm_final_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop,
@@ -146,6 +151,7 @@ compileEntryUnit entryName gcProgram = do
           <> renderAddrLiterals env
           <> renderRuntimeInfos runtimeInfos
           <> staticGlobals
+          <> renderStaticReferenceTables env
           <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
@@ -165,6 +171,7 @@ compileModule gcProgram = do
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env)
           <> staticGlobals
+          <> renderStaticReferenceTables env
           <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
@@ -189,6 +196,8 @@ compileEnvironment unitKind gcProgram =
       compileAddrLiteralLabels = Map.fromList [(bytes, "aihc_wasm_addr_" <> tshow index) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
       compileRuntimeInfos = map third (constructorEntries <> functionEntries),
+      compileStaticReferences = staticReferences,
+      compileSrtLabels = srtLabels,
       compileAllowUnsupportedPrimitives =
         case unitKind of
           EntryUnit -> False
@@ -197,6 +206,12 @@ compileEnvironment unitKind gcProgram =
   where
     program = gcGrinProgram gcProgram
     constructorLayouts = grinConstructors program
+    staticReferences = programStaticReferences program
+    srtLabels =
+      Map.fromList
+        [ (name, "aihc_wasm_srt_" <> tshow index)
+        | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
+        ]
     functionLabels =
       Map.fromList
         [ (grinFunctionName function, localFunctionLabel index function)
@@ -208,7 +223,7 @@ compileEnvironment unitKind gcProgram =
         | function <- grinFunctions program
         ]
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just (renderLinkedConstructorInfoSymbol name 0)) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
+      [ (key, label, RuntimeInfo label (Just (renderLinkedConstructorInfoSymbol name 0)) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key) Nothing)
       | (name, layouts) <- constructorLayouts,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -237,6 +252,7 @@ compileEnvironment unitKind gcProgram =
             (Just (RuntimeAdapter target arity enter))
             (Map.lookup functionName (gcContinuationFrames gcProgram))
             (runtimeInfoKeyObjectKind key)
+            (Map.lookup functionName srtLabels)
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         Just functionName <- [runtimeInfoFunctionName key],
@@ -434,7 +450,7 @@ compileFunction env function = do
       { compiledFunctionScratchSlots = scratchCount,
         compiledFunctionLines =
           functionStartWithParameters label (I32 : replicate parameterCount I64) (replicate localCount I64)
-            <> indent body
+            <> indent (storeCurrentSrt (Map.lookup (grinFunctionName function) (compileSrtLabels env)) <> body)
             <> functionEnd
       }
 
@@ -1033,6 +1049,48 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
     linkedAddress name = "\t.int32\t" <> renderLinkedGlobalSymbol name <> "\n\t.int32\t0"
     isThunk node = case grinNodeTag node of GrinThunk {} -> True; _ -> False
 
+-- | Render one record per non-empty static reference table: the collector's
+-- walk link, the two counts, then the static objects followed by the tables of
+-- the directly called functions. The link is mutable, so records live in a
+-- writable data section rather than beside the read-only info tables.
+renderStaticReferenceTables :: CompileEnv -> [Text]
+renderStaticReferenceTables env =
+  concatMap renderTable (Map.toList (staticReferenceTables (compileStaticReferences env)))
+  where
+    renderTable (name, table) =
+      case Map.lookup name (compileSrtLabels env) of
+        Nothing -> []
+        Just label ->
+          [ "\t.type\t" <> label <> ",@object",
+            "\t.section\t.data." <> label <> ",\"\",@",
+            "\t.p2align\t2, 0x0",
+            label <> ":",
+            "\t.int32\t0",
+            "\t.int32\t" <> tshow (length (srtObjects table)),
+            "\t.int32\t" <> tshow (length (srtChildren table))
+          ]
+            <> entries
+            <> [ "\t.size\t" <> label <> ", " <> tshow ((3 + length entries) * 4),
+                 ""
+               ]
+      where
+        entries =
+          ["\t.int32\t" <> renderLinkedGlobalSymbol object | object <- srtObjects table]
+            <> [ "\t.int32\t" <> childLabel
+               | child <- srtChildren table,
+                 Just childLabel <- [Map.lookup child (compileSrtLabels env)]
+               ]
+
+-- | Publish one function's static reference table as the machine's current
+-- table. A collection can happen anywhere inside a function - at one of its
+-- own safepoints or inside a runtime helper it called - and the running
+-- function has no heap object of its own to carry the table, so it stores the
+-- table on entry. Functions without a table store null rather than leaving a
+-- table behind from a function that has already transferred control away.
+storeCurrentSrt :: Maybe Text -> Instructions
+storeCurrentSrt label =
+  i32Const "0" <> i32Const (fromMaybe "0" label) <> ["i32.store\taihc_current_srt"]
+
 renderScratch :: [CompiledFunction] -> [Text]
 renderScratch functions =
   [ "\t.type\t" <> dataLabel scratchLabel <> ",@object",
@@ -1124,7 +1182,7 @@ renderRuntimeInfos infos = concatMap renderBitmap infos <> concatMap renderInfo 
              "\t.skip\t4",
              "\t.int64\t" <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
              "\t.int64\t" <> tshow (runtimeInfoObjectKind info),
-             "\t.int32\t0",
+             "\t.int32\t" <> fromMaybe "0" (runtimeInfoSrt info),
              "\t.skip\t4",
              "\t.size\t" <> runtimeDataLabel (runtimeInfoLabel info) <> ", 64",
              ""
