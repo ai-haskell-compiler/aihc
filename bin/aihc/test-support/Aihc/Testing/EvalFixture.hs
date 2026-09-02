@@ -515,8 +515,9 @@ defaultAihcPrimRoot = do
             else findUp parent
 
 initialDependencyModules :: [Module] -> [Text]
-initialDependencyModules modules =
-  nub ("Prelude" : importedModuleNameList modules)
+initialDependencyModules modules
+  | any ((== Just "Prelude") . Surface.moduleName) modules = nub (importedModuleNameList modules)
+  | otherwise = nub ("Prelude" : importedModuleNameList modules)
 
 importedModuleNames :: [Module] -> Set.Set Text
 importedModuleNames modules =
