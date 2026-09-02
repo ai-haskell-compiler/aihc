@@ -11,8 +11,8 @@ annotated:
   - |-
     module Test where
     └─ error: kind mismatch: expected Type, got RuntimeRep
-    └─ error: kind mismatch: expected Type, got Type → ?9
-    └─ error: kind mismatch: expected Type, got Type → ?6
+    └─ error: kind mismatch: expected Type, got Type → Type
+    └─ error: kind mismatch: expected Type, got Type → Type
     data Color = Red
          │       └─ type: Color
          └─ type: Type

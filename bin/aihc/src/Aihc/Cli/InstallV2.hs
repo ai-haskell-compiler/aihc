@@ -860,8 +860,8 @@ renderTypeErrorKind kind =
   case kind of
     UnificationError left right _ _ ->
       "could not match " <> renderTcType left <> " with " <> renderTcType right
-    OccursCheckError unique ty ->
-      "occurs check failed: " <> show unique <> " occurs in " <> renderTcType ty
+    OccursCheckError variable ty ->
+      "occurs check failed: " <> renderTcType variable <> " occurs in " <> renderTcType ty
     UnboundVariable name ->
       "unbound variable " <> name
     KindMismatch expected actual ->

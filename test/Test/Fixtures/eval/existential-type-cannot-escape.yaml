@@ -12,6 +12,6 @@ modules:
 output: ""
 expression: |
   escape
-error: 'typecheck error: Test: internal type checker abort: internal type annotation error: unzonked meta-variable ?17217 in finalized type annotation'
+error: 'typecheck error: Test: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation'
 status: fail
 reason: a constructor-local existential type must not escape its pattern-match branch
