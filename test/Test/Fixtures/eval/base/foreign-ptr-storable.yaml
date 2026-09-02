@@ -1,0 +1,62 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Foreign
+    import GHC.ForeignPtr (mallocPlainForeignPtrBytes)
+    import GHC.Prim (word2Int#, word8ToWord#, word16ToWord#, word32ToWord#, wordToWord8#, wordToWord16#, wordToWord32#)
+
+    byte :: Word8
+    byte = W8# (wordToWord8# 17##)
+
+    half :: Word16
+    half = W16# (wordToWord16# 8755##)
+
+    word :: Word32
+    word = W32# (wordToWord32# 1146447479##)
+
+    byteValue :: Word8 -> Int
+    byteValue (W8# value) = I# (word2Int# (word8ToWord# value))
+
+    halfValue :: Word16 -> Int
+    halfValue (W16# value) = I# (word2Int# (word16ToWord# value))
+
+    wordValue :: Word32 -> Int
+    wordValue (W32# value) = I# (word2Int# (word32ToWord# value))
+
+    results :: IO (Int, Int, Int, Int, Int, Int, Int, Int)
+    results = do
+      buffer <- mallocPlainForeignPtrBytes 32
+      withForeignPtr buffer $ \pointer -> do
+        fillBytes pointer byte 32
+        pokeElemOff (castPtr pointer) 1 half
+        poke (pointer `plusPtr` 4) word
+        poke (castPtr pointer `plusPtr` 8) (0 - 5 :: Int)
+        copyBytes (pointer `plusPtr` 24) (pointer `plusPtr` 4) 4
+        moveBytes (pointer `plusPtr` 1) pointer 3
+        first <- peek (castPtr pointer)
+        second <- peekByteOff pointer 2
+        third <- peekByteOff pointer 4
+        fourth <- peekByteOff pointer 8
+        fifth <- peekByteOff pointer 24
+        sixth <- peekByteOff pointer 3
+        return
+          ( byteValue first,
+            halfValue second,
+            wordValue third,
+            fourth,
+            wordValue fifth,
+            byteValue sixth,
+            alignPtr (pointer `plusPtr` 1) 8 `minusPtr` pointer,
+            (pointer `plusPtr` 32) `minusPtr` pointer
+          )
+output: |
+  ((I# 17),(I# 13073),(I# 1146447479),(I# -5),(I# 1146447479),(I# 51),(I# 8),(I# 32))
+expression: results
+status: pass
+reason: Foreign pointer arithmetic, Storable reads and writes, and byte copies use the address primops

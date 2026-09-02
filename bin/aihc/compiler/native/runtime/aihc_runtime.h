@@ -225,6 +225,40 @@ _Noreturn int64_t aihc_io_raise_error(int64_t error);
 uint64_t aihc_addr_index_word8(void *address, int64_t index);
 uint64_t aihc_addr_index_word32(void *address, int64_t index);
 uint64_t aihc_addr_index_word64(void *address, int64_t index);
+uint64_t aihc_addr_index_word16(void *address, int64_t index);
+uint64_t aihc_addr_write_word8(void *address, int64_t index, uint64_t value);
+uint64_t aihc_addr_write_word16(void *address, int64_t index, uint64_t value);
+uint64_t aihc_addr_write_word32(void *address, int64_t index, uint64_t value);
+uint64_t aihc_addr_write_word64(void *address, int64_t index, uint64_t value);
+uint64_t aihc_addr_index_byte_word16(void *address, int64_t offset);
+uint64_t aihc_addr_index_byte_word32(void *address, int64_t offset);
+uint64_t aihc_addr_index_byte_word64(void *address, int64_t offset);
+uint64_t aihc_addr_write_byte_word16(void *address, int64_t offset,
+                                     uint64_t value);
+uint64_t aihc_addr_write_byte_word32(void *address, int64_t offset,
+                                     uint64_t value);
+uint64_t aihc_addr_write_byte_word64(void *address, int64_t offset,
+                                     uint64_t value);
+void *aihc_addr_plus(void *address, int64_t offset);
+uint64_t aihc_addr_minus(void *left, void *right);
+uint64_t aihc_addr_eq(void *left, void *right);
+uint64_t aihc_addr_ne(void *left, void *right);
+uint64_t aihc_addr_lt(void *left, void *right);
+uint64_t aihc_addr_le(void *left, void *right);
+uint64_t aihc_addr_gt(void *left, void *right);
+uint64_t aihc_addr_ge(void *left, void *right);
+uint64_t aihc_addr_to_int(void *address);
+void *aihc_int_to_addr(int64_t value);
+uint64_t aihc_addr_cstring_length(void *address);
+uint64_t aihc_touch(uint64_t value);
+uint64_t aihc_word_to_word8(uint64_t value);
+uint64_t aihc_word_to_word16(uint64_t value);
+uint64_t aihc_word_to_word32(uint64_t value);
+uint64_t aihc_byte_array_copy_to_addr(void *opaque_array, int64_t offset,
+                                      void *destination, int64_t length);
+uint64_t aihc_byte_array_compare(void *opaque_left, int64_t left_offset,
+                                 void *opaque_right, int64_t right_offset,
+                                 int64_t length);
 /* Proof-of-concept byte arrays use stable auxiliary allocations and are not
    released. Freeze and thaw are representation-preserving compiler
    primitives. */

@@ -103,7 +103,20 @@ tests =
       testCase "accepts the Prelude Int# primitive API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "chr#"]
+          ["+#", "-#", "*#", "compareInt#", "<#", "==#", ">#", ">=#", "<=#", "/=#", "ord#", "chr#"],
+      testCase "maps address arithmetic primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          (addressArithmeticRuntimeSymbols <> wordNarrowRuntimeSymbols),
+      testCase "accepts the Word64# comparison and conversion primitives in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          ["eqWord64#", "neWord64#", "ltWord64#", "leWord64#", "gtWord64#", "geWord64#", "wordToWord64#", "word16ToWord#"]
     ]
 
 runtimeCallSymbol :: NativeRuntimeCall -> Text
@@ -126,14 +139,59 @@ byteArrayRuntimeSymbols =
     ("indexWordArray#", "aihc_byte_array_index_word"),
     ("readWordArray#", "aihc_byte_array_read_word"),
     ("writeWordArray#", "aihc_byte_array_write_word"),
-    ("copyByteArray#", "aihc_byte_array_copy")
+    ("copyByteArray#", "aihc_byte_array_copy"),
+    ("copyMutableByteArray#", "aihc_byte_array_copy"),
+    ("copyByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
+    ("copyMutableByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
+    ("compareByteArrays#", "aihc_byte_array_compare")
   ]
 
 addressIndexRuntimeSymbols :: [(Text, Text)]
 addressIndexRuntimeSymbols =
   [ ("indexWord8OffAddr#", "aihc_addr_index_word8"),
+    ("indexWord16OffAddr#", "aihc_addr_index_word16"),
     ("indexWord32OffAddr#", "aihc_addr_index_word32"),
-    ("indexWord64OffAddr#", "aihc_addr_index_word64")
+    ("indexWord64OffAddr#", "aihc_addr_index_word64"),
+    ("readWord8OffAddr#", "aihc_addr_index_word8"),
+    ("readWord16OffAddr#", "aihc_addr_index_word16"),
+    ("readWord32OffAddr#", "aihc_addr_index_word32"),
+    ("readWord64OffAddr#", "aihc_addr_index_word64"),
+    ("writeWord8OffAddr#", "aihc_addr_write_word8"),
+    ("writeWord16OffAddr#", "aihc_addr_write_word16"),
+    ("writeWord32OffAddr#", "aihc_addr_write_word32"),
+    ("writeWord64OffAddr#", "aihc_addr_write_word64"),
+    ("indexWord8OffAddrAsWord16#", "aihc_addr_index_byte_word16"),
+    ("indexWord8OffAddrAsWord32#", "aihc_addr_index_byte_word32"),
+    ("indexWord8OffAddrAsWord64#", "aihc_addr_index_byte_word64"),
+    ("readWord8OffAddrAsWord16#", "aihc_addr_index_byte_word16"),
+    ("readWord8OffAddrAsWord32#", "aihc_addr_index_byte_word32"),
+    ("readWord8OffAddrAsWord64#", "aihc_addr_index_byte_word64"),
+    ("writeWord8OffAddrAsWord16#", "aihc_addr_write_byte_word16"),
+    ("writeWord8OffAddrAsWord32#", "aihc_addr_write_byte_word32"),
+    ("writeWord8OffAddrAsWord64#", "aihc_addr_write_byte_word64")
+  ]
+
+addressArithmeticRuntimeSymbols :: [(Text, Text)]
+addressArithmeticRuntimeSymbols =
+  [ ("plusAddr#", "aihc_addr_plus"),
+    ("minusAddr#", "aihc_addr_minus"),
+    ("eqAddr#", "aihc_addr_eq"),
+    ("neAddr#", "aihc_addr_ne"),
+    ("ltAddr#", "aihc_addr_lt"),
+    ("leAddr#", "aihc_addr_le"),
+    ("gtAddr#", "aihc_addr_gt"),
+    ("geAddr#", "aihc_addr_ge"),
+    ("addr2Int#", "aihc_addr_to_int"),
+    ("int2Addr#", "aihc_int_to_addr"),
+    ("cstringLength#", "aihc_addr_cstring_length"),
+    ("touch#", "aihc_touch")
+  ]
+
+wordNarrowRuntimeSymbols :: [(Text, Text)]
+wordNarrowRuntimeSymbols =
+  [ ("wordToWord8#", "aihc_word_to_word8"),
+    ("wordToWord16#", "aihc_word_to_word16"),
+    ("wordToWord32#", "aihc_word_to_word32")
   ]
 
 arrayRuntimeSymbols :: [(Text, Text)]

@@ -466,13 +466,16 @@ compileDirectBinding env vars expression =
           binary AmdAnd ["and#"],
           binary AmdOr ["or#"],
           binary AmdXor ["xor#"],
-          comparison AmdEqual ["==#", "eqWord#"],
+          comparison AmdEqual ["==#", "eqWord#", "eqWord64#"],
           comparison AmdLess ["<#"],
-          comparison AmdNotEqual ["neWord#"],
-          comparison AmdBelow ["ltWord#"],
-          comparison AmdBelowOrEqual ["leWord#"],
-          comparison AmdAbove ["gtWord#"],
-          comparison AmdAboveOrEqual ["geWord#"]
+          comparison AmdGreater [">#"],
+          comparison AmdGreaterOrEqual [">=#"],
+          comparison AmdLessOrEqual ["<=#"],
+          comparison AmdNotEqual ["/=#", "neWord#", "neWord64#"],
+          comparison AmdBelow ["ltWord#", "ltWord64#"],
+          comparison AmdBelowOrEqual ["leWord#", "leWord64#"],
+          comparison AmdAbove ["gtWord#", "gtWord64#"],
+          comparison AmdAboveOrEqual ["geWord#", "geWord64#"]
         ]
         <> [ ("compareInt#", [amd64Instruction (AmdCmp (Amd64RmRegister R10) (Amd64BinaryRegister RAX)), amd64Instruction (AmdSet AmdGreater (Amd64RmRegister AL)), amd64Instruction (AmdSet AmdLess (Amd64RmRegister R10B)), amd64Instruction (AmdMovzx RAX (Amd64RmRegister AL)), amd64Instruction (AmdMovzx R10 (Amd64RmRegister R10B)), amd64Instruction (AmdSub (Amd64RmRegister RAX) (Amd64BinaryRegister R10))])
            ]
@@ -493,7 +496,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", [amd64Instruction (AmdNot (Amd64RmRegister RAX))])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary opcode names =
       [(name, [amd64Instruction (opcode (Amd64RmRegister R10) (Amd64BinaryRegister RAX)), amd64Instruction (AmdMov RAX (Amd64MoveRegister R10))]) | name <- names]
