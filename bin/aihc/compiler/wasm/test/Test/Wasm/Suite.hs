@@ -57,8 +57,8 @@ testDirectModule =
           assertBool "declares stable-name allocation" (".functype\taihc_stable_name_make (i32, i32) -> (i32)" `T.isInfixOf` source)
           assertBool "declares stable-name equality" (".functype\taihc_stable_name_equal (i32, i32) -> (i64)" `T.isInfixOf` source)
           assertBool "declares stable-name hashing" (".functype\taihc_stable_name_hash (i32) -> (i64)" `T.isInfixOf` source)
-          assertBool "stores closure kind in the shared info-table ABI" ("\t.int64\t3\n\t.int64\t1\n\t.size\t.Laihc_wasm_update_info, 56" `T.isInfixOf` source)
-          assertBool "emits stop continuation frame metadata" ("\t.int64\t5\n\t.int64\t1\n\t.size\t.Laihc_wasm_final_info, 56" `T.isInfixOf` source)
+          assertBool "stores closure kind in the shared info-table ABI" ("\t.int64\t3\n\t.int64\t1\n\t.int32\t0\n\t.skip\t4\n\t.size\t.Laihc_wasm_update_info, 64" `T.isInfixOf` source)
+          assertBool "emits stop continuation frame metadata" ("\t.int64\t5\n\t.int64\t1\n\t.int32\t0\n\t.skip\t4\n\t.size\t.Laihc_wasm_final_info, 64" `T.isInfixOf` source)
 
 testWasmLocals :: IO ()
 testWasmLocals =
@@ -154,7 +154,7 @@ testSynchronousException =
         (Right moduleSource, Right entrySource) -> do
           let source = moduleSource <> entrySource
           assertBool "calls the shared raise transfer" ("call\taihc_wasm_transfer_raise" `T.isInfixOf` source)
-          assertBool "emits catch frame metadata" ("\t.int64\t2\n\t.int64\t1\n\t.size\t" `T.isInfixOf` source)
+          assertBool "emits catch frame metadata" ("\t.int64\t2\n\t.int64\t1\n\t.int32\t0\n\t.skip\t4\n\t.size\t" `T.isInfixOf` source)
 
 testUnsupportedPrimitive :: IO ()
 testUnsupportedPrimitive =

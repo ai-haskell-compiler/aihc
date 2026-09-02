@@ -1124,7 +1124,9 @@ renderRuntimeInfos infos = concatMap renderBitmap infos <> concatMap renderInfo 
              "\t.skip\t4",
              "\t.int64\t" <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
              "\t.int64\t" <> tshow (runtimeInfoObjectKind info),
-             "\t.size\t" <> runtimeDataLabel (runtimeInfoLabel info) <> ", 56",
+             "\t.int32\t0",
+             "\t.skip\t4",
+             "\t.size\t" <> runtimeDataLabel (runtimeInfoLabel info) <> ", 64",
              ""
            ]
 

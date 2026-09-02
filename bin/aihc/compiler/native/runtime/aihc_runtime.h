@@ -22,6 +22,7 @@ typedef uint64_t AihcObjectKind;
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
 typedef struct AihcInfo AihcInfo;
+typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
 typedef struct AihcIoHandle AihcIoHandle;
@@ -61,6 +62,26 @@ enum {
 };
 typedef uint64_t AihcFrameKind;
 
+/* A static reference table names the static objects one function reaches
+   without going through a heap object. Tables are chained: a table names the
+   tables of the functions its code calls directly, so the collector walks the
+   graph instead of the compiler flattening it.
+
+   Backends emit one word-uniform record per table: the walk link, the two
+   counts, then object_count static object addresses followed by child_count
+   table addresses. The link is mutable, so tables belong in a writable
+   section even though info tables themselves are read-only. */
+struct AihcSrt {
+  /* Null until a collection walks this table, then the next walked table.
+     Recursive functions make the table graph cyclic, so the collector links
+     every table it walks and clears the whole list when the collection
+     ends. */
+  AihcSrt *walked;
+  uintptr_t object_count;
+  uintptr_t child_count;
+  uintptr_t entries[];
+};
+
 struct AihcInfo {
   uintptr_t identity;
   AihcEntry entry;
@@ -75,6 +96,9 @@ struct AihcInfo {
      backend-independent so the runtime can unwind them uniformly. */
   AihcFrameKind frame_kind;
   AihcObjectKind object_kind;
+  /* The static objects this object's code reaches, or null when it reaches
+     none. The collector marks them whenever it traces the object. */
+  const AihcSrt *srt;
 };
 
 struct AihcValue {

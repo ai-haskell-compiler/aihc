@@ -306,7 +306,8 @@ renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInf
              maybe (arm64Quad 0) arm64QuadSymbol (runtimeInfoNext info),
              maybe (arm64Quad 0) (const (arm64QuadSymbol (enterEntryLabel info))) (runtimeInfoEnter info),
              arm64Quad (fromIntegral (continuationFrameKindCode (runtimeInfoFrameKind info))),
-             arm64Quad (fromIntegral (runtimeInfoObjectKind info))
+             arm64Quad (fromIntegral (runtimeInfoObjectKind info)),
+             arm64Quad 0
            ]
       where
         fields = runtimeInfoFields info

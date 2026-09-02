@@ -16,7 +16,11 @@ _Static_assert(offsetof(AihcInfo, frame_kind) == 56,
                "info-table frame-kind ABI");
 _Static_assert(offsetof(AihcInfo, object_kind) == 64,
                "info-table object-kind ABI");
-_Static_assert(sizeof(AihcInfo) == 72, "info-table size ABI");
+_Static_assert(offsetof(AihcInfo, srt) == 72, "info-table SRT ABI");
+_Static_assert(sizeof(AihcInfo) == 80, "info-table size ABI");
+_Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
+_Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
+_Static_assert(offsetof(AihcSrt, entries) == 24, "SRT entries ABI");
 _Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
 _Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
 _Static_assert(offsetof(AihcResume, continuation) == 16,
@@ -30,7 +34,11 @@ _Static_assert(offsetof(AihcInfo, frame_kind) == 40,
                "info-table frame-kind ABI");
 _Static_assert(offsetof(AihcInfo, object_kind) == 48,
                "info-table object-kind ABI");
-_Static_assert(sizeof(AihcInfo) == 56, "info-table size ABI");
+_Static_assert(offsetof(AihcInfo, srt) == 56, "info-table SRT ABI");
+_Static_assert(sizeof(AihcInfo) == 64, "info-table size ABI");
+_Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
+_Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
+_Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");
 #endif
 
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
