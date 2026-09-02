@@ -1,0 +1,27 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import qualified Data.Bifunctor as Bifunctor
+    import Data.Char (digitToInt, intToDigit)
+    import Numeric (showHex, showOct)
+
+    results :: ((Int, Int), (Int, Int), Either Int Int, Either Int Int, Bool, Bool, Bool, Int)
+    results =
+      ( Bifunctor.first (+ 1) (1 :: Int, 2 :: Int),
+        Bifunctor.second (* 2) (1 :: Int, 2 :: Int),
+        Bifunctor.bimap (+ 1) (* 2) (Left 1 :: Either Int Int),
+        Bifunctor.bimap (+ 1) (* 2) (Right 1 :: Either Int Int),
+        showHex (255 :: Int) "" == "ff",
+        showOct (8 :: Int) "" == "10",
+        intToDigit 11 == 'b',
+        digitToInt 'f'
+      )
+output: |
+  (((I# 2),(I# 2)),((I# 1),(I# 4)),(Left (I# 2)),(Right (I# 2)),True,True,True,(I# 15))
+expression: results
+status: pass
+reason: Data.Bifunctor, Data.Char, and Numeric export the bifunctor, digit, and radix display helpers

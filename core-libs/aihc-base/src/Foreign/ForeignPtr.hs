@@ -1,26 +1,51 @@
-{-# LANGUAGE MagicHash #-}
-
 module Foreign.ForeignPtr
   ( ForeignPtr,
-    mallocForeignPtrArray,
+    FinalizerPtr,
+    FinalizerEnvPtr,
+    newForeignPtr,
+    newForeignPtr_,
+    addForeignPtrFinalizer,
     withForeignPtr,
+    finalizeForeignPtr,
     touchForeignPtr,
+    castForeignPtr,
+    plusForeignPtr,
+    mallocForeignPtr,
+    mallocForeignPtrBytes,
+    mallocForeignPtrArray,
+    mallocForeignPtrArray0,
   )
 where
 
-import Foreign.Storable (Storable)
-import GHC.IO (IO)
-import GHC.Int (Int)
-import GHC.Prim (raise#)
+import Foreign.Storable (Storable (..))
+import GHC.ForeignPtr
+  ( FinalizerEnvPtr,
+    FinalizerPtr,
+    ForeignPtr,
+    addForeignPtrFinalizer,
+    castForeignPtr,
+    finalizeForeignPtr,
+    mallocForeignPtr,
+    mallocForeignPtrBytes,
+    newForeignPtr_,
+    plusForeignPtr,
+    touchForeignPtr,
+    withForeignPtr,
+  )
 import GHC.Ptr (Ptr)
+import Prelude (IO, Int, Num (..), return, undefined)
 
-data ForeignPtr a
+newForeignPtr :: FinalizerPtr a -> Ptr a -> IO (ForeignPtr a)
+newForeignPtr finalizer pointer = do
+  foreignPointer <- newForeignPtr_ pointer
+  addForeignPtrFinalizer finalizer foreignPointer
+  return foreignPointer
 
 mallocForeignPtrArray :: (Storable a) => Int -> IO (ForeignPtr a)
-mallocForeignPtrArray _ = raise# ()
+mallocForeignPtrArray = mallocForeignPtrArrayOf undefined
 
-withForeignPtr :: ForeignPtr a -> (Ptr a -> IO b) -> IO b
-withForeignPtr _ _ = raise# ()
+mallocForeignPtrArrayOf :: (Storable a) => a -> Int -> IO (ForeignPtr a)
+mallocForeignPtrArrayOf placeholder count = mallocForeignPtrBytes (count * sizeOf placeholder)
 
-touchForeignPtr :: ForeignPtr a -> IO ()
-touchForeignPtr _ = raise# ()
+mallocForeignPtrArray0 :: (Storable a) => Int -> IO (ForeignPtr a)
+mallocForeignPtrArray0 count = mallocForeignPtrArray (count + 1)

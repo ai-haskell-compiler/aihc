@@ -1,0 +1,46 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import qualified Data.List as List
+    import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
+
+    results :: (Bool, Bool, Bool, Bool)
+    results =
+      ( [ List.foldl' (+) 0 [1, 2, 3 :: Int],
+          List.foldl1' max [4, 9, 2 :: Int],
+          length (List.nub [1, 1, 2, 3, 3 :: Int]),
+          length (List.intercalate [0] [[1], [2], [3 :: Int]]),
+          fromMaybe 0 (List.find (> 2) [1, 2, 3, 4 :: Int]),
+          fromMaybe 0 (List.elemIndex 3 [1, 2, 3 :: Int]),
+          sum (fst (List.partition even [1, 2, 3, 4 :: Int])),
+          length (List.group [1, 1, 2, 3, 3, 3 :: Int]),
+          length (List.tails [1, 2, 3 :: Int]),
+          List.genericLength [1, 2, 3, 4 :: Int]
+        ]
+          == [6, 9, 3, 5, 3, 2, 6, 3, 4, 4],
+        [ List.sort [3, 1, 2 :: Int],
+          List.sortBy (\left right -> compare right left) [3, 1, 2 :: Int],
+          List.sortOn negate [3, 1, 2 :: Int],
+          List.insert 2 [1, 3 :: Int],
+          List.delete 2 [1, 2, 3, 2 :: Int],
+          [1, 2, 3, 4 :: Int] List.\\ [2, 4],
+          List.union [1, 2] [2, 3 :: Int],
+          List.intersect [1, 2, 3] [2, 3, 4 :: Int],
+          List.dropWhileEnd (== 0) [1, 0, 2, 0, 0 :: Int],
+          List.unfoldr (\seed -> if seed > 3 then Nothing else Just (seed, seed + 1)) (1 :: Int),
+          catMaybes [Just 1, Nothing, Just (3 :: Int)],
+          mapMaybe (\value -> if value > 1 then Just (value * 2) else Nothing) [1, 2, 3 :: Int]
+        ]
+          == [[1, 2, 3], [3, 2, 1], [3, 2, 1], [1, 2, 3], [1, 3, 2], [1, 3], [1, 2, 3], [2, 3], [1, 0, 2], [1, 2, 3], [1, 3], [4, 6]],
+        map length (List.transpose [[1, 2, 3], [4, 5], [6 :: Int]]) == [3, 2, 1],
+        List.isInfixOf [2, 3] [1, 2, 3, 4 :: Int] && List.isPrefixOf [1] [1, 2 :: Int] && List.isSuffixOf [2] [1, 2 :: Int]
+      )
+output: |
+  (True,True,True,True)
+expression: results
+status: pass
+reason: Data.List and Data.Maybe export the standard list and Maybe utility functions

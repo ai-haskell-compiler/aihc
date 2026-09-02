@@ -126,15 +126,56 @@ module Prelude
     (^),
     (^^),
     (||),
+    Semigroup ((<>)),
+    Monoid (..),
+    Word,
+    IOError,
+    ioError,
+    userError,
+    undefined,
+    errorWithoutStackTrace,
+    const,
+    curry,
+    uncurry,
+    until,
+    asTypeOf,
+    subtract,
+    foldr1,
+    foldl1,
+    splitAt,
+    lines,
+    unlines,
+    words,
+    unwords,
+    iterate,
+    repeat,
+    cycle,
+    scanl,
+    scanl1,
+    scanr,
+    scanr1,
+    sum,
+    product,
+    maximum,
+    minimum,
+    notElem,
+    or,
+    (!!),
+    zip3,
+    zipWith3,
+    unzip3,
   )
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..))
+import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Enum (Bounded (..), Enum (..))
+import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
 import GHC.IO (IO (..))
+import GHC.IO.Exception (IOError, ioError, userError)
 import GHC.IO.Handle.Text (hPutStr)
 import GHC.IO.StdHandles (stdout)
 import GHC.Int (Int (..))
@@ -143,7 +184,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, raise#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
+import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -362,9 +403,6 @@ sequence_ = foldr (>>) (return ())
 
 mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
 mapM function = sequence . map function
-
-error :: String -> a
-error = raise#
 
 newtype ReadPrec a = ReadPrec (Prec -> ReadS a)
 
@@ -1075,3 +1113,170 @@ bindMaybe (Just x) k = k x
 thenList :: [a] -> [b] -> [b]
 thenList [] _ = []
 thenList (_ : xs) ys = ys ++ thenList xs ys
+
+const :: a -> b -> a
+const value _ = value
+
+curry :: ((a, b) -> c) -> a -> b -> c
+curry function left right = function (left, right)
+
+uncurry :: (a -> b -> c) -> (a, b) -> c
+uncurry function (left, right) = function left right
+
+until :: (a -> Bool) -> (a -> a) -> a -> a
+until done next value =
+  if done value
+    then value
+    else until done next (next value)
+
+asTypeOf :: a -> a -> a
+asTypeOf = const
+
+subtract :: (Num a) => a -> a -> a
+subtract left right = right - left
+
+foldr1 :: (a -> a -> a) -> [a] -> a
+foldr1 _ [] = errorWithoutStackTrace "Prelude.foldr1: empty list"
+foldr1 _ [value] = value
+foldr1 combine (value : values) = combine value (foldr1 combine values)
+
+foldl1 :: (a -> a -> a) -> [a] -> a
+foldl1 _ [] = errorWithoutStackTrace "Prelude.foldl1: empty list"
+foldl1 combine (value : values) = foldl combine value values
+
+splitAt :: Int -> [a] -> ([a], [a])
+splitAt count values = (take count values, drop count values)
+
+lines :: String -> [String]
+lines [] = []
+lines text =
+  case break (== '\n') text of
+    (line, rest) ->
+      line
+        : ( case rest of
+              [] -> []
+              (_ : remaining) -> lines remaining
+          )
+
+unlines :: [String] -> String
+unlines = concatMap (++ "\n")
+
+words :: String -> [String]
+words text =
+  case dropWhile isSpaceChar text of
+    [] -> []
+    trimmed ->
+      case break isSpaceChar trimmed of
+        (word, rest) -> word : words rest
+
+isSpaceChar :: Char -> Bool
+isSpaceChar character =
+  character
+    == ' '
+    || character
+    == '\t'
+    || character
+    == '\n'
+    || character
+    == '\r'
+    || character
+    == '\f'
+    || character
+    == '\v'
+    || character
+    == '\160'
+
+unwords :: [String] -> String
+unwords [] = []
+unwords [word] = word
+unwords (word : rest) = word ++ (' ' : unwords rest)
+
+iterate :: (a -> a) -> a -> [a]
+iterate next value = value : iterate next (next value)
+
+repeat :: a -> [a]
+repeat value = value : repeat value
+
+cycle :: [a] -> [a]
+cycle [] = errorWithoutStackTrace "Prelude.cycle: empty list"
+cycle values = values ++ cycle values
+
+scanl :: (b -> a -> b) -> b -> [a] -> [b]
+scanl combine initial values =
+  initial
+    : ( case values of
+          [] -> []
+          (value : rest) -> scanl combine (combine initial value) rest
+      )
+
+scanl1 :: (a -> a -> a) -> [a] -> [a]
+scanl1 _ [] = []
+scanl1 combine (value : values) = scanl combine value values
+
+scanr :: (a -> b -> b) -> b -> [a] -> [b]
+scanr _ initial [] = [initial]
+scanr combine initial (value : values) =
+  case scanr combine initial values of
+    results@(result : _) -> combine value result : results
+    [] -> [initial]
+
+scanr1 :: (a -> a -> a) -> [a] -> [a]
+scanr1 _ [] = []
+scanr1 _ [value] = [value]
+scanr1 combine (value : values) =
+  case scanr1 combine values of
+    results@(result : _) -> combine value result : results
+    [] -> [value]
+
+sum :: (Num a) => [a] -> a
+sum = foldl (+) 0
+
+product :: (Num a) => [a] -> a
+product = foldl (*) 1
+
+maximum :: (Ord a) => [a] -> a
+maximum [] = errorWithoutStackTrace "Prelude.maximum: empty list"
+maximum (value : values) = foldl max value values
+
+minimum :: (Ord a) => [a] -> a
+minimum [] = errorWithoutStackTrace "Prelude.minimum: empty list"
+minimum (value : values) = foldl min value values
+
+notElem :: (Eq a) => a -> [a] -> Bool
+notElem value values = not (value `elem` values)
+
+or :: [Bool] -> Bool
+or = any id
+
+(!!) :: [a] -> Int -> a
+(!!) values index =
+  if index < 0
+    then errorWithoutStackTrace "Prelude.!!: negative index"
+    else indexList values index
+
+indexList :: [a] -> Int -> a
+indexList [] _ = errorWithoutStackTrace "Prelude.!!: index too large"
+indexList (value : values) index =
+  if index == 0
+    then value
+    else indexList values (index - 1)
+
+infixl 9 !!
+
+zip3 :: [a] -> [b] -> [c] -> [(a, b, c)]
+zip3 = zipWith3 tripleOf
+
+tripleOf :: a -> b -> c -> (a, b, c)
+tripleOf valueOne valueTwo valueThree = (valueOne, valueTwo, valueThree)
+
+zipWith3 :: (a -> b -> c -> d) -> [a] -> [b] -> [c] -> [d]
+zipWith3 combine (valueOne : onesRest) (valueTwo : twosRest) (valueThree : threesRest) =
+  combine valueOne valueTwo valueThree : zipWith3 combine onesRest twosRest threesRest
+zipWith3 _ _ _ _ = []
+
+unzip3 :: [(a, b, c)] -> ([a], [b], [c])
+unzip3 = foldr unzip3Step ([], [], [])
+
+unzip3Step :: (a, b, c) -> ([a], [b], [c]) -> ([a], [b], [c])
+unzip3Step (valueOne, valueTwo, valueThree) (ones, twos, threes) =
+  (valueOne : ones, valueTwo : twos, valueThree : threes)

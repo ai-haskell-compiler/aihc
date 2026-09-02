@@ -1,0 +1,45 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.String (IsString (..))
+    import GHC.Exts (IsList (..), State#, RealWorld, build, inline, lazy, oneShot, runRW#)
+    import GHC.IO (IO (..), unIO, unsafeDupablePerformIO, unsafeInterleaveIO)
+    import Data.IORef (newIORef, readIORef, writeIORef)
+
+    newtype Name = Name String
+
+    instance IsString Name where
+      fromString = Name
+
+    nameLength :: Name -> Int
+    nameLength (Name value) = length value
+
+    runState :: State# RealWorld -> Int
+    runState _ = 41
+
+    interleaved :: IO Int
+    interleaved = do
+      reference <- newIORef 1
+      lazyValue <- unsafeInterleaveIO (readIORef reference)
+      writeIORef reference 2
+      return lazyValue
+
+    results :: (Int, Int, Int, Int, Int)
+    results =
+      ( nameLength (fromString "abc"),
+        runRW# runState,
+        lazy (3 :: Int) + inline 4 + oneShot (+ 1) 5,
+        length (build (\cons nil -> cons 'a' (cons 'b' nil))),
+        unsafeDupablePerformIO interleaved
+      )
+output: |
+  ((I# 3),(I# 41),(I# 13),(I# 2),(I# 2))
+expression: results
+status: pass
+reason: GHC.Exts exports the IsList and IsString classes, the identity hints, and runRW#, and GHC.IO exports the unsafe IO helpers

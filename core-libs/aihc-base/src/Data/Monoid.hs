@@ -11,30 +11,17 @@ module Data.Monoid
   )
 where
 
+import Data.Bool (Bool (..), (&&), (||))
 import Data.Semigroup
   ( Max (..),
     Min (..),
-    Semigroup (..),
     WrappedMonoid (..),
   )
-import Prelude
-  ( Bool (..),
-    Bounded (..),
-    Maybe (..),
-    Num (..),
-    (&&),
-    (||),
-  )
-
-class (Semigroup a) => Monoid a where
-  mempty :: a
-  mappend :: a -> a -> a
-  mconcat :: [a] -> a
-
-  mappend = (<>)
-  mconcat = foldMonoid
-
-infixr 6 `mappend`
+import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
+import GHC.Base (Maybe (..))
+import GHC.Enum (Bounded (..))
+import GHC.Internal.Classes (Ord (..))
+import GHC.Num (Num (..))
 
 newtype Dual a = Dual {getDual :: a}
 
@@ -102,20 +89,3 @@ instance (Ord a, Bounded a) => Monoid (Max a) where
 
 instance (Monoid m) => Monoid (WrappedMonoid m) where
   mempty = WrapMonoid mempty
-
-{- HLINT ignore foldMonoid "Use foldr" -}
-foldMonoid :: (Monoid a) => [a] -> a
-foldMonoid [] = mempty
-foldMonoid (value : values) = value <> foldMonoid values
-
-instance Monoid [a] where
-  mempty = []
-
-instance (Semigroup a) => Monoid (Maybe a) where
-  mempty = Nothing
-
-instance Monoid () where
-  mempty = ()
-
-instance (Monoid a, Monoid b) => Monoid (a, b) where
-  mempty = (mempty, mempty)

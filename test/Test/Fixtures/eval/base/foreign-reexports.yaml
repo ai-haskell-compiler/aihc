@@ -1,0 +1,40 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.IORef (newIORef, readIORef, writeIORef)
+    import Foreign
+    import qualified Foreign.Concurrent as Concurrent
+    import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
+    import GHC.ForeignPtr (ForeignPtr (..), ForeignPtrContents (..), mallocPlainForeignPtrBytes, unsafeWithForeignPtr)
+
+    castNull :: Ptr Word8
+    castNull = castPtr (nullPtr :: Ptr Int)
+
+    functionPointerRoundTrip :: FunPtr Int
+    functionPointerRoundTrip = castPtrToFunPtr (castFunPtrToPtr (nullFunPtr :: FunPtr Word8))
+
+    isPlainPointer :: ForeignPtr a -> Bool
+    isPlainPointer (ForeignPtr _ (PlainPtr _)) = True
+    isPlainPointer _ = False
+
+    results :: IO (Bool, Bool, Int, Bool)
+    results = do
+      buffer <- mallocPlainForeignPtrBytes 16
+      counter <- newIORef (0 :: Int)
+      concurrent <- Concurrent.newForeignPtr (unsafeForeignPtrToPtr buffer) (writeIORef counter 7)
+      plainResult <- unsafeWithForeignPtr buffer (\_ -> return True)
+      withResult <- withForeignPtr (castForeignPtr concurrent :: ForeignPtr Word8) (\_ -> return True)
+      finalizeForeignPtr concurrent
+      finalizeForeignPtr concurrent
+      count <- readIORef counter
+      return (plainResult, withResult, count, isPlainPointer buffer)
+output: |
+  (True,True,(I# 7),True)
+expression: results
+status: pass
+reason: Foreign re-exports Data.Word and the pointer modules, and foreign pointers run registered finalizers once

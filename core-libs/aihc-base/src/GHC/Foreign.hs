@@ -2,18 +2,29 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 -- | Minimal UTF-8 marshalling used for POSIX file paths.
-module GHC.Foreign (openUtf8FilePath) where
+module GHC.Foreign
+  ( openUtf8FilePath,
+    peekCString,
+    peekCStringLen,
+    newCString,
+    newCStringLen,
+    withCString,
+    withCStringLen,
+  )
+where
 
 import Data.Bool (Bool (..), (&&))
 import Data.Either (Either (..))
+import Foreign.C.String (CString, CStringLen)
 import GHC.Base (List (..), Monad (..), String)
 import GHC.Char (ord)
 import GHC.IO (IO (..))
+import GHC.IO.Encoding (TextEncoding)
 import GHC.IO.FD (IOHandle, openIOHandle, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
-import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#, raise#)
 import GHC.Ptr (Ptr)
 
 -- | Marshal a 'String' to stable UTF-8 bytes. Embedded NUL and surrogate
@@ -126,3 +137,26 @@ divide64 value = go value 0
       case remainder >= 64 of
         True -> go (remainder - 64) (quotient + 1)
         False -> (quotient, remainder)
+
+-- | Marshalling through text encodings needs byte access through pointers,
+-- which is not available.
+peekCString :: TextEncoding -> CString -> IO String
+peekCString _ _ = marshalError "GHC.Foreign.peekCString: string marshalling is not available"
+
+peekCStringLen :: TextEncoding -> CStringLen -> IO String
+peekCStringLen _ _ = marshalError "GHC.Foreign.peekCStringLen: string marshalling is not available"
+
+newCString :: TextEncoding -> String -> IO CString
+newCString _ _ = marshalError "GHC.Foreign.newCString: string marshalling is not available"
+
+newCStringLen :: TextEncoding -> String -> IO CStringLen
+newCStringLen _ _ = marshalError "GHC.Foreign.newCStringLen: string marshalling is not available"
+
+withCString :: TextEncoding -> String -> (CString -> IO a) -> IO a
+withCString _ _ _ = marshalError "GHC.Foreign.withCString: string marshalling is not available"
+
+withCStringLen :: TextEncoding -> String -> (CStringLen -> IO a) -> IO a
+withCStringLen _ _ _ = marshalError "GHC.Foreign.withCStringLen: string marshalling is not available"
+
+marshalError :: String -> a
+marshalError = raise#

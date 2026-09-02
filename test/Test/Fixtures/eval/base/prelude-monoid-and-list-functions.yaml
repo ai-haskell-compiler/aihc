@@ -1,0 +1,66 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Semigroup (sconcat, stimes, stimesMonoid)
+    import Data.List.NonEmpty (NonEmpty (..))
+
+    newtype Count = Count Int
+
+    instance Semigroup Count where
+      Count left <> Count right = Count (left + right)
+
+    instance Monoid Count where
+      mempty = Count 0
+
+    unCount :: Count -> Int
+    unCount (Count value) = value
+
+    monoidResults :: [Int]
+    monoidResults =
+      [ unCount (mconcat [Count 1, Count 2, Count 3]),
+        unCount (mappend (Count 4) mempty),
+        unCount (sconcat (Count 5 :| [Count 6])),
+        unCount (stimes (3 :: Int) (Count 2)),
+        unCount (stimesMonoid (0 :: Int) (Count 9)),
+        length (mconcat [[1, 2], [3 :: Int]])
+      ]
+
+    listResults :: [Int]
+    listResults =
+      [ const (1 :: Int) (2 :: Int),
+        uncurry (+) (3, 4 :: Int),
+        curry fst (5 :: Int) (6 :: Int),
+        foldr1 (-) [10, 4, 3 :: Int],
+        foldl1 (-) [10, 4, 3 :: Int],
+        length (fst (splitAt 2 [1, 2, 3, 4, 5 :: Int])),
+        length (lines "a\nbb\nccc"),
+        length (words "  one two   three "),
+        length (unlines ["ab", "c"]),
+        length (unwords ["ab", "c"]),
+        [7, 8, 9 :: Int] !! 1,
+        sum (take 4 (iterate (* 2) (1 :: Int))),
+        product (take 3 (repeat (3 :: Int))),
+        maximum (take 5 (cycle [1, 9, 2 :: Int])),
+        minimum [4, 2, 8 :: Int],
+        subtract 1 (10 :: Int),
+        until (> 100) (* 3) (1 :: Int),
+        sum (scanl (+) 0 [1, 2, 3 :: Int]),
+        sum (scanr (+) 0 [1, 2, 3 :: Int]),
+        length (zip3 [1, 2 :: Int] [3, 4, 5 :: Int] "ab")
+      ]
+
+    results :: (Bool, Bool, Bool)
+    results =
+      ( monoidResults == [6, 4, 11, 6, 0, 3],
+        listResults == [1, 7, 5, 9, 3, 2, 3, 3, 5, 4, 8, 15, 27, 9, 2, 9, 243, 10, 14, 2],
+        notElem (3 :: Int) [1, 2 :: Int] && or [False, True]
+      )
+output: |
+  (True,True,True)
+expression: results
+status: pass
+reason: Prelude exports the Semigroup and Monoid classes with the standard list and tuple helper functions

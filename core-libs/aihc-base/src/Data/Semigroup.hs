@@ -1,5 +1,9 @@
 module Data.Semigroup
   ( Semigroup (..),
+    stimesMonoid,
+    stimesIdempotent,
+    stimesIdempotentMonoid,
+    NonEmpty (..),
     Min (..),
     Max (..),
     First (..),
@@ -11,12 +15,14 @@ module Data.Semigroup
   )
 where
 
-import Prelude (Eq (..), Maybe (..), Ord (..), (++))
-
-class Semigroup a where
-  (<>) :: a -> a -> a
-
-infixr 6 <>
+import Data.Semigroup.Internal
+  ( Semigroup (..),
+    stimesIdempotent,
+    stimesIdempotentMonoid,
+    stimesMonoid,
+  )
+import GHC.Internal.Data.NonEmpty (NonEmpty (..))
+import Prelude (Eq (..), Ord (..), Ordering (..))
 
 newtype Min a = Min {getMin :: a}
 
@@ -67,17 +73,3 @@ instance (Ord a) => Ord (Arg a b) where
     case leftKey >= rightKey of
       True -> left
       False -> right
-
-instance Semigroup [a] where
-  (<>) = (++)
-
-instance (Semigroup a) => Semigroup (Maybe a) where
-  Nothing <> value = value
-  value <> Nothing = value
-  Just left <> Just right = Just (left <> right)
-
-instance Semigroup () where
-  _ <> _ = ()
-
-instance (Semigroup a, Semigroup b) => Semigroup (a, b) where
-  (leftA, leftB) <> (rightA, rightB) = (leftA <> rightA, leftB <> rightB)
