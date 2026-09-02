@@ -114,6 +114,7 @@ struct AihcMachine {
   void *trampoline_state;
   AihcResume selected_resume;
   int64_t exit_status;
+  uint64_t other_space_bytes;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
