@@ -1,0 +1,55 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Unit = Unit
+    data family Wrapped a
+    newtype instance Wrapped Unit = WrappedUnit Unit
+    build :: Unit -> Wrapped Unit
+    build value = WrappedUnit value
+    unwrap :: Wrapped Unit -> Unit
+    unwrap wrapped = case wrapped of
+      WrappedUnit value -> value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tUnit :: 2.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub type 1.tWrapped (a : 2.tType) :: 2.tType @N {}
+
+  type 1.t$R$Wrapped$WrappedUnit :: 2.tType {}
+
+  axiom 1.$ax$R$Wrapped$WrappedUnit : 1.t$R$Wrapped$WrappedUnit ~R 1.tUnit
+
+  axiom 1.$ax$Wrapped$WrappedUnit : 1.tWrapped 1.tUnit ~N 1.t$R$Wrapped$WrappedUnit
+
+  pub val 1.vbuild :: 1.tUnit 2.→ 1.tWrapped 1.tUnit
+   = λ(x : 1.tUnit).
+    x ▷ trans (sym (axiom-co 1.$ax$R$Wrapped$WrappedUnit)) (sym (axiom-co 1.$ax$Wrapped$WrappedUnit))
+
+  pub val 1.vunwrap :: 1.tWrapped 1.tUnit 2.→ 1.tUnit
+   = λ(x : 1.tWrapped 1.tUnit).
+    let {
+        value : 1.tUnit =
+            x ▷ trans (axiom-co 1.$ax$Wrapped$WrappedUnit) (axiom-co 1.$ax$R$Wrapped$WrappedUnit)
+    } in
+        value
+status: pass
+reason: A newtype family instance has no constructor in System FC. The desugarer casts with the representation axiom and the family axiom.

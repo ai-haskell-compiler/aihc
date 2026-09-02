@@ -75,6 +75,7 @@ import Control.Monad (zipWithM)
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -210,8 +211,16 @@ headerIndex convertEnv interface =
   where
     termFacts =
       [ (Name identifier SortValue (OriginTop package moduleName'), HeaderTerm (key, scheme))
-      | (key@(TcTermGlobal package moduleName' identifier), scheme) <- tcInterfaceTerms interface
+      | (key@(TcTermGlobal package moduleName' identifier), scheme) <- tcInterfaceTerms interface,
+        Set.notMember key familyConstructorKeys
       ]
+    familyConstructorKeys =
+      Set.fromList
+        [ TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) constructorName
+        | info <- tcInterfaceDataFamilyInstances interface,
+          let tyCon = dfiiRepresentationTyCon info,
+          constructorName <- dfiiConstructorNames info
+        ]
     tyConFacts =
       [ (tyConNameFc convertEnv (tciTyCon info), HeaderTyCon info)
       | info <- tcInterfaceTyCons interface,
@@ -268,11 +277,15 @@ headerIndex convertEnv interface =
       ]
     dataFamilyFacts =
       concat
-        [ [ (Name (dfiiAxiomName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)), HeaderDataFamily info),
-            (tyConNameFc convertEnv tyCon, HeaderDataFamily info)
-          ]
+        [ (Name (dfiiAxiomName info) SortAxiom origin, HeaderDataFamily info)
+            : (Name ("$ax$" <> T.drop 1 (tyConName tyCon)) SortAxiom origin, HeaderDataFamily info)
+            : (tyConNameFc convertEnv tyCon, HeaderDataFamily info)
+            : [ (Name constructorName SortDataConstructor origin, HeaderDataFamily info)
+              | constructorName <- dfiiConstructorNames info
+              ]
         | info <- tcInterfaceDataFamilyInstances interface,
           let tyCon = dfiiRepresentationTyCon info
+              origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
         ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
       case ordinaryScheme of
