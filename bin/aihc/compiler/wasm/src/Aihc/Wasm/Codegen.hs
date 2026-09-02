@@ -586,6 +586,12 @@ compileDirectBinding env vars expression =
             <> call "aihc_stable_name_make"
             <> ["i64.extend_i32_u"]
         )
+    GrinPrimitiveCall _ "casMutVar#" [reference, expected, replacement]
+      | Just swapCall <- nativeRuntimePrimitiveCall "casMutVar#",
+        Just readCall <- nativeRuntimePrimitiveCall "readMutVar#" -> do
+          swapInstructions <- compileForeignCall env (nativeRuntimeCallForeignCall swapCall) [reference, expected, replacement]
+          readInstructions <- compileForeignCall env (nativeRuntimeCallForeignCall readCall) [reference]
+          storePair swapInstructions readInstructions
     GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           instructions <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments

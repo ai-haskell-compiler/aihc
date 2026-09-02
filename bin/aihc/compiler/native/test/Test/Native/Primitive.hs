@@ -148,7 +148,7 @@ mutVarRuntimeSymbols :: [(Text, Text)]
 mutVarRuntimeSymbols =
   [ ("readMutVar#", "aihc_mutvar_read"),
     ("writeMutVar#", "aihc_mutvar_write"),
-    ("aihcCasMutVarFlag", "aihc_mutvar_compare_and_swap"),
+    ("casMutVar#", "aihc_mutvar_compare_and_swap"),
     ("sameMutVar#", "aihc_mutvar_same")
   ]
 

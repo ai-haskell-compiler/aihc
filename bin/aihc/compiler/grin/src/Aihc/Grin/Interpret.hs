@@ -829,12 +829,12 @@ evalPrimitive "writeMutVar#" [mutVar, value] = do
   GrinMutVar reference <- expectMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
   pure []
-evalPrimitive "aihcCasMutVarFlag" [mutVar, expected, replacement] = do
-  GrinMutVar reference <- expectMutVarPrimitiveArgument "aihcCasMutVarFlag" mutVar
+evalPrimitive "casMutVar#" [mutVar, expected, replacement] = do
+  GrinMutVar reference <- expectMutVarPrimitiveArgument "casMutVar#" mutVar
   current <- liftEvalIO (readIORef reference)
   let succeeded = current == expected
   when succeeded (liftEvalIO (writeIORef reference replacement))
-  pure [intRuntimeValue (if succeeded then 0 else 1)]
+  pure [intRuntimeValue (if succeeded then 0 else 1), if succeeded then replacement else current]
 evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
   rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right

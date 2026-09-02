@@ -16,6 +16,6 @@ modules:
       return True
 output: ""
 expression: strictAtomicResult
-error: 'InterpretPrimitiveArity "casMutVar#" 3'
+error: 'uncaught exception: False'
 status: fail
 reason: atomicModifyIORef' forces the returned value after atomically installing the strict new value
