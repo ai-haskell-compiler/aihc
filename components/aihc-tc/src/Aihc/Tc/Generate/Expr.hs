@@ -70,20 +70,25 @@ inferExprAt ambient expr = case expr of
       isFromIntegerResolution resolution,
       EInt _ TInteger _ <- inner ->
         inferOverloadedIntegerLiteral ambient ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      resolutionNamespace resolution == ResolutionNamespaceType,
+      isPrimitiveLiteral inner ->
+        inferPrimitiveLiteral ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
-  EInt _ numericType _ ->
-    literalResult expr (numericLiteralType numericType)
+  EInt {} ->
+    abortTc "integer literal is missing its resolver type annotation"
   EFloat {} ->
     literalResult expr doubleTyCon
   EChar _ _ ->
     literalResult expr (resolvedType "Char")
-  ECharHash _ _ ->
-    literalResult expr (primType "Char#")
+  ECharHash {} ->
+    abortTc "primitive character literal is missing its resolver type annotation"
   EString _ _ ->
     literalResult expr stringTyCon
-  EStringHash _ _ ->
-    literalResult expr (primType "Addr#")
+  EStringHash {} ->
+    abortTc "primitive string literal is missing its resolver type annotation"
   ELambdaPats pats body ->
     inferLambda (exprSpan expr `orSourceSpan` ambient) pats body
   ELambdaCase alts ->
@@ -252,6 +257,23 @@ inferResolvedFromInteger sp resolution = do
       pure (ty, [], [])
     Nothing ->
       abortTc ("resolved fromInteger missing from type environment: " <> show (resolutionTarget resolution))
+
+inferPrimitiveLiteral :: Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferPrimitiveLiteral resolutionAnn resolution literalExpr = do
+  maybeInfo <- lookupResolvedTypeSyntax resolution
+  case maybeInfo of
+    Just info ->
+      literalResult (EAnn resolutionAnn literalExpr) (pure (TcTyCon (tciTyCon info) []))
+    Nothing ->
+      abortTc ("resolved primitive literal type missing from type environment: " <> show (resolutionTarget resolution))
+
+isPrimitiveLiteral :: Expr -> Bool
+isPrimitiveLiteral expr =
+  case expr of
+    EInt _ numericType _ -> numericType /= TInteger
+    ECharHash {} -> True
+    EStringHash {} -> True
+    _ -> False
 
 isFromIntegerResolution :: ResolutionAnnotation -> Bool
 isFromIntegerResolution resolution =
@@ -1058,33 +1080,6 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
-intTyCon :: TcM TcType
-intTyCon = knownTyConType "GHC.Types" "Int"
-
-numericLiteralType :: NumericType -> TcM TcType
-numericLiteralType numericType =
-  case numericType of
-    TInteger -> intTyCon
-    TIntHash -> primType "Int#"
-    TWordHash -> primType "Word#"
-    TInt8Hash -> primType "Int8#"
-    TInt16Hash -> primType "Int16#"
-    TInt32Hash -> primType "Int32#"
-    TInt64Hash -> primType "Int64#"
-    TWord8Hash -> primType "Word8#"
-    TWord16Hash -> primType "Word16#"
-    TWord32Hash -> primType "Word32#"
-    TWord64Hash -> primType "Word64#"
-
-primType :: Text -> TcM TcType
-primType = knownTyConType "GHC.Prim"
-
-knownTyConType :: Text -> Text -> TcM TcType
-knownTyConType moduleName name = do
-  maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name 0 typeKindType) (pure . tciTyCon) maybeInfo
-  pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType
 doubleTyCon = do

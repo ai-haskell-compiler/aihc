@@ -289,19 +289,22 @@ preparePrimitiveSupport primitiveModules =
   case mapM (uncurry parsePrimitiveModule) primitiveModules of
     Left errMsg -> Left ("parse error: " <> errMsg)
     Right modules ->
-      case resolveWithDeps emptyScope mempty (modulesInPackage primitivePackage modules) of
-        resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
-          let primitiveAsts = map snd resolvedModules
-              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface primitiveAsts
-           in if all tcModuleSuccess primitiveTcResults
-                then
-                  Right
-                    PrimitiveSupport
-                      { supportScopes = extractInterface resolved,
-                        supportTcInterface = tcInterface
-                      }
-                else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
-        ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+      let packageModules = modulesInPackage primitivePackage modules
+          exports = collectModuleExportsWithDeps mempty packageModules
+          builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
+       in case resolveWithDeps builtinScope mempty packageModules of
+            resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+              let primitiveAsts = map snd resolvedModules
+                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface primitiveAsts
+               in if all tcModuleSuccess primitiveTcResults
+                    then
+                      Right
+                        PrimitiveSupport
+                          { supportScopes = extractInterface resolved,
+                            supportTcInterface = tcInterface
+                          }
+                    else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
+            ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
@@ -317,7 +320,7 @@ fixtureBuiltinScope modules =
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

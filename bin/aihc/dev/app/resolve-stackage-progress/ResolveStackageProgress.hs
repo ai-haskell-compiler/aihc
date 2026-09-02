@@ -323,7 +323,7 @@ builtinFunctionScope currentPackage dependencyExports packageModules =
   where
     allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
     lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
 
 -- | Extract the source line containing 'offset' by scanning byte-by-byte.
 -- Mirrors Aihc.Parser.extractSourceLineByOffset / renderSourceReference.

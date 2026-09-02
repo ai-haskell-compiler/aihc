@@ -12,8 +12,8 @@ annotated:
   data Int8#
        └─ type: Type
   int8Value = 1#Int8
-  ││           └─ type: GHC.Prim.Int8#
-  └─ type: GHC.Prim.Int8#
-  └─ error: top-level binding int8Value has unlifted type GHC.Prim.Int8#
+  ││           └─ type: Int8#
+  └─ type: Int8#
+  └─ error: top-level binding int8Value has unlifted type Int8#
 reason: When a local type has the same text, primitive literals must use the GHC.Prim identity.
-status: xfail
+status: pass
