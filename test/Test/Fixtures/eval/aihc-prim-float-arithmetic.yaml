@@ -1,0 +1,71 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim
+      ( (*##),
+        (+##),
+        (-##),
+        (<##),
+        (==##),
+        (>##),
+        double2Int#,
+        eqFloat#,
+        fabsDouble#,
+        fabsFloat#,
+        float2Int#,
+        gtFloat#,
+        int2Double#,
+        int2Float#,
+        ltFloat#,
+        minusFloat#,
+        negateDouble#,
+        negateFloat#,
+        plusFloat#,
+        timesFloat#,
+      )
+    import GHC.Types (Int (..))
+
+    floatSum :: Int
+    floatSum = I# (float2Int# (plusFloat# (int2Float# 40#) (int2Float# 2#)))
+
+    floatProduct :: Int
+    floatProduct = I# (float2Int# (timesFloat# (int2Float# 6#) (minusFloat# (int2Float# 10#) (int2Float# 3#))))
+
+    floatAbs :: Int
+    floatAbs = I# (float2Int# (fabsFloat# (negateFloat# (int2Float# 5#))))
+
+    floatOrder :: Int
+    floatOrder =
+      I#
+        ( gtFloat# (int2Float# 2#) (int2Float# 1#)
+            +# ltFloat# (int2Float# 2#) (int2Float# 1#)
+            +# eqFloat# (int2Float# 3#) (int2Float# 3#)
+        )
+
+    doubleSum :: Int
+    doubleSum = I# (double2Int# ((int2Double# 40#) +## (int2Double# 2#)))
+
+    doubleProduct :: Int
+    doubleProduct = I# (double2Int# ((int2Double# 6#) *## ((int2Double# 10#) -## (int2Double# 3#))))
+
+    doubleAbs :: Int
+    doubleAbs = I# (double2Int# (fabsDouble# (negateDouble# (int2Double# 5#))))
+
+    doubleOrder :: Int
+    doubleOrder =
+      I#
+        ( ((int2Double# 2#) >## (int2Double# 1#))
+            +# ((int2Double# 2#) <## (int2Double# 1#))
+            +# ((int2Double# 3#) ==## (int2Double# 3#))
+        )
+output: |
+  : (I# 42) (: (I# 42) (: (I# 5) (: (I# 2) (: (I# 42) (: (I# 42) (: (I# 5) (: (I# 2) [])))))))
+expression: |
+  [floatSum, floatProduct, floatAbs, floatOrder, doubleSum, doubleProduct, doubleAbs, doubleOrder]
+status: pass
+reason: float and double arithmetic, negation, absolute value, comparisons, and integer conversions
