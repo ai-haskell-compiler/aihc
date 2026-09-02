@@ -19,6 +19,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, mapStateT, modify', runStateT)
+import Data.Graph (SCC (..), stronglyConnComp)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -216,7 +217,7 @@ foreignConstructorNames declaration =
   [name | Fc.ForeignConstructor name <- Fc.foreignImportDependencies declaration]
 
 compilerPrimitives :: [Text]
-compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "seq"]
+compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#"]
 
 lowerPrimitiveBody :: GrinRep -> Text -> [[GrinValue]] -> LowerM GrinExpr
 lowerPrimitiveBody resultRep name valueGroups =
@@ -226,9 +227,6 @@ lowerPrimitiveBody resultRep name valueGroups =
     ("raise#", (exception : _) : _) -> pure (GrinThrow exception)
     ("catch#", (action : _) : (handler : _) : state) ->
       lowerCatch resultRep action handler (concat state)
-    ("seq", (first : _) : second : _) -> do
-      evaluated <- freshVar "seq" liftedGrinRep
-      pure (GrinBind [evaluated] (GrinEval liftedGrinRep first) (GrinConstant second))
     _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 
 lowerForeignBody :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM GrinExpr
@@ -514,7 +512,7 @@ lowerArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments continuation)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
+specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3)]
 
 lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
@@ -530,11 +528,6 @@ lowerSpecialApplication env resultRep name arguments =
       lowerLazySingle env "action" action $ \actionValue ->
         lowerLazySingle env "handler" handler $ \handlerValue ->
           lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
-    ("seq", first : second : _) ->
-      lowerLazySingle env "seq_argument" first $ \firstValue -> do
-        evaluated <- freshVar "seq" liftedGrinRep
-        rest <- lowerArgument env second (pure . GrinConstant)
-        pure (GrinBind [evaluated] (GrinEval liftedGrinRep firstValue) rest)
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
 
 lowerCatch :: GrinRep -> GrinValue -> GrinValue -> [GrinValue] -> LowerM GrinExpr
@@ -628,16 +621,36 @@ lowerLet env binding body = do
       pure (GrinBind variables loweredRhs loweredBody)
 
 lowerRec :: LowerEnv -> [Fc.Bind] -> Fc.Expr -> LowerM GrinExpr
-lowerRec env bindings body = do
-  variables <- mapM makeVariables bindings
-  let recursiveEnv = foldl bindOne env (zip bindings variables)
-  nodes <- mapM (makeBindingNode recursiveEnv) bindings
-  loweredBody <- lowerExpr recursiveEnv body
-  pure (GrinStoreRec (zip (concat variables) nodes) loweredBody)
+lowerRec env bindings body = lowerComponents env components
   where
-    makeVariables binding = do
+    components =
+      stronglyConnComp
+        [ (binding, Fc.binderName (Fc.bindBinder binding), Set.toList (freeVariables (Fc.bindRhs binding)))
+        | binding <- bindings
+        ]
+    lowerComponents currentEnv [] = lowerExpr currentEnv body
+    lowerComponents currentEnv (AcyclicSCC binding : rest) = do
       let binder = Fc.bindBinder binding
-      representation <- liftEither (runtimeRep env (applySubstitution env (Fc.binderType binder)))
+      representation <- liftEither (runtimeRep currentEnv (applySubstitution currentEnv (Fc.binderType binder)))
+      variables <- freshVars (Fc.nameText (Fc.binderName binder)) representation
+      let bodyEnv = bindLocal currentEnv binder variables
+      loweredBody <- lowerComponents bodyEnv rest
+      if isLiftedRuntimeRep representation
+        then do
+          node <- makeThunk currentEnv (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
+          pure (GrinBind variables (GrinStore node) loweredBody)
+        else do
+          loweredRhs <- lowerExpr currentEnv (Fc.bindRhs binding)
+          pure (GrinBind variables loweredRhs loweredBody)
+    lowerComponents currentEnv (CyclicSCC recursiveBindings : rest) = do
+      variables <- mapM (makeVariables currentEnv) recursiveBindings
+      let recursiveEnv = foldl bindOne currentEnv (zip recursiveBindings variables)
+      nodes <- mapM (makeBindingNode recursiveEnv) recursiveBindings
+      loweredBody <- lowerComponents recursiveEnv rest
+      pure (GrinStoreRec (zip (concat variables) nodes) loweredBody)
+    makeVariables currentEnv binding = do
+      let binder = Fc.bindBinder binding
+      representation <- liftEither (runtimeRep currentEnv (applySubstitution currentEnv (Fc.binderType binder)))
       if isLiftedRuntimeRep representation
         then (: []) <$> freshVar (Fc.nameText (Fc.binderName binder)) representation
         else throwLower ("GRIN does not support an unlifted recursive binding: " <> show (Fc.binderName binder))

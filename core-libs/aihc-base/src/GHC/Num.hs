@@ -1,27 +1,12 @@
 {-# LANGUAGE MagicHash #-}
 
 module GHC.Num
-  ( Num (..),
-    integerAdd,
-    integerFromTwoWords#,
-    integerNegate,
-    integerShiftL#,
+  ( module GHC.Prim.Num,
   )
 where
 
-import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
-import GHC.Internal.Integer
-  ( Integer,
-    integerAbs,
-    integerAdd,
-    integerFromTwoWords#,
-    integerMul,
-    integerNegate,
-    integerShiftL#,
-    integerSignum,
-    integerSub,
-    integerToInt#,
-  )
+import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
+import GHC.Internal.Integer (integerToInt#)
 import GHC.Prim
   ( castWord32ToFloat#,
     castWord64ToDouble#,
@@ -38,53 +23,10 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
-    (*#),
-    (+#),
-    (-#),
-    (<#),
   )
+import GHC.Prim.Num
 import GHC.Types (Double (..), Float (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
-
-class Num a where
-  (+) :: a -> a -> a
-  (-) :: a -> a -> a
-  (*) :: a -> a -> a
-  negate :: a -> a
-  abs :: a -> a
-  signum :: a -> a
-  fromInteger :: Integer -> a
-
-infixl 6 +, -
-
-infixl 7 *
-
-instance Num Integer where
-  (+) = integerAdd
-  (-) = integerSub
-  (*) = integerMul
-  negate = integerNegate
-  abs = integerAbs
-  signum = integerSignum
-  fromInteger x = x
-
-instance Num Int where
-  I# x + I# y = I# ((+#) x y)
-  I# x - I# y = I# ((-#) x y)
-  I# x * I# y = I# ((*#) x y)
-  negate (I# x) = I# ((-#) 0# x)
-  abs (I# x) =
-    case (<#) x 0# of
-      0# -> I# x
-      _ -> I# ((-#) 0# x)
-  signum (I# x) =
-    case x of
-      0# -> I# 0#
-      _ ->
-        case (<#) x 0# of
-          0# -> I# 1#
-          _ -> I# ((-#) 0# 1#)
-  fromInteger x = I# (integerToInt# x)
 
 instance Num Word where
   W# x + W# y = W# (plusWord# x y)

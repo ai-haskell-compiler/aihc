@@ -23,6 +23,7 @@ module Aihc.Tc
     TcConfig,
     tcConfig,
     TcBindingResult (..),
+    defaultMethodName,
     TcTermKey (..),
     tcTermKeyIdentifier,
     TcInterface (..),
@@ -121,7 +122,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -134,6 +135,7 @@ import Data.Data (Data, gmapM, gmapQ)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (cast)
@@ -261,7 +263,7 @@ tcInterfaceBindings interface =
       [ TcBindingResult workerName workerName (interfaceSchemeType workerScheme)
       | methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
-        let workerName = T.pack "$dm" <> methodName
+        let workerName = defaultMethodName methodName
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
@@ -335,14 +337,14 @@ tcModuleSuccess =
   where
     isError diagnostic = diagSeverity diagnostic == TcError
 
--- | Type-check dependency-ordered modules with a complete imported semantic
--- interface and return the accumulated interface for downstream modules.
+-- | Type-check dependency-ordered modules with an imported semantic interface.
+-- Return only facts that the specified modules define.
 typecheckModulesWithInterface :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
 typecheckModulesWithInterface config imported modules =
   let initialState = initialTcState imported
       persistentUnqualifiedTerms = Map.keys (Map.filterWithKey (\key _ -> isUnqualifiedTermKey key) (tcsGlobalTerms initialState))
       (checkedModules, finalState) = go persistentUnqualifiedTerms initialState modules
-   in (checkedModules, tcInterfaceFromState finalState)
+   in (checkedModules, tcInterfaceDifference initialState finalState)
   where
     go _ st [] = ([], st)
     go persistentUnqualifiedTerms st (m : ms) =
@@ -370,8 +372,9 @@ isUnqualifiedTermKey key =
 -- supplied imported interface.
 typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
 typecheckModuleSccWithInterface config imported modules =
-  let (checkedModules, finalState) = typecheckModuleSccWithState config (initialTcState imported) modules
-   in (checkedModules, tcInterfaceFromState finalState)
+  let initialState = initialTcState imported
+      (checkedModules, finalState) = typecheckModuleSccWithState config initialState modules
+   in (checkedModules, tcInterfaceDifference initialState finalState)
 
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
@@ -402,25 +405,27 @@ initialTcState imported =
           [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances imported]
     }
 
-tcInterfaceFromState :: TcState -> TcInterface
-tcInterfaceFromState state =
+tcInterfaceDifference :: TcState -> TcState -> TcInterface
+tcInterfaceDifference initial state =
   TcInterface
-    { tcInterfaceTerms = exportedGlobalTerms state,
-      tcInterfaceTyCons = Map.elems (tcsGlobalTyCons state),
-      tcInterfaceDataTypes = Map.elems (tcsDataTypes state),
-      tcInterfaceClasses = Map.elems (tcsClasses state),
-      tcInterfaceInstances = mergeInterfaceEntries "instance state" instanceInfoKey (tcsInstances state),
-      tcInterfaceDataFamilyInstances = Map.elems (tcsDataFamilyInstances state),
-      tcInterfaceTypeFamilyInstances = Map.elems (tcsTypeFamilyInstances state)
+    { tcInterfaceTerms = exportedGlobalTerms (Map.difference (tcsGlobalTerms state) (tcsGlobalTerms initial)),
+      tcInterfaceTyCons = Map.elems (Map.difference (tcsGlobalTyCons state) (tcsGlobalTyCons initial)),
+      tcInterfaceDataTypes = Map.elems (Map.difference (tcsDataTypes state) (tcsDataTypes initial)),
+      tcInterfaceClasses = Map.elems (Map.difference (tcsClasses state) (tcsClasses initial)),
+      tcInterfaceInstances = filter ((`Set.notMember` initialInstanceKeys) . instanceInfoKey) (tcsInstances state),
+      tcInterfaceDataFamilyInstances = Map.elems (Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial)),
+      tcInterfaceTypeFamilyInstances = Map.elems (Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial))
     }
+  where
+    initialInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances initial))
 
-exportedGlobalTerms :: TcState -> [(TcTermKey, TypeScheme)]
-exportedGlobalTerms state =
+exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> [(TcTermKey, TypeScheme)]
+exportedGlobalTerms globalTerms =
   filter (not . isRedundantUnqualifiedAlias . fst) terms
   where
     terms =
       [ (key, scheme)
-      | (key, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms state)
+      | (key, TcIdBinder scheme _) <- Map.toList globalTerms
       ]
     isRedundantUnqualifiedAlias key =
       case key of

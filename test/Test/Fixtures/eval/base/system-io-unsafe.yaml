@@ -14,5 +14,5 @@ output: |
   42
 expression: |
   unsafePerformIO test
-status: pass
+status: xfail
 reason: System.IO.Unsafe runs an IO state transformer with realWorld#

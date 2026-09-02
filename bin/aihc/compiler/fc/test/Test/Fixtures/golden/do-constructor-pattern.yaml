@@ -1,77 +1,48 @@
+---
 extensions: []
 modules:
-  - |
-    module GHC.Base where
-    data Box a = Box a
-    (>>=) (Box value) next = next value
-  - |
-    module Test where
-    import GHC.Base
-    data Pair a = Pair a a
-    select action = do
-      Pair first _ <- action
-      Box first
+- |
+  module Test where
+  import GHC.Prim.Base (Monad, return)
+  data Pair a = Pair a a
+  select :: Monad m => m (Pair a) -> m a
+  select action = do
+    Pair first _ <- action
+    return first
 expected: |-
-  scope 1 = "" GHC.Base
-  scope 2 = "aihc-prim" GHC.Types
-
-  import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
-
-  import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
-
-  pub type 1.tBox (a : 2.tType) :: 2.tType {
-      pub 1.vBox :: ∀(a : 2.tType). a 2.→ 1.tBox a
-  }
-
-  pub val 1.v>>= :: ∀(a : 2.tType) (b : 2.tType). 1.tBox a 2.→ (a 2.→ b) 2.→ b
-   = Λ(a : 2.tType).
-    Λ(b : 2.tType).
-      λ(x : 1.tBox a).
-        λ(y : a 2.→ b).
-          case x as (_scrut : 1.tBox a) return (b) of {
-              1.vBox (value : a) →
-                  y value
-          }
-  scope 1 = "" GHC.Base
-  scope 2 = "" Test
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim.Base
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    1.tBox :: ∀(a : 3.tType). 3.tType;
+    2.t$Dict$Monad :: ∀(m : 3.tType 3.→ 3.tType). 3.tType;
     3.tLevity :: 3.tType;
     3.tLiftedRep :: 3.tRuntimeRep;
     3.tRuntimeRep :: 3.tType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
     3.tType :: 3.tType;
-    1.v>>= :: ∀(a : 3.tType) (b : 3.tType). 1.tBox a 3.→ (a 3.→ b) 3.→ b;
-    1.vBox :: ∀(a : 3.tType). a 3.→ 1.tBox a;
+    2.v>>= :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType) (b : 3.tType). 2.t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
     3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    3.vLifted :: 3.tLevity;
+    2.vreturn :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ a 3.→ m a
 
   import synonyms
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub type 2.tPair (a : 3.tType) :: 3.tType {
-      pub 2.vPair :: ∀(a : 3.tType). a 3.→ a 3.→ 2.tPair a
+  pub type 1.tPair (a : 3.tType) :: 3.tType {
+      pub 1.vPair :: ∀(a : 3.tType). a 3.→ a 3.→ 1.tPair a
   }
 
-  pub val 2.vselect :: ∀(a : 3.tType). 1.tBox (2.tPair a) 3.→ 1.tBox a
-   = Λ(a : 3.tType).
-    λ(x : 1.tBox (2.tPair a)).
-      1.v>>= @(2.tPair a) @(1.tBox a) x (λ(_pat : 2.tPair a).
-        case _pat as (_do_scrut : 2.tPair a) return (1.tBox a) of {
-            2.vPair (first : a) (_pat{1} : a) →
-                1.vBox @a first
-        })
+  pub val 1.vselect :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ m (1.tPair a) 3.→ m a
+   = Λ(m : 3.tType 3.→ 3.tType).
+    Λ(a : 3.tType).
+      λ($d0 : 2.t$Dict$Monad m).
+        λ(x : m (1.tPair a)).
+          2.v>>= @m @(1.tPair a) @a $d0 x (λ(_pat : 1.tPair a).
+            case _pat as (_do_scrut : 1.tPair a) return (m a) of {
+                1.vPair (first : a) (_pat{1} : a) →
+                    2.vreturn @m @a $d0 first
+            })
 status: pass
-reason: ''
+reason: desugars a constructor pattern in do notation with primitive built-ins

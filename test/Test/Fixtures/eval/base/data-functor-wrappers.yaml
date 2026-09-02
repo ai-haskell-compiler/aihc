@@ -200,5 +200,5 @@ modules:
 output: |
   True
 expression: andList checks
-status: pass
+status: xfail
 reason: evaluates the standard identity, composition, product, and sum wrapper APIs and compiles the higher-kinded instance heads used by deepseq

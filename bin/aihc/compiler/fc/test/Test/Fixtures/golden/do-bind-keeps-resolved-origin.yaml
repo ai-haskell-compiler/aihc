@@ -2,69 +2,39 @@
 extensions: []
 modules:
 - |
-  module GHC.Base where
-  data Box a = Box a
-  (>>=) (Box value) next = next value
-- |
   module Test where
-  import GHC.Base
+  import GHC.Prim.Base (Monad, return)
+  run :: Monad m => m a -> m a
   run action = do
     value <- action
-    Box value
+    return value
 expected: |-
-  scope 1 = "" GHC.Base
-  scope 2 = "aihc-prim" GHC.Types
-
-  import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
-
-  import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
-
-  pub type 1.tBox (a : 2.tType) :: 2.tType {
-      pub 1.vBox :: ∀(a : 2.tType). a 2.→ 1.tBox a
-  }
-
-  pub val 1.v>>= :: ∀(a : 2.tType) (b : 2.tType). 1.tBox a 2.→ (a 2.→ b) 2.→ b
-   = Λ(a : 2.tType).
-    Λ(b : 2.tType).
-      λ(x : 1.tBox a).
-        λ(y : a 2.→ b).
-          case x as (_scrut : 1.tBox a) return (b) of {
-              1.vBox (value : a) →
-                  y value
-          }
-  scope 1 = "" GHC.Base
-  scope 2 = "" Test
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim.Base
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    1.tBox :: ∀(a : 3.tType). 3.tType;
+    2.t$Dict$Monad :: ∀(m : 3.tType 3.→ 3.tType). 3.tType;
     3.tLevity :: 3.tType;
     3.tLiftedRep :: 3.tRuntimeRep;
     3.tRuntimeRep :: 3.tType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
     3.tType :: 3.tType;
-    1.v>>= :: ∀(a : 3.tType) (b : 3.tType). 1.tBox a 3.→ (a 3.→ b) 3.→ b;
-    1.vBox :: ∀(a : 3.tType). a 3.→ 1.tBox a;
+    2.v>>= :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType) (b : 3.tType). 2.t$Dict$Monad m 3.→ m a 3.→ (a 3.→ m b) 3.→ m b;
     3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    3.vLifted :: 3.tLevity;
+    2.vreturn :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ a 3.→ m a
 
   import synonyms
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  pub val 2.vrun :: ∀(a : 3.tType). 1.tBox a 3.→ 1.tBox a
-   = Λ(a : 3.tType).
-    λ(x : 1.tBox a).
-      1.v>>= @a @(1.tBox a) x (λ(value : a).
-        1.vBox @a value)
+  pub val 1.vrun :: ∀(m : 3.tType 3.→ 3.tType) (a : 3.tType). 2.t$Dict$Monad m 3.→ m a 3.→ m a
+   = Λ(m : 3.tType 3.→ 3.tType).
+    Λ(a : 3.tType).
+      λ($d0 : 2.t$Dict$Monad m).
+        λ(x : m a).
+          2.v>>= @m @a @a $d0 x (λ(value : a).
+            2.vreturn @m @a $d0 value)
 status: pass
-reason: keeps the resolved GHC.Base origin on the do-notation bind operation
+reason: keeps the resolved GHC.Prim.Base origin on the do-notation bind operation

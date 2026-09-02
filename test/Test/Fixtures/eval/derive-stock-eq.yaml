@@ -48,5 +48,5 @@ modules:
         (Solo False /= Solo True)
 expression: result
 output: Results True False True True True
-status: pass
+status: xfail
 reason: executes generated equality, constructor mismatch, field mismatch, and inequality

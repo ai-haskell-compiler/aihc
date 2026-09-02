@@ -10,5 +10,5 @@ output: |
   : 'a' (: 'b' (: 'c' []))
 expression: |
   'a' : 'b' : 'c' : []
-status: pass
+status: xfail
 reason: reassociates list cons to the right after name resolution

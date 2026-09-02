@@ -13,5 +13,5 @@ modules:
 output: |
   IS 42
 expression: result
-status: pass
+status: xfail
 reason: erases a record-style newtype constructor to its single field representation

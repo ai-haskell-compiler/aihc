@@ -39,5 +39,5 @@ output: |
   True
 expression: |
   matches Negative
-status: pass
+status: xfail
 reason: RebindableSyntax resolves fromInteger, negate, and equality for negative patterns

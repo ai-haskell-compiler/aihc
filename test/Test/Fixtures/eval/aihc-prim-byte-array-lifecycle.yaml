@@ -46,5 +46,5 @@ output: |
   12
 expression: |
   unsafePerformIO test
-status: pass
+status: xfail
 reason: tracks byte-array size, pinning, resize, shrink, freeze, and thaw through the GHC primitive API

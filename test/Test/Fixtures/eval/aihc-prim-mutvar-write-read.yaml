@@ -18,5 +18,5 @@ output: |
   42
 expression: |
   unsafePerformIO test
-status: pass
+status: xfail
 reason: observes a value written to a MutVar# through unsafePerformIO

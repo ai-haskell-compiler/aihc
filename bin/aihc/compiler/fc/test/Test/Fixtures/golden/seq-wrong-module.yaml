@@ -1,0 +1,21 @@
+---
+extensions: []
+modules:
+  - |
+    module Other (seq) where
+
+    seq :: a -> b -> b
+    seq _ result = result
+  - |
+    module Test where
+
+    import Other (seq)
+
+    data Bool = False | True
+    data Unit = Unit
+
+    result :: Bool
+    result = seq Unit True
+expected: ""
+status: fail
+reason: System FC accepts imported seq only from the configured GHC.Prim module.

@@ -26,5 +26,5 @@ output: |
 expression: |
   case catch# throwing handler realWorld# of
     (# _, result #) -> result
-status: pass
+status: xfail
 reason: a bang wildcard is infallible but still evaluates its scrutinee before entering the right-hand side

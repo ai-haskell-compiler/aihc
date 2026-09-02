@@ -21,4 +21,4 @@ output: |
   True
 expression: result
 status: pass
-reason: only the resolved GHC.Prim.seq binding receives compulsory strictness semantics
+reason: a shadowed seq binding evaluates as an ordinary function

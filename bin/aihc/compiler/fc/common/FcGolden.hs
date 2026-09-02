@@ -11,7 +11,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, desugarPrepared, lintProgram, parseProgram, prepareDesugar, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, lintProgram, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -46,6 +46,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -88,7 +89,6 @@ loadFcCases = do
   if not exists
     then pure []
     else do
-      primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
       mapM loadFcCase paths
 
@@ -103,7 +103,7 @@ primitiveSupport = unsafePerformIO $ do
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
-  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  mapM (loadOne sourceRoot) primitiveModulePaths
   where
     loadOne sourceRoot relativePath = do
       let path = sourceRoot </> relativePath
@@ -111,12 +111,20 @@ loadPrimitiveModules = do
       pure (path, source)
 
 findPrimitiveSourceRoot :: IO FilePath
-findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+findPrimitiveSourceRoot = do
+  configuredRoot <- lookupEnv "AIHC_PRIM_SRC"
+  case configuredRoot of
+    Just root -> requireModules (root </> "src")
+    Nothing -> getCurrentDirectory >>= findUp
   where
+    requireModules candidate = do
+      exists <- and <$> mapM (doesFileExist . (candidate </>)) primitiveModulePaths
+      if exists
+        then pure candidate
+        else fail "Cannot find the aihc-prim source modules."
     findUp directory = do
       let candidate = directory </> "core-libs/aihc-prim/src"
-          files = [candidate </> "GHC/Classes.hs", candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
-      exists <- and <$> mapM doesFileExist files
+      exists <- and <$> mapM (doesFileExist . (candidate </>)) primitiveModulePaths
       if exists
         then pure candidate
         else do
@@ -193,11 +201,12 @@ renderFcCase tc =
           case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
-                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) (supportTcInterface primitiveSupport) fixtureAsts
+                  primitiveInterface = supportTcInterface primitiveSupport
+                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
-                      env <- prepareDesugar desugarConfig (supportTcInterface primitiveSupport <> tcInterface)
-                      let fixtureResults = map (\checked -> desugarPrepared env (tcModuleBindings checked) checked) fixtureTcResults
+                      let availableInterface = primitiveInterface <> tcInterface
+                          fixtureResults = map (\checked -> desugarModuleFc desugarConfig (tcModuleBindings checked) availableInterface checked) fixtureTcResults
                       if all dsSuccess fixtureResults
                         then lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
@@ -261,6 +270,18 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
 
+primitiveModulePaths :: [FilePath]
+primitiveModulePaths =
+  [ "GHC/Classes.hs",
+    "GHC/Prim.hs",
+    "GHC/Prim/Base.hs",
+    "GHC/Prim/IO.hs",
+    "GHC/Prim/Integer.hs",
+    "GHC/Prim/Num.hs",
+    "GHC/Tuple.hs",
+    "GHC/Types.hs"
+  ]
+
 fixtureBuiltinScope :: [Module] -> Scope
 fixtureBuiltinScope modules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
@@ -269,7 +290,7 @@ fixtureBuiltinScope modules =
     packageModules = modulesInPackage fixturePackage modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
-    builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num"]
+    builtinFunctionModules = ["GHC.Prim.Base", "GHC.Classes", "GHC.Prim.Num"]
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}

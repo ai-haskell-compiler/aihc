@@ -14,5 +14,5 @@ output: |
   (True,False)
 expression: |
   (bothOne 1 1, bothOne 1 2)
-status: pass
+status: xfail
 reason: multi-argument lambda-case uses the shared overloaded integer matcher

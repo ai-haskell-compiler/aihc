@@ -37,18 +37,12 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
-  ( ClassInfo (ciName),
-    InstanceInfo (iiDictName),
-    TcConfig,
-    TcInterface (..),
-    TyConInfo (tciTyCon),
-    dataFamilyAxiomKey,
-    dataTypeKey,
+  ( TcConfig,
+    TcInterface,
     emptyTcInterface,
     tcConfig,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typeFamilyAxiomKey,
     typecheckModuleSccWithInterface,
   )
 import Control.Exception (ErrorCall, displayException, evaluate, try)
@@ -272,9 +266,8 @@ typecheckModuleGraph baseInterface modules = do
       let importedInterface = mconcat (baseInterface : dependencyInterfaces)
           (checked, checkedInterface) =
             typecheckModuleSccWithInterface testTcConfig importedInterface (map nodeModule componentNodes)
-          localInterface = subtractInterface importedInterface checkedInterface
           checkedByIndex' = foldl' (\acc (node, modu) -> Map.insert (nodeIndex node) modu acc) checkedByIndex (zip componentNodes checked)
-          interfacesByIndex' = foldl' (\acc node -> Map.insert (nodeIndex node) localInterface acc) interfacesByIndex componentNodes
+          interfacesByIndex' = foldl' (\acc node -> Map.insert (nodeIndex node) checkedInterface acc) interfacesByIndex componentNodes
       pure (checkedByIndex', interfacesByIndex')
 
 flattenComponent :: SCC ModuleNode -> [ModuleNode]
@@ -290,23 +283,6 @@ lookupDependencyInterface interfaces index =
 lookupCheckedModule :: Map Int Module -> Int -> Either String Module
 lookupCheckedModule checked index =
   maybe (Left ("module graph result is missing: " <> show index)) Right (Map.lookup index checked)
-
-subtractInterface :: TcInterface -> TcInterface -> TcInterface
-subtractInterface imported complete =
-  TcInterface
-    { tcInterfaceTerms = withoutImported fst (tcInterfaceTerms imported) (tcInterfaceTerms complete),
-      tcInterfaceTyCons = withoutImported tciTyCon (tcInterfaceTyCons imported) (tcInterfaceTyCons complete),
-      tcInterfaceDataTypes = withoutImported dataTypeKey (tcInterfaceDataTypes imported) (tcInterfaceDataTypes complete),
-      tcInterfaceClasses = withoutImported ciName (tcInterfaceClasses imported) (tcInterfaceClasses complete),
-      tcInterfaceInstances = withoutImported iiDictName (tcInterfaceInstances imported) (tcInterfaceInstances complete),
-      tcInterfaceDataFamilyInstances = withoutImported dataFamilyAxiomKey (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete),
-      tcInterfaceTypeFamilyInstances = withoutImported typeFamilyAxiomKey (tcInterfaceTypeFamilyInstances imported) (tcInterfaceTypeFamilyInstances complete)
-    }
-
-withoutImported :: (Ord key) => (value -> key) -> [value] -> [value] -> [value]
-withoutImported key imported =
-  let importedKeys = Set.fromList (map key imported)
-   in filter ((`Set.notMember` importedKeys) . key)
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport primitiveModules =

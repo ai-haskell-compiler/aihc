@@ -240,9 +240,12 @@ inferLocalSingleDecl inferExpr sigs placeholders decl =
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
               (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
-              patternCheck <- checkPattern NoSourceSpan pat rhsTy
-              cts <- foldM (tiePatternBinder placeholders) (rhsCts <> pcWantedCts patternCheck) (pcBindings patternCheck)
-              pure (DeclValue (PatternBind mult (checkedPattern patternCheck) rhs'), cts)
+              let sourceSpan = NoSourceSpan
+              patCheck <- checkPatternsWithGivens sourceSpan [(pat, rhsTy)]
+              patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
+              cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
+              let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+              pure (DeclValue (PatternBind mult pat' rhs'), cts)
         FunctionBind name matches -> do
           (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)
@@ -289,8 +292,8 @@ tiePlaceholder placeholders key ty cts =
       let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
       pure (cts ++ [eqCt])
 
-tiePatternBinder :: Map TcTermKey TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
-tiePatternBinder placeholders cts (name, ty) = do
+tiePatternPlaceholder :: Map TcTermKey TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
+tiePatternPlaceholder placeholders cts (name, ty) = do
   key <- resolvedLocalTermKey name
   tiePlaceholder placeholders key ty cts
 
