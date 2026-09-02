@@ -438,6 +438,60 @@
       test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
     '';
 
+  hackage = import ./hackage-packages.nix;
+  hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+
+  # Install a Hackage package into a copy of the example toolchain store so
+  # the core libraries are reused instead of installed again.
+  mkHackageInstallTest = package: let
+    src = hackage.fetchPackage pkgs package;
+    targets = package.targets or hackageInstallTargets;
+    lintFlag = pkgs.lib.optionalString (package.lint or true) "--lint";
+  in
+    pkgs.runCommand "aihc-hackage-install-${package.name}-${package.version}" {
+      nativeBuildInputs = [
+        pkgs.findutils
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+      ];
+    } ''
+      set -euo pipefail
+      export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+      mkdir -p "$coreLibsRoot"
+      ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+      export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+      store="$TMPDIR/store"
+      cp -R --no-preserve=mode ${exampleToolchain} "$store"
+
+      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+          ${aihcExe} install-v2 ${src} --store "$store" ${lintFlag} --target ${target}
+        '')
+        targets}
+
+      archive_count=0
+      while IFS= read -r -d "" archive; do
+        test -s "$archive"
+        archive_count=$((archive_count + 1))
+      done < <(find "$store" -path '*/${package.name}-${package.version}-*/lib/lib${package.name}.a' -print0)
+      test "$archive_count" -eq ${toString (builtins.length targets)}
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
+      touch "$out"
+    '';
+
+  hackageInstallCases =
+    map (package: {
+      name = "${package.name}-${package.version}";
+      path = mkHackageInstallTest package;
+    })
+    hackage.packages;
+
+  # Every listed Hackage package gets one installation test per host target.
+  hackageInstallTests = assert hackage.packages != [];
+    pkgs.linkFarm "aihc-hackage-install-tests" hackageInstallCases;
+
   exampleTestInputs = [
     pkgs.coreutils
     pkgs.diffutils
@@ -650,6 +704,7 @@ in {
   c-format = cFormat;
   cabal-format = cabalFormat;
   core-libraries-install-v2 = coreLibrariesInstallV2;
+  hackage-install-tests = hackageInstallTests;
   examples-tests = examplesTests;
   wasip3-example-test = wasip3ExampleTest;
 }
