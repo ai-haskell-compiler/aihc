@@ -6,6 +6,8 @@ module Data.Ord
   )
 where
 
+import GHC.Read (expectP, parens, readListDefault, readListPrecDefault)
+import GHC.Read.Lex (Lexeme (..))
 import Prelude
 
 newtype Down a = Down {getDown :: a}
@@ -39,7 +41,18 @@ instance (Enum a) => Enum (Down a) where
     mapDown (enumFromThenTo first second last)
 
 instance (Read a) => Read (Down a) where
-  readsPrec precedence = readParen (precedence > 10) readDown
+  readPrec =
+    parens
+      ( prec
+          10
+          ( do
+              expectP (Ident "Down")
+              value <- step readPrec
+              return (Down value)
+          )
+      )
+  readListPrec = readListPrecDefault
+  readList = readListDefault
 
 instance (Show a) => Show (Down a) where
   showsPrec precedence (Down value) =
@@ -47,19 +60,6 @@ instance (Show a) => Show (Down a) where
 
 comparing :: (Ord a) => (b -> a) -> b -> b -> Ordering
 comparing projection x y = compare (projection x) (projection y)
-
-readDown :: (Read a) => ReadS (Down a)
-readDown input =
-  case lex input of
-    (constructor, afterConstructor) : _ ->
-      case constructor == "Down" of
-        True -> wrapDownReads (readsPrec 11 afterConstructor)
-        False -> []
-    [] -> []
-
-wrapDownReads :: [(a, String)] -> [(Down a, String)]
-wrapDownReads [] = []
-wrapDownReads ((value, rest) : results) = (Down value, rest) : wrapDownReads results
 
 mapDown :: [a] -> [Down a]
 mapDown = fmap Down

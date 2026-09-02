@@ -1,0 +1,18 @@
+dependencies: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Bool(..))
+
+    newtype Wrap a = Wrap {unwrap :: a}
+
+    data Results = Results Bool Bool
+
+    result :: Results
+    result = Results (unwrap (Wrap True)) (unwrap (Wrap False))
+output: |
+  Results True False
+expression: result
+status: pass
+reason: a newtype record selector casts the value with the representation axiom
