@@ -310,7 +310,7 @@ nativeRuntimePrimitiveCalls =
     machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
     call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,
     procedure "writeMutVar#" "aihc_mutvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "aihcCasMutVarFlag" "aihc_mutvar_compare_and_swap" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    pairCall "casMutVar#" "aihc_mutvar_compare_and_swap" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "sameMutVar#" "aihc_mutvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
     call "eqStableName#" "aihc_stable_name_equal" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
     call "stableNameToInt#" "aihc_stable_name_hash" [GrinForeignAddr] GrinForeignWord64,
@@ -343,6 +343,10 @@ nativeRuntimePrimitiveCalls =
   ]
   where
     call = runtimeCall False 1
+    -- casMutVar# returns a failure flag and the final contents. The runtime
+    -- function returns only the flag. Runtime calls do not yield, so each
+    -- backend reads the final contents with readMutVar# directly after the swap.
+    pairCall = runtimeCall False 2
     procedure = runtimeCall False 0
     machineCall = runtimeCall True 1
     runtimeCall passMachine resultCount primitive symbol arguments result =

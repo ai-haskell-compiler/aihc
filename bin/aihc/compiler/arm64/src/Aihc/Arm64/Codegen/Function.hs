@@ -407,6 +407,15 @@ compileDirectBinding env vars expression =
       | Just instructions <- lookup name unaryPrimitives -> do
           valueLines <- liftEither (materializeValue env value)
           storeSingleResult (valueLines <> instructions)
+    GrinPrimitiveCall _ "casMutVar#" [reference, expected, replacement]
+      | Just swapCall <- nativeRuntimePrimitiveCall "casMutVar#",
+        Just readCall <- nativeRuntimePrimitiveCall "readMutVar#",
+        [flag, current] <- vars -> do
+          swapLines <- compileRuntimeCallLines env swapCall [reference, expected, replacement]
+          flagLocation <- liftEither (variableLocation env flag)
+          readLines <- compileRuntimeCallLines env readCall [reference]
+          currentLocation <- liftEither (variableLocation env current)
+          pure (swapLines <> storeLocation X0 flagLocation <> readLines <> storeLocation X0 currentLocation)
     GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           callLines <- compileRuntimeCallLines env runtimeCall arguments

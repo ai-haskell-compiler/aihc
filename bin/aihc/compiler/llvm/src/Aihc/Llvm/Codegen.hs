@@ -836,6 +836,15 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall _ "nullAddr#" [] -> storeOne ([], "0")
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
+    GrinPrimitiveCall _ "casMutVar#" [reference, expected, replacement]
+      | Just swapCall <- nativeRuntimePrimitiveCall "casMutVar#",
+        Just readCall <- nativeRuntimePrimitiveCall "readMutVar#",
+        [flag, current] <- vars -> do
+          (swapLines, flagOperand) <- compileForeignCall env (nativeRuntimeCallForeignCall swapCall) [reference, expected, replacement]
+          flagDestination <- localSlot env flag
+          (readLines, currentOperand) <- compileForeignCall env (nativeRuntimeCallForeignCall readCall) [reference]
+          currentDestination <- localSlot env current
+          pure (swapLines <> [storeLocal flagDestination flagOperand] <> readLines <> [storeLocal currentDestination currentOperand])
     GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments
