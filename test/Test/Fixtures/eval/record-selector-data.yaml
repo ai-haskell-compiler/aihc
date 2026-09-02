@@ -1,0 +1,27 @@
+dependencies: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Bool(..))
+
+    data Shape
+      = Circle {radius :: Bool}
+      | Square {side :: Bool, radius :: Bool}
+
+    data Pair a b = Pair {first :: a, second :: b}
+
+    data Results = Results Bool Bool Bool Bool
+
+    result :: Results
+    result =
+      Results
+        (radius (Circle True))
+        (radius (Square False True))
+        (side (Square False True))
+        (first (Pair True False))
+output: |
+  Results True True False True
+expression: result
+status: pass
+reason: record selectors select the labelled field from each constructor that has the label

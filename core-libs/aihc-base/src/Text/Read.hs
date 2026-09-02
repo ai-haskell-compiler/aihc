@@ -1,6 +1,7 @@
 module Text.Read
   ( Read (..),
     ReadS,
+    read,
     reads,
     Lexeme (..),
     lexP,
@@ -19,4 +20,4 @@ import GHC.Read
     readListPrecDefault,
   )
 import GHC.Read.Lex (Lexeme (..))
-import Prelude (reads)
+import Prelude (read, reads)

@@ -33,8 +33,8 @@ data TcSeverity
 data TcErrorKind
   = -- | Could not unify two types.
     UnificationError !TcType !TcType !CtOrigin !(Maybe EqProvenance)
-  | -- | Occurs check failure (infinite type).
-    OccursCheckError !Unique !TcType
+  | -- | Occurs check failure (infinite type). The first type is the meta-variable.
+    OccursCheckError !TcType !TcType
   | -- | Unbound variable.
     UnboundVariable !String
   | -- | Type-level expression has a different kind than expected.
