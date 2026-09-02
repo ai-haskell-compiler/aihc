@@ -16,7 +16,6 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `302/3427` (`8.81%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `61/3425` (`1.78%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
 | aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `596/10057` (`5.93%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |

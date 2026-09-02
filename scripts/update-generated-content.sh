@@ -39,7 +39,6 @@ run_cmd() {
 
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
-resolve_stackage_cmd="${RESOLVE_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- resolve-stackage-progress --snapshot lts-24.33}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
@@ -51,13 +50,11 @@ trap cleanup EXIT
 
 resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
-resolve_stackage_out="$tmpdir/resolve-stackage-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
-run_cmd "$resolve_stackage_cmd" >"$resolve_stackage_out" || true
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 run_cmd "$line_counts_cmd" >"$line_counts_out"
 
@@ -79,23 +76,6 @@ parse_progress() {
       }
       implemented = pass + xpass
       printf "%d\n%d\n%d\n%d\n%d\n%d\n%.2f\n", pass, xfail, xpass, fail, total, implemented, complete
-    }
-  ' "$infile"
-}
-
-parse_resolve_stackage_progress() {
-	local infile="$1"
-	awk '
-    /^  Resolved:[[:space:]]+/ {
-      implemented = $2 + 0
-      total = $4 + 0
-    }
-    END {
-      if (total == "" || total <= 0) {
-        exit 2
-      }
-      complete = (implemented * 100.0) / total
-      printf "%d\n%d\n%.2f\n", implemented, total, complete
     }
   ' "$infile"
 }
@@ -151,14 +131,6 @@ resolve_total="${resolve_vals[4]}"
 resolve_implemented="${resolve_vals[5]}"
 resolve_complete="${resolve_vals[6]}"
 
-resolve_stackage_vals=($(parse_resolve_stackage_progress "$resolve_stackage_out")) || {
-	echo "update-generated-content.sh: could not parse resolve-stackage-progress output (expected '  Resolved: N / M' line on stdout)." >&2
-	exit 2
-}
-resolve_stackage_implemented="${resolve_stackage_vals[0]}"
-resolve_stackage_total="${resolve_stackage_vals[1]}"
-resolve_stackage_complete="${resolve_stackage_vals[2]}"
-
 ghc_prim_vals=($(parse_core_libs_progress "$core_libs_progress_out" "GHC_PRIM")) || {
 	echo "update-generated-content.sh: could not parse core-libs-progress output for GHC_PRIM (expected 'GHC_PRIM N M PCT' line on stdout)." >&2
 	exit 2
@@ -175,14 +147,9 @@ base_implemented="${base_vals[0]}"
 base_total="${base_vals[1]}"
 base_complete="${base_vals[2]}"
 
-resolve_stackage_circles="$(progress_circles "$resolve_stackage_complete")"
 resolve_circles="$(progress_circles "$resolve_complete")"
 ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
 base_circles="$(progress_circles "$base_complete")"
-
-cat >"$tmpdir/readme-root-resolve-stackage.txt" <<EOF2
-\`${resolve_stackage_implemented}/${resolve_stackage_total}\` (\`${resolve_stackage_complete}%\`) ${resolve_stackage_circles}
-EOF2
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
 \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`) ${resolve_circles}
@@ -313,7 +280,6 @@ else
 	fi
 fi
 
-replace_marker_inline README.md "resolve-stackage-progress" "$tmpdir/readme-root-resolve-stackage.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"

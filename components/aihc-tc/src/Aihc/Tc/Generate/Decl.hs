@@ -3239,7 +3239,7 @@ tcMatchEquation :: Maybe TypeOrigin -> [TcType] -> TcType -> Match -> TcM (Match
 tcMatchEquation expectedOrigin argTys resTy match = do
   let pats = matchPats match
       sp = sourceSpanFromAnns (matchAnns match)
-  patCheck <- checkPatternsWithGivens sp (zip pats argTys)
+  patCheck <- checkFunctionPatternsWithGivens sp (zip pats argTys)
   -- Infer the RHS under the extended environment.
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsExpr (matchRhs match))
   -- RHS type must match the expected result type.

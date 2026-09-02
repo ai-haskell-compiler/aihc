@@ -1,0 +1,19 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (Bool(..), RuntimeRep, TYPE)
+
+    app :: forall (repa :: RuntimeRep) (repb :: RuntimeRep) (a :: TYPE repa) (b :: TYPE repb). (a -> b) -> a -> b
+    app f = f
+
+    not :: Bool -> Bool
+    not False = True
+    not True = False
+output: "False"
+expression: app not True
+status: pass
+reason: a function value has a fixed lifted runtime representation

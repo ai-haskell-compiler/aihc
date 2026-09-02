@@ -51,7 +51,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcInterface, emptyTcInterface, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcErrorKind (..), TcInterface, diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -98,6 +98,7 @@ data EvalCase = EvalCase
     evalCaseModules :: ![Text],
     evalCaseExpression :: !Text,
     evalCaseOutput :: !String,
+    evalCaseError :: !(Maybe String),
     evalCaseException :: !(Maybe String),
     evalCaseStdout :: !(Maybe String),
     evalCaseEvaluators :: ![Text],
@@ -171,7 +172,7 @@ loadEvalCase root path = do
 
 parseEvalFixture :: FilePath -> FilePath -> Y.Value -> Either String EvalCase
 parseEvalFixture root path value = do
-  (extNames, dependencies, modules, expression, output, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
+  (extNames, dependencies, modules, expression, output, expectedError, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
     parseEither
       ( withObject "eval fixture" $ \obj -> do
           exts <- obj .:? "extensions" .!= []
@@ -179,12 +180,13 @@ parseEvalFixture root path value = do
           mods <- obj .: "modules" >>= parseModules
           expr <- obj .: "expression"
           expected <- obj .: "output"
+          failureError <- obj .:? "error"
           exception <- obj .:? "exception"
           stdoutOutput <- obj .:? "stdout"
           fixtureEvaluators <- obj .:? "evaluators" .!= ["fc", "grin"]
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, deps, mods, expr, expected, exception, stdoutOutput, fixtureEvaluators, status, reason)
+          pure (exts, deps, mods, expr, expected, failureError, exception, stdoutOutput, fixtureEvaluators, status, reason)
       )
       value
   if null modules
@@ -195,7 +197,12 @@ parseEvalFixture root path value = do
       validateEvaluators path evaluators
       let relPath = makeRelative root path
           category = categoryFromPath relPath
+          failureError = trim . T.unpack <$> expectedError
           exception = trim . T.unpack <$> expectedException
+      case (status, failureError) of
+        (StatusFail, Nothing) -> Left ("Fail eval fixture must define error in " <> path)
+        (StatusFail, Just "") -> Left ("Fail eval fixture error must not be empty in " <> path)
+        _ -> pure ()
       case exception of
         Just "" -> Left ("Eval fixture exception must not be empty in " <> path)
         Just _
@@ -212,6 +219,7 @@ parseEvalFixture root path value = do
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
+            evalCaseError = failureError,
             evalCaseException = exception,
             evalCaseStdout = T.unpack <$> expectedStdout,
             evalCaseEvaluators = evaluators,
@@ -373,10 +381,36 @@ evalDecl expr =
 
 renderTcErrors :: [Module] -> String
 renderTcErrors results =
-  let rendered = unlines [show (Surface.moduleName result) <> ": " <> show diagnostic | result <- results, diagnostic <- tcModuleDiagnostics result]
+  let rendered =
+        unlines
+          [ T.unpack (fromMaybe "<unknown>" (Surface.moduleName result))
+              <> ": "
+              <> renderTcErrorKind (diagKind diagnostic)
+          | result <- results,
+            diagnostic <- tcModuleDiagnostics result
+          ]
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered
+
+renderTcErrorKind :: TcErrorKind -> String
+renderTcErrorKind errorKind =
+  case errorKind of
+    UnificationError left right _ _ ->
+      "could not match " <> renderTcType left <> " with " <> renderTcType right
+    OccursCheckError unique ty ->
+      "occurs check failed: " <> show unique <> " occurs in " <> renderTcType ty
+    UnboundVariable name ->
+      "unbound variable " <> name
+    KindMismatch expected actual ->
+      "kind mismatch: expected " <> renderTcType expected <> ", got " <> renderTcType actual
+    UnsolvedWanted predicate _ ->
+      "unsolved constraint " <> renderPred predicate
+    TopLevelUnliftedBinding name ty ->
+      "top-level binding " <> T.unpack name <> " has unlifted type " <> renderTcType ty
+    RepresentationPolymorphicFunctionArgument name ty ->
+      "function argument " <> T.unpack name <> " has type " <> renderTcType ty <> " without a fixed runtime representation"
+    OtherError message -> message
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
@@ -635,7 +669,7 @@ classifyCompileFailure tc errDetails =
             "expected raised exception " <> show expected <> ", but compilation failed: " <> errDetails
           )
         Nothing -> (OutcomeFail, "expected success, got error: " <> errDetails)
-    StatusFail -> (OutcomePass, "")
+    StatusFail -> classifyExpectedFailure tc errDetails
     StatusXFail -> (OutcomeXFail, "")
     StatusXPass -> (OutcomeFail, "expected xpass, got error: " <> errDetails)
 
@@ -646,7 +680,7 @@ classifyEvaluationFailure tc failure actualStdout =
       case evaluationFailureMismatch tc failure actualStdout of
         Nothing -> (OutcomePass, "")
         Just details -> (OutcomeFail, details)
-    StatusFail -> (OutcomePass, "")
+    StatusFail -> classifyExpectedFailure tc (evaluationFailureDetails failure)
     StatusXFail
       | isNothing (evaluationFailureMismatch tc failure actualStdout) -> (OutcomeXPass, "")
       | otherwise -> (OutcomeXFail, "")
@@ -675,6 +709,20 @@ evaluationFailureDetails failure =
   case failure of
     EvaluationError details -> details
     EvaluationRaised exception -> "uncaught exception: " <> T.unpack exception
+
+classifyExpectedFailure :: EvalCase -> String -> (Outcome, String)
+classifyExpectedFailure tc actual =
+  case evalCaseError tc of
+    Just expected
+      | trim expected == trim actual -> (OutcomePass, "")
+      | otherwise ->
+          ( OutcomeFail,
+            "failure error mismatch\nexpected:\n"
+              <> trim expected
+              <> "\nactual:\n"
+              <> trim actual
+          )
+    Nothing -> (OutcomeFail, "fail fixture does not define an error")
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do

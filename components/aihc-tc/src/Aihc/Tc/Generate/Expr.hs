@@ -316,7 +316,7 @@ predToCt sp name p = do
 inferLambda :: SourceSpan -> [Pattern] -> Expr -> TcM (Expr, TcType, [Ct])
 inferLambda sp pats body = do
   argTys <- mapM (const freshMetaTv) pats
-  patCheck <- checkPatterns sp (zip pats argTys)
+  patCheck <- checkFunctionPatterns sp (zip pats argTys)
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
@@ -401,7 +401,7 @@ inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM (
 inferLambdaCaseAlt sp argTys resTy alt = do
   let pats = lambdaCaseAltPats alt
       rhs = lambdaCaseAltRhs alt
-  patCheck <- checkPatterns sp (zip pats argTys)
+  patCheck <- checkFunctionPatterns sp (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)

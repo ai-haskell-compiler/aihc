@@ -16,5 +16,6 @@ modules:
       return True
 output: ""
 expression: strictModification
+error: 'uncaught exception: False'
 status: fail
 reason: modifyIORef' forces the updated value to weak head normal form before storing it
