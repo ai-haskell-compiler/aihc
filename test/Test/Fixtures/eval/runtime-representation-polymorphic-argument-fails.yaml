@@ -1,0 +1,16 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (RuntimeRep, TYPE)
+
+    app :: forall (repa :: RuntimeRep) (repb :: RuntimeRep) (a :: TYPE repa) (b :: TYPE repb). (a -> b) -> a -> b
+    app f x = f x
+output: "()"
+expression: ()
+error: 'typecheck error: Test: function argument x has type a without a fixed runtime representation'
+status: fail
+reason: a function argument must have a fixed runtime representation

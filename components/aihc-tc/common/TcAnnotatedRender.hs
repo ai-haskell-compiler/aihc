@@ -165,6 +165,8 @@ renderDiagnosticKind kind =
       "unsolved constraint " <> renderPred pred'
     TopLevelUnliftedBinding name ty ->
       "top-level binding " <> T.unpack name <> " has unlifted type " <> renderTcType ty
+    RepresentationPolymorphicFunctionArgument name ty ->
+      "function argument " <> T.unpack name <> " has type " <> renderTcType ty <> " without a fixed runtime representation"
     OtherError message ->
       message
 

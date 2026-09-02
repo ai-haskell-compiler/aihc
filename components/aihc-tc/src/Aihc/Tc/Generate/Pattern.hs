@@ -8,6 +8,8 @@ module Aihc.Tc.Generate.Pattern
     checkPattern,
     checkPatterns,
     checkPatternsWithGivens,
+    checkFunctionPatterns,
+    checkFunctionPatternsWithGivens,
     checkedPattern,
     withPatternBindings,
   )
@@ -78,6 +80,40 @@ checkPatterns = checkPatternsWith GadtAsWanted
 
 checkPatternsWithGivens :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkPatternsWithGivens = checkPatternsWith GadtAsGiven
+
+checkFunctionPatterns :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkFunctionPatterns = checkFunctionPatternsWith GadtAsWanted
+
+checkFunctionPatternsWithGivens :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkFunctionPatternsWithGivens = checkFunctionPatternsWith GadtAsGiven
+
+checkFunctionPatternsWith :: GadtHandling -> SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkFunctionPatternsWith gadtHandling sp arguments = do
+  mapM_ (checkFunctionArgument sp) arguments
+  checkPatternsWith gadtHandling sp arguments
+
+checkFunctionArgument :: SourceSpan -> (Pattern, TcType) -> TcM ()
+checkFunctionArgument ambient (pat, ty) = do
+  kind <- tcTypeKind ty
+  case runtimeRepFromKind kind of
+    Right representation
+      | not (isFixedRuntimeRep representation) ->
+          emitError
+            (patternOwnSpan pat `orSourceSpan` ambient)
+            (RepresentationPolymorphicFunctionArgument (functionArgumentName pat) ty)
+    _ -> pure ()
+
+functionArgumentName :: Pattern -> Text
+functionArgumentName pat =
+  case pat of
+    PAnn _ inner -> functionArgumentName inner
+    PVar name -> unqualifiedNameText name
+    PParen inner -> functionArgumentName inner
+    PAs name _ -> unqualifiedNameText name
+    PStrict inner -> functionArgumentName inner
+    PIrrefutable inner -> functionArgumentName inner
+    PTypeSig inner _ -> functionArgumentName inner
+    _ -> "<pattern>"
 
 checkPatternsWith :: GadtHandling -> SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkPatternsWith gadtHandling sp = fmap mconcat . mapM (uncurry (checkPatternWith gadtHandling sp))

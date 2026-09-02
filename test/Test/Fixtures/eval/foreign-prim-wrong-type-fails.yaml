@@ -7,5 +7,6 @@ modules:
 output: ""
 expression: |
   (+#) 1#
+error: 'InterpretPrimitiveArity "+#" 1'
 status: fail
 reason: known foreign import prim declarations with incorrect types are rejected before evaluation

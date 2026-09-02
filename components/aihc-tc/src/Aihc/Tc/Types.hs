@@ -56,6 +56,7 @@ module Aihc.Tc.Types
     doubleRep,
     typeKindType,
     runtimeRepFromKind,
+    isFixedRuntimeRep,
     runtimeRepOfTypeInEnv,
     isLiftedTypeInEnv,
     isUnliftedTypeInEnv,
@@ -563,6 +564,51 @@ runtimeRepFromKind kind =
     TcTyCon tyCon [representation]
       | tyConName tyCon == "TYPE" -> Right representation
     _ -> Left ("type does not have a runtime representation: " <> show kind)
+
+-- | Test whether a runtime representation has a fixed machine layout.
+isFixedRuntimeRep :: TcType -> Bool
+isFixedRuntimeRep representation =
+  case representation of
+    BoxedRep levity -> promotedConstructorIsOneOf ["Lifted", "Unlifted"] levity
+    TupleRep fields -> all isFixedRuntimeRep fields
+    SumRep fields -> all isFixedRuntimeRep fields
+    VecRep count element ->
+      promotedConstructorIsOneOf ["Vec2", "Vec4", "Vec8", "Vec16", "Vec32", "Vec64"] count
+        && promotedConstructorIsOneOf
+          [ "Int8ElemRep",
+            "Int16ElemRep",
+            "Int32ElemRep",
+            "Int64ElemRep",
+            "Word8ElemRep",
+            "Word16ElemRep",
+            "Word32ElemRep",
+            "Word64ElemRep",
+            "FloatElemRep",
+            "DoubleElemRep"
+          ]
+          element
+    IntRep -> True
+    Int8Rep -> True
+    Int16Rep -> True
+    Int32Rep -> True
+    Int64Rep -> True
+    WordRep -> True
+    Word8Rep -> True
+    Word16Rep -> True
+    Word32Rep -> True
+    Word64Rep -> True
+    AddrRep -> True
+    FloatRep -> True
+    DoubleRep -> True
+    _ -> False
+  where
+    promotedConstructorIsOneOf names ty =
+      case ty of
+        TcTyCon tyCon [] ->
+          tyConNamespace tyCon == ResolutionNamespaceTerm
+            && tyConModuleName tyCon == "GHC.Types"
+            && tyConName tyCon `elem` names
+        _ -> False
 
 newtype TcLevel = TcLevel Int
   deriving (Eq, Ord, Show, Read)

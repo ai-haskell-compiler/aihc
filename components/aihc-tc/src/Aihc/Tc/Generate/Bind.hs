@@ -301,7 +301,7 @@ tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
 tcMatchEquation inferExpr argTys resTy match = do
   let pats = matchPats match
       matchSpan = sourceSpanFromAnnotations (matchAnns match)
-  patCheck <- checkPatternsWithGivens matchSpan (zip pats argTys)
+  patCheck <- checkFunctionPatternsWithGivens matchSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
   let rhsLocation = orSourceSpan (rhsSourceSpan (matchRhs match)) matchSpan
