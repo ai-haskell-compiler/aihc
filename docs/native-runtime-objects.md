@@ -31,7 +31,13 @@ The default heap size is unlimited.
 The `calloc` collector stops the program when an allocation exceeds this limit.
 It counts managed heap objects because it does not release these objects.
 It does not count auxiliary runtime allocations or static objects.
-The semispace collector reports that it does not support this option.
+
+The semispace collector starts with a small space and grows it on demand.
+After each collection, the target capacity doubles until it holds twice the
+live data. The `-M` limit caps the capacity of one space. The collector stops
+the program when the live data and the pending reservation do not fit in that
+capacity. It does not count the second space, auxiliary runtime allocations, or
+static objects.
 
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining
