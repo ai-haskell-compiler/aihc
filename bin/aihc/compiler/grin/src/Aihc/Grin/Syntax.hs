@@ -28,6 +28,7 @@ module Aihc.Grin.Syntax
     grinForeignOperandReps,
     grinForeignCallResultReps,
     grinProgramLiterals,
+    grinExprGlobalReferences,
     grinProgramGlobalReferences,
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
@@ -295,7 +296,11 @@ grinProgramLiterals program =
 grinProgramGlobalReferences :: GrinProgram -> [Text]
 grinProgramGlobalReferences program =
   concatMap (nodeReferences . snd) (grinGlobals program)
-    <> concatMap (exprReferences . grinFunctionBody) (grinFunctions program)
+    <> concatMap (grinExprGlobalReferences . grinFunctionBody) (grinFunctions program)
+
+-- | Every explicit global-table reference in one expression.
+grinExprGlobalReferences :: GrinExpr -> [Text]
+grinExprGlobalReferences = exprReferences
   where
     exprReferences expression =
       case expression of
@@ -324,13 +329,17 @@ grinProgramGlobalReferences program =
         GrinThrow exception -> valueReferences exception
         GrinCatch _ action handler state -> valuesReferences (action : handler : state)
         GrinForeignCallExpr _ arguments -> valuesReferences arguments
-    nodeReferences = valuesReferences . grinNodeFields
     valuesReferences = concatMap valueReferences
-    valueReferences value =
-      case value of
-        GrinGlobalValue name -> [name]
-        GrinVarValue {} -> []
-        GrinLitValue {} -> []
+
+nodeReferences :: GrinNode -> [Text]
+nodeReferences = concatMap valueReferences . grinNodeFields
+
+valueReferences :: GrinValue -> [Text]
+valueReferences value =
+  case value of
+    GrinGlobalValue name -> [name]
+    GrinVarValue {} -> []
+    GrinLitValue {} -> []
 
 grinValueRuntimeRep :: GrinValue -> GrinRep
 grinValueRuntimeRep value =
