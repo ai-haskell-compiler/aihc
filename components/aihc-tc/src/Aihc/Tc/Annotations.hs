@@ -360,7 +360,6 @@ renderTcTypeInModule currentModule = go 0
           | tyConNamespace tyCon == ResolutionNamespaceTerm = T.pack "'"
           | otherwise = T.empty
         qualifiedName
-          | definingModule `elem` map T.pack ["GHC.Prim", "GHC.Tuple", "GHC.Types"] = tyConName tyCon
           | Nothing <- currentModule = tyConName tyCon
           | Just definingModule == currentModule = tyConName tyCon
           | otherwise = definingModule <> T.pack "." <> tyConName tyCon

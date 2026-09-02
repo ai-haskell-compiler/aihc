@@ -4,7 +4,7 @@ annotated:
   import GHC.Prim (Int#)
   import GHC.Types (Int (..))
   data Integer = IS Int#
-       │         └─ type: Int# → Integer
+       │         └─ type: GHC.Prim.Int# → Integer
        └─ type: Type
   class Num a where
   └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
@@ -12,7 +12,7 @@ annotated:
   instance Num Int where
   └─ $fNumInt ∷ () ⇒ Num Int
     fromInteger (IS x) = I# x
-    │            │  └─ type: Int#
+    │            │  └─ type: GHC.Prim.Int#
     │            └─ type: Integer
     └─ fromInteger ∷ Integer → Int
   instance Num Integer where
@@ -26,8 +26,8 @@ annotated:
   import GHC.Types (Int)
   asInt :: Int
   asInt = 1 :: Int
-  │       └─ type: Int; type-args: Int; evidence: $fNumInt
-  └─ type: Int
+  │       └─ type: GHC.Types.Int; type-args: Int; evidence: $fNumInt
+  └─ type: GHC.Types.Int
   asInteger :: Integer
   asInteger = 1 :: Integer
   │           └─ type: GHC.Num.Integer; type-args: Integer; evidence: $fNumInteger

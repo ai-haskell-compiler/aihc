@@ -4,7 +4,7 @@ annotated:
   import GHC.Types (RuntimeRep(..), TYPE, Type)
   type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
-       └─ type: Type → TYPE ('TupleRep '[])
+       └─ type: Type → GHC.Types.TYPE ('GHC.Types.TupleRep 'GHC.Types.[])
   data RealWorld
        └─ type: Type
   data Box# = MkBox#
@@ -12,8 +12,8 @@ annotated:
        └─ type: Type
 
   intValue = 10#
-  ││          └─ type: Int#
-  └─ type: Int#
+  ││          └─ type: GHC.Prim.Int#
+  └─ type: GHC.Prim.Int#
   └─ error: top-level binding intValue has unlifted type Int#
 
   state :: State# RealWorld
@@ -22,16 +22,16 @@ annotated:
   └─ type: State# RealWorld
 
   tupleValue = (# 1#, 2# #)
-  ││            │  │   └─ type: Int#
-  ││            │  └─ type: Int#
-  ││            └─ type: Tuple2# Int# Int#; type-args: Int#, Int#
-  └─ type: Tuple2# Int# Int#
+  ││            │  │   └─ type: GHC.Prim.Int#
+  ││            │  └─ type: GHC.Prim.Int#
+  ││            └─ type: GHC.Types.Tuple2# GHC.Prim.Int# GHC.Prim.Int#; type-args: Int#, Int#
+  └─ type: GHC.Types.Tuple2# GHC.Prim.Int# GHC.Prim.Int#
   └─ error: top-level binding tupleValue has unlifted type Tuple2# Int# Int#
 
   returnsInt _ = 10#
-  │          │   └─ type: Int#
+  │          │   └─ type: GHC.Prim.Int#
   │          └─ type: a
-  └─ type: ∀ a. a → Int#
+  └─ type: ∀ a. a → GHC.Prim.Int#
   boxedHash = MkBox#
   └─ type: Box#
 extensions:
