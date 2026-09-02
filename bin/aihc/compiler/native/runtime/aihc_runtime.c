@@ -1180,6 +1180,139 @@ uint64_t aihc_word_popcount(uint64_t value) {
   return (uint64_t)__builtin_popcountll(value);
 }
 
+uint64_t aihc_int_to_int8(uint64_t value) {
+  return (uint64_t)(int64_t)(int8_t)(uint8_t)value;
+}
+
+uint64_t aihc_int8_to_int(uint64_t value) { return value; }
+
+uint64_t aihc_int_to_int16(uint64_t value) {
+  return (uint64_t)(int64_t)(int16_t)(uint16_t)value;
+}
+
+uint64_t aihc_int16_to_int(uint64_t value) { return value; }
+
+uint64_t aihc_int_to_int32(uint64_t value) {
+  return (uint64_t)(int64_t)(int32_t)(uint32_t)value;
+}
+
+uint64_t aihc_int32_to_int(uint64_t value) { return value; }
+
+uint64_t aihc_int_to_int64(uint64_t value) { return value; }
+
+uint64_t aihc_int64_to_int(uint64_t value) { return value; }
+
+/* A Float# value travels as its IEEE bit pattern in the low 32 bits. */
+static float aihc_float_of_bits(uint64_t bits) {
+  uint32_t low = (uint32_t)bits;
+  float value;
+  memcpy(&value, &low, sizeof(value));
+  return value;
+}
+
+static uint64_t aihc_bits_of_float(float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+uint64_t aihc_float_plus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_float(aihc_float_of_bits(left) +
+                            aihc_float_of_bits(right));
+}
+
+uint64_t aihc_float_minus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_float(aihc_float_of_bits(left) -
+                            aihc_float_of_bits(right));
+}
+
+uint64_t aihc_float_times(uint64_t left, uint64_t right) {
+  return aihc_bits_of_float(aihc_float_of_bits(left) *
+                            aihc_float_of_bits(right));
+}
+
+uint64_t aihc_float_negate(uint64_t value) {
+  return aihc_bits_of_float(-aihc_float_of_bits(value));
+}
+
+uint64_t aihc_float_abs(uint64_t value) { return value & UINT64_C(0x7fffffff); }
+
+uint64_t aihc_int_to_float(uint64_t value) {
+  return aihc_bits_of_float((float)(int64_t)value);
+}
+
+uint64_t aihc_float_to_int(uint64_t value) {
+  return (uint64_t)(int64_t)aihc_float_of_bits(value);
+}
+
+uint64_t aihc_float_gt(uint64_t left, uint64_t right) {
+  return aihc_float_of_bits(left) > aihc_float_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_float_lt(uint64_t left, uint64_t right) {
+  return aihc_float_of_bits(left) < aihc_float_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_float_eq(uint64_t left, uint64_t right) {
+  return aihc_float_of_bits(left) == aihc_float_of_bits(right) ? 1 : 0;
+}
+
+/* A Double# value travels as its IEEE bit pattern. */
+static double aihc_double_of_bits(uint64_t bits) {
+  double value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+static uint64_t aihc_bits_of_double(double value) {
+  uint64_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+uint64_t aihc_double_plus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_double(aihc_double_of_bits(left) +
+                             aihc_double_of_bits(right));
+}
+
+uint64_t aihc_double_minus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_double(aihc_double_of_bits(left) -
+                             aihc_double_of_bits(right));
+}
+
+uint64_t aihc_double_times(uint64_t left, uint64_t right) {
+  return aihc_bits_of_double(aihc_double_of_bits(left) *
+                             aihc_double_of_bits(right));
+}
+
+uint64_t aihc_double_negate(uint64_t value) {
+  return aihc_bits_of_double(-aihc_double_of_bits(value));
+}
+
+uint64_t aihc_double_abs(uint64_t value) {
+  return value & UINT64_C(0x7fffffffffffffff);
+}
+
+uint64_t aihc_int_to_double(uint64_t value) {
+  return aihc_bits_of_double((double)(int64_t)value);
+}
+
+uint64_t aihc_double_to_int(uint64_t value) {
+  return (uint64_t)(int64_t)aihc_double_of_bits(value);
+}
+
+uint64_t aihc_double_gt(uint64_t left, uint64_t right) {
+  return aihc_double_of_bits(left) > aihc_double_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_double_lt(uint64_t left, uint64_t right) {
+  return aihc_double_of_bits(left) < aihc_double_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_double_eq(uint64_t left, uint64_t right) {
+  return aihc_double_of_bits(left) == aihc_double_of_bits(right) ? 1 : 0;
+}
+
 void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
                           int64_t offset, int64_t length) {
   return aihc_io_submit(AIHC_IO_READ, opaque_handle, opaque_buffer, offset,

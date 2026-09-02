@@ -207,6 +207,34 @@ module GHC.Prim
     uncheckedIShiftRA#,
     uncheckedIShiftRL#,
     clz#,
+    intToInt8#,
+    int8ToInt#,
+    intToInt16#,
+    int16ToInt#,
+    intToInt32#,
+    int32ToInt#,
+    intToInt64#,
+    int64ToInt#,
+    plusFloat#,
+    minusFloat#,
+    timesFloat#,
+    negateFloat#,
+    fabsFloat#,
+    int2Float#,
+    float2Int#,
+    gtFloat#,
+    ltFloat#,
+    eqFloat#,
+    (+##),
+    (-##),
+    (*##),
+    negateDouble#,
+    fabsDouble#,
+    int2Double#,
+    double2Int#,
+    (>##),
+    (<##),
+    (==##),
     ctz#,
     eqWord#,
     geWord#,
@@ -392,6 +420,64 @@ foreign import prim gtWord# :: Word# -> Word# -> Int#
 foreign import prim geWord# :: Word# -> Word# -> Int#
 
 foreign import prim clz# :: Word# -> Word#
+
+-- Sized integer conversions and floating point arithmetic.
+
+foreign import prim intToInt8# :: Int# -> Int8#
+
+foreign import prim int8ToInt# :: Int8# -> Int#
+
+foreign import prim intToInt16# :: Int# -> Int16#
+
+foreign import prim int16ToInt# :: Int16# -> Int#
+
+foreign import prim intToInt32# :: Int# -> Int32#
+
+foreign import prim int32ToInt# :: Int32# -> Int#
+
+foreign import prim intToInt64# :: Int# -> Int64#
+
+foreign import prim int64ToInt# :: Int64# -> Int#
+
+foreign import prim plusFloat# :: Float# -> Float# -> Float#
+
+foreign import prim minusFloat# :: Float# -> Float# -> Float#
+
+foreign import prim timesFloat# :: Float# -> Float# -> Float#
+
+foreign import prim negateFloat# :: Float# -> Float#
+
+foreign import prim fabsFloat# :: Float# -> Float#
+
+foreign import prim int2Float# :: Int# -> Float#
+
+foreign import prim float2Int# :: Float# -> Int#
+
+foreign import prim gtFloat# :: Float# -> Float# -> Int#
+
+foreign import prim ltFloat# :: Float# -> Float# -> Int#
+
+foreign import prim eqFloat# :: Float# -> Float# -> Int#
+
+foreign import prim (+##) :: Double# -> Double# -> Double#
+
+foreign import prim (-##) :: Double# -> Double# -> Double#
+
+foreign import prim (*##) :: Double# -> Double# -> Double#
+
+foreign import prim negateDouble# :: Double# -> Double#
+
+foreign import prim fabsDouble# :: Double# -> Double#
+
+foreign import prim int2Double# :: Int# -> Double#
+
+foreign import prim double2Int# :: Double# -> Int#
+
+foreign import prim (>##) :: Double# -> Double# -> Int#
+
+foreign import prim (<##) :: Double# -> Double# -> Int#
+
+foreign import prim (==##) :: Double# -> Double# -> Int#
 
 foreign import prim ctz# :: Word# -> Word#
 
