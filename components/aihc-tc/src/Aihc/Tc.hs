@@ -127,7 +127,7 @@ import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
@@ -283,7 +283,7 @@ interfaceSchemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualT
 -- `typecheckModulesWithInterface`.
 typecheckExpr :: TcConfig -> Expr -> TcResult
 typecheckExpr config expr =
-  case runTcM (emptyTcEnv config) initTcState (typecheckExprM expr) of
+  case runTcM (emptyTcEnv config) initTcState (typecheckExprM expr <* finalizeDiagnostics) of
     Left _abort ->
       TcResult
         { tcResultType = TcMetaTv (Unique (-1)),
@@ -440,7 +440,7 @@ exportedGlobalTerms globalTerms =
 
 typecheckModuleSccWithState :: TcConfig -> TcState -> [Module] -> ([Module], TcState)
 typecheckModuleSccWithState config st modules =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc modules) of
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc modules <* finalizeDiagnostics) of
     Left abort ->
       ( case modules of
           [] -> []
@@ -490,7 +490,7 @@ moduleSourceNames modu =
 
 typecheckModuleWithState :: TcConfig -> TcState -> Module -> (Module, TcState)
 typecheckModuleWithState config st m =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m) of
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m <* finalizeDiagnostics) of
     Left abort ->
       ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] m,
         st

@@ -155,8 +155,8 @@ renderDiagnosticKind kind =
           renderTypeMismatch provenance
         Nothing ->
           "couldn't match " <> renderTcType left <> " with " <> renderTcType right
-    OccursCheckError unique ty ->
-      "occurs check failed: " <> renderUnique unique <> " occurs in " <> renderTcType ty
+    OccursCheckError variable ty ->
+      "occurs check failed: " <> renderTcType variable <> " occurs in " <> renderTcType ty
     UnboundVariable name ->
       "unbound variable " <> name
     KindMismatch expected actual ->
@@ -213,9 +213,6 @@ renderOrigin origin =
     CaseBranchOrigin {} -> "a case branch"
     InstOrigin name -> "the instance " <> T.unpack name
     UnifyOrigin {} -> "a unification constraint"
-
-renderUnique :: Unique -> String
-renderUnique (Unique unique) = "?" <> show unique
 
 renderEvTerm :: EvTerm -> String
 renderEvTerm ev =

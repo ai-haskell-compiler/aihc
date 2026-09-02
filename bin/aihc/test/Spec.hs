@@ -37,6 +37,7 @@ configureTestRoot = do
   configured <- lookupEnv "AIHC_TEST_ROOT"
   root <- maybe (getCurrentDirectory >>= findRoot) pure configured
   setDefault "AIHC_TEST_ROOT" root
+  setDefault "AIHC_CORE_LIBS_ROOT" root
   setDefault "AIHC_BASE_SRC" (root </> "core-libs" </> "aihc-base")
   setDefault "AIHC_PRIM_SRC" (root </> "core-libs" </> "aihc-prim")
   setDefault "AIHC_EVAL_FIXTURES" (root </> "test" </> "Test" </> "Fixtures" </> "eval")

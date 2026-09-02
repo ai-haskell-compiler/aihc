@@ -24,11 +24,13 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcStockDerivingPlan (..),
+    renderTcType,
   )
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
+import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, pattern KType)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
@@ -96,10 +98,8 @@ defaultUnsolvedAnnotationMetas annotation =
               writeMetaTv meta (TcTyCon unitTyCon [])
             _ ->
               abortTc
-                ( "internal type annotation error: cannot default meta-variable "
-                    <> show meta
-                    <> " with kind "
-                    <> show kind
+                ( "internal type annotation error: cannot default a meta-variable with kind "
+                    <> renderTcType (tidyType kind)
                 )
       annotation' <- zonkTcAnnotation annotation
       defaultUnsolvedAnnotationMetas annotation'
@@ -127,7 +127,7 @@ evidenceForEvVar contextType ev = do
   case maybeEvidence of
     Just evidence -> pure evidence
     Nothing ->
-      abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> show contextType)
+      abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType contextType))
 
 zonkEvTerm :: EvTerm -> TcM EvTerm
 zonkEvTerm evTerm =
@@ -181,12 +181,10 @@ rejectMetaTcAnnotation :: TcAnnotation -> TcM ()
 rejectMetaTcAnnotation ann =
   case firstMetaTcAnnotation ann of
     Nothing -> pure ()
-    Just (Unique meta) ->
+    Just {} ->
       abortTc
-        ( "internal type annotation error: unzonked meta-variable ?"
-            <> show meta
-            <> " in finalized annotation "
-            <> show ann
+        ( "internal type annotation error: unzonked meta-variable in finalized annotation with type "
+            <> renderTcType (tidyType (tcAnnType ann))
         )
 
 rejectMetaFinalAnnotation :: Annotation -> TcM ()
@@ -207,8 +205,8 @@ rejectMeta context maybeMeta =
   case maybeMeta of
     Nothing ->
       pure ()
-    Just (Unique meta) ->
-      abortTc ("internal type annotation error: unzonked meta-variable ?" <> show meta <> " in " <> context)
+    Just {} ->
+      abortTc ("internal type annotation error: unzonked meta-variable in " <> context)
 
 firstMetaTcAnnotation :: TcAnnotation -> Maybe Unique
 firstMetaTcAnnotation ann =
