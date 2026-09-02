@@ -998,22 +998,13 @@ renderProgramInitializer entryName =
         <> call "aihc_set_thread_done_continuation"
 
 renderStaticGlobals :: CompileEnv -> GrinProgram -> Either WasmError [Text]
-renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticObjects program))
   where
-    declaredGlobals = grinGlobals program
-    declaredNames = map fst declaredGlobals
-    constructorLayouts = grinConstructors program
-    implicitConstructors =
-      [ (name, GrinNode (GrinConstructor name 0) [])
-      | (name, layouts) <- constructorLayouts,
-        null layouts,
-        name `notElem` declaredNames
-      ]
-    globals = declaredGlobals <> implicitConstructors
-    renderGlobal (name, node) = do
+    renderGlobal object = do
+      let node = staticObjectNode object
       info <- nodeHeader env node
       fields <- mapM renderStaticValue (grinNodeFields node)
-      let symbol = renderLinkedGlobalSymbol name
+      let symbol = renderLinkedGlobalSymbol (staticObjectName object)
           payload = if null fields && isThunk node then ["\t.int64\t0"] else fields
           size = (1 + length payload) * 8
       pure
@@ -1027,12 +1018,20 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
             "\t.int32\t0"
           ]
             <> payload
-            <> [ "\t.size\t" <> symbol <> ", " <> tshow size,
-                 "\t.section\taihc_roots,\"\",@",
-                 "\t.p2align\t2, 0x0",
-                 "\t.int32\t" <> symbol,
-                 ""
+            <> ["\t.size\t" <> symbol <> ", " <> tshow size]
+            -- Only objects the collector has to mark get an entry. A
+            -- nullary constructor has no fields, so it can neither move nor
+            -- retain anything, and the collector leaves a pointer to one alone
+            -- whether or not it knows the object is static.
+            <> [ line
+               | staticObjectTraced object,
+                 line <-
+                   [ "\t.section\taihc_roots,\"\",@",
+                     "\t.p2align\t2, 0x0",
+                     "\t.int32\t" <> symbol
+                   ]
                ]
+            <> [""]
         )
     renderStaticValue value =
       case value of

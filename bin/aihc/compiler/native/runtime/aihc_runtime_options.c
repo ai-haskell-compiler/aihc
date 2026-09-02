@@ -70,6 +70,16 @@ static void aihc_parse_rts_option(const char *argument) {
     aihc_process_rts_config.heap_limit_enabled = 1;
     return;
   }
+  if (argument[0] == '-' && argument[1] == 'Z' && argument[2] == 's' &&
+      argument[3] == 0) {
+    aihc_process_rts_config.static_reference_roots = 1;
+    return;
+  }
+  if (argument[0] == '-' && argument[1] == 'Z' && argument[2] == 'p' &&
+      argument[3] == 0) {
+    aihc_process_rts_config.poison_dead_cafs = 1;
+    return;
+  }
   aihc_fail("unknown RTS option");
 }
 

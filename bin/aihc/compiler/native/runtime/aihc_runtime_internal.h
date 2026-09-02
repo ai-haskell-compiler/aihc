@@ -130,6 +130,17 @@ typedef AihcSlot (*AihcRootVisitor)(AihcSlot root, void *context);
 typedef struct {
   uint64_t heap_max_bytes;
   uint8_t heap_limit_enabled;
+  /* Decide static object liveness from static reference tables instead of
+     keeping every one of them alive. This is off by default: the tables do
+     not yet name everything a running program reaches, so enabling it can
+     collect a CAF that is still needed. Pair it with poison_dead_cafs when
+     investigating. */
+  uint8_t static_reference_roots;
+  /* After a collection, overwrite the indirection target of every static
+     object the collector did not mark. A table that is missing an entry then
+     crashes on the next use of that CAF instead of quietly reading collected
+     memory. */
+  uint8_t poison_dead_cafs;
 } AihcRtsConfig;
 
 _Noreturn void aihc_fail(const char *message);
@@ -152,6 +163,11 @@ void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
 const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result);
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
+/* The static-root section holds one pointer to each static object the
+   collector has to mark. Objects that can neither move nor retain anything
+   have no entry. */
+AihcValue **aihc_static_root_start(void);
+AihcValue **aihc_static_root_end(void);
 
 void aihc_gc_init(AihcMachine *machine);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,

@@ -349,22 +349,13 @@ compileEnvironmentWith exposeAllFunctions continuationFrames program =
     third (_, _, value) = value
 
 renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Amd64Error [Amd64Statement]
-renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticObjects program))
   where
-    declaredGlobals = grinGlobals program
-    declaredNames = map fst declaredGlobals
-    constructorLayouts = grinConstructors program
-    implicitConstructors =
-      [ (name, GrinNode (GrinConstructor name 0) [])
-      | (name, layouts) <- constructorLayouts,
-        null layouts,
-        name `notElem` declaredNames
-      ]
-    globals = declaredGlobals <> implicitConstructors
-    renderGlobal (name, node) = do
+    renderGlobal object = do
+      let node = staticObjectNode object
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
-      let symbol = renderLinkedGlobalSymbol name
+      let symbol = renderLinkedGlobalSymbol (staticObjectName object)
           payload = if null fields && isThunk node then [amd64Quad 0] else fields
       pure $
         [ amd64Section DataSection,
@@ -374,9 +365,17 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
           amd64QuadSymbol info
         ]
           <> payload
-          <> [ amd64Section RootsSection,
-               amd64Align 3,
-               amd64QuadSymbol symbol
+          -- Only objects the collector has to mark get an entry. A nullary
+          -- constructor has no fields, so it can neither move nor retain
+          -- anything, and the collector leaves a pointer to one alone whether
+          -- or not it knows the object is static.
+          <> [ statement
+             | staticObjectTraced object,
+               statement <-
+                 [ amd64Section RootsSection,
+                   amd64Align 3,
+                   amd64QuadSymbol symbol
+                 ]
              ]
     staticNodeInfo node =
       case grinNodeTag node of
