@@ -321,7 +321,8 @@ inferLambda sp pats body = do
   remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
       pats' = zipWith (annotateLambdaPattern (pcBindings patCheck)) argTys (pcPatterns patCheck)
-  pure (ELambdaPats pats' body', funTy, remainingCts)
+      lambda = annotatePendingExprAt sp (pendingAnnotation funTy [] [] []) (ELambdaPats pats' body')
+  pure (lambda, funTy, remainingCts)
 
 annotateLambdaPattern :: [(UnqualifiedName, TcType)] -> TcType -> Pattern -> Pattern
 annotateLambdaPattern bindings argTy pat =

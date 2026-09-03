@@ -1623,7 +1623,7 @@ desugarExpr expression =
     Syn.EParen inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
-    Syn.ELambdaPats patterns body -> desugarLambda patterns body
+    Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
     Syn.EIf condition thenExpression elseExpression -> do
       resultType <- requiredExprType thenExpression
       desugarIf resultType condition thenExpression elseExpression
@@ -1679,6 +1679,7 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EIf condition thenExpression elseExpression ->
           desugarIf (tcAnnType annotation) condition thenExpression elseExpression
         Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
+        Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
         _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
@@ -1948,13 +1949,34 @@ convertTyConApplicationArguments tyCon arguments = do
   visibleArguments <- mapM convertCheckedType arguments
   pure (invisibleArguments <> visibleArguments)
 
-desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
-desugarLambda patterns body = do
+-- | Desugar a lambda. Variable, wildcard, and as-patterns bind their
+-- argument directly. Any other pattern turns the lambda into a single
+-- function equation so the match desugarer emits the constructor cases.
+-- The checked lambda type, when the annotation supplies it, provides the
+-- result type; otherwise the body's own annotation does.
+desugarLambda :: Maybe TcType -> [Syn.Pattern] -> Syn.Expr -> ValueM Expr
+desugarLambda lambdaType patterns body = do
   types <- mapM requiredPatternType patterns
   binders <- zipWithM freshPatternBinder patterns types
-  locals <- concat <$> mapM (\(pattern', binder, ty) -> patternMatchBindings pattern' binder ty) (zip3 patterns binders types)
-  body' <- withLocals locals (desugarExpr body)
-  pure (foldr ExLam body' binders)
+  direct <- sequence <$> mapM (\(pattern', binder, ty) -> directPatternBindings pattern' binder ty) (zip3 patterns binders types)
+  case direct of
+    Just locals -> do
+      body' <- withLocals (concat locals) (desugarExpr body)
+      pure (foldr ExLam body' binders)
+    Nothing -> do
+      resultType <-
+        case lambdaType of
+          Just ty -> pure (snd (peelFunctions (length patterns) ty))
+          Nothing -> requiredExprType body
+      desugarMatches (foldr TcFunTy resultType types) [lambdaMatch]
+  where
+    lambdaMatch =
+      Syn.Match
+        { Syn.matchAnns = [],
+          Syn.matchHeadForm = Syn.MatchHeadPrefix,
+          Syn.matchPats = patterns,
+          Syn.matchRhs = Syn.UnguardedRhs [] body Nothing
+        }
 
 desugarList :: TcAnnotation -> [Syn.Expr] -> ValueM Expr
 desugarList annotation elements = do
