@@ -1,0 +1,55 @@
+# Container image for the sandboxed aihc GitHub Actions runner pool.
+#
+# The image deliberately contains no Nix. Nix comes from the host store, which is
+# bind-mounted read-only at /nix, and every build is performed by the host's
+# nix-daemon over the socket bind-mounted at /nix/var/nix/daemon-socket.
+
+FROM debian:bookworm-slim
+
+ARG RUNNER_URL
+ARG RUNNER_SHA256=""
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN set -eux; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		ca-certificates \
+		curl \
+		git \
+		jq \
+		locales \
+		sudo \
+		tar; \
+	sed -i 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen; \
+	locale-gen en_US.UTF-8; \
+	useradd --create-home --uid 1001 --shell /bin/bash runner
+
+WORKDIR /home/runner/actions-runner
+
+# The GitHub runner refuses to start as root, but installdependencies.sh needs
+# root, so install while we still have it and drop privileges afterwards.
+RUN set -eux; \
+	curl -fsSL "$RUNNER_URL" -o runner.tar.gz; \
+	if [ -n "$RUNNER_SHA256" ]; then \
+		echo "${RUNNER_SHA256}  runner.tar.gz" | sha256sum -c -; \
+	else \
+		echo "WARNING: no RUNNER_SHA256 supplied; skipping checksum verification" >&2; \
+	fi; \
+	tar xzf runner.tar.gz; \
+	rm -f runner.tar.gz; \
+	./bin/installdependencies.sh; \
+	rm -rf /var/lib/apt/lists/*; \
+	chown -R runner:runner /home/runner
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
+
+USER runner
+
+ENV LANG=en_US.UTF-8 \
+	LC_ALL=en_US.UTF-8 \
+	NIX_REMOTE=daemon \
+	PATH=/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
