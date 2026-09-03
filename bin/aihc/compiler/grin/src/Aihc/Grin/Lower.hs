@@ -459,16 +459,18 @@ lowerApplication env function argument = do
     (_, (Fc.ExVar name, arguments))
       | Just localFunction <- Map.lookup name (lowerLocalFunctions env) ->
           lowerLocalFunctionApplication env resultRep name localFunction arguments
-    _ ->
-      lowerLazy env "function" function $ \functionValue -> do
-        evaluated <- freshVar "function_whnf" liftedGrinRep
-        lowerArgument env argument $ \argumentValues ->
-          pure
-            ( GrinBind
-                [evaluated]
-                (GrinEval liftedGrinRep functionValue)
-                (GrinApply resultRep (GrinVarValue evaluated) argumentValues)
-            )
+    _ -> do
+      -- The function is needed in weak head normal form right away, so it is
+      -- computed directly rather than suspended and then evaluated.
+      evaluated <- freshVar "function_whnf" liftedGrinRep
+      functionExpression <- lowerExpr env function
+      lowerArgument env argument $ \argumentValues ->
+        pure
+          ( GrinBind
+              [evaluated]
+              functionExpression
+              (GrinApply resultRep (GrinVarValue evaluated) argumentValues)
+          )
 
 collectApplications :: Fc.Expr -> (Fc.Expr, [Fc.Expr])
 collectApplications expression = go expression []

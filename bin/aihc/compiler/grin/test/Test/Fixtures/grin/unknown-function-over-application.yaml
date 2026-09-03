@@ -1,0 +1,15 @@
+extensions: []
+source: |
+  module Test where
+  apply2 f x y = f x y
+expected: |-
+  global "\NULTest\NULapply2" = (P$grin_closure_0/3)
+
+  $grin_closure_0 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    function_whnf%1 :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) (z :: BoxedRep Lifted)
+status: pass
+reason: applies an unknown function to each argument in turn without suspending the inner application in a thunk

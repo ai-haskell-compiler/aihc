@@ -9,26 +9,19 @@ expected: |-
 
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
-  $grin_closure_2 (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
+  $grin_closure_1 (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (seq_first :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as seq_evaluated :: BoxedRep Lifted of
       _ ->
         eval @(BoxedRep Lifted) (seq_second :: BoxedRep Lifted)
 
-  $grin_function_thunk_1 -> BoxedRep Lifted =
-    function :: BoxedRep Lifted <-
-      store (P$grin_closure_2/2)
-    function_whnf :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (function :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULTest\NULFirst"
-
   $grin_value_thunk_0 -> BoxedRep Lifted =
-    function :: BoxedRep Lifted <-
-      store (F$grin_function_thunk_1)
     function_whnf :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (function :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULTest\NULSecond"
+      store (P$grin_closure_1/2)
+    function_whnf%1 :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULTest\NULFirst"
+    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) global-ref "\NULTest\NULSecond"
 extensions: []
 source: |
   module Test where
