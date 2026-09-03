@@ -46,7 +46,7 @@ data PrepareRuntimeOptions = PrepareRuntimeOptions
   deriving (Eq, Show)
 
 data InstallOptions = InstallOptions
-  { installPackageDirectory :: !FilePath,
+  { installPackageTarget :: !String,
     installStoreRoot :: !(Maybe FilePath),
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
@@ -97,7 +97,7 @@ commandParser =
           "install"
           ( OA.info
               (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Build and install one local Cabal library")
+              (OA.progDesc "Build and install one Cabal library from a local directory or Hackage")
           )
         <> OA.command
           "prepare-runtime"
@@ -213,8 +213,8 @@ installOptionsParser :: OA.Parser InstallOptions
 installOptionsParser =
   InstallOptions
     <$> OA.strArgument
-      ( OA.metavar "DIRECTORY"
-          <> OA.help "Local Cabal package directory"
+      ( OA.metavar "PACKAGE"
+          <> OA.help "Local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> storeRootOption "Override the aihc store root"
     <*> OA.switch

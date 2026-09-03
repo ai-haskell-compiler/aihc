@@ -5,6 +5,7 @@ module Aihc.Cli.Install
     ModuleCompileResult (..),
     compileModules,
     install,
+    parsePackageTarget,
     runInstall,
   )
 where
@@ -40,6 +41,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Llvm qualified as Llvm
@@ -127,7 +129,9 @@ import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
+import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
@@ -318,10 +322,10 @@ install options = do
   useColor <- hIsTerminalDevice stdout
   let target = installTarget options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
-  let root = installPackageDirectory options
-      verbose message = when (installVerbose options) (putStrLn message)
+  let verbose message = when (installVerbose options) (putStrLn message)
       printTimings message = when (installPrintTimings options) (putStrLn message)
-      fallbackResolver = networkDependencyResolver
+  root <- resolveInstallTarget (installPackageTarget options)
+  let fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
         ModuleCompileConfig
@@ -338,16 +342,49 @@ install options = do
   plan <- buildPackagePlanWithResolver resolver spec
   installedResult <$> installPackagePlan config (installReinstall options) targetStoreRoot plan
 
+-- | Turn the install argument into a local package directory.
+--
+-- An existing directory is used as-is. Anything else is parsed as a Hackage
+-- package name with an optional version (@NAME@ or @NAME-VERSION@) and
+-- downloaded from Hackage; without a version the preferred version is used.
+resolveInstallTarget :: String -> IO FilePath
+resolveInstallTarget target = do
+  isDirectory <- doesDirectoryExist target
+  if isDirectory
+    then pure target
+    else case parsePackageTarget target of
+      Nothing ->
+        ioError
+          ( userError
+              (target <> " is not an existing directory nor a Hackage package name (NAME[-VERSION])")
+          )
+      Just (name, requestedVersion) -> do
+        version <- maybe (resolvePreferredVersion name) pure requestedVersion
+        HackageDownload.downloadPackageWithOptions
+          HackageDownload.defaultDownloadOptions
+          PackageSpec {pkgName = name, pkgVersion = version}
+
+-- | Split a Hackage target into its package name and optional version.
+parsePackageTarget :: String -> Maybe (String, Maybe String)
+parsePackageTarget target = do
+  packageId <- simpleParsec target :: Maybe CabalPackage.PackageIdentifier
+  let version = CabalPackage.pkgVersion packageId
+  pure
+    ( CabalPackage.unPackageName (CabalPackage.pkgName packageId),
+      if version == nullVersion then Nothing else Just (prettyShow version)
+    )
+
+resolvePreferredVersion :: String -> IO String
+resolvePreferredVersion name = do
+  result <- getLatestVersion Nothing name
+  either (ioError . userError) pure result
+
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
   DependencyResolver
-    { resolverResolveVersion = resolveVersion,
+    { resolverResolveVersion = resolvePreferredVersion,
       resolverSourcePath = HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
     }
-  where
-    resolveVersion name = do
-      result <- getLatestVersion Nothing name
-      either (ioError . userError) pure result
 
 installPackagePlan :: ModuleCompileConfig -> Bool -> FilePath -> PackagePlan -> IO InstalledPackage
 installPackagePlan config reinstall storeRoot plan = do

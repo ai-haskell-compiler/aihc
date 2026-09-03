@@ -24,6 +24,16 @@ aihc install core-libs/aihc-base \
   --target wasm32-wasip3
 ```
 
+The package argument is a local Cabal package directory. When no such directory
+exists, it is read as a Hackage package name with an optional version and the
+sources are fetched from Hackage; without a version the preferred version on
+Hackage is used:
+
+```console
+aihc install nats --store "$AIHC_STORE" --target llvm
+aihc install nats-1.1.1 --store "$AIHC_STORE" --target llvm
+```
+
 Application compilation only selects the installed store, target, and runtime
 variant:
 
