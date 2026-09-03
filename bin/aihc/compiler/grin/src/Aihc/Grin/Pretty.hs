@@ -226,13 +226,19 @@ prettyLiteral literal =
     GrinLitString value -> pretty (show (T.unpack value))
     GrinLitAddr value -> pretty (show (map (chr . fromIntegral) (BS.unpack value))) <> "#"
 
+-- | A variable's number only disambiguates same-named binders, so the common
+-- case of a single binder for a name prints without one.
 prettyVar :: GrinVar -> Doc ann
 prettyVar var =
   prettyName (grinVarName var)
-    <> "%"
-    <> pretty (grinVarUnique var)
+    <> prettyNumber
     <+> "::"
     <+> prettyShow (grinVarRuntimeRep var)
+  where
+    number = grinVarUnique var
+    prettyNumber
+      | number == 0 && not (grinVarNameNeedsNumber (grinVarName var)) = mempty
+      | otherwise = "%" <> pretty number
 
 prettyVarAtom :: GrinVar -> Doc ann
 prettyVarAtom = parens . prettyVar

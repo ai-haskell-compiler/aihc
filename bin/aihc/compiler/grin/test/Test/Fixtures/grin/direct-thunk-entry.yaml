@@ -1,0 +1,50 @@
+extensions: []
+source: |
+  module Test where
+  data T = T
+  class Cls a where
+    one :: a
+    two :: a
+    two = one
+  instance Cls T where
+    one = T
+expected: |-
+  constructor Test.T []
+
+  constructor Test.$Dict$Cls [BoxedRep Lifted, BoxedRep Lifted]
+
+  global "\NULTest\NULT" = (CTest.T)
+
+  global "\NULTest\NUL$Dict$Cls" = (CTest.$Dict$Cls/2)
+
+  global "\NULTest\NULone" = (P$grin_closure_0/1)
+
+  global "\NULTest\NULtwo" = (P$grin_closure_1/1)
+
+  global "\NULTest\NUL$dmtwo" = (P$grin_closure_2/1)
+
+  global "\NULTest\NUL$fClsT" = (F$grin_$fClsT_thunk_3)
+
+  $grin_closure_0 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data Test.$Dict$Cls ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+
+  $grin_closure_1 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data Test.$Dict$Cls ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method1 :: BoxedRep Lifted)
+
+  $grin_closure_2 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $grin_closure_0 ($d0 :: BoxedRep Lifted)
+
+  $grin_$fClsT_thunk_3 -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (F$grin_closure_2 global-ref "\NULTest\NUL$fClsT")
+    store (CTest.$Dict$Cls global-ref "\NULTest\NULT" (argument :: BoxedRep Lifted))
+status: pass
+reason: suspends a saturated call on the callee itself instead of a forwarding thunk function

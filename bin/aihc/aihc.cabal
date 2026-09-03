@@ -114,6 +114,7 @@ library compiler
     Aihc.Grin.Snapshot
     Aihc.Grin.Srt
     Aihc.Grin.Syntax
+    Aihc.Grin.Tidy
     Aihc.Lir
     Aihc.Lir.Interpret
     Aihc.Lir.Lint
@@ -305,6 +306,7 @@ test-suite spec
     Test.Llvm.Suite
     Test.Native.BlockLayout
     Test.Native.Compiler
+    Test.Native.GcFuzz
     Test.Native.Observed
     Test.Native.Primitive
     Test.Native.RegisterAllocate

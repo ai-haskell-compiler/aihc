@@ -6,7 +6,7 @@ source: |
 expected: |-
   global "\NULTest\NULpair" = (P$grin_closure_0/2)
 
-  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) (y%-1000000001 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    store (C"aihc-prim:GHC.Tuple.(,)" (x%-1000000000 :: BoxedRep Lifted) (y%-1000000001 :: BoxedRep Lifted))
+  $grin_closure_0 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (C"aihc-prim:GHC.Tuple.(,)" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
 status: pass
 reason: stores a saturated constructor directly without eval or apply operations

@@ -6,11 +6,11 @@ expected: |-
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
   $grin_value_thunk_0 -> BoxedRep Lifted =
-    argument%-1000000000 :: Int8Rep <-
+    argument :: Int8Rep <-
       constant (123 :: Int8Rep)
-    argument%-1000000001 :: Word16Rep <-
+    argument%1 :: Word16Rep <-
       constant (456 :: Word16Rep)
-    store (CTest.Narrow (argument%-1000000000 :: Int8Rep) (argument%-1000000001 :: Word16Rep))
+    store (CTest.Narrow (argument :: Int8Rep) (argument%1 :: Word16Rep))
 extensions:
 - MagicHash
 - ExtendedLiterals

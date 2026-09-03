@@ -13,6 +13,7 @@ import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
+import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -78,14 +79,16 @@ lowerProgram program = do
   let env = baseEnv {lowerLocalFunctions = localFunctions}
   (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
-    ( normalizeGrinProgram
-        GrinProgram
-          { grinConstructors = topConstructors parts,
-            grinPrimitives = topPrimitives parts,
-            grinForeignCalls = topForeignCalls parts,
-            grinGlobals = topGlobals parts,
-            grinFunctions = reverse (lowerFunctionsRev finalState)
-          }
+    ( tidyGrinProgram
+        ( normalizeGrinProgram
+            GrinProgram
+              { grinConstructors = topConstructors parts,
+                grinPrimitives = topPrimitives parts,
+                grinForeignCalls = topForeignCalls parts,
+                grinGlobals = topGlobals parts,
+                grinFunctions = reverse (lowerFunctionsRev finalState)
+              }
+        )
     )
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
@@ -706,16 +709,68 @@ makeThunk env hint expression = do
     then throwLower ("GRIN cannot suspend an unlifted expression with representation " <> show representation)
     else do
       let captures = capturedVariables env expression
+      -- The name is allocated even when the thunk turns out to need no
+      -- function of its own, so that generated function names stay identical
+      -- between the discovery pass and the final pass. Only the final pass
+      -- knows the entry functions that 'directThunkNode' suspends, and the
+      -- calls it emits name functions the discovery pass numbered.
       functionName <- freshFunction (hint <> "_thunk")
-      body <- lowerExpr env expression
-      emitFunction
-        GrinFunction
-          { grinFunctionName = functionName,
-            grinFunctionParameters = captures,
-            grinFunctionResultRep = representation,
-            grinFunctionBody = body
-          }
-      pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
+      direct <- directThunkNode env expression
+      case direct of
+        Just node -> pure node
+        Nothing -> do
+          body <- lowerExpr env expression
+          emitFunction
+            GrinFunction
+              { grinFunctionName = functionName,
+                grinFunctionParameters = captures,
+                grinFunctionResultRep = representation,
+                grinFunctionBody = body
+              }
+          pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
+
+-- | Suspend a saturated call to a known function on that function itself.
+--
+-- A thunk node carries the values its entry function is applied to, so a call
+-- whose operands are already named needs no code of its own. Giving it a
+-- function that does nothing but forward those values to the callee costs a
+-- function definition, an info table and an extra entry for nothing.
+directThunkNode :: LowerEnv -> Fc.Expr -> LowerM (Maybe GrinNode)
+directThunkNode env expression =
+  case collectApplications expression of
+    (Fc.ExVar name, arguments)
+      | Just (arity, Just (functionName, functionResultRep)) <- Map.lookup name (lowerLocalFunctions env),
+        arity == length arguments,
+        functionResultRep == liftedGrinRep -> do
+          values <- mapM (settledArgument env) arguments
+          pure (GrinNode (GrinThunk functionName) . concat <$> sequence values)
+    _ -> pure Nothing
+
+-- | The runtime values of one argument, when naming them costs neither an
+-- evaluation nor an allocation. Anything else has to run inside a thunk body.
+settledArgument :: LowerEnv -> Fc.Expr -> LowerM (Maybe [GrinValue])
+settledArgument env expression = do
+  representation <- expressionRuntimeRep env expression
+  if null (runtimeRepComponents representation)
+    then pure (Just [])
+    else
+      if not (isLiftedRuntimeRep representation)
+        then pure Nothing
+        else case stripValueWrappers expression of
+          Fc.ExVar name ->
+            case Map.lookup name (lowerLocals env) of
+              Just [variable] -> pure (Just [GrinVarValue variable])
+              Just _ -> pure Nothing
+              Nothing -> Just . pure . GrinGlobalValue <$> lookupGlobalName env name
+          _ -> pure Nothing
+
+-- | Drop the type applications and casts that carry no runtime value.
+stripValueWrappers :: Fc.Expr -> Fc.Expr
+stripValueWrappers expression =
+  case expression of
+    Fc.ExTyApp inner _ -> stripValueWrappers inner
+    Fc.ExCast inner _ -> stripValueWrappers inner
+    _ -> expression
 
 makeClosure :: LowerEnv -> Fc.Expr -> LowerM GrinNode
 makeClosure env expression = do

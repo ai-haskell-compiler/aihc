@@ -10,7 +10,7 @@ expected: |-
 
   global "\NULTest\NULpairWith" = (P$grin_closure_0/1)
 
-  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    store (CTest.Pair/1 (x%-1000000000 :: BoxedRep Lifted))
+  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (CTest.Pair/1 (x :: BoxedRep Lifted))
 status: pass
 reason: stores a partially applied constructor directly with its remaining arity
