@@ -11,7 +11,6 @@ modules:
 - |
   {-# LANGUAGE PatternSynonyms #-}
   module Main where
-  data Bool = True | False
   import Lib (Expr (..), pattern Sub)
   swap (Sub a b) = Sub b a
   swap e = e

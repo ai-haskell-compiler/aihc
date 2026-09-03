@@ -10,7 +10,6 @@ modules:
   pattern Sub a b = Add a (Neg b)
 - |
   module Main where
-  data Bool = True | False
   import Lib (Expr (..))
   swap (Sub a b) = Sub b a
   swap e = e
