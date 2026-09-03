@@ -420,7 +420,8 @@ renderRuntimeInfos infos =
              maybe (amd64Quad 0) amd64QuadSymbol (runtimeInfoNext info),
              maybe (amd64Quad 0) (const (amd64QuadSymbol (enterEntryLabel info))) (runtimeInfoEnter info),
              amd64Quad (fromIntegral (continuationFrameKindCode (runtimeInfoFrameKind info))),
-             amd64Quad (fromIntegral (runtimeInfoObjectKind info))
+             amd64Quad (fromIntegral (runtimeInfoObjectKind info)),
+             amd64Quad 0
            ]
       where
         fields = runtimeInfoFields info

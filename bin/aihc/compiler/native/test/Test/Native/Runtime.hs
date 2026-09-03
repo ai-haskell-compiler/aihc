@@ -47,7 +47,7 @@ stableNameSource :: String
 stableNameSource =
   unlines
     [ "#include \"aihc_runtime.h\"",
-      "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE};",
+      "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
       "int main(void) {",
       "  AihcMachine *machine = aihc_machine_new(2);",
       "  AihcValue *first = aihc_make_node(machine, &leaf_info);",
@@ -76,8 +76,8 @@ growthSource =
   unlines
     [ "#include \"aihc_runtime.h\"",
       "static const uint8_t cell_is_pointer[] = {1};",
-      "static const AihcInfo cell_info = {1, 0, 1, 0, cell_is_pointer, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE};",
-      "static const AihcInfo leaf_info = {2, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE};",
+      "static const AihcInfo cell_info = {1, 0, 1, 0, cell_is_pointer, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
+      "static const AihcInfo leaf_info = {2, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
       "int main(void) {",
       "  AihcMachine *machine = aihc_machine_new(1);",
       "  machine->globals[0] = (AihcSlot)aihc_make_node(machine, &leaf_info);",
@@ -111,7 +111,7 @@ heapLimitSource =
       "#include <unistd.h>",
       "#include <sys/wait.h>",
       "static const uint8_t cell_is_pointer[] = {1};",
-      "static const AihcInfo cell_info = {1, 0, 1, 0, cell_is_pointer, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE};",
+      "static const AihcInfo cell_info = {1, 0, 1, 0, cell_is_pointer, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
       "int main(int argc, char *const argv[]) {",
       "  int pipe_ends[2];",
       "  if (pipe(pipe_ends) != 0) return 1;",
