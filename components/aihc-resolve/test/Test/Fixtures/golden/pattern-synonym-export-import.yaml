@@ -1,0 +1,19 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Lib (Expr (..), pattern Sub) where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+  import Lib (Expr (..), pattern Sub)
+  swap (Sub a b) = Sub b a
+  swap e = e
+reason: the resolver does not export or import a pattern synonym through the pattern namespace
+status: pass

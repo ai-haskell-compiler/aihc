@@ -1,0 +1,25 @@
+extensions:
+  - ExistentialQuantification
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+    module Test where
+    data Bool = True | False
+    data Mark = Marked | Plain
+    class Markable a where
+      mark :: a -> Mark
+    instance Markable Bool where
+      mark True = Marked
+      mark False = Plain
+    data Box = forall a. Markable a => Box Bool a
+    pattern Tagged :: () => Markable a => a -> Box
+    pattern Tagged x <- Box True x
+    inspect (Tagged x) = mark x
+    inspect _ = Plain
+output: |
+  Marked
+expression: |
+  inspect (Box True True)
+status: xfail
+reason: uses the dictionary that a pattern synonym match provides

@@ -1,0 +1,18 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Lib (Expr (.., Sub)) where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+- |
+  module Main where
+  data Bool = True | False
+  import Lib (Expr (..))
+  swap (Sub a b) = Sub b a
+  swap e = e
+reason: the resolver does not bundle a pattern synonym with its type constructor
+status: pass

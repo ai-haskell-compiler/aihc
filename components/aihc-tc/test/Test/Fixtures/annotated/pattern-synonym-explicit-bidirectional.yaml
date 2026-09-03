@@ -1,0 +1,16 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data L a = N | C a (L a)
+  pattern HeadC x <- C x _ where
+    HeadC x = C x N
+  first :: L a -> a
+  first (HeadC x) = x
+  singleton :: a -> L a
+  singleton x = HeadC x
+reason: the type checker does not check the builder equations of an explicitly bidirectional pattern synonym
+status: pass

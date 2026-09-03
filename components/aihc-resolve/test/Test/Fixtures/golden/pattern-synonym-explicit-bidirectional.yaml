@@ -1,0 +1,14 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data L a = N | C a (L a)
+  pattern HeadC x <- C x _ where
+    HeadC x = C x N
+  first (HeadC x) = x
+  singleton x = HeadC x
+reason: the resolver does not resolve the builder equations of an explicitly bidirectional pattern synonym
+status: pass

@@ -1,0 +1,16 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+  pattern TrueLit = Lit True
+  isSub (Sub a b) = Sub b a
+  isSub e = e
+  trueLit = TrueLit
+reason: the resolver does not bind a bidirectional pattern synonym in term scope
+status: pass

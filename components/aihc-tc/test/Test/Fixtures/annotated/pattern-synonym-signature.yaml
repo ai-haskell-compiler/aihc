@@ -1,0 +1,14 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data L a = N | C a (L a)
+  pattern Head :: a -> L a
+  pattern Head x <- C x _
+  first :: L a -> a
+  first (Head x) = x
+reason: the type checker does not check a pattern synonym against its signature
+status: pass

@@ -1,0 +1,17 @@
+extensions:
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    data Bool = True | False
+    not True = False
+    not False = True
+    isFalse (not -> True) = True
+    isFalse _ = False
+output: |
+  True
+expression: |
+  isFalse False
+status: xfail
+reason: matches the result of a view pattern function

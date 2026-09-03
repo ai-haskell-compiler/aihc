@@ -46,6 +46,7 @@ import Aihc.Parser.Syntax
     Name (..),
     NameType (..),
     NewtypeDecl (..),
+    PatSynDecl (..),
     Pattern (..),
     Pragma (..),
     PragmaType (..),
@@ -783,6 +784,12 @@ annotateDeclTc origin classMethods checkedValueTypes decl =
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc origin instanceDecl
     DeclStandaloneDeriving {} -> pure decl
+    DeclPatSyn patSynDecl -> do
+      emitError (unqualifiedNameSpan (patSynDeclName patSynDecl)) (OtherError "pattern synonym declarations are not supported")
+      pure decl
+    DeclPatSynSig names _ -> do
+      emitError (foldr (orSourceSpan . unqualifiedNameSpan) NoSourceSpan names) (OtherError "pattern synonym signatures are not supported")
+      pure decl
     _ -> pure decl
 
 annotateInstanceHeaderTc :: (Text, Text) -> Decl -> TcM Decl

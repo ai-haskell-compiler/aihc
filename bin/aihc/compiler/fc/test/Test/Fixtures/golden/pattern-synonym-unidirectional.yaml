@@ -1,0 +1,12 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data L a = N | C a (L a)
+  pattern Head x <- C x _
+  first (Head x) = x
+expected: ''
+status: xfail
+reason: FC desugaring does not emit a matcher for a unidirectional pattern synonym.

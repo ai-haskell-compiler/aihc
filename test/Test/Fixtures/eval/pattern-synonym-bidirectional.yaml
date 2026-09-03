@@ -1,0 +1,17 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+    data Bool = True | False
+    data Expr = Lit Bool | Add Expr Expr | Neg Expr
+    pattern Sub a b = Add a (Neg b)
+    swap (Sub a b) = Sub b a
+    swap e = e
+output: |
+  Add (Lit False) (Neg (Lit True))
+expression: |
+  swap (Sub (Lit True) (Lit False))
+status: xfail
+reason: matches and constructs through a bidirectional pattern synonym

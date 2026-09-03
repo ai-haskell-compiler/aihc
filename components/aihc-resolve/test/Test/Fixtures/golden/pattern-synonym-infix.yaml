@@ -1,0 +1,14 @@
+annotated: ["placeholder"]
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern a :-: b = Add a (Neg b)
+  swap (a :-: b) = b :-: a
+  swap e = e
+reason: the resolver does not bind an infix pattern synonym in term scope
+status: pass
