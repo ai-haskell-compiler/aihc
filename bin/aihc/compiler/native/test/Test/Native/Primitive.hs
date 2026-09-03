@@ -31,6 +31,15 @@ tests =
                 (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
+      testCase "maps sized conversion and floating point primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          numericRuntimeSymbols,
       testCase "maps address indexing primitives to the shared runtime ABI" $
         mapM_
           ( \(primitive, symbol) ->
@@ -208,6 +217,38 @@ mutVarRuntimeSymbols =
     ("writeMutVar#", "aihc_mutvar_write"),
     ("casMutVar#", "aihc_mutvar_compare_and_swap"),
     ("sameMutVar#", "aihc_mutvar_same")
+  ]
+
+numericRuntimeSymbols :: [(Text, Text)]
+numericRuntimeSymbols =
+  [ ("intToInt8#", "aihc_int_to_int8"),
+    ("int8ToInt#", "aihc_int8_to_int"),
+    ("intToInt16#", "aihc_int_to_int16"),
+    ("int16ToInt#", "aihc_int16_to_int"),
+    ("intToInt32#", "aihc_int_to_int32"),
+    ("int32ToInt#", "aihc_int32_to_int"),
+    ("intToInt64#", "aihc_int_to_int64"),
+    ("int64ToInt#", "aihc_int64_to_int"),
+    ("plusFloat#", "aihc_float_plus"),
+    ("minusFloat#", "aihc_float_minus"),
+    ("timesFloat#", "aihc_float_times"),
+    ("negateFloat#", "aihc_float_negate"),
+    ("fabsFloat#", "aihc_float_abs"),
+    ("int2Float#", "aihc_int_to_float"),
+    ("float2Int#", "aihc_float_to_int"),
+    ("gtFloat#", "aihc_float_gt"),
+    ("ltFloat#", "aihc_float_lt"),
+    ("eqFloat#", "aihc_float_eq"),
+    ("+##", "aihc_double_plus"),
+    ("-##", "aihc_double_minus"),
+    ("*##", "aihc_double_times"),
+    ("negateDouble#", "aihc_double_negate"),
+    ("fabsDouble#", "aihc_double_abs"),
+    ("int2Double#", "aihc_int_to_double"),
+    ("double2Int#", "aihc_double_to_int"),
+    (">##", "aihc_double_gt"),
+    ("<##", "aihc_double_lt"),
+    ("==##", "aihc_double_eq")
   ]
 
 stableNameRuntimeSymbols :: [(Text, Text)]

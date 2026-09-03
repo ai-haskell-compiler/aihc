@@ -8,6 +8,7 @@ module Aihc.Tc.Generalize
     generalizeIgnoring,
     generalizeAndCommit,
     generalizeAndCommitIgnoring,
+    environmentMetaVars,
     predMetaVars,
   )
 where
@@ -56,16 +57,10 @@ generalizeAndCommitIgnoring ignoredKeys ty preds = do
 
 generalizeIgnoringWithSubst :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
 generalizeIgnoringWithSubst ignoredKeys ty preds = do
-  env <- getTermEnv
-  directEnvMetaVars <-
-    concat
-      <$> mapM
-        binderMetaVars
-        [binder | (key, binder) <- Map.toList env, key `Set.notMember` ignoredKeys]
+  envMetaVars <- environmentMetaVars ignoredKeys
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
   let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
-      envMetaVars = nubOrd directEnvMetaVars
       uniqueFreeMetaVars = nubOrd freeMetaVars
   mapM_ defaultMetaKind (envMetaVars <> uniqueFreeMetaVars)
   let uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
@@ -76,6 +71,16 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   let ty'' = substMetas subst ty'
   let preds'' = map (substMetasPred subst) preds'
   pure (ForAll tvs preds'' ty'', subst)
+
+-- | Meta-variables that the environment mentions. Generalization does not
+-- quantify over them. The ignored binders are not part of the environment.
+environmentMetaVars :: Set.Set TcTermKey -> TcM [Unique]
+environmentMetaVars ignoredKeys = do
+  env <- getTermEnv
+  nubOrd . concat
+    <$> mapM
+      binderMetaVars
+      [binder | (key, binder) <- Map.toList env, key `Set.notMember` ignoredKeys]
 
 -- | Collect free meta-variable uniques from a type.
 collectMetaVars :: TcType -> [Unique]

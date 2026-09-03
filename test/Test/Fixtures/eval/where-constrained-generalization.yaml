@@ -1,0 +1,22 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    sums :: (Int, Integer)
+    sums = (twice 20, twice 21)
+      where
+        twice y = y + y
+
+    restricted :: Int
+    restricted = one + one
+      where
+        one = 21
+output: |
+  (((I# 40),(IS 42)),(I# 42))
+expression: |
+  (sums, restricted)
+status: pass
+reason: a where binding abstracts over its class constraint and the monomorphism restriction keeps a zero-argument binding monomorphic

@@ -10,8 +10,8 @@ modules:
     import GHC.Int (Int (..))
     import GHC.Prim
 output: |
-  I# 3
+  I# 1065353216
 expression: |
-  I# (double2Int# (int2Double# 3#))
+  I# (word2Int# (word32ToWord# (castFloatToWord32# (int2Float# 1#))))
 status: xfail
-reason: the Float# and Double# conversions have declarations only, thus no backend gives them a runtime yet
+reason: the IEEE 754 bit-pattern casts have declarations only, thus no backend gives them a runtime yet

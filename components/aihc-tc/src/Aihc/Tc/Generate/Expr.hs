@@ -38,7 +38,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind (boolTyCon, inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
@@ -1099,10 +1099,3 @@ stringTyCon = do
   listTyCon <- resolvedListTyCon
   charType <- resolvedType "Char"
   pure (TcTyCon listTyCon [charType])
-
-boolTyCon :: TcM TcType
-boolTyCon = do
-  maybeInfo <- lookupTyCon "Bool"
-  case maybeInfo of
-    Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 typeKindType <*> pure []

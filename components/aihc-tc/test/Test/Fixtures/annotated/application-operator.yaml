@@ -1,0 +1,38 @@
+annotated:
+- |-
+  module Prelude where
+  import GHC.Prim (Int#)
+  import GHC.Types (RuntimeRep, TYPE, Type)
+  data Int = I# Int#
+       │     └─ type: GHC.Prim.Int# → Int
+       └─ type: Type
+  ($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+  ($) f = f
+  │   └─ type: a → b
+  └─ type: ∀ r a b. (a → b) → a → b
+  unbox :: Int -> Int#
+  unbox (I# n) = n
+  │      │  └─ type: GHC.Prim.Int#
+  │      └─ type: Int
+  └─ type: Int → GHC.Prim.Int#
+  unboxed :: Int -> Int#
+  unboxed n = unbox $ n
+  │       │         └─ type: (Int → GHC.Prim.Int#) → Int → GHC.Prim.Int#; type-args: 'IntRep, Int, Int#
+  │       └─ type: Int
+  └─ type: Int → GHC.Prim.Int#
+extensions:
+- MagicHash
+modules:
+- |
+  module Prelude where
+  import GHC.Prim (Int#)
+  import GHC.Types (RuntimeRep, TYPE, Type)
+  data Int = I# Int#
+  ($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+  ($) f = f
+  unbox :: Int -> Int#
+  unbox (I# n) = n
+  unboxed :: Int -> Int#
+  unboxed n = unbox $ n
+reason: the application operator is an ordinary function with a representation-polymorphic result, as in GHC
+status: pass

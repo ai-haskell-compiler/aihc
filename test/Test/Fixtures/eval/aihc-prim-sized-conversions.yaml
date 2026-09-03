@@ -1,0 +1,58 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim
+      ( int16ToInt#,
+        int32ToInt#,
+        int64ToInt#,
+        int8ToInt#,
+        intToInt16#,
+        intToInt32#,
+        intToInt64#,
+        intToInt8#,
+        word16ToWord#,
+        word2Int#,
+        word32ToWord#,
+        word64ToWord#,
+        word8ToWord#,
+        wordToWord16#,
+        wordToWord32#,
+        wordToWord64#,
+        wordToWord8#,
+      )
+    import GHC.Types (Int (..))
+
+    narrowWord8 :: Int
+    narrowWord8 = I# (word2Int# (word8ToWord# (wordToWord8# 300##)))
+
+    narrowWord16 :: Int
+    narrowWord16 = I# (word2Int# (word16ToWord# (wordToWord16# 70000##)))
+
+    narrowWord32 :: Int
+    narrowWord32 = I# (word2Int# (word32ToWord# (wordToWord32# 4294967301##)))
+
+    narrowWord64 :: Int
+    narrowWord64 = I# (word2Int# (word64ToWord# (wordToWord64# 9##)))
+
+    narrowInt8 :: Int
+    narrowInt8 = I# (int8ToInt# (intToInt8# 200#))
+
+    narrowInt16 :: Int
+    narrowInt16 = I# (int16ToInt# (intToInt16# 40000#))
+
+    narrowInt32 :: Int
+    narrowInt32 = I# (int32ToInt# (intToInt32# 4294967295#))
+
+    narrowInt64 :: Int
+    narrowInt64 = I# (int64ToInt# (intToInt64# -7#))
+output: |
+  : (I# 44) (: (I# 4464) (: (I# 5) (: (I# 9) (: (I# -56) (: (I# -25536) (: (I# -1) (: (I# -7) [])))))))
+expression: |
+  [narrowWord8, narrowWord16, narrowWord32, narrowWord64, narrowInt8, narrowInt16, narrowInt32, narrowInt64]
+status: pass
+reason: sized conversions keep the low bits, unsigned as zero-extended and signed as sign-extended values

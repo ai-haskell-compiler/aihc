@@ -1,0 +1,54 @@
+annotated:
+- |-
+  module Main where
+  class Num a where
+  └─ class methods: + ∷ ∀ a. (Num a) ⇒ a → a → a
+    (+) :: a -> a -> a
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  instance Num Int where
+  └─ $fNumInt ∷ () ⇒ Num Int
+    (+) x _ = x
+    │   │ └─ type: Int
+    │   └─ type: Int
+    └─ + ∷ Int → Int → Int
+  data Word = Word
+       │      └─ type: Word
+       └─ type: Type
+  f :: Int -> Int
+  f x = twice x
+  │ │   └─ type: Int → Int; type-args: Int; evidence: $fNumInt
+  │ └─ type: Int
+  └─ type: Int → Int
+    where
+      twice y = y + y
+      │     │     └─ type: a → a → a; type-args: a; evidence: given Num a
+      │     └─ type: a
+      └─ type: ∀ a. (Num a) ⇒ a → a
+  g :: Word -> Word
+  g x = twice x
+        └─ error: unsolved constraint Num Word
+    where
+      twice y = y + y
+
+extensions: []
+modules:
+- |
+  module Main where
+  class Num a where
+    (+) :: a -> a -> a
+  data Int = Int
+  instance Num Int where
+    (+) x _ = x
+  data Word = Word
+  f :: Int -> Int
+  f x = twice x
+    where
+      twice y = y + y
+  g :: Word -> Word
+  g x = twice x
+    where
+      twice y = y + y
+reason: a local binding generalizes a class constraint on its own type variable into a dictionary parameter
+status: pass

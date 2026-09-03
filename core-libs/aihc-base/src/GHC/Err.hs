@@ -9,11 +9,12 @@ where
 
 import GHC.Base (String)
 import GHC.Prim (raise#)
+import GHC.Types (RuntimeRep, TYPE)
 
-error :: String -> a
+error :: forall (r :: RuntimeRep) (a :: TYPE r). String -> a
 error = raise#
 
-errorWithoutStackTrace :: String -> a
+errorWithoutStackTrace :: forall (r :: RuntimeRep) (a :: TYPE r). String -> a
 errorWithoutStackTrace = raise#
 
 undefined :: a

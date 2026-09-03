@@ -184,8 +184,8 @@ lowerForeignDecl env declaration = do
         pure (expression, primitive, [])
       Fc.CCall specification -> do
         let foreignCall = lowerForeignCall name specification
-        expression <- lowerForeignBody foreignEnv axioms constructors foreignCall argumentTypes valueGroups resultType
-        pure (expression, [], [foreignCall])
+        (expression, adapterPrimitives) <- lowerForeignBody foreignEnv axioms constructors foreignCall argumentTypes valueGroups resultType
+        pure (expression, adapterPrimitives, [foreignCall])
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
@@ -226,20 +226,37 @@ lowerPrimitiveBody resultRep name valueGroups =
       lowerCatch resultRep action handler (concat state)
     _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 
-lowerForeignBody :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM GrinExpr
+-- | Lower a foreign call body. The result also lists the primitives that
+-- the argument adapters use, so the module declares them.
+lowerForeignBody :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM (GrinExpr, [(GrinVar, Int)])
 lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType = do
   operands <- concat <$> zipWithM (sourceValues env) argumentTypes valueGroups
   resultValues <- sourceValueTypes env resultType
   let signature = grinForeignCallSignature foreignCall
       expectedOperands = grinForeignOperandReps signature
       resultReps = grinForeignCallResultReps signature
+      adapterPrimitives =
+        [ (GrinVar byteArrayContentsPrimitive (-2000000000 + 1) AddrRep, 1)
+        | any (\((_, value), expectedRep) -> isByteArrayOperand value expectedRep) (zip operands expectedOperands)
+        ]
   if length operands /= length expectedOperands
     then throwLower ("GRIN foreign source arguments do not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
     else case (resultValues, resultReps) of
-      ([(resultValueType, resultValueRep)], [foreignResultRep]) ->
-        adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
-          adaptForeignResult env axioms constructors resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
+      ([(resultValueType, resultValueRep)], [foreignResultRep]) -> do
+        expression <-
+          adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
+            adaptForeignResult env axioms constructors resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
+        pure (expression, adapterPrimitives)
       _ -> throwLower ("GRIN foreign result does not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
+
+-- | The primitive that gives the payload address of a byte array.
+byteArrayContentsPrimitive :: Text
+byteArrayContentsPrimitive = "byteArrayContents#"
+
+-- | A byte array value that a foreign call receives as an address.
+isByteArrayOperand :: GrinValue -> GrinRep -> Bool
+isByteArrayOperand value expectedRep =
+  grinValueRuntimeRep value == BoxedRep Unlifted && expectedRep == AddrRep
 
 sourceValues :: LowerEnv -> Fc.Type -> [GrinValue] -> LowerM [(Fc.Type, GrinValue)]
 sourceValues env sourceType values = do
@@ -272,6 +289,11 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
     go values [] = continuation (reverse values)
     go values (((sourceType, value), expectedRep) : rest)
       | grinValueRuntimeRep value == expectedRep = go (value : values) rest
+      -- A byte array argument passes the address of its payload.
+      | isByteArrayOperand value expectedRep = do
+          contents <- freshVar "foreign_contents" AddrRep
+          body <- go (GrinVarValue contents : values) rest
+          pure (GrinBind [contents] (GrinPrimitiveCall AddrRep byteArrayContentsPrimitive [value]) body)
       | isLiftedRuntimeRep (grinValueRuntimeRep value) = do
           (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
           evaluated <- freshVar "foreign_box" liftedGrinRep

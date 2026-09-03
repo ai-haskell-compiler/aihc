@@ -1,0 +1,69 @@
+annotated:
+- |-
+  module Main where
+  data Bool = False | True
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  otherwise :: Bool
+  otherwise = True
+  └─ type: Bool
+  sign :: Bool -> Bool -> Bool
+  sign x y
+  │    │ └─ type: Bool
+  │    └─ type: Bool
+  └─ type: Bool → Bool → Bool
+    | x = y
+    | otherwise = False
+  firstJust :: Maybe a -> a -> a
+  firstJust m d
+  │         │ └─ type: a
+  │         └─ type: Maybe a
+  └─ type: ∀ a. Maybe a → a → a
+    | Just x <- m = x
+      │    └─ type: a
+      └─ type: Maybe a
+  firstJust _ d = d
+  │         │ └─ type: a
+  │         └─ type: Maybe a
+  └─ type: ∀ a. Maybe a → a → a
+  pick :: Bool -> Maybe Bool
+  pick b
+  │    └─ type: Bool
+  └─ type: Bool → Maybe Bool
+    | let c = b, c = Just c
+          │          └─ type: Bool → Maybe Bool; type-args: Bool
+          └─ type: Bool
+    | otherwise = Nothing
+                  └─ type: Maybe Bool; type-args: Bool
+    where
+      unused = b
+      └─ type: Bool
+extensions: []
+modules:
+- |
+  module Main where
+  data Bool = False | True
+  data Maybe a = Nothing | Just a
+  otherwise :: Bool
+  otherwise = True
+  sign :: Bool -> Bool -> Bool
+  sign x y
+    | x = y
+    | otherwise = False
+  firstJust :: Maybe a -> a -> a
+  firstJust m d
+    | Just x <- m = x
+  firstJust _ d = d
+  pick :: Bool -> Maybe Bool
+  pick b
+    | let c = b, c = Just c
+    | otherwise = Nothing
+    where
+      unused = b
+reason: guards check boolean conditions, pattern guards, and let guards against a shared result type
+status: pass

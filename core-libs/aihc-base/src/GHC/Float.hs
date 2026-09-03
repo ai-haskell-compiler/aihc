@@ -19,25 +19,46 @@ module GHC.Float
   )
 where
 
-import Data.Bool (Bool (..))
+import Data.Bool (Bool (..), not)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.Integer (integerToInt#)
 import GHC.Num (Num (..))
 import GHC.Prim
-  ( castDoubleToWord64#,
+  ( Double#,
+    Float#,
+    Int#,
+    castDoubleToWord64#,
     castFloatToWord32#,
     castWord32ToFloat#,
     castWord64ToDouble#,
     double2Float#,
     double2Int#,
+    eqFloat#,
+    fabsDouble#,
+    fabsFloat#,
     float2Double#,
     float2Int#,
+    gtFloat#,
     int2Double#,
     int2Float#,
+    ltFloat#,
+    minusFloat#,
+    negateDouble#,
+    negateFloat#,
+    plusFloat#,
+    timesFloat#,
+    (*##),
+    (+##),
+    (-#),
+    (-##),
+    (<##),
+    (==##),
+    (>##),
   )
 import GHC.Real (Fractional, Integral (..), RealFrac)
-import GHC.Types (Double (..), Float (..))
+import GHC.Types (Double (..), Float (..), Ordering (..))
 import GHC.Word (Word32 (..), Word64 (..))
 
 -- | Trigonometric and transcendental operations.
@@ -164,3 +185,84 @@ double2Float (D# value) = F# (double2Float# value)
 
 float2Double :: Float -> Double
 float2Double (F# value) = D# (float2Double# value)
+
+-- | Convert a primitive comparison result to a 'Bool'.
+isTrue :: Int# -> Bool
+isTrue value =
+  case value of
+    0# -> False
+    _ -> True
+
+instance Eq Float where
+  F# left == F# right = isTrue (eqFloat# left right)
+  left /= right = not (left == right)
+
+instance Ord Float where
+  compare (F# left) (F# right) =
+    case ltFloat# left right of
+      0# ->
+        case gtFloat# left right of
+          0# -> EQ
+          _ -> GT
+      _ -> LT
+  F# left < F# right = isTrue (ltFloat# left right)
+  F# left > F# right = isTrue (gtFloat# left right)
+  left <= right = not (left > right)
+  left >= right = not (left < right)
+  max left right = if left < right then right else left
+  min left right = if left < right then left else right
+
+floatSignum :: Float# -> Float#
+floatSignum value =
+  case gtFloat# value (int2Float# 0#) of
+    0# ->
+      case ltFloat# value (int2Float# 0#) of
+        0# -> value
+        _ -> int2Float# ((-#) 0# 1#)
+    _ -> int2Float# 1#
+
+instance Num Float where
+  F# left + F# right = F# (plusFloat# left right)
+  F# left - F# right = F# (minusFloat# left right)
+  F# left * F# right = F# (timesFloat# left right)
+  negate (F# value) = F# (negateFloat# value)
+  abs (F# value) = F# (fabsFloat# value)
+  signum (F# value) = F# (floatSignum value)
+  fromInteger value = F# (int2Float# (integerToInt# value))
+
+instance Eq Double where
+  D# left == D# right = isTrue ((==##) left right)
+  left /= right = not (left == right)
+
+instance Ord Double where
+  compare (D# left) (D# right) =
+    case (<##) left right of
+      0# ->
+        case (>##) left right of
+          0# -> EQ
+          _ -> GT
+      _ -> LT
+  D# left < D# right = isTrue ((<##) left right)
+  D# left > D# right = isTrue ((>##) left right)
+  left <= right = not (left > right)
+  left >= right = not (left < right)
+  max left right = if left < right then right else left
+  min left right = if left < right then left else right
+
+doubleSignum :: Double# -> Double#
+doubleSignum value =
+  case (>##) value (int2Double# 0#) of
+    0# ->
+      case (<##) value (int2Double# 0#) of
+        0# -> value
+        _ -> int2Double# ((-#) 0# 1#)
+    _ -> int2Double# 1#
+
+instance Num Double where
+  D# left + D# right = D# ((+##) left right)
+  D# left - D# right = D# ((-##) left right)
+  D# left * D# right = D# ((*##) left right)
+  negate (D# value) = D# (negateDouble# value)
+  abs (D# value) = D# (fabsDouble# value)
+  signum (D# value) = D# (doubleSignum value)
+  fromInteger value = D# (int2Double# (integerToInt# value))
