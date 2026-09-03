@@ -24,20 +24,20 @@ extra-source-files:
   test/Test/Fixtures/build-exe/source-directories/Cycle.hs
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
-  test/Test/Fixtures/install-v2/keep-grin/demo.cabal
-  test/Test/Fixtures/install-v2/keep-grin/src/Demo.hs
-  test/Test/Fixtures/install-v2/local-dependencies/demo/demo.cabal
-  test/Test/Fixtures/install-v2/local-dependencies/demo/src/Demo.hs
-  test/Test/Fixtures/install-v2/local-dependencies/dep/dep.cabal
-  test/Test/Fixtures/install-v2/local-dependencies/dep/src/Dep.hs
-  test/Test/Fixtures/install-v2/local-dependencies/dep/src/Dep/Unused.hs
-  test/Test/Fixtures/install-v2/resolve-error/demo.cabal
-  test/Test/Fixtures/install-v2/resolve-error/expected.txt
-  test/Test/Fixtures/install-v2/resolve-error/src/Aardvark.hs
-  test/Test/Fixtures/install-v2/resolve-error/src/Alpha.hs
-  test/Test/Fixtures/install-v2/resolve-error/src/ParseAlpha.hs
-  test/Test/Fixtures/install-v2/resolve-error/src/ParseZulu.hs
-  test/Test/Fixtures/install-v2/resolve-error/src/Zulu.hs
+  test/Test/Fixtures/install/keep-grin/demo.cabal
+  test/Test/Fixtures/install/keep-grin/src/Demo.hs
+  test/Test/Fixtures/install/local-dependencies/demo/demo.cabal
+  test/Test/Fixtures/install/local-dependencies/demo/src/Demo.hs
+  test/Test/Fixtures/install/local-dependencies/dep/dep.cabal
+  test/Test/Fixtures/install/local-dependencies/dep/src/Dep.hs
+  test/Test/Fixtures/install/local-dependencies/dep/src/Dep/Unused.hs
+  test/Test/Fixtures/install/resolve-error/demo.cabal
+  test/Test/Fixtures/install/resolve-error/expected.txt
+  test/Test/Fixtures/install/resolve-error/src/Aardvark.hs
+  test/Test/Fixtures/install/resolve-error/src/Alpha.hs
+  test/Test/Fixtures/install/resolve-error/src/ParseAlpha.hs
+  test/Test/Fixtures/install/resolve-error/src/ParseZulu.hs
+  test/Test/Fixtures/install/resolve-error/src/Zulu.hs
 
 data-files:
   compiler/native/runtime/aihc_gc_calloc.c
@@ -77,7 +77,7 @@ library compiler
     Aihc.Arm64.RegisterAllocate
     Aihc.Cli
     Aihc.Cli.BuildExe
-    Aihc.Cli.InstallV2
+    Aihc.Cli.Install
     Aihc.Cli.Options
     Aihc.Cli.PackageInterface
     Aihc.Cli.PackageManifest
