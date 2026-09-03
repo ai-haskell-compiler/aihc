@@ -202,7 +202,9 @@ prettyCallingConvention convention =
   case convention of
     Prim -> "prim "
     CCall specification ->
-      "ccall unsafe "
+      "ccall "
+        <> prettyForeignSafety (ccallSafety specification)
+        <> " "
         <> pretty (show (T.unpack (ccallSymbol specification)))
         <> " ["
         <> hsep (punctuate "," (map prettyCAbiType (ccallArgumentTypes specification)))
@@ -219,6 +221,12 @@ prettyCAbiType abiType =
     CAbiInt32 -> "Int32"
     CAbiWord64 -> "Word64"
     CAbiAddr -> "Addr"
+
+prettyForeignSafety :: ForeignSafety -> Doc ann
+prettyForeignSafety safety =
+  case safety of
+    ForeignUnsafe -> "unsafe"
+    ForeignSafe -> "safe"
 
 prettyForeignEffect :: ForeignEffect -> Doc ann
 prettyForeignEffect effect =

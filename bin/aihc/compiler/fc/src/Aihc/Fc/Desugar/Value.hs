@@ -400,7 +400,6 @@ desugarForeign annotation foreignPlan foreignDecl =
       if primitiveSeq then pure [] else (: []) <$> makeForeignImport Prim []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
-      unless (Syn.foreignSafety foreignDecl == Just Syn.Unsafe) (failValue "System FC accepts only unsafe foreign imports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
       symbol <- foreignSymbol foreignDecl
       dependencies <- foreignImportPlanDependencies annotation plan
@@ -408,6 +407,7 @@ desugarForeign annotation foreignPlan foreignDecl =
             CCall
               CCallSpec
                 { ccallSymbol = symbol,
+                  ccallSafety = convertForeignSafety (Syn.foreignSafety foreignDecl),
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
                   ccallEffect = convertForeignEffect (tcForeignEffect plan)
@@ -512,6 +512,15 @@ convertCAbiType abiType =
     TcForeignInt32 -> CAbiInt32
     TcForeignWord64 -> CAbiWord64
     TcForeignAddr -> CAbiAddr
+
+-- | An omitted safety mark means @safe@, as in the Haskell report. The runtime
+-- is single-threaded, so both marks lower to the same call.
+convertForeignSafety :: Maybe Syn.ForeignSafety -> ForeignSafety
+convertForeignSafety safety =
+  case safety of
+    Just Syn.Unsafe -> ForeignUnsafe
+    Just Syn.Safe -> ForeignSafe
+    Nothing -> ForeignSafe
 
 convertForeignEffect :: TcForeignEffect -> ForeignEffect
 convertForeignEffect effect =

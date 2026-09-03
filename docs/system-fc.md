@@ -100,8 +100,10 @@ GRIN lowering is temporarily disabled.
 17. `a ~ b` is the one equality type.
     Axioms and type-constructor parameters carry roles.
 
-18. `foreign import prim` is the only foreign form.
-    If desugar sees `ccall`, it fails the module.
+18. `foreign import prim` and `foreign import ccall` are the foreign forms.
+    A `ccall` keeps its safety mark.
+    The runtime has one thread, thus safe and unsafe calls are equal.
+    An omitted safety mark means `safe`.
 
 19. Recognise `GHC.Types` names by package and module identity.
     Do not add extra axioms for them.
@@ -197,7 +199,7 @@ Do not rebuild Haskell types in Fc.
 | Data family | empty family type plus instance type and axiom |
 | Value | `val` with no `rec` mark |
 | `foreign import prim` | `foreign import prim` |
-| `foreign import ccall` | fail the module |
+| `foreign import ccall` | `foreign import ccall` with its safety mark |
 
 `desugarModuleFc` already emits data types, synonyms, values, and `foreign import prim`.
 
