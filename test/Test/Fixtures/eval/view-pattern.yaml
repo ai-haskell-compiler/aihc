@@ -13,5 +13,5 @@ output: |
   True
 expression: |
   isFalse False
-status: xfail
+status: pass
 reason: matches the result of a view pattern function

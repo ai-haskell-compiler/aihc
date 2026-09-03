@@ -1,0 +1,135 @@
+extensions:
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+  data Shape = Circle Bool | Square Bool
+  data Label = A | B | C | D
+  data Four = Four Label Label Label Label
+  isRound (Circle _) = True
+  isRound _ = False
+  flag (Circle b) = b
+  flag (Square b) = b
+  classify (Circle True) = A
+  classify (isRound -> True) = B
+  classify (flag -> True) = C
+  classify _ = D
+  guarded x
+    | (flag -> True) <- x = A
+  guarded _ = B
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tShape :: 2.tType {
+      pub 1.vCircle :: 1.tBool 2.→ 1.tShape;
+      pub 1.vSquare :: 1.tBool 2.→ 1.tShape
+  }
+
+  pub type 1.tLabel :: 2.tType {
+      pub 1.vA :: 1.tLabel;
+      pub 1.vB :: 1.tLabel;
+      pub 1.vC :: 1.tLabel;
+      pub 1.vD :: 1.tLabel
+  }
+
+  pub type 1.tFour :: 2.tType {
+      pub 1.vFour :: 1.tLabel 2.→ 1.tLabel 2.→ 1.tLabel 2.→ 1.tLabel 2.→ 1.tFour
+  }
+
+  pub val 1.visRound :: 1.tShape 2.→ 1.tBool
+   = λ(x : 1.tShape).
+    case x as (_scrut : 1.tShape) return (1.tBool) of {
+        1.vCircle (_pat : 1.tBool) →
+            1.vTrue;
+        _ →
+            1.vFalse
+    }
+
+  pub val 1.vflag :: 1.tShape 2.→ 1.tBool
+   = λ(x : 1.tShape).
+    case x as (_scrut : 1.tShape) return (1.tBool) of {
+        1.vCircle (b : 1.tBool) →
+            b;
+        1.vSquare (b : 1.tBool) →
+            b
+    }
+
+  pub val 1.vclassify :: 1.tShape 2.→ 1.tLabel
+   = λ(x : 1.tShape).
+    let {
+        _fail : 1.tLabel =
+            let {
+                _pat : 1.tBool =
+                    1.visRound x
+            } in
+                let {
+                    _fail : 1.tLabel =
+                        let {
+                            _pat{1} : 1.tBool =
+                                1.vflag x
+                        } in
+                            case _pat{1} as (_scrut : 1.tBool) return (1.tLabel) of {
+                                1.vTrue →
+                                    1.vC;
+                                _ →
+                                    1.vD
+                            }
+                } in
+                    case _pat as (_scrut : 1.tBool) return (1.tLabel) of {
+                        1.vTrue →
+                            1.vB;
+                        _ →
+                            _fail
+                    }
+    } in
+        case x as (_scrut : 1.tShape) return (1.tLabel) of {
+            1.vCircle (_pat : 1.tBool) →
+                case _pat as (_scrut{1} : 1.tBool) return (1.tLabel) of {
+                    1.vTrue →
+                        1.vA;
+                    _ →
+                        _fail
+                };
+            _ →
+                _fail
+        }
+
+  pub val 1.vguarded :: 1.tShape 2.→ 1.tLabel
+   = λ(x : 1.tShape).
+    let {
+        _guard_pat : 1.tShape =
+            x
+    } in
+        let {
+            _pat : 1.tBool =
+                1.vflag _guard_pat
+        } in
+            case _pat as (_do_scrut : 1.tBool) return (1.tLabel) of {
+                1.vTrue →
+                    1.vA;
+                _ →
+                    1.vB
+            }
+status: pass
+reason: View pattern rows between constructor rows share one failure binding.
