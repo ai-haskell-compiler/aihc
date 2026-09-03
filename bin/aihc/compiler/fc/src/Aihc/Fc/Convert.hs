@@ -25,6 +25,7 @@ module Aihc.Fc.Convert
     extraKindVars,
     invisibleKindArgs,
     typeKindInEnv,
+    evidenceArrows,
   )
 where
 
@@ -81,6 +82,7 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Types qualified as Tc
 import Control.Monad (zipWithM)
+import Data.Either (fromRight)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -205,6 +207,9 @@ convertTypeWithExpectedKind env expectedKind ty =
   case ty of
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
+    -- The constraint type of an implicit parameter is the type of its value.
+    TcTyCon tyCon [payload]
+      | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
@@ -223,7 +228,7 @@ convertTypeWithExpectedKind env expectedKind ty =
     TcQualTy predicates body -> do
       convertedPredicates <- mapM (convertPred env) predicates
       convertedBody <- convertType env body
-      pure (foldr (funType env) convertedBody convertedPredicates)
+      pure (evidenceArrows env body convertedPredicates convertedBody)
     TcAppTy function argument ->
       TyApp <$> convertType env function <*> convertType env argument
 
@@ -237,6 +242,8 @@ convertPred env predicate =
       pure (foldl TyApp (TyCon (classDictTypeName tyCon)) (kindArguments <> converted))
     EqPred left right ->
       TyEq <$> convertType env left <*> convertType env right
+    -- The evidence for an implicit parameter is a plain value of its type.
+    IParamPred _ payload -> convertType env payload
     QuantifiedPred variables antecedents consequent -> do
       let quantifiedEnv = withTyVars variables env
       binders <- mapM (tyVarBinder quantifiedEnv) variables
@@ -256,6 +263,18 @@ typeRep env ty = do
 
 typeKindInEnv :: ConvertEnv -> TcType -> Either String TcType
 typeKindInEnv env = Tc.typeKindInEnv (ceKindEnv env)
+
+-- | The evidence arrows of a qualified type.
+--
+-- The innermost arrow returns the body, which can have a
+-- representation-polymorphic kind, as in @HasCallStack => a@.
+evidenceArrows :: ConvertEnv -> TcType -> [Type] -> Type -> Type
+evidenceArrows env body convertedPredicates convertedBody = go convertedPredicates
+  where
+    bodyRep = fromRight (liftedRepType env) (typeRep env body)
+    go [] = convertedBody
+    go [predicate] = TyFun (liftedRepType env) bodyRep predicate convertedBody
+    go (predicate : rest) = funType env predicate (go rest)
 
 funType :: ConvertEnv -> Type -> Type -> Type
 funType env = TyFun (liftedRepType env) (liftedRepType env)

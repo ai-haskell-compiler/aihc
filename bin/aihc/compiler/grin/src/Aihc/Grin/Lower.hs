@@ -429,8 +429,7 @@ lowerVariable env name = do
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
   let application = Fc.ExApp function argument
-  resultType <- expressionType env application
-  resultRep <- liftEither (runtimeRep env resultType)
+  resultRep <- expressionRuntimeRep env application
   case (resultRep, collectApplications application) of
     (_, (Fc.ExVar name, arguments))
       | Just arity <- Map.lookup (Fc.nameText name) specialPrimitiveArities,
@@ -742,6 +741,20 @@ makeClosure env expression = do
   where
     bindPair current (binder, vars) = bindLocal current binder vars
 
+-- | An expression that is a call of a primitive that never returns.
+divergingExpression :: Fc.Expr -> Bool
+divergingExpression expression =
+  case applicationHead expression of
+    Just name -> Fc.nameText name `elem` ["raise#", "aihcExit#"]
+    Nothing -> False
+  where
+    applicationHead current =
+      case current of
+        Fc.ExApp function _ -> applicationHead function
+        Fc.ExTyApp function _ -> applicationHead function
+        Fc.ExVar name -> Just name
+        _ -> Nothing
+
 collectLambdas :: LowerEnv -> Fc.Expr -> (LowerEnv, [Fc.Binder], Fc.Expr)
 collectLambdas env expression =
   case expression of
@@ -786,6 +799,10 @@ expressionRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
 expressionRuntimeRep env expression =
   case expression of
     Fc.ExLit literal -> literalRep env literal
+    -- A call that always raises never returns a value, so its runtime
+    -- representation can stay polymorphic. This is what makes a
+    -- representation-polymorphic @error@ possible.
+    _ | divergingExpression expression -> pure liftedGrinRep
     _ -> expressionType env expression >>= liftEither . runtimeRep env
 
 expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type

@@ -42,6 +42,7 @@ module Aihc.Tc.Monad
     emptyTcEnv,
     mkKnownTyCon,
     mkKnownDataCon,
+    implicitParamType,
     configuredTyCon,
     lookupTerm,
     lookupKnownTerm,
@@ -177,6 +178,14 @@ mkKnownTyCon = mkKnownTyConInNamespace ResolutionNamespaceType
 
 mkKnownDataCon :: Text -> Text -> Int -> TcType -> TcM TyCon
 mkKnownDataCon = mkKnownTyConInNamespace ResolutionNamespaceTerm
+
+-- | The constraint type for one implicit parameter, such as @?x :: Int@.
+--
+-- Each parameter name gets its own type constructor of kind @Type -> Constraint@.
+implicitParamType :: Text -> TcType -> TcM TcType
+implicitParamType name payload = do
+  tyCon <- mkKnownTyCon "GHC.Classes" name 1 (KFun KType KConstraint)
+  pure (TcTyCon tyCon [payload])
 
 mkKnownTyConInNamespace :: ResolutionNamespace -> Text -> Text -> Int -> TcType -> TcM TyCon
 mkKnownTyConInNamespace namespace moduleName name arity kind = do

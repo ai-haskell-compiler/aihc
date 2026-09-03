@@ -9,6 +9,7 @@ module Aihc.Tc.Evidence
 
     -- * Evidence terms
     EvTerm (..),
+    CallSite (..),
     EvBinding (..),
 
     -- * Coercions
@@ -52,6 +53,22 @@ data EvTerm
     EvTypeApp !EvTerm !TcType
   | -- | Dictionary application for quantified evidence.
     EvDictApp !EvTerm !EvTerm
+  | -- | A call-stack entry for one occurrence of a function with a
+    -- @HasCallStack@ constraint: the origin of the @CallStack@ type, the
+    -- function name, the call site, and the parent call stack.
+    EvCallStackPush !(Text, Text) !Text !CallSite !EvTerm
+  | -- | The empty call stack, with the origin of the @CallStack@ type.
+    EvCallStackEmpty !(Text, Text)
+  deriving (Eq, Show, Read)
+
+-- | The source position of one call site.
+data CallSite = CallSite
+  { callSiteFile :: !Text,
+    callSiteStartLine :: !Int,
+    callSiteStartColumn :: !Int,
+    callSiteEndLine :: !Int,
+    callSiteEndColumn :: !Int
+  }
   deriving (Eq, Show, Read)
 
 -- | A binding of an evidence variable to its term.

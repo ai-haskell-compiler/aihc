@@ -9,21 +9,30 @@ module Aihc.Tc.Solve.Dict
   ( solveDict,
     solveDictWithGivens,
     DictResult (..),
-    constraintTypeToPred,
+    callStackOrigin,
+    isCallStackPred,
+    reportUnsolvedDict,
     matchTypes,
   )
 where
 
+import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..))
-import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, freshSkolemTv, getInstances, lookupClass, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getInstances, implicitParamType, lookupClass, lookupEvidence, mkKnownTyCon)
 import Aihc.Tc.Types
+import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
+import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Result of attempting to solve a dictionary constraint.
 data DictResult
@@ -67,6 +76,17 @@ solveDictWithGivensVisited visited givens ct
                   tryInstances (ctPred ct : visited) (tyConName className) args' instances
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
+        IParamPred name payload -> do
+          payload' <- zonkType payload
+          givens' <- mapM zonkPred givens
+          -- The innermost binding of the name wins. Givens are outermost first.
+          case [given | given@(IParamPred givenName _) <- reverse givens', givenName == name] of
+            given@(IParamPred _ givenPayload) : _ -> do
+              -- The name determines the type of an implicit parameter.
+              unify (ctLoc ct) (ctOrigin ct) payload' givenPayload
+              bindEvidence (ctEvVar ct) (implicitParamEvidence ct name givenPayload (EvGiven given))
+              pure DictSolved
+            _ -> pure (DictStuck ct)
   where
     givenDict visited' zonkedGivens className args =
       firstGivenOrSuperclass visited' (ClassPred className args) zonkedGivens
@@ -277,6 +297,7 @@ solveDictWithGivensVisited visited givens ct
         EqPred left right -> do
           equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
           pure (TcTyCon equalityTyCon [left, right])
+        IParamPred name payload -> implicitParamType name payload
         QuantifiedPred variables antecedents consequent -> do
           consequentType <- predicateType consequent
           let qualified = if null antecedents then consequentType else TcQualTy antecedents consequentType
@@ -314,32 +335,48 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
         ClassPred className _ -> tyConName className == ciName classInfo
         EqPred {} -> False
         QuantifiedPred {} -> False
+        IParamPred {} -> False
 
-constraintTypeToPred :: TcType -> Maybe Pred
-constraintTypeToPred ty =
-  case collectForAllTypes ty of
-    (variables@(_ : _), qualified) -> do
-      let (antecedents, consequentType) =
-            case qualified of
-              TcQualTy predicates body -> (predicates, body)
-              body -> ([], body)
-      consequent <- atomicConstraintTypeToPred consequentType
-      pure (QuantifiedPred variables antecedents consequent)
-    ([], body) -> atomicConstraintTypeToPred body
+-- | The evidence for a wanted implicit parameter from the evidence of its binding.
+--
+-- An occurrence of a function with a @HasCallStack@ constraint pushes its call
+-- site onto the parent call stack.
+implicitParamEvidence :: Ct -> Text -> TcType -> EvTerm -> EvTerm
+implicitParamEvidence ct name payload parent =
+  case (callStackOrigin name payload, ctOrigin ct, ctLoc ct) of
+    (Just origin, OccurrenceOf function, SourceSpan file startLine startColumn endLine endColumn _ _) ->
+      EvCallStackPush origin function (CallSite (T.pack file) startLine startColumn endLine endColumn) parent
+    _ -> parent
 
-atomicConstraintTypeToPred :: TcType -> Maybe Pred
-atomicConstraintTypeToPred ty =
-  case collectTypeApplications ty of
-    (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
-    (TcTyCon tyCon headArgs, arguments) ->
-      Just (ClassPred tyCon (headArgs <> arguments))
+-- | The package and module of the @CallStack@ type when the implicit
+-- parameter is @?callStack :: CallStack@.
+callStackOrigin :: Text -> TcType -> Maybe (Text, Text)
+callStackOrigin name payload =
+  case payload of
+    TcTyCon tyCon []
+      | name == "?callStack",
+        tyConName tyCon == "CallStack" ->
+          Just (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
     _ -> Nothing
 
-collectForAllTypes :: TcType -> ([TyVarId], TcType)
-collectForAllTypes (TcForAllTy variable body) =
-  let (variables, result) = collectForAllTypes body
-   in (variable : variables, result)
-collectForAllTypes ty = ([], ty)
+isCallStackPred :: Pred -> Bool
+isCallStackPred predicate =
+  case predicate of
+    IParamPred name payload -> isJust (callStackOrigin name payload)
+    _ -> False
+
+-- | Report an unsolved dictionary constraint.
+--
+-- An unsolved call-stack parameter is not an error. It gets the empty call
+-- stack, as in GHC.
+reportUnsolvedDict :: Ct -> TcM ()
+reportUnsolvedDict ct = do
+  predicate <- zonkPred (ctPred ct)
+  case predicate of
+    IParamPred name payload
+      | Just origin <- callStackOrigin name payload ->
+          bindEvidence (ctEvVar ct) (implicitParamEvidence ct name payload (EvCallStackEmpty origin))
+    _ -> emitError (ctLoc ct) (UnsolvedWanted predicate (ctOrigin ct))
 
 matchQuantifiedPredicate :: [TyVarId] -> Pred -> Pred -> Maybe (Map Unique TcType)
 matchQuantifiedPredicate variables patternPredicate targetPredicate =
@@ -376,14 +413,6 @@ matchTypeQuantified quantified substitution (TcAppTy function argument, TcAppTy 
 matchTypeQuantified _ substitution (patternType, targetType)
   | patternType == targetType = Just substitution
   | otherwise = Nothing
-
-collectTypeApplications :: TcType -> (TcType, [TcType])
-collectTypeApplications ty =
-  case ty of
-    TcAppTy function argument ->
-      let (headType, arguments) = collectTypeApplications function
-       in (headType, arguments <> [argument])
-    _ -> (ty, [])
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets

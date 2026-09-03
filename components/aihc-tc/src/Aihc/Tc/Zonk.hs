@@ -47,6 +47,7 @@ zonkType ty = case ty of
 zonkPred :: Pred -> TcM Pred
 zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
 zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
+zonkPred (IParamPred name payload) = IParamPred name <$> zonkType payload
 zonkPred (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred <$> mapM zonkTyVar variables <*> mapM zonkPred antecedents <*> zonkPred consequent
 
@@ -88,6 +89,7 @@ defaultPredKinds predicate =
   case predicate of
     ClassPred className args -> ClassPred className <$> mapM defaultTypeKinds args
     EqPred left right -> EqPred <$> defaultTypeKinds left <*> defaultTypeKinds right
+    IParamPred name payload -> IParamPred name <$> defaultTypeKinds payload
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred <$> mapM defaultTyVarKinds variables <*> mapM defaultPredKinds antecedents <*> defaultPredKinds consequent
 

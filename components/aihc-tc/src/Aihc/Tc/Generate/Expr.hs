@@ -77,6 +77,8 @@ inferExprAt ambient expr = case expr of
         inferPrimitiveLiteral ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
+  EImplicitParam name ->
+    inferImplicitParam (exprSpan expr `orSourceSpan` ambient) name
   EInt {} ->
     abortTc "integer literal is missing its resolver type annotation"
   EFloat {} ->
@@ -152,6 +154,18 @@ inferVar ambient nameSyntax = do
           Just pending -> annotatePendingExprAt (sourceSpanFromAnns (nameAnns nameSyntax)) pending (EVar nameSyntax)
           Nothing -> EVar nameSyntax
   pure (expr, ty, cts)
+
+-- | Infer the type of an implicit-parameter use such as @?x@.
+--
+-- The use has a fresh type and wants @?x@ at that type. The solver connects
+-- the wanted constraint to a binding, and the evidence is the bound value.
+inferImplicitParam :: SourceSpan -> Text -> TcM (Expr, TcType, [Ct])
+inferImplicitParam sp name = do
+  ty <- freshMetaTv
+  ev <- freshEvVar
+  let ct = mkWantedCt (IParamPred name ty) ev (ImplicitParamOrigin name) sp
+      expr = annotatePendingExprAt sp (pendingAnnotation ty [] [ev] []) (EImplicitParam name)
+  pure (expr, ty, [ct])
 
 inferOperator :: SourceSpan -> Name -> TcM (Name, TcType, [Ct])
 inferOperator ambient nameSyntax = do
@@ -536,6 +550,7 @@ predicateMetaVariables predicate =
   case predicate of
     ClassPred _ arguments -> concatMap typeMetaVariables arguments
     EqPred left right -> typeMetaVariables left <> typeMetaVariables right
+    IParamPred _ payload -> typeMetaVariables payload
     QuantifiedPred variables antecedents consequent ->
       concatMap (typeMetaVariables . tvKind) variables
         <> concatMap predicateMetaVariables antecedents
@@ -557,6 +572,7 @@ predicateMentionsTyVar target predicate =
   case predicate of
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    IParamPred _ payload -> typeMentionsTyVar target payload
     QuantifiedPred variables antecedents consequent ->
       target `notElem` variables
         && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)

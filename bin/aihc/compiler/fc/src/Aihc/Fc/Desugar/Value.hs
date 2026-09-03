@@ -49,7 +49,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Solve.Dict (constraintTypeToPred, matchTypes)
+import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcType (..),
@@ -59,6 +59,7 @@ import Aihc.Tc.Types
     Unique (..),
     applySubst,
     applySubstPred,
+    constraintTypeToPred,
     isUnliftedTypeInEnv,
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
@@ -127,10 +128,13 @@ data ValueGroup
 data LocalValueGroup
   = LocalNamedGroup !ValueGroup
   | LocalPatternGroup !Syn.Pattern !(Syn.Rhs Syn.Expr) !TcType !Bool
+  | -- | @?x = e@ with the checked type of @e@.
+    LocalImplicitParamGroup !Text !(Syn.Rhs Syn.Expr) !TcType
 
 data LocalAllocation
   = LocalNamedAllocation !TcTermKey !Binder !TcType !ValueGroup
   | LocalPatternAllocation !Syn.Pattern !(Syn.Rhs Syn.Expr) !Binder !TcType ![(TcTermKey, Binder, TcType)] !Bool
+  | LocalImplicitParamAllocation !Text !(Syn.Rhs Syn.Expr) !Binder !TcType
 
 data TopValue = TopValue
   { topCoreName :: !Name,
@@ -775,6 +779,11 @@ groupLocalValues (declaration : rest) =
             Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> do
               checkedType <- requiredPatternType pattern'
               (LocalPatternGroup pattern' rhs checkedType (patternIsStrict pattern') :) <$> groupLocalValues rest
+            Syn.DeclImplicitParam name expr whereDecls ->
+              case declarationType declaration of
+                Just checkedType ->
+                  (LocalImplicitParamGroup name (Syn.UnguardedRhs [] expr whereDecls) checkedType :) <$> groupLocalValues rest
+                Nothing -> failValue ("implicit parameter binding " <> T.unpack name <> " does not have a checked type annotation")
             _ -> groupLocalValues rest
 
 patternIsStrict :: Syn.Pattern -> Bool
@@ -1679,6 +1688,10 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EIf condition thenExpression elseExpression ->
           desugarIf (tcAnnType annotation) condition thenExpression elseExpression
         Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
+        Syn.EImplicitParam name ->
+          case tcAnnEvidenceTerms annotation of
+            [evidence] -> desugarEvidence evidence
+            _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
         Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
         _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
@@ -2460,14 +2473,20 @@ desugarLocalDecls :: [Syn.Decl] -> ValueM TcType -> ValueM Expr -> ValueM Expr
 desugarLocalDecls declarations bodyType body = do
   groups <- groupLocalValues declarations
   allocated <- mapM allocateLocal groups
-  withLocals (concatMap allocationLocals allocated) $ do
-    resultType <- bodyType
-    bindGroups <- mapM desugarLocal allocated
-    unlifted <- mapM allocationHasUnliftedBinder allocated
-    forcedBody <- foldr (forceStrictPattern resultType) body allocated
-    components <- liftEither (localBindingComponents (zip bindGroups unlifted))
-    foldr wrapComponent (pure forcedBody) components
+  if all isImplicitParamAllocation allocated && not (null allocated)
+    then desugarImplicitParamDecls allocated body
+    else withLocals (concatMap allocationLocals allocated) $ do
+      resultType <- bodyType
+      bindGroups <- mapM desugarLocal allocated
+      unlifted <- mapM allocationHasUnliftedBinder allocated
+      forcedBody <- foldr (forceStrictPattern resultType) body allocated
+      components <- liftEither (localBindingComponents (zip bindGroups unlifted))
+      foldr wrapComponent (pure forcedBody) components
   where
+    isImplicitParamAllocation allocation =
+      case allocation of
+        LocalImplicitParamAllocation {} -> True
+        _ -> False
     wrapComponent component inner = do
       innerExpression <- inner
       case component of
@@ -2479,6 +2498,7 @@ desugarLocalDecls declarations bodyType body = do
             case allocation of
               LocalNamedAllocation _ _ ty _ -> [ty]
               LocalPatternAllocation _ _ _ rhsType binders _ -> rhsType : [ty | (_, _, ty) <- binders]
+              LocalImplicitParamAllocation _ _ _ ty -> [ty]
       pure (any (isUnliftedTypeInEnv kindEnv) types)
     allocateLocal (LocalNamedGroup group) = do
       let key = groupKey group
@@ -2491,6 +2511,9 @@ desugarLocalDecls declarations bodyType body = do
       specs <- patternBinderSpecs pattern'
       binders <- mapM (\(key, name, ty) -> (key,,ty) <$> freshBinder name ty) specs
       pure (LocalPatternAllocation pattern' rhs rhsBinder rhsType binders strict)
+    allocateLocal (LocalImplicitParamGroup name rhs rhsType) = do
+      binder <- freshBinder ("$ip" <> T.drop 1 name) rhsType
+      pure (LocalImplicitParamAllocation name rhs binder rhsType)
     desugarLocal (LocalNamedAllocation _ binder ty group) = do
       rhs <-
         case group of
@@ -2501,6 +2524,8 @@ desugarLocalDecls declarations bodyType body = do
       rhs <- desugarMatches rhsType [emptyMatch sourceRhs]
       selectors <- mapM (desugarPatternSelector pattern' rhsBinder rhsType) binders
       pure (Bind rhsBinder rhs : selectors)
+    desugarLocal (LocalImplicitParamAllocation name _ _ _) =
+      failValue ("implicit parameter binding " <> T.unpack name <> " in a mixed local group")
     desugarPatternSelector pattern' rhsBinder rhsType (key, binder, ty) = do
       selector <- desugarDoPattern ty rhsBinder rhsType pattern' $ do
         (field, _) <- lookupLocal key (nameText (binderName binder))
@@ -2577,6 +2602,26 @@ allocationLocals allocation =
   case allocation of
     LocalNamedAllocation key binder ty _ -> [(key, (binder, ty))]
     LocalPatternAllocation _ _ _ _ binders _ -> [(key, (binder, ty)) | (key, binder, ty) <- binders]
+    LocalImplicitParamAllocation {} -> []
+
+-- | Desugar a group of implicit-parameter bindings.
+--
+-- Each right-hand side sees only the enclosing bindings, so the group is a
+-- chain of non-recursive lets. The body sees each new binding as the
+-- evidence for its implicit parameter.
+desugarImplicitParamDecls :: [LocalAllocation] -> ValueM Expr -> ValueM Expr
+desugarImplicitParamDecls allocated body = do
+  binds <- mapM desugarBinding allocated
+  let dictionaries = [Dictionary (IParamPred name ty) binder | LocalImplicitParamAllocation name _ binder ty <- allocated]
+  body' <- withDictionaries dictionaries body
+  pure (foldr ExLet body' binds)
+  where
+    desugarBinding allocation =
+      case allocation of
+        LocalImplicitParamAllocation _ sourceRhs binder rhsType -> do
+          rhs <- desugarMatches rhsType [emptyMatch sourceRhs]
+          pure (Bind binder rhs)
+        _ -> failValue "implicit-parameter group contains another binding"
 
 desugarEvidence :: Ev.EvTerm -> ValueM Expr
 desugarEvidence evidence =
@@ -2602,6 +2647,7 @@ desugarEvidence evidence =
           ClassPred classTyCon arguments -> pure (classTyCon, TcTyCon classTyCon arguments)
           EqPred {} -> failValue "cannot select a superclass from equality evidence"
           QuantifiedPred {} -> failValue "cannot select a superclass from quantified evidence before application"
+          IParamPred {} -> failValue "cannot select a superclass from implicit-parameter evidence"
       sourceBinder <- freshBinder "$super_source" sourceType
       fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
       selected <-
@@ -2631,6 +2677,42 @@ desugarEvidence evidence =
       ExTyApp <$> desugarEvidence function <*> convertCheckedType argument
     Ev.EvDictApp function argument ->
       ExApp <$> desugarEvidence function <*> desugarEvidence argument
+    Ev.EvCallStackPush (packageName, moduleName') function site parent -> do
+      parent' <- desugarEvidence parent
+      (currentPackage, currentModule) <- gets vsModuleOrigin
+      functionText <- desugarStringValue function
+      packageText <- desugarStringValue (packageIdText currentPackage)
+      moduleText <- desugarStringValue currentModule
+      fileText <- desugarStringValue (Ev.callSiteFile site)
+      intRepresentation <- convertRuntimeRep IntRep
+      intConstructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+      let libraryName name sort = Name name sort (OriginTop (PackageId packageName) moduleName')
+          boxedInt value = ExApp (ExVar intConstructor) (ExLit (LitInt intRepresentation (toInteger value)))
+          location =
+            foldl
+              ExApp
+              (ExVar (libraryName "SrcLoc" SortDataConstructor))
+              [ packageText,
+                moduleText,
+                fileText,
+                boxedInt (Ev.callSiteStartLine site),
+                boxedInt (Ev.callSiteStartColumn site),
+                boxedInt (Ev.callSiteEndLine site),
+                boxedInt (Ev.callSiteEndColumn site)
+              ]
+      pure (foldl ExApp (ExVar (libraryName "pushCallSite" SortValue)) [functionText, location, parent'])
+    Ev.EvCallStackEmpty (packageName, moduleName') ->
+      pure (ExVar (Name "emptyCallStack" SortValue (OriginTop (PackageId packageName) moduleName')))
+
+-- | A boxed string literal for compiler-generated code.
+desugarStringValue :: Text -> ValueM Expr
+desugarStringValue value = do
+  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+  charConstructor <- boxedCharConstructor
+  representation <- convertRuntimeRep WordRep
+  desugarFcList
+    (TyCon charName)
+    [ExApp (ExVar charConstructor) (ExLit (LitChar representation character)) | character <- T.unpack value]
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty argumentEvidence = do
@@ -3030,6 +3112,8 @@ predicateKey predicate =
     ClassPred classTyCon arguments -> dictionaryKey classTyCon arguments
     EqPred left right -> typeKey left <> "~" <> typeKey right
     QuantifiedPred {} -> "quantified:" <> T.pack (show predicate)
+    -- The name alone identifies an implicit parameter.
+    IParamPred name _ -> "implicit:" <> name
 
 dictionaryKey :: TyCon -> [TcType] -> Text
 dictionaryKey classTyCon arguments =

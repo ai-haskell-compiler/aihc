@@ -1,0 +1,79 @@
+---
+extensions:
+- ImplicitParams
+- MagicHash
+- KindSignatures
+- ExplicitForAll
+modules:
+- |
+  module Failure where
+  import GHC.Prim (raise#)
+  import GHC.Types (RuntimeRep, TYPE)
+  data Message = Message
+
+  failure :: forall (r :: RuntimeRep) (a :: TYPE r). (?message :: Message) => a
+  failure = raise# ?message
+- |
+  module Test where
+  import Failure (Message (..), failure)
+
+  use :: b -> b
+  use _ = let ?message = Message in failure
+expected: |-
+  scope 1 = "" Failure
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    2.vraise# :: ∀(r : 3.tRuntimeRep) (a : 3.tType) (b : 3.tTYPE r). FUN @3.tLiftedRep @r a b
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tMessage :: 3.tType {
+      pub 1.vMessage :: 1.tMessage
+  }
+
+  pub val 1.vfailure :: ∀(r : 3.tRuntimeRep) (a : 3.tTYPE r). FUN @3.tLiftedRep @r 1.tMessage a
+   = Λ(r : 3.tRuntimeRep).
+    Λ(a : 3.tTYPE r).
+      λ($d0 : 1.tMessage).
+        2.vraise# @r @1.tMessage @a $d0
+  scope 1 = "" Failure
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    1.tMessage :: 3.tType;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    1.vMessage :: 1.tMessage;
+    1.vfailure :: ∀(r : 3.tRuntimeRep) (a : 3.tTYPE r). FUN @3.tLiftedRep @r 1.tMessage a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub val 2.vuse :: ∀(b : 3.tType). b 3.→ b
+   = Λ(b : 3.tType).
+    λ(x : b).
+      let {
+          $ipmessage : 1.tMessage =
+              1.vMessage
+      } in
+          1.vfailure @(3.vBoxedRep 3.vLifted) @b $ipmessage
+status: pass
+reason: an imported representation-polymorphic function with an implicit parameter keeps the body representation on its evidence arrow

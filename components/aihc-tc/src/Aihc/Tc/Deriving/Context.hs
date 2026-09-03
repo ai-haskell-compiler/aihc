@@ -33,7 +33,7 @@ import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), 
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Dict (DictResult (..), constraintTypeToPred, matchTypes, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), matchTypes, solveDictWithGivens)
 import Aihc.Tc.Types
 import Data.List (find, nub)
 import Data.Map.Strict qualified as Map
@@ -381,6 +381,7 @@ predicatePlanKey predicate =
     ClassPred className arguments -> Just (tyConName className, arguments)
     EqPred {} -> Nothing
     QuantifiedPred {} -> Nothing
+    IParamPred {} -> Nothing
 
 planPredicate :: TcDerivingPlan -> Pred
 planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
@@ -391,6 +392,7 @@ predClassName predicate =
     ClassPred className _ -> tyConName className
     EqPred {} -> "~"
     QuantifiedPred {} -> "quantified"
+    IParamPred name _ -> name
 
 predArguments :: Pred -> [TcType]
 predArguments predicate =
@@ -398,6 +400,7 @@ predArguments predicate =
     ClassPred _ arguments -> arguments
     EqPred left right -> [left, right]
     QuantifiedPred _ antecedents consequent -> concatMap predArguments antecedents <> predArguments consequent
+    IParamPred _ payload -> [payload]
 
 typeableArguments :: Pred -> Maybe [TcType]
 typeableArguments predicate =
@@ -422,6 +425,7 @@ isBareVariablePredicate tyVars predicate =
         && all isPlanTyVar arguments
     EqPred {} -> False
     QuantifiedPred {} -> False
+    IParamPred {} -> False
   where
     isPlanTyVar (TcTyVar tyVar) = tyVar `elem` tyVars
     isPlanTyVar _ = False
@@ -494,6 +498,8 @@ predDictBinder predicate =
       pure (TcDictBinderAnnotation "<constraint>" [] (TcTyCon equalityTyCon [left, right]))
     quantified@QuantifiedPred {} ->
       TcDictBinderAnnotation "<quantified>" [] <$> predicateType quantified
+    implicit@(IParamPred name payload) ->
+      TcDictBinderAnnotation name [payload] <$> predicateType implicit
 
 predicateType :: Pred -> TcM TcType
 predicateType predicate =
@@ -502,6 +508,7 @@ predicateType predicate =
     EqPred left right -> do
       equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
       pure (TcTyCon equalityTyCon [left, right])
+    IParamPred name payload -> implicitParamType name payload
     QuantifiedPred variables antecedents consequent -> do
       consequentType <- predicateType consequent
       let qualified

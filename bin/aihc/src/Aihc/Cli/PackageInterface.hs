@@ -440,6 +440,10 @@ parsePredJson =
           <$> (obj .: "variables" >>= traverse parseTyVarValue)
           <*> (obj .: "antecedents" >>= traverse parsePredJson)
           <*> (obj .: "consequent" >>= parsePredJson)
+      "implicit" ->
+        IParamPred
+          <$> obj .: "name"
+          <*> (obj .: "type" >>= parseTcTypeJson)
       other -> fail ("unknown predicate tag: " <> T.unpack other)
 
 predValue :: Pred -> Aeson.Value
@@ -456,6 +460,12 @@ predValue pred' =
         [ "tag" .= ("eq" :: Text),
           "left" .= tcTypeValue left,
           "right" .= tcTypeValue right
+        ]
+    IParamPred name payload ->
+      Aeson.object
+        [ "tag" .= ("implicit" :: Text),
+          "name" .= name,
+          "type" .= tcTypeValue payload
         ]
     QuantifiedPred variables antecedents consequent ->
       Aeson.object

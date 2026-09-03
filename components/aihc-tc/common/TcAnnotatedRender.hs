@@ -27,7 +27,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
+import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Types
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Control.Applicative ((<|>))
@@ -213,6 +213,7 @@ renderOrigin origin =
     CaseBranchOrigin {} -> "a case branch"
     InstOrigin name -> "the instance " <> T.unpack name
     UnifyOrigin {} -> "a unification constraint"
+    ImplicitParamOrigin name -> "the implicit parameter " <> T.unpack name
 
 renderEvTerm :: EvTerm -> String
 renderEvTerm ev =
@@ -236,6 +237,9 @@ renderEvTerm ev =
       "(" <> renderEvTerm function <> ") @" <> renderTcType argument
     EvDictApp function argument ->
       "(" <> renderEvTerm function <> ") (" <> renderEvTerm argument <> ")"
+    EvCallStackPush _ function site parent ->
+      "push(" <> T.unpack function <> "@" <> show (callSiteStartLine site) <> ":" <> show (callSiteStartColumn site) <> ", " <> renderEvTerm parent <> ")"
+    EvCallStackEmpty _ -> "emptyCallStack"
 
 renderTypeArgs :: [TcType] -> String
 renderTypeArgs [] = ""
@@ -263,6 +267,7 @@ renderPred pred' =
   case pred' of
     ClassPred cls args -> T.unpack (tyConName cls) <> concatMap ((" " <>) . renderTcType) args
     EqPred left right -> renderTcType left <> " ~ " <> renderTcType right
+    IParamPred name payload -> T.unpack name <> " ∷ " <> renderTcType payload
     QuantifiedPred variables antecedents consequent ->
       "forall "
         <> unwords (map (T.unpack . tvName) variables)

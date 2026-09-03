@@ -250,6 +250,7 @@ putPred table predicate = case predicate of
   EqPred left right -> sum2 1 (putType table left) (putType table right)
   QuantifiedPred variables antecedents consequent ->
     cborArray 4 <> cborWord 2 <> encodeList (putTyVar table) variables <> encodeList (putPred table) antecedents <> putPred table consequent
+  IParamPred name payload -> sum2 3 (cborText name) (putType table payload)
 
 getPred :: TyConTable -> Get.Get Pred
 getPred table = do
@@ -259,6 +260,7 @@ getPred table = do
     (3, 0) -> ClassPred <$> getTyCon table <*> getList (getType table)
     (3, 1) -> EqPred <$> getType table <*> getType table
     (4, 2) -> QuantifiedPred <$> getList (getTyVar table) <*> getList (getPred table) <*> getPred table
+    (3, 3) -> IParamPred <$> getText <*> getType table
     _ -> fail "unsupported predicate"
 
 putTyConInfo :: Map TyCon Word64 -> TyConInfo -> Builder.Builder
@@ -523,6 +525,7 @@ predTyCons :: Pred -> Set.Set TyCon
 predTyCons predicate = case predicate of
   ClassPred tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
   EqPred left right -> typeTyCons left <> typeTyCons right
+  IParamPred _ payload -> typeTyCons payload
   QuantifiedPred variables antecedents consequent ->
     Set.unions (map tyVarTyCons variables)
       <> Set.unions (map predTyCons antecedents)

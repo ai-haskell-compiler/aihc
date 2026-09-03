@@ -137,8 +137,12 @@ evidenceForEvVar contextType ev = do
 zonkEvTerm :: EvTerm -> TcM EvTerm
 zonkEvTerm evTerm =
   case evTerm of
-    EvVarTerm ev ->
-      pure (EvVarTerm ev)
+    EvVarTerm ev -> do
+      -- Follow a solved evidence variable to its term.
+      maybeEvidence <- lookupEvidence ev
+      case maybeEvidence of
+        Just evidence -> zonkEvTerm evidence
+        Nothing -> pure (EvVarTerm ev)
     EvGiven pred' ->
       EvGiven <$> finalizePred pred'
     EvDict origin name typeArgs evidence ->
@@ -159,6 +163,10 @@ zonkEvTerm evTerm =
       EvTypeApp <$> zonkEvTerm function <*> finalizeType argument
     EvDictApp function argument ->
       EvDictApp <$> zonkEvTerm function <*> zonkEvTerm argument
+    EvCallStackPush origin function site parent ->
+      EvCallStackPush origin function site <$> zonkEvTerm parent
+    EvCallStackEmpty origin ->
+      pure (EvCallStackEmpty origin)
 
 finalizeType :: TcType -> TcM TcType
 finalizeType = zonkType >=> defaultTypeKinds
@@ -328,6 +336,10 @@ firstMetaEvTerm evTerm =
       firstMetaEvTerm function <|> firstMetaType argument
     EvDictApp function argument ->
       firstMetaEvTerm function <|> firstMetaEvTerm argument
+    EvCallStackPush _ _ _ parent ->
+      firstMetaEvTerm parent
+    EvCallStackEmpty {} ->
+      Nothing
 
 firstMetaCoercion :: Coercion -> Maybe Unique
 firstMetaCoercion coercion =
@@ -352,6 +364,8 @@ firstMetaPred pred' =
       firstJusts (map firstMetaType args)
     EqPred left right ->
       firstMetaType left <|> firstMetaType right
+    IParamPred _ payload ->
+      firstMetaType payload
     QuantifiedPred variables antecedents consequent ->
       firstJusts (map (firstMetaType . tvKind) variables)
         <|> firstJusts (map firstMetaPred antecedents)

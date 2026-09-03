@@ -1,0 +1,28 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  useParam :: (?x :: Int) => Int
+  useParam = ?x
+  │          └─ type: Int; evidence: given ?x ∷ Int
+  └─ type: (?x ∷ Int) ⇒ Int
+  callUse :: Int
+  callUse = let ?x = Int in useParam
+  └─ type: Int  │           └─ type: Int; evidence: given ?x ∷ Int
+                └─ type: Int
+extensions:
+- ImplicitParams
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+  useParam :: (?x :: Int) => Int
+  useParam = ?x
+  callUse :: Int
+  callUse = let ?x = Int in useParam
+reason: an implicit-parameter constraint is a given, and a let binding supplies it
+status: pass

@@ -5,6 +5,10 @@ packages:
 tests: False
 benchmarks: False
 
+source-repository-package
+  type: git
+  location: https://github.com/ai-haskell-compiler/aihc-parser.git
+  tag: b3e08dad7eb8d53883971a3cd9133c0aaa824f2d
+
 constraints:
-  aihc-cpp ==1.0.0.2,
-  aihc-parser ==1.0.0.5
+  aihc-cpp ==1.0.0.2

@@ -110,7 +110,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
-import Aihc.Tc.Solve.Dict (DictResult (..), constraintTypeToPred, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
@@ -1316,12 +1316,19 @@ solveBodyConstraintsWithGivens givens cts impls = do
       evidence <- freshEvVar
       let origin = InstOrigin "class body"
       pure ((mkWantedCt predicate evidence origin NoSourceSpan) {ctFlavor = Given})
-    solveClassCt ct@Ct {ctPred = ClassPred {}} = do
-      result <- solveDictWithGivens givens ct
-      case result of
-        DictSolved -> pure ()
-        DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
-    solveClassCt _ = pure ()
+    solveClassCt ct
+      | isDictionaryPred (ctPred ct) = do
+          result <- solveDictWithGivens givens ct
+          case result of
+            DictSolved -> pure ()
+            DictStuck stuck -> reportUnsolvedDict stuck
+      | otherwise = pure ()
+    isDictionaryPred predicate =
+      case predicate of
+        ClassPred {} -> True
+        IParamPred {} -> True
+        EqPred {} -> False
+        QuantifiedPred {} -> False
 
 bindingType :: Text -> TcM TcType
 bindingType name = do
@@ -1389,6 +1396,9 @@ predDictBinder pred' =
     QuantifiedPred {} -> do
       ty <- predType pred'
       pure (TcDictBinderAnnotation "<quantified>" [] ty)
+    IParamPred name payload -> do
+      ty <- predType pred'
+      pure (TcDictBinderAnnotation name [payload] ty)
 
 constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder ty =
@@ -1924,7 +1934,11 @@ tcFunctionInfer key displayName name matches = do
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
 generalizableResidualPreds solveResult = do
-  residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+  allResidualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+  -- GHC never infers a HasCallStack constraint. An unsolved call-stack
+  -- parameter gets the empty call stack.
+  let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
+  mapM_ reportUnsolvedDict callStackCts
   let uniqueResidualCts = nubBy sameCtPred residualCts
       (polymorphicCts, concreteCts) = partition (predicateCanGeneralize . ctPred) uniqueResidualCts
   -- Every occurrence still needs evidence, even when equal predicates share
@@ -1945,8 +1959,11 @@ generalizableResidualPreds solveResult = do
     sameCtPred left right = ctPred left == ctPred right
 
 predicateCanGeneralize :: Pred -> Bool
-predicateCanGeneralize =
-  not . null . predMetaVars
+predicateCanGeneralize predicate =
+  case predicate of
+    -- A caller always supplies an implicit parameter, even at a concrete type.
+    IParamPred {} -> True
+    _ -> not (null (predMetaVars predicate))
 
 rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()
 rejectEscapingExistentials outerType implications = do
@@ -1988,6 +2005,7 @@ kindMentionsUnique target kind =
       case predicate of
         ClassPred _ arguments -> any (kindMentionsUnique unique) arguments
         EqPred left right -> kindMentionsUnique unique left || kindMentionsUnique unique right
+        IParamPred _ payload -> kindMentionsUnique unique payload
         QuantifiedPred variables antecedents consequent ->
           all ((/= unique) . tvUnique) variables
             && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)
@@ -1997,6 +2015,7 @@ predicateMentionsTyVar target predicate =
   case predicate of
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
+    IParamPred _ payload -> typeMentionsTyVar target payload
     QuantifiedPred variables antecedents consequent ->
       target `notElem` variables
         && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
@@ -2006,6 +2025,7 @@ zonkPred pred' =
   case pred' of
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
+    IParamPred name payload -> IParamPred name <$> zonkType payload
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred <$> mapM defaultTyVarKinds variables <*> mapM zonkPred antecedents <*> zonkPred consequent
 
@@ -2308,6 +2328,7 @@ predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
 predType (EqPred left right) = do
   equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
   pure (TcTyCon equalityTyCon [left, right])
+predType (IParamPred name payload) = implicitParamType name payload
 predType (QuantifiedPred variables antecedents consequent) = do
   consequentType <- predType consequent
   let qualifiedType

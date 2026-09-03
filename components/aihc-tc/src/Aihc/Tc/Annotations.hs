@@ -289,6 +289,8 @@ renderPred pred' =
       renderTcType (TcTyCon classTyCon args)
     EqPred left right ->
       renderTcType left ++ " ~ " ++ renderTcType right
+    IParamPred name payload ->
+      T.unpack name ++ " ∷ " ++ renderTcType payload
     QuantifiedPred variables antecedents consequent ->
       "∀ "
         ++ unwords (map (T.unpack . tvName) variables)
@@ -342,6 +344,8 @@ renderTcTypeInModule currentModule = go 0
       T.unpack (renderTyConName cls) ++ " " ++ unwords (map (go 2) args)
     showPred (EqPred t1 t2) =
       go 2 t1 ++ " ~ " ++ go 2 t2
+    showPred (IParamPred name payload) =
+      T.unpack name ++ " ∷ " ++ go 0 payload
     showPred predicate@QuantifiedPred {} = renderPred predicate
 
     parenIf False s = s

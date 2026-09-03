@@ -396,6 +396,13 @@ resolveDeclCore termDefinition decl =
       withPushedSpan ann (resolveDeclCore termDefinition inner)
     DeclValue valueDecl ->
       DeclValue <$> resolveValueDecl termDefinition valueDecl
+    DeclImplicitParam name expr mDecls -> do
+      -- An implicit-parameter binding does not bind a term name.
+      -- The type checker connects each use to its binding.
+      (binderAnnotations, localScope) <- allocateLocalDeclBinders (fromMaybe [] mDecls)
+      expr' <- extendScope localScope (resolveExpr expr)
+      mDecls' <- traverse (extendScope localScope . resolveBoundDecls binderAnnotations Map.empty) mDecls
+      pure (DeclImplicitParam name expr' mDecls')
     DeclTypeSig names ty -> do
       ty' <- resolveType ty
       pure (DeclTypeSig names ty')
@@ -681,6 +688,9 @@ resolveExpr expr =
       EAnn ann <$> withPushedSpan ann (resolveExpr inner)
     EVar name ->
       EVar <$> resolveTermUse name
+    -- An implicit parameter has no lexical binder. The type checker
+    -- connects the use to a binding through constraint solving.
+    EImplicitParam _ -> pure expr
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
     EInt _ TInteger _ -> resolveIntegerLiteral expr
     EInt _ numericType _ -> resolvePrimitiveLiteralType numericType expr
@@ -1028,8 +1038,35 @@ annotateArithSeqMethod name arithSeq = do
   pure (ArithSeqAnn (mkAnnotation annotation) arithSeq)
 
 resolveBoundDecls :: Map.Map Text ResolvedName -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveBoundDecls binderTargets =
-  resolveBindingGroup (\name -> Map.lookup (renderUnqualifiedName name) binderTargets)
+resolveBoundDecls binderTargets signatureScopes decls = do
+  decls' <- markMixedImplicitParamGroup decls
+  resolveBindingGroup (\name -> Map.lookup (renderUnqualifiedName name) binderTargets) signatureScopes decls'
+
+-- | Mark each implicit-parameter binding in a group that also has other declarations.
+--
+-- GHC does not permit a @let@ or @where@ group with both kinds of binding.
+markMixedImplicitParamGroup :: [Decl] -> ResolveM [Decl]
+markMixedImplicitParamGroup decls
+  | any isImplicitParamDecl decls && not (all isImplicitParamDecl decls) = mapM mark decls
+  | otherwise = pure decls
+  where
+    isImplicitParamDecl decl =
+      case snd (peelDeclSpan NoSourceSpan decl) of
+        DeclImplicitParam {} -> True
+        _ -> False
+    mark decl =
+      case peelDeclSpan NoSourceSpan decl of
+        (declSpan, DeclImplicitParam name _ _) -> do
+          ambient <- currentSpan
+          let loc = spanStartNameSpan (effectiveResolutionSpan ambient declSpan) name
+              resolution =
+                ResolutionAnnotation
+                  loc
+                  (IdentifierNamed name)
+                  ResolutionNamespaceTerm
+                  (ResolvedError "implicit-parameter binding in a group with other bindings")
+          pure (DeclAnn (mkAnnotation resolution) decl)
+        _ -> pure decl
 
 declSignatureScope :: Decl -> Map.Map Text Scope -> Maybe Scope
 declSignatureScope decl signatureScopes =

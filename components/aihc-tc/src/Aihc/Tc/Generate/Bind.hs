@@ -61,6 +61,8 @@ type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
 
 -- | Infer local declarations, then infer a body under the resulting binders.
 inferLocalDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+inferLocalDecls inferExpr decls body
+  | not (null decls) && all isImplicitParamDecl decls = inferImplicitParamDecls inferExpr decls body
 inferLocalDecls inferExpr decls body = do
   let groups = groupValueDecls decls
   binders <- distinctLocalBinders (concatMap groupBinders groups)
@@ -87,6 +89,63 @@ inferLocalDecls inferExpr decls body = do
         decls' <- annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
         (bodyResult, bodyTy, bodyCts) <- body
         pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
+
+isImplicitParamDecl :: Decl -> Bool
+isImplicitParamDecl decl =
+  case peelDeclAnn decl of
+    DeclImplicitParam {} -> True
+    _ -> False
+
+-- | Infer a group of implicit-parameter bindings, then infer the body.
+--
+-- Each right-hand side sees only the enclosing bindings. The body sees the
+-- new bindings. The group solves each wanted implicit parameter of the body
+-- that has a bound name. Other wanted constraints of the body float out.
+inferImplicitParamDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+inferImplicitParamDecls inferExpr decls body = do
+  bindings <- mapM (inferImplicitParamDecl inferExpr) decls
+  (bodyResult, bodyTy, bodyCts) <- body
+  let bound = [(name, ty) | (_, name, ty, _) <- bindings]
+  remainingCts <- concat <$> mapM (solveBoundImplicitParam bound) bodyCts
+  pure
+    ( [decl | (decl, _, _, _) <- bindings],
+      bodyResult,
+      bodyTy,
+      concat [cts | (_, _, _, cts) <- bindings] <> remainingCts
+    )
+
+inferImplicitParamDecl :: InferExpr -> Decl -> TcM (Decl, Text, TcType, [Ct])
+inferImplicitParamDecl inferExpr decl =
+  case decl of
+    DeclAnn ann inner -> do
+      (inner', name, ty, cts) <- inferImplicitParamDecl inferExpr inner
+      pure (DeclAnn ann inner', name, ty, cts)
+    DeclImplicitParam name expr maybeDecls -> do
+      (expr', maybeDecls', ty, cts) <-
+        case maybeDecls of
+          Nothing -> do
+            (expr', ty, cts) <- inferExpr expr
+            pure (expr', Nothing, ty, cts)
+          Just whereDecls -> do
+            (whereDecls', expr', ty, cts) <- inferLocalDecls inferExpr whereDecls (inferExpr expr)
+            pure (expr', Just whereDecls', ty, cts)
+      let annotated = DeclAnn (mkAnnotation (pendingAnnotation ty [] [] [])) (DeclImplicitParam name expr' maybeDecls')
+      pure (annotated, name, ty, cts)
+    _ -> abortTc "implicit-parameter group contains another declaration"
+
+-- | Solve one wanted constraint of the body against the new bindings.
+--
+-- The name of an implicit parameter determines its type, so the wanted type
+-- must unify with the bound type.
+solveBoundImplicitParam :: [(Text, TcType)] -> Ct -> TcM [Ct]
+solveBoundImplicitParam bound ct =
+  case ctPred ct of
+    IParamPred name ty
+      | Just boundTy <- lookup name bound -> do
+          bindEvidence (ctEvVar ct) (EvGiven (IParamPred name boundTy))
+          ev <- freshEvVar
+          pure [mkWantedCt (EqPred ty boundTy) ev (ctOrigin ct) (ctLoc ct)]
+    _ -> pure [ct]
 
 distinctLocalBinders :: [UnqualifiedName] -> TcM [UnqualifiedName]
 distinctLocalBinders = fmap snd . foldM addBinder (Set.empty, [])
@@ -646,6 +705,7 @@ freeVarsDecl decl =
       vars <- freeVarsRhs rhs
       binders <- patternBinderKeys pat
       pure (Set.difference vars binders)
+    DeclImplicitParam _ expr maybeDecls -> freeVarsRhs (UnguardedRhs [] expr maybeDecls)
     DeclTypeSig {} -> pure Set.empty
     _ -> pure Set.empty
 

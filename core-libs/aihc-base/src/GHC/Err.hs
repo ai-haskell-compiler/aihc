@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE MagicHash #-}
 
 module GHC.Err
@@ -9,13 +10,15 @@ where
 
 import GHC.Base (String)
 import GHC.Prim (raise#)
+import GHC.Stack.Types (HasCallStack, appendCallStack)
 import GHC.Types (RuntimeRep, TYPE)
 
-error :: forall (r :: RuntimeRep) (a :: TYPE r). String -> a
-error = raise#
+-- | Stop the program with a message and the call stack of the call site.
+error :: forall (r :: RuntimeRep) (a :: TYPE r). (HasCallStack) => String -> a
+error message = raise# (appendCallStack message ?callStack)
 
 errorWithoutStackTrace :: forall (r :: RuntimeRep) (a :: TYPE r). String -> a
 errorWithoutStackTrace = raise#
 
-undefined :: a
-undefined = raise# "Prelude.undefined"
+undefined :: forall (r :: RuntimeRep) (a :: TYPE r). (HasCallStack) => a
+undefined = raise# (appendCallStack "Prelude.undefined" ?callStack)

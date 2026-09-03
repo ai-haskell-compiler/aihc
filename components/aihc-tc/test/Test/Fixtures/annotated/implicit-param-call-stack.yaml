@@ -1,0 +1,73 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  data SrcLoc = SrcLoc
+       │        └─ type: SrcLoc
+       └─ type: Type
+  data CallStack = EmptyCallStack | PushCallStack Int SrcLoc CallStack
+       │           │                └─ type: Int → SrcLoc → CallStack → CallStack
+       │           └─ type: CallStack
+       └─ type: Type
+  type HasCallStack = (?callStack :: CallStack)
+       └─ type: GHC.Types.Constraint
+  emptyCallStack :: CallStack
+  emptyCallStack = EmptyCallStack
+  └─ type: CallStack
+  pushCallSite :: Int -> SrcLoc -> CallStack -> CallStack
+  pushCallSite _ _ stack = stack
+  │            │ │ └─ type: CallStack
+  │            │ └─ type: SrcLoc
+  │            └─ type: Int
+  └─ type: Int → SrcLoc → CallStack → CallStack
+  failure :: HasCallStack => Int -> Int
+  failure x = x
+  │       └─ type: Int
+  └─ type: (?callStack ∷ CallStack) ⇒ Int → Int
+  withStack :: HasCallStack => Int
+  withStack = failure Int
+  │           └─ type: Int → Int; evidence: push(failure@14:13, given ?callStack ∷ CallStack)
+  └─ type: (?callStack ∷ CallStack) ⇒ Int
+  noStack :: Int
+  noStack = failure Int
+  │         └─ type: Int → Int; evidence: push(failure@16:11, emptyCallStack)
+  └─ type: Int
+  inferred y = failure y
+  │        │   └─ type: Int → Int; evidence: push(failure@17:14, emptyCallStack)
+  │        └─ type: Int
+  └─ type: Int → Int
+  frozen :: HasCallStack => (HasCallStack => Int) -> Int
+  frozen action = let ?callStack = emptyCallStack in action
+  │      │            └─ type: CallStack             └─ type: Int; evidence: given ?callStack ∷ CallStack
+  │      └─ type: (?callStack ∷ CallStack) ⇒ Int
+  └─ type: (?callStack ∷ CallStack) ⇒ ((?callStack ∷ CallStack) ⇒ Int) → Int
+extensions:
+- ImplicitParams
+- ConstraintKinds
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+  data SrcLoc = SrcLoc
+  data CallStack = EmptyCallStack | PushCallStack Int SrcLoc CallStack
+  type HasCallStack = (?callStack :: CallStack)
+  emptyCallStack :: CallStack
+  emptyCallStack = EmptyCallStack
+  pushCallSite :: Int -> SrcLoc -> CallStack -> CallStack
+  pushCallSite _ _ stack = stack
+  failure :: HasCallStack => Int -> Int
+  failure x = x
+  withStack :: HasCallStack => Int
+  withStack = failure Int
+  noStack :: Int
+  noStack = failure Int
+  inferred y = failure y
+  frozen :: HasCallStack => (HasCallStack => Int) -> Int
+  frozen action = let ?callStack = emptyCallStack in action
+reason: an occurrence of a function with a HasCallStack constraint pushes its call site, and an unsolved call stack is empty
+status: pass

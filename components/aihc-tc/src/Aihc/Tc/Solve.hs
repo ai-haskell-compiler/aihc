@@ -23,7 +23,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDict, solveDictWithGivens)
+import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet, addInertDict, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
@@ -56,6 +56,7 @@ addWork ct = case ctPred ct of
   EqPred {} -> addEq ct
   ClassPred {} -> addDict ct
   QuantifiedPred {} -> addDict ct
+  IParamPred {} -> addDict ct
 
 -- | Main solver loop.
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
@@ -134,6 +135,7 @@ partitionWanteds = foldr partitionOne ([], [])
         EqPred {} -> (ct : equalities, dictionaries)
         ClassPred {} -> (equalities, ct : dictionaries)
         QuantifiedPred {} -> (equalities, ct : dictionaries)
+        IParamPred {} -> (equalities, ct : dictionaries)
 
 -- | Decompose a given constraint into atomic equalities.
 -- For example, @GADT a ~ GADT Bool@ decomposes into @[(a, Bool)]@.
@@ -197,13 +199,21 @@ solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
       DictSolved -> pure ()
-      DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+      DictStuck stuck -> reportUnsolvedDict stuck
   quantified@QuantifiedPred {} -> do
     let rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred givenEqualities quantified})
     case result of
       DictSolved -> pure ()
-      DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+      DictStuck stuck -> reportUnsolvedDict stuck
+  IParamPred name payload -> do
+    payload' <- zonkType payload
+    let rewritten = IParamPred name (applyGivenSubst givenEqualities payload')
+        rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
+    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
+    case result of
+      DictSolved -> pure ()
+      DictStuck stuck -> reportUnsolvedDict stuck
 
 rewritePred :: [(TcType, TcType)] -> Pred -> Pred
 rewritePred equalities predicate =
@@ -212,6 +222,7 @@ rewritePred equalities predicate =
     EqPred left right -> EqPred (applyGivenSubst equalities left) (applyGivenSubst equalities right)
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables (map (rewritePred equalities) antecedents) (rewritePred equalities consequent)
+    IParamPred name payload -> IParamPred name (applyGivenSubst equalities payload)
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =

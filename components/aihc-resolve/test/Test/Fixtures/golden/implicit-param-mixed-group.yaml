@@ -1,0 +1,27 @@
+---
+extensions:
+- ImplicitParams
+modules:
+- |
+  module Main where
+  data Int = Int
+  g = let ?x = Int
+          y = Int
+       in y
+annotated:
+- |
+  module Main where
+  data Int = Int
+       │     └─ v Main
+       └─ t Main
+  g = let ?x = Int
+  │       │    └─ v Main
+  │       └─ v Error implicit-parameter binding in a group with other bindings
+  └─ v Main
+          y = Int
+          │   └─ v Main
+          └─ v 0
+       in y
+          └─ v 0
+status: pass
+reason: a local group must not mix implicit-parameter bindings with other bindings

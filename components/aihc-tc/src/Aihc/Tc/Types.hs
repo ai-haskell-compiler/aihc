@@ -92,6 +92,10 @@ module Aihc.Tc.Types
     applySubst,
     applySubstPred,
     Pred (..),
+    constraintTypeToPred,
+    collectForAllTypes,
+    collectTypeApplications,
+    isImplicitParamTyConName,
     TcLevel (..),
     topTcLevel,
     pushLevel,
@@ -187,7 +191,50 @@ data Pred
   = ClassPred !TyCon ![TcType]
   | EqPred !TcType !TcType
   | QuantifiedPred ![TyVarId] ![Pred] !Pred
+  | -- | An implicit parameter such as @?x :: Int@. The name keeps its @?@ prefix.
+    IParamPred !Text !TcType
   deriving (Eq, Ord, Show, Read)
+
+-- | Convert a constraint-kinded type to a predicate.
+constraintTypeToPred :: TcType -> Maybe Pred
+constraintTypeToPred ty =
+  case collectForAllTypes ty of
+    (variables@(_ : _), qualified) -> do
+      let (antecedents, consequentType) =
+            case qualified of
+              TcQualTy predicates body -> (predicates, body)
+              body -> ([], body)
+      consequent <- atomicConstraintTypeToPred consequentType
+      pure (QuantifiedPred variables antecedents consequent)
+    ([], body) -> atomicConstraintTypeToPred body
+
+atomicConstraintTypeToPred :: TcType -> Maybe Pred
+atomicConstraintTypeToPred ty =
+  case collectTypeApplications ty of
+    (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
+    (TcTyCon tyCon [payload], [])
+      | isImplicitParamTyConName (tyConName tyCon) -> Just (IParamPred (tyConName tyCon) payload)
+    (TcTyCon tyCon headArgs, arguments) ->
+      Just (ClassPred tyCon (headArgs <> arguments))
+    _ -> Nothing
+
+-- | The name of the constraint type constructor for one implicit parameter.
+isImplicitParamTyConName :: Text -> Bool
+isImplicitParamTyConName = T.isPrefixOf "?"
+
+collectForAllTypes :: TcType -> ([TyVarId], TcType)
+collectForAllTypes (TcForAllTy variable body) =
+  let (variables, result) = collectForAllTypes body
+   in (variable : variables, result)
+collectForAllTypes ty = ([], ty)
+
+collectTypeApplications :: TcType -> (TcType, [TcType])
+collectTypeApplications ty =
+  case ty of
+    TcAppTy function argument ->
+      let (headType, arguments) = collectTypeApplications function
+       in (headType, arguments <> [argument])
+    _ -> (ty, [])
 
 boxedTupleTyConName :: Int -> Text
 boxedTupleTyConName arity =
@@ -347,6 +394,7 @@ typeKindInEnv kindEnv = go
       case predicate of
         ClassPred className arguments -> ClassPred (configurePrimitiveTyCon className) (map configurePrimitiveType arguments)
         EqPred left right -> EqPred (configurePrimitiveType left) (configurePrimitiveType right)
+        IParamPred name payload -> IParamPred name (configurePrimitiveType payload)
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             (map (\variable -> setTyVarKind (configurePrimitiveType (tvKind variable)) variable) variables)
@@ -413,6 +461,7 @@ applySubstPred substitution predicate =
   case predicate of
     ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
     EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
+    IParamPred name payload -> IParamPred name (applySubst substitution payload)
     QuantifiedPred variables antecedents consequent ->
       let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
        in QuantifiedPred
