@@ -6,17 +6,17 @@ expected: |-
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
   $grin_value_thunk_0 -> BoxedRep Lifted =
-    argument%-1000000005 :: IntRep <-
+    argument :: IntRep <-
       constant (1 :: IntRep)
-    argument%-1000000006 :: WordRep <-
+    argument%1 :: WordRep <-
       constant (2 :: WordRep)
-    _case%-1000000001 :: IntRep, _case%-1000000002 :: WordRep <-
-      constant (argument%-1000000005 :: IntRep) (argument%-1000000006 :: WordRep)
-    first%-1000000003 :: IntRep, _pat%-1000000004 :: WordRep <-
-      constant (_case%-1000000001 :: IntRep) (_case%-1000000002 :: WordRep)
-    argument%-1000000000 :: IntRep <-
-      constant (first%-1000000003 :: IntRep)
-    store (CTest.Box (argument%-1000000000 :: IntRep))
+    _case :: IntRep, _case%1 :: WordRep <-
+      constant (argument :: IntRep) (argument%1 :: WordRep)
+    first :: IntRep, _pat :: WordRep <-
+      constant (_case :: IntRep) (_case%1 :: WordRep)
+    argument%2 :: IntRep <-
+      constant (first :: IntRep)
+    store (CTest.Box (argument%2 :: IntRep))
 extensions:
 - MagicHash
 - UnboxedTuples

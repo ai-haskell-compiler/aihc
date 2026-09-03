@@ -8,12 +8,12 @@ expected: |-
 
   global "\NULTest\NULunit" = (F$grin_unit_thunk_1)
 
-  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
+  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
   $grin_unit_thunk_1 -> BoxedRep Lifted =
-    function_application%-1000000001 :: BoxedRep Lifted <-
+    function_application :: BoxedRep Lifted <-
       call @(BoxedRep Lifted) $grin_closure_0 global-ref "\NULTest\NULidentity"
-    apply @(BoxedRep Lifted) (function_application%-1000000001 :: BoxedRep Lifted) global-ref "aihc-prim\NULGHC.Tuple\NUL()"
+    apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) global-ref "aihc-prim\NULGHC.Tuple\NUL()"
 status: pass
 reason: applies remaining arguments after a direct local function call reaches its arity

@@ -13,6 +13,7 @@ import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
+import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -78,14 +79,16 @@ lowerProgram program = do
   let env = baseEnv {lowerLocalFunctions = localFunctions}
   (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
-    ( normalizeGrinProgram
-        GrinProgram
-          { grinConstructors = topConstructors parts,
-            grinPrimitives = topPrimitives parts,
-            grinForeignCalls = topForeignCalls parts,
-            grinGlobals = topGlobals parts,
-            grinFunctions = reverse (lowerFunctionsRev finalState)
-          }
+    ( tidyGrinProgram
+        ( normalizeGrinProgram
+            GrinProgram
+              { grinConstructors = topConstructors parts,
+                grinPrimitives = topPrimitives parts,
+                grinForeignCalls = topForeignCalls parts,
+                grinGlobals = topGlobals parts,
+                grinFunctions = reverse (lowerFunctionsRev finalState)
+              }
+        )
     )
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts

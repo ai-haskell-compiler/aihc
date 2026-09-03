@@ -112,6 +112,7 @@ library compiler
     Aihc.Grin.Snapshot
     Aihc.Grin.Srt
     Aihc.Grin.Syntax
+    Aihc.Grin.Tidy
     Aihc.Llvm
     Aihc.Llvm.Codegen
     Aihc.Native

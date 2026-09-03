@@ -538,11 +538,22 @@ addressLiteral = do
 varAtom :: Parser GrinVar
 varAtom = betweenHorizontal '(' ')' bareVar
 
+-- | The printer omits a zero number, except for names that would then be read
+-- back as a literal. Rejecting those here lets @(0 :: IntRep)@ fall through to
+-- the literal parsers.
+variableNumber :: Text -> Parser Int
+variableNumber variableName = do
+  explicit <- optional (MPC.char '%' *> signedInt)
+  case explicit of
+    Just value -> pure value
+    Nothing
+      | grinVarNameNeedsNumber variableName -> fail "variable name requires an explicit number"
+      | otherwise -> pure 0
+
 bareVar :: Parser GrinVar
 bareVar = do
   variableName <- name
-  _ <- MPC.char '%'
-  uniqueValue <- signedInt
+  uniqueValue <- variableNumber variableName
   horizontal1
   _ <- MPC.string "::"
   horizontal1

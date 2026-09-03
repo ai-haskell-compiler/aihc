@@ -6,9 +6,9 @@ expected: |-
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
   $grin_value_thunk_0 -> BoxedRep Lifted =
-    argument%-1000000000 :: AddrRep <-
+    argument :: AddrRep <-
       eval @AddrRep global-ref "aihc-prim\NULGHC.Prim\NULnullAddr#"
-    store (CTest.Address (argument%-1000000000 :: AddrRep))
+    store (CTest.Address (argument :: AddrRep))
 extensions:
 - MagicHash
 reason: evaluates an imported nullary primitive through its global binding
