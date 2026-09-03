@@ -5,7 +5,7 @@ module Aihc.Cli.BuildExe
   )
 where
 
-import Aihc.Cli.InstallV2
+import Aihc.Cli.Install
   ( ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),

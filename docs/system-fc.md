@@ -217,9 +217,9 @@ Do not add a `testCase` that builds `Expr`.
 
 Hedgehog checks `parseProgram . renderProgram = id` on self-contained programs.
 
-## install-v2
+## install
 
-`install-v2` still writes `core`.
+`install` still writes `core`.
 It must also write `core` next to it:
 
 ```text
@@ -232,7 +232,7 @@ If Fc desugar fails, the install fails.
 If Fc lint fails, the install fails.
 Keep the `core` file at its normal path when Fc lint fails.
 Do not write `core` without `core`.
-`install-v2` does not parse the `core` file that it writes.
+`install` does not parse the `core` file that it writes.
 It may parse imported `core` files through the store loader.
 
 ## PR plan
@@ -247,7 +247,7 @@ It may parse imported `core` files through the store loader.
 | 6 | `feat(fc): desugar data families` | done, #1492 |
 | 7 | `feat(fc): desugar type families` | done, #1492 |
 | 8 | `feat(fc): accept foreign import prim and reject ccall` | done, #1493 |
-| 9 | `feat(fc): write core from install-v2` | done |
+| 9 | `feat(fc): write core from install` | done |
 | 10 | `fix(fc): correct System FC output for aihc-prim` | done |
 | 11 | `feat(fc): add System FC type linter` | done |
 

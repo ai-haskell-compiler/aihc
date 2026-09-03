@@ -1,17 +1,17 @@
-module Aihc.Cli.InstallV2
-  ( InstallV2Result (..),
+module Aihc.Cli.Install
+  ( InstallResult (..),
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
     compileModules,
-    installV2,
-    runInstallV2,
+    install,
+    runInstall,
   )
 where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.Cli.Options (InstallV2Options (..))
+import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
@@ -139,10 +139,10 @@ import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
 import System.IO (hClose, hIsTerminalDevice, openBinaryTempFile, stdout)
 import System.Process (readProcessWithExitCode)
 
-data InstallV2Result = InstallV2Result
-  { installV2StorePath :: !FilePath,
-    installV2WrittenModules :: ![Text],
-    installV2ReusedModules :: ![Text]
+data InstallResult = InstallResult
+  { installStorePath :: !FilePath,
+    installWrittenModules :: ![Text],
+    installReusedModules :: ![Text]
   }
   deriving (Eq, Show)
 
@@ -156,14 +156,14 @@ data SourceModule = SourceModule
     sourceModuleParseDiagnostics :: [Value]
   }
 
-data InstalledV2Package = InstalledV2Package
-  { installedV2Result :: !InstallV2Result,
-    installedV2Exports :: !ModuleExports,
-    installedV2Types :: !(Map.Map Text TcInterface),
-    installedV2ScopeHashes :: !(Map.Map Text Text),
-    installedV2TypeHashes :: !(Map.Map Text Text),
-    installedV2InstanceFacts :: !TcInterface,
-    installedV2InstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
+data InstalledPackage = InstalledPackage
+  { installedResult :: !InstallResult,
+    installedExports :: !ModuleExports,
+    installedTypes :: !(Map.Map Text TcInterface),
+    installedScopeHashes :: !(Map.Map Text Text),
+    installedTypeHashes :: !(Map.Map Text Text),
+    installedInstanceFacts :: !TcInterface,
+    installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
   }
 
 type InstanceProvider = (PackageId, Text)
@@ -307,28 +307,28 @@ data PackageTaskContext = PackageTaskContext
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
-runInstallV2 :: InstallV2Options -> IO ()
-runInstallV2 options = do
-  result <- installV2 options
-  putStrLn ("store: " <> installV2StorePath result)
+runInstall :: InstallOptions -> IO ()
+runInstall options = do
+  result <- install options
+  putStrLn ("store: " <> installStorePath result)
 
-installV2 :: InstallV2Options -> IO InstallV2Result
-installV2 options = do
-  storeRoot <- maybe defaultStoreRoot pure (installV2StoreRoot options)
+install :: InstallOptions -> IO InstallResult
+install options = do
+  storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
   useColor <- hIsTerminalDevice stdout
-  let target = installV2Target options
+  let target = installTarget options
       targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
-  let root = installV2PackageDirectory options
-      verbose message = when (installV2Verbose options) (putStrLn message)
-      printTimings message = when (installV2PrintTimings options) (putStrLn message)
+  let root = installPackageDirectory options
+      verbose message = when (installVerbose options) (putStrLn message)
+      printTimings message = when (installPrintTimings options) (putStrLn message)
       fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
       config =
         ModuleCompileConfig
-          { compileKeepGrin = installV2KeepGrin options,
-            compileKeepNative = installV2KeepNative options,
-            compileLint = installV2Lint options,
-            compileNoCode = installV2NoCode options,
+          { compileKeepGrin = installKeepGrin options,
+            compileKeepNative = installKeepNative options,
+            compileLint = installLint options,
+            compileNoCode = installNoCode options,
             compileTarget = target,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
@@ -336,7 +336,7 @@ installV2 options = do
           }
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver spec
-  installedV2Result <$> installPackagePlanV2 config (installV2Reinstall options) targetStoreRoot plan
+  installedResult <$> installPackagePlan config (installReinstall options) targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -349,18 +349,18 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: ModuleCompileConfig -> Bool -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 config reinstall storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 config False storeRoot) (planDependencyPlans plan)
-  installPackageV2 config reinstall storeRoot dependencies (planSourcePath plan)
+installPackagePlan :: ModuleCompileConfig -> Bool -> FilePath -> PackagePlan -> IO InstalledPackage
+installPackagePlan config reinstall storeRoot plan = do
+  dependencies <- mapM (installPackagePlan config False storeRoot) (planDependencyPlans plan)
+  installPackage config reinstall storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 config reinstall storeRoot dependencies root = do
+installPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
+installPackage config reinstall storeRoot dependencies root = do
   packageDirectory <- packageStoreDirectory dependencies root
   let storePath = storeRoot </> packageDirectory
   exists <- doesDirectoryExist storePath
   if exists && not reinstall
-    then loadInstalledV2Package Set.empty storePath
+    then loadInstalledPackage Set.empty storePath
     else do
       createDirectoryIfMissing True storeRoot
       bracket
@@ -369,20 +369,20 @@ installPackageV2 config reinstall storeRoot dependencies root = do
         (buildAndPublish storePath)
   where
     buildAndPublish storePath temporaryRoot = do
-      built <- installPackageV2Direct config temporaryRoot dependencies root
+      built <- installPackageDirect config temporaryRoot dependencies root
       exists <- doesDirectoryExist storePath
       when (exists && reinstall) (removeDirectoryRecursive storePath)
-      publishResult <- try (renameDirectory (installV2StorePath (installedV2Result built)) storePath)
+      publishResult <- try (renameDirectory (installStorePath (installedResult built)) storePath)
       case publishResult of
         Right () -> pure (setInstalledStorePath storePath built)
         Left err -> do
           published <- doesDirectoryExist storePath
           if published
-            then loadInstalledV2Package Set.empty storePath
+            then loadInstalledPackage Set.empty storePath
             else throwIO (err :: IOException)
 
-installPackageV2Direct :: ModuleCompileConfig -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2Direct config storeRoot dependencies root = do
+installPackageDirect :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
+installPackageDirect config storeRoot dependencies root = do
   let target = compileTarget config
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
@@ -398,7 +398,7 @@ installPackageV2Direct config storeRoot dependencies root = do
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
-  let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
+  let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installStorePath . installedResult) dependencies)
       packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
@@ -429,7 +429,7 @@ installPackageV2Direct config storeRoot dependencies root = do
         packageManifestDependencies =
           sortOn
             id
-            [ T.pack (takeFileName (installV2StorePath (installedV2Result dependency)))
+            [ T.pack (takeFileName (installStorePath (installedResult dependency)))
             | dependency <- dependencies
             ],
         packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd)
@@ -440,19 +440,19 @@ installPackageV2Direct config storeRoot dependencies root = do
           (\moduleKey _ -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
           allExports
   pure
-    InstalledV2Package
-      { installedV2Result = InstallV2Result storePath (Set.toAscList written) (Set.toAscList reused),
-        installedV2Exports = ownExports,
-        installedV2Types = Map.restrictKeys allTypes exposedNames,
-        installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
-        installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames,
-        installedV2InstanceFacts = compiledInstanceFacts compiled,
-        installedV2InstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
+    InstalledPackage
+      { installedResult = InstallResult storePath (Set.toAscList written) (Set.toAscList reused),
+        installedExports = ownExports,
+        installedTypes = Map.restrictKeys allTypes exposedNames,
+        installedScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
+        installedTypeHashes = Map.restrictKeys allTypeHashes exposedNames,
+        installedInstanceFacts = compiledInstanceFacts compiled,
+        installedInstanceProviders = Map.restrictKeys (compiledInstanceProviders compiled) exposedNames
       }
 
 compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
 compileModules config request = do
-  dependencies <- mapM (loadInstalledV2Package Set.empty) (compileDependencyRoots request)
+  dependencies <- mapM (loadInstalledPackage Set.empty) (compileDependencyRoots request)
   compiled <-
     compileModulesWithDependencies
       config
@@ -471,7 +471,7 @@ compileModules config request = do
             ]
       }
 
-compileModulesWithDependencies :: ModuleCompileConfig -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledV2Package] -> IO CompiledPackageModules
+compileModulesWithDependencies :: ModuleCompileConfig -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> IO CompiledPackageModules
 compileModulesWithDependencies config outputRoot packageRoot resolvePackage files dependencies = do
   let verbose = compileVerbose config
   verbose ("Parse " <> show (length files) <> " modules")
@@ -479,12 +479,12 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
   (parsed, importTimings) <- loadSourceModules (max 1 capabilities) packageRoot files
   loadedDependencies <- loadRequiredDependencies parsed dependencies
   let units = sourceModuleUnits parsed
-      dependencyExports = Map.unions (map installedV2Exports loadedDependencies)
-      dependencyTypes = LazyMap.unions (map installedV2Types loadedDependencies)
-      dependencyScopeHashes = Map.unions (map installedV2ScopeHashes loadedDependencies)
-      dependencyTypeHashes = LazyMap.unions (map installedV2TypeHashes loadedDependencies)
-      dependencyInstanceFacts = mergeTcInterfaces (map installedV2InstanceFacts loadedDependencies)
-      dependencyInstanceProviders = Map.unions (map installedV2InstanceProviders loadedDependencies)
+      dependencyExports = Map.unions (map installedExports loadedDependencies)
+      dependencyTypes = LazyMap.unions (map installedTypes loadedDependencies)
+      dependencyScopeHashes = Map.unions (map installedScopeHashes loadedDependencies)
+      dependencyTypeHashes = LazyMap.unions (map installedTypeHashes loadedDependencies)
+      dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
+      dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
   backendPhaseTimings <- newIORef mempty
   let taskContext =
@@ -558,7 +558,7 @@ packagePrimIdentity resolvePackage dependencyExports =
             dependencyName == "aihc-prim"
           ]
 
-packageStoreDirectory :: [InstalledV2Package] -> FilePath -> IO FilePath
+packageStoreDirectory :: [InstalledPackage] -> FilePath -> IO FilePath
 packageStoreDirectory dependencies root = do
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -571,7 +571,7 @@ packageStoreDirectory dependencies root = do
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
-      dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
+      dependencyIdentities = sortOn id (map (T.pack . takeFileName . installStorePath . installedResult) dependencies)
       packageHash = stableHash (map TE.encodeUtf8 (packageArtifactFormatVersion : dependencyIdentities))
   pure (T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash)
 
@@ -588,20 +588,20 @@ removeTemporaryStoreRoot path = do
   exists <- doesDirectoryExist path
   when exists (removeDirectoryRecursive path)
 
-setInstalledStorePath :: FilePath -> InstalledV2Package -> InstalledV2Package
+setInstalledStorePath :: FilePath -> InstalledPackage -> InstalledPackage
 setInstalledStorePath storePath installed =
   installed
-    { installedV2Result =
-        (installedV2Result installed)
-          { installV2StorePath = storePath
+    { installedResult =
+        (installedResult installed)
+          { installStorePath = storePath
           }
     }
 
-loadRequiredDependencies :: [SourceModule] -> [InstalledV2Package] -> IO [InstalledV2Package]
+loadRequiredDependencies :: [SourceModule] -> [InstalledPackage] -> IO [InstalledPackage]
 loadRequiredDependencies sources = mapM loadDependency
   where
     requirements = requiredDependencyModules sources
-    loadDependency dependency = loadInstalledV2Package requirements (installV2StorePath (installedV2Result dependency))
+    loadDependency dependency = loadInstalledPackage requirements (installStorePath (installedResult dependency))
 
 requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
 requiredDependencyModules sources =
@@ -620,8 +620,8 @@ requiredDependencyModules sources =
       importDeclPackage importDecl == Just "this"
         || (isNothing (importDeclPackage importDecl) && importDeclModule importDecl `Set.member` localNames)
 
-loadInstalledV2Package :: Set.Set (Maybe Text, Text) -> FilePath -> IO InstalledV2Package
-loadInstalledV2Package requirements storePath = do
+loadInstalledPackage :: Set.Set (Maybe Text, Text) -> FilePath -> IO InstalledPackage
+loadInstalledPackage requirements storePath = do
   manifestResult <- readPackageManifest (packageManifestPath storePath)
   manifest <- either (ioError . userError . ("Invalid installed package manifest: " <>)) pure manifestResult
   let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
@@ -636,14 +636,14 @@ loadInstalledV2Package requirements storePath = do
       scopeHashes = Map.fromList [(name, T.pack (stableHash [BL.toStrict (encodeResolveScope scope)])) | (name, scope, _) <- entries]
       typeHashes = LazyMap.fromList [(name, T.pack (stableHash [BL.toStrict (encodeTypeInterface interface)])) | (name, _, interface) <- entries]
   pure
-    InstalledV2Package
-      { installedV2Result = InstallV2Result storePath [] (packageManifestModules manifest),
-        installedV2Exports = exports,
-        installedV2Types = types,
-        installedV2ScopeHashes = scopeHashes,
-        installedV2TypeHashes = typeHashes,
-        installedV2InstanceFacts = instanceFacts',
-        installedV2InstanceProviders = instanceProviders
+    InstalledPackage
+      { installedResult = InstallResult storePath [] (packageManifestModules manifest),
+        installedExports = exports,
+        installedTypes = types,
+        installedScopeHashes = scopeHashes,
+        installedTypeHashes = typeHashes,
+        installedInstanceFacts = instanceFacts',
+        installedInstanceProviders = instanceProviders
       }
   where
     moduleRequired manifest name =

@@ -366,8 +366,8 @@
     test "$failed" -eq 0
   '';
 
-  coreLibrariesInstallV2 =
-    pkgs.runCommand "aihc-core-libraries-install-v2" {
+  coreLibrariesInstall =
+    pkgs.runCommand "aihc-core-libraries-install" {
       src = sources.coreLibrariesSrc pkgs;
       nativeBuildInputs = [
         pkgs.findutils
@@ -381,7 +381,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-grin --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -389,7 +389,7 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install-v2 core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
@@ -431,7 +431,7 @@
       ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install-v2 core-libs/aihc-base --store "$out" --lint --target ${target}
+          ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}
         '')
         exampleToolchainTargets}
 
@@ -469,7 +469,7 @@
       cp -R --no-preserve=mode ${exampleToolchain} "$store"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install-v2 ${src} --store "$store" ${lintFlag} --target ${target}
+          ${aihcExe} install ${src} --store "$store" ${lintFlag} --target ${target}
         '')
         targets}
 
@@ -705,7 +705,7 @@ in {
   c-lint = cLint;
   c-format = cFormat;
   cabal-format = cabalFormat;
-  core-libraries-install-v2 = coreLibrariesInstallV2;
+  core-libraries-install = coreLibrariesInstall;
   hackage-install-tests = hackageInstallTests;
   examples-tests = examplesTests;
   wasip3-example-test = wasip3ExampleTest;
