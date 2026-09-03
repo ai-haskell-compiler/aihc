@@ -1,0 +1,16 @@
+; error: @main/join: %x does not dominate this use
+
+func @main(%c: i1) -> i64 {
+entry:
+  br %c, left, right
+
+left:
+  %x = add i64 1, 2
+  jump join
+
+right:
+  jump join
+
+join:
+  return %x
+}

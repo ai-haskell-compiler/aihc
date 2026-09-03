@@ -1,0 +1,8 @@
+; error: @f: duplicate definition of @f
+
+func @f() -> i64 {
+entry:
+  return 1
+}
+
+data @f align 8 = { i64 1 }

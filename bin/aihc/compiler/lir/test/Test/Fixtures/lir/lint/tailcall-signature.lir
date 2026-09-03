@@ -1,0 +1,12 @@
+; error: @main/entry: tailcall @g has result types (i32), expected (i64)
+; error: @main/entry: tailcall @g has calling convention c, expected aihc
+
+func @g() -> i32 cc c {
+entry:
+  return 1
+}
+
+func @main() -> i64 {
+entry:
+  tailcall @g()
+}

@@ -1,0 +1,8 @@
+; expect-trap: integer division by zero
+
+func @main() -> i64 {
+entry:
+  %z = sub i64 1, 1
+  %q = div.u i64 5, %z
+  return %q
+}

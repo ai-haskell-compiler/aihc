@@ -8,6 +8,7 @@ import Test.Amd64.Spec qualified as Amd64
 import Test.Arm64.Spec qualified as Arm64
 import Test.Fc.Spec qualified as Fc
 import Test.Grin.Spec qualified as Grin
+import Test.Lir.Spec qualified as Lir
 import Test.Llvm.Spec qualified as Llvm
 import Test.Native.Spec qualified as Native
 import Test.Tasty (defaultMain, testGroup)
@@ -18,12 +19,14 @@ main = do
   configureTestRoot
   fc <- Fc.tests
   grin <- Grin.tests
+  lir <- Lir.tests
   defaultMain
     ( testGroup
         "aihc"
         [ testGroup "spec" [Aihc.tests],
           testGroup "fc-spec" [fc],
           testGroup "grin-spec" [grin],
+          testGroup "lir-spec" [lir],
           testGroup "native-spec" [Native.tests],
           testGroup "amd64-spec" [Amd64.tests],
           testGroup "arm64-spec" [Arm64.tests],

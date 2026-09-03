@@ -1,0 +1,33 @@
+; expect: 30
+; The example from docs/lir.md. Cells are [tag: i8, pad, value: i64, next: ptr].
+
+data @nil align 8 = { i8 0, zero 7 }
+data @c2 align 8 = { i8 1, zero 7, i64 20, ptr @nil }
+data @c1 align 8 = { i8 1, zero 7, i64 10, ptr @c2 }
+
+func @sum(%xs: ptr) -> i64 {
+entry:
+  jump loop(%xs, 0)
+
+loop(%p: ptr, %acc: i64):
+  %tag = load i8 [%p] align 1
+  switch i8 %tag {
+    0 -> done(%acc)
+    1 -> cons(%p, %acc)
+  }
+
+cons(%cell: ptr, %sum: i64):
+  %x = load i64 [%cell + 8] align 8
+  %next = load ptr [%cell + 16] align 8
+  %sum2 = add i64 %sum, %x
+  jump loop(%next, %sum2)
+
+done(%result: i64):
+  return %result
+}
+
+func @main() -> i64 {
+entry:
+  %r = call @sum(@c1)
+  return %r
+}

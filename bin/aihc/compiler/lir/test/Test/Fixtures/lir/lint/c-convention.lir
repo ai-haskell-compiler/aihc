@@ -1,0 +1,9 @@
+; error: @f: the c convention permits at most one result
+; error: @g: the c convention permits at most one result
+
+extern func @f() -> (i64, i64) cc c
+
+func @g() -> (i64, i64) cc c {
+entry:
+  return 1, 2
+}

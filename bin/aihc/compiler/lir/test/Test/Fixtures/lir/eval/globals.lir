@@ -1,0 +1,23 @@
+; expect: 10
+
+global @counter: i64 pinned
+
+func @main() -> i64 {
+entry:
+  jump loop(0)
+
+loop(%i: i64):
+  %done = eq i64 %i, 10
+  br %done, exit, body(%i)
+
+body(%j: i64):
+  %c = global.get @counter
+  %c2 = add i64 %c, 1
+  global.set @counter, %c2
+  %j2 = add i64 %j, 1
+  jump loop(%j2)
+
+exit:
+  %r = global.get @counter
+  return %r
+}

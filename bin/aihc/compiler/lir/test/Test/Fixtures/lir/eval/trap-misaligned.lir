@@ -1,0 +1,9 @@
+; expect-trap: misaligned memory access
+
+data @bytes align 8 = { i64 0, i64 0 }
+
+func @main() -> i64 {
+entry:
+  %v = load i64 [@bytes + 4] align 8
+  return %v
+}

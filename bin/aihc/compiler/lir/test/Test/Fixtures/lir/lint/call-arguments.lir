@@ -1,0 +1,17 @@
+; error: @main/entry: @f expects 2 arguments, got 1
+; error: @main/entry: %p expects 1 arguments, got 0
+; error: @main/entry: literal 1.5 does not have type i64
+
+func @f(%a: i64, %b: i64) -> i64 {
+entry:
+  return %a
+}
+
+func @main() -> i64 {
+entry:
+  %r = call @f(1)
+  %p = ptr.from_int 0
+  %s = call.indirect %p() : (i64) -> i64
+  %t = call @f(1.5, 2)
+  return %r
+}

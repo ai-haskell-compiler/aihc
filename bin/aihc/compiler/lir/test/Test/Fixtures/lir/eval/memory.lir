@@ -1,0 +1,17 @@
+; expect: 8589934593, 7, 0x10000
+; Stack memory, mutable data, and little-endian layout.
+
+data mut @cell align 8 = { i64 0 }
+
+func @main() -> (i64, i64, ptr) {
+entry:
+  %s = stack.alloc 16 align 8
+  store i32 1, [%s] align 4
+  store i32 2, [%s + 4] align 4
+  %v = load i64 [%s] align 8
+  store i64 7, [@cell] align 8
+  %c = load i64 [@cell] align 8
+  %p = ptr.add @cell, 8
+  %back = ptr.add %p, -8
+  return %v, %c, %back
+}

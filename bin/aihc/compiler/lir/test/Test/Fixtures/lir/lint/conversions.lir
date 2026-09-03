@@ -1,0 +1,17 @@
+; error: @main/entry: sext i64 to i32 requires a wider target type
+; error: @main/entry: trunc i8 to i64 requires a narrower target type
+; error: @main/entry: bitcast i64 to f32 requires equal widths
+; error: @main/entry: bitcast i64 to i64 requires one integer and one float type
+; error: @main/entry: itof.s does not accept f64
+; error: @main/entry: fpext does not produce f32
+
+func @main() -> i32 {
+entry:
+  %a = sext i64 1 to i32
+  %b = trunc i8 1 to i64
+  %c = bitcast i64 1 to f32
+  %d = bitcast i64 1 to i64
+  %e = itof.s f64 1.0 to f64
+  %f = fpext f32 1.0 to f32
+  return %a
+}

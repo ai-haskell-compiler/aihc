@@ -1,0 +1,14 @@
+; error: @main/entry: unknown block missing
+; error: @main/first: block loop expects 2 arguments, got 1
+; error: @main/loop: entry block entry has a predecessor
+
+func @main() -> i64 {
+entry:
+  jump missing
+
+first:
+  jump loop(1)
+
+loop(%a: i64, %b: i64):
+  jump entry
+}
