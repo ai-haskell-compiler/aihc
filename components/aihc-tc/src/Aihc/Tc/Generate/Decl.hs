@@ -30,6 +30,7 @@ import Aihc.Parser.Syntax
     DataFamilyDecl (..),
     DataFamilyInst (..),
     Decl (..),
+    ExportSpec (..),
     Expr (..),
     Extension,
     FieldDecl (..),
@@ -37,6 +38,7 @@ import Aihc.Parser.Syntax
     ForeignDecl (..),
     ForeignDirection (..),
     GadtBody (..),
+    IEBundledMember (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     Literal (..),
@@ -76,6 +78,7 @@ import Aihc.Parser.Syntax
     instanceHeadTypes,
     mkAnnotation,
     mkUnqualifiedName,
+    moduleExports,
     moduleName,
     nameQualifier,
     nameText,
@@ -514,6 +517,7 @@ tcModuleScc modules = do
   schemes <- mapM (traverse checkUserSig) rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
   pending <- zipWithM tcModuleBody schemes derivingFinalized
+  mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultGlobalKindMetas structuralKeys
   annotated <- mapM annotatePendingModule pending
@@ -1870,6 +1874,37 @@ tcPatSynDecl sigs groupId decl patSyn = do
                           results = TcBindingResult name displayName zonkedTy : matcherResults <> builderResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
             _ -> pure failedResult
+
+-- | A pattern synonym bundled with a type in an export list must have that
+-- type as its scrutinee type.
+checkBundledPatSyns :: Module -> TcM ()
+checkBundledPatSyns modu =
+  mapM_ (go NoSourceSpan) (fromMaybe [] (moduleExports modu))
+  where
+    go sp spec =
+      case spec of
+        ExportAnn ann inner -> go (fromMaybe sp (fromAnnotation ann)) inner
+        ExportWith _ _ typeName members -> mapM_ (checkMember sp (nameText typeName)) members
+        ExportWithAll _ _ typeName _ members -> mapM_ (checkMember sp (nameText typeName)) members
+        _ -> pure ()
+    checkMember sp typeName member = do
+      let memberName = nameText (ieBundledMemberName member)
+      patSyns <- getPatSyns
+      forM_ [info | info <- patSyns, psiName info == memberName] $ \info ->
+        case patSynResultTyConName info of
+          Just resultName
+            | resultName /= typeName ->
+                emitError sp (OtherError ("pattern synonym " <> T.unpack memberName <> " has the scrutinee type " <> T.unpack resultName <> " and cannot be bundled with " <> T.unpack typeName))
+          _ -> pure ()
+    patSynResultTyConName info =
+      let ForAll _ _ body = psiScheme info
+       in case resultType body of
+            TcTyCon tyCon _ -> Just (tyConName tyCon)
+            _ -> Nothing
+    resultType ty =
+      case ty of
+        TcFunTy _ result -> resultType result
+        _ -> ty
 
 -- | The parts of a pattern synonym type
 -- @forall univ. req => forall ex. prov => x1 -> .. -> xn -> scrutinee@.

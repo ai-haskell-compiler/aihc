@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test (Expr (.., Wrong), Other) where
+               └─ error: pattern synonym Wrong has the scrutinee type Other and cannot be bundled with Expr
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Expr = Lit Bool
+       │      └─ type: Bool → Expr
+       └─ type: Type
+  data Other = Other Bool
+       │       └─ type: Bool → Other
+       └─ type: Type
+  pattern Wrong :: Bool -> Other
+  pattern Wrong x = Other x
+  │                 │     └─ type: Bool
+  │                 └─ type: Other
+  └─ type: Bool → Other
+
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test (Expr (.., Wrong), Other) where
+  data Bool = True | False
+  data Expr = Lit Bool
+  data Other = Other Bool
+  pattern Wrong :: Bool -> Other
+  pattern Wrong x = Other x
+reason: a pattern synonym bundled with a type must have that type as its scrutinee type
+status: pass

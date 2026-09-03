@@ -73,6 +73,7 @@ module Aihc.Tc.Monad
     getTyConEnv,
     addDataType,
     addPatSyn,
+    getPatSyns,
     lookupPatSyn,
     lookupPatSynTarget,
     patSynKey,
@@ -657,6 +658,9 @@ addPatSyn info = do
 
 lookupPatSyn :: TcTermKey -> TcM (Maybe PatSynInfo)
 lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)
+
+getPatSyns :: TcM [PatSynInfo]
+getPatSyns = lift $ gets (Map.elems . tcsPatSyns)
 
 -- | The pattern synonym that a resolved top-level name refers to.
 lookupPatSynTarget :: ResolvedName -> TcM (Maybe PatSynInfo)
