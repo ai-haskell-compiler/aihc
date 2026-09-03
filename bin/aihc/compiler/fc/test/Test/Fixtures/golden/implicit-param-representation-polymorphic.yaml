@@ -1,0 +1,45 @@
+---
+extensions:
+- ImplicitParams
+- MagicHash
+- KindSignatures
+- ExplicitForAll
+modules:
+- |
+  module Test where
+  import GHC.Prim (raise#)
+  import GHC.Types (RuntimeRep, TYPE)
+  data Message = Message
+
+  failure :: forall (r :: RuntimeRep) (a :: TYPE r). (?message :: Message) => a
+  failure = raise# ?message
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    2.vraise# :: ∀(r : 3.tRuntimeRep) (a : 3.tType) (b : 3.tTYPE r). FUN @3.tLiftedRep @r a b
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tMessage :: 3.tType {
+      pub 1.vMessage :: 1.tMessage
+  }
+
+  pub val 1.vfailure :: ∀(r : 3.tRuntimeRep) (a : 3.tTYPE r). FUN @3.tLiftedRep @r 1.tMessage a
+   = Λ(r : 3.tRuntimeRep).
+    Λ(a : 3.tTYPE r).
+      λ($d0 : 1.tMessage).
+        2.vraise# @r @1.tMessage @a $d0
+status: pass
+reason: the evidence arrow of an implicit parameter returns a representation-polymorphic body

@@ -226,7 +226,13 @@ convertTypeWithExpectedKind env expectedKind ty =
     TcQualTy predicates body -> do
       convertedPredicates <- mapM (convertPred env) predicates
       convertedBody <- convertType env body
-      pure (foldr (funType env) convertedBody convertedPredicates)
+      -- The innermost evidence arrow returns the body, which can have a
+      -- representation-polymorphic kind, as in @HasCallStack => a@.
+      let bodyRep = either (const (liftedRepType env)) id (typeRep env body)
+          evidenceArrows [] = convertedBody
+          evidenceArrows [predicate] = TyFun (liftedRepType env) bodyRep predicate convertedBody
+          evidenceArrows (predicate : rest) = funType env predicate (evidenceArrows rest)
+      pure (evidenceArrows convertedPredicates)
     TcAppTy function argument ->
       TyApp <$> convertType env function <*> convertType env argument
 
