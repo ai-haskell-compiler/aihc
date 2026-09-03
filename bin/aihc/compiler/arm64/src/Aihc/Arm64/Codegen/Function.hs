@@ -117,7 +117,6 @@ compileExpr env prefix label expression =
     GrinStoreUnchecked {} -> unsupportedExpression "unbound unchecked store"
     GrinStoreRec bindings body -> compileStoreRec allocateNode bindings body
     GrinStoreRecUnchecked bindings body -> compileStoreRec allocateNodeUnchecked bindings body
-    GrinFetch {} -> unsupportedExpression "direct-style fetch return after CPS"
     GrinUpdate {} -> unsupportedExpression "direct-style update return after CPS"
     GrinUpdateBlackhole {} -> unsupportedExpression "unbound blackhole update"
     GrinEval {} -> unsupportedExpression "direct-style eval after CPS"
@@ -343,7 +342,6 @@ compileDirectBinding env vars expression =
             [] -> lift (Left (Arm64UnsupportedExpression "heap reservation size"))
       | otherwise -> lift (Left (Arm64UnsupportedExpression "heap reservation result arity"))
     GrinStoreUnchecked node -> liftEither (materializeNodeUnchecked env node) >>= storeSingleResult
-    GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeSingleResult
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
     GrinPrimitiveCall _ name [left, right]

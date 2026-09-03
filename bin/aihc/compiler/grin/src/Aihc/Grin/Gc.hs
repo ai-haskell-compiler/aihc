@@ -130,7 +130,6 @@ relocateExpr bound expression =
       let recursiveVars = Set.fromList (map fst bindings)
       body' <- relocateExpr (bound <> recursiveVars) body
       pure (GrinStoreRecUnchecked bindings body')
-    GrinFetch {} -> pure expression
     GrinUpdate {} -> pure expression
     GrinUpdateBlackhole {} -> pure expression
     GrinEval {} -> pure expression
@@ -206,7 +205,6 @@ substituteExpr substitutions expression =
     GrinStoreUnchecked node -> GrinStoreUnchecked (substituteNode substitutions node)
     GrinStoreRec bindings body -> substituteStoreRec GrinStoreRec substitutions bindings body
     GrinStoreRecUnchecked bindings body -> substituteStoreRec GrinStoreRecUnchecked substitutions bindings body
-    GrinFetch runtimeRep pointer -> GrinFetch runtimeRep (substituteValue substitutions pointer)
     GrinUpdate pointer value -> GrinUpdate (substituteValue substitutions pointer) (substituteValue substitutions value)
     GrinUpdateBlackhole pointer value -> GrinUpdateBlackhole (substituteValue substitutions pointer) (substituteValue substitutions value)
     GrinEval runtimeRep value -> GrinEval runtimeRep (substituteValue substitutions value)
@@ -286,7 +284,6 @@ maximumProgramVarUnique program =
         GrinStoreUnchecked node -> nodeUniques node
         GrinStoreRec bindings body -> storeRecUniques bindings body
         GrinStoreRecUnchecked bindings body -> storeRecUniques bindings body
-        GrinFetch _ value -> valueUnique value
         GrinUpdate pointer value -> concatMap valueUnique [pointer, value]
         GrinUpdateBlackhole pointer value -> concatMap valueUnique [pointer, value]
         GrinEval _ value -> valueUnique value

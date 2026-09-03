@@ -140,7 +140,6 @@ lintExpr env bound expr =
       let recursiveBound = Set.fromList (map fst bindings) <> bound
        in concatMap (lintNode env recursiveBound . snd) bindings
             <> lintExpr env recursiveBound body
-    GrinFetch _ pointer -> lintValue bound pointer
     GrinUpdate pointer value ->
       [GrinLintUpdateNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, not (isLiftedRuntimeRep runtimeRep)]
         <> lintValue bound pointer
@@ -301,7 +300,6 @@ exprRuntimeReps expr =
     GrinStoreUnchecked {} -> Just [liftedGrinRep]
     GrinStoreRec _ body -> exprRuntimeReps body
     GrinStoreRecUnchecked _ body -> exprRuntimeReps body
-    GrinFetch runtimeRep _ -> Just (runtimeRepComponents runtimeRep)
     GrinUpdate _ value -> Just [grinValueRuntimeRep value]
     GrinUpdateBlackhole _ value -> Just [grinValueRuntimeRep value]
     GrinEval runtimeRep _ -> Just (runtimeRepComponents runtimeRep)

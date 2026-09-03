@@ -336,9 +336,6 @@ evalScheduledExpr env expr continue =
       runtimeNodes <- mapM (materializeNode recursiveEnv . snd) bindings
       mapM_ (uncurry writeCell) (zip locations (map storedCell runtimeNodes))
       evalScheduledExpr recursiveEnv body continue
-    GrinFetch _ pointer -> do
-      value <- materializeValue env pointer >>= fetchValue
-      continue [value]
     GrinUpdate pointer value -> do
       pointerValue <- materializeValue env pointer
       updatedValue <- materializeValue env value

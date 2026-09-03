@@ -278,7 +278,6 @@ atomicExpr =
       MP.try (unaryNodeExpr "store-unchecked" GrinStoreUnchecked),
       unaryNodeExpr "store" GrinStore,
       ensureHeapExpr,
-      runtimeRepValueExpr "fetch" GrinFetch,
       twoValuesExpr "update-blackhole" GrinUpdateBlackhole,
       twoValuesExpr "update" GrinUpdate,
       runtimeRepValueExpr "eval" GrinEval,

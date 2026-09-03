@@ -219,7 +219,6 @@ grinExprFreeVariables expression =
     GrinStoreUnchecked node -> nodeUses node
     GrinStoreRec bindings body -> storeRecUses bindings body
     GrinStoreRecUnchecked bindings body -> storeRecUses bindings body
-    GrinFetch _ pointer -> valueUses pointer
     GrinUpdate pointer value -> valueUses pointer <> valueUses value
     GrinEval _ value -> valueUses value
     GrinCpsEval _ value continuation updateContinuation -> foldMap valueUses [value, continuation, updateContinuation]

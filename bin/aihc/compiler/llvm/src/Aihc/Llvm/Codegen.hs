@@ -422,7 +422,6 @@ compileExpr env prefix label expression =
     GrinStore {} -> unsupported "direct-style store return after CPS"
     GrinEnsureHeap {} -> unsupported "unbound heap reservation"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
-    GrinFetch {} -> unsupported "direct-style fetch return after CPS"
     GrinUpdate {} -> unsupported "direct-style update after CPS"
     GrinUpdateBlackhole {} -> unsupported "unbound blackhole update"
     GrinEval {} -> unsupported "direct-style eval after CPS"
@@ -675,19 +674,6 @@ compileDirectBinding env vars expression =
                 <> relocated
             )
     GrinStoreUnchecked node -> materializeNode env True node >>= storeOne
-    GrinFetch _ pointer -> do
-      (pointerLines, pointerOperand) <- materializeValue env pointer
-      (objectLines, object) <- intToPtr pointerOperand
-      fieldPointer <- freshValue
-      value <- freshValue
-      storeOne
-        ( pointerLines
-            <> objectLines
-            <> [ "  " <> fieldPointer <> " = getelementptr i64, ptr " <> object <> ", i64 1",
-                 "  " <> value <> " = load i64, ptr " <> fieldPointer <> ", align 8"
-               ],
-          value
-        )
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
     GrinPrimitiveCall IntRep name [left, right]

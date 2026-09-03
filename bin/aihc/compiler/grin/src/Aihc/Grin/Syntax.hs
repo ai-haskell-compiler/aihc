@@ -150,7 +150,6 @@ data GrinExpr
   | -- | A recursive allocation group covered by one preceding
     -- 'GrinEnsureHeap'.
     GrinStoreRecUnchecked ![(GrinVar, GrinNode)] !GrinExpr
-  | GrinFetch !GrinRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
   | -- | Enter a heap pointer until it points to a node in weak-head normal
     -- form. The result remains a heap pointer; evaluation never returns the
@@ -261,7 +260,6 @@ grinProgramLiterals program =
         GrinStoreUnchecked node -> nodeLiterals node
         GrinStoreRec bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
         GrinStoreRecUnchecked bindings body -> concatMap (nodeLiterals . snd) bindings <> exprLiterals body
-        GrinFetch _ pointer -> valueLiterals pointer
         GrinUpdate pointer value -> valueLiterals pointer <> valueLiterals value
         GrinEval _ value -> valueLiterals value
         GrinCpsEval _ value continuation updateContinuation ->
@@ -314,7 +312,6 @@ grinExprGlobalReferences = exprReferences
         GrinStoreUnchecked node -> nodeReferences node
         GrinStoreRec bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
         GrinStoreRecUnchecked bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
-        GrinFetch _ pointer -> valueReferences pointer
         GrinUpdate pointer value -> valueReferences pointer <> valueReferences value
         GrinEval _ value -> valueReferences value
         GrinCpsEval _ value continuation updateContinuation -> valuesReferences [value, continuation, updateContinuation]

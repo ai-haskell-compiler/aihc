@@ -200,7 +200,6 @@ bodyCalls expression =
     GrinStore {} -> Set.empty
     GrinEnsureHeap {} -> Set.empty
     GrinStoreUnchecked {} -> Set.empty
-    GrinFetch {} -> Set.empty
     GrinUpdate {} -> Set.empty
     GrinEval {} -> Set.empty
     GrinCpsEval {} -> Set.empty

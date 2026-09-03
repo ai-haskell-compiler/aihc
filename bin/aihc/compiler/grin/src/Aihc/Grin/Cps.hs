@@ -199,8 +199,6 @@ transformTail updateName parent bound resultRep continuation expression =
       GrinStoreRec bindings
         <$> transformTail updateName parent (bound <> recursiveVars) resultRep continuation body
     GrinStoreRecUnchecked {} -> alreadyTransformed
-    GrinFetch runtimeRep value ->
-      continueDirect runtimeRep continuation (GrinFetch runtimeRep value)
     GrinUpdate pointer value ->
       continueDirect (grinValueRuntimeRep value) continuation (GrinUpdate pointer value)
     GrinUpdateBlackhole pointer value ->
@@ -386,7 +384,6 @@ isDirectExpression expression =
   case expression of
     GrinConstant {} -> True
     GrinStore {} -> True
-    GrinFetch {} -> True
     GrinUpdate {} -> True
     GrinUpdateBlackhole {} -> True
     GrinPrimitiveCall _ name _ -> not (isControlPrimitive name)
@@ -465,7 +462,6 @@ exprUniques expression =
     GrinStoreRecUnchecked bindings body ->
       concatMap (\(var, node) -> grinVarUnique var : nodeUniques node) bindings
         <> exprUniques body
-    GrinFetch _ pointer -> valueUniques pointer
     GrinUpdate pointer value -> valueUniques pointer <> valueUniques value
     GrinUpdateBlackhole pointer value -> valueUniques pointer <> valueUniques value
     GrinEval _ value -> valueUniques value
