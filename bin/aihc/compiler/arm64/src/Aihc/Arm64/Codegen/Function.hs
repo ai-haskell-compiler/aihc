@@ -77,6 +77,7 @@ compileFunction env function = do
           <> [ arm64Align 3,
                arm64Label label
              ]
+          <> storeCurrentSrt (Map.lookup (grinFunctionName function) (compileSrtLabels env))
           <> registerParameterCopies
       blocks =
         BlockLayout.renderBlocks

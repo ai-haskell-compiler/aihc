@@ -41,6 +41,8 @@ _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");
 #endif
 
+const AihcSrt *aihc_current_srt = NULL;
+
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine);

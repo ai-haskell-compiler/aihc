@@ -42,6 +42,7 @@ tests =
       testCase "preserves first-match case semantics" (testProgram "F" firstMatchCaseProgram),
       testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
       testCase "keeps static root entries in llvm.used" testStaticRootEntries,
+      testCase "emits static reference tables and publishes them on entry" testStaticReferenceTables,
       testCase "traces an updated static thunk across collections" (testProgramWith RuntimeGcSemispace ["-DAIHC_SEMISPACE_BYTES=1024"] "S" staticRootProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
       testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram),
@@ -336,6 +337,42 @@ testStaticRootEntries = do
       assertBool "llvm.used lists the main root" (any ("_root" `T.isInfixOf`) usedLines)
       assertBool "llvm.used lives in llvm.metadata" (any ("section \"llvm.metadata\"" `T.isInfixOf`) usedLines)
     _ -> assertFailure "LLVM compilation did not return two units"
+
+-- | Every compiled function publishes its own table on entry, the tables name
+-- the static objects their code reaches, and the info tables of a function's
+-- closures point at the same record.
+testStaticReferenceTables :: IO ()
+testStaticReferenceTables = do
+  sources <- compile staticRootProgram
+  case sources of
+    [moduleSource, _entrySource] -> do
+      let sourceLines = T.lines moduleSource
+          tableLines = filter ("@aihc_llvm_srt_" `T.isPrefixOf`) sourceLines
+          storeLines = filter (", ptr @aihc_current_srt, align 8" `T.isSuffixOf`) sourceLines
+          definitionLines =
+            [ line
+            | line <- sourceLines,
+              "define " `T.isPrefixOf` line,
+              "@aihc_llvm_function_" `T.isInfixOf` line,
+              not ("_info_" `T.isInfixOf` line)
+            ]
+      assertBool "emits at least one table" (not (null tableLines))
+      assertBool
+        "a table names the static thunk"
+        (any (("ptrtoint (ptr @" <> cafSymbol <> " to i64)") `T.isInfixOf`) tableLines)
+      assertBool
+        "a table names another table as its child"
+        (any (\line -> "ptrtoint (ptr @aihc_llvm_srt_" `T.isInfixOf` T.drop 1 (snd (T.breakOn "[" line))) tableLines)
+      assertBool
+        "an info table points at a table"
+        (any (\line -> "constant %AihcInfo" `T.isInfixOf` line && ", ptr @aihc_llvm_srt_" `T.isInfixOf` line) sourceLines)
+      assertEqual
+        "every compiled function publishes a table on entry"
+        (length definitionLines)
+        (length storeLines)
+    _ -> assertFailure "LLVM compilation did not return two units"
+  where
+    cafSymbol = "aihc_entry_caf"
 
 -- | The static @caf@ thunk is updated with a heap box. The action then
 -- allocates enough garbage for several collections and reads the box through

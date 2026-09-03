@@ -55,6 +55,7 @@ import Aihc.Grin.Gc
     gcGrinProgram,
     gcUpdateFunction,
   )
+import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( buildAddrLiteralPool,
@@ -100,6 +101,7 @@ compileModuleStatements gcProgram = do
   staticGlobals <- renderStaticGlobals compileEnv program
   pure $
     staticGlobals
+      <> renderStaticReferenceTables compileEnv
       <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions []
       <> nonExecutableStack
@@ -175,6 +177,7 @@ compileEntryUnit entryName gcProgram = do
          ]
       <> mainEpilogue
       <> staticGlobals
+      <> renderStaticReferenceTables compileEnv
       <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)
       <> nonExecutableStack
@@ -278,16 +281,24 @@ compileEnvironmentWith exposeAllFunctions continuationFrames program =
         Map.fromList (buildAddrLiteralPool program),
       compileNodeInfoLabels = constructorInfoLabels <> functionInfoLabels,
       compileRuntimeInfos = map third constructorInfoEntries <> functionInfos,
+      compileStaticReferences = staticReferences,
+      compileSrtLabels = srtLabels,
       compileContinuationFunctions = Set.empty,
       compileExposeAllFunctions = exposeAllFunctions,
       compileAllowUnsupportedPrimitives = False
     }
   where
     constructorLayouts = grinConstructors program
+    staticReferences = programStaticReferences program
+    srtLabels =
+      Map.fromList
+        [ (name, ".Laihc_srt_" <> tshow index)
+        | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
+        ]
     constructorInfoEntries =
       [ ( key,
           label,
-          RuntimeInfo label (InfoConstructor (constructorStageLabel name 0)) fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key)
+          RuntimeInfo label (InfoConstructor (constructorStageLabel name 0)) fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key) Nothing
         )
       | (name, layouts) <- constructorLayouts,
         let arity = length layouts,
@@ -330,6 +341,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames program =
           )
           (Map.lookup functionName continuationFrames)
           (runtimeInfoKeyObjectKind key)
+          (Map.lookup functionName srtLabels)
       | (key, functionName) <- functionInfoKeys,
         let label = functionInfoLabels Map.! key
             target = functionLabelMap Map.! functionName

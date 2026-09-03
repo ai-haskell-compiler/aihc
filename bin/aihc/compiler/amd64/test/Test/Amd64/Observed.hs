@@ -80,6 +80,7 @@ compileObservedFunction entryName gcProgram = do
           <> mainEpilogue
           <> threadDoneContinuation
           <> staticGlobals
+          <> renderStaticReferenceTables compileEnv
           <> renderLinkedLocals functions
           <> renderCompiledSupport compileEnv functions observedRuntimeInfos
           <> nonExecutableStack

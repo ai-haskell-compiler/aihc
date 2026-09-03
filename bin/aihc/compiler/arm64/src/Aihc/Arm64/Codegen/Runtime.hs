@@ -40,6 +40,7 @@ module Aihc.Arm64.Codegen.Runtime
     renderEnterStubs,
     renderNativeControl,
     renderRuntimeInfos,
+    renderStaticReferenceTables,
     renderRuntimeSupport,
     restoreApplyStackLines,
     runtimeInfoFunctionName,
@@ -48,6 +49,7 @@ module Aihc.Arm64.Codegen.Runtime
     runtimeInfoKeyObjectKind,
     runtimeInfoKeyRemainingArity,
     runtimeInfoKeyStages,
+    storeCurrentSrt,
     runtimeObjectClosure,
     runtimeObjectNode,
     storeAt,
@@ -74,6 +76,7 @@ import Aihc.Arm64.Assemble
     arm64Section,
   )
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
+import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
@@ -105,6 +108,8 @@ data CompileEnv = CompileEnv
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
+    compileStaticReferences :: !StaticReferences,
+    compileSrtLabels :: !(Map FunctionName Text),
     compileContinuationFunctions :: !(Set.Set FunctionName),
     compileExposeAllFunctions :: !Bool,
     compileAllowUnsupportedPrimitives :: !Bool
@@ -140,7 +145,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoEnter :: !(Maybe RuntimeEnter),
     runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind),
-    runtimeInfoObjectKind :: !Int
+    runtimeInfoObjectKind :: !Int,
+    runtimeInfoSrt :: !(Maybe Text)
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -187,7 +193,8 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       (Just appliedInfoLabel)
       (Just (RuntimeEnter target (length storedFields) (length suppliedFields)))
       (Just frameKind)
-      runtimeObjectClosure,
+      runtimeObjectClosure
+      Nothing,
     RuntimeInfo
       appliedInfoLabel
       (InfoAddress target)
@@ -197,6 +204,7 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       Nothing
       (Just frameKind)
       runtimeObjectClosure
+      Nothing
   ]
 
 renderEnterStubs :: [RuntimeInfo] -> [Arm64Statement]
@@ -307,7 +315,7 @@ renderRuntimeInfos infos = [arm64Section ReadOnlySection] <> concatMap renderInf
              maybe (arm64Quad 0) (const (arm64QuadSymbol (enterEntryLabel info))) (runtimeInfoEnter info),
              arm64Quad (fromIntegral (continuationFrameKindCode (runtimeInfoFrameKind info))),
              arm64Quad (fromIntegral (runtimeInfoObjectKind info)),
-             arm64Quad 0
+             maybe (arm64Quad 0) arm64QuadSymbol (runtimeInfoSrt info)
            ]
       where
         fields = runtimeInfoFields info
@@ -564,6 +572,42 @@ immediate register value
   | otherwise = arm64Instruction (ArmLdrImmediate register integer)
   where
     integer = toInteger value
+
+-- | Publish one function's static reference table as the machine's current
+-- table. A collection can happen anywhere inside a function - at one of its
+-- own safepoints or inside a runtime helper it called - and the running
+-- function has no heap object of its own to carry the table, so it stores the
+-- table on entry. Functions without a table store null rather than leaving a
+-- table behind from a function that has already transferred control away.
+storeCurrentSrt :: Maybe Text -> [Arm64Statement]
+storeCurrentSrt label =
+  maybe [immediate X9 (0 :: Int)] (address X9) label
+    <> address X10 "_aihc_current_srt"
+    <> [storeByteOffset X9 X10 0]
+
+-- | Render one record per non-empty static reference table: the collector's
+-- walk link, the two counts, then the static objects followed by the tables of
+-- the directly called functions.
+renderStaticReferenceTables :: CompileEnv -> [Arm64Statement]
+renderStaticReferenceTables env =
+  concatMap renderTable (Map.toList (staticReferenceTables (compileStaticReferences env)))
+  where
+    renderTable (name, table) =
+      case Map.lookup name (compileSrtLabels env) of
+        Nothing -> []
+        Just label ->
+          [ arm64Section DataSection,
+            arm64Align 3,
+            arm64Label label,
+            arm64Quad 0,
+            arm64Quad (fromIntegral (length (srtObjects table))),
+            arm64Quad (fromIntegral (length (srtChildren table)))
+          ]
+            <> [arm64QuadSymbol ("_" <> renderLinkedGlobalSymbol object) | object <- srtObjects table]
+            <> [ arm64QuadSymbol childLabel
+               | child <- srtChildren table,
+                 Just childLabel <- [Map.lookup child (compileSrtLabels env)]
+               ]
 
 address :: Arm64Register -> Text -> [Arm64Statement]
 address register label =
