@@ -1,0 +1,16 @@
+---
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Int#)
+
+  data Int = I# Int#
+
+  foreign import ccall interruptible "identity" identityInt :: Int -> Int
+expected: ''
+status: fail
+reason: the runtime cannot interrupt a foreign call

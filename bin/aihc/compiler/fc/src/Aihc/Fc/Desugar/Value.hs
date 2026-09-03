@@ -401,13 +401,14 @@ desugarForeign annotation foreignPlan foreignDecl =
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
+      safety <- convertForeignSafety (Syn.foreignSafety foreignDecl)
       symbol <- foreignSymbol foreignDecl
       dependencies <- foreignImportPlanDependencies annotation plan
       let convention =
             CCall
               CCallSpec
                 { ccallSymbol = symbol,
-                  ccallSafety = convertForeignSafety (Syn.foreignSafety foreignDecl),
+                  ccallSafety = safety,
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
                   ccallEffect = convertForeignEffect (tcForeignEffect plan)
@@ -514,13 +515,15 @@ convertCAbiType abiType =
     TcForeignAddr -> CAbiAddr
 
 -- | An omitted safety mark means @safe@, as in the Haskell report. The runtime
--- is single-threaded, so both marks lower to the same call.
-convertForeignSafety :: Maybe Syn.ForeignSafety -> ForeignSafety
+-- is single-threaded, so both marks lower to the same call. An @interruptible@
+-- call needs asynchronous interruption, which the runtime does not have.
+convertForeignSafety :: Maybe Syn.ForeignSafety -> ValueM ForeignSafety
 convertForeignSafety safety =
   case safety of
-    Just Syn.Unsafe -> ForeignUnsafe
-    Just Syn.Safe -> ForeignSafe
-    Nothing -> ForeignSafe
+    Just Syn.Unsafe -> pure ForeignUnsafe
+    Just Syn.Safe -> pure ForeignSafe
+    Nothing -> pure ForeignSafe
+    Just Syn.Interruptible -> failValue "System FC does not accept interruptible foreign imports"
 
 convertForeignEffect :: TcForeignEffect -> ForeignEffect
 convertForeignEffect effect =

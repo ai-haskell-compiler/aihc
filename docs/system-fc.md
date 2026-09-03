@@ -104,6 +104,7 @@ GRIN lowering is temporarily disabled.
     A `ccall` keeps its safety mark.
     The runtime has one thread, thus safe and unsafe calls are equal.
     An omitted safety mark means `safe`.
+    If desugar sees `interruptible`, it fails the module.
 
 19. Recognise `GHC.Types` names by package and module identity.
     Do not add extra axioms for them.
