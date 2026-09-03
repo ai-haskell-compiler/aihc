@@ -1,6 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 
 -- | Conservative lowering from System FC to GRIN.
 module Aihc.Grin.Lower
@@ -35,8 +34,21 @@ data LowerEnv = LowerEnv
     lowerTypeSubstitution :: !(Map Fc.Name Fc.Type),
     lowerGlobalNames :: !(Map Fc.Name Text),
     lowerConstructorArities :: !(Map Fc.Name Int),
-    lowerLocalFunctions :: !(Map Fc.Name (Int, Maybe (FunctionName, GrinRep)))
+    lowerLocalFunctions :: !(Map Fc.Name LocalFunction)
   }
+
+-- | A top-level function of this module. Its entry function is named before
+-- any code is lowered, so a call of it compiles to a direct call and a
+-- suspension of it to a plain thunk node.
+data LocalFunction = LocalFunction
+  { localFunctionEntry :: !FunctionName,
+    -- | The runtime layout of every logical parameter.
+    localFunctionLayouts :: ![[GrinRep]],
+    localFunctionResultRep :: !GrinRep
+  }
+
+localFunctionArity :: LocalFunction -> Int
+localFunctionArity = length . localFunctionLayouts
 
 data LowerState = LowerState
   { lowerNextUnique :: !Int,
@@ -71,13 +83,12 @@ lowerProgram program = do
   let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       constructorArities = constructorArityTable types
-      localFunctionArities = Map.map (,Nothing) (localFunctionArityTable program)
-      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities localFunctionArities
+      baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
       initialState = LowerState (-1000000000) 0 []
-  (discoveryParts, discoveryState) <- runStateT (mconcat <$> mapM (lowerDecl baseEnv) (Fc.programDecls program)) initialState
-  localFunctions <- localFunctionTable baseEnv program discoveryParts discoveryState
-  let env = baseEnv {lowerLocalFunctions = localFunctions}
-  (parts, finalState) <- runStateT (mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)) initialState
+  (parts, finalState) <- flip runStateT initialState $ do
+    localFunctions <- localFunctionTable baseEnv program
+    let env = baseEnv {lowerLocalFunctions = localFunctions}
+    mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
   pure
     ( tidyGrinProgram
         ( normalizeGrinProgram
@@ -141,9 +152,9 @@ lowerValueDecl env declaration = do
     else do
       globalName <- lookupGlobalName env (Fc.valName declaration)
       node <-
-        if isFunctionExpression (Fc.valBody declaration)
-          then makeClosure env (Fc.valBody declaration)
-          else makeThunk env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
+        case Map.lookup (Fc.valName declaration) (lowerLocalFunctions env) of
+          Just function -> makeClosure env (Just (localFunctionEntry function)) (Fc.valBody declaration)
+          Nothing -> lazyNode env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
       pure mempty {topGlobals = [(globalName, node)]}
 
 isFunctionExpression :: Fc.Expr -> Bool
@@ -401,10 +412,9 @@ lowerExpr env expression =
     Fc.ExVar name -> lowerVariable env name
     Fc.ExLit literal -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
     Fc.ExApp function argument -> lowerApplication env function argument
-    Fc.ExTyApp (Fc.ExTyLam binder body) argument ->
-      lowerExpr env {lowerTypeSubstitution = Map.insert (Fc.binderName binder) (applySubstitution env argument) (lowerTypeSubstitution env)} body
+    Fc.ExTyApp (Fc.ExTyLam binder body) argument -> lowerExpr (substituteTypeBinder env binder argument) body
     Fc.ExTyApp function _ -> lowerExpr env function
-    Fc.ExLam {} -> GrinStore <$> makeClosure env expression
+    Fc.ExLam {} -> GrinStore <$> makeClosure env Nothing expression
     Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
@@ -450,7 +460,7 @@ lowerApplication env function argument = do
       | Just localFunction <- Map.lookup name (lowerLocalFunctions env) ->
           lowerLocalFunctionApplication env resultRep name localFunction arguments
     _ ->
-      lowerLazySingle env "function" function $ \functionValue -> do
+      lowerLazy env "function" function $ \functionValue -> do
         evaluated <- freshVar "function_whnf" liftedGrinRep
         lowerArgument env argument $ \argumentValues ->
           pure
@@ -482,24 +492,25 @@ lowerConstructorApplication env name remaining = go []
     go values (argument : arguments) =
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
-lowerLocalFunctionApplication :: LowerEnv -> GrinRep -> Fc.Name -> (Int, Maybe (FunctionName, GrinRep)) -> [Fc.Expr] -> LowerM GrinExpr
-lowerLocalFunctionApplication env resultRep name (arity, maybeFunctionEntry) arguments
-  | length arguments < arity = do
-      globalName <- lookupGlobalName env name
-      lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
-  | Just (functionName, functionResultRep) <- maybeFunctionEntry,
-    functionResultRep == directResultRep =
+lowerLocalFunctionApplication :: LowerEnv -> GrinRep -> Fc.Name -> LocalFunction -> [Fc.Expr] -> LowerM GrinExpr
+lowerLocalFunctionApplication env resultRep name function arguments
+  | length arguments < arity =
+      lowerArguments env arguments $ \argumentValues ->
+        pure (GrinStore (GrinNode (GrinClosure entry (drop (length arguments) (localFunctionLayouts function))) argumentValues))
+  | localFunctionResultRep function == directResultRep =
       lowerArguments env saturatedArguments $ \argumentValues ->
         case remainingArguments of
-          [] -> pure (GrinCall resultRep functionName argumentValues)
+          [] -> pure (GrinCall resultRep entry argumentValues)
           _ -> do
             applied <- freshVar "function_application" liftedGrinRep
             rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
-            pure (GrinBind [applied] (GrinCall liftedGrinRep functionName argumentValues) rest)
+            pure (GrinBind [applied] (GrinCall liftedGrinRep entry argumentValues) rest)
   | otherwise = do
       globalName <- lookupGlobalName env name
       lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
   where
+    entry = localFunctionEntry function
+    arity = localFunctionArity function
     (saturatedArguments, remainingArguments) = splitAt arity arguments
     directResultRep
       | null remainingArguments = resultRep
@@ -535,10 +546,10 @@ lowerSpecialApplication env resultRep name arguments =
         [] -> throwLower "GRIN process exit requires a status value"
     ("unsafeCoerce#", value : _) -> lowerArgument env value (pure . GrinConstant)
     ("raise#", exception : _) ->
-      lowerLazySingle env "exception" exception (pure . GrinThrow)
+      lowerLazy env "exception" exception (pure . GrinThrow)
     ("catch#", action : handler : state : _) ->
-      lowerLazySingle env "action" action $ \actionValue ->
-        lowerLazySingle env "handler" handler $ \handlerValue ->
+      lowerLazy env "action" action $ \actionValue ->
+        lowerLazy env "handler" handler $ \handlerValue ->
           lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
 
@@ -590,24 +601,145 @@ lowerArgument env expression continuation = do
     then continuation []
     else
       if isLiftedRuntimeRep representation
-        then lowerLazySingle env "argument" expression (continuation . (: []))
+        then lowerLazy env "argument" expression (continuation . (: []))
         else bindExpression env "argument" expression continuation
 
-lowerLazySingle :: LowerEnv -> Text -> Fc.Expr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerLazySingle env hint expression continuation =
+-- | Name the value of a lifted expression without evaluating it.
+--
+-- The lazy form of an expression is the cheapest thing that stands for it
+-- without running it: a variable is itself, a lambda is a closure, a
+-- constructor application or a call of a known function is a node whose
+-- operands are named the same way, and a let floats its bindings out. Only an
+-- expression whose lazy form needs code of its own, such as a case or a call
+-- of an unknown function, is suspended in a function by 'makeThunk'.
+lowerLazy :: LowerEnv -> Text -> Fc.Expr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerLazy env0 hint expression0 continuation =
   case expression of
     Fc.ExVar name ->
       case Map.lookup name (lowerLocals env) of
         Just [variable] -> continuation (GrinVarValue variable)
         Just _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
         Nothing -> lookupGlobalName env name >>= continuation . GrinGlobalValue
-    Fc.ExTyApp inner _ -> lowerLazySingle env hint inner continuation
-    Fc.ExCast inner _ -> lowerLazySingle env hint inner continuation
+    Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
+    Fc.ExLet binding body -> do
+      representation <- binderRep env (Fc.bindBinder binding)
+      if isLiftedRuntimeRep representation
+        then lowerLetBinding env binding (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
+        else suspend
+    Fc.ExRec bindings body -> lowerRecBindings env bindings (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
     _ -> do
-      node <- makeThunk env hint expression
+      shape <- lazyNodeShape env expression
+      case shape of
+        Just (tag, operands) -> do
+          classified <- mapM (classifyOperand env) operands
+          case sequence classified of
+            Just lazyOperands -> lowerLazyOperands env lazyOperands (storeNode . GrinNode tag)
+            Nothing -> suspend
+        Nothing -> suspend
+  where
+    (env, expression) = stripLazyWrappers env0 expression0
+    suspend = makeThunk env hint expression >>= storeNode
+    storeNode node = do
       pointer <- freshVar hint liftedGrinRep
       rest <- continuation (GrinVarValue pointer)
       pure (GrinBind [pointer] (GrinStore node) rest)
+
+-- | The node that stands for a lifted expression where no pointer can be
+-- bound before it: a recursive binding or a global. The node is direct only
+-- when every field is already a value; anything else is suspended.
+lazyNode :: LowerEnv -> Text -> Fc.Expr -> LowerM GrinNode
+lazyNode env0 hint expression0 =
+  case expression of
+    Fc.ExLam {} -> makeClosure env Nothing expression
+    _ -> do
+      shape <- lazyNodeShape env expression
+      case shape of
+        Just (tag, operands) -> do
+          classified <- mapM (classifyOperand env) operands
+          case traverse (settledOperand =<<) classified of
+            Just values -> pure (GrinNode tag (concat values))
+            Nothing -> makeThunk env hint expression
+        Nothing -> makeThunk env hint expression
+  where
+    (env, expression) = stripLazyWrappers env0 expression0
+    settledOperand operand =
+      case operand of
+        SettledOperand values -> Just values
+        LazyOperand {} -> Nothing
+
+-- | Drop the type applications, type lambdas and casts that carry no runtime
+-- value, keeping the type environment they establish.
+stripLazyWrappers :: LowerEnv -> Fc.Expr -> (LowerEnv, Fc.Expr)
+stripLazyWrappers env expression =
+  case expression of
+    Fc.ExTyApp (Fc.ExTyLam binder body) argument -> stripLazyWrappers (substituteTypeBinder env binder argument) body
+    Fc.ExTyApp inner _ -> stripLazyWrappers env inner
+    Fc.ExTyLam binder body -> stripLazyWrappers (extendTypeBinder env binder) body
+    Fc.ExCast inner _ -> stripLazyWrappers env inner
+    _ -> (env, expression)
+
+-- | The node an application allocates to when it needs no code of its own,
+-- with the operands that fill its fields: a constructor application, a
+-- saturated call of a known function with a lifted result, or a partial
+-- application of a known function.
+lazyNodeShape :: LowerEnv -> Fc.Expr -> LowerM (Maybe (GrinNodeTag, [Fc.Expr]))
+lazyNodeShape env expression =
+  case collectApplications expression of
+    (Fc.ExVar name, arguments)
+      | Map.member (Fc.nameText name) specialPrimitiveArities -> pure Nothing
+      | "(#" `T.isPrefixOf` Fc.nameText name -> pure Nothing
+      | Just arity <- Map.lookup name (lowerConstructorArities env),
+        length arguments <= arity -> do
+          representation <- expressionRuntimeRep env expression
+          pure
+            ( if isLiftedRuntimeRep representation
+                then Just (GrinConstructor (constructorTag name) (arity - length arguments), arguments)
+                else Nothing
+            )
+      | Just function <- Map.lookup name (lowerLocalFunctions env) ->
+          pure
+            ( case compare (length arguments) (localFunctionArity function) of
+                LT -> Just (GrinClosure (localFunctionEntry function) (drop (length arguments) (localFunctionLayouts function)), arguments)
+                EQ
+                  | isLiftedRuntimeRep (localFunctionResultRep function) ->
+                      Just (GrinThunk (localFunctionEntry function), arguments)
+                _ -> Nothing
+            )
+    _ -> pure Nothing
+
+-- | An operand of a lazily allocated node.
+data LazyOperand
+  = -- | Values that already exist, so naming them costs nothing.
+    SettledOperand [GrinValue]
+  | -- | A lifted expression that 'lowerLazy' names in its own lazy form.
+    LazyOperand Fc.Expr
+
+-- | Classify an operand, or fail when it is unlifted and not yet a value:
+-- computing it would run code the surrounding node must not run.
+classifyOperand :: LowerEnv -> Fc.Expr -> LowerM (Maybe LazyOperand)
+classifyOperand env expression = do
+  representation <- expressionRuntimeRep env expression
+  case stripValueWrappers expression of
+    _ | null (runtimeRepComponents representation) -> pure (Just (SettledOperand []))
+    Fc.ExVar name ->
+      case Map.lookup name (lowerLocals env) of
+        Just variables -> pure (Just (SettledOperand (map GrinVarValue variables)))
+        Nothing
+          | isLiftedRuntimeRep representation -> Just . SettledOperand . pure . GrinGlobalValue <$> lookupGlobalName env name
+          | otherwise -> pure Nothing
+    Fc.ExLit literal
+      | not (isLiftedRuntimeRep representation) -> Just . SettledOperand . pure . GrinLitValue <$> lowerLiteral env literal
+    _
+      | isLiftedRuntimeRep representation -> pure (Just (LazyOperand expression))
+      | otherwise -> pure Nothing
+
+lowerLazyOperands :: LowerEnv -> [LazyOperand] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerLazyOperands env = go []
+  where
+    go values [] continuation = continuation values
+    go values (SettledOperand newValues : operands) continuation = go (values <> newValues) operands continuation
+    go values (LazyOperand expression : operands) continuation =
+      lowerLazy env "argument" expression (\value -> go (values <> [value]) operands continuation)
 
 bindExpression :: LowerEnv -> Text -> Fc.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 bindExpression env hint expression continuation = do
@@ -618,36 +750,51 @@ bindExpression env hint expression continuation = do
   pure (GrinBind variables valueExpression rest)
 
 lowerLet :: LowerEnv -> Fc.Bind -> Fc.Expr -> LowerM GrinExpr
-lowerLet env binding body = do
+lowerLet env binding body = lowerLetBinding env binding (`lowerExpr` body)
+
+-- | Bind one let binding and continue with the environment that sees it.
+lowerLetBinding :: LowerEnv -> Fc.Bind -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerLetBinding env binding continuation = do
   let binder = Fc.bindBinder binding
-  representation <- liftEither (runtimeRep env (applySubstitution env (Fc.binderType binder)))
-  variables <- freshVars (Fc.nameText (Fc.binderName binder)) representation
-  let bodyEnv = bindLocal env binder variables
-  loweredBody <- lowerExpr bodyEnv body
+      hint = Fc.nameText (Fc.binderName binder)
+  representation <- binderRep env binder
   if isLiftedRuntimeRep representation
-    then do
-      node <- makeThunk env (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
-      pure (GrinBind variables (GrinStore node) loweredBody)
+    then lowerLazy env hint (Fc.bindRhs binding) $ \case
+      GrinVarValue variable -> continuation (bindLocal env binder [variable])
+      value -> do
+        variable <- freshVar hint representation
+        rest <- continuation (bindLocal env binder [variable])
+        pure (GrinBind [variable] (GrinConstant [value]) rest)
     else do
+      variables <- freshVars hint representation
       loweredRhs <- lowerExpr env (Fc.bindRhs binding)
-      pure (GrinBind variables loweredRhs loweredBody)
+      rest <- continuation (bindLocal env binder variables)
+      pure (GrinBind variables loweredRhs rest)
+
+binderRep :: LowerEnv -> Fc.Binder -> LowerM GrinRep
+binderRep env binder = liftEither (runtimeRep env (applySubstitution env (Fc.binderType binder)))
 
 lowerRec :: LowerEnv -> [Fc.Bind] -> Fc.Expr -> LowerM GrinExpr
-lowerRec env bindings body = do
+lowerRec env bindings body = lowerRecBindings env bindings (`lowerExpr` body)
+
+-- | Allocate a recursive binding group and continue with the environment
+-- that sees it.
+lowerRecBindings :: LowerEnv -> [Fc.Bind] -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerRecBindings env bindings continuation = do
   variables <- mapM makeVariables bindings
   let recursiveEnv = foldl bindOne env (zip bindings variables)
   nodes <- mapM (makeBindingNode recursiveEnv) bindings
-  loweredBody <- lowerExpr recursiveEnv body
+  loweredBody <- continuation recursiveEnv
   pure (GrinStoreRec (zip (concat variables) nodes) loweredBody)
   where
     makeVariables binding = do
       let binder = Fc.bindBinder binding
-      representation <- liftEither (runtimeRep env (applySubstitution env (Fc.binderType binder)))
+      representation <- binderRep env binder
       if isLiftedRuntimeRep representation
         then (: []) <$> freshVar (Fc.nameText (Fc.binderName binder)) representation
         else throwLower ("GRIN does not support an unlifted recursive binding: " <> show (Fc.binderName binder))
     bindOne current (binding, vars) = bindLocal current (Fc.bindBinder binding) vars
-    makeBindingNode recursiveEnv binding = makeThunk recursiveEnv (Fc.nameText (Fc.binderName (Fc.bindBinder binding))) (Fc.bindRhs binding)
+    makeBindingNode recursiveEnv binding = lazyNode recursiveEnv (Fc.nameText (Fc.binderName (Fc.bindBinder binding))) (Fc.bindRhs binding)
 
 lowerCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr
 lowerCase env scrutinee binder alternatives = do
@@ -702,6 +849,8 @@ lowerAltCon env alternative =
     Fc.AltLit literal -> GrinLitAlt <$> lowerLiteral env literal
     Fc.AltDefault -> pure GrinDefaultAlt
 
+-- | Suspend an expression in a function of its own. This is the last resort
+-- of 'lowerLazy': only an expression whose lazy form needs code gets here.
 makeThunk :: LowerEnv -> Text -> Fc.Expr -> LowerM GrinNode
 makeThunk env hint expression = do
   representation <- expressionRuntimeRep env expression
@@ -709,60 +858,16 @@ makeThunk env hint expression = do
     then throwLower ("GRIN cannot suspend an unlifted expression with representation " <> show representation)
     else do
       let captures = capturedVariables env expression
-      -- The name is allocated even when the thunk turns out to need no
-      -- function of its own, so that generated function names stay identical
-      -- between the discovery pass and the final pass. Only the final pass
-      -- knows the entry functions that 'directThunkNode' suspends, and the
-      -- calls it emits name functions the discovery pass numbered.
       functionName <- freshFunction (hint <> "_thunk")
-      direct <- directThunkNode env expression
-      case direct of
-        Just node -> pure node
-        Nothing -> do
-          body <- lowerExpr env expression
-          emitFunction
-            GrinFunction
-              { grinFunctionName = functionName,
-                grinFunctionParameters = captures,
-                grinFunctionResultRep = representation,
-                grinFunctionBody = body
-              }
-          pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
-
--- | Suspend a saturated call to a known function on that function itself.
---
--- A thunk node carries the values its entry function is applied to, so a call
--- whose operands are already named needs no code of its own. Giving it a
--- function that does nothing but forward those values to the callee costs a
--- function definition, an info table and an extra entry for nothing.
-directThunkNode :: LowerEnv -> Fc.Expr -> LowerM (Maybe GrinNode)
-directThunkNode env expression =
-  case collectApplications expression of
-    (Fc.ExVar name, arguments)
-      | Just (arity, Just (functionName, functionResultRep)) <- Map.lookup name (lowerLocalFunctions env),
-        arity == length arguments,
-        functionResultRep == liftedGrinRep -> do
-          values <- mapM (settledArgument env) arguments
-          pure (GrinNode (GrinThunk functionName) . concat <$> sequence values)
-    _ -> pure Nothing
-
--- | The runtime values of one argument, when naming them costs neither an
--- evaluation nor an allocation. Anything else has to run inside a thunk body.
-settledArgument :: LowerEnv -> Fc.Expr -> LowerM (Maybe [GrinValue])
-settledArgument env expression = do
-  representation <- expressionRuntimeRep env expression
-  if null (runtimeRepComponents representation)
-    then pure (Just [])
-    else
-      if not (isLiftedRuntimeRep representation)
-        then pure Nothing
-        else case stripValueWrappers expression of
-          Fc.ExVar name ->
-            case Map.lookup name (lowerLocals env) of
-              Just [variable] -> pure (Just [GrinVarValue variable])
-              Just _ -> pure Nothing
-              Nothing -> Just . pure . GrinGlobalValue <$> lookupGlobalName env name
-          _ -> pure Nothing
+      body <- lowerExpr env expression
+      emitFunction
+        GrinFunction
+          { grinFunctionName = functionName,
+            grinFunctionParameters = captures,
+            grinFunctionResultRep = representation,
+            grinFunctionBody = body
+          }
+      pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
 
 -- | Drop the type applications and casts that carry no runtime value.
 stripValueWrappers :: Fc.Expr -> Fc.Expr
@@ -772,29 +877,43 @@ stripValueWrappers expression =
     Fc.ExCast inner _ -> stripValueWrappers inner
     _ -> expression
 
-makeClosure :: LowerEnv -> Fc.Expr -> LowerM GrinNode
-makeClosure env expression = do
+-- | The parameters, result and body of a lambda expression.
+data ClosureShape = ClosureShape
+  { closureBodyEnv :: !LowerEnv,
+    closureParameters :: ![[GrinVar]],
+    closureResultRep :: !GrinRep,
+    closureBody :: !Fc.Expr
+  }
+
+closureLayouts :: ClosureShape -> [[GrinRep]]
+closureLayouts = map (map grinVarRuntimeRep) . closureParameters
+
+closureShape :: LowerEnv -> Fc.Expr -> LowerM ClosureShape
+closureShape env expression = do
   let (bodyEnv0, binders, body) = collectLambdas env expression
-  let captures = capturedVariables env expression
   parameterGroups <- mapM (freshVarsForBinder bodyEnv0) binders
   let bodyEnv = foldl bindPair bodyEnv0 (zip binders parameterGroups)
   bodyRep <- expressionRuntimeRep bodyEnv body
-  loweredBody <- lowerExpr bodyEnv body
-  functionName <- freshFunction "closure"
+  pure (ClosureShape bodyEnv parameterGroups bodyRep body)
+  where
+    bindPair current (binder, vars) = bindLocal current binder vars
+
+-- | Emit the entry function of a lambda expression, under the given name when
+-- 'localFunctionTable' has already assigned one, and build its closure node.
+makeClosure :: LowerEnv -> Maybe FunctionName -> Fc.Expr -> LowerM GrinNode
+makeClosure env entry expression = do
+  let captures = capturedVariables env expression
+  functionName <- maybe (freshFunction "closure") pure entry
+  shape <- closureShape env expression
+  loweredBody <- lowerExpr (closureBodyEnv shape) (closureBody shape)
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
-        grinFunctionParameters = captures <> concat parameterGroups,
-        grinFunctionResultRep = bodyRep,
+        grinFunctionParameters = captures <> concat (closureParameters shape),
+        grinFunctionResultRep = closureResultRep shape,
         grinFunctionBody = loweredBody
       }
-  pure
-    ( GrinNode
-        (GrinClosure functionName (map (map grinVarRuntimeRep) parameterGroups))
-        (map GrinVarValue captures)
-    )
-  where
-    bindPair current (binder, vars) = bindLocal current binder vars
+  pure (GrinNode (GrinClosure functionName (closureLayouts shape)) (map GrinVarValue captures))
 
 -- | An expression that is a call of a primitive that never returns.
 divergingExpression :: Fc.Expr -> Bool
@@ -1069,34 +1188,20 @@ constructorArityTable types =
           either (const Nothing) (Just . length) (constructorArgumentTypes sourceType)
       | otherwise = Nothing
 
-localFunctionArityTable :: Fc.Program -> Map Fc.Name Int
-localFunctionArityTable program =
+-- | Name the entry function of every top-level function before any code is
+-- lowered, so that a call of one compiles to a direct call and a suspension
+-- of one to a plain thunk node.
+localFunctionTable :: LowerEnv -> Fc.Program -> LowerM (Map Fc.Name LocalFunction)
+localFunctionTable env program =
   Map.fromList
-    [ (Fc.valName declaration, arity)
-    | Fc.DeclVal declaration <- Fc.programDecls program,
-      let arity = functionArity (Fc.valBody declaration),
-      arity > 0
-    ]
-
-localFunctionTable :: LowerEnv -> Fc.Program -> TopParts -> LowerState -> Either String (Map Fc.Name (Int, Maybe (FunctionName, GrinRep)))
-localFunctionTable env program parts state = Map.fromList <$> traverse localFunction declarations
-  where
-    globals = Map.fromList (topGlobals parts)
-    functions = Map.fromList [(grinFunctionName function, function) | function <- lowerFunctionsRev state]
-    declarations =
-      [ (Fc.valName declaration, arity)
+    <$> sequence
+      [ withLowerContext ("value " <> show (Fc.valName declaration)) $ do
+          entry <- freshFunction "closure"
+          shape <- closureShape env (Fc.valBody declaration)
+          pure (Fc.valName declaration, LocalFunction entry (closureLayouts shape) (closureResultRep shape))
       | Fc.DeclVal declaration <- Fc.programDecls program,
-        let arity = functionArity (Fc.valBody declaration),
-        arity > 0
+        isFunctionExpression (Fc.valBody declaration)
       ]
-    localFunction (name, arity) = do
-      globalName <- maybe (Left ("GRIN has no global name for: " <> show name)) Right (Map.lookup name (lowerGlobalNames env))
-      case Map.lookup globalName globals of
-        Just (GrinNode (GrinClosure functionName _) []) ->
-          case Map.lookup functionName functions of
-            Just function -> Right (name, (arity, Just (functionName, grinFunctionResultRep function)))
-            Nothing -> Left ("GRIN has no local function definition for: " <> show name)
-        _ -> Left ("GRIN has no local function entry for: " <> show name)
 
 stableGlobalName :: Fc.Name -> Text
 stableGlobalName name =
@@ -1130,6 +1235,11 @@ reduce env = TypeOf.reduceType (lowerTypes env) . applySubstitution env
 
 extendTypeBinder :: LowerEnv -> Fc.Binder -> LowerEnv
 extendTypeBinder env binder = env {lowerTypes = TypeOf.extendBinder (lowerTypes env) binder}
+
+-- | Substitute a type argument for the binder of an applied type lambda.
+substituteTypeBinder :: LowerEnv -> Fc.Binder -> Fc.Type -> LowerEnv
+substituteTypeBinder env binder argument =
+  env {lowerTypeSubstitution = Map.insert (Fc.binderName binder) (applySubstitution env argument) (lowerTypeSubstitution env)}
 
 defaultRuntimeReps :: LowerEnv -> [Fc.Binder] -> LowerEnv
 defaultRuntimeReps = foldl defaultOne
