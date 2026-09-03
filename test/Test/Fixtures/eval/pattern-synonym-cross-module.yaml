@@ -1,0 +1,20 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Lib (Expr (..), pattern Sub) where
+    data Bool = True | False
+    data Expr = Lit Bool | Add Expr Expr | Neg Expr
+    pattern Sub a b = Add a (Neg b)
+  - |
+    module Test where
+    import Lib
+    swap (Sub a b) = Sub b a
+    swap e = e
+output: |
+  Add (Lit False) (Neg (Lit True))
+expression: |
+  swap (Sub (Lit True) (Lit False))
+status: xfail
+reason: imports a pattern synonym from another module and uses its matcher and builder

@@ -1,0 +1,14 @@
+extensions:
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+  not True = False
+  not False = True
+  isFalse (not -> True) = True
+  isFalse _ = False
+expected: ''
+status: xfail
+reason: FC desugaring does not desugar view patterns.

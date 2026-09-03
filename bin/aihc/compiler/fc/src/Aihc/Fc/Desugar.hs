@@ -445,6 +445,9 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
             Syn.CPrim -> Right []
             Syn.CCall -> Right []
             callConv -> Left ("unsupported System FC foreign calling convention: " <> show callConv)
+        Syn.DeclPatSyn patSynDecl ->
+          Left ("pattern synonym " <> T.unpack (unqualifiedNameText (Syn.patSynDeclName patSynDecl)) <> " is not supported in System FC desugaring")
+        Syn.DeclPatSynSig {} -> Left "pattern synonym signatures are not supported in System FC desugaring"
         _ -> Right []
 
 sourceTyConKey :: PackageId -> Text -> Text -> TcTypeKey

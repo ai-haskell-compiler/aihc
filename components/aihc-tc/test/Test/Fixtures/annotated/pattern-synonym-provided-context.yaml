@@ -1,0 +1,20 @@
+annotated: []
+extensions:
+- ExistentialQuantification
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+  data Mark = Marked
+  class Markable a where
+    mark :: a -> Mark
+  data Box = forall a. Markable a => Box Bool a
+  pattern Tagged :: () => Markable a => a -> Box
+  pattern Tagged x <- Box True x
+  inspect :: Box -> Mark
+  inspect (Tagged x) = mark x
+  inspect _ = Marked
+reason: the type checker does not provide the constraints of a pattern synonym match
+status: xfail

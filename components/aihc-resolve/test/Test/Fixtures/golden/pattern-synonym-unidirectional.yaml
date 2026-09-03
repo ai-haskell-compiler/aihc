@@ -1,0 +1,12 @@
+annotated: []
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data L a = N | C a (L a)
+  pattern Head x <- C x _
+  first (Head x) = x
+reason: the resolver does not bind a unidirectional pattern synonym in term scope
+status: xfail

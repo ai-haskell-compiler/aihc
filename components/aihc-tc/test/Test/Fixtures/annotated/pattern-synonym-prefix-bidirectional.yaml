@@ -1,0 +1,15 @@
+annotated: []
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+  swap :: Expr -> Expr
+  swap (Sub a b) = Sub b a
+  swap e = e
+reason: the type checker does not infer a type for a bidirectional pattern synonym
+status: xfail

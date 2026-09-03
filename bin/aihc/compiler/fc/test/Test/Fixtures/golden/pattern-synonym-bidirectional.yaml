@@ -1,0 +1,14 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+  swap (Sub a b) = Sub b a
+  swap e = e
+expected: ''
+status: xfail
+reason: FC desugaring does not emit a matcher and a builder for a bidirectional pattern synonym.

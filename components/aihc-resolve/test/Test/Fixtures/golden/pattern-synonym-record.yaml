@@ -1,0 +1,14 @@
+annotated: []
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Pair a = Pair a a
+  pattern Point {px, py} = Pair px py
+  first p = px p
+  mk x y = Point {px = x, py = y}
+  second (Point {py}) = py
+reason: the resolver does not bind the fields of a record pattern synonym
+status: xfail
