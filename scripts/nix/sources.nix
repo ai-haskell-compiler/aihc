@@ -28,6 +28,7 @@
 
   exampleSourceSuffixes = [
     ".hs"
+    ".hs-boot"
     ".cabal"
     "args"
     "exit"
@@ -47,6 +48,7 @@ in rec {
 
   resolveSrc = mkComponentSrc "/components/aihc-resolve" [
     ".hs"
+    ".hs-boot"
     ".cabal"
     ".yaml"
     ".yml"
@@ -61,6 +63,7 @@ in rec {
       "core-libs/aihc-prim/src/GHC/Types.hs"
     ] [
       ".hs"
+      ".hs-boot"
       ".cabal"
       ".yaml"
       ".yml"
@@ -68,11 +71,13 @@ in rec {
 
   baseSrc = mkComponentSrc "/core-libs/aihc-base" [
     ".hs"
+    ".hs-boot"
     ".cabal"
   ];
 
   hackageSrc = mkComponentSrc "/tooling/aihc-hackage" [
     ".hs"
+    ".hs-boot"
     ".cabal"
   ];
 
@@ -83,23 +88,26 @@ in rec {
         baseName = baseNameOf path;
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         inTesting = pkgs.lib.hasPrefix "tooling/aihc-testing/" relPath;
-        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
       in
         type == "directory" || (inTesting && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
     };
 
   primSrc = mkComponentSrc "/core-libs/aihc-prim" [
     ".hs"
+    ".hs-boot"
     ".cabal"
   ];
 
   internalSrc = mkComponentSrc "/core-libs/aihc-internal" [
     ".hs"
+    ".hs-boot"
     ".cabal"
   ];
 
   templateHaskellSrc = mkComponentSrc "/core-libs/aihc-template-haskell" [
     ".hs"
+    ".hs-boot"
     ".cabal"
     "LICENSE.filepath"
   ];
@@ -111,7 +119,7 @@ in rec {
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-resolve-tooling-common/" relPath;
         inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
-        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
       in
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
@@ -125,6 +133,7 @@ in rec {
       "core-libs/aihc-prim/src/GHC/Types.hs"
     ] [
       ".hs"
+      ".hs-boot"
       ".cabal"
       ".c"
       ".h"
@@ -144,6 +153,7 @@ in rec {
 
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"
+    ".hs-boot"
     ".cabal"
     ".yaml"
     ".yml"
