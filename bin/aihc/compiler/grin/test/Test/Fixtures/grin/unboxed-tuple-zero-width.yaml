@@ -1,7 +1,7 @@
 expected: |-
   constructor Test.Box [IntRep]
 
-  primitive realWorld#%-2000000000 :: TupleRep []/0
+  primitive realWorld# :: TupleRep []/0
 
   global "\NULTest\NULBox" = (CTest.Box/1)
 
@@ -13,15 +13,15 @@ expected: |-
     primitive-call @(TupleRep []) realWorld#
 
   $grin_value_thunk_1 -> BoxedRep Lifted =
-    argument%-1000000003 :: IntRep <-
+    argument :: IntRep <-
       constant (42 :: IntRep)
-    _case%-1000000001 :: IntRep <-
-      constant (argument%-1000000003 :: IntRep)
-    answer%-1000000002 :: IntRep <-
-      constant (_case%-1000000001 :: IntRep)
-    argument%-1000000000 :: IntRep <-
-      constant (answer%-1000000002 :: IntRep)
-    store (CTest.Box (argument%-1000000000 :: IntRep))
+    _case :: IntRep <-
+      constant (argument :: IntRep)
+    answer :: IntRep <-
+      constant (_case :: IntRep)
+    argument%1 :: IntRep <-
+      constant (answer :: IntRep)
+    store (CTest.Box (argument%1 :: IntRep))
 extensions:
 - EmptyDataDecls
 - MagicHash

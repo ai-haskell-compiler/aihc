@@ -9,29 +9,29 @@ expected: |-
 
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
-  $grin_closure_3 (seq_first%-1000000000 :: BoxedRep Lifted) (seq_second%-1000000001 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case_value%-1000000002 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (seq_first%-1000000000 :: BoxedRep Lifted)
-    case (case_value%-1000000002 :: BoxedRep Lifted) as seq_evaluated%-1000000003 :: BoxedRep Lifted of
+  $grin_closure_3 (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (seq_first :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as seq_evaluated :: BoxedRep Lifted of
       _ ->
-        eval @(BoxedRep Lifted) (seq_second%-1000000001 :: BoxedRep Lifted)
+        eval @(BoxedRep Lifted) (seq_second :: BoxedRep Lifted)
 
   $grin_function_thunk_2 -> BoxedRep Lifted =
     store (P$grin_closure_3/2)
 
   $grin_function_thunk_1 -> BoxedRep Lifted =
-    function%-1000000004 :: BoxedRep Lifted <-
+    function :: BoxedRep Lifted <-
       store (F$grin_function_thunk_2)
-    function_whnf%-1000000005 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (function%-1000000004 :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_whnf%-1000000005 :: BoxedRep Lifted) global-ref "\NULTest\NULFirst"
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (function :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULTest\NULFirst"
 
   $grin_value_thunk_0 -> BoxedRep Lifted =
-    function%-1000000006 :: BoxedRep Lifted <-
+    function :: BoxedRep Lifted <-
       store (F$grin_function_thunk_1)
-    function_whnf%-1000000007 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (function%-1000000006 :: BoxedRep Lifted)
-    apply @(BoxedRep Lifted) (function_whnf%-1000000007 :: BoxedRep Lifted) global-ref "\NULTest\NULSecond"
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (function :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULTest\NULSecond"
 extensions: []
 source: |
   module Test where

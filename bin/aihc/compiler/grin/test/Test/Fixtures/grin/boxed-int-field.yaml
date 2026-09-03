@@ -6,9 +6,9 @@ expected: |-
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
   $grin_value_thunk_0 -> BoxedRep Lifted =
-    argument%-1000000000 :: IntRep <-
+    argument :: IntRep <-
       constant (42 :: IntRep)
-    store (CTest.Box (argument%-1000000000 :: IntRep))
+    store (CTest.Box (argument :: IntRep))
 extensions:
 - MagicHash
 reason: stores a saturated constructor directly and preserves its IntRep field representation
