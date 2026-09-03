@@ -1,0 +1,21 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Pair a = Pair a a
+       │        └─ v Main
+       └─ t Main
+  pattern First x y = Pair x _
+  │       └─ v Main   │    └─ v 0
+  │                   └─ v Main
+  └─ v Error pattern synonym argument is not bound by the pattern
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Pair a = Pair a a
+  pattern First x y = Pair x _
+reason: a pattern synonym argument that the right-hand side pattern does not bind is an error
+status: pass

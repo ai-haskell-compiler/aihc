@@ -1,5 +1,24 @@
----
-extensions: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data F a = ArgF a
+       │     └─ v Main
+       └─ t Main
+  pattern Arg a = ArgF a
+          │       │    └─ v 0
+          │       └─ v Main
+          └─ v Main
+  newtype Param p = Param p
+          └─ t Main └─ v Main
+  param _ a = Param (Arg a)
+  │       │   │      │   └─ v 1
+  │       │   │      └─ v Main
+  │       │   └─ v Main
+  │       └─ v 1
+  └─ v Main
+extensions:
+- PatternSynonyms
 modules:
 - |
   {-# LANGUAGE PatternSynonyms #-}
@@ -8,8 +27,5 @@ modules:
   pattern Arg a = ArgF a
   newtype Param p = Param p
   param _ a = Param (Arg a)
-annotated: []
-status: xfail
-reason: Pattern synonyms are not inserted into term scope in aihc-resolve. This module
-  is equivalent to `named`'s internal helper usage and reproduces the unresolved `Arg`
-  name at `param _ a = Param (Arg a)`.
+reason: a pattern synonym binds a term that later expressions use, as in the `named` package
+status: pass
