@@ -1,4 +1,4 @@
-# Hackage packages that `aihc install-v2` must install in `nix flake check`.
+# Hackage packages that `aihc install` must install in `nix flake check`.
 #
 # Add a package by appending an entry. The `hash` is the SRI hash of the
 # unpacked tarball, as printed by
@@ -9,7 +9,7 @@
 #   name     Hackage package name.
 #   version  Exact Hackage version.
 #   hash     SRI hash of the unpacked tarball.
-#   lint     Optional. Pass `--lint` to `aihc install-v2`. Defaults to true.
+#   lint     Optional. Pass `--lint` to `aihc install`. Defaults to true.
 #   targets  Optional list of targets. Defaults to the host targets that the
 #            example tests use.
 let

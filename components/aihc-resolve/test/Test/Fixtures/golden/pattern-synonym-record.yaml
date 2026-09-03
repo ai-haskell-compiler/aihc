@@ -1,0 +1,38 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Pair a = Pair a a
+       │        └─ v Main
+       └─ t Main
+  pattern Point {px, py} = Pair px py
+          └─ v Main        │    │  └─ v 1
+                           │    └─ v 0
+                           └─ v Main
+  first p = px p
+  │     │   │  └─ v 2
+  │     │   └─ v Main
+  │     └─ v 2
+  └─ v Main
+  mk x y = Point {px = x, py = y}
+  │  │ └─ v 4          └─ v 3  └─ v 4
+  │  └─ v 3
+  └─ v Main
+  second (Point {py}) = py
+  │       │      └─ v 5 └─ v 5
+  │       └─ v Main
+  └─ v Main
+
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Pair a = Pair a a
+  pattern Point {px, py} = Pair px py
+  first p = px p
+  mk x y = Point {px = x, py = y}
+  second (Point {py}) = py
+reason: a record pattern synonym binds its fields as selectors
+status: pass

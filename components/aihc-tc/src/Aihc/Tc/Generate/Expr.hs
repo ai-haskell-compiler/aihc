@@ -9,6 +9,7 @@
 -- that produced them.
 module Aihc.Tc.Generate.Expr
   ( inferExpr,
+    inferExprAt,
   )
 where
 
@@ -32,10 +33,10 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (TyConInfo (..))
+import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generate.Bind (boolTyCon, inferLocalDecls, inferRhsWithLocals)
@@ -55,6 +56,7 @@ import Data.List (partition)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Infer the type of an expression.
 --
@@ -182,6 +184,7 @@ inferNameOccurrence ambient nameSyntax = do
       name = nameToText nameSyntax
   target <- resolvedTermTarget nameSyntax
   mBinder <- lookupResolvedTerm name target
+  rejectUnidirectionalPatSyn sp name target
   case mBinder of
     Just (TcIdBinder scheme _) -> do
       inst <- instantiateWithArgs scheme
@@ -197,6 +200,17 @@ inferNameOccurrence ambient nameSyntax = do
       pure (occurrenceAnnotation instantiatedTy typeArgs evidenceVars, instantiatedTy, cts)
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+-- | A unidirectional pattern synonym has no builder. An expression cannot
+-- use it.
+rejectUnidirectionalPatSyn :: SourceSpan -> Text -> ResolvedName -> TcM ()
+rejectUnidirectionalPatSyn sp name target = do
+  mPatSyn <- lookupPatSynTarget target
+  case mPatSyn of
+    Just info
+      | psiDirection info == PatSynUnidirectionalInfo ->
+          emitError sp (OtherError ("unidirectional pattern synonym " <> T.unpack name <> " cannot be used as an expression"))
+    _ -> pure ()
 
 occurrenceAnnotation :: TcType -> [TcType] -> [EvVar] -> Maybe PendingTcAnnotation
 occurrenceAnnotation ty typeArgs evidenceVars

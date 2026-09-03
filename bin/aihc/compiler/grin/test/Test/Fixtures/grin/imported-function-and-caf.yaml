@@ -5,15 +5,10 @@ expected: |-
 
   global "\NULDependency\NULidentity" = (P$grin_closure_0/1)
 
-  global "\NULDependency\NULcaf" = (F$grin_caf_thunk_1)
+  global "\NULDependency\NULcaf" = (CDependency.Box (7 :: IntRep))
 
   $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-
-  $grin_caf_thunk_1 -> BoxedRep Lifted =
-    argument :: IntRep <-
-      constant (7 :: IntRep)
-    store (CDependency.Box (argument :: IntRep))
   global "\NULTarget\NULuseFunction" = (F$grin_useFunction_thunk_0)
 
   global "\NULTarget\NULuseCaf" = (F$grin_useCaf_thunk_1)

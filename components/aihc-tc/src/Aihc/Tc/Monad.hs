@@ -57,6 +57,7 @@ module Aihc.Tc.Monad
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
     extendTermEnvPermanent,
+    replaceTermKeyEnvPermanent,
     finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
@@ -71,6 +72,11 @@ module Aihc.Tc.Monad
     replaceTyConEnvPermanent,
     getTyConEnv,
     addDataType,
+    addPatSyn,
+    getPatSyns,
+    lookupPatSyn,
+    lookupPatSynTarget,
+    patSynKey,
     getDataTypes,
     lookupDataType,
     localTcOptions,
@@ -104,7 +110,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -280,7 +286,9 @@ data TcState = TcState
     -- | Type-family equations in scope.
     tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
     -- | Names of GADT constructors (have non-trivial result types).
-    tcsGadtCons :: !(Set Text)
+    tcsGadtCons :: !(Set Text),
+    -- | Pattern synonyms in scope, keyed like their builder term.
+    tcsPatSyns :: !(Map TcTermKey PatSynInfo)
   }
   deriving (Show)
 
@@ -297,6 +305,7 @@ initTcState =
       tcsGlobalTerms = Map.empty,
       tcsGlobalTyCons = Map.empty,
       tcsDataTypes = Map.empty,
+      tcsPatSyns = Map.empty,
       tcsClasses = Map.empty,
       tcsInstances = [],
       tcsDataFamilyInstances = Map.empty,
@@ -465,6 +474,12 @@ extendTermKeyEnvPermanent key binder = do
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
 
+-- | Replace a permanent global term entry. A synthesized binding registers
+-- a provisional type before its check and the checked type after it.
+replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
+replaceTermKeyEnvPermanent key binder =
+  lift $ modify' $ \state -> state {tcsGlobalTerms = Map.insert key binder (tcsGlobalTerms state)}
+
 -- | Replace the temporary monomorphic entries for one inferred top-level
 -- binding. No other permanent term entry can use this operation.
 finalizeInferredTermEnvPermanent :: Text -> TcTermKey -> TcType -> TypeScheme -> TcM ()
@@ -627,6 +642,33 @@ addDataType info = do
 
 getDataTypes :: TcM [DataTypeInfo]
 getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
+
+-- | The term key of a pattern synonym. The builder term of a bidirectional
+-- pattern synonym has the same key.
+patSynKey :: PatSynInfo -> TcTermKey
+patSynKey info =
+  let (package, moduleName') = psiOrigin info
+   in TcTermGlobal package moduleName' (psiName info)
+
+addPatSyn :: PatSynInfo -> TcM ()
+addPatSyn info = do
+  patSyns <- lift $ gets tcsPatSyns
+  patSyns' <- insertNewMap "pattern synonym state" (patSynKey info) info patSyns
+  lift $ modify' $ \state -> state {tcsPatSyns = patSyns'}
+
+lookupPatSyn :: TcTermKey -> TcM (Maybe PatSynInfo)
+lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)
+
+getPatSyns :: TcM [PatSynInfo]
+getPatSyns = lift $ gets (Map.elems . tcsPatSyns)
+
+-- | The pattern synonym that a resolved top-level name refers to.
+lookupPatSynTarget :: ResolvedName -> TcM (Maybe PatSynInfo)
+lookupPatSynTarget target =
+  case target of
+    ResolvedTopLevel packageId resolvedName ->
+      lookupPatSyn (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+    _ -> pure Nothing
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
 lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)

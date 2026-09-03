@@ -13,6 +13,8 @@ module Aihc.Tc.Env
     DataTypeInfo (..),
     dataTypeKey,
     DataConInfo (..),
+    PatSynDirection (..),
+    PatSynInfo (..),
     DataConFieldInfo (..),
     DataConFieldUnpack (..),
     DataConSourceForm (..),
@@ -136,6 +138,36 @@ data DataConInfo = DataConInfo
 
 dataConArgTypes :: DataConInfo -> [TcType]
 dataConArgTypes = map dcfiType . dciFields
+
+-- | Whether a pattern synonym can build values.
+data PatSynDirection
+  = -- | @pattern P x <- pat@
+    PatSynUnidirectionalInfo
+  | -- | @pattern P x = pat@
+    PatSynImplicitBidirectionalInfo
+  | -- | @pattern P x <- pat where P x = expr@
+    PatSynExplicitBidirectionalInfo
+  deriving (Eq, Show, Read)
+
+-- | Checked information about a pattern synonym. The scheme has the
+-- shape of a constructor type: the argument types and then the scrutinee
+-- type. The matcher @$mP@ and the builder @$bP@ are ordinary terms in the
+-- same module.
+data PatSynInfo = PatSynInfo
+  { psiName :: !Text,
+    -- | Package and module that define the pattern synonym.
+    psiOrigin :: !(PackageId, Text),
+    psiArity :: !Int,
+    psiDirection :: !PatSynDirection,
+    -- | The constructor-like type. Its predicates are the required
+    -- predicates and then the provided predicates.
+    psiScheme :: !TypeScheme,
+    -- | Constraints that a match requires from its context.
+    psiReqTheta :: ![Pred],
+    -- | Constraints that a match provides to its branch.
+    psiProvTheta :: ![Pred]
+  }
+  deriving (Eq, Show, Read)
 
 -- | Information about a type class.
 data ClassInfo = ClassInfo

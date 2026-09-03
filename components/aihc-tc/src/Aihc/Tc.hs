@@ -58,6 +58,9 @@ module Aihc.Tc
     DataTypeInfo (..),
     dataTypeKey,
     DataConInfo (..),
+    PatSynDirection (..),
+    PatSynInfo (..),
+    patSynKey,
     DataConFieldInfo (..),
     DataConFieldUnpack (..),
     DataConSourceForm (..),
@@ -120,7 +123,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -161,7 +164,8 @@ data TcInterface = TcInterface
     tcInterfaceClasses :: ![ClassInfo],
     tcInterfaceInstances :: ![InstanceInfo],
     tcInterfaceDataFamilyInstances :: ![DataFamilyInstanceInfo],
-    tcInterfaceTypeFamilyInstances :: ![TypeFamilyInstanceInfo]
+    tcInterfaceTypeFamilyInstances :: ![TypeFamilyInstanceInfo],
+    tcInterfacePatSyns :: ![PatSynInfo]
   }
   deriving (Eq, Show, Read)
 
@@ -174,7 +178,8 @@ emptyTcInterface =
       tcInterfaceClasses = [],
       tcInterfaceInstances = [],
       tcInterfaceDataFamilyInstances = [],
-      tcInterfaceTypeFamilyInstances = []
+      tcInterfaceTypeFamilyInstances = [],
+      tcInterfacePatSyns = []
     }
 
 instance Semigroup TcInterface where
@@ -192,7 +197,8 @@ mergeTcInterfaces interfaces =
       tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (concatMap tcInterfaceClasses interfaces),
       tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (concatMap tcInterfaceInstances interfaces),
       tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dataFamilyAxiomKey (concatMap tcInterfaceDataFamilyInstances interfaces),
-      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" typeFamilyAxiomKey (concatMap tcInterfaceTypeFamilyInstances interfaces)
+      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" typeFamilyAxiomKey (concatMap tcInterfaceTypeFamilyInstances interfaces),
+      tcInterfacePatSyns = mergeInterfaceEntries "pattern synonym interface" patSynKey (concatMap tcInterfacePatSyns interfaces)
     }
 
 -- | Keep only facts that the selected modules define.
@@ -205,7 +211,8 @@ restrictTcInterfaceToModules package names interface =
       tcInterfaceClasses = filter (localTyCon . ciTyCon) (tcInterfaceClasses interface),
       tcInterfaceInstances = filter localInstance (tcInterfaceInstances interface),
       tcInterfaceDataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface),
-      tcInterfaceTypeFamilyInstances = filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface)
+      tcInterfaceTypeFamilyInstances = filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface),
+      tcInterfacePatSyns = filter (localTerm . (,()) . patSynKey) (tcInterfacePatSyns interface)
     }
   where
     selected = Map.fromList [(name, ()) | name <- names]
@@ -402,7 +409,8 @@ initialTcState imported =
       tcsTypeFamilyInstances =
         mapFromListNoDuplicates
           "imported type family instance state"
-          [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances imported]
+          [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances imported],
+      tcsPatSyns = mapFromListNoDuplicates "imported pattern synonym state" [(patSynKey info, info) | info <- tcInterfacePatSyns imported]
     }
 
 tcInterfaceDifference :: TcState -> TcState -> TcInterface
@@ -414,7 +422,8 @@ tcInterfaceDifference initial state =
       tcInterfaceClasses = Map.elems (Map.difference (tcsClasses state) (tcsClasses initial)),
       tcInterfaceInstances = filter ((`Set.notMember` initialInstanceKeys) . instanceInfoKey) (tcsInstances state),
       tcInterfaceDataFamilyInstances = Map.elems (Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial)),
-      tcInterfaceTypeFamilyInstances = Map.elems (Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial))
+      tcInterfaceTypeFamilyInstances = Map.elems (Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial)),
+      tcInterfacePatSyns = Map.elems (Map.difference (tcsPatSyns state) (tcsPatSyns initial))
     }
   where
     initialInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances initial))

@@ -1,0 +1,21 @@
+extensions:
+  - PatternSynonyms
+dependencies: []
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Lib (Expr (..), Flag (..), pattern Sub) where
+    data Flag = On | Off
+    data Expr = Lit Flag | Add Expr Expr | Neg Expr
+    pattern Sub a b = Add a (Neg b)
+  - |
+    module Test where
+    import Lib
+    swap (Sub a b) = Sub b a
+    swap e = e
+output: |
+  Add (Lit Off) (Neg (Lit On))
+expression: |
+  swap (Sub (Lit On) (Lit Off))
+status: pass
+reason: imports a pattern synonym from another module and uses its matcher and builder

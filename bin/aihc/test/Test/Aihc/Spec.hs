@@ -3,8 +3,8 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Cli.BuildExe (runBuildExe)
-import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallV2Options (..))
+import Aihc.Cli.Install (InstallResult (..), install)
+import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
@@ -56,19 +56,19 @@ tests =
         "build-exe"
         [testCase "builds imported source modules and runs the executable" test_buildExeSourceDirectories],
       testGroup
-        "install-v2"
-        [ testCase "writes Core files and reuses an installed package" test_installV2ResolveArtifacts,
-          testCase "accepts type-check warnings" test_installV2TypeWarning,
-          testCase "loads the implicit Prelude type interface" test_installV2ImplicitPrelude,
-          testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
-          testCase "limits instances to the transitive import graph" test_installV2InstanceVisibility,
-          testCase "installs direct local dependencies" test_installV2LocalDependencies,
-          testCase "prints timings independently from verbose output" test_installV2TimingOutput,
-          testCase "reports all frontend errors in stable dependency order" test_installV2ResolveError,
-          testCase "writes Core for a ccall import" test_installV2FcCcall,
-          testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
-          testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
-          testCase "install-v2 writes core for aihc-prim and lints stored programs" test_installV2AihcPrim
+        "install"
+        [ testCase "writes Core files and reuses an installed package" test_installResolveArtifacts,
+          testCase "accepts type-check warnings" test_installTypeWarning,
+          testCase "loads the implicit Prelude type interface" test_installImplicitPrelude,
+          testCase "duplicates re-exported term signatures in type interfaces" test_installTypeReexports,
+          testCase "limits instances to the transitive import graph" test_installInstanceVisibility,
+          testCase "installs direct local dependencies" test_installLocalDependencies,
+          testCase "prints timings independently from verbose output" test_installTimingOutput,
+          testCase "reports all frontend errors in stable dependency order" test_installResolveError,
+          testCase "writes Core for a ccall import" test_installFcCcall,
+          testCase "retains and repairs GRIN only with keep-grin" test_installKeepGrin,
+          testCase "writes target-specific objects and library archives" test_installTargetArchives,
+          testCase "install writes core for aihc-prim and lints stored programs" test_installAihcPrim
         ]
     ]
 
@@ -82,9 +82,9 @@ test_buildExeSourceDirectories = do
   withTempDir "aihc-build-exe" $ \root -> do
     let storeRoot = root </> "store"
         output = root </> "program"
-    primitive <- installV2 (InstallV2Options primitiveRoot (Just storeRoot) False False False False False False False target)
-    installed <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False False False False False target)
-    manifestResult <- readPackageManifest (packageManifestPath (installV2StorePath installed))
+    primitive <- install (InstallOptions primitiveRoot (Just storeRoot) False False False False False False False target)
+    installed <- install (InstallOptions baseRoot (Just storeRoot) False False False False False False False target)
+    manifestResult <- readPackageManifest (packageManifestPath (installStorePath installed))
     manifest <- either assertFailure pure manifestResult
     assertBool "package manifest contains Prelude" ("Prelude" `elem` packageManifestModules manifest)
     let options =
@@ -99,9 +99,9 @@ test_buildExeSourceDirectories = do
               buildExeLint = False,
               buildExeOutputFile = Just output
             }
-        unusedResolve = installV2StorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
-        unusedType = installV2StorePath installed </> "Data" </> "Bool" </> "type.cbor"
-        requiredFc = installV2StorePath primitive </> "GHC" </> "Prim" </> "Base" </> "core"
+        unusedResolve = installStorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
+        unusedType = installStorePath installed </> "Data" </> "Bool" </> "type.cbor"
+        requiredFc = installStorePath primitive </> "GHC" </> "Prim" </> "Base" </> "core"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
     withCurrentDirectory root (runBuildExe options)
@@ -217,13 +217,13 @@ writeCachedPackage storeRoot target identity name version dependencies modules =
       }
   BS.writeFile archive ""
 
-test_installV2ResolveArtifacts :: Assertion
-test_installV2ResolveArtifacts =
-  withTempDir "aihc-install-v2" $ \root -> do
+test_installResolveArtifacts :: Assertion
+test_installResolveArtifacts =
+  withTempDir "aihc-install" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) False False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -239,49 +239,49 @@ test_installV2ResolveArtifacts =
       )
     writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na x = x\n"
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = x\n"
-    first <- installV2 options
-    assertEqual "written modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules first))
-    assertFileExists (installV2StorePath first </> "Demo" </> "A" </> "resolve.cbor")
-    assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "resolve.cbor")
-    assertFileExists (installV2StorePath first </> "Demo" </> "A" </> "type.cbor")
-    assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "type.cbor")
-    assertCoreFile (installV2StorePath first </> "Demo" </> "A" </> "core")
-    assertCoreFile (installV2StorePath first </> "Demo" </> "B" </> "core")
-    second <- installV2 options
-    assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules second))
-    assertEqual "stable package directory" (installV2StorePath first) (installV2StorePath second)
-    assertCoreFile (installV2StorePath second </> "Demo" </> "A" </> "core")
-    assertCoreFile (installV2StorePath second </> "Demo" </> "B" </> "core")
-    BS.writeFile (installV2StorePath second </> "Demo" </> "A" </> "resolve.cbor") "invalid resolve artifact"
-    BS.writeFile (installV2StorePath second </> "Demo" </> "B" </> "type.cbor") "invalid type artifact"
-    reinstalled <- installV2 options {installV2Reinstall = True}
-    assertEqual "reinstall rebuilds all modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules reinstalled))
-    assertEqual "reinstall reuses no modules" [] (installV2ReusedModules reinstalled)
-    removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
-    coreRepaired <- installV2 options {installV2Reinstall = True}
-    assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
+    first <- install options
+    assertEqual "written modules" ["Demo.A", "Demo.B"] (sort (installWrittenModules first))
+    assertFileExists (installStorePath first </> "Demo" </> "A" </> "resolve.cbor")
+    assertFileExists (installStorePath first </> "Demo" </> "B" </> "resolve.cbor")
+    assertFileExists (installStorePath first </> "Demo" </> "A" </> "type.cbor")
+    assertFileExists (installStorePath first </> "Demo" </> "B" </> "type.cbor")
+    assertCoreFile (installStorePath first </> "Demo" </> "A" </> "core")
+    assertCoreFile (installStorePath first </> "Demo" </> "B" </> "core")
+    second <- install options
+    assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installReusedModules second))
+    assertEqual "stable package directory" (installStorePath first) (installStorePath second)
+    assertCoreFile (installStorePath second </> "Demo" </> "A" </> "core")
+    assertCoreFile (installStorePath second </> "Demo" </> "B" </> "core")
+    BS.writeFile (installStorePath second </> "Demo" </> "A" </> "resolve.cbor") "invalid resolve artifact"
+    BS.writeFile (installStorePath second </> "Demo" </> "B" </> "type.cbor") "invalid type artifact"
+    reinstalled <- install options {installReinstall = True}
+    assertEqual "reinstall rebuilds all modules" ["Demo.A", "Demo.B"] (sort (installWrittenModules reinstalled))
+    assertEqual "reinstall reuses no modules" [] (installReusedModules reinstalled)
+    removeFile (installStorePath first </> "Demo" </> "A" </> "core")
+    coreRepaired <- install options {installReinstall = True}
+    assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installWrittenModules coreRepaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
-    changed <- installV2 options {installV2Reinstall = True}
-    assertEqual "source changes keep the package directory" (installV2StorePath first) (installV2StorePath changed)
-    assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
-    let artifact = installV2StorePath first </> "Demo" </> "A" </> "resolve.cbor"
+    changed <- install options {installReinstall = True}
+    assertEqual "source changes keep the package directory" (installStorePath first) (installStorePath changed)
+    assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installWrittenModules changed))
+    let artifact = installStorePath first </> "Demo" </> "A" </> "resolve.cbor"
     artifactBytes <- BS.readFile artifact
     BS.writeFile artifact (BS.init artifactBytes)
-    repaired <- installV2 options {installV2Reinstall = True}
-    assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules repaired))
-    assertEqual "does not reuse a corrupt SCC" [] (installV2ReusedModules repaired)
+    repaired <- install options {installReinstall = True}
+    assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installWrittenModules repaired))
+    assertEqual "does not reuse a corrupt SCC" [] (installReusedModules repaired)
 
-test_installV2TimingOutput :: Assertion
-test_installV2TimingOutput = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
-  withTempDir "aihc-install-v2-timings" $ \root -> do
-    let baseOptions = InstallV2Options fixtureRoot Nothing False False False False True False False AppleArm64
+test_installTimingOutput :: Assertion
+test_installTimingOutput = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
+  withTempDir "aihc-install-timings" $ \root -> do
+    let baseOptions = InstallOptions fixtureRoot Nothing False False False False True False False AppleArm64
     verboseOutput <-
       captureStdout
-        (installV2 baseOptions {installV2StoreRoot = Just (root </> "verbose"), installV2Verbose = True})
+        (install baseOptions {installStoreRoot = Just (root </> "verbose"), installVerbose = True})
     timingOutput <-
       captureStdout
-        (installV2 baseOptions {installV2StoreRoot = Just (root </> "timings"), installV2PrintTimings = True})
+        (install baseOptions {installStoreRoot = Just (root </> "timings"), installPrintTimings = True})
     assertBool "verbose output contains an installation step" ("Read Cabal package:" `isInfixOf` verboseOutput)
     assertBool "verbose output does not contain timings" (not ("Compile time:" `isInfixOf` verboseOutput))
     assertBool
@@ -319,17 +319,17 @@ captureStdout action =
         pure ()
       T.unpack <$> TIO.readFile outputPath
 
-test_installV2ResolveError :: Assertion
-test_installV2ResolveError = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/resolve-error"
+test_installResolveError :: Assertion
+test_installResolveError = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/resolve-error"
   expected <- readFile (fixtureRoot </> "expected.txt")
-  withTempDir "aihc-install-v2-resolve-error" $ \root -> do
+  withTempDir "aihc-install-resolve-error" $ \root -> do
     actual <-
       bracket getNumCapabilities setNumCapabilities $ \_ ->
         forM [1, 2, 4] $ \workers -> do
           setNumCapabilities workers
-          let options = InstallV2Options fixtureRoot (Just (root </> "store-" <> show workers)) False False False False False False False AppleArm64
-          result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+          let options = InstallOptions fixtureRoot (Just (root </> "store-" <> show workers)) False False False False False False False AppleArm64
+          result <- try (install options) :: IO (Either IOException InstallResult)
           case result of
             Right _ -> assertFailure "expected frontend compilation to fail"
             Left err -> do
@@ -362,37 +362,37 @@ findFixtureRoot fixture = do
             then assertFailure ("could not find fixture " <> fixture)
             else findUp parent
 
-test_installV2KeepGrin :: Assertion
-test_installV2KeepGrin = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
-  withTempDir "aihc-install-v2-keep-grin" $ \root -> do
-    withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False False False False False AppleArm64)
-    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
-    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
-    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
-    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.objdump")
-    retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False False False False AppleArm64)
-    let corePath = installV2StorePath retained </> "Demo" </> "core"
-        grinPath = installV2StorePath retained </> "Demo" </> "grin"
-        cpsGrinPath = installV2StorePath retained </> "Demo" </> "cps.grin"
-        gcGrinPath = installV2StorePath retained </> "Demo" </> "gc.grin"
+test_installKeepGrin :: Assertion
+test_installKeepGrin = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
+  withTempDir "aihc-install-keep-grin" $ \root -> do
+    withoutGrin <- install (InstallOptions fixtureRoot (Just (root </> "without")) False False False False False False False AppleArm64)
+    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "grin")
+    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "cps.grin")
+    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "gc.grin")
+    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "Demo.o.objdump")
+    retained <- install (InstallOptions fixtureRoot (Just (root </> "with")) True False False False False False False AppleArm64)
+    let corePath = installStorePath retained </> "Demo" </> "core"
+        grinPath = installStorePath retained </> "Demo" </> "grin"
+        cpsGrinPath = installStorePath retained </> "Demo" </> "cps.grin"
+        gcGrinPath = installStorePath retained </> "Demo" </> "gc.grin"
     assertFileExists grinPath
     assertFileExists cpsGrinPath
     assertFileExists gcGrinPath
     originalCore <- readFile corePath
     removeFile cpsGrinPath
     removeFile gcGrinPath
-    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False True False False False AppleArm64)
+    repaired <- install (InstallOptions fixtureRoot (Just (root </> "with")) True False False True False False False AppleArm64)
     assertFileExists grinPath
     assertFileExists cpsGrinPath
     assertFileExists gcGrinPath
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core" originalCore repairedCore
-    assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
+    assertEqual "GRIN repair writes the module" ["Demo"] (installWrittenModules repaired)
     noCode <-
-      installV2
-        (InstallV2Options fixtureRoot (Just (root </> "no-code")) True True True False True False False AppleArm64)
-    let noCodeRoot = installV2StorePath noCode
+      install
+        (InstallOptions fixtureRoot (Just (root </> "no-code")) True True True False True False False AppleArm64)
+    let noCodeRoot = installStorePath noCode
     assertFileExists (noCodeRoot </> "Demo" </> "resolve.cbor")
     assertFileExists (noCodeRoot </> "Demo" </> "type.cbor")
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "core")
@@ -403,12 +403,12 @@ test_installV2KeepGrin = do
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.objdump")
     assertFileDoesNotExist (noCodeRoot </> "lib" </> "libdemo.a")
 
-test_installV2TargetArchives :: Assertion
-test_installV2TargetArchives = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
+test_installTargetArchives :: Assertion
+test_installTargetArchives = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
   wasmSupported <- clangSupportsWasm
   foreignArchivesSupported <- arSupportsForeignObjects
-  withTempDir "aihc-install-v2-targets" $ \root -> do
+  withTempDir "aihc-install-targets" $ \root -> do
     let targets =
           [ (AppleArm64, "arm64-macos-apple", ".objdump"),
             (Llvm, "llvm", ".ll")
@@ -416,12 +416,12 @@ test_installV2TargetArchives = do
             <> [(LinuxAmd64, "amd64-linux-gnu", ".objdump") | foreignArchivesSupported]
             <> [(Wasm32Wasip3, "wasm32-wasip3", ".s") | wasmSupported && foreignArchivesSupported]
     results <- forM targets $ \(target, directory, nativeExtension) -> do
-      result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False False False False target)
-      let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
+      result <- install (InstallOptions fixtureRoot (Just (root </> "store")) False True False False False False False target)
+      let objectPath = installStorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
-          corePath = installV2StorePath result </> "Demo" </> "core"
-          archivePath = installV2StorePath result </> "lib" </> "libdemo.a"
-      assertEqual "target store directory" directory (takeFileName (takeDirectory (installV2StorePath result)))
+          corePath = installStorePath result </> "Demo" </> "core"
+          archivePath = installStorePath result </> "lib" </> "libdemo.a"
+      assertEqual "target store directory" directory (takeFileName (takeDirectory (installStorePath result)))
       assertFileExists objectPath
       assertFileExists nativePath
       assertFileExists archivePath
@@ -438,18 +438,18 @@ test_installV2TargetArchives = do
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
-      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False True False False False target)
+      repaired <- install (InstallOptions fixtureRoot (Just (root </> "store")) False True False True False False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native output repair keeps Core" originalCore repairedCore
-      assertEqual "native output repair writes the module" ["Demo"] (installV2WrittenModules repaired)
+      assertEqual "native output repair writes the module" ["Demo"] (installWrittenModules repaired)
       pure result
     case results of
       [] -> assertFailure "no target results"
       first : rest ->
         assertBool
           "package identity is equal for all targets"
-          (all ((== takeFileName (installV2StorePath first)) . takeFileName . installV2StorePath) rest)
+          (all ((== takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
 
 clangSupportsWasm :: IO Bool
 clangSupportsWasm = do
@@ -476,13 +476,13 @@ assertCoreFile path = do
     Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
     Right _ -> pure ()
 
-test_installV2FcCcall :: Assertion
-test_installV2FcCcall =
-  withTempDir "aihc-install-v2-fc-ccall" $ \root -> do
+test_installFcCcall :: Assertion
+test_installFcCcall =
+  withTempDir "aihc-install-fc-ccall" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) False False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -500,22 +500,22 @@ test_installV2FcCcall =
     writeFile
       (sourceDir </> "Demo.hs")
       "module Demo where\nimport GHC.Prim (Int#)\ndata Int = I# Int#\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
-    result <- installV2 options
-    assertCoreFile (installV2StorePath result </> "Demo" </> "core")
+    result <- install options
+    assertCoreFile (installStorePath result </> "Demo" </> "core")
 
-test_installV2AihcPrim :: Assertion
-test_installV2AihcPrim = do
+test_installAihcPrim :: Assertion
+test_installAihcPrim = do
   aihcPrimRoot <- findAihcPrimRoot
-  withTempDir "aihc-install-v2-aihc-prim" $ \root -> do
+  withTempDir "aihc-install-aihc-prim" $ \root -> do
     let storeRoot = root </> "store"
         targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        options = InstallV2Options aihcPrimRoot (Just storeRoot) True False True False False False False AppleArm64
+        options = InstallOptions aihcPrimRoot (Just storeRoot) True False True False False False False AppleArm64
     createDirectoryIfMissing True storeRoot
-    caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+    caught <- try (install options) :: IO (Either IOException InstallResult)
     result <- case caught of
-      Left err -> assertFailure ("install-v2 aihc-prim failed: " <> show err)
+      Left err -> assertFailure ("install aihc-prim failed: " <> show err)
       Right value -> pure value
-    let packageDir = installV2StorePath result
+    let packageDir = installStorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
         loader = Fc.storeModuleLoader targetStoreRoot
     assertBool "package artifact version sets the package hash" ("ff25baf152cf478e" `isSuffixOf` packageDir)
@@ -648,29 +648,29 @@ listNamedFiles root name = do
             then pure [path]
             else pure []
 
-test_installV2TypeWarning :: Assertion
-test_installV2TypeWarning = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/type-warning"
-  withTempDir "aihc-install-v2-type-warning" $ \root -> do
-    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False True False False AppleArm64
-    result <- installV2 options
-    assertEqual "warning does not prevent installation" ["Demo"] (installV2WrittenModules result)
+test_installTypeWarning :: Assertion
+test_installTypeWarning = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/type-warning"
+  withTempDir "aihc-install-type-warning" $ \root -> do
+    let options = InstallOptions fixtureRoot (Just (root </> "store")) False False False False True False False AppleArm64
+    result <- install options
+    assertEqual "warning does not prevent installation" ["Demo"] (installWrittenModules result)
 
-test_installV2ImplicitPrelude :: Assertion
-test_installV2ImplicitPrelude = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/implicit-prelude"
-  withTempDir "aihc-install-v2-implicit-prelude" $ \root -> do
+test_installImplicitPrelude :: Assertion
+test_installImplicitPrelude = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/implicit-prelude"
+  withTempDir "aihc-install-implicit-prelude" $ \root -> do
     let sourceRoot = fixtureRoot </> "demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False True False False AppleArm64
-    result <- installV2 options
-    assertEqual "implicit Prelude user" ["Demo"] (installV2WrittenModules result)
+        options = InstallOptions sourceRoot (Just (root </> "store")) False False False False True False False AppleArm64
+    result <- install options
+    assertEqual "implicit Prelude user" ["Demo"] (installWrittenModules result)
 
-test_installV2TypeReexports :: Assertion
-test_installV2TypeReexports =
-  withTempDir "aihc-install-v2-type-reexports" $ \root -> do
+test_installTypeReexports :: Assertion
+test_installTypeReexports =
+  withTempDir "aihc-install-type-reexports" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just (root </> "store")) False False False False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -688,20 +688,20 @@ test_installV2TypeReexports =
       (sourceDir </> "A.hs")
       "module Demo.A where\ndata Box a = Box a\nclass Identity a where\n  identity :: a -> a\nfn x = x\n"
     writeFile (sourceDir </> "B.hs") "module Demo.B (module Demo.A) where\nimport Demo.A\n"
-    result <- installV2 options
-    bytes <- BL.readFile (installV2StorePath result </> "Demo" </> "B" </> "type.cbor")
+    result <- install options
+    bytes <- BL.readFile (installStorePath result </> "Demo" </> "B" </> "type.cbor")
     let artifact = decodeTypeArtifact bytes
     let termNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms (typeArtifactInterface artifact))
     assertBool "re-exported signature" ("fn" `elem` termNames)
 
-test_installV2LocalDependencies :: Assertion
-test_installV2LocalDependencies = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/local-dependencies"
-  withTempDir "aihc-install-v2-local-dependencies" $ \root -> do
+test_installLocalDependencies :: Assertion
+test_installLocalDependencies = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/local-dependencies"
+  withTempDir "aihc-install-local-dependencies" $ \root -> do
     let sourceRoot = fixtureRoot </> "demo"
         storeRoot = root </> "store"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False False False False False AppleArm64
-    _ <- installV2 options
+        options = InstallOptions sourceRoot (Just storeRoot) False False False False False False False AppleArm64
+    _ <- install options
     let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
     storeEntries <- listDirectory targetStoreRoot
     assertBool "temporary store directories are absent" (not (any (".tmp-" `isPrefixOf`) storeEntries))
@@ -716,25 +716,25 @@ test_installV2LocalDependencies = do
         assertFileExists unusedTypePath
         BS.writeFile unusedTypePath "invalid unused type artifact"
         writeFile sentinelPath "dependency was not reinstalled"
-        reinstalled <- installV2 options {installV2Reinstall = True}
-        assertEqual "reinstall writes the specified package" ["Demo"] (installV2WrittenModules reinstalled)
+        reinstalled <- install options {installReinstall = True}
+        assertEqual "reinstall writes the specified package" ["Demo"] (installWrittenModules reinstalled)
         assertFileExists sentinelPath
         unusedTypeBytes <- BS.readFile unusedTypePath
         assertEqual "reinstall does not read or replace the unused module" "invalid unused type artifact" unusedTypeBytes
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
 
-test_installV2InstanceVisibility :: Assertion
-test_installV2InstanceVisibility = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/instance-visibility"
-  withTempDir "aihc-install-v2-instance-visibility" $ \root -> do
-    let install source store =
-          installV2
-            (InstallV2Options (fixtureRoot </> source) (Just (root </> store)) False False False False True False False AppleArm64)
-    withoutResult <- try (install "without" "without-store") :: IO (Either IOException InstallV2Result)
+test_installInstanceVisibility :: Assertion
+test_installInstanceVisibility = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/instance-visibility"
+  withTempDir "aihc-install-instance-visibility" $ \root -> do
+    let installFixture source store =
+          install
+            (InstallOptions (fixtureRoot </> source) (Just (root </> store)) False False False False True False False AppleArm64)
+    withoutResult <- try (installFixture "without" "without-store") :: IO (Either IOException InstallResult)
     case withoutResult of
       Left _ -> pure ()
       Right _ -> assertFailure "an unrelated module supplied an instance"
-    _ <- install "with" "with-store"
+    _ <- installFixture "with" "with-store"
     pure ()
 
 assertFileExists :: FilePath -> Assertion

@@ -137,11 +137,16 @@ collectWrapped ::
   node ->
   [PlacedLabel]
 collectWrapped renderAnnotation peel original reparsed =
-  labelsAt renderAnnotation (spanFromAnnotations reparsedAnns) (nonSpanAnnotations originalAnns)
+  labelsAt renderAnnotation wrappedSpan (nonSpanAnnotations originalAnns)
     <> collectGeneric renderAnnotation originalBase reparsedBase
   where
     (originalAnns, originalBase) = peelLeading peel original
     (reparsedAnns, reparsedBase) = peelLeading peel reparsed
+    -- A checked node can carry a span that the parser did not give it.
+    wrappedSpan =
+      case spanFromAnnotations reparsedAnns of
+        NoSourceSpan -> spanFromAnnotations originalAnns
+        sourceSpan -> sourceSpan
 
 peelLeading :: (node -> Maybe (Annotation, node)) -> node -> ([Annotation], node)
 peelLeading peel =

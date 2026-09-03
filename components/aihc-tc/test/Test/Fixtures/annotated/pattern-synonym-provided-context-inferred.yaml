@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Mark = Marked | Plain
+       │      │        └─ type: Mark
+       │      └─ type: Mark
+       └─ type: Type
+  class Markable a where
+  └─ class methods: mark ∷ ∀ a. (Markable a) ⇒ a → Mark
+    mark :: a -> Mark
+  data Box = forall a. Markable a => Box Bool a
+       │     └─ type: ∀ a. (Markable a) ⇒ Bool → a → Box
+       └─ type: Type
+  pattern Tagged x <- Box True x
+  │                   │   │    └─ type: a
+  │                   │   └─ type: Bool
+  │                   └─ type: Bool → a → Box; type-args: a; evidence: given Markable a
+  └─ type: ∀ a. (Markable a) ⇒ a → Box
+  inspect :: Box -> Mark
+  inspect (Tagged x) = mark x
+  │        │      │    └─ type: a → Mark; type-args: a; evidence: given Markable a
+  │        │      └─ type: a
+  │        └─ type: a → Box; type-args: a; evidence: given Markable a
+  └─ type: Box → Mark
+  inspect _ = Plain
+  │       └─ type: Box
+  └─ type: Box → Mark
+
+extensions:
+- ExistentialQuantification
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+  data Mark = Marked | Plain
+  class Markable a where
+    mark :: a -> Mark
+  data Box = forall a. Markable a => Box Bool a
+  pattern Tagged x <- Box True x
+  inspect :: Box -> Mark
+  inspect (Tagged x) = mark x
+  inspect _ = Plain
+reason: the inferred type of a pattern synonym over an existential constructor provides the constructor context
+status: pass

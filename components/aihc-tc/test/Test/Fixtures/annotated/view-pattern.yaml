@@ -1,0 +1,38 @@
+annotated:
+- |-
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  not :: Bool -> Bool
+  not True = False
+  │   └─ type: Bool
+  └─ type: Bool → Bool
+  not False = True
+  │   └─ type: Bool
+  └─ type: Bool → Bool
+  isFalse :: Bool -> Bool
+  isFalse (not -> True) = True
+  │        │      └─ type: Bool
+  │        └─ type: Bool
+  └─ type: Bool → Bool
+  isFalse _ = False
+  │       └─ type: Bool
+  └─ type: Bool → Bool
+extensions:
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+  not :: Bool -> Bool
+  not True = False
+  not False = True
+  isFalse :: Bool -> Bool
+  isFalse (not -> True) = True
+  isFalse _ = False
+reason: a view pattern applies its function to the scrutinee and matches the result
+status: pass

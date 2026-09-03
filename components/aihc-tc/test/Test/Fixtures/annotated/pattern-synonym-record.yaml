@@ -1,0 +1,15 @@
+annotated: []
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Pair a = Pair a a
+  pattern Point {px, py} = Pair px py
+  first :: Pair a -> a
+  first p = px p
+  mk :: a -> a -> Pair a
+  mk x y = Point {px = x, py = y}
+reason: the type checker does not type record pattern synonyms
+status: xfail

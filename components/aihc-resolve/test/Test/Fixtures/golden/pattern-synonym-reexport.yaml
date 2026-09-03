@@ -1,0 +1,60 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Lib (Expr (.., Sub), Flag (..)) where
+  data Flag = On | Off
+       │      │    └─ v Lib
+       │      └─ v Lib
+       └─ t Lib
+  data Expr = Lit Flag | Add Expr Expr | Neg Expr
+       │      │   │      │   │    │      │   └─ t Lib
+       │      │   │      │   │    │      └─ v Lib
+       │      │   │      │   │    └─ t Lib
+       │      │   │      │   └─ t Lib
+       │      │   │      └─ v Lib
+       │      │   └─ t Lib
+       │      └─ v Lib
+       └─ t Lib
+  pattern Sub a b = Add a (Neg b)
+          └─ v Lib  │   │  │   └─ v 1
+                    │   │  └─ v Lib
+                    │   └─ v 0
+                    └─ v Lib
+- |-
+  module Main where
+  import Mid (Expr (..), Flag (..))
+  swap (Sub a b) = Sub b a
+  │     │   │ │    │   │ └─ v 2
+  │     │   │ │    │   └─ v 3
+  │     │   │ │    └─ v Lib
+  │     │   │ └─ v 3
+  │     │   └─ v 2
+  │     └─ v Lib
+  └─ v Main
+  swap e = e
+  │    │   └─ v 4
+  │    └─ v 4
+  └─ v Main
+- |-
+  module Mid (Expr (..), Flag (..)) where
+  import Lib
+
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Lib (Expr (.., Sub), Flag (..)) where
+  data Flag = On | Off
+  data Expr = Lit Flag | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+- |
+  module Mid (Expr (..), Flag (..)) where
+  import Lib
+- |
+  module Main where
+  import Mid (Expr (..), Flag (..))
+  swap (Sub a b) = Sub b a
+  swap e = e
+reason: a module that re-exports a type with T(..) also re-exports the pattern synonyms bundled with it
+status: pass

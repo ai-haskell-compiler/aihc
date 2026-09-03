@@ -59,7 +59,7 @@ import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, listToMaybe)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -464,7 +464,8 @@ loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [(Text, Modul
 loadDependencyModules tc evalModules = do
   let dependencies = evalCaseDependencies tc
       transitiveDependencies = nub (dependencies <> ["aihc-base", "aihc-prim"])
-      initialModules = initialDependencyModules evalModules
+      localModuleNames = Set.fromList (mapMaybe Surface.moduleName evalModules)
+      initialModules = filter (`Set.notMember` localModuleNames) (initialDependencyModules evalModules)
   roots <- traverse resolveDependencyRoot transitiveDependencies
   case sequence roots of
     Left errMsg -> pure (Left errMsg)

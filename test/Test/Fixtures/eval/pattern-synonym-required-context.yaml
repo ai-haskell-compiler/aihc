@@ -1,0 +1,25 @@
+extensions:
+  - PatternSynonyms
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+    module Test where
+    data Bool = True | False
+    data Label = Zero | Other
+    class Describe a where
+      isZero :: a -> Bool
+    instance Describe Bool where
+      isZero False = True
+      isZero True = False
+    pattern IsZero :: Describe a => a
+    pattern IsZero <- (isZero -> True)
+    label :: Describe a => a -> Label
+    label IsZero = Zero
+    label _ = Other
+output: |
+  Zero
+expression: |
+  label False
+status: pass
+reason: passes the required dictionary of a pattern synonym match to its matcher

@@ -1,0 +1,56 @@
+extensions:
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+  not True = False
+  not False = True
+  isFalse (not -> True) = True
+  isFalse _ = False
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub val 1.vnot :: 1.tBool 2.→ 1.tBool
+   = λ(x : 1.tBool).
+    case x as (_scrut : 1.tBool) return (1.tBool) of {
+        1.vTrue →
+            1.vFalse;
+        1.vFalse →
+            1.vTrue
+    }
+
+  pub val 1.visFalse :: 1.tBool 2.→ 1.tBool
+   = λ(x : 1.tBool).
+    let {
+        _pat : 1.tBool =
+            1.vnot x
+    } in
+        case _pat as (_scrut : 1.tBool) return (1.tBool) of {
+            1.vTrue →
+                1.vTrue;
+            _ →
+                1.vFalse
+        }
+status: pass
+reason: A view pattern binds the function result and matches it with the later rows as the failure.
