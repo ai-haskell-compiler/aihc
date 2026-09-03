@@ -4,6 +4,7 @@ import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
 import Aihc.Hackage.Stackage (parseSnapshotConstraints)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Hackage.VersionResolver (parsePreferredVersions)
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip
@@ -14,6 +15,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Pretty (prettyShow)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -51,6 +53,18 @@ main =
           @?= Right
             [ PackageSpec "alpha" "1.2.0"
             ],
+      testCase "ignores deprecated versions when reading Hackage preferred versions" $ do
+        assertEqual
+          "preferred versions"
+          ["1.5.2.0", "1.5.1.0"]
+          (map prettyShow (parsePreferredVersions deprecatedPreferredVersions)),
+      testCase "reads preferred versions when nothing is deprecated" $ do
+        assertEqual
+          "preferred versions"
+          ["0.8.11", "0.8.10"]
+          (map prettyShow (parsePreferredVersions plainPreferredVersions)),
+      testCase "treats unparseable preferred version metadata as unknown" $ do
+        assertEqual "preferred versions" [] (map prettyShow (parsePreferredVersions (BSC.pack "not json"))),
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
@@ -362,3 +376,13 @@ withTempDir prefix action = do
     (pure tempFile)
     removeDirectoryRecursive
     action
+
+-- | Hackage preferred-version metadata where the newest upload is deprecated.
+deprecatedPreferredVersions :: BS.ByteString
+deprecatedPreferredVersions =
+  BSC.pack "{\"deprecated-version\":[\"1.6.0.0\"],\"normal-version\":[\"1.5.2.0\",\"1.5.1.0\"]}"
+
+-- | Hackage preferred-version metadata without any deprecated versions.
+plainPreferredVersions :: BS.ByteString
+plainPreferredVersions =
+  BSC.pack "{\"normal-version\":[\"0.8.11\",\"0.8.10\"]}"
