@@ -23,6 +23,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcPatSynAnnotation (..),
     TcStockDerivingPlan (..),
     renderTcType,
   )
@@ -65,9 +66,17 @@ finalizeAnnotationTc :: Annotation -> TcM Annotation
 finalizeAnnotationTc ann =
   case fromAnnotation @PendingTcAnnotation ann of
     Just pending -> mkAnnotation <$> annotationForPendingTc pending
-    Nothing -> do
-      rejectMetaFinalAnnotation ann
-      pure ann
+    Nothing ->
+      case fromAnnotation @TcPatSynAnnotation ann of
+        Just patSyn -> do
+          -- The matcher and builder equations live inside the annotation.
+          -- The generic traversal does not enter an annotation payload.
+          matcher <- everywhereM finalizeAnnotationNode (tcPatSynMatcher patSyn)
+          builder <- traverse (everywhereM finalizeAnnotationNode) (tcPatSynBuilder patSyn)
+          pure (mkAnnotation (TcPatSynAnnotation matcher builder))
+        Nothing -> do
+          rejectMetaFinalAnnotation ann
+          pure ann
 
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do

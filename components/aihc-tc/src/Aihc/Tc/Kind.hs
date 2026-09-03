@@ -84,8 +84,19 @@ sigToScheme ty = do
             | param <- explicitParams
             ]
   tcTy <- checkRuntimeType tvEnv body
-  preds <- mapM (surfacePredToPred tvEnv) context
+  preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
   pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
+
+-- | The empty context @() =>@. A pattern synonym signature uses it for an
+-- empty required context before a provided context.
+isEmptyContext :: Type -> Bool
+isEmptyContext ty =
+  case ty of
+    TAnn _ inner -> isEmptyContext inner
+    TParen inner -> isEmptyContext inner
+    TTuple _ _ [] -> True
+    TCon name _ -> nameText name == "()"
+    _ -> False
 
 standaloneKindSigToScheme :: Type -> TcM TypeScheme
 standaloneKindSigToScheme ty = do

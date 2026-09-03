@@ -37,21 +37,21 @@ expected: |-
       pub 1.vNeg :: 1.tExpr 2.→ 1.tExpr
   }
 
-  pub val 1.v$mSub :: ∀(a : 2.tType). 1.tExpr 2.→ (1.tExpr 2.→ 1.tExpr 2.→ a) 2.→ a 2.→ a
-   = Λ(a : 2.tType).
-    λ($scrutinee : 1.tExpr).
-      λ($continue : 1.tExpr 2.→ 1.tExpr 2.→ a).
-        λ($failure : a).
-          case $scrutinee as (_do_scrut : 1.tExpr) return (a) of {
-              1.vAdd (a{1} : 1.tExpr) (_pat : 1.tExpr) →
-                  case _pat as (_do_scrut{1} : 1.tExpr) return (a) of {
+  pub val 1.v$mSub :: ∀(r : 2.tType). 1.tExpr 2.→ (1.tExpr 2.→ 1.tExpr 2.→ r) 2.→ r 2.→ r
+   = Λ(r : 2.tType).
+    λ(x : 1.tExpr).
+      λ(y : 1.tExpr 2.→ 1.tExpr 2.→ r).
+        λ(z : r).
+          case x as (_scrut : 1.tExpr) return (r) of {
+              1.vAdd (a : 1.tExpr) (_pat : 1.tExpr) →
+                  case _pat as (_scrut{1} : 1.tExpr) return (r) of {
                       1.vNeg (b : 1.tExpr) →
-                          $continue a{1} b;
+                          y a b;
                       _ →
-                          $failure
+                          z
                   };
               _ →
-                  $failure
+                  z
           }
 
   pub val 1.v$bSub :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr
