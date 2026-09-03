@@ -294,6 +294,7 @@ test-suite spec
     Test.Llvm.Suite
     Test.Native.BlockLayout
     Test.Native.Compiler
+    Test.Native.GcFuzz
     Test.Native.Observed
     Test.Native.Primitive
     Test.Native.RegisterAllocate
