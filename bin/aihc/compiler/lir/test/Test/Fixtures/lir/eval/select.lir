@@ -1,0 +1,18 @@
+; expect: -1, 7, 42
+
+func @main() -> (i64, i64, i64) {
+entry:
+  %c = lt.s i64 3, 5
+  %e = sext i1 %c to i64
+  %v = select i64 %c, 7, 9
+  switch i64 %v {
+    9 -> wrong
+    default -> right
+  }
+
+wrong:
+  return %e, %v, 0
+
+right:
+  return %e, %v, 42
+}

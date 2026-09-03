@@ -1,0 +1,6 @@
+; error: @main/entry: entry block entry has parameters
+
+func @main() -> i64 {
+entry(%x: i64):
+  return %x
+}

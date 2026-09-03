@@ -1,0 +1,6 @@
+; error: @main/entry: use of undefined value %x
+
+func @main() -> i64 {
+entry:
+  return %x
+}

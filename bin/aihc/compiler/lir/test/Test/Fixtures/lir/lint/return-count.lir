@@ -1,0 +1,6 @@
+; error: @main/entry: return 2 values, expected 1
+
+func @main() -> i64 {
+entry:
+  return 1, 2
+}

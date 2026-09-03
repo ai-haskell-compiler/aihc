@@ -17,6 +17,8 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/golden/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
+  compiler/lir/test/Test/Fixtures/lir/eval/*.lir
+  compiler/lir/test/Test/Fixtures/lir/lint/*.lir
   compiler/native/test/Test/Runtime/aihc_snapshot.c
   compiler/native/test/Test/Runtime/aihc_snapshot.h
   test/Test/Fixtures/build-exe/generated-entry-collision/Aihc/Entry.hs
@@ -112,6 +114,12 @@ library compiler
     Aihc.Grin.Snapshot
     Aihc.Grin.Srt
     Aihc.Grin.Syntax
+    Aihc.Lir
+    Aihc.Lir.Interpret
+    Aihc.Lir.Lint
+    Aihc.Lir.Parser
+    Aihc.Lir.Pretty
+    Aihc.Lir.Syntax
     Aihc.Llvm
     Aihc.Llvm.Codegen
     Aihc.Native
@@ -136,6 +144,7 @@ library compiler
     compiler/arm64/src
     compiler/fc/src
     compiler/grin/src
+    compiler/lir/src
     compiler/llvm/src
     compiler/native/src
     compiler/wasm/src
@@ -262,6 +271,7 @@ test-suite spec
     compiler/fc/test
     compiler/fc/common
     compiler/grin/test
+    compiler/lir/test
     compiler/native/test
     compiler/amd64/test
     compiler/arm64/test
@@ -289,6 +299,8 @@ test-suite spec
     Test.Grin.Arbitrary
     Test.Grin.Spec
     Test.Grin.Srt
+    Test.Lir.Arbitrary
+    Test.Lir.Spec
     Test.Llvm.Spec
     Test.Llvm.Suite
     Test.Native.BlockLayout

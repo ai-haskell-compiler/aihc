@@ -1,0 +1,6 @@
+; expect-trap: boom
+
+func @main() -> i64 {
+entry:
+  trap "boom"
+}

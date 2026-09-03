@@ -1,0 +1,15 @@
+; error: @t: alignment 12 is not a power of two
+; error: @main/entry: alignment 3 is not a power of two
+; error: @main/other: stack.alloc outside the entry block
+
+data @t align 12 = { i64 0 }
+
+func @main() -> i64 {
+entry:
+  %v = load i64 [@t] align 3
+  jump other
+
+other:
+  %s = stack.alloc 8 align 8
+  return %v
+}

@@ -1,0 +1,24 @@
+; expect: 4, 1
+; Function addresses in a data table.
+
+data @table align 8 = { ptr @add, ptr @sub }
+
+func @add(%a: i64, %b: i64) -> i64 {
+entry:
+  %r = add i64 %a, %b
+  return %r
+}
+
+func @sub(%a: i64, %b: i64) -> i64 {
+entry:
+  %r = sub i64 %a, %b
+  return %r
+}
+
+func @main() -> (i64, i1) {
+entry:
+  %f = load ptr [@table + 8] align 8
+  %r = call.indirect %f(7, 3) : (i64, i64) -> i64
+  %same = eq ptr %f, @sub
+  return %r, %same
+}
