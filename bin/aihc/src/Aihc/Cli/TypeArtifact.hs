@@ -139,22 +139,26 @@ getInterface table = do
 
 putPatSynInfo :: Map TyCon Word64 -> PatSynInfo -> Builder.Builder
 putPatSynInfo table info =
-  cborArray 5
+  cborArray 7
     <> cborText (psiName info)
     <> putOrigin (psiOrigin info)
     <> cborWord (fromIntegral (psiArity info))
     <> putPatSynDirection (psiDirection info)
     <> putTypeScheme table (psiScheme info)
+    <> encodeList (putPred table) (psiReqTheta info)
+    <> encodeList (putPred table) (psiProvTheta info)
 
 getPatSynInfo :: TyConTable -> Get.Get PatSynInfo
 getPatSynInfo table = do
-  expectArray 5
+  expectArray 7
   psiName <- getText
   psiOrigin <- getOrigin
   psiArity <- fromIntegral <$> getWord
   psiDirection <- getPatSynDirection
   psiScheme <- getTypeScheme table
-  pure PatSynInfo {psiName, psiOrigin, psiArity, psiDirection, psiScheme}
+  psiReqTheta <- getList (getPred table)
+  psiProvTheta <- getList (getPred table)
+  pure PatSynInfo {psiName, psiOrigin, psiArity, psiDirection, psiScheme, psiReqTheta, psiProvTheta}
 
 putPatSynDirection :: PatSynDirection -> Builder.Builder
 putPatSynDirection direction =

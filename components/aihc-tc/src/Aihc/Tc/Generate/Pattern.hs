@@ -35,7 +35,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (TyConInfo (..))
+import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
@@ -43,9 +43,10 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Control.Monad (when)
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -571,19 +572,20 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
   let conName = patternNameText conSyntax
   target <- resolvedTermTarget conSyntax
   mBinder <- lookupResolvedTerm conName target
+  mPatSyn <- lookupPatSynTarget target
   case mBinder of
+    Just (TcIdBinder scheme _)
+      | Just info <- mPatSyn ->
+          checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy
     Just (TcIdBinder scheme _) -> do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
       scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
       subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
       predicateGivens <- mapM (constructorGiven sp conName) predicates
-      -- A pattern synonym use records its type arguments. The desugarer
-      -- instantiates the matcher with them.
-      isPatSyn <- isJust <$> lookupPatSynTarget target
       let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
           annotatedPattern
-            | null predicateGivens && null skolems && not isPatSyn = rebuiltPattern
+            | null predicateGivens && null skolems = rebuiltPattern
             | otherwise =
                 PAnn
                   ( mkAnnotation
@@ -604,6 +606,40 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
     Nothing ->
       abortTc ("resolved constructor missing from type environment: " <> show conName <> " resolved as " <> show target)
+
+-- | Check a pattern synonym use. The required predicates are wanted at
+-- the use. The provided predicates are given to the branch. The annotation
+-- records the type arguments, the required evidence and then the provided
+-- evidence, and the existential skolems. The desugarer calls the matcher
+-- with them.
+checkPatSynPattern :: GadtHandling -> SourceSpan -> Pattern -> Text -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
+checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy = do
+  when (length subPats /= psiArity info) $
+    emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
+  (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+  let (requiredPreds, providedPreds) = splitAt (length (psiReqTheta info)) predicates
+  (argTys, conResTy) <- splitConTy (length subPats) conTy
+  scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
+  subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
+  requiredCts <- mapM (predToCt sp conName) requiredPreds
+  providedGivens <- mapM (constructorGiven sp conName) providedPreds
+  let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
+      annotatedPattern =
+        PAnn
+          ( mkAnnotation
+              ( (pendingAnnotation conTy typeArgs (map ctEvVar requiredCts <> map ctEvVar providedGivens) [])
+                  { pendingTcAnnTypeBinders = skolems
+                  }
+              )
+          )
+          rebuiltPattern
+  pure
+    subCheck
+      { pcWantedCts = fst scrutCt <> requiredCts <> pcWantedCts subCheck,
+        pcGivenCts = providedGivens <> snd scrutCt <> pcGivenCts subCheck,
+        pcSkolems = skolems <> pcSkolems subCheck,
+        pcPatterns = [annotatedPattern]
+      }
 
 constructorGiven :: SourceSpan -> Text -> Pred -> TcM Ct
 constructorGiven sp constructorName predicate = do

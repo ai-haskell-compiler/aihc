@@ -49,6 +49,7 @@ import Aihc.Tc.Annotations
     TcForeignMarshal (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcPatSynAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
 import Aihc.Tc.Solve.Dict (matchTypes)
@@ -273,8 +274,8 @@ desugarModuleValues checked = do
 -- types.
 desugarPatSynDecl :: Syn.Decl -> ValueM [Decl]
 desugarPatSynDecl declaration =
-  case Syn.peelDeclAnn declaration of
-    Syn.DeclPatSyn patSyn -> do
+  case patSynDeclAnnotation declaration of
+    Just (annotation, patSyn) -> do
       moduleOrigin <- gets vsModuleOrigin
       key <- requiredBinderKey (Syn.patSynDeclName patSyn)
       patSyns <- gets vsPatSyns
@@ -282,91 +283,34 @@ desugarPatSynDecl declaration =
         case Map.lookup key patSyns of
           Just info -> pure info
           Nothing -> failValue ("pattern synonym does not have checked information: " <> T.unpack (Syn.unqualifiedNameText (Syn.patSynDeclName patSyn)))
-      matcherType <- lookupBindingType (patSynHelperKey moduleOrigin "$m" info)
-      matcher <- desugarPatSynMatcher moduleOrigin info matcherType (Syn.patSynDeclPat patSyn) (patSynArgNames (Syn.patSynDeclArgs patSyn))
-      builder <-
-        case Syn.patSynDeclDir patSyn of
-          Syn.PatSynExplicitBidirectional matches -> do
-            builderType <- lookupBindingType (patSynHelperKey moduleOrigin "$b" info)
-            body <- desugarMatches builderType matches
-            ty <- convertCheckedType builderType
-            pure [DeclVal (ValDecl Pub (topName moduleOrigin (patSynHelperName "$b" info)) ty body)]
-          _ -> pure []
-      pure (matcher : builder)
-    _ -> pure []
+      matcher <- desugarPatSynHelper moduleOrigin "$m" info [tcPatSynMatcher annotation]
+      builder <- traverse (desugarPatSynHelper moduleOrigin "$b" info) (tcPatSynBuilder annotation)
+      pure (matcher : maybeToList builder)
+    Nothing -> pure []
 
-patSynArgNames :: Syn.PatSynArgs -> [Text]
-patSynArgNames args =
-  case args of
-    Syn.PatSynPrefixArgs names -> names
-    Syn.PatSynInfixArgs left right -> [left, right]
-    Syn.PatSynRecordArgs fields -> fields
+patSynDeclAnnotation :: Syn.Decl -> Maybe (TcPatSynAnnotation, Syn.PatSynDecl)
+patSynDeclAnnotation = go Nothing
+  where
+    go found declaration =
+      case declaration of
+        Syn.DeclAnn annotation inner -> go ((Syn.fromAnnotation annotation :: Maybe TcPatSynAnnotation) <|> found) inner
+        Syn.DeclPatSyn patSyn -> (,patSyn) <$> found
+        _ -> Nothing
+
+-- | The matcher or the builder of a pattern synonym as an ordinary
+-- top-level function. The type checker registers its type.
+desugarPatSynHelper :: (PackageId, Text) -> Text -> PatSynInfo -> [Syn.Match] -> ValueM Decl
+desugarPatSynHelper moduleOrigin prefix info matches = do
+  helperType <- lookupBindingType (patSynHelperKey moduleOrigin prefix info)
+  body <- desugarMatches helperType matches
+  ty <- convertCheckedType helperType
+  pure (DeclVal (ValDecl Pub (topName moduleOrigin (patSynHelperName prefix info)) ty body))
 
 patSynHelperName :: Text -> PatSynInfo -> Text
 patSynHelperName prefix info = prefix <> psiName info
 
 patSynHelperKey :: (PackageId, Text) -> Text -> PatSynInfo -> TcTermKey
 patSynHelperKey (package, moduleName') prefix info = TcTermGlobal package moduleName' (patSynHelperName prefix info)
-
-desugarPatSynMatcher :: (PackageId, Text) -> PatSynInfo -> TcType -> Syn.Pattern -> [Text] -> ValueM Decl
-desugarPatSynMatcher moduleOrigin info matcherType pattern' argNames = do
-  let (typeVariables, afterForAlls) = peelForAlls matcherType
-      (predicates, body) = peelConstraints afterForAlls
-  (scrutineeType, continueType, failureType, resultType) <-
-    case peelFunctions 3 body of
-      ([scrutineeType, continueType, failureType], resultType) -> pure (scrutineeType, continueType, failureType, resultType)
-      _ -> failValue ("pattern synonym matcher does not have three arguments: " <> T.unpack (psiName info))
-  argKeys <- mapM (`patternVarKey` pattern') argNames
-  typeBinders <- convertTypeBinders typeVariables
-  ty <- convertCheckedType matcherType
-  body' <-
-    withTypeVariables typeVariables $ do
-      dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
-      scrutinee <- freshBinder "$scrutinee" scrutineeType
-      continue <- freshBinder "$continue" continueType
-      failure <- freshBinder "$failure" failureType
-      let success = do
-            arguments <- mapM (\key -> ExVar . binderName . fst <$> lookupLocal key (psiName info)) argKeys
-            pure (foldl ExApp (ExVar (binderName continue)) arguments)
-      matched <-
-        withDictionaries
-          (zipWith Dictionary predicates dictionaries)
-          (desugarPatternWithFailure resultType scrutinee scrutineeType pattern' success (Just (ExVar (binderName failure))))
-      pure (foldr ExLam (ExLam scrutinee (ExLam continue (ExLam failure matched))) dictionaries)
-  pure (DeclVal (ValDecl Pub (topName moduleOrigin (patSynHelperName "$m" info)) ty (foldr ExTyLam body' typeBinders)))
-
--- | The binder key of a variable that a pattern binds.
-patternVarKey :: Text -> Syn.Pattern -> ValueM TcTermKey
-patternVarKey target pattern' =
-  case patternVarBinder target pattern' of
-    Just name -> requiredBinderKey name
-    Nothing -> failValue ("pattern synonym argument is not bound by the pattern: " <> T.unpack target)
-
-patternVarBinder :: Text -> Syn.Pattern -> Maybe Syn.UnqualifiedName
-patternVarBinder target = go
-  where
-    go pattern' =
-      case pattern' of
-        Syn.PVar name
-          | Syn.unqualifiedNameText name == target -> Just name
-          | otherwise -> Nothing
-        Syn.PAs name inner
-          | Syn.unqualifiedNameText name == target -> Just name
-          | otherwise -> go inner
-        Syn.PAnn _ inner -> go inner
-        Syn.PParen inner -> go inner
-        Syn.PStrict inner -> go inner
-        Syn.PIrrefutable inner -> go inner
-        Syn.PTypeSig inner _ -> go inner
-        Syn.PView _ inner -> go inner
-        Syn.PUnboxedSum _ _ inner -> go inner
-        Syn.PList items -> firstJust items
-        Syn.PTuple _ items -> firstJust items
-        Syn.PCon _ _ items -> firstJust items
-        Syn.PInfix left _ right -> firstJust [left, right]
-        Syn.PRecord _ fields _ -> firstJust (map Syn.recordFieldValue fields)
-        _ -> Nothing
-    firstJust = listToMaybe . mapMaybe go
 
 -- | The pattern synonym that a constructor pattern uses, with the checked
 -- annotation of the pattern.
@@ -410,10 +354,14 @@ patSynMatcherReference info annotation resultType = do
   matcherType <- lookupBindingType matcherKey
   unless (length patternVariables == length typeArguments) $
     failValue ("pattern synonym use does not have the type arguments of its declaration: " <> T.unpack (psiName info))
+  -- The matcher quantifies the universal variables and then the result
+  -- variable. The use gives the universal arguments and then the
+  -- existential arguments.
   let (matcherVariables, _) = peelForAlls matcherType
-      substitution = Map.fromList (zip (map tvUnique patternVariables) typeArguments)
-      instantiate variable = Map.findWithDefault resultType (tvUnique variable) substitution
-  types <- mapM (convertCheckedType . instantiate) matcherVariables
+      universalCount = length matcherVariables - 1
+  unless (universalCount >= 0 && universalCount <= length typeArguments) $
+    failValue ("pattern synonym matcher does not quantify the universal variables and the result: " <> T.unpack (psiName info))
+  types <- mapM convertCheckedType (take universalCount typeArguments <> [resultType])
   pure (foldl ExTyApp (ExVar (Name (patSynHelperName "$m" info) SortValue (OriginTop package moduleName'))) types)
 
 -- | The empty case that reports a failed match on one binder.
@@ -439,14 +387,10 @@ desugarPatSynPattern resultType fallback argument arguments argumentTypes (match
       else desugarMatchArguments resultType fallback (argument : arguments) argumentTypes rest
   shareFailure resultType (Just failure) $ \shared -> do
     failureExpression <- maybe (emptyCaseFailure resultType argument) pure shared
-    let children = patternChildren pattern'
-    fieldTypes <- mapM requiredPatternType children
-    fields <- zipWithM freshPatternBinder children fieldTypes
     extra <- patternMatchBindings pattern' argument ty
-    matcher <- patSynMatcherReference info annotation resultType
-    let match' = match {Syn.matchPats = children <> drop 1 (Syn.matchPats match)}
-    body <- desugarMatchArguments resultType (Just failureExpression) (fields <> arguments) (fieldTypes <> restTypes) [(match', locals <> extra)]
-    pure (ExApp (ExApp (ExApp matcher (ExVar (binderName argument))) (foldr ExLam body fields)) failureExpression)
+    let match' = match {Syn.matchPats = patternChildren pattern' <> drop 1 (Syn.matchPats match)}
+    desugarPatSynCall info annotation resultType argument pattern' failureExpression $ \fields fieldTypes ->
+      desugarMatchArguments resultType (Just failureExpression) (fields <> arguments) (fieldTypes <> restTypes) [(match', locals <> extra)]
 
 -- | Match one binder against a pattern synonym pattern with a success
 -- continuation.
@@ -455,12 +399,29 @@ desugarPatSynWithFailure resultType binder pattern' info annotation success fail
   failure' <- maybe (emptyCaseFailure resultType binder) pure failure
   shareFailure resultType (Just failure') $ \shared -> do
     failureExpression <- maybe (emptyCaseFailure resultType binder) pure shared
-    let children = patternChildren pattern'
-    fieldTypes <- mapM requiredPatternType children
-    fields <- zipWithM freshPatternBinder children fieldTypes
-    matcher <- patSynMatcherReference info annotation resultType
-    body <- desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success (Just failureExpression)
-    pure (ExApp (ExApp (ExApp matcher (ExVar (binderName binder))) (foldr ExLam body fields)) failureExpression)
+    desugarPatSynCall info annotation resultType binder pattern' failureExpression $ \fields fieldTypes ->
+      desugarDoChildPatterns resultType (zip3 fields fieldTypes (patternChildren pattern')) success (Just failureExpression)
+
+-- | Call the matcher of a pattern synonym on one binder. The matcher gets
+-- the type arguments, the required dictionaries, the scrutinee, the
+-- continuation, and the failure. The continuation binds the existential
+-- type variables, the provided dictionaries, and the fields. The body
+-- function gets the field binders and their types.
+desugarPatSynCall :: PatSynInfo -> TcAnnotation -> TcType -> Binder -> Syn.Pattern -> Expr -> ([Binder] -> [TcType] -> ValueM Expr) -> ValueM Expr
+desugarPatSynCall info annotation resultType scrutinee pattern' failureExpression body = do
+  let children = patternChildren pattern'
+      (requiredTerms, providedTerms) = splitAt (length (psiReqTheta info)) (tcAnnEvidenceTerms annotation)
+      providedPredicates = [predicate | Ev.EvGiven predicate <- providedTerms]
+      typeVariables = tcAnnTypeBinders annotation
+  typeBinders <- convertTypeBinders typeVariables
+  fieldTypes <- mapM requiredPatternType children
+  fields <- zipWithM freshPatternBinder children fieldTypes
+  dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] providedPredicates
+  requiredArguments <- mapM desugarEvidence requiredTerms
+  matcher <- patSynMatcherReference info annotation resultType
+  body' <- withDictionaries (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
+  let continuation = foldr ExTyLam (foldr ExLam (foldr ExLam body' fields) dictionaries) typeBinders
+  pure (ExApp (ExApp (ExApp (foldl ExApp matcher requiredArguments) (ExVar (binderName scrutinee))) continuation) failureExpression)
 
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =

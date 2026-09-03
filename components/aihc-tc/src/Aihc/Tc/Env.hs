@@ -159,7 +159,13 @@ data PatSynInfo = PatSynInfo
     psiOrigin :: !(PackageId, Text),
     psiArity :: !Int,
     psiDirection :: !PatSynDirection,
-    psiScheme :: !TypeScheme
+    -- | The constructor-like type. Its predicates are the required
+    -- predicates and then the provided predicates.
+    psiScheme :: !TypeScheme,
+    -- | Constraints that a match requires from its context.
+    psiReqTheta :: ![Pred],
+    -- | Constraints that a match provides to its branch.
+    psiProvTheta :: ![Pred]
   }
   deriving (Eq, Show, Read)
 

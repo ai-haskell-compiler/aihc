@@ -12,10 +12,8 @@ annotated:
        │      └─ type: Bool → Expr
        └─ type: Type
   pattern Sub a b = Add a (Neg b)
-  │                 │   ││  │   └─ type: Expr
-  │                 │   ││  │   └─ type: Expr
-  │                 │   ││  └─ type: Expr
-  │                 │   └─ type: Expr
+  │                 │   │  │   └─ type: Expr
+  │                 │   │  └─ type: Expr
   │                 │   └─ type: Expr
   │                 └─ type: Expr
   └─ type: Expr → Expr → Expr

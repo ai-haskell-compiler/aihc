@@ -29,17 +29,17 @@ expected: |-
       pub 1.vC :: ∀(a : 2.tType). a 2.→ 1.tL a 2.→ 1.tL a
   }
 
-  pub val 1.v$mHead :: ∀(a : 2.tType) (b : 2.tType). 1.tL a 2.→ (a 2.→ b) 2.→ b 2.→ b
+  pub val 1.v$mHead :: ∀(a : 2.tType) (r : 2.tType). 1.tL a 2.→ (a 2.→ r) 2.→ r 2.→ r
    = Λ(a : 2.tType).
-    Λ(b : 2.tType).
-      λ($scrutinee : 1.tL a).
-        λ($continue : a 2.→ b).
-          λ($failure : b).
-            case $scrutinee as (_do_scrut : 1.tL a) return (b) of {
-                1.vC (x : a) (_pat : 1.tL a) →
-                    $continue x;
+    Λ(r : 2.tType).
+      λ(x : 1.tL a).
+        λ(y : a 2.→ r).
+          λ(z : r).
+            case x as (_scrut : 1.tL a) return (r) of {
+                1.vC (x{1} : a) (_pat : 1.tL a) →
+                    y x{1};
                 _ →
-                    $failure
+                    z
             }
 
   pub val 1.vfirst :: ∀(a : 2.tType). 1.tL a 2.→ a

@@ -1,0 +1,96 @@
+extensions:
+- ExistentialQuantification
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+  data Mark = Marked | Plain
+  class Markable a where
+    mark :: a -> Mark
+  instance Markable Bool where
+    mark True = Marked
+    mark False = Plain
+  data Box = forall a. Markable a => Box Bool a
+  pattern Tagged :: () => Markable a => a -> Box
+  pattern Tagged x <- Box True x
+  inspect (Tagged x) = mark x
+  inspect _ = Plain
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tMark :: 2.tType {
+      pub 1.vMarked :: 1.tMark;
+      pub 1.vPlain :: 1.tMark
+  }
+
+  pub type 1.t$Dict$Markable (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Markable :: ∀(a : 2.tType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
+  }
+
+  pub type 1.tBox :: 2.tType {
+      pub 1.vBox :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ 1.tBool 2.→ a 2.→ 1.tBox
+  }
+
+  pub val 1.vmark :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tMark
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Markable a).
+      case $d0 as ($dict : 1.t$Dict$Markable a) return (a 2.→ 1.tMark) of {
+          1.v$Dict$Markable ($method0 : a 2.→ 1.tMark) →
+              $method0
+      }
+
+  pub val 1.v$fMarkableBool :: 1.t$Dict$Markable 1.tBool
+   = 1.v$Dict$Markable @1.tBool (λ(x : 1.tBool).
+    case x as (_scrut : 1.tBool) return (1.tMark) of {
+        1.vTrue →
+            1.vMarked;
+        1.vFalse →
+            1.vPlain
+    })
+
+  pub val 1.v$mTagged :: ∀(r : 2.tType). 1.tBox 2.→ (∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ r) 2.→ r 2.→ r
+   = Λ(r : 2.tType).
+    λ(x : 1.tBox).
+      λ(y : ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ r).
+        λ(z : r).
+          case x as (_scrut : 1.tBox) return (r) of {
+              1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable a) (_pat : 1.tBool) (x{1} : a) →
+                  case _pat as (_scrut{1} : 1.tBool) return (r) of {
+                      1.vTrue →
+                          y @a $pattern_d0 x{1};
+                      _ →
+                          z
+                  };
+              _ →
+                  z
+          }
+
+  pub val 1.vinspect :: 1.tBox 2.→ 1.tMark
+   = λ(x : 1.tBox).
+    1.v$mTagged @1.tMark x (Λ(a : 2.tType).
+      λ($pattern_d0 : 1.t$Dict$Markable a).
+        λ(x{1} : a).
+          1.vmark @a $pattern_d0 x{1}) 1.vPlain
+status: pass
+reason: The matcher of a pattern synonym over an existential constructor takes a continuation that binds the type variable and the dictionary.

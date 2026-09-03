@@ -21,5 +21,5 @@ output: |
   Marked
 expression: |
   inspect (Box True True)
-status: xfail
+status: pass
 reason: uses the dictionary that a pattern synonym match provides

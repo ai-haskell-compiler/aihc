@@ -57,6 +57,7 @@ module Aihc.Tc.Monad
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
     extendTermEnvPermanent,
+    replaceTermKeyEnvPermanent,
     finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
@@ -471,6 +472,12 @@ extendTermKeyEnvPermanent key binder = do
 
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
+
+-- | Replace a permanent global term entry. A synthesized binding registers
+-- a provisional type before its check and the checked type after it.
+replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
+replaceTermKeyEnvPermanent key binder =
+  lift $ modify' $ \state -> state {tcsGlobalTerms = Map.insert key binder (tcsGlobalTerms state)}
 
 -- | Replace the temporary monomorphic entries for one inferred top-level
 -- binding. No other permanent term entry can use this operation.

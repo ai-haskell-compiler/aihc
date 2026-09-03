@@ -23,6 +23,7 @@ module Aihc.Tc.Annotations
     TcStockDerivingPlan (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
+    TcPatSynAnnotation (..),
     TcInstanceMethodAnnotation (..),
 
     -- * Pattern synonyms for extracting annotations
@@ -48,6 +49,7 @@ where
 import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
+    Match,
     Pattern (..),
     SourceSpan,
     Type (..),
@@ -219,6 +221,14 @@ data TcDerivingPlan = TcDerivingPlan
 
 newtype TcDerivingAnnotation = TcDerivingAnnotation
   { tcDerivingPlans :: [TcDerivingPlan]
+  }
+  deriving (Eq, Show)
+
+-- | The checked matcher equation and builder equations of a pattern
+-- synonym. The desugarer emits them as ordinary functions.
+data TcPatSynAnnotation = TcPatSynAnnotation
+  { tcPatSynMatcher :: !Match,
+    tcPatSynBuilder :: !(Maybe [Match])
   }
   deriving (Eq, Show)
 

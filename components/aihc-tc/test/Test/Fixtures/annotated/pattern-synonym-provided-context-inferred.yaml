@@ -6,7 +6,8 @@ annotated:
        │      │      └─ type: Bool
        │      └─ type: Bool
        └─ type: Type
-  data Mark = Marked
+  data Mark = Marked | Plain
+       │      │        └─ type: Mark
        │      └─ type: Mark
        └─ type: Type
   class Markable a where
@@ -15,7 +16,6 @@ annotated:
   data Box = forall a. Markable a => Box Bool a
        │     └─ type: ∀ a. (Markable a) ⇒ Bool → a → Box
        └─ type: Type
-  pattern Tagged :: () => Markable a => a -> Box
   pattern Tagged x <- Box True x
   │                   │   │    └─ type: a
   │                   │   └─ type: Bool
@@ -27,7 +27,7 @@ annotated:
   │        │      └─ type: a
   │        └─ type: a → Box; type-args: a; evidence: given Markable a
   └─ type: Box → Mark
-  inspect _ = Marked
+  inspect _ = Plain
   │       └─ type: Box
   └─ type: Box → Mark
 
@@ -39,14 +39,13 @@ modules:
   {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
   module Test where
   data Bool = True | False
-  data Mark = Marked
+  data Mark = Marked | Plain
   class Markable a where
     mark :: a -> Mark
   data Box = forall a. Markable a => Box Bool a
-  pattern Tagged :: () => Markable a => a -> Box
   pattern Tagged x <- Box True x
   inspect :: Box -> Mark
   inspect (Tagged x) = mark x
-  inspect _ = Marked
-reason: a pattern synonym signature with an empty required context and a provided context gives the constructor dictionary to the branch
+  inspect _ = Plain
+reason: the inferred type of a pattern synonym over an existential constructor provides the constructor context
 status: pass
