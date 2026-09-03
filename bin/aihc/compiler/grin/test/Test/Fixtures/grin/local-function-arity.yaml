@@ -6,12 +6,9 @@ source: |
 expected: |-
   global "\NULTest\NULidentity" = (P$grin_closure_0/1)
 
-  global "\NULTest\NULunit" = (F$grin_unit_thunk_1)
+  global "\NULTest\NULunit" = (F$grin_closure_0 global-ref "aihc-prim\NULGHC.Tuple\NUL()")
 
-  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
-
-  $grin_unit_thunk_1 -> BoxedRep Lifted =
-    call @(BoxedRep Lifted) $grin_closure_0 global-ref "aihc-prim\NULGHC.Tuple\NUL()"
+  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 status: pass
-reason: calls a local function directly when one argument saturates its known arity
+reason: calls a local function directly when one argument saturates its known arity, suspending the call on that function

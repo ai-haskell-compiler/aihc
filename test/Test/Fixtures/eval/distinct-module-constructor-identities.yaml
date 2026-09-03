@@ -38,5 +38,5 @@ output: |
   Result FirstItem On
 expression: |
   result
-status: xfail
+status: pass
 reason: keeps equal constructor names from different modules distinct

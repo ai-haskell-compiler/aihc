@@ -1,0 +1,68 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+  swap (Sub a b) = Sub b a
+  swap e = e
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tExpr :: 2.tType {
+      pub 1.vLit :: 1.tBool 2.→ 1.tExpr;
+      pub 1.vAdd :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr;
+      pub 1.vNeg :: 1.tExpr 2.→ 1.tExpr
+  }
+
+  pub val 1.v$mSub :: ∀(r : 2.tType). 1.tExpr 2.→ (1.tExpr 2.→ 1.tExpr 2.→ r) 2.→ r 2.→ r
+   = Λ(r : 2.tType).
+    λ(x : 1.tExpr).
+      λ(y : 1.tExpr 2.→ 1.tExpr 2.→ r).
+        λ(z : r).
+          case x as (_scrut : 1.tExpr) return (r) of {
+              1.vAdd (a : 1.tExpr) (_pat : 1.tExpr) →
+                  case _pat as (_scrut{1} : 1.tExpr) return (r) of {
+                      1.vNeg (b : 1.tExpr) →
+                          y a b;
+                      _ →
+                          z
+                  };
+              _ →
+                  z
+          }
+
+  pub val 1.v$bSub :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr
+   = λ(x : 1.tExpr).
+    λ(y : 1.tExpr).
+      1.vAdd x (1.vNeg y)
+
+  pub val 1.vswap :: 1.tExpr 2.→ 1.tExpr
+   = λ(x : 1.tExpr).
+    1.v$mSub @1.tExpr x (λ(a : 1.tExpr).
+      λ(b : 1.tExpr).
+        1.v$bSub b a) x
+status: pass
+reason: A bidirectional pattern synonym gives a matcher and a builder. A pattern use calls the matcher with a continuation and the failure, and an expression use calls the builder.

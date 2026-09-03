@@ -76,6 +76,9 @@ import Aihc.Parser.Syntax
     NameType (..),
     NewtypeDecl (..),
     NumericType (..),
+    PatSynArgs (..),
+    PatSynDecl (..),
+    PatSynDir (..),
     Pattern (..),
     Pragma (..),
     PragmaType (..),
@@ -106,6 +109,7 @@ import Aihc.Parser.Syntax
     recordFieldValue,
     renderUnqualifiedName,
     unqualifiedNameAnns,
+    unqualifiedNameText,
   )
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
@@ -298,6 +302,9 @@ missingImportItemAnnotation originScope item =
         ImportAnn _ sub -> go sub
         ImportItemVar _ itemName ->
           missingImportedName item ResolutionNamespaceTerm itemName (scopeTerms originScope)
+        ImportItemAbs (Just namespace) itemName
+          | isTermNamespace namespace ->
+              missingImportedName item ResolutionNamespaceTerm itemName (scopeTerms originScope)
         ImportItemAbs _ itemName ->
           missingImportedName item ResolutionNamespaceType itemName (scopeTypes originScope)
         ImportItemAll _ itemName ->
@@ -438,8 +445,15 @@ resolveDeclCore termDefinition decl =
     DeclPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure decl
       | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPatSyn patSyn -> do
+      sp <- currentSpan
+      (patSyn', unboundArgs) <- resolvePatSynDecl termDefinition patSyn
+      pure (List.foldl' (\acc arg -> annotateDecl (unboundPatSynArgAnnotation sp arg) acc) (DeclPatSyn patSyn') unboundArgs)
+    DeclPatSynSig names ty -> do
+      sp <- currentSpan
+      (_, ty') <- resolveTypeSignature ty
+      let names' = map (resolveTermDefinitionAt (declKeywordNameSpan "pattern " sp "") termDefinition) names
+      pure (DeclPatSynSig names' ty')
     DeclInstance instanceDecl ->
       DeclInstance <$> resolveInstanceDecl instanceDecl
     DeclStandaloneDeriving derivingDecl ->
@@ -496,6 +510,47 @@ resolveValueDecl termDefinition valueDecl =
       FunctionBind name' <$> mapM resolveMatch matches
     PatternBind multTag pat rhs ->
       PatternBind multTag <$> resolvePatternDefinition termDefinition pat <*> resolveRhs rhs
+
+-- | Resolve a pattern synonym declaration. The right-hand side pattern
+-- binds the argument variables. The result gives the arguments that the
+-- pattern does not bind.
+resolvePatSynDecl :: TermDefinition -> PatSynDecl -> ResolveM (PatSynDecl, [Text])
+resolvePatSynDecl termDefinition patSyn = do
+  sp <- currentSpan
+  let name = patSynDeclName patSyn
+      nameSpan = patSynNameSpan sp patSyn
+      name' =
+        case termDefinition name of
+          Just resolved -> resolveUnqualifiedNameTo nameSpan ResolutionNamespaceTerm resolved name
+          Nothing -> name
+  (patScope, pat') <- bindPattern (patSynDeclPat patSyn)
+  dir' <-
+    case patSynDeclDir patSyn of
+      PatSynExplicitBidirectional matches -> PatSynExplicitBidirectional <$> mapM resolveMatch matches
+      dir -> pure dir
+  let unboundArgs = [arg | arg <- patSynArgNames (patSynDeclArgs patSyn), not (Map.member arg (scopeTerms patScope))]
+  pure (patSyn {patSynDeclName = name', patSynDeclPat = pat', patSynDeclDir = dir'}, unboundArgs)
+
+patSynArgNames :: PatSynArgs -> [Text]
+patSynArgNames args =
+  case args of
+    PatSynPrefixArgs names -> names
+    PatSynInfixArgs left right -> [left, right]
+    PatSynRecordArgs fields -> fields
+
+-- | The span of the pattern synonym name. An infix name follows its left
+-- argument.
+patSynNameSpan :: SourceSpan -> PatSynDecl -> SourceSpan
+patSynNameSpan sp patSyn =
+  case patSynDeclArgs patSyn of
+    PatSynInfixArgs left _ -> declKeywordNameSpan ("pattern " <> left <> " ") sp nameText'
+    _ -> declKeywordNameSpan "pattern " sp nameText'
+  where
+    nameText' = unqualifiedNameText (patSynDeclName patSyn)
+
+unboundPatSynArgAnnotation :: SourceSpan -> Text -> ResolutionAnnotation
+unboundPatSynArgAnnotation sp arg =
+  ResolutionAnnotation sp (IdentifierNamed arg) ResolutionNamespaceTerm (ResolvedError "pattern synonym argument is not bound by the pattern")
 
 resolveForeignDecl :: TermDefinition -> ForeignDecl -> ResolveM ForeignDecl
 resolveForeignDecl termDefinition foreignDecl = do

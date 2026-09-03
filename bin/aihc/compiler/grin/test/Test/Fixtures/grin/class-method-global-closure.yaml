@@ -15,11 +15,11 @@ expected: |-
 
   global "\NULTest\NULreads" = (P$grin_closure_0/1)
 
-  $grin_closure_0 ($d0%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case_value%-1000000001 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) ($d0%-1000000000 :: BoxedRep Lifted)
-    case (case_value%-1000000001 :: BoxedRep Lifted) as $dict%-1000000002 :: BoxedRep Lifted of
-      data Test.$Dict$Read ($method0%-1000000003 :: BoxedRep Lifted) ->
-        eval @(BoxedRep Lifted) ($method0%-1000000003 :: BoxedRep Lifted)
+  $grin_closure_0 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data Test.$Dict$Read ($method0 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
 status: pass
 reason: emits a class method selector as a direct global closure

@@ -1,0 +1,16 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+    data L a = N | C a (L a)
+    pattern HeadC x <- C x _ where
+      HeadC x = C x N
+    first (HeadC x) = x
+output: |
+  'a'
+expression: |
+  first (HeadC 'a')
+status: pass
+reason: constructs through the explicit builder of a pattern synonym and matches through its matcher

@@ -14,11 +14,11 @@ expected: |-
 
   global "\NULTest\NULcopyBox" = (P$grin_closure_0/1)
 
-  $grin_closure_0 (x%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
-    case_value%-1000000001 :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) (x%-1000000000 :: BoxedRep Lifted)
-    case (case_value%-1000000001 :: BoxedRep Lifted) as _scrut%-1000000002 :: BoxedRep Lifted of
-      data Test.Box (value%-1000000003 :: BoxedRep Lifted) ->
-        store (CTest.Box (value%-1000000003 :: BoxedRep Lifted))
+  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+      data Test.Box (value :: BoxedRep Lifted) ->
+        store (CTest.Box (value :: BoxedRep Lifted))
 status: pass
 reason: preserves the lifted representation of an existential constructor field

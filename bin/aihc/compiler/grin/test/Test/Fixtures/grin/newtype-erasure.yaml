@@ -3,12 +3,7 @@ expected: |-
 
   global "\NULTest\NULIS" = (CTest.IS/1)
 
-  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
-
-  $grin_value_thunk_0 -> BoxedRep Lifted =
-    argument%-1000000000 :: IntRep <-
-      constant (42 :: IntRep)
-    store (CTest.IS (argument%-1000000000 :: IntRep))
+  global "\NULTest\NULvalue" = (CTest.IS (42 :: IntRep))
 extensions:
 - MagicHash
 reason: removes the applied newtype conversion closure and does not allocate a newtype node

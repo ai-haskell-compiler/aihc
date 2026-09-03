@@ -5,7 +5,7 @@ module Aihc.Cli
 where
 
 import Aihc.Cli.BuildExe (runBuildExe)
-import Aihc.Cli.InstallV2 (runInstallV2)
+import Aihc.Cli.Install (runInstall)
 import Aihc.Cli.Options (Command (..), parseCommandIO)
 import Aihc.Cli.Runtime (runPrepareRuntime)
 import Control.Exception (IOException, displayException, try)
@@ -23,5 +23,5 @@ main = do
 
 runCommand :: Command -> IO ()
 runCommand (CmdBuildExe opts) = runBuildExe opts
-runCommand (CmdInstallV2 opts) = runInstallV2 opts
+runCommand (CmdInstall opts) = runInstall opts
 runCommand (CmdPrepareRuntime opts) = runPrepareRuntime opts

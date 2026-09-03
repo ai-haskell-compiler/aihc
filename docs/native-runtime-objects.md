@@ -89,6 +89,23 @@ Exceptions have no native heap tag or object representation. They are removed
 before native runtime lowering. The final physical tag is the semispace
 collector's temporary forwarding marker.
 
+The semispace collector does not copy heap indirections. When it forwards a
+pointer to an indirection, it follows the chain and stores the final target.
+The new space therefore holds no indirection after a collection. Static
+indirections stay in place, because static objects do not move. The collector
+forwards their targets instead.
+
+The collector has a fuzz test in `Test.Native.GcFuzz`. The test generates
+random scripts that build heaps through the runtime interface, change them,
+and force collections. A C driver runs each script against the runtime and
+reports the new space, the roots, and the static objects after every
+collection. A model of the same script predicts the report. The scripts cover
+constructors, closures, thunks, partial applications, arrays, indirection
+chains, cycles, blackholes, static objects, reference tables, and every root
+source the collector visits. The driver process stays alive across cases, so
+the test can compile the driver with sanitizers when the C compiler supports
+them.
+
 The cooperative scheduler keeps thread records, blackhole records, wait queues,
 and pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures, which the WebAssembly adapter expands

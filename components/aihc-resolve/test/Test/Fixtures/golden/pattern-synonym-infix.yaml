@@ -1,0 +1,49 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+       │      │      └─ v Main
+       │      └─ v Main
+       └─ t Main
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+       │      │   │      │   │    │      │   └─ t Main
+       │      │   │      │   │    │      └─ v Main
+       │      │   │      │   │    └─ t Main
+       │      │   │      │   └─ t Main
+       │      │   │      └─ v Main
+       │      │   └─ t Main
+       │      └─ v Main
+       └─ t Main
+  pattern a :-: b = Add a (Neg b)
+            │       │   │  │   └─ v 1
+            │       │   │  └─ v Main
+            │       │   └─ v 0
+            │       └─ v Main
+            └─ v Main
+  swap (a :-: b) = b :-: a
+  │     │ │   │    │ │   └─ v 2
+  │     │ │   │    │ └─ v Main
+  │     │ │   │    └─ v 3
+  │     │ │   └─ v 3
+  │     │ └─ v Main
+  │     └─ v 2
+  └─ v Main
+  swap e = e
+  │    │   └─ v 4
+  │    └─ v 4
+  └─ v Main
+
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern a :-: b = Add a (Neg b)
+  swap (a :-: b) = b :-: a
+  swap e = e
+reason: an infix pattern synonym binds an operator term
+status: pass

@@ -17,6 +17,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    Expr (..),
     Literal (..),
     Name (..),
     NumericType (..),
@@ -34,13 +35,15 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (TyConInfo (..))
+import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
+import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Control.Monad (when)
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -231,6 +234,18 @@ patternOwnSpan pat =
     PCon name _ _ -> sourceSpanFromAnnotations (nameAnns name)
     PInfix _ name _ -> sourceSpanFromAnnotations (nameAnns name)
     PTypeSig inner _ -> patternOwnSpan inner
+    PView expr inner -> viewExprSpan expr `orSourceSpan` patternOwnSpan inner
+    _ -> NoSourceSpan
+
+-- | The span of a view pattern function. The parser gives spans to names
+-- and to annotated expressions only.
+viewExprSpan :: Expr -> SourceSpan
+viewExprSpan expr =
+  case expr of
+    EAnn ann inner -> fromMaybe (viewExprSpan inner) (fromAnnotation ann)
+    EVar name -> sourceSpanFromAnnotations (nameAnns name)
+    EParen inner -> viewExprSpan inner
+    EApp function _ -> viewExprSpan function
     _ -> NoSourceSpan
 
 orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
@@ -272,6 +287,17 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PInfix lhs op rhs ->
       checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
     PList items -> checkListPattern gadtHandling sp items scrutTy
+    PView viewExpr inner -> do
+      let viewSpan = viewExprSpan viewExpr `orSourceSpan` sp
+      (viewExpr', viewTy, viewCts) <- inferExprAt viewSpan viewExpr
+      innerTy <- freshMetaTv
+      eqCt <- wantedEq viewSpan viewTy (TcFunTy scrutTy innerTy)
+      innerCheck <- checkPatternWith gadtHandling sp inner innerTy
+      pure
+        innerCheck
+          { pcWantedCts = eqCt : viewCts <> pcWantedCts innerCheck,
+            pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
+          }
     PTuple flavor items -> do
       elemTys <- mapM (const freshMetaTv) items
       let arity = length items
@@ -546,7 +572,11 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
   let conName = patternNameText conSyntax
   target <- resolvedTermTarget conSyntax
   mBinder <- lookupResolvedTerm conName target
+  mPatSyn <- lookupPatSynTarget target
   case mBinder of
+    Just (TcIdBinder scheme _)
+      | Just info <- mPatSyn ->
+          checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy
     Just (TcIdBinder scheme _) -> do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
@@ -576,6 +606,40 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
     Nothing ->
       abortTc ("resolved constructor missing from type environment: " <> show conName <> " resolved as " <> show target)
+
+-- | Check a pattern synonym use. The required predicates are wanted at
+-- the use. The provided predicates are given to the branch. The annotation
+-- records the type arguments, the required evidence and then the provided
+-- evidence, and the existential skolems. The desugarer calls the matcher
+-- with them.
+checkPatSynPattern :: GadtHandling -> SourceSpan -> Pattern -> Text -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
+checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy = do
+  when (length subPats /= psiArity info) $
+    emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
+  (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+  let (requiredPreds, providedPreds) = splitAt (length (psiReqTheta info)) predicates
+  (argTys, conResTy) <- splitConTy (length subPats) conTy
+  scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
+  subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
+  requiredCts <- mapM (predToCt sp conName) requiredPreds
+  providedGivens <- mapM (constructorGiven sp conName) providedPreds
+  let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
+      annotatedPattern =
+        PAnn
+          ( mkAnnotation
+              ( (pendingAnnotation conTy typeArgs (map ctEvVar requiredCts <> map ctEvVar providedGivens) [])
+                  { pendingTcAnnTypeBinders = skolems
+                  }
+              )
+          )
+          rebuiltPattern
+  pure
+    subCheck
+      { pcWantedCts = fst scrutCt <> requiredCts <> pcWantedCts subCheck,
+        pcGivenCts = providedGivens <> snd scrutCt <> pcGivenCts subCheck,
+        pcSkolems = skolems <> pcSkolems subCheck,
+        pcPatterns = [annotatedPattern]
+      }
 
 constructorGiven :: SourceSpan -> Text -> Pred -> TcM Ct
 constructorGiven sp constructorName predicate = do

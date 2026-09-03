@@ -1,0 +1,55 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+       │      │      └─ v Main
+       │      └─ v Main
+       └─ t Main
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+       │      │   │      │   │    │      │   └─ t Main
+       │      │   │      │   │    │      └─ v Main
+       │      │   │      │   │    └─ t Main
+       │      │   │      │   └─ t Main
+       │      │   │      └─ v Main
+       │      │   └─ t Main
+       │      └─ v Main
+       └─ t Main
+  pattern Sub a b = Add a (Neg b)
+          └─ v Main │   │  │   └─ v 1
+                    │   │  └─ v Main
+                    │   └─ v 0
+                    └─ v Main
+  pattern TrueLit = Lit True
+          └─ v Main │   └─ v Main
+                    └─ v Main
+  isSub (Sub a b) = Sub b a
+  │      │   │ │    │   │ └─ v 2
+  │      │   │ │    │   └─ v 3
+  │      │   │ │    └─ v Main
+  │      │   │ └─ v 3
+  │      │   └─ v 2
+  │      └─ v Main
+  └─ v Main
+  isSub e = e
+  │     │   └─ v 4
+  │     └─ v 4
+  └─ v Main
+  trueLit = TrueLit
+  └─ v Main └─ v Main
+
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data Bool = True | False
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+  pattern Sub a b = Add a (Neg b)
+  pattern TrueLit = Lit True
+  isSub (Sub a b) = Sub b a
+  isSub e = e
+  trueLit = TrueLit
+reason: a bidirectional pattern synonym binds a term for patterns and expressions
+status: pass

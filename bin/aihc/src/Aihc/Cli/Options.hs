@@ -3,7 +3,7 @@ module Aihc.Cli.Options
     BuildExeOptions (..),
     GarbageCollector (..),
     InstallErrorFormat (..),
-    InstallV2Options (..),
+    InstallOptions (..),
     PrepareRuntimeOptions (..),
     parseCommandIO,
     parseCommandPure,
@@ -16,7 +16,7 @@ import Options.Applicative qualified as OA
 
 data Command
   = CmdBuildExe !BuildExeOptions
-  | CmdInstallV2 !InstallV2Options
+  | CmdInstall !InstallOptions
   | CmdPrepareRuntime !PrepareRuntimeOptions
   deriving (Eq, Show)
 
@@ -45,17 +45,17 @@ data PrepareRuntimeOptions = PrepareRuntimeOptions
   }
   deriving (Eq, Show)
 
-data InstallV2Options = InstallV2Options
-  { installV2PackageDirectory :: !FilePath,
-    installV2StoreRoot :: !(Maybe FilePath),
-    installV2KeepGrin :: !Bool,
-    installV2KeepNative :: !Bool,
-    installV2Lint :: !Bool,
-    installV2Reinstall :: !Bool,
-    installV2NoCode :: !Bool,
-    installV2Verbose :: !Bool,
-    installV2PrintTimings :: !Bool,
-    installV2Target :: !NativeTarget
+data InstallOptions = InstallOptions
+  { installPackageDirectory :: !FilePath,
+    installStoreRoot :: !(Maybe FilePath),
+    installKeepGrin :: !Bool,
+    installKeepNative :: !Bool,
+    installLint :: !Bool,
+    installReinstall :: !Bool,
+    installNoCode :: !Bool,
+    installVerbose :: !Bool,
+    installPrintTimings :: !Bool,
+    installTarget :: !NativeTarget
   }
   deriving (Eq, Show)
 
@@ -94,9 +94,9 @@ commandParser =
             (OA.progDesc "Build one Haskell executable")
         )
         <> OA.command
-          "install-v2"
+          "install"
           ( OA.info
-              (CmdInstallV2 <$> installV2OptionsParser OA.<**> OA.helper)
+              (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Build and install one local Cabal library")
           )
         <> OA.command
@@ -209,9 +209,9 @@ storeRootOption description =
         )
     )
 
-installV2OptionsParser :: OA.Parser InstallV2Options
-installV2OptionsParser =
-  InstallV2Options
+installOptionsParser :: OA.Parser InstallOptions
+installOptionsParser =
+  InstallOptions
     <$> OA.strArgument
       ( OA.metavar "DIRECTORY"
           <> OA.help "Local Cabal package directory"

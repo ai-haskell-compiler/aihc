@@ -85,6 +85,15 @@ static void aihc_static_objects_insert(AihcValue *object) {
   }
 }
 
+/* The static-root section is a linker-assembled array. An address sanitizer
+   pads every global with a redzone, so the walk from the start symbol to the
+   end symbol also crosses those pads. They read as null entries, and the walk
+   skips null, but the sanitizer must not check the reads. */
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+__attribute__((no_sanitize("address")))
+#endif
+#endif
 static void aihc_static_objects_initialize(void) {
   if (aihc_static_objects.initialized) {
     return;
@@ -215,23 +224,32 @@ static _Noreturn void aihc_semispace_exhausted(const AihcMachine *machine) {
   aihc_fail("live data exceeds semispace");
 }
 
+/* Copy one object or return where it already went. Heap indirections are
+   not copied: the collector follows them and returns their target, so the new
+   space holds no indirection and no chain grows across collections. */
 static AihcValue *aihc_forward(AihcForwardingContext *context,
                                AihcValue *value) {
   AihcMachine *machine = context->machine;
-  if (value == NULL) {
-    return value;
-  }
-  if (!aihc_in_space(context->from_start, context->from_bytes, value)) {
-    /* Anything outside from-space is either already copied or a static
-       object. Static objects stay where they are, but a live one still has to
-       be scanned, and an evaluated CAF still holds a heap pointer. */
-    aihc_mark_static(value);
-    return value;
-  }
-  AihcValue *forwarded = (AihcValue *)(uintptr_t)value->header;
-  if (aihc_in_space(machine->heap_start, aihc_semispace_capacity(machine),
-                    forwarded)) {
-    return forwarded;
+  for (;;) {
+    if (value == NULL) {
+      return value;
+    }
+    if (!aihc_in_space(context->from_start, context->from_bytes, value)) {
+      /* Anything outside from-space is either already copied or a static
+         object. Static objects stay where they are, but a live one still has
+         to be scanned, and an evaluated CAF still holds a heap pointer. */
+      aihc_mark_static(value);
+      return value;
+    }
+    AihcValue *forwarded = (AihcValue *)(uintptr_t)value->header;
+    if (aihc_in_space(machine->heap_start, aihc_semispace_capacity(machine),
+                      forwarded)) {
+      return forwarded;
+    }
+    if (aihc_value_kind(value) != AIHC_OBJECT_INDIRECTION) {
+      break;
+    }
+    value = (AihcValue *)(uintptr_t)value->fields[0];
   }
 
   uint64_t words = aihc_value_words(value);
@@ -260,6 +278,9 @@ static void aihc_scan_object(AihcForwardingContext *context,
   uint64_t count = info->field_count;
   aihc_walk_srt(info->srt);
   if (kind == AIHC_OBJECT_INDIRECTION) {
+    /* Only a static object reaches this branch: an evaluated CAF keeps its
+       indirection because it cannot move. Heap indirections are never
+       copied, so they are never scanned. */
     object->fields[0] = aihc_forward_root(object->fields[0], context);
   } else if (kind == AIHC_OBJECT_ARRAY) {
     uint64_t length = aihc_array_length(object);

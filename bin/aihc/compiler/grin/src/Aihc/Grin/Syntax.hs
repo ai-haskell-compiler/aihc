@@ -31,13 +31,16 @@ module Aihc.Grin.Syntax
     grinExprGlobalReferences,
     grinProgramGlobalReferences,
     grinValueRuntimeRep,
+    grinVarNameNeedsNumber,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
   )
 where
 
 import Data.ByteString (ByteString)
+import Data.Char (isDigit)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | One runtime ABI layout. This data does not contain Haskell type information.
 data GrinRep
@@ -340,6 +343,20 @@ valueReferences value =
     GrinGlobalValue name -> [name]
     GrinVarValue {} -> []
     GrinLitValue {} -> []
+
+-- | Whether a printed variable must carry its number even when that number is
+-- zero. A name shaped like an integer or a character would otherwise be read
+-- back as a literal: @(0 :: IntRep)@ is the integer zero, not a variable.
+grinVarNameNeedsNumber :: Text -> Bool
+grinVarNameNeedsNumber name =
+  case T.uncons name of
+    Nothing -> False
+    Just ('\'', _) -> True
+    Just (character, rest)
+      | character == '+' || character == '-' -> isIntegerShaped rest
+      | otherwise -> isIntegerShaped name
+  where
+    isIntegerShaped digits = not (T.null digits) && T.all isDigit digits
 
 grinValueRuntimeRep :: GrinValue -> GrinRep
 grinValueRuntimeRep value =

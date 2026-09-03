@@ -1,0 +1,58 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Label = Zero | Other
+       │       │      └─ type: Label
+       │       └─ type: Label
+       └─ type: Type
+  class Describe a where
+  └─ class methods: isZero ∷ ∀ a. (Describe a) ⇒ a → Bool
+    isZero :: a -> Bool
+  instance Describe Bool where
+  └─ $fDescribeBool ∷ () ⇒ Describe Bool
+    isZero False = True
+    │      └─ type: Bool
+    └─ isZero ∷ Bool → Bool
+    isZero True = False
+    │      └─ type: Bool
+    └─ isZero ∷ Bool → Bool
+  pattern IsZero :: Describe a => a
+  pattern IsZero <- (isZero -> True)
+  │                  ││         └─ type: Bool
+  │                  └─ type: a → Bool; type-args: a; evidence: given Describe a
+  │                  └─ type: a
+  └─ type: ∀ a. (Describe a) ⇒ a
+  label :: Describe a => a -> Label
+  label IsZero = Zero
+  │     └─ type: a; type-args: a; evidence: given Describe a
+  └─ type: ∀ a. (Describe a) ⇒ a → Label
+  label _ = Other
+  │     └─ type: a
+  └─ type: ∀ a. (Describe a) ⇒ a → Label
+
+extensions:
+- PatternSynonyms
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+  data Label = Zero | Other
+  class Describe a where
+    isZero :: a -> Bool
+  instance Describe Bool where
+    isZero False = True
+    isZero True = False
+  pattern IsZero :: Describe a => a
+  pattern IsZero <- (isZero -> True)
+  label :: Describe a => a -> Label
+  label IsZero = Zero
+  label _ = Other
+reason: a pattern synonym signature with one context requires the context at each match
+status: pass

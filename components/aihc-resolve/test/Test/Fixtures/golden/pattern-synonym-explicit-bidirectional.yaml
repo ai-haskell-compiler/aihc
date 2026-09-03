@@ -1,0 +1,40 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data L a = N | C a (L a)
+       │     │   │    └─ t Main
+       │     │   └─ v Main
+       │     └─ v Main
+       └─ t Main
+  pattern HeadC x <- C x _ where
+          └─ v Main  │ └─ v 0
+                     └─ v Main
+    HeadC x = C x N
+          │   │ │ └─ v Main
+          │   │ └─ v 1
+          │   └─ v Main
+          └─ v 1
+  first (HeadC x) = x
+  │      │     │    └─ v 2
+  │      │     └─ v 2
+  │      └─ v Main
+  └─ v Main
+  singleton x = HeadC x
+  └─ v Main │   │     └─ v 3
+            │   └─ v Main
+            └─ v 3
+
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data L a = N | C a (L a)
+  pattern HeadC x <- C x _ where
+    HeadC x = C x N
+  first (HeadC x) = x
+  singleton x = HeadC x
+reason: the builder equations of an explicitly bidirectional pattern synonym resolve like function equations
+status: pass

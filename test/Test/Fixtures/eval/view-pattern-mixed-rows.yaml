@@ -1,0 +1,27 @@
+extensions:
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    data Bool = True | False
+    data Shape = Circle Bool | Square Bool
+    data Label = A | B | C | D
+    data Four = Four Label Label Label Label
+    isRound (Circle _) = True
+    isRound _ = False
+    flag (Circle b) = b
+    flag (Square b) = b
+    classify (Circle True) = A
+    classify (isRound -> True) = B
+    classify (flag -> True) = C
+    classify _ = D
+    guarded x
+      | (flag -> True) <- x = A
+    guarded _ = B
+output: |
+  Four A B C D
+expression: |
+  Four (classify (Circle True)) (classify (Circle False)) (classify (Square True)) (classify (Square False))
+status: pass
+reason: view pattern rows between constructor rows fall through to the later rows
