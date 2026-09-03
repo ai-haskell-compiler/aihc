@@ -1212,47 +1212,47 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
         GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
         GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
--- | Render each static object and its collector root entry. The root entries
--- are private constants that no code references, so @llvm.used@ must keep
--- them. Without it, global dead-code elimination removes every entry and the
--- collector sees an empty root section.
+-- | Render each static object, and a root entry for the objects the collector
+-- has to mark. The entries are private constants that no code references, so
+-- @llvm.used@ must keep them. Without it, global dead-code elimination removes
+-- every entry and the collector cannot tell a static object from a heap
+-- pointer.
+--
+-- Objects that can neither move nor retain anything - nullary constructors -
+-- get no entry. The collector then leaves a pointer to one alone, which is
+-- what it would do after marking it anyway.
 renderStaticGlobals :: CompileEnv -> GrinProgram -> Either LlvmError [Text]
 renderStaticGlobals env program = do
-  rendered <- mapM renderGlobal globals
+  rendered <- mapM renderGlobal objects
   pure (concat rendered <> usedRoots)
   where
+    objects = programStaticObjects program
+    tracedObjects = filter staticObjectTraced objects
     usedRoots
-      | null globals = []
+      | null tracedObjects = []
       | otherwise =
           [ "@llvm.used = appending global ["
-              <> tshow (length globals)
+              <> tshow (length tracedObjects)
               <> " x ptr] ["
-              <> T.intercalate ", " ["ptr @" <> renderLinkedGlobalSymbol name <> "_root" | (name, _) <- globals]
+              <> T.intercalate ", " ["ptr @" <> renderLinkedGlobalSymbol (staticObjectName object) <> "_root" | object <- tracedObjects]
               <> "], section \"llvm.metadata\"",
             ""
           ]
-    declaredGlobals = grinGlobals program
-    declaredNames = map fst declaredGlobals
-    constructorLayouts = grinConstructors program
-    implicitConstructors =
-      [ (name, GrinNode (GrinConstructor name 0) [])
-      | (name, layouts) <- constructorLayouts,
-        null layouts,
-        name `notElem` declaredNames
-      ]
-    globals = declaredGlobals <> implicitConstructors
-    renderGlobal (name, node) = do
+    renderGlobal object = do
+      let node = staticObjectNode object
       info <- staticNodeInfo node
       fields <- mapM renderStaticValue (grinNodeFields node)
-      let symbol = renderLinkedGlobalSymbol name
+      let symbol = renderLinkedGlobalSymbol (staticObjectName object)
           payload = if null fields && isThunk node then ["i64 0"] else fields
           values = "i64 ptrtoint (ptr @" <> info <> " to i64)" : payload
           count = length values
-      pure
-        [ "@" <> symbol <> " = global [" <> tshow count <> " x i64] [" <> T.intercalate ", " values <> "], align 8",
-          "@" <> symbol <> "_root = private constant ptr @" <> symbol <> ", section \"" <> nativeDataSection "aihc_roots" <> "\", align 8",
-          ""
+      pure $
+        [ "@" <> symbol <> " = global [" <> tshow count <> " x i64] [" <> T.intercalate ", " values <> "], align 8"
         ]
+          <> [ "@" <> symbol <> "_root = private constant ptr @" <> symbol <> ", section \"" <> nativeDataSection "aihc_roots" <> "\", align 8"
+             | staticObjectTraced object
+             ]
+          <> [""]
     staticNodeInfo node =
       case grinNodeTag node of
         GrinConstructor name remaining -> pure (renderLinkedConstructorInfoSymbol name remaining)
@@ -1278,10 +1278,6 @@ renderStaticGlobals env program = do
         GrinThunk {} -> True
         _ -> False
 
--- | Render one record per non-empty static reference table. The first word is
--- the collector's walk link and stays writable; the counts and entries are
--- fixed. Info tables and other tables reach a record by symbol, so the linker
--- keeps a record exactly as long as it keeps something that names it.
 renderStaticReferenceTables :: CompileEnv -> [Text]
 renderStaticReferenceTables env =
   concatMap renderTable (Map.toList (staticReferenceTables (compileStaticReferences env)))

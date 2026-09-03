@@ -89,7 +89,7 @@ extern const uint64_t aihc_elf_linked_locals_end[] __asm__("__stop_aihc_locals")
     __attribute__((weak));
 #endif
 
-static AihcValue **aihc_static_root_start(void) {
+AihcValue **aihc_static_root_start(void) {
 #if defined(__APPLE__)
   return aihc_static_roots_start;
 #else
@@ -97,7 +97,7 @@ static AihcValue **aihc_static_root_start(void) {
 #endif
 }
 
-static AihcValue **aihc_static_root_end(void) {
+AihcValue **aihc_static_root_end(void) {
 #if defined(__APPLE__)
   return aihc_static_roots_end;
 #else
@@ -329,21 +329,11 @@ static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
   }
 }
 
+/* Static objects are not visited here. They never move, so a collector marks
+   and scans the ones it finds reachable instead of treating all of them as
+   roots. */
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context) {
-  AihcValue **static_root = aihc_static_root_start();
-  AihcValue **static_root_end = aihc_static_root_end();
-  if (static_root != NULL && static_root_end != NULL) {
-    for (; static_root < static_root_end; ++static_root) {
-      AihcValue *object = *static_root;
-      const AihcInfo *info = aihc_value_info_table(object);
-      for (uint64_t index = 0; index < info->field_count; ++index) {
-        if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
-          object->fields[index] = visitor(object->fields[index], context);
-        }
-      }
-    }
-  }
   for (uint64_t index = 0; index < machine->global_count; ++index) {
     machine->globals[index] = visitor(machine->globals[index], context);
   }
