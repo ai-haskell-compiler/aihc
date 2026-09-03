@@ -13,5 +13,5 @@ output: |
   Add (Lit False) (Neg (Lit True))
 expression: |
   swap (Sub (Lit True) (Lit False))
-status: xfail
+status: pass
 reason: matches and constructs through a bidirectional pattern synonym

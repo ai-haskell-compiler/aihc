@@ -33,7 +33,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
@@ -204,16 +204,12 @@ inferNameOccurrence ambient nameSyntax = do
 -- | A unidirectional pattern synonym has no builder. An expression cannot
 -- use it.
 rejectUnidirectionalPatSyn :: SourceSpan -> Text -> ResolvedName -> TcM ()
-rejectUnidirectionalPatSyn sp name target =
-  case target of
-    ResolvedTopLevel packageId resolvedName -> do
-      let key = TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
-      mPatSyn <- lookupPatSyn key
-      case mPatSyn of
-        Just info
-          | psiDirection info == PatSynUnidirectionalInfo ->
-              emitError sp (OtherError ("unidirectional pattern synonym " <> T.unpack name <> " cannot be used as an expression"))
-        _ -> pure ()
+rejectUnidirectionalPatSyn sp name target = do
+  mPatSyn <- lookupPatSynTarget target
+  case mPatSyn of
+    Just info
+      | psiDirection info == PatSynUnidirectionalInfo ->
+          emitError sp (OtherError ("unidirectional pattern synonym " <> T.unpack name <> " cannot be used as an expression"))
     _ -> pure ()
 
 occurrenceAnnotation :: TcType -> [TcType] -> [EvVar] -> Maybe PendingTcAnnotation

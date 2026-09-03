@@ -45,7 +45,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -578,9 +578,12 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
       scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
       subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
       predicateGivens <- mapM (constructorGiven sp conName) predicates
+      -- A pattern synonym use records its type arguments. The desugarer
+      -- instantiates the matcher with them.
+      isPatSyn <- isJust <$> lookupPatSynTarget target
       let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
           annotatedPattern
-            | null predicateGivens && null skolems = rebuiltPattern
+            | null predicateGivens && null skolems && not isPatSyn = rebuiltPattern
             | otherwise =
                 PAnn
                   ( mkAnnotation

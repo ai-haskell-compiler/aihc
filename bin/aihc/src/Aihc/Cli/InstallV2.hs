@@ -1500,9 +1500,13 @@ moduleTypeInterface exports package interface source =
     localIdentity identifier = (packageId package, name, identifier)
     localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
     visibleTerm (TcTermGlobal packageId' moduleName' identifier, _) =
-      let identity = (packageId', moduleName', identifier)
-       in Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
+      visibleTermIdentity (packageId', moduleName', identifier)
+        || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
     visibleTerm (TcTermLocal {}, _) = False
+    visibleTermIdentity identity@(_, _, identifier) =
+      Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
+    -- The matcher and the builder of a visible pattern synonym are visible.
+    patSynHelperBase identifier = mapMaybe (`T.stripPrefix` identifier) ["$m", "$b"]
     visibleTyCon info =
       let tyCon = tciTyCon info
           identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)

@@ -18,7 +18,7 @@ annotated:
   first :: L a -> a
   first (HeadC x) = x
   │      │     └─ type: a
-  │      └─ type: L a
+  │      └─ type: a → L a; type-args: a
   └─ type: ∀ a. L a → a
   singleton :: a -> L a
   singleton x = HeadC x

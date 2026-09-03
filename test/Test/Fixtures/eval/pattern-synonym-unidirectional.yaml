@@ -11,5 +11,5 @@ output: |
   'a'
 expression: |
   first (C 'a' (C 'b' N))
-status: xfail
+status: pass
 reason: matches through a unidirectional pattern synonym

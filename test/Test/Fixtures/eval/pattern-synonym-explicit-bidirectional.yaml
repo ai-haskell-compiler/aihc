@@ -12,5 +12,5 @@ output: |
   'a'
 expression: |
   first (HeadC 'a')
-status: xfail
+status: pass
 reason: constructs through the explicit builder of a pattern synonym and matches through its matcher
