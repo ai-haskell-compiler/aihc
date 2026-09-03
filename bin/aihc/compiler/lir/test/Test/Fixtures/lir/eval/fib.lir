@@ -1,0 +1,25 @@
+; expect: 6765
+; Non-tail recursion through call.
+
+func @fib(%n: i64) -> i64 {
+entry:
+  %small = lt.s i64 %n, 2
+  br %small, base, recurse
+
+base:
+  return %n
+
+recurse:
+  %n1 = sub i64 %n, 1
+  %n2 = sub i64 %n, 2
+  %a = call @fib(%n1)
+  %b = call @fib(%n2)
+  %r = add i64 %a, %b
+  return %r
+}
+
+func @main() -> i64 {
+entry:
+  %r = call @fib(20)
+  return %r
+}

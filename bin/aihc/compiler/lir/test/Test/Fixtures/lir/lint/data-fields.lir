@@ -1,0 +1,5 @@
+; error: @t: data field type i1 is not an integer type
+; error: @u: unknown symbol @missing
+
+data @t align 8 = { i1 1, f64 1.5, i64 2 }
+data @u align 8 = { ptr @missing }

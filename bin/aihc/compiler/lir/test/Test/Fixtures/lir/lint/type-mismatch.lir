@@ -1,0 +1,7 @@
+; error: @main/entry: %x has type i32, expected i64
+
+func @main() -> i64 {
+entry:
+  %x = add i32 1, 2
+  return %x
+}

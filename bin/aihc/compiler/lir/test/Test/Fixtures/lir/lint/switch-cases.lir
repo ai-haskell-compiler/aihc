@@ -1,0 +1,18 @@
+; error: @main/entry: switch case 256 does not fit i8
+; error: @main/entry: duplicate switch case 1
+
+func @main() -> i64 {
+entry:
+  switch i8 5 {
+    1 -> a
+    256 -> b
+    1 -> b
+    default -> a
+  }
+
+a:
+  return 1
+
+b:
+  return 2
+}

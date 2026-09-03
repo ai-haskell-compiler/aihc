@@ -1,0 +1,15 @@
+; expect-trap: switch without a matching case
+
+func @main() -> i64 {
+entry:
+  switch i64 3 {
+    1 -> one
+    2 -> two
+  }
+
+one:
+  return 1
+
+two:
+  return 2
+}

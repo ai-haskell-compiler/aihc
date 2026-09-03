@@ -1,0 +1,13 @@
+; expect: 3.75, 3, 4607182418800017408, 2.5, 1
+
+func @main() -> (f64, i64, i64, f32, i1) {
+entry:
+  %x = fadd f64 1.5, 2.25
+  %i = ftoi.s f64 %x to i64
+  %bits = bitcast f64 1.0 to i64
+  %h = fptrunc f64 %x to f32
+  %y = fsub f32 %h, 1.25
+  %nan = fdiv f64 0.0, 0.0
+  %unordered = ne f64 %nan, %nan
+  return %x, %i, %bits, %y, %unordered
+}

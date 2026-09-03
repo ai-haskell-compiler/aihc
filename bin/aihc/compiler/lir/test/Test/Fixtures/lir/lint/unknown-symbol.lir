@@ -1,0 +1,14 @@
+; error: @main/entry: unknown symbol @g
+; error: @main/entry: @table is not a global
+; error: @main/entry: @counter is not a function
+
+data @table align 8 = { i64 0 }
+global @counter: i64
+
+func @main() -> i64 {
+entry:
+  %r = call @g()
+  %t = global.get @table
+  %c = call @counter()
+  return %r
+}

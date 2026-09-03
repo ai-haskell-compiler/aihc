@@ -1,0 +1,11 @@
+; error: @main/entry: literal 300 does not fit i8
+; error: @main/entry: literal 1.5 does not have type i64
+; error: @main/entry: literal null does not have type i32
+
+func @main() -> (i8, i64, i32) {
+entry:
+  %x = add i8 300, 1
+  %y = add i64 1.5, 1
+  %z = add i32 null, 1
+  return %x, %y, %z
+}

@@ -1,0 +1,34 @@
+; expect: 1
+; Mutual tail calls. The activation count stays constant.
+
+func @even(%n: i64) -> i64 {
+entry:
+  %zero = eq i64 %n, 0
+  br %zero, yes, no
+
+yes:
+  return 1
+
+no:
+  %m = sub i64 %n, 1
+  tailcall @odd(%m)
+}
+
+func @odd(%n: i64) -> i64 {
+entry:
+  %zero = eq i64 %n, 0
+  br %zero, yes, no
+
+yes:
+  return 0
+
+no:
+  %m = sub i64 %n, 1
+  tailcall @even(%m)
+}
+
+func @main() -> i64 {
+entry:
+  %r = call @odd(100001)
+  return %r
+}

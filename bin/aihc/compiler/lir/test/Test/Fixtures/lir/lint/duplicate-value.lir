@@ -1,0 +1,8 @@
+; error: @main/entry: duplicate definition of %x
+
+func @main() -> i64 {
+entry:
+  %x = add i64 1, 2
+  %x = add i64 3, 4
+  return %x
+}

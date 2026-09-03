@@ -1,0 +1,12 @@
+; error: @main/loop: duplicate block loop
+
+func @main() -> i64 {
+entry:
+  jump loop
+
+loop:
+  return 1
+
+loop:
+  return 2
+}

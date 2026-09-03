@@ -1,0 +1,25 @@
+; expect: 2432902008176640000
+; A loop through block parameters.
+
+func @factorial(%n: i64) -> i64 {
+entry:
+  jump loop(%n, 1)
+
+loop(%i: i64, %acc: i64):
+  %done = le.s i64 %i, 1
+  br %done, exit(%acc), step(%i, %acc)
+
+step(%j: i64, %a: i64):
+  %a2 = mul i64 %a, %j
+  %j2 = sub i64 %j, 1
+  jump loop(%j2, %a2)
+
+exit(%r: i64):
+  return %r
+}
+
+func @main() -> i64 {
+entry:
+  %r = call @factorial(20)
+  return %r
+}
