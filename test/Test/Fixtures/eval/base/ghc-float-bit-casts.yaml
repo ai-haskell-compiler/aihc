@@ -1,0 +1,48 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import GHC.Float
+      ( castDoubleToWord64,
+        castFloatToWord32,
+        castWord32ToFloat,
+        castWord64ToDouble,
+        double2Float,
+        double2Int,
+        float2Double,
+        float2Int,
+        int2Double,
+        int2Float,
+      )
+    import GHC.Int (Int (..))
+    import GHC.Prim
+    import GHC.Word (Word32 (..), Word64 (..))
+
+    data Results = Results Int Int Int Int Int Int
+
+    unwrap32 :: Word32 -> Int
+    unwrap32 (W32# value) = I# (word2Int# (word32ToWord# value))
+
+    unwrap64 :: Word64 -> Int
+    unwrap64 (W64# value) = I# (word2Int# (word64ToWord# value))
+
+    results :: Results
+    results =
+      Results
+        (unwrap32 (castFloatToWord32 (int2Float 1)))
+        (float2Int (castWord32ToFloat (W32# (wordToWord32# 1065353216##))))
+        (unwrap64 (castDoubleToWord64 (int2Double 1)))
+        (double2Int (castWord64ToDouble (W64# (wordToWord64# 4607182418800017408##))))
+        (double2Int (float2Double (int2Float 3)))
+        (float2Int (double2Float (int2Double 3)))
+output: |
+  Results (I# 1065353216) (I# 1) (I# 4607182418800017408) (I# 1) (I# 3) (I# 3)
+expression: |
+  results
+status: pass
+reason: GHC.Float gives the IEEE 754 bit-pattern casts and the int and width conversions that bytestring imports

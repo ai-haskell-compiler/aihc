@@ -21,6 +21,7 @@ import Aihc.Native
     buildAddrLiteralPool,
     executableEntryName,
     nativeRuntimePrimitiveCall,
+    nativeSplitRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
@@ -326,6 +327,18 @@ runtimeFunctionTypes =
     ("aihc_double_gt", ([I64, I64], [I64])),
     ("aihc_double_lt", ([I64, I64], [I64])),
     ("aihc_double_eq", ([I64, I64], [I64])),
+    ("aihc_float_to_double", ([I64], [I64])),
+    ("aihc_double_to_float", ([I64], [I64])),
+    ("aihc_word_byte_swap16", ([I64], [I64])),
+    ("aihc_word_byte_swap32", ([I64], [I64])),
+    ("aihc_word_byte_swap64", ([I64], [I64])),
+    ("aihc_int_times2_high_needed", ([I64, I64], [I64])),
+    ("aihc_int_times2_high", ([I64, I64], [I64])),
+    ("aihc_int_times2_low", ([I64, I64], [I64])),
+    ("aihc_byte_array_index_byte_word8", ([I32, I64], [I64])),
+    ("aihc_byte_array_index_byte_word16", ([I32, I64], [I64])),
+    ("aihc_byte_array_index_byte_word32", ([I32, I64], [I64])),
+    ("aihc_byte_array_index_byte_word64", ([I32, I64], [I64])),
     ("aihc_mutvar_compare_and_swap", ([I32, I64, I64], [I64])),
     ("aihc_mutvar_same", ([I32, I32], [I64])),
     ("aihc_stable_name_make", ([I32, I32], [I32])),
@@ -628,7 +641,7 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#", "castFloatToWord32#", "castWord32ToFloat#", "castDoubleToWord64#", "castWord64ToDouble#"] -> storeSingle (materializeValue env value)
     GrinPrimitiveCall _ "newArray#" [size, initial] ->
       storeSingle
         ( machine
@@ -658,6 +671,16 @@ compileDirectBinding env vars expression =
           swapInstructions <- compileForeignCall env (nativeRuntimeCallForeignCall swapCall) [reference, expected, replacement]
           readInstructions <- compileForeignCall env (nativeRuntimeCallForeignCall readCall) [reference]
           storePair swapInstructions readInstructions
+    GrinPrimitiveCall _ name arguments
+      | Just splitCalls <- nativeSplitRuntimePrimitiveCall name,
+        length splitCalls == length vars ->
+          concat
+            <$> mapM
+              ( \(var, splitCall) -> do
+                  instructions <- compileForeignCall env (nativeRuntimeCallForeignCall splitCall) arguments
+                  pure (localSetFor env var instructions)
+              )
+              (zip vars splitCalls)
     GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           instructions <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments

@@ -1,0 +1,36 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word16 (..), Word32 (..), Word64 (..), byteSwap16, byteSwap32, byteSwap64)
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int
+
+    unwrap16 :: Word16 -> Int
+    unwrap16 (W16# value) = I# (word2Int# (word16ToWord# value))
+
+    unwrap32 :: Word32 -> Int
+    unwrap32 (W32# value) = I# (word2Int# (word32ToWord# value))
+
+    unwrap64 :: Word64 -> Int
+    unwrap64 (W64# value) = I# (word2Int# (word64ToWord# value))
+
+    results :: Results
+    results =
+      Results
+        (unwrap16 (byteSwap16 (W16# (wordToWord16# 0x1234##))))
+        (unwrap32 (byteSwap32 (W32# (wordToWord32# 0x12345678##))))
+        (unwrap64 (byteSwap64 (W64# (wordToWord64# 1##))))
+output: |
+  Results (I# 13330) (I# 2018915346) (I# 72057594037927936)
+expression: |
+  results
+status: pass
+reason: Data.Word gives the byte-order reversals that bytestring imports

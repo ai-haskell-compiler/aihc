@@ -1,0 +1,38 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO (..))
+    import GHC.Int (Int (..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newPinnedByteArray# 16# state of
+      (# state1, buffer #) -> case mutableByteArrayContents# buffer of
+        base -> case writeWord8OffAddrAsWord64# base 0# (wordToWord64# 0x0807060504030201##) state1 of
+          state2 -> case unsafeFreezeByteArray# buffer state2 of
+            (# state3, frozen #) ->
+              (# state3,
+                 Results
+                   (ord (indexCharArray# frozen 2#))
+                   (I# (word2Int# (word16ToWord# (indexWord8ArrayAsWord16# frozen 1#))))
+                   (I# (word2Int# (word32ToWord# (indexWord8ArrayAsWord32# frozen 1#))))
+                   (I# (word2Int# (word64ToWord# (indexWord8ArrayAsWord64# frozen 0#)))) #))
+
+    ord :: Char# -> Int
+    ord value = I# (ord# value)
+output: |
+  Results (I# 3) (I# 770) (I# 84148994) (I# 578437695752307201)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: byte array indexing reads one character and reads words at an unaligned byte offset

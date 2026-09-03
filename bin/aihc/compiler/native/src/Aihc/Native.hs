@@ -17,6 +17,7 @@ module Aihc.Native
     nativeTargetStoreDirectory,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
+    nativeSplitRuntimePrimitiveCall,
     parseNativeTarget,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
@@ -260,10 +261,15 @@ supportedNativePrimitiveNames =
     "unsafeFreezeArray#",
     "unsafeThawArray#",
     "unsafeFreezeByteArray#",
-    "unsafeThawByteArray#"
+    "unsafeThawByteArray#",
+    "castFloatToWord32#",
+    "castWord32ToFloat#",
+    "castDoubleToWord64#",
+    "castWord64ToDouble#"
   ]
     <> map fst nativeCpsPrimitiveCalls
     <> map fst nativeRuntimePrimitiveCalls
+    <> map fst nativeSplitRuntimePrimitiveCalls
 
 -- | Control transfer performed after a native CPS runtime call returns.
 data NativeCpsTransfer
@@ -416,7 +422,26 @@ nativeRuntimePrimitiveCalls =
     call "double2Int#" "aihc_double_to_int" [GrinForeignWord64] GrinForeignWord64,
     call ">##" "aihc_double_gt" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "<##" "aihc_double_lt" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "==##" "aihc_double_eq" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    call "==##" "aihc_double_eq" [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "float2Double#" "aihc_float_to_double" [GrinForeignWord64] GrinForeignWord64,
+    call "double2Float#" "aihc_double_to_float" [GrinForeignWord64] GrinForeignWord64,
+    call "byteSwap#" "aihc_word_byte_swap64" [GrinForeignWord64] GrinForeignWord64,
+    call "byteSwap16#" "aihc_word_byte_swap16" [GrinForeignWord64] GrinForeignWord64,
+    call "byteSwap32#" "aihc_word_byte_swap32" [GrinForeignWord64] GrinForeignWord64,
+    call "byteSwap64#" "aihc_word_byte_swap64" [GrinForeignWord64] GrinForeignWord64,
+    -- A Float# value travels as its bit pattern in the low 32 bits and a
+    -- Double# value as its 64-bit pattern, thus the unaligned float accessors
+    -- reuse the word accessors of the same width.
+    call "indexWord8OffAddrAsFloat#" "aihc_addr_index_byte_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord8OffAddrAsDouble#" "aihc_addr_index_byte_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWord8OffAddrAsFloat#" "aihc_addr_index_byte_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWord8OffAddrAsDouble#" "aihc_addr_index_byte_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWord8OffAddrAsFloat#" "aihc_addr_write_byte_word32" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWord8OffAddrAsDouble#" "aihc_addr_write_byte_word64" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "indexCharArray#" "aihc_byte_array_index_byte_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord8ArrayAsWord16#" "aihc_byte_array_index_byte_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord8ArrayAsWord32#" "aihc_byte_array_index_byte_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord8ArrayAsWord64#" "aihc_byte_array_index_byte_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64
   ]
   where
     call = runtimeCall False 1
@@ -426,21 +451,43 @@ nativeRuntimePrimitiveCalls =
     pairCall = runtimeCall False 2
     procedure = runtimeCall False 0
     machineCall = runtimeCall True 1
-    runtimeCall passMachine resultCount primitive symbol arguments result =
-      ( primitive,
-        NativeRuntimeCall
-          { nativeRuntimeCallForeignCall =
-              GrinForeignCall
-                { grinForeignCallName = "$runtime$" <> symbol,
-                  grinForeignCallSymbol = symbol,
-                  grinForeignCallSignature =
-                    GrinForeignSignature
-                      { grinForeignArgumentTypes = arguments,
-                        grinForeignResultType = result,
-                        grinForeignEffect = GrinForeignPure
-                      }
-                },
-            nativeRuntimeCallPassMachine = passMachine,
-            nativeRuntimeCallResultCount = resultCount
-          }
-      )
+
+-- | Primitives whose GRIN result tuple comes from more than one runtime call.
+-- Each call gets the same arguments and gives one result. The calls follow the
+-- order of the result tuple.
+nativeSplitRuntimePrimitiveCall :: Text -> Maybe [NativeRuntimeCall]
+nativeSplitRuntimePrimitiveCall name = lookup name nativeSplitRuntimePrimitiveCalls
+
+nativeSplitRuntimePrimitiveCalls :: [(Text, [NativeRuntimeCall])]
+nativeSplitRuntimePrimitiveCalls =
+  [ ( "timesInt2#",
+      [ resultCall "aihc_int_times2_high_needed",
+        resultCall "aihc_int_times2_high",
+        resultCall "aihc_int_times2_low"
+      ]
+    )
+  ]
+  where
+    resultCall symbol =
+      snd (runtimeCall False 1 "timesInt2#" symbol [GrinForeignWord64, GrinForeignWord64] GrinForeignWord64)
+
+-- | Describe one runtime call in the shared native ABI.
+runtimeCall :: Bool -> Int -> Text -> Text -> [GrinForeignType] -> GrinForeignType -> (Text, NativeRuntimeCall)
+runtimeCall passMachine resultCount primitive symbol arguments result =
+  ( primitive,
+    NativeRuntimeCall
+      { nativeRuntimeCallForeignCall =
+          GrinForeignCall
+            { grinForeignCallName = "$runtime$" <> symbol,
+              grinForeignCallSymbol = symbol,
+              grinForeignCallSignature =
+                GrinForeignSignature
+                  { grinForeignArgumentTypes = arguments,
+                    grinForeignResultType = result,
+                    grinForeignEffect = GrinForeignPure
+                  }
+            },
+        nativeRuntimeCallPassMachine = passMachine,
+        nativeRuntimeCallResultCount = resultCount
+      }
+  )

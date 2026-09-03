@@ -1,0 +1,48 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int Int Int
+
+    highNeeded :: Int# -> Int# -> Int#
+    highNeeded left right =
+      case timesInt2# left right of
+        (# needed, _, _ #) -> needed
+
+    high :: Int# -> Int# -> Int#
+    high left right =
+      case timesInt2# left right of
+        (# _, value, _ #) -> value
+
+    low :: Int# -> Int# -> Int#
+    low left right =
+      case timesInt2# left right of
+        (# _, _, value #) -> value
+
+    results :: Results
+    results =
+      Results
+        (I# (highNeeded 3# 5#))
+        (I# (high 3# 5#))
+        (I# (low 3# 5#))
+        (I# (highNeeded 3# (0# -# 5#)))
+        (I# (high 3# (0# -# 5#)))
+        (I# (low 3# (0# -# 5#)))
+        (I# (highNeeded 4294967296# 4294967296#))
+        (I# (high 4294967296# 4294967296#))
+        (I# (low 4294967296# 4294967296#))
+output: |
+  Results (I# 0) (I# 0) (I# 15) (I# 0) (I# -1) (I# -15) (I# 1) (I# 1) (I# 0)
+expression: |
+  results
+status: pass
+reason: timesInt2# gives the double-word signed product and reports when the high word is not a sign extension
