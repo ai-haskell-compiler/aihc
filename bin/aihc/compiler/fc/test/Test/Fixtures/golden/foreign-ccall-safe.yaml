@@ -1,0 +1,40 @@
+---
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Int#)
+
+  data Int = I# Int#
+
+  foreign import ccall safe "identity" identityInt :: Int -> Int
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tInt# :: 3.tTYPE 3.vIntRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vIntRep :: 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tInt :: 3.tType {
+      pub 1.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInt
+  }
+
+  pub foreign import ccall safe "identity" [Int → Int; pure] using [constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt
+status: pass
+reason: a safe ccall lowers like an unsafe ccall

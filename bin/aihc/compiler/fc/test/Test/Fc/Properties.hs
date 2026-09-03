@@ -270,6 +270,7 @@ genCCallSpec :: Gen CCallSpec
 genCCallSpec =
   CCallSpec
     <$> genForeignSymbol
+    <*> genForeignSafety
     <*> Gen.list (Range.linear 0 6) genCAbiType
     <*> genCAbiType
     <*> genForeignEffect
@@ -286,6 +287,9 @@ genForeignSymbol =
 
 genCAbiType :: Gen CAbiType
 genCAbiType = Gen.element [CAbiInt, CAbiInt32, CAbiWord64, CAbiAddr]
+
+genForeignSafety :: Gen ForeignSafety
+genForeignSafety = Gen.element [ForeignUnsafe, ForeignSafe]
 
 genForeignEffect :: Gen ForeignEffect
 genForeignEffect = Gen.element [ForeignPure, ForeignRealWorld]

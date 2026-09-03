@@ -1,0 +1,16 @@
+expected: |-
+  foreign labs = "labs" :: (int) -> int ! pure
+
+  global "\NULTest\NULlabs" = (P$grin_labs_foreign_0/[[IntRep]])
+
+  $grin_labs_foreign_0 (foreign_argument_0%-1000000000 :: IntRep) -> IntRep =
+    foreign-call labs = "labs" :: (int) -> int ! pure with (foreign_argument_0%-1000000000 :: IntRep)
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+source: |
+  module Test where
+  import GHC.Prim
+  foreign import ccall safe "labs" labs :: Int# -> Int#
+reason: a safe C call lowers like an unsafe C call
+status: pass

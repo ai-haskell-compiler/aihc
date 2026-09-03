@@ -6,10 +6,42 @@ modules:
 - |
   module Test where
 
+  import GHC.Prim (Addr#, Int32#)
+
   data Int32 = I32# Int32#
   newtype CInt = CInt Int32
 
   foreign import ccall puts :: Addr# -> CInt
-expected: ''
-status: fail
-reason: ccalls must be marked explicitly unsafe
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tAddr# :: 3.tTYPE 3.vAddrRep;
+    2.tInt32# :: 3.tTYPE 3.vInt32Rep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vAddrRep :: 3.tRuntimeRep;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vInt32Rep :: 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tInt32 :: 3.tType {
+      pub 1.vI32# :: FUN @3.vInt32Rep @3.tLiftedRep 2.tInt32# 1.tInt32
+  }
+
+  pub type 1.tCInt :: 3.tType {}
+
+  axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
+
+  pub foreign import ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.vI32#] 1.vputs :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tCInt
+status: pass
+reason: an omitted safety mark means safe

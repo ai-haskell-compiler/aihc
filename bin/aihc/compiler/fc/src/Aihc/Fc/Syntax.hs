@@ -23,6 +23,7 @@ module Aihc.Fc.Syntax
     CCallSpec (..),
     CAbiType (..),
     ForeignEffect (..),
+    ForeignSafety (..),
   )
 where
 
@@ -191,6 +192,7 @@ data CallingConvention
 
 data CCallSpec = CCallSpec
   { ccallSymbol :: Text,
+    ccallSafety :: ForeignSafety,
     ccallArgumentTypes :: [CAbiType],
     ccallResultType :: CAbiType,
     ccallEffect :: ForeignEffect
@@ -207,4 +209,11 @@ data CAbiType
 data ForeignEffect
   = ForeignPure
   | ForeignRealWorld
+  deriving (Eq, Ord, Show, Read)
+
+-- | Safety of a foreign call. The runtime is single-threaded, so safe and
+-- unsafe calls are lowered the same way; the mark is kept for fidelity.
+data ForeignSafety
+  = ForeignUnsafe
+  | ForeignSafe
   deriving (Eq, Ord, Show, Read)
