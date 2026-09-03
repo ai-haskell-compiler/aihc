@@ -56,7 +56,6 @@ genExpr =
       GrinStore <$> genNode,
       GrinEnsureHeap <$> genValue <*> smallList genValue,
       GrinStoreUnchecked <$> genNode,
-      GrinFetch <$> genRuntimeRep <*> genValue,
       GrinUpdate <$> genValue <*> genValue,
       GrinEval <$> genRuntimeRep <*> genValue,
       GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue <*> genValue,

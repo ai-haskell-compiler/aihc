@@ -518,7 +518,6 @@ compileExpr env expression =
     GrinStore {} -> unsupported "direct-style store return after CPS"
     GrinEnsureHeap {} -> unsupported "unbound heap reservation"
     GrinStoreUnchecked {} -> unsupported "unbound unchecked store"
-    GrinFetch {} -> unsupported "direct-style fetch return after CPS"
     GrinUpdate {} -> unsupported "direct-style update return after CPS"
     GrinUpdateBlackhole {} -> unsupported "unbound blackhole update"
     GrinEval {} -> unsupported "direct-style eval after CPS"
@@ -566,7 +565,6 @@ compileDirectBinding env vars expression =
               rootsAddress = if null roots then i32Const "0" else scratchAddress
           pure (stores <> machine <> materializeValue env requiredWords <> i64Const (tshow (length roots)) <> rootsAddress <> call "aihc_ensure_heap" <> reloads)
     GrinStoreUnchecked node -> storeNode True node
-    GrinFetch _ pointer -> storeSingle (materializeValue env pointer)
     GrinUpdate pointer value -> update "aihc_wasm_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_wasm_update_blackhole" True pointer value
     GrinPrimitiveCall IntRep name [left, right]

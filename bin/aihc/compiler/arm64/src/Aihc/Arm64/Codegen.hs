@@ -434,7 +434,6 @@ exprNodes expression =
     GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
     GrinConstant {} -> []
     GrinEnsureHeap {} -> []
-    GrinFetch {} -> []
     GrinUpdate {} -> []
     GrinUpdateBlackhole {} -> []
     GrinEval {} -> []
@@ -465,7 +464,6 @@ exprRuntimeReps expression =
     GrinStoreUnchecked node -> nodeRuntimeReps node
     GrinStoreRec bindings body -> storedRuntimeReps bindings body
     GrinStoreRecUnchecked bindings body -> storedRuntimeReps bindings body
-    GrinFetch runtimeRep pointer -> runtimeRep : valueRuntimeReps pointer
     GrinUpdate pointer value -> updatedRuntimeReps pointer value
     GrinUpdateBlackhole pointer value -> updatedRuntimeReps pointer value
     GrinEval runtimeRep value -> runtimeRep : valueRuntimeReps value

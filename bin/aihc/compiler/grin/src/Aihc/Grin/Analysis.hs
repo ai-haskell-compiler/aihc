@@ -20,7 +20,6 @@ freeExprVars expression =
     GrinStoreUnchecked node -> freeNodeVars node
     GrinStoreRec bindings body -> freeStoreRecVars bindings body
     GrinStoreRecUnchecked bindings body -> freeStoreRecVars bindings body
-    GrinFetch _ pointer -> freeValueVars pointer
     GrinUpdate pointer value -> freeValueVars pointer <> freeValueVars value
     GrinUpdateBlackhole pointer value -> freeValueVars pointer <> freeValueVars value
     GrinEval _ value -> freeValueVars value

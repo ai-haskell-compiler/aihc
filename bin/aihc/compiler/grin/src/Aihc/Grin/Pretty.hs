@@ -72,8 +72,6 @@ prettyExpr expr =
       prettyStoreRec "store-rec" bindings body
     GrinStoreRecUnchecked bindings body ->
       prettyStoreRec "store-rec-unchecked" bindings body
-    GrinFetch runtimeRep pointer ->
-      "fetch" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue pointer
     GrinUpdate pointer value ->
       "update" <+> prettyValue pointer <+> prettyValue value
     GrinUpdateBlackhole pointer value ->
