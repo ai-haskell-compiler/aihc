@@ -3,7 +3,7 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Cli.BuildExe (runBuildExe)
-import Aihc.Cli.Install (InstallResult (..), install)
+import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Store (installedEntryArchivePath)
@@ -68,9 +68,19 @@ tests =
           testCase "writes Core for a ccall import" test_installFcCcall,
           testCase "retains and repairs GRIN only with keep-grin" test_installKeepGrin,
           testCase "writes target-specific objects and library archives" test_installTargetArchives,
-          testCase "install writes core for aihc-prim and lints stored programs" test_installAihcPrim
+          testCase "install writes core for aihc-prim and lints stored programs" test_installAihcPrim,
+          testCase "parses Hackage package targets" test_parsePackageTarget
         ]
     ]
+
+test_parsePackageTarget :: Assertion
+test_parsePackageTarget = do
+  assertEqual "bare name" (Just ("nats", Nothing)) (parsePackageTarget "nats")
+  assertEqual "hyphenated name" (Just ("aihc-base", Nothing)) (parsePackageTarget "aihc-base")
+  assertEqual "name and version" (Just ("nats", Just "1.1.2")) (parsePackageTarget "nats-1.1.2")
+  assertEqual "hyphenated name and version" (Just ("aihc-base", Just "4.21.2.0")) (parsePackageTarget "aihc-base-4.21.2.0")
+  assertEqual "path" Nothing (parsePackageTarget "core-libs/aihc-base")
+  assertEqual "spaces" Nothing (parsePackageTarget "not a package")
 
 test_buildExeSourceDirectories :: Assertion
 test_buildExeSourceDirectories = do
