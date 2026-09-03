@@ -14,14 +14,23 @@ inputs:
   nix-cache-private-key:
     description: Private signing key for the Nix cache.
     required: true
+  nix-preinstalled:
+    description: >-
+      Set to "true" when the runner already provides Nix and a configured cache,
+      such as the sandboxed self-hosted pool that shares the host nix-daemon.
+      Both setup steps are skipped in that case.
+    required: false
+    default: "false"
 
 runs:
   using: composite
   steps:
     - name: Install Determinate Nix
+      if: inputs.nix-preinstalled != 'true'
       uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
 
     - name: Configure Cloudflare R2 cache
+      if: inputs.nix-preinstalled != 'true'
       uses: lemmih/nix-s3-cache-action@1f2ffc8b285edc2e86487dc37679220ba33dbff3 # v1.0.3
       with:
         s3-endpoint: ${{ inputs.r2-account-id }}.r2.cloudflarestorage.com
