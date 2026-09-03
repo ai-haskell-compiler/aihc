@@ -23,10 +23,32 @@ where
 
 import Data.Bool (Bool (..), not, (&&))
 import GHC.Enum (Enum (..))
-import GHC.Int (Int (..))
+import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
-import GHC.Internal.Integer (Integer (..), integerQuotRem, integerToInt#)
+import GHC.Internal.Integer (Integer (..), integerFromWord#, integerQuotRem, integerToInt#)
 import GHC.Num (Num (..))
+import GHC.Prim
+  ( int16ToInt#,
+    int32ToInt#,
+    int64ToInt#,
+    int8ToInt#,
+    intToInt16#,
+    intToInt32#,
+    intToInt64#,
+    intToInt8#,
+    quotWord#,
+    remWord#,
+    word16ToWord#,
+    word2Int#,
+    word32ToWord#,
+    word64ToWord#,
+    word8ToWord#,
+    wordToWord16#,
+    wordToWord32#,
+    wordToWord64#,
+    wordToWord8#,
+  )
+import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 data Ratio a = Ratio a a
 
@@ -83,6 +105,138 @@ instance Integral Integer where
   divMod = integralDivMod
 
   toInteger value = value
+
+instance Real Word8 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Word8 where
+  quot (W8# left) (W8# right) = W8# (wordToWord8# (quotWord# (word8ToWord# left) (word8ToWord# right)))
+  rem (W8# left) (W8# right) = W8# (wordToWord8# (remWord# (word8ToWord# left) (word8ToWord# right)))
+  div = quot
+  mod = rem
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (quot left right, rem left right)
+  toInteger (W8# value) = IS (word2Int# (word8ToWord# value))
+
+instance Real Word16 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Word16 where
+  quot (W16# left) (W16# right) = W16# (wordToWord16# (quotWord# (word16ToWord# left) (word16ToWord# right)))
+  rem (W16# left) (W16# right) = W16# (wordToWord16# (remWord# (word16ToWord# left) (word16ToWord# right)))
+  div = quot
+  mod = rem
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (quot left right, rem left right)
+  toInteger (W16# value) = IS (word2Int# (word16ToWord# value))
+
+instance Real Word32 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Word32 where
+  quot (W32# left) (W32# right) = W32# (wordToWord32# (quotWord# (word32ToWord# left) (word32ToWord# right)))
+  rem (W32# left) (W32# right) = W32# (wordToWord32# (remWord# (word32ToWord# left) (word32ToWord# right)))
+  div = quot
+  mod = rem
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (quot left right, rem left right)
+  toInteger (W32# value) = IS (word2Int# (word32ToWord# value))
+
+instance Real Word64 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Word64 where
+  quot (W64# left) (W64# right) = W64# (wordToWord64# (quotWord# (word64ToWord# left) (word64ToWord# right)))
+  rem (W64# left) (W64# right) = W64# (wordToWord64# (remWord# (word64ToWord# left) (word64ToWord# right)))
+  div = quot
+  mod = rem
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (quot left right, rem left right)
+  toInteger (W64# value) = integerFromWord# 1# (word64ToWord# value)
+
+instance Real Word where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Word where
+  quot (W# left) (W# right) = W# (quotWord# left right)
+  rem (W# left) (W# right) = W# (remWord# left right)
+  div = quot
+  mod = rem
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (quot left right, rem left right)
+  toInteger (W# value) = integerFromWord# 1# value
+
+instance Real Int8 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Int8 where
+  quot left right = int8FromInt (quot (int8ToInt left) (int8ToInt right))
+  rem left right = int8FromInt (rem (int8ToInt left) (int8ToInt right))
+  div left right = int8FromInt (div (int8ToInt left) (int8ToInt right))
+  mod left right = int8FromInt (mod (int8ToInt left) (int8ToInt right))
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (div left right, mod left right)
+  toInteger value = toInteger (int8ToInt value)
+
+int8ToInt :: Int8 -> Int
+int8ToInt (I8# value) = I# (int8ToInt# value)
+
+int8FromInt :: Int -> Int8
+int8FromInt (I# value) = I8# (intToInt8# value)
+
+instance Real Int16 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Int16 where
+  quot left right = int16FromInt (quot (int16ToInt left) (int16ToInt right))
+  rem left right = int16FromInt (rem (int16ToInt left) (int16ToInt right))
+  div left right = int16FromInt (div (int16ToInt left) (int16ToInt right))
+  mod left right = int16FromInt (mod (int16ToInt left) (int16ToInt right))
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (div left right, mod left right)
+  toInteger value = toInteger (int16ToInt value)
+
+int16ToInt :: Int16 -> Int
+int16ToInt (I16# value) = I# (int16ToInt# value)
+
+int16FromInt :: Int -> Int16
+int16FromInt (I# value) = I16# (intToInt16# value)
+
+instance Real Int32 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Int32 where
+  quot left right = int32FromInt (quot (int32ToInt left) (int32ToInt right))
+  rem left right = int32FromInt (rem (int32ToInt left) (int32ToInt right))
+  div left right = int32FromInt (div (int32ToInt left) (int32ToInt right))
+  mod left right = int32FromInt (mod (int32ToInt left) (int32ToInt right))
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (div left right, mod left right)
+  toInteger value = toInteger (int32ToInt value)
+
+int32ToInt :: Int32 -> Int
+int32ToInt (I32# value) = I# (int32ToInt# value)
+
+int32FromInt :: Int -> Int32
+int32FromInt (I# value) = I32# (intToInt32# value)
+
+instance Real Int64 where
+  toRational value = Ratio (toInteger value) 1
+
+instance Integral Int64 where
+  quot left right = int64FromInt (quot (int64ToInt left) (int64ToInt right))
+  rem left right = int64FromInt (rem (int64ToInt left) (int64ToInt right))
+  div left right = int64FromInt (div (int64ToInt left) (int64ToInt right))
+  mod left right = int64FromInt (mod (int64ToInt left) (int64ToInt right))
+  quotRem left right = (quot left right, rem left right)
+  divMod left right = (div left right, mod left right)
+  toInteger value = toInteger (int64ToInt value)
+
+int64ToInt :: Int64 -> Int
+int64ToInt (I64# value) = I# (int64ToInt# value)
+
+int64FromInt :: Int -> Int64
+int64FromInt (I# value) = I64# (intToInt64# value)
 
 intQuotRem :: Int -> Int -> (Int, Int)
 intQuotRem (I# numerator) (I# denominator) =
