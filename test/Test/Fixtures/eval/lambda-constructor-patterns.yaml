@@ -1,0 +1,30 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (Int (I#), (*#), (+#))
+
+    addUnboxed :: Int -> Int -> Int
+    addUnboxed = \(I# x#) (I# y#) -> I# (x# +# y#)
+
+    sumPair :: (Int, Int) -> Int
+    sumPair = \(a, b) -> a + b
+
+    unwrap :: Maybe Int -> Int
+    unwrap = \(Just n) -> n
+
+    nested :: Int -> Maybe (Int, Int) -> Int
+    nested = \k (Just (a, b)) -> k * (a + b)
+
+    mixed :: Int -> Int -> Int
+    mixed = \x (I# y#) -> x + I# y#
+output: |
+  ((I# 7),(I# 42),(I# 5),(I# 30),(I# 12))
+expression: |
+  (addUnboxed 3 4, sumPair (10, 32), unwrap (Just 5), nested 3 (Just (4, 6)), mixed 7 5)
+status: pass
+reason: lambda arguments that are constructor, tuple, unboxed, or nested patterns bind their variables in the body

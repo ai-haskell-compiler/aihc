@@ -25,7 +25,7 @@ jobs:
         uses: ./.github/actions/select-ci-runner
         with:
           repository: ${{ github.repository }}
-          runner-label: ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
+          runner-label: ${{ vars.CI_NIX_CHECK_RUNNER_LABEL != '' && vars.CI_NIX_CHECK_RUNNER_LABEL || (vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-nix') }}
           fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'ubuntu-24.04' }}
           runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN != '' && secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN || secrets.AUTOMATION_PR_TOKEN }}
           allow-self-hosted: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
@@ -55,6 +55,7 @@ jobs:
           r2-access-key: ${{ vars.R2_ACCESS_KEY }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+          nix-preinstalled: ${{ needs.select-runner.outputs.use_self_hosted }}
 
       - name: Free self-hosted Nix store space when disk use is high
         if: needs.select-runner.outputs.use_self_hosted == 'true'
