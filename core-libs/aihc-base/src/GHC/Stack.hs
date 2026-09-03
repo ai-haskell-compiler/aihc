@@ -1,11 +1,16 @@
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE RankNTypes #-}
+
 module GHC.Stack
   ( SrcLoc (..),
     CallStack,
+    HasCallStack,
     emptyCallStack,
     freezeCallStack,
     fromCallSiteList,
     getCallStack,
     pushCallStack,
+    popCallStack,
     callStack,
     withFrozenCallStack,
     prettyCallStack,
@@ -14,34 +19,32 @@ module GHC.Stack
 where
 
 import GHC.Stack.Types
-  ( CallStack,
+  ( CallStack (..),
+    HasCallStack,
     SrcLoc (..),
     emptyCallStack,
     freezeCallStack,
     fromCallSiteList,
     getCallStack,
+    popCallStack,
+    prettyCallStack,
+    prettySrcLoc,
     pushCallStack,
   )
-import Prelude (String, show, (++))
 
--- | Call stacks are not tracked. The result is always empty.
-callStack :: CallStack
-callStack = emptyCallStack
+-- | The call stack of the enclosing function.
+--
+-- The entry for the call of @callStack@ itself is not included.
+callStack :: (HasCallStack) => CallStack
+callStack =
+  case ?callStack of
+    EmptyCallStack -> EmptyCallStack
+    _ -> popCallStack ?callStack
 
-withFrozenCallStack :: a -> a
-withFrozenCallStack value = value
-
-prettyCallStack :: CallStack -> String
-prettyCallStack _ = "CallStack (from HasCallStack)"
-
-prettySrcLoc :: SrcLoc -> String
-prettySrcLoc location =
-  srcLocFile location
-    ++ ":"
-    ++ show (srcLocStartLine location)
-    ++ ":"
-    ++ show (srcLocStartCol location)
-    ++ " in "
-    ++ srcLocPackage location
-    ++ ":"
-    ++ srcLocModule location
+-- | Run an action with a frozen call stack.
+--
+-- Functions called by the action do not add entries to the call stack.
+withFrozenCallStack :: (HasCallStack) => ((HasCallStack) => a) -> a
+withFrozenCallStack action =
+  let ?callStack = freezeCallStack (popCallStack callStack)
+   in action

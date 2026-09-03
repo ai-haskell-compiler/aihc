@@ -109,6 +109,8 @@ equivalentPred renaming left right =
         && and (zipWith (equivalentType renaming) leftArgs rightArgs)
     (EqPred leftA leftB, EqPred rightA rightB) ->
       equivalentType renaming leftA rightA && equivalentType renaming leftB rightB
+    (IParamPred leftName leftPayload, IParamPred rightName rightPayload) ->
+      leftName == rightName && equivalentType renaming leftPayload rightPayload
     (QuantifiedPred leftVariables leftAntecedents leftConsequent, QuantifiedPred rightVariables rightAntecedents rightConsequent) ->
       length leftVariables == length rightVariables
         && and (zipWith (equivalentType renaming `onKind`) leftVariables rightVariables)

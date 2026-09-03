@@ -205,6 +205,9 @@ convertTypeWithExpectedKind env expectedKind ty =
   case ty of
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
+    -- The constraint type of an implicit parameter is the type of its value.
+    TcTyCon tyCon [payload]
+      | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
@@ -237,6 +240,8 @@ convertPred env predicate =
       pure (foldl TyApp (TyCon (classDictTypeName tyCon)) (kindArguments <> converted))
     EqPred left right ->
       TyEq <$> convertType env left <*> convertType env right
+    -- The evidence for an implicit parameter is a plain value of its type.
+    IParamPred _ payload -> convertType env payload
     QuantifiedPred variables antecedents consequent -> do
       let quantifiedEnv = withTyVars variables env
       binders <- mapM (tyVarBinder quantifiedEnv) variables

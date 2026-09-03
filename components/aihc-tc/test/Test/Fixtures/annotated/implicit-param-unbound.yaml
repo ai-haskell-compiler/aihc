@@ -1,0 +1,31 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  unbound :: Int
+  unbound = ?missing
+            └─ error: unsolved constraint ?missing ∷ Int
+  wrongType :: (?x :: Int) => Int
+  wrongType = let ?x = True in ?x
+              └─ error: expression has type Bool, but expected Int from the type signature for wrongType
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+extensions:
+- ImplicitParams
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+  unbound :: Int
+  unbound = ?missing
+  wrongType :: (?x :: Int) => Int
+  wrongType = let ?x = True in ?x
+  data Bool = True | False
+reason: an unbound implicit parameter and a type mismatch are errors
+status: pass

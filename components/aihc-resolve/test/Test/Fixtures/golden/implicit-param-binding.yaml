@@ -1,0 +1,35 @@
+---
+extensions:
+- ImplicitParams
+modules:
+- |
+  module Main where
+  data Int = Int
+  f :: (?x :: Int) => Int
+  f = ?x
+  g = let ?x = Int in f
+  h y = ?x
+    where
+      ?x = y
+annotated:
+- |
+  module Main where
+  data Int = Int
+       │     └─ v Main
+       └─ t Main
+  f :: (?x :: Int) => Int
+  └─ v Main   │       └─ t Main
+              └─ t Main
+  f = ?x
+  └─ v Main
+  g = let ?x = Int in f
+  └─ v Main    │      └─ v Main
+               └─ v Main
+  h y = ?x
+  │ └─ v 0
+  └─ v Main
+    where
+      ?x = y
+           └─ v 0
+status: pass
+reason: implicit parameters do not bind or use lexical names

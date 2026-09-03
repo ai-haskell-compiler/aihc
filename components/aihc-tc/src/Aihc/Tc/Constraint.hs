@@ -54,6 +54,8 @@ data CtOrigin
   | CaseBranchOrigin !SourceSpan
   | InstOrigin !Text
   | UnifyOrigin !SourceSpan
+  | -- | A use of an implicit parameter such as @?x@.
+    ImplicitParamOrigin !Text
   deriving (Eq, Show)
 
 -- | The diagnostic role a type played in an equality.

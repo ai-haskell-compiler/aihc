@@ -212,6 +212,10 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       predicates <- mapM (surfacePredToPred tvEnv) preds
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
       pure (TcQualTy predicates innerType, innerKind)
+    TImplicitParam name payload -> do
+      payloadType <- checkSurfaceType tvEnv payload KType
+      constraintType <- implicitParamType name payloadType
+      pure (constraintType, KConstraint)
     TForall telescope inner -> do
       params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
       let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
@@ -378,6 +382,7 @@ expandTcTypeSynonyms expanding ty =
       case predicate of
         ClassPred className arguments -> ClassPred className <$> mapM (expandTcTypeSynonyms expanding) arguments
         EqPred left right -> EqPred <$> expandTcTypeSynonyms expanding left <*> expandTcTypeSynonyms expanding right
+        IParamPred name payload -> IParamPred name <$> expandTcTypeSynonyms expanding payload
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM expandVariable variables
@@ -570,6 +575,7 @@ zonkKind kind =
       case predicate of
         ClassPred className arguments -> ClassPred className <$> mapM zonkKind arguments
         EqPred left right -> EqPred <$> zonkKind left <*> zonkKind right
+        IParamPred name payload -> IParamPred name <$> zonkKind payload
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM zonkVariable variables
@@ -613,6 +619,7 @@ defaultKindMetas kind =
       case predicate of
         ClassPred className arguments -> ClassPred className <$> mapM defaultKindMetas arguments
         EqPred left right -> EqPred <$> defaultKindMetas left <*> defaultKindMetas right
+        IParamPred name payload -> IParamPred name <$> defaultKindMetas payload
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM defaultVariable variables
@@ -640,6 +647,7 @@ containsUnsolvedMeta ty =
       case predicate of
         ClassPred _ arguments -> or <$> mapM containsUnsolvedMeta arguments
         EqPred left right -> (||) <$> containsUnsolvedMeta left <*> containsUnsolvedMeta right
+        IParamPred _ payload -> containsUnsolvedMeta payload
         QuantifiedPred variables antecedents consequent -> do
           variableResults <- mapM (containsUnsolvedMeta . tvKind) variables
           antecedentResults <- mapM containsUnsolvedPred antecedents
@@ -667,6 +675,7 @@ occursInKind needle kind =
       case predicate of
         ClassPred _ arguments -> any (occursInKind needle) arguments
         EqPred left right -> occursInKind needle left || occursInKind needle right
+        IParamPred _ payload -> occursInKind needle payload
         QuantifiedPred variables antecedents consequent ->
           any (occursInKind needle . tvKind) variables
             || any occursInPred antecedents
@@ -786,12 +795,28 @@ surfacePredToPred tvEnv ty = do
 
 surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM Pred
 surfaceAtomicPredToPred tvEnv ty =
+  case peelTypeHead ty of
+    TImplicitParam name payload ->
+      IParamPred name <$> checkSurfaceType tvEnv payload KType
+    _ -> surfaceClassPredToPred tvEnv ty
+
+surfaceClassPredToPred :: TvKindEnv -> Type -> TcM Pred
+surfaceClassPredToPred tvEnv ty =
   case instanceHeadName (peelTypeHead ty) of
     Just className -> do
       let classNameText = nameText className
           headArgs = instanceHeadTypes (peelTypeHead ty)
       maybeClassInfo <- lookupTyCon classNameText
       case maybeClassInfo of
+        Just classInfo
+          | Just {} <- tciTypeSynonym classInfo -> do
+              -- A constraint synonym expands to one constraint.
+              (expanded, _) <- convertSurfaceTypeWithKinds tvEnv ty
+              case constraintTypeToPred expanded of
+                Just predicate -> pure predicate
+                Nothing -> do
+                  emitError NoSourceSpan (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
+                  abortTc "invalid constraint synonym expansion"
         Just classInfo -> do
           classKind <- predicateClassKind classInfo
           let argKinds = takeClassArgKinds (length headArgs) classKind

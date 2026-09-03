@@ -1,0 +1,85 @@
+---
+extensions:
+- ImplicitParams
+- ConstraintKinds
+modules:
+- |
+  module Test where
+  import GHC.Types (Char, Int)
+  data Bool = True | False
+  data SrcLoc = SrcLoc [Char] [Char] [Char] Int Int Int Int
+  data CallStack = EmptyCallStack | PushCallStack [Char] SrcLoc CallStack
+  type HasCallStack = (?callStack :: CallStack)
+
+  emptyCallStack :: CallStack
+  emptyCallStack = EmptyCallStack
+
+  pushCallSite :: [Char] -> SrcLoc -> CallStack -> CallStack
+  pushCallSite name location stack = PushCallStack name location stack
+
+  failure :: HasCallStack => Bool -> Bool
+  failure x = x
+
+  noStack :: Bool
+  noStack = failure True
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tChar :: 3.tType;
+    2.tChar# :: 3.tTYPE 3.vWordRep;
+    3.tInt :: 3.tType;
+    2.tInt# :: 3.tTYPE 3.vIntRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.t[] :: ∀(a : 3.tType). 3.tType;
+    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 3.tChar;
+    3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt;
+    3.vIntRep :: 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    3.vWordRep :: 3.tRuntimeRep;
+    3.v[] :: ∀(a : 3.tType). 3.t[] a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tBool :: 3.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tSrcLoc :: 3.tType {
+      pub 1.vSrcLoc :: 3.t[] 3.tChar 3.→ 3.t[] 3.tChar 3.→ 3.t[] 3.tChar 3.→ 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 3.tInt 3.→ 1.tSrcLoc
+  }
+
+  pub type 1.tCallStack :: 3.tType {
+      pub 1.vEmptyCallStack :: 1.tCallStack;
+      pub 1.vPushCallStack :: 3.t[] 3.tChar 3.→ 1.tSrcLoc 3.→ 1.tCallStack 3.→ 1.tCallStack
+  }
+
+  pub val 1.vemptyCallStack :: 1.tCallStack
+   = 1.vEmptyCallStack
+
+  pub val 1.vpushCallSite :: 3.t[] 3.tChar 3.→ 1.tSrcLoc 3.→ 1.tCallStack 3.→ 1.tCallStack
+   = λ(x : 3.t[] 3.tChar).
+    λ(y : 1.tSrcLoc).
+      λ(z : 1.tCallStack).
+        1.vPushCallStack x y z
+
+  pub val 1.vfailure :: 1.tCallStack 3.→ 1.tBool 3.→ 1.tBool
+   = λ($d0 : 1.tCallStack).
+    λ(x : 1.tBool).
+      x
+
+  pub val 1.vnoStack :: 1.tBool
+   = 1.vfailure (1.vpushCallSite (3.v: @3.tChar (3.vC# 'f'#3.vWordRep) (3.v: @3.tChar (3.vC# 'a'#3.vWordRep) (3.v: @3.tChar (3.vC# 'i'#3.vWordRep) (3.v: @3.tChar (3.vC# 'l'#3.vWordRep) (3.v: @3.tChar (3.vC# 'u'#3.vWordRep) (3.v: @3.tChar (3.vC# 'r'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v[] @3.tChar)))))))) (1.vSrcLoc (3.v[] @3.tChar) (3.v: @3.tChar (3.vC# 'T'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 's'#3.vWordRep) (3.v: @3.tChar (3.vC# 't'#3.vWordRep) (3.v[] @3.tChar))))) (3.v: @3.tChar (3.vC# 'm'#3.vWordRep) (3.v: @3.tChar (3.vC# 'o'#3.vWordRep) (3.v: @3.tChar (3.vC# 'd'#3.vWordRep) (3.v: @3.tChar (3.vC# 'u'#3.vWordRep) (3.v: @3.tChar (3.vC# 'l'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# ' '#3.vWordRep) (3.v: @3.tChar (3.vC# 'T'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 's'#3.vWordRep) (3.v: @3.tChar (3.vC# 't'#3.vWordRep) (3.v: @3.tChar (3.vC# ' '#3.vWordRep) (3.v: @3.tChar (3.vC# 'w'#3.vWordRep) (3.v: @3.tChar (3.vC# 'h'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v: @3.tChar (3.vC# 'r'#3.vWordRep) (3.v: @3.tChar (3.vC# 'e'#3.vWordRep) (3.v[] @3.tChar)))))))))))))))))) (3.vI# 18#3.vIntRep) (3.vI# 11#3.vIntRep) (3.vI# 18#3.vIntRep) (3.vI# 18#3.vIntRep)) 1.vemptyCallStack) 1.vTrue
+status: pass
+reason: an occurrence of a function with a HasCallStack constraint pushes its call site onto the empty call stack

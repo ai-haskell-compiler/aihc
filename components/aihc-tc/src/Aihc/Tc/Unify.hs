@@ -93,5 +93,6 @@ occursIn u = go
 
     goPred (ClassPred _ args) = any go args
     goPred (EqPred a b) = go a || go b
+    goPred (IParamPred _ payload) = go payload
     goPred (QuantifiedPred variables antecedents consequent) =
       any (go . tvKind) variables || any goPred antecedents || goPred consequent

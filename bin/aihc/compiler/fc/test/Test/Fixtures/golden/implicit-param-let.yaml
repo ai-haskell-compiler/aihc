@@ -1,0 +1,48 @@
+---
+extensions:
+- ImplicitParams
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Bool = True | False
+
+  useParam :: (?flag :: Bool) => Bool
+  useParam = ?flag
+
+  callUse :: Bool
+  callUse = let ?flag = True in useParam
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub val 1.vuseParam :: 1.tBool 2.→ 1.tBool
+   = λ($d0 : 1.tBool).
+    $d0
+
+  pub val 1.vcallUse :: 1.tBool
+   = let {
+      $ipflag : 1.tBool =
+          1.vTrue
+  } in
+      1.vuseParam $ipflag
+status: pass
+reason: an implicit parameter is a plain value argument, and a let binding supplies it

@@ -151,7 +151,7 @@ checking. This runs before or as part of constraint generation.
 data Pred s
   = ClassPred ClassName [TcType s]    -- e.g. Eq a
   | EqPred    (TcType s) (TcType s)   -- e.g. a ~ Bool
-  | IParam    Text (TcType s)         -- implicit parameters (later)
+  | IParamPred Text (TcType s)        -- implicit parameters, e.g. ?x :: Int
 ```
 
 ### 5.2 Evidence
@@ -792,7 +792,7 @@ with `MonoLocalBinds` (which is implied by `GADTs` and `TypeFamilies`).
 - No overlapping instances.
 - No functional dependencies initially.
 - No quantified constraints.
-- No implicit parameters initially.
+- Implicit parameters (`ImplicitParams`) are constraints. A `?x` use wants `?x` at a fresh type. A `let ?x = e` binding or a signature context supplies it. The name selects the binding, and the innermost binding wins. A `?callStack :: CallStack` constraint follows the GHC `HasCallStack` rules: an occurrence of a function with the constraint pushes its call site, and an unsolved call stack is empty.
 - Eager flattening of all type family applications.
 - No kind polymorphism initially (monomorphic kinds, `Type` only).
 - No type-level literals initially.

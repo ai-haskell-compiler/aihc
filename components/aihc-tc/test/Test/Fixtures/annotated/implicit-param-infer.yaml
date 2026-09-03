@@ -1,0 +1,31 @@
+annotated:
+- |-
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+       │     └─ type: Int
+       └─ type: Type
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  inferred y = ?count
+  │        │   └─ type: b; evidence: given ?count ∷ b
+  │        └─ type: a
+  └─ type: ∀ a b. (?count ∷ b) ⇒ a → b
+  shadow :: Int
+  shadow = let ?count = Int in let ?count = Int in ?count
+  └─ type: Int └─ type: Int        └─ type: Int    └─ type: Int; evidence: given ?count ∷ Int
+extensions:
+- ImplicitParams
+modules:
+- |
+  {-# LANGUAGE ImplicitParams #-}
+  module Test where
+  data Int = Int
+  data Bool = True | False
+  inferred y = ?count
+  shadow :: Int
+  shadow = let ?count = Int in let ?count = Int in ?count
+reason: an inferred binding quantifies over its implicit parameters, and the innermost binding wins
+status: pass

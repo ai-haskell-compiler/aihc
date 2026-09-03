@@ -68,6 +68,7 @@ import Aihc.Tc.Types
     tyConNamespace,
     tyConPackageId,
     typeSchemeBody,
+    pattern KConstraint,
     pattern KFun,
     pattern KType,
   )
@@ -317,7 +318,7 @@ convertHeader convertEnv bindings source =
       constructor <- convertConstructor convertEnv info
       Right (headerOnly (cePrimPackage convertEnv) (conName constructor) (conType constructor))
     HeaderSynonym info ->
-      declsEnv convertEnv . (: []) =<< convertSynonym convertEnv info
+      declsEnv convertEnv =<< convertSynonym convertEnv info
     HeaderNewtype info ->
       declsEnv convertEnv =<< convertNewtype convertEnv info
     HeaderInstance info -> do
@@ -413,7 +414,7 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           (: []) <$> convertDataType env info
         Syn.DeclTypeSyn synonymDecl -> do
           info <- lookupSynonym package moduleName' (unqualifiedNameText (binderHeadName (typeSynHead synonymDecl))) tyCons
-          (: []) <$> convertSynonym env info
+          convertSynonym env info
         Syn.DeclClass classDecl -> do
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
           (: []) <$> convertClass env info
@@ -810,10 +811,17 @@ typeRepOrLifted env ty =
     Right representation -> Right representation
     Left _ -> Right (liftedRepType env)
 
-convertSynonym :: ConvertEnv -> TyConInfo -> Either String Decl
+-- | Convert a type synonym.
+--
+-- A constraint synonym has no System FC declaration. The type checker expands
+-- it in every predicate before desugaring.
+convertSynonym :: ConvertEnv -> TyConInfo -> Either String [Decl]
 convertSynonym env info =
   case tciTypeSynonym info of
     Just synonym
+      | Just {} <- tsiBody synonym,
+        synonymResultKind (tciKindScheme info) (tsiParams synonym) == KConstraint ->
+          Right []
       | Just body <- tsiBody synonym -> do
           kindVars <- extraKindVars env (tciTyCon info) (tsiParams synonym)
           let tyVars = kindVars <> tsiParams synonym
@@ -823,7 +831,7 @@ convertSynonym env info =
           result <- withConversionContext "result" (synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym))
           convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) body)
           pure
-            ( DeclSynonym
+            [ DeclSynonym
                 SynonymDecl
                   { synVis = Pub,
                     synName = Name (tciName info) SortSynonym (OriginTop (tyConPackageId (tciTyCon info)) (tyConModuleName (tciTyCon info))),
@@ -831,7 +839,7 @@ convertSynonym env info =
                     synResult = result,
                     synBody = convertedBody
                   }
-            )
+            ]
       | otherwise -> Left ("type synonym " <> T.unpack (tciName info) <> " has no body")
     Nothing -> Left ("type synonym " <> T.unpack (tciName info) <> " has no synonym info")
 

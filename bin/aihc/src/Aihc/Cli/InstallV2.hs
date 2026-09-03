@@ -100,7 +100,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (tvKind, tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (tvKind, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
@@ -1530,7 +1530,7 @@ moduleTypeInterface exports package interface source =
 addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
 addReferencedFacts complete interface =
   interface
-    { tcInterfaceTerms = tcInterfaceTerms interface,
+    { tcInterfaceTerms = tcInterfaceTerms interface <> callStackSupportTerms,
       tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
       tcInterfaceDataTypes = tcInterfaceDataTypes interface <> supportDataTypes,
       tcInterfaceClasses = tcInterfaceClasses interface <> supportClasses
@@ -1542,9 +1542,33 @@ addReferencedFacts complete interface =
     availableDataTypes = Map.fromList [(dtiTyCon info, info) | info <- tcInterfaceDataTypes complete]
     existingClasses = Set.fromList (map ciTyCon (tcInterfaceClasses interface))
     availableClasses = Map.fromList [(ciTyCon info, info) | info <- tcInterfaceClasses complete]
+    -- A use of a function with a HasCallStack constraint desugars to calls
+    -- of the call-stack helpers, even when the module does not import them.
+    callStackModules =
+      Set.fromList
+        [ (tyConPackageId tyCon, tyConModuleName tyCon)
+        | tyCon <- concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface),
+          tyConName tyCon == "CallStack"
+        ]
+    existingTermKeys = Set.fromList (map fst (tcInterfaceTerms interface))
+    callStackSupportTerms =
+      [ entry
+      | entry@(TcTermGlobal package' moduleName' identifier, _) <- tcInterfaceTerms complete,
+        (package', moduleName') `Set.member` callStackModules,
+        identifier `elem` ["pushCallSite", "emptyCallStack"],
+        fst entry `Set.notMember` existingTermKeys
+      ]
+    callStackSupportTyCons =
+      [ tyCon
+      | tyCon <- Map.keys availableTyCons,
+        (tyConPackageId tyCon, tyConModuleName tyCon) `Set.member` callStackModules,
+        tyConName tyCon `elem` ["SrcLoc", "CallStack"]
+      ]
     referenced =
       Set.fromList
         ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
+            <> concatMap (typeSchemeTyCons . snd) callStackSupportTerms
+            <> callStackSupportTyCons
             <> concatMap tyConInfoTyCons (tcInterfaceTyCons interface)
             <> concatMap dataTypeInfoTyCons (tcInterfaceDataTypes interface)
             <> concatMap classInfoTyCons (tcInterfaceClasses interface)
@@ -1624,6 +1648,7 @@ predTyCons :: Pred -> [TyCon]
 predTyCons predicate = case predicate of
   ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
   EqPred left right -> typeTyCons left <> typeTyCons right
+  IParamPred _ payload -> typeTyCons payload
   QuantifiedPred variables antecedents consequent ->
     concatMap (typeTyCons . tvKind) variables <> concatMap predTyCons antecedents <> predTyCons consequent
 
