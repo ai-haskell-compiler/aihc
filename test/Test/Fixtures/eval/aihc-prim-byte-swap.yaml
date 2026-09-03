@@ -1,0 +1,29 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (word2Int# (byteSwap16# 1##)))
+        (I# (word2Int# (byteSwap16# 0x1234##)))
+        (I# (word2Int# (byteSwap32# 1##)))
+        (I# (word2Int# (byteSwap32# 0x12345678##)))
+        (I# (word2Int# (word64ToWord# (byteSwap64# (wordToWord64# 1##)))))
+        (I# (word2Int# (byteSwap# 0x1122334455667788##)))
+output: |
+  Results (I# 256) (I# 13330) (I# 16777216) (I# 2018915346) (I# 72057594037927936) (I# -8613303245920329199)
+expression: |
+  results
+status: pass
+reason: each byteSwap primitive reverses the low bytes of its width and clears the bytes above them

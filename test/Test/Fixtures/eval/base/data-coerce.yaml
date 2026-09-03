@@ -1,0 +1,26 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Coerce (coerce)
+
+    newtype Meters = Meters Int
+
+    unwrap :: Meters -> Int
+    unwrap = coerce
+
+    wrap :: Int -> Meters
+    wrap = coerce
+
+    results :: Bool
+    results =
+      unwrap (Meters 3) == 3
+        && case wrap 5 of
+          Meters value -> value == 5
+output: "True"
+expression: results
+status: pass
+reason: Data.Coerce changes the type of a newtype value that keeps its representation

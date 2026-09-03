@@ -2,6 +2,9 @@
     name: Use camelCase
     within: Prelude
 - ignore:
+    name: Use camelCase
+    within: GHC.IO.Exception
+- ignore:
     name: Use foldl
     within: GHC.Read.Lex
 - ignore:

@@ -5,12 +5,22 @@ module GHC.Float
     Float (..),
     Floating (..),
     RealFloat (..),
+    castDoubleToWord64,
+    castFloatToWord32,
+    castWord32ToFloat,
+    castWord64ToDouble,
+    double2Float,
+    double2Int,
+    float2Double,
+    float2Int,
+    int2Double,
+    int2Float,
     roundTo,
   )
 where
 
 import Data.Bool (Bool (..), not)
-import GHC.Int (Int)
+import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (integerToInt#)
@@ -19,9 +29,17 @@ import GHC.Prim
   ( Double#,
     Float#,
     Int#,
+    castDoubleToWord64#,
+    castFloatToWord32#,
+    castWord32ToFloat#,
+    castWord64ToDouble#,
+    double2Float#,
+    double2Int#,
     eqFloat#,
     fabsDouble#,
     fabsFloat#,
+    float2Double#,
+    float2Int#,
     gtFloat#,
     int2Double#,
     int2Float#,
@@ -41,6 +59,7 @@ import GHC.Prim
   )
 import GHC.Real (Fractional, Integral (..), RealFrac)
 import GHC.Types (Double (..), Float (..), Ordering (..))
+import GHC.Word (Word32 (..), Word64 (..))
 
 -- | Trigonometric and transcendental operations.
 class (Fractional a) => Floating a where
@@ -132,6 +151,40 @@ replicateZero count =
   case count <= 0 of
     True -> []
     False -> 0 : replicateZero (count - 1)
+
+-- | Give the IEEE 754 bit pattern of a single-precision value.
+castFloatToWord32 :: Float -> Word32
+castFloatToWord32 (F# value) = W32# (castFloatToWord32# value)
+
+-- | Give the single-precision value of an IEEE 754 bit pattern.
+castWord32ToFloat :: Word32 -> Float
+castWord32ToFloat (W32# value) = F# (castWord32ToFloat# value)
+
+-- | Give the IEEE 754 bit pattern of a double-precision value.
+castDoubleToWord64 :: Double -> Word64
+castDoubleToWord64 (D# value) = W64# (castDoubleToWord64# value)
+
+-- | Give the double-precision value of an IEEE 754 bit pattern.
+castWord64ToDouble :: Word64 -> Double
+castWord64ToDouble (W64# value) = D# (castWord64ToDouble# value)
+
+int2Double :: Int -> Double
+int2Double (I# value) = D# (int2Double# value)
+
+int2Float :: Int -> Float
+int2Float (I# value) = F# (int2Float# value)
+
+double2Int :: Double -> Int
+double2Int (D# value) = I# (double2Int# value)
+
+float2Int :: Float -> Int
+float2Int (F# value) = I# (float2Int# value)
+
+double2Float :: Double -> Float
+double2Float (D# value) = F# (double2Float# value)
+
+float2Double :: Float -> Double
+float2Double (F# value) = D# (float2Double# value)
 
 -- | Convert a primitive comparison result to a 'Bool'.
 isTrue :: Int# -> Bool

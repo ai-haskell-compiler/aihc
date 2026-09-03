@@ -1,0 +1,42 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Data
+
+    sampleDataType :: DataType
+    sampleDataType = mkNoRepType "Test.Sample"
+
+    packConstr :: Constr
+    packConstr = mkConstr sampleDataType "pack" [] Prefix
+
+    pairDataType :: DataType
+    pairDataType = mkDataType "Test.Pair" [packConstr]
+
+    consConstr :: Constr
+    consConstr = mkConstr pairDataType "cons" ["head", "tail"] Infix
+
+    isPrefix :: Constr -> Bool
+    isPrefix constr =
+      case constrFixity constr of
+        Prefix -> True
+        Infix -> False
+
+    results :: Bool
+    results =
+      dataTypeName sampleDataType == "Test.Sample"
+        && showConstr packConstr == "pack"
+        && constrIndex packConstr == 1
+        && constrFields packConstr == []
+        && isPrefix packConstr
+        && dataTypeName pairDataType == "Test.Pair"
+        && constrIndex consConstr == 2
+        && constrFields consConstr == ["head", "tail"]
+        && not (isPrefix consConstr)
+output: "True"
+expression: results
+status: pass
+reason: Data.Data gives the constructor and data-type descriptions that a Data instance writes

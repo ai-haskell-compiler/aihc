@@ -7,13 +7,14 @@ module GHC.IO.Exception
     ioException,
     ioErrorFromErrno,
     illegalOperationError,
+    ioe_EOF,
     ioeSetErrorString,
     mkIOError,
     userError,
   )
 where
 
-import GHC.Base (Maybe, Monad (..), String)
+import GHC.Base (Maybe (..), Monad (..), String)
 import GHC.IO (IO)
 import GHC.IO.Handle.Types (Handle)
 import GHC.IO.Runtime (raiseIOErrorRaw)
@@ -61,3 +62,7 @@ mkIOError _ _ _ _ = IOError 0
 
 ioeSetErrorString :: IOError -> String -> IOError
 ioeSetErrorString exception _ = exception
+
+-- | Raise the end-of-file error.
+ioe_EOF :: IO a
+ioe_EOF = ioError (ioeSetErrorString (mkIOError EOF "" Nothing Nothing) "end of file")

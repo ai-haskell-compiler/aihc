@@ -310,6 +310,18 @@ uint64_t aihc_double_to_int(uint64_t value);
 uint64_t aihc_double_gt(uint64_t left, uint64_t right);
 uint64_t aihc_double_lt(uint64_t left, uint64_t right);
 uint64_t aihc_double_eq(uint64_t left, uint64_t right);
+uint64_t aihc_float_to_double(uint64_t value);
+uint64_t aihc_double_to_float(uint64_t value);
+uint64_t aihc_word_byte_swap16(uint64_t value);
+uint64_t aihc_word_byte_swap32(uint64_t value);
+uint64_t aihc_word_byte_swap64(uint64_t value);
+uint64_t aihc_int_times2_high_needed(uint64_t left, uint64_t right);
+uint64_t aihc_int_times2_high(uint64_t left, uint64_t right);
+uint64_t aihc_int_times2_low(uint64_t left, uint64_t right);
+uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_index_byte_word64(void *opaque_array, int64_t offset);
 void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
                           int64_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,
