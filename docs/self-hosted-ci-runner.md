@@ -150,11 +150,18 @@ The image contains no Nix. Instead each container gets:
 - `/nix` bind-mounted read-only, providing the store and the Nix binaries
 - `/nix/var/nix/daemon-socket` bind-mounted read-write, so the client can connect
 - `/etc/nix` bind-mounted read-only, for client settings and substituters
-- `NIX_REMOTE=daemon`
+- `NIX_REMOTE=daemon` and a `PATH` starting at
+  `/nix/var/nix/profiles/default/bin`, both set in the image and repeated on the
+  run command
 
-A Nix client only needs the socket plus read access to the store, because the
-daemon performs every write. This keeps containers disposable while the store
-stays warm across jobs.
+`NIX_REMOTE=daemon` is what routes builds to the host daemon. A Nix client only
+needs the socket plus read access to the store, because the daemon performs
+every write. This keeps containers disposable while the store stays warm across
+jobs.
+
+The entrypoint verifies the connection with `nix store info` before registering
+the runner, so a broken mount or an unreadable socket fails immediately instead
+of part-way through a job.
 
 Because the runner already provides Nix, `nix-flake-check.yml` passes
 `nix-preinstalled: true` to the `setup-nix-ci` action on self-hosted runs, which

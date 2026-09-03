@@ -327,6 +327,9 @@ run_slot() {
 			--env "AIHC_RUNNER_TOKEN=${token}"
 			--env "AIHC_RUNNER_NAME=${container}"
 			--env "AIHC_RUNNER_LABELS=${RUNNER_LABEL}"
+			# Also set in the image, but repeated here so the daemon wiring is
+			# visible alongside the mounts it depends on.
+			--env NIX_REMOTE=daemon
 			--env "NIX_CONFIG=experimental-features = nix-command flakes"
 		)
 
