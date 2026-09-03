@@ -15,7 +15,7 @@ annotated:
   first :: L a -> a
   first (Head x) = x
   │      │    └─ type: a
-  │      └─ type: L a
+  │      └─ type: a → L a; type-args: a
   └─ type: ∀ a. L a → a
 
 extensions:

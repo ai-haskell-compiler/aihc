@@ -23,7 +23,7 @@ annotated:
   swap (Sub a b) = Sub b a
   │     │   │ └─ type: Expr
   │     │   └─ type: Expr
-  │     └─ type: Expr
+  │     └─ type: Expr → Expr → Expr
   └─ type: Expr → Expr
   swap e = e
   │    └─ type: Expr

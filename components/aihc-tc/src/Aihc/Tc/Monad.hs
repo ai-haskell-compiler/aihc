@@ -73,6 +73,7 @@ module Aihc.Tc.Monad
     addDataType,
     addPatSyn,
     lookupPatSyn,
+    lookupPatSynTarget,
     patSynKey,
     getDataTypes,
     lookupDataType,
@@ -649,6 +650,14 @@ addPatSyn info = do
 
 lookupPatSyn :: TcTermKey -> TcM (Maybe PatSynInfo)
 lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)
+
+-- | The pattern synonym that a resolved top-level name refers to.
+lookupPatSynTarget :: ResolvedName -> TcM (Maybe PatSynInfo)
+lookupPatSynTarget target =
+  case target of
+    ResolvedTopLevel packageId resolvedName ->
+      lookupPatSyn (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+    _ -> pure Nothing
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
 lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)

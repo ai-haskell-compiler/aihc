@@ -9,6 +9,60 @@ modules:
   pattern Sub a b = Add a (Neg b)
   swap (Sub a b) = Sub b a
   swap e = e
-expected: ''
-status: xfail
-reason: FC desugaring does not emit a matcher and a builder for a bidirectional pattern synonym.
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub type 1.tExpr :: 2.tType {
+      pub 1.vLit :: 1.tBool 2.→ 1.tExpr;
+      pub 1.vAdd :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr;
+      pub 1.vNeg :: 1.tExpr 2.→ 1.tExpr
+  }
+
+  pub val 1.v$mSub :: ∀(a : 2.tType). 1.tExpr 2.→ (1.tExpr 2.→ 1.tExpr 2.→ a) 2.→ a 2.→ a
+   = Λ(a : 2.tType).
+    λ($scrutinee : 1.tExpr).
+      λ($continue : 1.tExpr 2.→ 1.tExpr 2.→ a).
+        λ($failure : a).
+          case $scrutinee as (_do_scrut : 1.tExpr) return (a) of {
+              1.vAdd (a{1} : 1.tExpr) (_pat : 1.tExpr) →
+                  case _pat as (_do_scrut{1} : 1.tExpr) return (a) of {
+                      1.vNeg (b : 1.tExpr) →
+                          $continue a{1} b;
+                      _ →
+                          $failure
+                  };
+              _ →
+                  $failure
+          }
+
+  pub val 1.v$bSub :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr
+   = λ(x : 1.tExpr).
+    λ(y : 1.tExpr).
+      1.vAdd x (1.vNeg y)
+
+  pub val 1.vswap :: 1.tExpr 2.→ 1.tExpr
+   = λ(x : 1.tExpr).
+    1.v$mSub @1.tExpr x (λ(a : 1.tExpr).
+      λ(b : 1.tExpr).
+        1.v$bSub b a) x
+status: pass
+reason: A bidirectional pattern synonym gives a matcher and a builder. A pattern use calls the matcher with a continuation and the failure, and an expression use calls the builder.
