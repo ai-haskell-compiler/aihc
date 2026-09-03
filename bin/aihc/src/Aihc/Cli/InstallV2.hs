@@ -91,6 +91,7 @@ import Aihc.Tc
     TypeScheme (..),
     dataTypeKey,
     mergeTcInterfaces,
+    patSynKey,
     renderPred,
     renderTcType,
     tcConfig,
@@ -99,7 +100,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
-import Aihc.Tc.Env (TypeSynonymInfo (..))
+import Aihc.Tc.Env (PatSynInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types (tvKind, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
@@ -1488,7 +1489,8 @@ moduleTypeInterface exports package interface source =
         tcInterfaceClasses = filter visibleClass (tcInterfaceClasses interface),
         tcInterfaceInstances = filter visibleInstance (tcInterfaceInstances interface),
         tcInterfaceDataFamilyInstances = filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstances interface),
-        tcInterfaceTypeFamilyInstances = filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface)
+        tcInterfaceTypeFamilyInstances = filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface),
+        tcInterfacePatSyns = filter (\info -> visibleTerm (patSynKey info, psiScheme info)) (tcInterfacePatSyns interface)
       }
   where
     name = fromMaybe "Main" (moduleName (sourceModuleAst source))

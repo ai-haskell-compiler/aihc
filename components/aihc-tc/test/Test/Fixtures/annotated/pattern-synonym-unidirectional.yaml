@@ -1,4 +1,22 @@
-annotated: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data L a = N | C a (L a)
+       │     │   └─ type: ∀ a. a → L a → L a
+       │     └─ type: ∀ a. L a
+       └─ type: Type → Type
+  pattern Head x <- C x _
+  │                 │ │ └─ type: L a
+  │                 │ └─ type: a
+  │                 └─ type: L a
+  └─ type: ∀ a. a → L a
+  first :: L a -> a
+  first (Head x) = x
+  │      │    └─ type: a
+  │      └─ type: L a
+  └─ type: ∀ a. L a → a
+
 extensions:
 - PatternSynonyms
 modules:
@@ -9,5 +27,5 @@ modules:
   pattern Head x <- C x _
   first :: L a -> a
   first (Head x) = x
-reason: the type checker does not infer a type for a unidirectional pattern synonym
-status: xfail
+reason: a unidirectional pattern synonym gets the type of its matcher without a builder
+status: pass

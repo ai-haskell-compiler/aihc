@@ -1,4 +1,34 @@
-annotated: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+       │      │          │               └─ type: Expr → Expr
+       │      │          └─ type: Expr → Expr → Expr
+       │      └─ type: Bool → Expr
+       └─ type: Type
+  pattern Sub a b = Add a (Neg b)
+  │                 │   ││  │   └─ type: Expr
+  │                 │   ││  │   └─ type: Expr
+  │                 │   ││  └─ type: Expr
+  │                 │   └─ type: Expr
+  │                 │   └─ type: Expr
+  │                 └─ type: Expr
+  └─ type: Expr → Expr → Expr
+  swap :: Expr -> Expr
+  swap (Sub a b) = Sub b a
+  │     │   │ └─ type: Expr
+  │     │   └─ type: Expr
+  │     └─ type: Expr
+  └─ type: Expr → Expr
+  swap e = e
+  │    └─ type: Expr
+  └─ type: Expr → Expr
+
 extensions:
 - PatternSynonyms
 modules:
@@ -11,5 +41,5 @@ modules:
   swap :: Expr -> Expr
   swap (Sub a b) = Sub b a
   swap e = e
-reason: the type checker does not infer a type for a bidirectional pattern synonym
-status: xfail
+reason: a bidirectional pattern synonym gets a constructor-like type, and its matcher and builder are checked
+status: pass

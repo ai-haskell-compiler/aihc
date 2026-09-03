@@ -22,6 +22,7 @@ import Aihc.Parser.Syntax
     BangType (..),
     BinderHead (..),
     CallConv (..),
+    CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl (..),
@@ -38,17 +39,21 @@ import Aihc.Parser.Syntax
     GadtBody (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    Literal (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
     Name (..),
     NameType (..),
     NewtypeDecl (..),
+    PatSynArgs (..),
     PatSynDecl (..),
+    PatSynDir (..),
     Pattern (..),
     Pragma (..),
     PragmaType (..),
     PragmaUnpackKind (..),
+    RecordField (..),
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
@@ -70,17 +75,19 @@ import Aihc.Parser.Syntax
     instanceHeadName,
     instanceHeadTypes,
     mkAnnotation,
+    mkUnqualifiedName,
     moduleName,
     nameQualifier,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
     peelTypeHead,
+    qualifyName,
     tyVarBinderKind,
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -98,7 +105,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -564,7 +571,8 @@ data GlobalStateKeys = GlobalStateKeys
     globalClassKeys :: !(Set.Set Text),
     globalInstanceKeys :: !(Set.Set ((Text, Text), Text)),
     globalDataFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
-    globalTypeFamilyInstanceKeys :: !(Set.Set TcAxiomKey)
+    globalTypeFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
+    globalPatSynKeys :: !(Set.Set TcTermKey)
   }
 
 globalStateKeys :: TcState -> GlobalStateKeys
@@ -576,7 +584,8 @@ globalStateKeys state =
       globalClassKeys = Map.keysSet (tcsClasses state),
       globalInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances state)),
       globalDataFamilyInstanceKeys = Map.keysSet (tcsDataFamilyInstances state),
-      globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state)
+      globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state),
+      globalPatSynKeys = Map.keysSet (tcsPatSyns state)
     }
 
 defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
@@ -589,10 +598,12 @@ defaultGlobalKindMetas initialKeys = do
   instances <- mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (tcsInstances state)
   dataFamilyInstances <- traverseNewMap globalDataFamilyInstanceKeys defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
   typeFamilyInstances <- traverseNewMap globalTypeFamilyInstanceKeys defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
+  patSyns <- traverseNewMap globalPatSynKeys defaultPatSynKinds (tcsPatSyns state)
   lift $
     modify' $ \current ->
       current
         { tcsGlobalTerms = terms,
+          tcsPatSyns = patSyns,
           tcsGlobalTyCons = tyCons,
           tcsDataTypes = dataTypes,
           tcsClasses = classes,
@@ -609,6 +620,9 @@ defaultGlobalKindMetas initialKeys = do
     traverseNewList selectKeys key transform value
       | key value `Set.member` selectKeys initialKeys = pure value
       | otherwise = transform value
+    defaultPatSynKinds info = do
+      scheme <- defaultTypeSchemeKinds (psiScheme info)
+      pure info {psiScheme = scheme}
     defaultBinderKinds binder =
       case binder of
         TcIdBinder scheme closedness -> TcIdBinder <$> defaultTypeSchemeKinds scheme <*> pure closedness
@@ -782,12 +796,9 @@ annotateDeclTc origin classMethods checkedValueTypes decl =
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc origin instanceDecl
     DeclStandaloneDeriving {} -> pure decl
-    DeclPatSyn patSynDecl -> do
-      emitError (unqualifiedNameSpan (patSynDeclName patSynDecl)) (OtherError "pattern synonym declarations are not supported")
-      pure decl
-    DeclPatSynSig names _ -> do
-      emitError (foldr (orSourceSpan . unqualifiedNameSpan) NoSourceSpan names) (OtherError "pattern synonym signatures are not supported")
-      pure decl
+    DeclPatSyn patSynDecl
+      | Just ty <- Map.lookup (unqualifiedNameText (patSynDeclName patSynDecl)) checkedValueTypes ->
+          pure (annotateDeclAt (patSynBinderSpan (patSynDeclName patSynDecl)) (TcAnnotation ty [] [] [] [] []) decl)
     _ -> pure decl
 
 annotateInstanceHeaderTc :: (Text, Text) -> Decl -> TcM Decl
@@ -1508,6 +1519,7 @@ collectUserSigs decls = do
             pure [(key, UserSig name (foreignType foreignDecl) sigSp)]
     extractSig ambient (DeclAnn ann inner) =
       extractSig (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
+    extractSig ambient (DeclPatSynSig names ty) = extractSig ambient (DeclTypeSig names ty)
     extractSig _ _ = pure []
 
 checkUserSig :: UserSig -> TcM CheckedSig
@@ -1635,6 +1647,7 @@ declGroupBinderKeys group =
       case peelDeclAnn decl of
         DeclValue (FunctionBind binder _) -> (: []) <$> resolvedUnqualifiedTermKey binder
         DeclValue (PatternBind _ pat _) -> maybe (pure []) (fmap (: []) . resolvedUnqualifiedTermKey) (patternBinderSyntaxName pat)
+        DeclPatSyn patSyn -> (: []) <$> resolvedUnqualifiedTermKey (patSynDeclName patSyn)
         _ -> pure []
 
 freeVarsGroup :: DeclGroup -> TcM (Set.Set TcTermKey)
@@ -1733,9 +1746,259 @@ tcSingleDeclGroup sigs groupId d =
               zonkedTy <- zonkType ty
               let decl' = replacePatternBindRhs rhs' d
               pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy] (Just [decl']))
+    DeclPatSyn patSyn -> tcPatSynDecl sigs groupId d patSyn
     _ -> do
       bindings <- tcDecl d
       pure (TcDeclGroupResult groupId bindings Nothing)
+
+-- | Type-check a pattern synonym declaration.
+--
+-- The matcher @$mP scrutinee continue fail = case scrutinee of { pat ->
+-- continue x1 .. xn; _ -> fail }@ is a synthesized function. Its type
+-- gives the pattern synonym type @x1 -> .. -> xn -> scrutinee@. The
+-- builder @$bP@ is the right-hand side pattern as an expression, or the
+-- explicit builder equations. It is checked against the pattern synonym
+-- type. The checked pattern and the checked builder equations replace the
+-- source forms in the declaration.
+tcPatSynDecl :: Map TcTermKey CheckedSig -> Int -> Decl -> PatSynDecl -> TcM TcDeclGroupResult
+tcPatSynDecl sigs groupId decl patSyn = do
+  let binder = patSynDeclName patSyn
+      name = unqualifiedNameText binder
+      displayName = renderBinderName binder
+      nameSpan = patSynBinderSpan binder
+      argNames = patSynArgNames (patSynDeclArgs patSyn)
+      arity = length argNames
+      pat = patSynDeclPat patSyn
+      failedResult = TcDeclGroupResult groupId [] Nothing
+  key <- resolvedUnqualifiedTermKey binder
+  (package, moduleName') <-
+    case key of
+      TcTermGlobal package moduleName' _ -> pure (package, moduleName')
+      TcTermLocal {} -> abortTc ("pattern synonym " <> T.unpack name <> " is not a top-level binder")
+  case mapM (`patternVarBinder` pat) argNames of
+    Nothing -> do
+      emitError nameSpan (OtherError ("pattern synonym " <> T.unpack name <> " has an argument that its pattern does not bind"))
+      pure failedResult
+    Just argBinders -> do
+      let matcherName = "$m" <> name
+          builderName = "$b" <> name
+          matcherKey = TcTermGlobal package moduleName' matcherName
+          builderKey = TcTermGlobal package moduleName' builderName
+          matcherMatch = patSynMatcherMatch pat argBinders
+      (maybeMatcherMatches, matcherResults, maybeScheme) <-
+        case Map.lookup key sigs of
+          Just sig -> do
+            maybeMatcherSig <- patSynMatcherSig matcherName arity sig
+            case maybeMatcherSig of
+              Nothing -> pure (Nothing, [], Nothing)
+              Just matcherSig -> do
+                registerCheckedSig matcherKey matcherSig
+                (matches', results) <- tcFunctionWithSig matcherName matcherName matcherSig [matcherMatch]
+                pure (matches', results, Just (checkedSigScheme sig))
+          Nothing -> do
+            (matches', results) <- tcFunctionInfer matcherKey matcherName matcherName [matcherMatch]
+            env <- getTermEnv
+            case (matches', Map.lookup matcherKey env) of
+              (Just _, Just (TcIdBinder matcherScheme _)) -> do
+                scheme <- patSynSchemeFromMatcher name arity matcherScheme
+                registerCheckedSig key (CheckedSig name scheme nameSpan)
+                pure (matches', results, Just scheme)
+              _ -> pure (Nothing, results, Nothing)
+      case (maybeMatcherMatches, maybeScheme) of
+        (Just [matcherMatch'], Just scheme) -> do
+          checkedPat <- maybe (abortTc ("pattern synonym " <> T.unpack name <> " lost its checked pattern")) pure (matcherPattern matcherMatch')
+          let builderSig = CheckedSig builderName scheme nameSpan
+          (direction, sourceBuilder) <-
+            case patSynDeclDir patSyn of
+              PatSynUnidirectional -> pure (PatSynUnidirectionalInfo, Just Nothing)
+              PatSynExplicitBidirectional matches -> pure (PatSynExplicitBidirectionalInfo, Just (Just matches))
+              PatSynBidirectional ->
+                case patternToExpr pat of
+                  Just expr ->
+                    pure (PatSynImplicitBidirectionalInfo, Just (Just [Match [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] expr Nothing)]))
+                  Nothing -> do
+                    emitError nameSpan (OtherError ("the pattern of the bidirectional pattern synonym " <> T.unpack name <> " is not an expression; give explicit builder equations"))
+                    pure (PatSynImplicitBidirectionalInfo, Nothing)
+          case sourceBuilder of
+            Nothing -> pure failedResult
+            Just builderMatches -> do
+              (maybeBuilderMatches, builderResults) <-
+                case builderMatches of
+                  Nothing -> pure (Nothing, [])
+                  Just matches -> do
+                    registerCheckedSig builderKey builderSig
+                    tcFunctionWithSig builderName builderName builderSig matches
+              case (builderMatches, maybeBuilderMatches) of
+                (Just _, Nothing) -> pure failedResult
+                _ -> do
+                  addPatSyn
+                    PatSynInfo
+                      { psiName = name,
+                        psiOrigin = (package, moduleName'),
+                        psiArity = arity,
+                        psiDirection = direction,
+                        psiScheme = scheme
+                      }
+                  zonkedTy <- zonkType (schemeToType scheme)
+                  let dir' = maybe (patSynDeclDir patSyn) PatSynExplicitBidirectional maybeBuilderMatches
+                      patSyn' = patSyn {patSynDeclPat = checkedPat, patSynDeclDir = dir'}
+                      results = TcBindingResult name displayName zonkedTy : matcherResults <> builderResults
+                  pure (TcDeclGroupResult groupId results (Just [replacePatSynDecl patSyn' decl]))
+        _ -> pure failedResult
+
+patSynArgNames :: PatSynArgs -> [Text]
+patSynArgNames args =
+  case args of
+    PatSynPrefixArgs names -> names
+    PatSynInfixArgs left right -> [left, right]
+    PatSynRecordArgs fields -> fields
+
+-- | The span of a pattern synonym binder. The resolver gives the name its
+-- definition span.
+patSynBinderSpan :: UnqualifiedName -> SourceSpan
+patSynBinderSpan binder =
+  unqualifiedNameSpan binder
+    `orSourceSpan` case [resolutionSpan resolution | Just resolution <- map fromAnnotation (unqualifiedNameAnns binder)] of
+      sp : _ -> sp
+      [] -> NoSourceSpan
+
+-- | The binder in a pattern that has the given name.
+patternVarBinder :: Text -> Pattern -> Maybe UnqualifiedName
+patternVarBinder target = go
+  where
+    go pat =
+      case pat of
+        PVar name
+          | unqualifiedNameText name == target -> Just name
+          | otherwise -> Nothing
+        PAs name inner
+          | unqualifiedNameText name == target -> Just name
+          | otherwise -> go inner
+        PAnn _ inner -> go inner
+        PParen inner -> go inner
+        PStrict inner -> go inner
+        PIrrefutable inner -> go inner
+        PTypeSig inner _ -> go inner
+        PView _ inner -> go inner
+        PUnboxedSum _ _ inner -> go inner
+        PList items -> firstJust items
+        PTuple _ items -> firstJust items
+        PCon _ _ items -> firstJust items
+        PInfix left _ right -> firstJust [left, right]
+        PRecord _ fields _ -> firstJust (map recordFieldValue fields)
+        _ -> Nothing
+    firstJust = listToMaybe . mapMaybe go
+
+-- | A local binder that the type checker makes. The negative unique does
+-- not collide with a resolver local.
+synthesizedLocal :: Int -> Text -> UnqualifiedName
+synthesizedLocal unique text =
+  UnqualifiedName
+    NameVarId
+    text
+    [mkAnnotation (ResolutionAnnotation NoSourceSpan (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+
+localVar :: UnqualifiedName -> Expr
+localVar = EVar . qualifyName Nothing
+
+patSynMatcherMatch :: Pattern -> [UnqualifiedName] -> Match
+patSynMatcherMatch pat argBinders =
+  Match
+    { matchAnns = [],
+      matchHeadForm = MatchHeadPrefix,
+      matchPats = map PVar [scrutinee, continue, failure],
+      matchRhs =
+        UnguardedRhs
+          []
+          ( ECase
+              (localVar scrutinee)
+              [ CaseAlt [] pat (UnguardedRhs [] success Nothing),
+                CaseAlt [] PWildcard (UnguardedRhs [] (localVar failure) Nothing)
+              ]
+          )
+          Nothing
+    }
+  where
+    scrutinee = synthesizedLocal (-1) "$scrutinee"
+    continue = synthesizedLocal (-2) "$continue"
+    failure = synthesizedLocal (-3) "$failure"
+    success = foldl EApp (localVar continue) (map localVar argBinders)
+
+-- | The matcher signature @forall vs r. scrutinee -> (x1 -> .. -> xn -> r) -> r -> r@
+-- from a pattern synonym signature @x1 -> .. -> xn -> scrutinee@.
+patSynMatcherSig :: Text -> Int -> CheckedSig -> TcM (Maybe CheckedSig)
+patSynMatcherSig matcherName arity sig = do
+  let ForAll tyVars preds body = checkedSigScheme sig
+      (argTys, resTy) = splitFunTy body arity
+  if length argTys /= arity
+    then do
+      emitError (checkedSigSpan sig) (OtherError ("pattern synonym signature for " <> T.unpack (checkedSigName sig) <> " does not have " <> show arity <> " arguments"))
+      pure Nothing
+    else do
+      result <- freshSkolemTv "r"
+      let resultTy = TcTyVar result
+          matcherTy = TcFunTy resTy (TcFunTy (foldr TcFunTy resultTy argTys) (TcFunTy resultTy resultTy))
+      pure (Just (CheckedSig matcherName (ForAll (tyVars <> [result]) preds matcherTy) (checkedSigSpan sig)))
+
+-- | The pattern synonym type from an inferred matcher type.
+patSynSchemeFromMatcher :: Text -> Int -> TypeScheme -> TcM TypeScheme
+patSynSchemeFromMatcher name arity (ForAll tyVars preds body) =
+  case body of
+    TcFunTy resTy (TcFunTy contTy (TcFunTy (TcTyVar failResult) (TcTyVar result)))
+      | tvUnique failResult == tvUnique result,
+        (argTys, TcTyVar contResult) <- splitFunTy contTy arity,
+        tvUnique contResult == tvUnique result ->
+          pure (ForAll (filter ((/= tvUnique result) . tvUnique) tyVars) preds (foldr TcFunTy resTy argTys))
+    _ -> abortTc ("pattern synonym " <> T.unpack name <> " has an invalid matcher type: " <> show body)
+
+-- | The checked pattern inside a checked matcher equation.
+matcherPattern :: Match -> Maybe Pattern
+matcherPattern match =
+  case matchRhs match of
+    UnguardedRhs _ expr _ -> go expr
+    GuardedRhss {} -> Nothing
+  where
+    go expr =
+      case expr of
+        EAnn _ inner -> go inner
+        EParen inner -> go inner
+        ECase _ (alt : _) -> Just (caseAltPattern alt)
+        _ -> Nothing
+
+-- | The pattern of an implicitly bidirectional pattern synonym as an
+-- expression.
+patternToExpr :: Pattern -> Maybe Expr
+patternToExpr pat =
+  case pat of
+    PAnn ann inner -> EAnn ann <$> patternToExpr inner
+    PVar name -> Just (localVar name)
+    PLit literal -> Just (literalToExpr literal)
+    PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
+    PList items -> EList <$> mapM patternToExpr items
+    PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
+    PInfix left name right -> (EApp . EApp (EVar name)) <$> patternToExpr left <*> patternToExpr right
+    PParen inner -> EParen <$> patternToExpr inner
+    PStrict inner -> patternToExpr inner
+    PTypeSig inner ty -> (`ETypeSig` ty) <$> patternToExpr inner
+    _ -> Nothing
+
+literalToExpr :: Literal -> Expr
+literalToExpr literal =
+  case literal of
+    LitAnn ann inner -> EAnn ann (literalToExpr inner)
+    LitInt value numericType source -> EInt value numericType source
+    LitFloat value floatType source -> EFloat value floatType source
+    LitChar value source -> EChar value source
+    LitCharHash value source -> ECharHash value source
+    LitString value source -> EString value source
+    LitStringHash value source -> EStringHash value source
+
+replacePatSynDecl :: PatSynDecl -> Decl -> Decl
+replacePatSynDecl patSyn decl =
+  case decl of
+    DeclAnn ann inner -> DeclAnn ann (replacePatSynDecl patSyn inner)
+    DeclPatSyn {} -> DeclPatSyn patSyn
+    _ -> decl
 
 tcMergedFunctionGroup :: Map TcTermKey CheckedSig -> Int -> UnqualifiedName -> [Decl] -> [Match] -> TcM TcDeclGroupResult
 tcMergedFunctionGroup sigs groupId binder decls matches = do
