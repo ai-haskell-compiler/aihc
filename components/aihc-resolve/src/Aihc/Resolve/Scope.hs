@@ -4,6 +4,7 @@ module Aihc.Resolve.Scope
   ( Scope (..),
     OperatorFixity (..),
     ModuleExports,
+    isTermNamespace,
     ModuleKey (..),
     collectModuleExports,
     collectModuleExportsWithDeps,
@@ -53,6 +54,8 @@ import Aihc.Parser.Syntax
     Name (..),
     NameType (..),
     NewtypeDecl (..),
+    PatSynArgs (..),
+    PatSynDecl (..),
     Pattern (..),
     RecordField (..),
     SourceSpan (..),
@@ -144,6 +147,8 @@ exportedScope package exports modu =
           | exportModuleName == moduleKey modu -> topLevelScope package modu
           | otherwise -> lookupImportedModule package Nothing exportModuleName exports
         ExportVar _ _ name -> selectTerm (nameText name) availableScope
+        ExportAbs _ (Just namespace) name
+          | isTermNamespace namespace -> selectTerm (nameText name) availableScope
         ExportAbs _ _ name -> selectType (nameText name) availableScope
         ExportAll _ _ name -> selectTypeWithMembers (nameText name) availableScope (allTypeMembers (nameText name) availableScope)
         ExportWith _ _ name members -> selectTypeWithMembers (nameText name) availableScope (map exportBundledMemberName members)
@@ -163,16 +168,31 @@ selectType name scope =
     { scopeTypes = Map.filterWithKey (\n _ -> n == name) (scopeTypes scope)
     }
 
+-- | Select a type with its bundled members. A bundled member that is a
+-- term but not a constructor, a record field, or a method of the type is a
+-- pattern synonym. It becomes a constructor of the exported type.
 selectTypeWithMembers :: Text -> Scope -> [Text] -> Scope
 selectTypeWithMembers name scope members =
   selectType name scope
     `unionScope` emptyScope
       { scopeTerms = Map.filterWithKey (\n _ -> n `elem` members) (scopeTerms scope),
-        scopeConstructors = Map.filterWithKey (\n _ -> n == name) (scopeConstructors scope),
+        scopeConstructors = bundledConstructors,
         scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` members) (scopeRecordFields scope),
         scopeMethods = Map.filterWithKey (\n _ -> n == name) (scopeMethods scope),
         scopeFixities = Map.filterWithKey (\n _ -> n `elem` members) (scopeFixities scope)
       }
+  where
+    existingConstructors = Map.findWithDefault [] name (scopeConstructors scope)
+    knownMembers =
+      existingConstructors
+        <> concat (Map.elems (scopeRecordFields scope))
+        <> concat (Map.elems (scopeMethods scope))
+    bundledPatternSynonyms =
+      List.nub [member | member <- members, member `notElem` knownMembers, Map.member member (scopeTerms scope)]
+    bundledConstructors
+      | Map.member name (scopeConstructors scope) || not (null bundledPatternSynonyms) =
+          Map.singleton name (existingConstructors <> bundledPatternSynonyms)
+      | otherwise = Map.empty
 
 allTypeMembers :: Text -> Scope -> [Text]
 allTypeMembers name scope =
@@ -181,6 +201,15 @@ allTypeMembers name scope =
     constructors = Map.findWithDefault [] name (scopeConstructors scope)
     recordFields = concatMap (\constructor -> Map.findWithDefault [] constructor (scopeRecordFields scope)) constructors
     methods = Map.findWithDefault [] name (scopeMethods scope)
+
+-- | The @pattern@ and @data@ namespace keywords select a term in an import
+-- or export list.
+isTermNamespace :: IEEntityNamespace -> Bool
+isTermNamespace namespace =
+  case namespace of
+    IEEntityNamespaceType -> False
+    IEEntityNamespacePattern -> True
+    IEEntityNamespaceData -> True
 
 exportBundledMemberName :: IEBundledMember -> Text
 exportBundledMemberName = nameText . ieBundledMemberName
@@ -253,7 +282,24 @@ declExportedNames decl =
         Just name -> DeclExports [] [name] Map.empty Map.empty Map.empty Map.empty
         Nothing -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
     DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty Map.empty
+    DeclPatSyn patSyn ->
+      let name = patSynDeclName patSyn
+          fields = patSynFieldNames patSyn
+       in DeclExports (name : fields) [] Map.empty (patSynRecordFieldMap name fields) Map.empty Map.empty
+    DeclPatSynSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty
     _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
+
+-- | The field selectors of a record pattern synonym.
+patSynFieldNames :: PatSynDecl -> [UnqualifiedName]
+patSynFieldNames patSyn =
+  case patSynDeclArgs patSyn of
+    PatSynRecordArgs fields -> map (mkUnqualifiedName NameVarId) fields
+    _ -> []
+
+patSynRecordFieldMap :: UnqualifiedName -> [UnqualifiedName] -> Map.Map Text [Text]
+patSynRecordFieldMap name fields
+  | null fields = Map.empty
+  | otherwise = Map.singleton (renderUnqualifiedName name) (map renderUnqualifiedName fields)
 
 dataFamilyInstExports :: DataFamilyInst -> DeclExports
 dataFamilyInstExports familyInst =
@@ -459,6 +505,8 @@ allowedTermNamesForItem scope item =
   case item of
     ImportAnn _ sub -> allowedTermNamesForItem scope sub
     ImportItemVar _ itemName -> [renderUnqualifiedName itemName]
+    ImportItemAbs (Just namespace) itemName
+      | isTermNamespace namespace -> [renderUnqualifiedName itemName]
     ImportItemAll _ itemName -> allBundledMembers itemName
     ImportItemWith _ _ members -> map bundledMemberName members
     ImportItemAllWith _ itemName _ members -> map bundledMemberName members <> allBundledMembers itemName
@@ -475,6 +523,8 @@ importItemTypeName item =
   case item of
     ImportAnn _ sub -> importItemTypeName sub
     ImportItemVar {} -> Nothing
+    ImportItemAbs (Just namespace) _
+      | isTermNamespace namespace -> Nothing
     ImportItemAbs _ itemName -> Just itemName
     ImportItemAll _ itemName -> Just itemName
     ImportItemWith _ itemName _ -> Just itemName

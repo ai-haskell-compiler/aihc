@@ -1,4 +1,41 @@
-annotated: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Lib (Expr (.., Sub)) where
+  data Bool = True | False
+       │      │      └─ v Lib
+       │      └─ v Lib
+       └─ t Lib
+  data Expr = Lit Bool | Add Expr Expr | Neg Expr
+       │      │   │      │   │    │      │   └─ t Lib
+       │      │   │      │   │    │      └─ v Lib
+       │      │   │      │   │    └─ t Lib
+       │      │   │      │   └─ t Lib
+       │      │   │      └─ v Lib
+       │      │   └─ t Lib
+       │      └─ v Lib
+       └─ t Lib
+  pattern Sub a b = Add a (Neg b)
+          └─ v Lib  │   │  │   └─ v 1
+                    │   │  └─ v Lib
+                    │   └─ v 0
+                    └─ v Lib
+- |-
+  module Main where
+  import Lib (Expr (..))
+  swap (Sub a b) = Sub b a
+  │     │   │ │    │   │ └─ v 2
+  │     │   │ │    │   └─ v 3
+  │     │   │ │    └─ v Lib
+  │     │   │ └─ v 3
+  │     │   └─ v 2
+  │     └─ v Lib
+  └─ v Main
+  swap e = e
+  │    │   └─ v 4
+  │    └─ v 4
+  └─ v Main
+
 extensions:
 - PatternSynonyms
 modules:
@@ -13,5 +50,5 @@ modules:
   import Lib (Expr (..))
   swap (Sub a b) = Sub b a
   swap e = e
-reason: the resolver does not bundle a pattern synonym with its type constructor
-status: xfail
+reason: a pattern synonym bundled with its type is imported through T(..)
+status: pass

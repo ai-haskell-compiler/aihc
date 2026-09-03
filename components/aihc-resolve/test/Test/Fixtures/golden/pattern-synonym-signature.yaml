@@ -1,4 +1,23 @@
-annotated: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Main where
+  data L a = N | C a (L a)
+       │     │   │    └─ t Main
+       │     │   └─ v Main
+       │     └─ v Main
+       └─ t Main
+  pattern Head :: a -> L a
+          └─ v Main    └─ t Main
+  pattern Head x <- C x _
+          └─ v Main │ └─ v 0
+                    └─ v Main
+  first (Head x) = x
+  │      │    │    └─ v 1
+  │      │    └─ v 1
+  │      └─ v Main
+  └─ v Main
+
 extensions:
 - PatternSynonyms
 modules:
@@ -9,5 +28,5 @@ modules:
   pattern Head :: a -> L a
   pattern Head x <- C x _
   first (Head x) = x
-reason: the resolver does not resolve pattern synonym signatures
-status: xfail
+reason: a pattern synonym signature resolves the synonym name and its type
+status: pass
