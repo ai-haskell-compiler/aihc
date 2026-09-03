@@ -202,7 +202,7 @@ dataItem linkage = do
   mutable <- isJust <$> optional (keyword "mut")
   name <- symbolName
   keyword "align"
-  alignment <- natural
+  dataAlign <- natural
   token "="
   fields <- MP.between (token "{") (token "}") (dataField `MP.sepBy` token ",")
   pure
@@ -210,7 +210,7 @@ dataItem linkage = do
       { dataName = name,
         dataLinkage = linkage,
         dataMutable = mutable,
-        dataAlignment = alignment,
+        dataAlignment = dataAlign,
         dataFields = fields
       }
 
