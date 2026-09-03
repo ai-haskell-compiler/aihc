@@ -820,7 +820,7 @@ convertSynonym env info =
   case tciTypeSynonym info of
     Just synonym
       | Just {} <- tsiBody synonym,
-        synonymResultKind (tciKindScheme info) (tsiParams synonym) == KConstraint ->
+        KConstraint <- synonymResultKind (tciKindScheme info) (tsiParams synonym) ->
           Right []
       | Just body <- tsiBody synonym -> do
           kindVars <- extraKindVars env (tciTyCon info) (tsiParams synonym)
