@@ -26,6 +26,8 @@ import Aihc.Parser.Syntax
     GuardedRhs (..),
     Match (..),
     NameType (..),
+    PatSynDecl (..),
+    PatSynDir (..),
     Pattern (..),
     RecordField (..),
     Rhs (..),
@@ -711,6 +713,14 @@ freeVarsDecl decl =
       pure (Set.difference (vars <> patVars) binders)
     DeclImplicitParam _ expr maybeDecls -> freeVarsRhs (UnguardedRhs [] expr maybeDecls)
     DeclTypeSig {} -> pure Set.empty
+    DeclPatSyn patSyn -> do
+      patVars <- freeVarsPattern (patSynDeclPat patSyn)
+      builderVars <-
+        case patSynDeclDir patSyn of
+          PatSynExplicitBidirectional matches -> Set.unions <$> mapM freeVarsMatch matches
+          _ -> pure Set.empty
+      binder <- resolvedUnqualifiedTermKey (patSynDeclName patSyn)
+      pure (Set.delete binder (patVars <> builderVars))
     _ -> pure Set.empty
 
 freeVarsMatch :: Match -> TcM (Set.Set TcTermKey)
@@ -720,7 +730,8 @@ freeVarsMatch match = do
   binders <- Set.unions <$> mapM patternBinderKeys (matchPats match)
   pure (Set.difference (vars <> patVars) binders)
 
--- | The term variables that the view functions of a pattern use.
+-- | The term variables that a pattern uses: the view functions and the
+-- constructors. A constructor can be a pattern synonym of the same group.
 freeVarsPattern :: Pattern -> TcM (Set.Set TcTermKey)
 freeVarsPattern pat =
   case pat of
@@ -733,8 +744,8 @@ freeVarsPattern pat =
     PList items -> Set.unions <$> mapM freeVarsPattern items
     PTuple _ items -> Set.unions <$> mapM freeVarsPattern items
     PUnboxedSum _ _ inner -> freeVarsPattern inner
-    PCon _ _ subPats -> Set.unions <$> mapM freeVarsPattern subPats
-    PInfix lhs _ rhs -> Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs
+    PCon name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)
+    PInfix lhs name rhs -> Set.insert <$> resolvedTermKey name <*> (Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs)
     PRecord _ fields _ -> Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields
     PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
     _ -> pure Set.empty

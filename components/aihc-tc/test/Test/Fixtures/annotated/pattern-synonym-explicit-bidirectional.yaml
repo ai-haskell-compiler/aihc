@@ -1,4 +1,31 @@
-annotated: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data L a = N | C a (L a)
+       │     │   └─ type: ∀ a. a → L a → L a
+       │     └─ type: ∀ a. L a
+       └─ type: Type → Type
+  pattern HeadC x <- C x _ where
+  │                  │ │ └─ type: L a
+  │                  │ └─ type: a
+  │                  └─ type: L a
+  └─ type: ∀ a. a → L a
+    HeadC x = C x N
+          │   │   └─ type: L a; type-args: a
+          │   └─ type: a → L a → L a; type-args: a
+          └─ type: a
+  first :: L a -> a
+  first (HeadC x) = x
+  │      │     └─ type: a
+  │      └─ type: L a
+  └─ type: ∀ a. L a → a
+  singleton :: a -> L a
+  singleton x = HeadC x
+  │         │   └─ type: a → L a; type-args: a
+  │         └─ type: a
+  └─ type: ∀ a. a → L a
+
 extensions:
 - PatternSynonyms
 modules:
@@ -12,5 +39,5 @@ modules:
   first (HeadC x) = x
   singleton :: a -> L a
   singleton x = HeadC x
-reason: the type checker does not check the builder equations of an explicitly bidirectional pattern synonym
-status: xfail
+reason: the explicit builder equations of a pattern synonym are checked against the pattern synonym type
+status: pass

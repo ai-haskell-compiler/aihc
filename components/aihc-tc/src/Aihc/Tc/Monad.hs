@@ -71,6 +71,9 @@ module Aihc.Tc.Monad
     replaceTyConEnvPermanent,
     getTyConEnv,
     addDataType,
+    addPatSyn,
+    lookupPatSyn,
+    patSynKey,
     getDataTypes,
     lookupDataType,
     localTcOptions,
@@ -104,7 +107,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -280,7 +283,9 @@ data TcState = TcState
     -- | Type-family equations in scope.
     tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
     -- | Names of GADT constructors (have non-trivial result types).
-    tcsGadtCons :: !(Set Text)
+    tcsGadtCons :: !(Set Text),
+    -- | Pattern synonyms in scope, keyed like their builder term.
+    tcsPatSyns :: !(Map TcTermKey PatSynInfo)
   }
   deriving (Show)
 
@@ -297,6 +302,7 @@ initTcState =
       tcsGlobalTerms = Map.empty,
       tcsGlobalTyCons = Map.empty,
       tcsDataTypes = Map.empty,
+      tcsPatSyns = Map.empty,
       tcsClasses = Map.empty,
       tcsInstances = [],
       tcsDataFamilyInstances = Map.empty,
@@ -627,6 +633,22 @@ addDataType info = do
 
 getDataTypes :: TcM [DataTypeInfo]
 getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
+
+-- | The term key of a pattern synonym. The builder term of a bidirectional
+-- pattern synonym has the same key.
+patSynKey :: PatSynInfo -> TcTermKey
+patSynKey info =
+  let (package, moduleName') = psiOrigin info
+   in TcTermGlobal package moduleName' (psiName info)
+
+addPatSyn :: PatSynInfo -> TcM ()
+addPatSyn info = do
+  patSyns <- lift $ gets tcsPatSyns
+  patSyns' <- insertNewMap "pattern synonym state" (patSynKey info) info patSyns
+  lift $ modify' $ \state -> state {tcsPatSyns = patSyns'}
+
+lookupPatSyn :: TcTermKey -> TcM (Maybe PatSynInfo)
+lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
 lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)

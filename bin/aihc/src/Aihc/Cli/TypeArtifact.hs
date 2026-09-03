@@ -32,9 +32,9 @@ import Aihc.Tc
     tyConArity,
     tyConName,
   )
-import Aihc.Tc.Env (TypeSynonymInfo (..))
+import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types (mkTyConWithNamespace, setTyVarKind, tyConModuleName, tyConNamespace, tyConPackageId)
-import Control.Monad (replicateM, unless)
+import Control.Monad (replicateM, unless, when)
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
 import Data.Bits (shiftR)
@@ -106,7 +106,7 @@ getArtifact = do
 
 putInterface :: Map TyCon Word64 -> TcInterface -> Builder.Builder
 putInterface table interface =
-  cborArray 7
+  cborArray 8
     <> encodeList (putTerm table) (tcInterfaceTerms interface)
     <> encodeList (putTyConInfo table) (tcInterfaceTyCons interface)
     <> encodeList (putDataTypeInfo table) (tcInterfaceDataTypes interface)
@@ -114,6 +114,7 @@ putInterface table interface =
     <> encodeList (putInstanceInfo table) (tcInterfaceInstances interface)
     <> encodeList (putDataFamilyInstanceInfo table) (tcInterfaceDataFamilyInstances interface)
     <> encodeList (putTypeFamilyInstanceInfo table) (tcInterfaceTypeFamilyInstances interface)
+    <> encodeList (putPatSynInfo table) (tcInterfacePatSyns interface)
 
 getInterface :: TyConTable -> Get.Get TcInterface
 getInterface table = do
@@ -125,11 +126,52 @@ getInterface table = do
   tcInterfaceInstances <- getList (getInstanceInfo table)
   tcInterfaceDataFamilyInstances <- getList (getDataFamilyInstanceInfo table)
   tcInterfaceTypeFamilyInstances <-
-    case length' of
-      6 -> pure []
-      7 -> getList (getTypeFamilyInstanceInfo table)
-      _ -> fail ("unsupported type interface array length: " <> show length')
-  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances, tcInterfaceTypeFamilyInstances}
+    if length' >= 7
+      then getList (getTypeFamilyInstanceInfo table)
+      else pure []
+  tcInterfacePatSyns <-
+    if length' >= 8
+      then getList (getPatSynInfo table)
+      else pure []
+  when (length' < 6 || length' > 8) $
+    fail ("unsupported type interface array length: " <> show length')
+  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances, tcInterfaceTypeFamilyInstances, tcInterfacePatSyns}
+
+putPatSynInfo :: Map TyCon Word64 -> PatSynInfo -> Builder.Builder
+putPatSynInfo table info =
+  cborArray 5
+    <> cborText (psiName info)
+    <> putOrigin (psiOrigin info)
+    <> cborWord (fromIntegral (psiArity info))
+    <> putPatSynDirection (psiDirection info)
+    <> putTypeScheme table (psiScheme info)
+
+getPatSynInfo :: TyConTable -> Get.Get PatSynInfo
+getPatSynInfo table = do
+  expectArray 5
+  psiName <- getText
+  psiOrigin <- getOrigin
+  psiArity <- fromIntegral <$> getWord
+  psiDirection <- getPatSynDirection
+  psiScheme <- getTypeScheme table
+  pure PatSynInfo {psiName, psiOrigin, psiArity, psiDirection, psiScheme}
+
+putPatSynDirection :: PatSynDirection -> Builder.Builder
+putPatSynDirection direction =
+  cborWord $
+    case direction of
+      PatSynUnidirectionalInfo -> 0
+      PatSynImplicitBidirectionalInfo -> 1
+      PatSynExplicitBidirectionalInfo -> 2
+
+getPatSynDirection :: Get.Get PatSynDirection
+getPatSynDirection = do
+  tag <- getWord
+  case tag of
+    0 -> pure PatSynUnidirectionalInfo
+    1 -> pure PatSynImplicitBidirectionalInfo
+    2 -> pure PatSynExplicitBidirectionalInfo
+    _ -> fail "unsupported pattern synonym direction"
 
 putTerm :: Map TyCon Word64 -> (TcTermKey, TypeScheme) -> Builder.Builder
 putTerm table (key, scheme) = cborArray 2 <> putTermKey key <> putTypeScheme table scheme
