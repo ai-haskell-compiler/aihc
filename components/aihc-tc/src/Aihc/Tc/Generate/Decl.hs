@@ -1976,7 +1976,7 @@ patternToExpr pat =
     PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
     PList items -> EList <$> mapM patternToExpr items
     PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
-    PInfix left name right -> (EApp . EApp (EVar name)) <$> patternToExpr left <*> patternToExpr right
+    PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
     PParen inner -> EParen <$> patternToExpr inner
     PStrict inner -> patternToExpr inner
     PTypeSig inner ty -> (`ETypeSig` ty) <$> patternToExpr inner
