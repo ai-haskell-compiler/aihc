@@ -25,6 +25,7 @@ module Aihc.Fc.Convert
     extraKindVars,
     invisibleKindArgs,
     typeKindInEnv,
+    evidenceArrows,
   )
 where
 
@@ -81,6 +82,7 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Types qualified as Tc
 import Control.Monad (zipWithM)
+import Data.Either (fromRight)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -226,13 +228,7 @@ convertTypeWithExpectedKind env expectedKind ty =
     TcQualTy predicates body -> do
       convertedPredicates <- mapM (convertPred env) predicates
       convertedBody <- convertType env body
-      -- The innermost evidence arrow returns the body, which can have a
-      -- representation-polymorphic kind, as in @HasCallStack => a@.
-      let bodyRep = either (const (liftedRepType env)) id (typeRep env body)
-          evidenceArrows [] = convertedBody
-          evidenceArrows [predicate] = TyFun (liftedRepType env) bodyRep predicate convertedBody
-          evidenceArrows (predicate : rest) = funType env predicate (evidenceArrows rest)
-      pure (evidenceArrows convertedPredicates)
+      pure (evidenceArrows env body convertedPredicates convertedBody)
     TcAppTy function argument ->
       TyApp <$> convertType env function <*> convertType env argument
 
@@ -267,6 +263,18 @@ typeRep env ty = do
 
 typeKindInEnv :: ConvertEnv -> TcType -> Either String TcType
 typeKindInEnv env = Tc.typeKindInEnv (ceKindEnv env)
+
+-- | The evidence arrows of a qualified type.
+--
+-- The innermost arrow returns the body, which can have a
+-- representation-polymorphic kind, as in @HasCallStack => a@.
+evidenceArrows :: ConvertEnv -> TcType -> [Type] -> Type -> Type
+evidenceArrows env body convertedPredicates convertedBody = go convertedPredicates
+  where
+    bodyRep = fromRight (liftedRepType env) (typeRep env body)
+    go [] = convertedBody
+    go [predicate] = TyFun (liftedRepType env) bodyRep predicate convertedBody
+    go (predicate : rest) = funType env predicate (go rest)
 
 funType :: ConvertEnv -> Type -> Type -> Type
 funType env = TyFun (liftedRepType env) (liftedRepType env)

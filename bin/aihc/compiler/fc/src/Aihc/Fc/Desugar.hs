@@ -144,7 +144,7 @@ convertKindScheme env (ForAll tyVars predicates body) = do
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   convertedPredicates <- mapM (convertPred bindersEnv) predicates
   convertedBody <- convertKind bindersEnv body
-  pure (foldr TyForAll (foldr (funType bindersEnv) convertedBody convertedPredicates) binders)
+  pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
 convertTypeScheme :: ConvertEnv -> TypeScheme -> Either String Type
 convertTypeScheme env (ForAll tyVars predicates body) = do
@@ -152,7 +152,7 @@ convertTypeScheme env (ForAll tyVars predicates body) = do
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   convertedPredicates <- mapM (convertPred bindersEnv) predicates
   convertedBody <- convertType bindersEnv body
-  pure (foldr TyForAll (foldr (funType bindersEnv) convertedBody convertedPredicates) binders)
+  pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
 desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> FcDesugarResult
 desugarModuleFc config bindings interface checked =
