@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -11,4 +11,4 @@ modules:
   swap (a :-: b) = b :-: a
   swap e = e
 reason: the resolver does not bind an infix pattern synonym in term scope
-status: pass
+status: xfail

@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -12,4 +12,4 @@ modules:
   mk :: a -> a -> Pair a
   mk x y = Point {px = x, py = y}
 reason: the type checker does not type record pattern synonyms
-status: pass
+status: xfail

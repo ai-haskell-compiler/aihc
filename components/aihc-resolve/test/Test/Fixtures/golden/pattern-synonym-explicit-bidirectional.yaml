@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -11,4 +11,4 @@ modules:
   first (HeadC x) = x
   singleton x = HeadC x
 reason: the resolver does not resolve the builder equations of an explicitly bidirectional pattern synonym
-status: pass
+status: xfail

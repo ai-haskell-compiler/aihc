@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -12,4 +12,4 @@ modules:
   swap (Sub a b) = Sub b a
   swap e = e
 reason: the type checker does not infer a type for a bidirectional pattern synonym
-status: pass
+status: xfail

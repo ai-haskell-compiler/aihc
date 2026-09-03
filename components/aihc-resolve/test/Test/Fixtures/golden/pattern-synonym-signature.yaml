@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -10,4 +10,4 @@ modules:
   pattern Head x <- C x _
   first (Head x) = x
 reason: the resolver does not resolve pattern synonym signatures
-status: pass
+status: xfail

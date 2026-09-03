@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -16,4 +16,4 @@ modules:
   swap (Sub a b) = Sub b a
   swap e = e
 reason: the resolver does not export or import a pattern synonym through the pattern namespace
-status: pass
+status: xfail

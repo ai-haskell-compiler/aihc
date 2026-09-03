@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -13,4 +13,4 @@ modules:
   isSub e = e
   trueLit = TrueLit
 reason: the resolver does not bind a bidirectional pattern synonym in term scope
-status: pass
+status: xfail

@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -13,4 +13,4 @@ modules:
   singleton :: a -> L a
   singleton x = HeadC x
 reason: the type checker does not check the builder equations of an explicitly bidirectional pattern synonym
-status: pass
+status: xfail

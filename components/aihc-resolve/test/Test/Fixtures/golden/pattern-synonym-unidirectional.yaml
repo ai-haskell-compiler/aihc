@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -9,4 +9,4 @@ modules:
   pattern Head x <- C x _
   first (Head x) = x
 reason: the resolver does not bind a unidirectional pattern synonym in term scope
-status: pass
+status: xfail

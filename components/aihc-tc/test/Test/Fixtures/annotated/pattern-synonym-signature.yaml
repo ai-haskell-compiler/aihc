@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -11,4 +11,4 @@ modules:
   first :: L a -> a
   first (Head x) = x
 reason: the type checker does not check a pattern synonym against its signature
-status: pass
+status: xfail

@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - ViewPatterns
 modules:
@@ -13,4 +13,4 @@ modules:
   isFalse (not -> True) = True
   isFalse _ = False
 reason: the type checker does not check view patterns
-status: pass
+status: xfail

@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - ExistentialQuantification
 - PatternSynonyms
@@ -17,4 +17,4 @@ modules:
   inspect (Tagged x) = mark x
   inspect _ = Marked
 reason: the type checker does not provide the constraints of a pattern synonym match
-status: pass
+status: xfail

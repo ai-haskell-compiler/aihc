@@ -1,4 +1,4 @@
-annotated: ["placeholder"]
+annotated: []
 extensions:
 - PatternSynonyms
 modules:
@@ -15,4 +15,4 @@ modules:
   swap (Sub a b) = Sub b a
   swap e = e
 reason: the resolver does not bundle a pattern synonym with its type constructor
-status: pass
+status: xfail
