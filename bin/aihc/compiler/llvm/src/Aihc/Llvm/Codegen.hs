@@ -24,6 +24,7 @@ import Aihc.Native
     buildAddrLiteralPool,
     executableEntryName,
     nativeRuntimePrimitiveCall,
+    nativeSplitRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
@@ -36,6 +37,7 @@ import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -783,7 +785,7 @@ compileDirectBinding env vars expression =
       | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
           binaryPrimitive instruction value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#", "castFloatToWord32#", "castWord32ToFloat#", "castDoubleToWord64#", "castWord64ToDouble#"] ->
           materializeValue env value >>= storeOne
     GrinPrimitiveCall _ "newArray#" [size, initial] -> do
       (lines', operands) <- materializeValues env [size, initial]
@@ -855,6 +857,17 @@ compileDirectBinding env vars expression =
           (readLines, currentOperand) <- compileForeignCall env (nativeRuntimeCallForeignCall readCall) [reference]
           currentDestination <- localSlot env current
           pure (swapLines <> [storeLocal flagDestination flagOperand] <> readLines <> [storeLocal currentDestination currentOperand])
+    GrinPrimitiveCall _ name arguments
+      | Just splitCalls <- nativeSplitRuntimePrimitiveCall name,
+        length splitCalls == length vars ->
+          concat
+            <$> mapM
+              ( \(var, splitCall) -> do
+                  (callLines, operand) <- compileForeignCall env (nativeRuntimeCallForeignCall splitCall) arguments
+                  destination <- localSlot env var
+                  pure (callLines <> [storeLocal destination operand])
+              )
+              (zip vars splitCalls)
     GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments
@@ -1175,9 +1188,25 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
         GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
         GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
+-- | Render each static object and its collector root entry. The root entries
+-- are private constants that no code references, so @llvm.used@ must keep
+-- them. Without it, global dead-code elimination removes every entry and the
+-- collector sees an empty root section.
 renderStaticGlobals :: CompileEnv -> GrinProgram -> Either LlvmError [Text]
-renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals env program = do
+  rendered <- mapM renderGlobal globals
+  pure (concat rendered <> usedRoots)
   where
+    usedRoots
+      | null globals = []
+      | otherwise =
+          [ "@llvm.used = appending global ["
+              <> tshow (length globals)
+              <> " x ptr] ["
+              <> T.intercalate ", " ["ptr @" <> renderLinkedGlobalSymbol name <> "_root" | (name, _) <- globals]
+              <> "], section \"llvm.metadata\"",
+            ""
+          ]
     declaredGlobals = grinGlobals program
     declaredNames = map fst declaredGlobals
     constructorLayouts = grinConstructors program
@@ -1700,7 +1729,9 @@ renderForeignDeclarations program =
     runtimePrimitiveCalls =
       [ (nativeRuntimeCallPassMachine runtimeCall, nativeRuntimeCallForeignCall runtimeCall)
       | primitive <- supportedNativePrimitiveNames,
-        Just runtimeCall <- [nativeRuntimePrimitiveCall primitive]
+        runtimeCall <-
+          maybeToList (nativeRuntimePrimitiveCall primitive)
+            <> concat (maybeToList (nativeSplitRuntimePrimitiveCall primitive))
       ]
 
 renderExternalFunctionDeclarations :: CompileEnv -> GrinProgram -> [Text]

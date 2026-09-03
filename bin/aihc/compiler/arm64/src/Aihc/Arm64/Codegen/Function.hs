@@ -29,6 +29,7 @@ import Aihc.Native
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
+    nativeSplitRuntimePrimitiveCall,
   )
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
@@ -417,6 +418,17 @@ compileDirectBinding env vars expression =
           currentLocation <- liftEither (variableLocation env current)
           pure (swapLines <> storeLocation X0 flagLocation <> readLines <> storeLocation X0 currentLocation)
     GrinPrimitiveCall _ name arguments
+      | Just splitCalls <- nativeSplitRuntimePrimitiveCall name,
+        length splitCalls == length vars ->
+          concat
+            <$> mapM
+              ( \(var, splitCall) -> do
+                  callLines <- compileRuntimeCallLines env splitCall arguments
+                  location <- liftEither (variableLocation env var)
+                  pure (callLines <> storeLocation X0 location)
+              )
+              (zip vars splitCalls)
+    GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           callLines <- compileRuntimeCallLines env runtimeCall arguments
           case nativeRuntimeCallResultCount runtimeCall of
@@ -498,7 +510,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", [arm64Instruction (ArmMvn X0 X0)])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#", "castFloatToWord32#", "castWord32ToFloat#", "castDoubleToWord64#", "castWord64ToDouble#"]
           ]
     binary opcode names =
       [(name, [arm64Instruction (opcode X0 X9 X0)]) | name <- names]

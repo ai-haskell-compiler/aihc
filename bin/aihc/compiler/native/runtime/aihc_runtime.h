@@ -114,6 +114,7 @@ struct AihcMachine {
   void *trampoline_state;
   AihcResume selected_resume;
   int64_t exit_status;
+  uint64_t other_space_bytes;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -281,6 +282,46 @@ uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
 uint64_t aihc_word_clz(uint64_t value);
 uint64_t aihc_word_ctz(uint64_t value);
 uint64_t aihc_word_popcount(uint64_t value);
+uint64_t aihc_int_to_int8(uint64_t value);
+uint64_t aihc_int8_to_int(uint64_t value);
+uint64_t aihc_int_to_int16(uint64_t value);
+uint64_t aihc_int16_to_int(uint64_t value);
+uint64_t aihc_int_to_int32(uint64_t value);
+uint64_t aihc_int32_to_int(uint64_t value);
+uint64_t aihc_int_to_int64(uint64_t value);
+uint64_t aihc_int64_to_int(uint64_t value);
+uint64_t aihc_float_plus(uint64_t left, uint64_t right);
+uint64_t aihc_float_minus(uint64_t left, uint64_t right);
+uint64_t aihc_float_times(uint64_t left, uint64_t right);
+uint64_t aihc_float_negate(uint64_t value);
+uint64_t aihc_float_abs(uint64_t value);
+uint64_t aihc_int_to_float(uint64_t value);
+uint64_t aihc_float_to_int(uint64_t value);
+uint64_t aihc_float_gt(uint64_t left, uint64_t right);
+uint64_t aihc_float_lt(uint64_t left, uint64_t right);
+uint64_t aihc_float_eq(uint64_t left, uint64_t right);
+uint64_t aihc_double_plus(uint64_t left, uint64_t right);
+uint64_t aihc_double_minus(uint64_t left, uint64_t right);
+uint64_t aihc_double_times(uint64_t left, uint64_t right);
+uint64_t aihc_double_negate(uint64_t value);
+uint64_t aihc_double_abs(uint64_t value);
+uint64_t aihc_int_to_double(uint64_t value);
+uint64_t aihc_double_to_int(uint64_t value);
+uint64_t aihc_double_gt(uint64_t left, uint64_t right);
+uint64_t aihc_double_lt(uint64_t left, uint64_t right);
+uint64_t aihc_double_eq(uint64_t left, uint64_t right);
+uint64_t aihc_float_to_double(uint64_t value);
+uint64_t aihc_double_to_float(uint64_t value);
+uint64_t aihc_word_byte_swap16(uint64_t value);
+uint64_t aihc_word_byte_swap32(uint64_t value);
+uint64_t aihc_word_byte_swap64(uint64_t value);
+uint64_t aihc_int_times2_high_needed(uint64_t left, uint64_t right);
+uint64_t aihc_int_times2_high(uint64_t left, uint64_t right);
+uint64_t aihc_int_times2_low(uint64_t left, uint64_t right);
+uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_index_byte_word64(void *opaque_array, int64_t offset);
 void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
                           int64_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,

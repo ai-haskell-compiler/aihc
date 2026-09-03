@@ -98,6 +98,7 @@ module Aihc.Tc.Monad
     emitWarning,
     getDiagnostics,
     withErrorTracking,
+    currentErrorCount,
   )
 where
 

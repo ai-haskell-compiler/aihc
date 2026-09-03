@@ -110,7 +110,7 @@
       flags = [];
     }
   ];
-  garbageCollectors = ["calloc"];
+  garbageCollectors = ["calloc" "semispace"];
   nativeBackendBySystem = {
     "aarch64-darwin" = "apple-arm64";
     "x86_64-linux" = "linux-amd64";
@@ -423,8 +423,10 @@
       mkdir -p "$out"
 
       ${aihcExe} prepare-runtime --target llvm --gc calloc --store "$out"
+      ${aihcExe} prepare-runtime --target llvm --gc semispace --store "$out"
       ${pkgs.lib.optionalString (nativeBackend != null) ''
         ${aihcExe} prepare-runtime --target ${nativeBackend} --gc calloc --store "$out"
+        ${aihcExe} prepare-runtime --target ${nativeBackend} --gc semispace --store "$out"
       ''}
       ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
 

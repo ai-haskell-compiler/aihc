@@ -1,0 +1,20 @@
+extensions:
+  - RoleAnnotations
+modules:
+  - |
+    module Main where
+    data Box a = Box a
+    type role Box nominal
+    type role Missing nominal
+annotated:
+  - |
+    module Main where
+    data Box a = Box a
+         │       └─ v Main
+         └─ t Main
+    type role Box nominal
+              └─ t Main
+    type role Missing nominal
+              └─ t Error unbound
+status: pass
+reason: a role annotation resolves its type name and reports an unbound type

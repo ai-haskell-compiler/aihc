@@ -1,19 +1,65 @@
+{-# LANGUAGE MagicHash #-}
+
 module GHC.Float
   ( Double (..),
     Float (..),
     Floating (..),
     RealFloat (..),
+    castDoubleToWord64,
+    castFloatToWord32,
+    castWord32ToFloat,
+    castWord64ToDouble,
+    double2Float,
+    double2Int,
+    float2Double,
+    float2Int,
+    int2Double,
+    int2Float,
     roundTo,
   )
 where
 
-import Data.Bool (Bool (..))
-import GHC.Int (Int)
+import Data.Bool (Bool (..), not)
+import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.Integer (integerToInt#)
 import GHC.Num (Num (..))
+import GHC.Prim
+  ( Double#,
+    Float#,
+    Int#,
+    castDoubleToWord64#,
+    castFloatToWord32#,
+    castWord32ToFloat#,
+    castWord64ToDouble#,
+    double2Float#,
+    double2Int#,
+    eqFloat#,
+    fabsDouble#,
+    fabsFloat#,
+    float2Double#,
+    float2Int#,
+    gtFloat#,
+    int2Double#,
+    int2Float#,
+    ltFloat#,
+    minusFloat#,
+    negateDouble#,
+    negateFloat#,
+    plusFloat#,
+    timesFloat#,
+    (*##),
+    (+##),
+    (-#),
+    (-##),
+    (<##),
+    (==##),
+    (>##),
+  )
 import GHC.Real (Fractional, Integral (..), RealFrac)
-import GHC.Types (Double (..), Float (..))
+import GHC.Types (Double (..), Float (..), Ordering (..))
+import GHC.Word (Word32 (..), Word64 (..))
 
 -- | Trigonometric and transcendental operations.
 class (Fractional a) => Floating a where
@@ -105,3 +151,118 @@ replicateZero count =
   case count <= 0 of
     True -> []
     False -> 0 : replicateZero (count - 1)
+
+-- | Give the IEEE 754 bit pattern of a single-precision value.
+castFloatToWord32 :: Float -> Word32
+castFloatToWord32 (F# value) = W32# (castFloatToWord32# value)
+
+-- | Give the single-precision value of an IEEE 754 bit pattern.
+castWord32ToFloat :: Word32 -> Float
+castWord32ToFloat (W32# value) = F# (castWord32ToFloat# value)
+
+-- | Give the IEEE 754 bit pattern of a double-precision value.
+castDoubleToWord64 :: Double -> Word64
+castDoubleToWord64 (D# value) = W64# (castDoubleToWord64# value)
+
+-- | Give the double-precision value of an IEEE 754 bit pattern.
+castWord64ToDouble :: Word64 -> Double
+castWord64ToDouble (W64# value) = D# (castWord64ToDouble# value)
+
+int2Double :: Int -> Double
+int2Double (I# value) = D# (int2Double# value)
+
+int2Float :: Int -> Float
+int2Float (I# value) = F# (int2Float# value)
+
+double2Int :: Double -> Int
+double2Int (D# value) = I# (double2Int# value)
+
+float2Int :: Float -> Int
+float2Int (F# value) = I# (float2Int# value)
+
+double2Float :: Double -> Float
+double2Float (D# value) = F# (double2Float# value)
+
+float2Double :: Float -> Double
+float2Double (F# value) = D# (float2Double# value)
+
+-- | Convert a primitive comparison result to a 'Bool'.
+isTrue :: Int# -> Bool
+isTrue value =
+  case value of
+    0# -> False
+    _ -> True
+
+instance Eq Float where
+  F# left == F# right = isTrue (eqFloat# left right)
+  left /= right = not (left == right)
+
+instance Ord Float where
+  compare (F# left) (F# right) =
+    case ltFloat# left right of
+      0# ->
+        case gtFloat# left right of
+          0# -> EQ
+          _ -> GT
+      _ -> LT
+  F# left < F# right = isTrue (ltFloat# left right)
+  F# left > F# right = isTrue (gtFloat# left right)
+  left <= right = not (left > right)
+  left >= right = not (left < right)
+  max left right = if left < right then right else left
+  min left right = if left < right then left else right
+
+floatSignum :: Float# -> Float#
+floatSignum value =
+  case gtFloat# value (int2Float# 0#) of
+    0# ->
+      case ltFloat# value (int2Float# 0#) of
+        0# -> value
+        _ -> int2Float# ((-#) 0# 1#)
+    _ -> int2Float# 1#
+
+instance Num Float where
+  F# left + F# right = F# (plusFloat# left right)
+  F# left - F# right = F# (minusFloat# left right)
+  F# left * F# right = F# (timesFloat# left right)
+  negate (F# value) = F# (negateFloat# value)
+  abs (F# value) = F# (fabsFloat# value)
+  signum (F# value) = F# (floatSignum value)
+  fromInteger value = F# (int2Float# (integerToInt# value))
+
+instance Eq Double where
+  D# left == D# right = isTrue ((==##) left right)
+  left /= right = not (left == right)
+
+instance Ord Double where
+  compare (D# left) (D# right) =
+    case (<##) left right of
+      0# ->
+        case (>##) left right of
+          0# -> EQ
+          _ -> GT
+      _ -> LT
+  D# left < D# right = isTrue ((<##) left right)
+  D# left > D# right = isTrue ((>##) left right)
+  left <= right = not (left > right)
+  left >= right = not (left < right)
+  max left right = if left < right then right else left
+  min left right = if left < right then left else right
+
+doubleSignum :: Double# -> Double#
+doubleSignum value =
+  case (>##) value (int2Double# 0#) of
+    0# ->
+      case (<##) value (int2Double# 0#) of
+        0# -> value
+        _ -> int2Double# ((-#) 0# 1#)
+    _ -> int2Double# 1#
+
+instance Num Double where
+  D# left + D# right = D# ((+##) left right)
+  D# left - D# right = D# ((-##) left right)
+  D# left * D# right = D# ((*##) left right)
+  negate (D# value) = D# (negateDouble# value)
+  abs (D# value) = D# (fabsDouble# value)
+  signum (D# value) = D# (doubleSignum value)
+  fromInteger value = D# (int2Double# (integerToInt# value))

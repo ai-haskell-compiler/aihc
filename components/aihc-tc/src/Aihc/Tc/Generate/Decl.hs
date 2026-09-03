@@ -1019,6 +1019,7 @@ checkForeignImportType sourceSpan ty = do
 splitFunctionType :: TcType -> ([TcType], TcType)
 splitFunctionType ty =
   case ty of
+    TcForAllTy _ body -> splitFunctionType body
     TcFunTy argument result ->
       let (arguments, finalResult) = splitFunctionType result
        in (argument : arguments, finalResult)
@@ -1034,8 +1035,12 @@ checkForeignValueType sourceSpan ty =
     TcTyCon (TyCon "Int32#" 0) [] -> int32Marshal ty []
     TcTyCon (TyCon "Word64" 0) [] -> word64Marshal ty ["W64#"]
     TcTyCon (TyCon "Word64#" 0) [] -> word64Marshal ty []
+    TcTyCon (TyCon "CSize" 0) [] -> word64Marshal ty ["CSize", "W64#"]
     TcTyCon (TyCon "Addr#" 0) [] -> addrMarshal ty []
     TcTyCon (TyCon "Ptr" 1) [_] -> addrMarshal ty ["Ptr"]
+    -- A byte array argument passes the address of its payload.
+    TcTyCon (TyCon "ByteArray#" 0) [] -> pure (byteArrayMarshal ty)
+    TcTyCon (TyCon "MutableByteArray#" 1) [_] -> pure (byteArrayMarshal ty)
     _ -> do
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
       int32Marshal ty []
@@ -1044,6 +1049,13 @@ checkForeignValueType sourceSpan ty =
     int32Marshal = marshal "Int32#" TcForeignInt32
     word64Marshal = marshal "Word64#" TcForeignWord64
     addrMarshal = marshal "Addr#" TcForeignAddr
+    byteArrayMarshal sourceType =
+      TcForeignMarshal
+        { tcForeignSourceType = sourceType,
+          tcForeignPrimitiveType = sourceType,
+          tcForeignConstructors = [],
+          tcForeignAbiType = TcForeignAddr
+        }
     marshal primitiveName abiType sourceType constructors = do
       primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
       pure
@@ -1243,23 +1255,35 @@ tcInstanceItemBody classInfo givens headTys item =
     InstanceItemBind (FunctionBind name matches) -> do
       ForAll methodTyVars methodGivens methodTy <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
-      results <- mapM (tcMatchEquation Nothing argTys resTy) matches
-      solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
-      let methodName = unqualifiedNameText name
-          checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-          checkedBind = InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results])
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
+      (results, failed) <-
+        withErrorTracking $ do
+          results <- mapM (tcMatchEquation Nothing argTys resTy) matches
+          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+          pure results
+      -- A body with a type error keeps pending annotations that have no
+      -- evidence. Keep the unchecked body so finalization does not abort.
+      if failed
+        then pure item
+        else do
+          let methodName = unqualifiedNameText name
+              checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
+              checkedBind = InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results])
+          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
           ForAll methodTyVars methodGivens methodTy <- methodExpectedScheme classInfo headTys methodName
-          results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
-          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+          (results, failed) <-
+            withErrorTracking $ do
+              results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
+              solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+              pure results
           case results of
-            [(match, _cts, _impls)] ->
-              let checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-                  checkedBind = replaceInstancePatternBindRhs (matchRhs match) item
-               in pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
+            [(match, _cts, _impls)]
+              | not failed ->
+                  let checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
+                      checkedBind = replaceInstancePatternBindRhs (matchRhs match) item
+                   in pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
             _ -> pure item
         Nothing -> pure item
     _ -> pure item

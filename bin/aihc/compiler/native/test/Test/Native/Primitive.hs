@@ -12,6 +12,7 @@ import Aihc.Native
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
+    nativeSplitRuntimePrimitiveCall,
     supportedNativePrimitiveNames,
   )
 import Data.Text (Text)
@@ -31,6 +32,15 @@ tests =
                 (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
+      testCase "maps sized conversion and floating point primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          numericRuntimeSymbols,
       testCase "maps address indexing primitives to the shared runtime ABI" $
         mapM_
           ( \(primitive, symbol) ->
@@ -67,6 +77,23 @@ tests =
                 (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           stableNameRuntimeSymbols,
+      testCase "keeps the IEEE 754 bit-pattern casts representation-preserving" $
+        mapM_
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
+          bitPatternCastNames,
+      testCase "accepts the IEEE 754 bit-pattern casts in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          bitPatternCastNames,
+      testCase "gives timesInt2# one runtime call for each result" $ do
+        assertEqual
+          "runtime calls for timesInt2#"
+          (Just ["aihc_int_times2_high_needed", "aihc_int_times2_high", "aihc_int_times2_low"])
+          (map runtimeCallSymbol <$> nativeSplitRuntimePrimitiveCall "timesInt2#")
+        assertEqual
+          "native support for timesInt2#"
+          True
+          ("timesInt2#" `elem` supportedNativePrimitiveNames),
       testCase "keeps freeze and thaw representation-preserving" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
@@ -124,7 +151,11 @@ runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
 byteArrayRuntimeSymbols =
-  [ ("newByteArray#", "aihc_byte_array_new"),
+  [ ("indexCharArray#", "aihc_byte_array_index_byte_word8"),
+    ("indexWord8ArrayAsWord16#", "aihc_byte_array_index_byte_word16"),
+    ("indexWord8ArrayAsWord32#", "aihc_byte_array_index_byte_word32"),
+    ("indexWord8ArrayAsWord64#", "aihc_byte_array_index_byte_word64"),
+    ("newByteArray#", "aihc_byte_array_new"),
     ("newPinnedByteArray#", "aihc_byte_array_new_pinned"),
     ("newAlignedPinnedByteArray#", "aihc_byte_array_new_aligned_pinned"),
     ("isMutableByteArrayPinned#", "aihc_byte_array_is_pinned"),
@@ -146,6 +177,10 @@ byteArrayRuntimeSymbols =
     ("compareByteArrays#", "aihc_byte_array_compare")
   ]
 
+bitPatternCastNames :: [Text]
+bitPatternCastNames =
+  ["castFloatToWord32#", "castWord32ToFloat#", "castDoubleToWord64#", "castWord64ToDouble#"]
+
 addressIndexRuntimeSymbols :: [(Text, Text)]
 addressIndexRuntimeSymbols =
   [ ("indexWord8OffAddr#", "aihc_addr_index_word8"),
@@ -166,6 +201,12 @@ addressIndexRuntimeSymbols =
     ("readWord8OffAddrAsWord16#", "aihc_addr_index_byte_word16"),
     ("readWord8OffAddrAsWord32#", "aihc_addr_index_byte_word32"),
     ("readWord8OffAddrAsWord64#", "aihc_addr_index_byte_word64"),
+    ("indexWord8OffAddrAsFloat#", "aihc_addr_index_byte_word32"),
+    ("indexWord8OffAddrAsDouble#", "aihc_addr_index_byte_word64"),
+    ("readWord8OffAddrAsFloat#", "aihc_addr_index_byte_word32"),
+    ("readWord8OffAddrAsDouble#", "aihc_addr_index_byte_word64"),
+    ("writeWord8OffAddrAsFloat#", "aihc_addr_write_byte_word32"),
+    ("writeWord8OffAddrAsDouble#", "aihc_addr_write_byte_word64"),
     ("writeWord8OffAddrAsWord16#", "aihc_addr_write_byte_word16"),
     ("writeWord8OffAddrAsWord32#", "aihc_addr_write_byte_word32"),
     ("writeWord8OffAddrAsWord64#", "aihc_addr_write_byte_word64")
@@ -208,6 +249,44 @@ mutVarRuntimeSymbols =
     ("writeMutVar#", "aihc_mutvar_write"),
     ("casMutVar#", "aihc_mutvar_compare_and_swap"),
     ("sameMutVar#", "aihc_mutvar_same")
+  ]
+
+numericRuntimeSymbols :: [(Text, Text)]
+numericRuntimeSymbols =
+  [ ("intToInt8#", "aihc_int_to_int8"),
+    ("int8ToInt#", "aihc_int8_to_int"),
+    ("intToInt16#", "aihc_int_to_int16"),
+    ("int16ToInt#", "aihc_int16_to_int"),
+    ("intToInt32#", "aihc_int_to_int32"),
+    ("int32ToInt#", "aihc_int32_to_int"),
+    ("intToInt64#", "aihc_int_to_int64"),
+    ("int64ToInt#", "aihc_int64_to_int"),
+    ("plusFloat#", "aihc_float_plus"),
+    ("minusFloat#", "aihc_float_minus"),
+    ("timesFloat#", "aihc_float_times"),
+    ("negateFloat#", "aihc_float_negate"),
+    ("fabsFloat#", "aihc_float_abs"),
+    ("int2Float#", "aihc_int_to_float"),
+    ("float2Int#", "aihc_float_to_int"),
+    ("gtFloat#", "aihc_float_gt"),
+    ("ltFloat#", "aihc_float_lt"),
+    ("eqFloat#", "aihc_float_eq"),
+    ("+##", "aihc_double_plus"),
+    ("-##", "aihc_double_minus"),
+    ("*##", "aihc_double_times"),
+    ("negateDouble#", "aihc_double_negate"),
+    ("fabsDouble#", "aihc_double_abs"),
+    ("int2Double#", "aihc_int_to_double"),
+    ("double2Int#", "aihc_double_to_int"),
+    (">##", "aihc_double_gt"),
+    ("<##", "aihc_double_lt"),
+    ("==##", "aihc_double_eq"),
+    ("float2Double#", "aihc_float_to_double"),
+    ("double2Float#", "aihc_double_to_float"),
+    ("byteSwap#", "aihc_word_byte_swap64"),
+    ("byteSwap16#", "aihc_word_byte_swap16"),
+    ("byteSwap32#", "aihc_word_byte_swap32"),
+    ("byteSwap64#", "aihc_word_byte_swap64")
   ]
 
 stableNameRuntimeSymbols :: [(Text, Text)]

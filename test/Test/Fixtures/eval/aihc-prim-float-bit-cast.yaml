@@ -1,0 +1,29 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (word2Int# (word32ToWord# (castFloatToWord32# (int2Float# 1#)))))
+        (I# (float2Int# (castWord32ToFloat# (wordToWord32# 1065353216##))))
+        (I# (word2Int# (word64ToWord# (castDoubleToWord64# (int2Double# 1#)))))
+        (I# (double2Int# (castWord64ToDouble# (wordToWord64# 4607182418800017408##))))
+        (I# (double2Int# (float2Double# (int2Float# 3#))))
+        (I# (float2Int# (double2Float# (int2Double# 3#))))
+output: |
+  Results (I# 1065353216) (I# 1) (I# 4607182418800017408) (I# 1) (I# 3) (I# 3)
+expression: |
+  results
+status: pass
+reason: the bit-pattern casts keep the representation and the width conversions change it

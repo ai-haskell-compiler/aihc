@@ -19,6 +19,11 @@ let
       version = "1.5.2.0";
       hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
     }
+    {
+      name = "array";
+      version = "0.5.8.0";
+      hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+    }
   ];
 
   fetchPackage = pkgs: {

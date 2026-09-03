@@ -12,6 +12,7 @@ module GHC.Exts
     Int64 (..),
     FunPtr (..),
     Constraint,
+    coerce,
     lazy,
     inline,
     oneShot,
@@ -105,6 +106,7 @@ module GHC.Exts
   )
 where
 
+import Data.Coerce (coerce)
 import Data.String (IsString (..))
 import GHC.Base (augment, build)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))

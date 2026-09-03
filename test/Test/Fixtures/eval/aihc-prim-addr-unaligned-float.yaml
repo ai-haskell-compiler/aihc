@@ -1,0 +1,37 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO (..))
+    import GHC.Int (Int (..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newPinnedByteArray# 24# state of
+      (# state1, buffer #) -> case mutableByteArrayContents# buffer of
+        base -> case writeWord8OffAddrAsFloat# base 1# (int2Float# 3#) state1 of
+          state2 -> case writeWord8OffAddrAsDouble# base 5# (int2Double# 7#) state2 of
+            state3 -> case readWord8OffAddrAsFloat# base 1# state3 of
+              (# state4, readFloat #) -> case readWord8OffAddrAsDouble# base 5# state4 of
+                (# state5, readDouble #) ->
+                  (# state5,
+                     Results
+                       (I# (float2Int# readFloat))
+                       (I# (double2Int# readDouble))
+                       (I# (float2Int# (indexWord8OffAddrAsFloat# base 1#)))
+                       (I# (double2Int# (indexWord8OffAddrAsDouble# base 5#))) #))
+output: |
+  Results (I# 3) (I# 7) (I# 3) (I# 7)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: the unaligned address family reads and writes Float# and Double# at a byte offset

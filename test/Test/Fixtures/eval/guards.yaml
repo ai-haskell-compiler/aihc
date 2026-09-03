@@ -1,0 +1,41 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    classify :: Int -> Int
+    classify n
+      | n < 0 = 0 - 1
+      | n == 0 = 0
+    classify n
+      | n > 100 = 100
+      | otherwise = n
+
+    firstEven :: [Int] -> Int
+    firstEven xs
+      | (x : _) <- filter even xs, x > 2 = x
+      | Just y <- lookup (1 :: Int) [(1, 7)] = y
+    firstEven _ = 0
+
+    scaled :: Int -> Int
+    scaled n
+      | let m = n * 2, m > 10 = m
+      | otherwise = go n
+      where
+        go k
+          | k > 3 = k + 1
+          | otherwise = k
+
+    caseGuard :: Maybe Int -> Int
+    caseGuard m = case m of
+      Just n | n > 5 -> n
+             | n > 0 -> 1
+      _ -> 0
+output: |
+  ((: (I# -1) (: (I# 0) (: (I# 100) (: (I# 42) [])))),(: (I# 4) (: (I# 7) (: (I# 7) []))),(: (I# 12) (: (I# 5) (: (I# 2) []))),(: (I# 9) (: (I# 1) (: (I# 0) []))))
+expression: |
+  (map classify [0 - 5, 0, 200, 42], [firstEven [1, 4, 6], firstEven [1, 2], firstEven [] + firstEven [1, 2] - 7], [scaled 6, scaled 4, scaled 2], [caseGuard (Just 9), caseGuard (Just 3), caseGuard Nothing])
+status: pass
+reason: guards fall through to the next alternative and the next equation, and pattern and let guards bind names

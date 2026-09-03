@@ -32,6 +32,7 @@ import Aihc.Native
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
+    nativeSplitRuntimePrimitiveCall,
   )
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
@@ -413,6 +414,17 @@ compileDirectBinding env vars expression =
           currentLocation <- liftEither (variableLocation env current)
           pure (swapLines <> storeLocation RAX flagLocation <> readLines <> storeLocation RAX currentLocation)
     GrinPrimitiveCall _ name arguments
+      | Just splitCalls <- nativeSplitRuntimePrimitiveCall name,
+        length splitCalls == length vars ->
+          concat
+            <$> mapM
+              ( \(var, splitCall) -> do
+                  callLines <- compileRuntimeCallLines env splitCall arguments
+                  location <- liftEither (variableLocation env var)
+                  pure (callLines <> storeLocation RAX location)
+              )
+              (zip vars splitCalls)
+    GrinPrimitiveCall _ name arguments
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           callLines <- compileRuntimeCallLines env runtimeCall arguments
           case nativeRuntimeCallResultCount runtimeCall of
@@ -496,7 +508,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", [amd64Instruction (AmdNot (Amd64RmRegister RAX))])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "wordToWord64#", "word16ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#", "castFloatToWord32#", "castWord32ToFloat#", "castDoubleToWord64#", "castWord64ToDouble#"]
           ]
     binary opcode names =
       [(name, [amd64Instruction (opcode (Amd64RmRegister R10) (Amd64BinaryRegister RAX)), amd64Instruction (AmdMov RAX (Amd64MoveRegister R10))]) | name <- names]

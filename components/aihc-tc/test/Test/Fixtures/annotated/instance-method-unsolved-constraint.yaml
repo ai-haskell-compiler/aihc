@@ -1,0 +1,29 @@
+annotated:
+- |-
+  module Main where
+  class Num a where
+  └─ class methods: + ∷ ∀ a. (Num a) ⇒ a → a → a
+    (+) :: a -> a -> a
+  data Word = Word
+       │      └─ type: Word
+       └─ type: Type
+  class C e where
+  └─ class methods: new ∷ ∀ e. (C e) ⇒ e → e
+    new :: e -> e
+  instance C Word where
+  └─ $fCWord ∷ () ⇒ C Word
+    new x = x + x
+              └─ error: unsolved constraint Num Word
+extensions: []
+modules:
+- |
+  module Main where
+  class Num a where
+    (+) :: a -> a -> a
+  data Word = Word
+  class C e where
+    new :: e -> e
+  instance C Word where
+    new x = x + x
+reason: an unsolved constraint in an instance method body is a diagnostic and not an abort
+status: pass

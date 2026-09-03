@@ -39,6 +39,7 @@ import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
+import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
@@ -741,6 +742,14 @@ evalPrimitive "minusWord#" [left, right] = evalWordPrimitive "minusWord#" (-) le
 evalPrimitive "timesWord#" [left, right] = evalWordPrimitive "timesWord#" (*) left right
 evalPrimitive "addWordC#" [left, right] = evalWordCarryPrimitive "addWordC#" left right
 evalPrimitive "subWordC#" [left, right] = evalWordBorrowPrimitive "subWordC#" left right
+evalPrimitive "timesInt2#" [left, right] = do
+  leftInt <- expectIntPrimitiveArgument "timesInt2#" left
+  rightInt <- expectIntPrimitiveArgument "timesInt2#" right
+  let doubleWord = leftInt * rightInt
+      low = normalizeInt doubleWord
+      high = normalizeInt (shiftR doubleWord wordBits)
+      highNeeded = if high == shiftR low (wordBits - 1) then 0 else 1
+  pure [intRuntimeValue highNeeded, intRuntimeValue high, intRuntimeValue low]
 evalPrimitive "timesWord2#" [left, right] = do
   leftWord <- expectWordPrimitiveArgument "timesWord2#" left
   rightWord <- expectWordPrimitiveArgument "timesWord2#" right
@@ -787,8 +796,66 @@ evalPrimitive "leWord#" [left, right] = evalWordComparison "leWord#" (<=) left r
 evalPrimitive "gtWord#" [left, right] = evalWordComparison "gtWord#" (>) left right
 evalPrimitive "geWord#" [left, right] = evalWordComparison "geWord#" (>=) left right
 evalPrimitive "clz#" [value] = evalWordCount "clz#" countLeadingZeros value
+evalPrimitive "intToInt8#" [value] = evalIntNarrow "intToInt8#" Int8Rep 8 value
+evalPrimitive "intToInt16#" [value] = evalIntNarrow "intToInt16#" Int16Rep 16 value
+evalPrimitive "intToInt32#" [value] = evalIntNarrow "intToInt32#" Int32Rep 32 value
+evalPrimitive "intToInt64#" [value] = evalIntNarrow "intToInt64#" Int64Rep 64 value
+evalPrimitive "int8ToInt#" [value] =
+  (: []) . intRuntimeValue <$> expectRuntimeRepPrimitiveArgument "int8ToInt#" Int8Rep value
+evalPrimitive "int16ToInt#" [value] =
+  (: []) . intRuntimeValue <$> expectRuntimeRepPrimitiveArgument "int16ToInt#" Int16Rep value
+evalPrimitive "int32ToInt#" [value] =
+  (: []) . intRuntimeValue <$> expectRuntimeRepPrimitiveArgument "int32ToInt#" Int32Rep value
+evalPrimitive "int64ToInt#" [value] =
+  (: []) . intRuntimeValue <$> expectRuntimeRepPrimitiveArgument "int64ToInt#" Int64Rep value
+evalPrimitive "plusFloat#" [left, right] = evalFloatBinary "plusFloat#" (+) left right
+evalPrimitive "minusFloat#" [left, right] = evalFloatBinary "minusFloat#" (-) left right
+evalPrimitive "timesFloat#" [left, right] = evalFloatBinary "timesFloat#" (*) left right
+evalPrimitive "negateFloat#" [value] = evalFloatUnary "negateFloat#" negate value
+evalPrimitive "fabsFloat#" [value] = evalFloatUnary "fabsFloat#" abs value
+evalPrimitive "int2Float#" [value] = do
+  int <- expectIntPrimitiveArgument "int2Float#" value
+  pure [floatRuntimeValue (fromInteger int)]
+evalPrimitive "float2Int#" [value] = do
+  float <- expectFloatPrimitiveArgument "float2Int#" value
+  pure [intRuntimeValue (truncate float)]
+evalPrimitive "gtFloat#" [left, right] = evalFloatComparison "gtFloat#" (>) left right
+evalPrimitive "ltFloat#" [left, right] = evalFloatComparison "ltFloat#" (<) left right
+evalPrimitive "eqFloat#" [left, right] = evalFloatComparison "eqFloat#" (==) left right
+evalPrimitive "+##" [left, right] = evalDoubleBinary "+##" (+) left right
+evalPrimitive "-##" [left, right] = evalDoubleBinary "-##" (-) left right
+evalPrimitive "*##" [left, right] = evalDoubleBinary "*##" (*) left right
+evalPrimitive "negateDouble#" [value] = evalDoubleUnary "negateDouble#" negate value
+evalPrimitive "fabsDouble#" [value] = evalDoubleUnary "fabsDouble#" abs value
+evalPrimitive "int2Double#" [value] = do
+  int <- expectIntPrimitiveArgument "int2Double#" value
+  pure [doubleRuntimeValue (fromInteger int)]
+evalPrimitive "double2Int#" [value] = do
+  double <- expectDoublePrimitiveArgument "double2Int#" value
+  pure [intRuntimeValue (truncate double)]
+evalPrimitive "float2Double#" [value] = do
+  float <- expectFloatPrimitiveArgument "float2Double#" value
+  pure [doubleRuntimeValue (float2Double float)]
+evalPrimitive "double2Float#" [value] = do
+  double <- expectDoublePrimitiveArgument "double2Float#" value
+  pure [floatRuntimeValue (double2Float double)]
+evalPrimitive "castFloatToWord32#" [value] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> expectRuntimeRepPrimitiveArgument "castFloatToWord32#" FloatRep value
+evalPrimitive "castWord32ToFloat#" [value] =
+  (: []) . RuntimeLit . GrinLitInt FloatRep <$> expectRuntimeRepPrimitiveArgument "castWord32ToFloat#" Word32Rep value
+evalPrimitive "castDoubleToWord64#" [value] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> expectRuntimeRepPrimitiveArgument "castDoubleToWord64#" DoubleRep value
+evalPrimitive "castWord64ToDouble#" [value] =
+  (: []) . RuntimeLit . GrinLitInt DoubleRep <$> expectRuntimeRepPrimitiveArgument "castWord64ToDouble#" Word64Rep value
+evalPrimitive ">##" [left, right] = evalDoubleComparison ">##" (>) left right
+evalPrimitive "<##" [left, right] = evalDoubleComparison "<##" (<) left right
+evalPrimitive "==##" [left, right] = evalDoubleComparison "==##" (==) left right
 evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
 evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
+evalPrimitive "byteSwap16#" [value] = evalByteSwap "byteSwap16#" WordRep 2 value
+evalPrimitive "byteSwap32#" [value] = evalByteSwap "byteSwap32#" WordRep 4 value
+evalPrimitive "byteSwap64#" [value] = evalByteSwap "byteSwap64#" Word64Rep 8 value
+evalPrimitive "byteSwap#" [value] = evalByteSwap "byteSwap#" WordRep 8 value
 evalPrimitive "compareInt#" [left, right] = evalIntPrimitive "compareInt#" compareInts left right
 evalPrimitive "<#" [left, right] =
   evalIntPrimitive "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
@@ -964,6 +1031,14 @@ evalPrimitive "readWord8OffAddrAsWord32#" [address, offset] =
   (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readAddressPrimitive "readWord8OffAddrAsWord32#" 1 4 readAddressWord32 address offset
 evalPrimitive "readWord8OffAddrAsWord64#" [address, offset] =
   (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readAddressPrimitive "readWord8OffAddrAsWord64#" 1 8 readAddressWord64 address offset
+evalPrimitive "indexWord8OffAddrAsFloat#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt FloatRep <$> readAddressPrimitive "indexWord8OffAddrAsFloat#" 1 4 readAddressWord32 address offset
+evalPrimitive "indexWord8OffAddrAsDouble#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt DoubleRep <$> readAddressPrimitive "indexWord8OffAddrAsDouble#" 1 8 readAddressWord64 address offset
+evalPrimitive "readWord8OffAddrAsFloat#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt FloatRep <$> readAddressPrimitive "readWord8OffAddrAsFloat#" 1 4 readAddressWord32 address offset
+evalPrimitive "readWord8OffAddrAsDouble#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt DoubleRep <$> readAddressPrimitive "readWord8OffAddrAsDouble#" 1 8 readAddressWord64 address offset
 evalPrimitive "writeWord8OffAddr#" [address, index, value] =
   writeAddressPrimitive "writeWord8OffAddr#" 1 Word8Rep writeAddressWord8 address index value
 evalPrimitive "writeWord16OffAddr#" [address, index, value] =
@@ -978,6 +1053,10 @@ evalPrimitive "writeWord8OffAddrAsWord32#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsWord32#" 1 Word32Rep writeAddressWord32 address offset value
 evalPrimitive "writeWord8OffAddrAsWord64#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsWord64#" 1 Word64Rep writeAddressWord64 address offset value
+evalPrimitive "writeWord8OffAddrAsFloat#" [address, offset, value] =
+  writeAddressPrimitive "writeWord8OffAddrAsFloat#" 1 FloatRep writeAddressWord32 address offset value
+evalPrimitive "writeWord8OffAddrAsDouble#" [address, offset, value] =
+  writeAddressPrimitive "writeWord8OffAddrAsDouble#" 1 DoubleRep writeAddressWord64 address offset value
 evalPrimitive "plusAddr#" [address, offset] = do
   byteOffset <- expectIntPrimitiveArgument "plusAddr#" offset
   (: []) <$> addressPlus "plusAddr#" address byteOffset
@@ -1016,6 +1095,15 @@ evalPrimitive "readWordArray#" [value, index] = do
   byteOffset <- checkedWordArrayIndex "readWordArray#" byteArray wordIndex
   word <- liftEvalIO (peekByteOff (grinByteArrayContents byteArray) byteOffset :: IO Word64)
   pure [wordRuntimeValue (toInteger word)]
+evalPrimitive "indexCharArray#" [value, index] = do
+  byte <- readByteArrayElement "indexCharArray#" 1 1 readAddressWord8 value index
+  pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromInteger byte)))]
+evalPrimitive "indexWord8ArrayAsWord16#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readByteArrayElement "indexWord8ArrayAsWord16#" 1 2 readAddressWord16 value offset
+evalPrimitive "indexWord8ArrayAsWord32#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "indexWord8ArrayAsWord32#" 1 4 readAddressWord32 value offset
+evalPrimitive "indexWord8ArrayAsWord64#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "indexWord8ArrayAsWord64#" 1 8 readAddressWord64 value offset
 evalPrimitive "writeWordArray#" [value, index, wordValue] = do
   byteArray <- expectByteArrayPrimitiveArgument "writeWordArray#" value
   wordIndex <- expectIntPrimitiveArgument "writeWordArray#" index
@@ -1157,6 +1245,27 @@ checkedByteArrayRange symbol byteArray offset byteCount = do
     then throwInterpret (InterpretInvalidByteArrayRange symbol offset byteCount size)
     else pure (fromInteger offset, fromInteger byteCount)
 
+-- | Reverse the low bytes of a word and clear the bytes above them.
+evalByteSwap :: Text -> GrinRep -> Int -> RuntimeValue -> EvalM [RuntimeValue]
+evalByteSwap symbol rep byteCount value = do
+  word <- expectRuntimeRepPrimitiveArgument symbol rep value
+  pure [RuntimeLit (GrinLitInt rep (swapBytes byteCount word))]
+
+swapBytes :: Int -> Integer -> Integer
+swapBytes byteCount value = go byteCount 0
+  where
+    go 0 accumulated = accumulated
+    go remaining accumulated =
+      go (remaining - 1) (shiftL accumulated 8 .|. (shiftR value ((byteCount - remaining) * 8) .&. 0xff))
+
+-- | Read one element of a byte array at a scaled offset with a bounds check.
+readByteArrayElement :: Text -> Int -> Int -> (Ptr () -> Int -> IO Integer) -> RuntimeValue -> RuntimeValue -> EvalM Integer
+readByteArrayElement symbol stride elementSize readElement value indexValue = do
+  byteArray <- expectByteArrayPrimitiveArgument symbol value
+  index <- expectIntPrimitiveArgument symbol indexValue
+  (byteOffset, _) <- checkedByteArrayRange symbol byteArray (index * toInteger stride) (toInteger elementSize)
+  liftEvalIO (readElement (grinByteArrayContents byteArray) byteOffset)
+
 checkedWordArrayIndex :: Text -> GrinByteArray -> Integer -> EvalM Int
 checkedWordArrayIndex symbol byteArray index = do
   (offset, _) <- checkedByteArrayRange symbol byteArray (index * 8) 8
@@ -1206,6 +1315,65 @@ evalWordShift name operation value amount = do
   word <- expectWordPrimitiveArgument name value
   shiftAmount <- expectIntPrimitiveArgument name amount
   pure [wordRuntimeValue (operation word (fromInteger shiftAmount))]
+
+-- | Keep the low bits of an int as a sized signed value.
+evalIntNarrow :: Text -> GrinRep -> Int -> RuntimeValue -> EvalM [RuntimeValue]
+evalIntNarrow name rep bits value = do
+  int <- expectIntPrimitiveArgument name value
+  let modulus = shiftL 1 bits
+      low = int .&. (modulus - 1)
+      signed = if low >= shiftL 1 (bits - 1) then low - modulus else low
+  pure [RuntimeLit (GrinLitInt rep signed)]
+
+-- | A float value is its IEEE bit pattern in a 'FloatRep' literal.
+floatRuntimeValue :: Float -> RuntimeValue
+floatRuntimeValue = RuntimeLit . GrinLitInt FloatRep . toInteger . castFloatToWord32
+
+expectFloatPrimitiveArgument :: Text -> RuntimeValue -> EvalM Float
+expectFloatPrimitiveArgument name value =
+  castWord32ToFloat . fromInteger <$> expectRuntimeRepPrimitiveArgument name FloatRep value
+
+evalFloatBinary :: Text -> (Float -> Float -> Float) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalFloatBinary name operation left right = do
+  leftFloat <- expectFloatPrimitiveArgument name left
+  rightFloat <- expectFloatPrimitiveArgument name right
+  pure [floatRuntimeValue (operation leftFloat rightFloat)]
+
+evalFloatUnary :: Text -> (Float -> Float) -> RuntimeValue -> EvalM [RuntimeValue]
+evalFloatUnary name operation value = do
+  float <- expectFloatPrimitiveArgument name value
+  pure [floatRuntimeValue (operation float)]
+
+evalFloatComparison :: Text -> (Float -> Float -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalFloatComparison name operation left right = do
+  leftFloat <- expectFloatPrimitiveArgument name left
+  rightFloat <- expectFloatPrimitiveArgument name right
+  pure [intRuntimeValue (if operation leftFloat rightFloat then 1 else 0)]
+
+-- | A double value is its IEEE bit pattern in a 'DoubleRep' literal.
+doubleRuntimeValue :: Double -> RuntimeValue
+doubleRuntimeValue = RuntimeLit . GrinLitInt DoubleRep . toInteger . castDoubleToWord64
+
+expectDoublePrimitiveArgument :: Text -> RuntimeValue -> EvalM Double
+expectDoublePrimitiveArgument name value =
+  castWord64ToDouble . fromInteger <$> expectRuntimeRepPrimitiveArgument name DoubleRep value
+
+evalDoubleBinary :: Text -> (Double -> Double -> Double) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalDoubleBinary name operation left right = do
+  leftDouble <- expectDoublePrimitiveArgument name left
+  rightDouble <- expectDoublePrimitiveArgument name right
+  pure [doubleRuntimeValue (operation leftDouble rightDouble)]
+
+evalDoubleUnary :: Text -> (Double -> Double) -> RuntimeValue -> EvalM [RuntimeValue]
+evalDoubleUnary name operation value = do
+  double <- expectDoublePrimitiveArgument name value
+  pure [doubleRuntimeValue (operation double)]
+
+evalDoubleComparison :: Text -> (Double -> Double -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalDoubleComparison name operation left right = do
+  leftDouble <- expectDoublePrimitiveArgument name left
+  rightDouble <- expectDoublePrimitiveArgument name right
+  pure [intRuntimeValue (if operation leftDouble rightDouble then 1 else 0)]
 
 evalWordCount :: Text -> (Word64 -> Int) -> RuntimeValue -> EvalM [RuntimeValue]
 evalWordCount name operation value = do

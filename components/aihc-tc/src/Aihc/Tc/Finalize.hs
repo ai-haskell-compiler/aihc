@@ -126,8 +126,13 @@ evidenceForEvVar contextType ev = do
   maybeEvidence <- lookupEvidence ev
   case maybeEvidence of
     Just evidence -> pure evidence
-    Nothing ->
-      abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType contextType))
+    Nothing -> do
+      -- A reported type error can leave a wanted constraint without
+      -- evidence. Keep the placeholder so the error reaches the user.
+      errorCount <- currentErrorCount
+      if errorCount > 0
+        then pure (EvVarTerm ev)
+        else abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType contextType))
 
 zonkEvTerm :: EvTerm -> TcM EvTerm
 zonkEvTerm evTerm =

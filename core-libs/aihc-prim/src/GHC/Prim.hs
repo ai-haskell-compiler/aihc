@@ -124,6 +124,8 @@ module GHC.Prim
     indexWord8OffAddrAsWord16#,
     indexWord8OffAddrAsWord32#,
     indexWord8OffAddrAsWord64#,
+    indexWord8OffAddrAsFloat#,
+    indexWord8OffAddrAsDouble#,
     readWord8OffAddr#,
     readWord16OffAddr#,
     readWord32OffAddr#,
@@ -131,6 +133,8 @@ module GHC.Prim
     readWord8OffAddrAsWord16#,
     readWord8OffAddrAsWord32#,
     readWord8OffAddrAsWord64#,
+    readWord8OffAddrAsFloat#,
+    readWord8OffAddrAsDouble#,
     writeWord8OffAddr#,
     writeWord16OffAddr#,
     writeWord32OffAddr#,
@@ -138,6 +142,8 @@ module GHC.Prim
     writeWord8OffAddrAsWord16#,
     writeWord8OffAddrAsWord32#,
     writeWord8OffAddrAsWord64#,
+    writeWord8OffAddrAsFloat#,
+    writeWord8OffAddrAsDouble#,
     cstringLength#,
     compareByteArrays#,
     copyMutableByteArray#,
@@ -170,11 +176,15 @@ module GHC.Prim
     indexInt64Array#,
     indexIntArray#,
     indexStablePtrArray#,
+    indexCharArray#,
     indexWideCharArray#,
     indexWord8Array#,
     indexWord16Array#,
     indexWord32Array#,
     indexWord64Array#,
+    indexWord8ArrayAsWord16#,
+    indexWord8ArrayAsWord32#,
+    indexWord8ArrayAsWord64#,
     readAddrArray#,
     readDoubleArray#,
     readFloatArray#,
@@ -207,6 +217,34 @@ module GHC.Prim
     uncheckedIShiftRA#,
     uncheckedIShiftRL#,
     clz#,
+    intToInt8#,
+    int8ToInt#,
+    intToInt16#,
+    int16ToInt#,
+    intToInt32#,
+    int32ToInt#,
+    intToInt64#,
+    int64ToInt#,
+    plusFloat#,
+    minusFloat#,
+    timesFloat#,
+    negateFloat#,
+    fabsFloat#,
+    int2Float#,
+    float2Int#,
+    gtFloat#,
+    ltFloat#,
+    eqFloat#,
+    (+##),
+    (-##),
+    (*##),
+    negateDouble#,
+    fabsDouble#,
+    int2Double#,
+    double2Int#,
+    (>##),
+    (<##),
+    (==##),
     ctz#,
     eqWord#,
     geWord#,
@@ -218,6 +256,17 @@ module GHC.Prim
     remWord#,
     timesWord#,
     timesWord2#,
+    timesInt2#,
+    byteSwap#,
+    byteSwap16#,
+    byteSwap32#,
+    byteSwap64#,
+    double2Float#,
+    float2Double#,
+    castFloatToWord32#,
+    castWord32ToFloat#,
+    castDoubleToWord64#,
+    castWord64ToDouble#,
     yield#,
   )
 where
@@ -293,7 +342,7 @@ data ThreadId#
 type StableName# :: Type -> UnliftedType
 data StableName# a
 
-type StablePtr# :: Type -> UnliftedType
+type StablePtr# :: Type -> TYPE 'AddrRep
 data StablePtr# a
 
 type RealWorld :: Type
@@ -301,7 +350,7 @@ data RealWorld
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 
-foreign import prim unsafeCoerce# :: a -> b
+foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
 
 foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
 
@@ -349,6 +398,28 @@ foreign import prim subWordC# :: Word# -> Word# -> (# Word#, Int# #)
 
 foreign import prim timesWord2# :: Word# -> Word# -> (# Word#, Word# #)
 
+foreign import prim timesInt2# :: Int# -> Int# -> (# Int#, Int#, Int# #)
+
+foreign import prim byteSwap# :: Word# -> Word#
+
+foreign import prim byteSwap16# :: Word# -> Word#
+
+foreign import prim byteSwap32# :: Word# -> Word#
+
+foreign import prim byteSwap64# :: Word64# -> Word64#
+
+foreign import prim double2Float# :: Double# -> Float#
+
+foreign import prim float2Double# :: Float# -> Double#
+
+foreign import prim castFloatToWord32# :: Float# -> Word32#
+
+foreign import prim castWord32ToFloat# :: Word32# -> Float#
+
+foreign import prim castDoubleToWord64# :: Double# -> Word64#
+
+foreign import prim castWord64ToDouble# :: Word64# -> Double#
+
 foreign import prim quotWord# :: Word# -> Word# -> Word#
 
 foreign import prim remWord# :: Word# -> Word# -> Word#
@@ -392,6 +463,64 @@ foreign import prim gtWord# :: Word# -> Word# -> Int#
 foreign import prim geWord# :: Word# -> Word# -> Int#
 
 foreign import prim clz# :: Word# -> Word#
+
+-- Sized integer conversions and floating point arithmetic.
+
+foreign import prim intToInt8# :: Int# -> Int8#
+
+foreign import prim int8ToInt# :: Int8# -> Int#
+
+foreign import prim intToInt16# :: Int# -> Int16#
+
+foreign import prim int16ToInt# :: Int16# -> Int#
+
+foreign import prim intToInt32# :: Int# -> Int32#
+
+foreign import prim int32ToInt# :: Int32# -> Int#
+
+foreign import prim intToInt64# :: Int# -> Int64#
+
+foreign import prim int64ToInt# :: Int64# -> Int#
+
+foreign import prim plusFloat# :: Float# -> Float# -> Float#
+
+foreign import prim minusFloat# :: Float# -> Float# -> Float#
+
+foreign import prim timesFloat# :: Float# -> Float# -> Float#
+
+foreign import prim negateFloat# :: Float# -> Float#
+
+foreign import prim fabsFloat# :: Float# -> Float#
+
+foreign import prim int2Float# :: Int# -> Float#
+
+foreign import prim float2Int# :: Float# -> Int#
+
+foreign import prim gtFloat# :: Float# -> Float# -> Int#
+
+foreign import prim ltFloat# :: Float# -> Float# -> Int#
+
+foreign import prim eqFloat# :: Float# -> Float# -> Int#
+
+foreign import prim (+##) :: Double# -> Double# -> Double#
+
+foreign import prim (-##) :: Double# -> Double# -> Double#
+
+foreign import prim (*##) :: Double# -> Double# -> Double#
+
+foreign import prim negateDouble# :: Double# -> Double#
+
+foreign import prim fabsDouble# :: Double# -> Double#
+
+foreign import prim int2Double# :: Int# -> Double#
+
+foreign import prim double2Int# :: Double# -> Int#
+
+foreign import prim (>##) :: Double# -> Double# -> Int#
+
+foreign import prim (<##) :: Double# -> Double# -> Int#
+
+foreign import prim (==##) :: Double# -> Double# -> Int#
 
 foreign import prim ctz# :: Word# -> Word#
 
@@ -506,6 +635,10 @@ foreign import prim indexWord8OffAddrAsWord32# :: Addr# -> Int# -> Word32#
 
 foreign import prim indexWord8OffAddrAsWord64# :: Addr# -> Int# -> Word64#
 
+foreign import prim indexWord8OffAddrAsFloat# :: Addr# -> Int# -> Float#
+
+foreign import prim indexWord8OffAddrAsDouble# :: Addr# -> Int# -> Double#
+
 foreign import prim readWord8OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word8# #)
 
 foreign import prim readWord16OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word16# #)
@@ -520,6 +653,10 @@ foreign import prim readWord8OffAddrAsWord32# :: Addr# -> Int# -> State# d -> (#
 
 foreign import prim readWord8OffAddrAsWord64# :: Addr# -> Int# -> State# d -> (# State# d, Word64# #)
 
+foreign import prim readWord8OffAddrAsFloat# :: Addr# -> Int# -> State# d -> (# State# d, Float# #)
+
+foreign import prim readWord8OffAddrAsDouble# :: Addr# -> Int# -> State# d -> (# State# d, Double# #)
+
 foreign import prim writeWord8OffAddr# :: Addr# -> Int# -> Word8# -> State# d -> State# d
 
 foreign import prim writeWord16OffAddr# :: Addr# -> Int# -> Word16# -> State# d -> State# d
@@ -533,6 +670,10 @@ foreign import prim writeWord8OffAddrAsWord16# :: Addr# -> Int# -> Word16# -> St
 foreign import prim writeWord8OffAddrAsWord32# :: Addr# -> Int# -> Word32# -> State# d -> State# d
 
 foreign import prim writeWord8OffAddrAsWord64# :: Addr# -> Int# -> Word64# -> State# d -> State# d
+
+foreign import prim writeWord8OffAddrAsFloat# :: Addr# -> Int# -> Float# -> State# d -> State# d
+
+foreign import prim writeWord8OffAddrAsDouble# :: Addr# -> Int# -> Double# -> State# d -> State# d
 
 foreign import prim cstringLength# :: Addr# -> Int#
 
@@ -598,6 +739,8 @@ foreign import prim indexIntArray# :: ByteArray# -> Int# -> Int#
 
 foreign import prim indexStablePtrArray# :: ByteArray# -> Int# -> StablePtr# a
 
+foreign import prim indexCharArray# :: ByteArray# -> Int# -> Char#
+
 foreign import prim indexWideCharArray# :: ByteArray# -> Int# -> Char#
 
 foreign import prim indexWord8Array# :: ByteArray# -> Int# -> Word8#
@@ -607,6 +750,12 @@ foreign import prim indexWord16Array# :: ByteArray# -> Int# -> Word16#
 foreign import prim indexWord32Array# :: ByteArray# -> Int# -> Word32#
 
 foreign import prim indexWord64Array# :: ByteArray# -> Int# -> Word64#
+
+foreign import prim indexWord8ArrayAsWord16# :: ByteArray# -> Int# -> Word16#
+
+foreign import prim indexWord8ArrayAsWord32# :: ByteArray# -> Int# -> Word32#
+
+foreign import prim indexWord8ArrayAsWord64# :: ByteArray# -> Int# -> Word64#
 
 foreign import prim readAddrArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Addr# #)
 

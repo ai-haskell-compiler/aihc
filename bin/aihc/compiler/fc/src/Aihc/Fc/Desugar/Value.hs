@@ -60,6 +60,7 @@ import Aihc.Tc.Types
     applySubst,
     applySubstPred,
     constraintTypeToPred,
+    isUnliftedTypeInEnv,
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
     tvUnique,
@@ -85,10 +86,13 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper)
+import Data.Graph qualified as Graph
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -928,17 +932,20 @@ withTypeVariables variables action = do
   pure result
 
 desugarMatchArguments :: TcType -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarMatchArguments _ [] _ ((match, locals) : _) = withLocals locals (desugarRhs (Syn.matchRhs match))
+desugarMatchArguments resultType [] _ ((match, locals) : rest) = do
+  failure <- matchFailure resultType [] [] (Syn.matchRhs match) rest
+  withLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
 desugarMatchArguments _ [] _ [] = failValue "pattern match has no result"
 desugarMatchArguments resultType binders@(argument : arguments) argumentTypes works
   | any (firstPatternIsOverloadedInteger . fst) works =
       desugarOverloadedIntegerMatches resultType binders argumentTypes works
-  | (first, firstLocals) : _ <- works,
+  | (first, firstLocals) : rest <- works,
     let firstPatterns = Syn.matchPats first,
     length firstPatterns == length binders,
     all patternIsIrrefutable firstPatterns = do
       extra <- matchArgumentBindings binders argumentTypes first
-      withLocals (firstLocals <> extra) (desugarRhs (Syn.matchRhs first))
+      failure <- matchFailure resultType binders argumentTypes (Syn.matchRhs first) rest
+      withLocals (firstLocals <> extra) (desugarRhsWithFailure resultType failure (Syn.matchRhs first))
   | all (maybe False patternIsIrrefutable . listToMaybe . Syn.matchPats . fst) works = do
       (ty, restTypes) <- requiredArgumentTypes argumentTypes
       nextWorks <- mapM (extendMatchWork argument ty) works
@@ -974,7 +981,7 @@ desugarOverloadedIntegerMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> 
 desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals) failure =
   compile locals (zip3 arguments argumentTypes (Syn.matchPats match))
   where
-    compile current [] = withLocals current (desugarRhs (Syn.matchRhs match))
+    compile current [] = withLocals current (desugarRhsWithFailure resultType (Just failure) (Syn.matchRhs match))
     compile current ((argument, ty, pattern') : rest)
       | patternIsIrrefutable pattern' = do
           extra <- patternMatchBindings pattern' argument ty
@@ -1514,13 +1521,102 @@ nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
   tcAnnType <$> listToMaybe (mapMaybe Syn.fromAnnotation (Syn.unqualifiedNameAnns name))
 
-desugarRhs :: Syn.Rhs Syn.Expr -> ValueM Expr
-desugarRhs rhs =
+-- | Desugar a right-hand side with the checked result type. The failure
+-- expression runs when each guard of a guarded right-hand side fails.
+-- Without a failure expression, a failed guard ends in an empty case on its
+-- own test value.
+desugarRhsWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr
+desugarRhsWithFailure resultType failure rhs =
   case rhs of
     Syn.UnguardedRhs _ expression Nothing -> desugarExpr expression
     Syn.UnguardedRhs _ expression (Just declarations) ->
       desugarLocalDecls declarations (requiredExprType expression) (desugarExpr expression)
-    Syn.GuardedRhss {} -> failValue ("guarded right-hand side remains after type checking: " <> take 160 (show rhs))
+    Syn.GuardedRhss _ alternatives maybeDecls ->
+      let body = desugarGuardedRhss resultType failure alternatives
+       in case maybeDecls of
+            Nothing -> body
+            Just declarations -> desugarLocalDecls declarations (pure resultType) body
+
+rhsHasGuards :: Syn.Rhs Syn.Expr -> Bool
+rhsHasGuards rhs =
+  case rhs of
+    Syn.GuardedRhss {} -> True
+    Syn.UnguardedRhs {} -> False
+
+-- | The expression that the remaining equations give when every guard of
+-- the current equation fails. An equation without guards does not need it.
+matchFailure :: TcType -> [Binder] -> [TcType] -> Syn.Rhs Syn.Expr -> [MatchWork] -> ValueM (Maybe Expr)
+matchFailure resultType binders argumentTypes rhs rest
+  | rhsHasGuards rhs && not (null rest) = Just <$> desugarMatchArguments resultType binders argumentTypes rest
+  | otherwise = pure Nothing
+
+-- | Desugar guarded alternatives in order. A later alternative is the
+-- failure expression of the alternative before it. The failure expression is
+-- copied into each guard of an alternative.
+desugarGuardedRhss :: TcType -> Maybe Expr -> [Syn.GuardedRhs Syn.Expr] -> ValueM Expr
+desugarGuardedRhss resultType failure alternatives = do
+  resultType' <- convertCheckedType resultType
+  result <- foldr (step resultType') (pure failure) alternatives
+  maybe (failValue "guarded right-hand side has no alternative") pure result
+  where
+    step resultType' alternative rest = do
+      next <- rest
+      Just
+        <$> desugarGuardQualifiers
+          resultType
+          resultType'
+          next
+          (Syn.guardedRhsGuards alternative)
+          (desugarExpr (Syn.guardedRhsBody alternative))
+
+desugarGuardQualifiers :: TcType -> Type -> Maybe Expr -> [Syn.GuardQualifier] -> ValueM Expr -> ValueM Expr
+desugarGuardQualifiers resultType resultType' next qualifiers success =
+  case qualifiers of
+    [] -> success
+    Syn.GuardAnn _ inner : rest -> desugarGuardQualifiers resultType resultType' next (inner : rest) success
+    Syn.GuardExpr condition : rest -> do
+      condition' <- desugarExpr condition
+      conditionType <- requiredExprType condition
+      binder <- freshBinder "_guard" conditionType
+      trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
+      falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
+      body <- desugarGuardQualifiers resultType resultType' next rest success
+      failure <- guardFailure resultType' next binder
+      pure
+        ( ExCase
+            condition'
+            binder
+            resultType'
+            [ Alt (AltData trueName) [] [] body,
+              Alt (AltData falseName) [] [] failure
+            ]
+        )
+    Syn.GuardPat pattern' scrutinee : rest -> do
+      scrutinee' <- desugarExpr scrutinee
+      scrutineeType <- requiredExprType scrutinee
+      binder <- freshBinder "_guard_pat" scrutineeType
+      failure <- guardFailure resultType' next binder
+      body <-
+        desugarPatternWithFailure
+          resultType
+          binder
+          scrutineeType
+          pattern'
+          (desugarGuardQualifiers resultType resultType' next rest success)
+          (Just failure)
+      pure (ExLet (Bind binder scrutinee') body)
+    Syn.GuardLet declarations : rest ->
+      desugarLocalDecls declarations (pure resultType) (desugarGuardQualifiers resultType resultType' next rest success)
+
+-- | The expression that runs when a guard fails. Without a later
+-- alternative, an empty case on the guard value reports the failure.
+guardFailure :: Type -> Maybe Expr -> Binder -> ValueM Expr
+guardFailure resultType' next binder =
+  case next of
+    Just failure -> pure failure
+    Nothing -> do
+      failureBinder <- freshBinderFromType "_guard_nomatch" (binderType binder)
+      pure (ExCase (ExVar (binderName binder)) failureBinder resultType' [])
 
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
@@ -2196,26 +2292,32 @@ desugarDoPatternContinuation annotation pattern' rest = do
 
 desugarDoPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> ValueM Expr
 desugarDoPattern resultType binder ty pattern' success =
+  desugarPatternWithFailure resultType binder ty pattern' success Nothing
+
+-- | Match one binder against a pattern. The failure expression, when given,
+-- is the default alternative of each constructor case.
+desugarPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
-    Syn.PAnn _ inner -> desugarDoPattern resultType binder ty inner success
-    Syn.PParen inner -> desugarDoPattern resultType binder ty inner success
-    Syn.PStrict inner -> desugarDoPattern resultType binder ty inner success
-    Syn.PIrrefutable inner -> desugarDoPattern resultType binder ty inner success
-    Syn.PTypeSig inner _ -> desugarDoPattern resultType binder ty inner success
+    Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
+    Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
+    Syn.PStrict inner -> desugarPatternWithFailure resultType binder ty inner success failure
+    Syn.PIrrefutable inner -> desugarPatternWithFailure resultType binder ty inner success failure
+    Syn.PTypeSig inner _ -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PVar name -> do
       locals <- binderEntry name binder ty
       withLocals locals success
     Syn.PWildcard -> success
     Syn.PAs name inner -> do
       locals <- binderEntry name binder ty
-      withLocals locals (desugarDoPattern resultType binder ty inner success)
-    _ -> desugarDoConstructorPattern resultType binder pattern' success
+      withLocals locals (desugarPatternWithFailure resultType binder ty inner success failure)
+    _ -> desugarDoConstructorPattern resultType binder pattern' success failure
 
-desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> ValueM Expr
-desugarDoConstructorPattern resultType binder pattern' success = do
+desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoConstructorPattern resultType binder pattern' success failure = do
   maybeNewtype <- doPatternNewtype pattern'
   case maybeNewtype of
-    Just dataType -> desugarDoNewtypePattern resultType binder pattern' dataType success
+    Just dataType -> desugarDoNewtypePattern resultType binder pattern' dataType success failure
     Nothing -> do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
@@ -2230,15 +2332,16 @@ desugarDoConstructorPattern resultType binder pattern' success = do
       body <-
         withDictionaries
           (zipWith Dictionary predicates dictionaries)
-          (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
-      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor typeBinders (dictionaries <> fields) body])
+          (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success failure)
+      let defaultAlternatives = [Alt AltDefault [] [] failureExpression | Just failureExpression <- [failure]]
+      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' (Alt constructor typeBinders (dictionaries <> fields) body : defaultAlternatives))
 
-desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> ValueM Expr
-desugarDoChildPatterns resultType children success =
+desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoChildPatterns resultType children success failure =
   case children of
     [] -> success
     (binder, ty, pattern') : rest ->
-      desugarDoPattern resultType binder ty pattern' (desugarDoChildPatterns resultType rest success)
+      desugarPatternWithFailure resultType binder ty pattern' (desugarDoChildPatterns resultType rest success failure) failure
 
 doPatternNewtype :: Syn.Pattern -> ValueM (Maybe DataTypeInfo)
 doPatternNewtype pattern' = do
@@ -2248,8 +2351,8 @@ doPatternNewtype pattern' = do
     key <- nameTermKey name
     Map.lookup key newtypes
 
-desugarDoNewtypePattern :: TcType -> Binder -> Syn.Pattern -> DataTypeInfo -> ValueM Expr -> ValueM Expr
-desugarDoNewtypePattern resultType binder pattern' dataType success = do
+desugarDoNewtypePattern :: TcType -> Binder -> Syn.Pattern -> DataTypeInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
+desugarDoNewtypePattern resultType binder pattern' dataType success failure = do
   child <-
     case patternChildren pattern' of
       [fieldPattern] -> pure fieldPattern
@@ -2261,7 +2364,7 @@ desugarDoNewtypePattern resultType binder pattern' dataType success = do
   let tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
       unwrapped = ExCast (ExVar (binderName binder)) (CoAxiom axiom convertedArguments)
-  body <- desugarDoPattern resultType field childType child success
+  body <- desugarPatternWithFailure resultType field childType child success failure
   pure (ExLet (Bind field unwrapped) body)
 
 directPatternBindings :: Syn.Pattern -> Binder -> TcType -> ValueM (Maybe [(TcTermKey, (Binder, TcType))])
@@ -2348,19 +2451,33 @@ desugarLocalDecls :: [Syn.Decl] -> ValueM TcType -> ValueM Expr -> ValueM Expr
 desugarLocalDecls declarations bodyType body = do
   groups <- groupLocalValues declarations
   allocated <- mapM allocateLocal groups
-  case allocated of
-    _ | all isImplicitParamAllocation allocated && not (null allocated) -> desugarImplicitParamDecls allocated body
-    _ ->
-      withLocals (concatMap allocationLocals allocated) $ do
-        resultType <- bodyType
-        binds <- concat <$> mapM desugarLocal allocated
-        forcedBody <- foldr (forceStrictPattern resultType) body allocated
-        pure (ExRec binds forcedBody)
+  if all isImplicitParamAllocation allocated && not (null allocated)
+    then desugarImplicitParamDecls allocated body
+    else withLocals (concatMap allocationLocals allocated) $ do
+      resultType <- bodyType
+      bindGroups <- mapM desugarLocal allocated
+      unlifted <- mapM allocationHasUnliftedBinder allocated
+      forcedBody <- foldr (forceStrictPattern resultType) body allocated
+      components <- liftEither (localBindingComponents (zip bindGroups unlifted))
+      foldr wrapComponent (pure forcedBody) components
   where
     isImplicitParamAllocation allocation =
       case allocation of
         LocalImplicitParamAllocation {} -> True
         _ -> False
+    wrapComponent component inner = do
+      innerExpression <- inner
+      case component of
+        LocalRecursiveBinds binds -> pure (ExRec binds innerExpression)
+        LocalStrictBinds binds -> pure (foldr ExLet innerExpression binds)
+    allocationHasUnliftedBinder allocation = do
+      kindEnv <- gets (ceKindEnv . vsConvertEnv)
+      let types =
+            case allocation of
+              LocalNamedAllocation _ _ ty _ -> [ty]
+              LocalPatternAllocation _ _ _ rhsType binders _ -> rhsType : [ty | (_, _, ty) <- binders]
+              LocalImplicitParamAllocation _ _ _ ty -> [ty]
+      pure (any (isUnliftedTypeInEnv kindEnv) types)
     allocateLocal (LocalNamedGroup group) = do
       let key = groupKey group
           name = groupName group
@@ -2397,6 +2514,66 @@ desugarLocalDecls declarations bodyType body = do
         LocalPatternAllocation pattern' _ rhsBinder rhsType _ True ->
           desugarDoPattern resultType rhsBinder rhsType pattern' success
         _ -> success
+
+-- | One dependency component of a local binding group.
+data LocalBindingComponent
+  = -- | Lifted bindings that can refer to each other.
+    LocalRecursiveBinds [Bind]
+  | -- | Bindings with an unlifted binder. They are strict and not recursive.
+    LocalStrictBinds [Bind]
+
+-- | Order local bindings by their dependencies. The result lists the
+-- bindings that other bindings use first. A binding group with an unlifted
+-- binder must not be recursive.
+localBindingComponents :: [([Bind], Bool)] -> Either String [LocalBindingComponent]
+localBindingComponents groups =
+  mapM component (Graph.stronglyConnComp nodes)
+  where
+    indexed = zip [0 :: Int ..] groups
+    definitions =
+      Map.fromList
+        [ (binderName (bindBinder bind), index)
+        | (index, (binds, _)) <- indexed,
+          bind <- binds
+        ]
+    -- A binding group lists its own binders in order, so a reference to an
+    -- earlier binder of the same group is not a dependency cycle.
+    nodes =
+      [ (group, index, filter (/= index) (Set.toList (Set.fromList (concatMap dependencies binds))))
+      | (index, group@(binds, _)) <- indexed
+      ]
+    dependencies bind = mapMaybe (`Map.lookup` definitions) (Set.toList (expressionFreeNames (bindRhs bind)))
+    component scc =
+      case scc of
+        Graph.AcyclicSCC (binds, unlifted)
+          | unlifted -> Right (LocalStrictBinds binds)
+          | otherwise -> Right (LocalRecursiveBinds binds)
+        Graph.CyclicSCC members
+          | any snd members -> Left ("System FC does not accept a recursive local binding with an unlifted binder: " <> show [binderName (bindBinder bind) | (binds, _) <- members, bind <- binds])
+          | otherwise -> Right (LocalRecursiveBinds (concatMap fst members))
+
+-- | The free value names of a System FC expression.
+expressionFreeNames :: Expr -> Set Name
+expressionFreeNames expression =
+  case expression of
+    ExVar name -> Set.singleton name
+    ExLit _ -> Set.empty
+    ExApp function argument -> expressionFreeNames function <> expressionFreeNames argument
+    ExTyApp function _ -> expressionFreeNames function
+    ExLam binder inner -> Set.delete (binderName binder) (expressionFreeNames inner)
+    ExTyLam _ inner -> expressionFreeNames inner
+    ExLet binding inner -> expressionFreeNames (bindRhs binding) <> Set.delete (binderName (bindBinder binding)) (expressionFreeNames inner)
+    ExRec bindings inner ->
+      let names = Set.fromList (map (binderName . bindBinder) bindings)
+       in (foldMap (expressionFreeNames . bindRhs) bindings <> expressionFreeNames inner) `Set.difference` names
+    ExCase scrutinee binder _ alternatives ->
+      expressionFreeNames scrutinee
+        <> Set.delete (binderName binder) (foldMap alternativeFreeNames alternatives)
+    ExCast inner _ -> expressionFreeNames inner
+  where
+    alternativeFreeNames alternative =
+      expressionFreeNames (altRhs alternative)
+        `Set.difference` Set.fromList (map binderName (altBinders alternative))
 
 allocationLocals :: LocalAllocation -> [(TcTermKey, (Binder, TcType))]
 allocationLocals allocation =
@@ -2618,7 +2795,7 @@ desugarOverloadedInteger annotation resolution value = do
 
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
-  constructor <- uniqueConstructorName "IS"
+  constructor <- primitiveName "GHC.Prim.Integer" "IS" SortDataConstructor
   intRepresentation <- convertRuntimeRep IntRep
   wordRepresentation <- convertRuntimeRep WordRep
   let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer))
@@ -2644,14 +2821,6 @@ desugarIntegerLiteral value = do
     maxWord = wordBase - 1
     maxInt = 9223372036854775807
     minInt = -9223372036854775808
-
-uniqueConstructorName :: Text -> ValueM Name
-uniqueConstructorName name = do
-  constructors <- Map.findWithDefault [] name <$> gets vsConstructors
-  case constructors of
-    [constructor] -> pure constructor
-    [] -> failValue ("missing constructor " <> T.unpack name)
-    _ -> failValue ("ambiguous constructor " <> T.unpack name)
 
 convertCoercion :: Ev.Coercion -> ValueM Coercion
 convertCoercion coercion =

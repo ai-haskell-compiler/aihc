@@ -1138,6 +1138,51 @@ uint64_t aihc_byte_array_read_word(void *opaque_array, int64_t index) {
   return aihc_byte_array_index_word(opaque_array, index);
 }
 
+static size_t aihc_byte_array_byte_offset(AihcByteArray *array,
+                                          int64_t requested_offset,
+                                          size_t element_size) {
+  if (array == NULL || requested_offset < 0) {
+    aihc_fail("invalid byte array byte offset");
+  }
+  size_t offset = (size_t)requested_offset;
+  if (offset > array->size || element_size > array->size - offset) {
+    aihc_fail("byte array byte offset out of bounds");
+  }
+  return offset;
+}
+
+uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset) {
+  AihcByteArray *array = opaque_array;
+  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint8_t));
+  uint8_t value;
+  memcpy(&value, array->contents + start, sizeof(value));
+  return value;
+}
+
+uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset) {
+  AihcByteArray *array = opaque_array;
+  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint16_t));
+  uint16_t value;
+  memcpy(&value, array->contents + start, sizeof(value));
+  return value;
+}
+
+uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset) {
+  AihcByteArray *array = opaque_array;
+  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint32_t));
+  uint32_t value;
+  memcpy(&value, array->contents + start, sizeof(value));
+  return value;
+}
+
+uint64_t aihc_byte_array_index_byte_word64(void *opaque_array, int64_t offset) {
+  AihcByteArray *array = opaque_array;
+  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint64_t));
+  uint64_t value;
+  memcpy(&value, array->contents + start, sizeof(value));
+  return value;
+}
+
 uint64_t aihc_byte_array_write_word(void *opaque_array, int64_t index,
                                     uint64_t value) {
   AihcByteArray *array = opaque_array;
@@ -1178,6 +1223,189 @@ uint64_t aihc_word_ctz(uint64_t value) {
 
 uint64_t aihc_word_popcount(uint64_t value) {
   return (uint64_t)__builtin_popcountll(value);
+}
+
+uint64_t aihc_int_to_int8(uint64_t value) {
+  return (uint64_t)(int64_t)(int8_t)(uint8_t)value;
+}
+
+uint64_t aihc_int8_to_int(uint64_t value) { return value; }
+
+uint64_t aihc_int_to_int16(uint64_t value) {
+  return (uint64_t)(int64_t)(int16_t)(uint16_t)value;
+}
+
+uint64_t aihc_int16_to_int(uint64_t value) { return value; }
+
+uint64_t aihc_int_to_int32(uint64_t value) {
+  return (uint64_t)(int64_t)(int32_t)(uint32_t)value;
+}
+
+uint64_t aihc_int32_to_int(uint64_t value) { return value; }
+
+uint64_t aihc_int_to_int64(uint64_t value) { return value; }
+
+uint64_t aihc_int64_to_int(uint64_t value) { return value; }
+
+/* A Float# value travels as its IEEE bit pattern in the low 32 bits. */
+static float aihc_float_of_bits(uint64_t bits) {
+  uint32_t low = (uint32_t)bits;
+  float value;
+  memcpy(&value, &low, sizeof(value));
+  return value;
+}
+
+static uint64_t aihc_bits_of_float(float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+uint64_t aihc_float_plus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_float(aihc_float_of_bits(left) +
+                            aihc_float_of_bits(right));
+}
+
+uint64_t aihc_float_minus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_float(aihc_float_of_bits(left) -
+                            aihc_float_of_bits(right));
+}
+
+uint64_t aihc_float_times(uint64_t left, uint64_t right) {
+  return aihc_bits_of_float(aihc_float_of_bits(left) *
+                            aihc_float_of_bits(right));
+}
+
+uint64_t aihc_float_negate(uint64_t value) {
+  return aihc_bits_of_float(-aihc_float_of_bits(value));
+}
+
+uint64_t aihc_float_abs(uint64_t value) { return value & UINT64_C(0x7fffffff); }
+
+uint64_t aihc_int_to_float(uint64_t value) {
+  return aihc_bits_of_float((float)(int64_t)value);
+}
+
+uint64_t aihc_float_to_int(uint64_t value) {
+  return (uint64_t)(int64_t)aihc_float_of_bits(value);
+}
+
+uint64_t aihc_float_gt(uint64_t left, uint64_t right) {
+  return aihc_float_of_bits(left) > aihc_float_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_float_lt(uint64_t left, uint64_t right) {
+  return aihc_float_of_bits(left) < aihc_float_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_float_eq(uint64_t left, uint64_t right) {
+  return aihc_float_of_bits(left) == aihc_float_of_bits(right) ? 1 : 0;
+}
+
+/* A Double# value travels as its IEEE bit pattern. */
+static double aihc_double_of_bits(uint64_t bits) {
+  double value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+static uint64_t aihc_bits_of_double(double value) {
+  uint64_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+uint64_t aihc_double_plus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_double(aihc_double_of_bits(left) +
+                             aihc_double_of_bits(right));
+}
+
+uint64_t aihc_double_minus(uint64_t left, uint64_t right) {
+  return aihc_bits_of_double(aihc_double_of_bits(left) -
+                             aihc_double_of_bits(right));
+}
+
+uint64_t aihc_double_times(uint64_t left, uint64_t right) {
+  return aihc_bits_of_double(aihc_double_of_bits(left) *
+                             aihc_double_of_bits(right));
+}
+
+uint64_t aihc_double_negate(uint64_t value) {
+  return aihc_bits_of_double(-aihc_double_of_bits(value));
+}
+
+uint64_t aihc_double_abs(uint64_t value) {
+  return value & UINT64_C(0x7fffffffffffffff);
+}
+
+uint64_t aihc_int_to_double(uint64_t value) {
+  return aihc_bits_of_double((double)(int64_t)value);
+}
+
+uint64_t aihc_double_to_int(uint64_t value) {
+  return (uint64_t)(int64_t)aihc_double_of_bits(value);
+}
+
+uint64_t aihc_double_gt(uint64_t left, uint64_t right) {
+  return aihc_double_of_bits(left) > aihc_double_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_double_lt(uint64_t left, uint64_t right) {
+  return aihc_double_of_bits(left) < aihc_double_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_double_eq(uint64_t left, uint64_t right) {
+  return aihc_double_of_bits(left) == aihc_double_of_bits(right) ? 1 : 0;
+}
+
+uint64_t aihc_float_to_double(uint64_t value) {
+  return aihc_bits_of_double((double)aihc_float_of_bits(value));
+}
+
+uint64_t aihc_double_to_float(uint64_t value) {
+  return aihc_bits_of_float((float)aihc_double_of_bits(value));
+}
+
+/* A byte swap keeps the low bytes only, as GHC's byteSwap primitives do. */
+uint64_t aihc_word_byte_swap16(uint64_t value) {
+  return (uint64_t)__builtin_bswap16((uint16_t)value);
+}
+
+uint64_t aihc_word_byte_swap32(uint64_t value) {
+  return (uint64_t)__builtin_bswap32((uint32_t)value);
+}
+
+uint64_t aihc_word_byte_swap64(uint64_t value) {
+  return __builtin_bswap64(value);
+}
+
+/* timesInt2# gives a triple. Each backend asks for one member at a time. */
+static void aihc_int_times2(uint64_t left, uint64_t right, uint64_t *high,
+                            uint64_t *low) {
+  __int128 product = (__int128)(int64_t)left * (__int128)(int64_t)right;
+  *low = (uint64_t)product;
+  *high = (uint64_t)(product >> 64);
+}
+
+uint64_t aihc_int_times2_high_needed(uint64_t left, uint64_t right) {
+  uint64_t high;
+  uint64_t low;
+  aihc_int_times2(left, right, &high, &low);
+  return (int64_t)high == ((int64_t)low >> 63) ? 0 : 1;
+}
+
+uint64_t aihc_int_times2_high(uint64_t left, uint64_t right) {
+  uint64_t high;
+  uint64_t low;
+  aihc_int_times2(left, right, &high, &low);
+  return high;
+}
+
+uint64_t aihc_int_times2_low(uint64_t left, uint64_t right) {
+  uint64_t high;
+  uint64_t low;
+  aihc_int_times2(left, right, &high, &low);
+  return low;
 }
 
 void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,

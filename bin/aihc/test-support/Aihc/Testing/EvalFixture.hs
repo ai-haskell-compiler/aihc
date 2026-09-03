@@ -265,8 +265,10 @@ compileEvalCase tc =
       case dependencyModules of
         Left errMsg -> pure (Left errMsg)
         Right deps ->
-          let allModules = addListSupport (deps <> evalModules)
-              packageModules = map modulePackage allModules
+          let depModules = map snd deps
+              dependencyByModuleName = Map.fromList [(name, dependency) | (dependency, modu) <- deps, Just name <- [Surface.moduleName modu]]
+              allModules = addListSupport (depModules <> evalModules)
+              packageModules = map (modulePackage dependencyByModuleName) allModules
               resolved = resolveWithDeps (evalBuiltinScope packageModules) mempty packageModules
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
@@ -293,8 +295,9 @@ compileEvalCase tc =
       case parseOneModule "GHC.Types" [] "module GHC.Types (Bool(..), List(..)) where\ndata Bool = False | True\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
         Right modu -> modu
         Left err -> error err
-    modulePackage modu
-      | Surface.moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+    modulePackage dependencyByModuleName modu
+      | Just name <- Surface.moduleName modu,
+        Map.lookup name dependencyByModuleName == Just "aihc-prim" || name == "GHC.Types" =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (unnamedPackage, modu)
 
@@ -457,7 +460,7 @@ concatPrograms programs =
         scopes
         (Fc.scopeEntries (Fc.programScopes program))
 
-loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [Module])
+loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [(Text, Module)])
 loadDependencyModules tc evalModules = do
   let dependencies = evalCaseDependencies tc
       transitiveDependencies = nub (dependencies <> ["aihc-base", "aihc-prim"])
@@ -515,8 +518,9 @@ defaultAihcPrimRoot = do
             else findUp parent
 
 initialDependencyModules :: [Module] -> [Text]
-initialDependencyModules modules =
-  nub ("Prelude" : importedModuleNameList modules)
+initialDependencyModules modules
+  | any ((== Just "Prelude") . Surface.moduleName) modules = nub (importedModuleNameList modules)
+  | otherwise = nub ("Prelude" : importedModuleNameList modules)
 
 importedModuleNames :: [Module] -> Set.Set Text
 importedModuleNames modules =
@@ -526,7 +530,7 @@ importedModuleNameList :: [Module] -> [Text]
 importedModuleNameList modules =
   [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
 
-loadTransitiveModules :: [(Text, FilePath)] -> [Text] -> IO (Either String [Module])
+loadTransitiveModules :: [(Text, FilePath)] -> [Text] -> IO (Either String [(Text, Module)])
 loadTransitiveModules packageRoots initialModules =
   fmap snd <$> go Set.empty [] initialModules
   where
@@ -536,12 +540,12 @@ loadTransitiveModules packageRoots initialModules =
       | moduleName `Set.member` seen =
           go seen loaded pending
       | otherwise = do
-          maybePath <- findModulePathInDependencies packageRoots moduleName
-          case maybePath of
+          maybeEntry <- findModulePathInDependencies packageRoots moduleName
+          case maybeEntry of
             Nothing -> do
               let dependencyNames = T.intercalate ", " (map fst packageRoots)
               pure (Left ("dependency module " <> T.unpack moduleName <> " not found in dependencies: " <> T.unpack dependencyNames))
-            Just path -> do
+            Just (dependency, path) -> do
               source <- TIO.readFile path
               case parseOneModule path [] source of
                 Left errMsg -> pure (Left ("dependency module " <> T.unpack moduleName <> " parse error: " <> errMsg))
@@ -552,15 +556,15 @@ loadTransitiveModules packageRoots initialModules =
                   case depResult of
                     Left errMsg -> pure (Left errMsg)
                     Right (seenWithDeps, loadedWithDeps) ->
-                      go seenWithDeps (loadedWithDeps <> [modu]) pending
+                      go seenWithDeps (loadedWithDeps <> [(dependency, modu)]) pending
 
-findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe FilePath)
+findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe (Text, FilePath))
 findModulePathInDependencies [] _ = pure Nothing
-findModulePathInDependencies ((_dependency, root) : rest) moduleName = do
+findModulePathInDependencies ((dependency, root) : rest) moduleName = do
   let path = root </> "src" </> moduleNamePath moduleName
   exists <- doesFileExist path
   if exists
-    then pure (Just path)
+    then pure (Just (dependency, path))
     else findModulePathInDependencies rest moduleName
 
 moduleNamePath :: Text -> FilePath

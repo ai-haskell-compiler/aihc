@@ -169,7 +169,7 @@ parseGarbageCollector :: String -> Either String GarbageCollector
 parseGarbageCollector value =
   case value of
     "calloc" -> Right GcCalloc
-    "semispace" -> Left "the semispace collector is disabled"
+    "semispace" -> Right GcSemispace
     _ -> Left "expected calloc or semispace"
 
 prepareRuntimeOptionsParser :: OA.Parser PrepareRuntimeOptions
