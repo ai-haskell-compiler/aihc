@@ -19,11 +19,9 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
-    ArithSeq (..),
     BangType (..),
     BinderHead (..),
     CallConv (..),
-    CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl (..),
@@ -82,7 +80,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -105,7 +103,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Generalize (generalizeAndCommitIgnoring, predMetaVars)
-import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
@@ -1689,135 +1687,6 @@ replaceInstancePatternBindRhs rhs item =
     InstanceItemAnn ann inner -> InstanceItemAnn ann (replaceInstancePatternBindRhs rhs inner)
     InstanceItemBind (PatternBind mult pat _) -> InstanceItemBind (PatternBind mult pat rhs)
     _ -> item
-
-freeVarsDecl :: Decl -> TcM (Set.Set TcTermKey)
-freeVarsDecl decl =
-  case peelDeclAnn decl of
-    DeclValue (FunctionBind binder matches) -> do
-      vars <- Set.unions <$> mapM freeVarsMatch matches
-      binderKey <- resolvedUnqualifiedTermKey binder
-      pure (Set.delete binderKey vars)
-    DeclValue (PatternBind _ pat rhs) -> do
-      vars <- freeVarsRhs rhs
-      binders <- patternBinderKeys pat
-      pure (Set.difference vars binders)
-    _ -> pure Set.empty
-
-freeVarsMatch :: Match -> TcM (Set.Set TcTermKey)
-freeVarsMatch match = do
-  vars <- freeVarsRhs (matchRhs match)
-  binders <- Set.unions <$> mapM patternBinderKeys (matchPats match)
-  pure (Set.difference vars binders)
-
-freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
-freeVarsRhs rhs =
-  case rhs of
-    UnguardedRhs _ expr maybeDecls -> do
-      exprVars <- freeVarsExpr expr
-      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
-      pure (exprVars <> declVars)
-    GuardedRhss _ _ maybeDecls ->
-      maybe (pure Set.empty) freeVarsDecls maybeDecls
-
-freeVarsDecls :: [Decl] -> TcM (Set.Set TcTermKey)
-freeVarsDecls decls =
-  Set.unions <$> mapM freeVarsDecl decls
-
-freeVarsExpr :: Expr -> TcM (Set.Set TcTermKey)
-freeVarsExpr expr =
-  case expr of
-    EVar name -> Set.singleton <$> resolvedTermKey name
-    EAnn _ inner -> freeVarsExpr inner
-    EIf cond trueBranch falseBranch -> Set.unions <$> mapM freeVarsExpr [cond, trueBranch, falseBranch]
-    ELambdaPats pats body -> do
-      bodyVars <- freeVarsExpr body
-      binders <- Set.unions <$> mapM patternBinderKeys pats
-      pure (Set.difference bodyVars binders)
-    EInfix lhs op rhs -> do
-      lhsVars <- freeVarsExpr lhs
-      rhsVars <- freeVarsExpr rhs
-      opKey <- resolvedTermKey op
-      pure (Set.insert opKey (lhsVars <> rhsVars))
-    ENegate inner -> freeVarsExpr inner
-    ESectionL inner op -> do
-      innerVars <- freeVarsExpr inner
-      opKey <- resolvedTermKey op
-      pure (Set.insert opKey innerVars)
-    ESectionR op inner -> do
-      innerVars <- freeVarsExpr inner
-      opKey <- resolvedTermKey op
-      pure (Set.insert opKey innerVars)
-    ELetDecls decls body -> do
-      declVars <- freeVarsDecls decls
-      bodyVars <- freeVarsExpr body
-      localBinders <- declBinderKeys decls
-      pure (Set.difference (declVars <> bodyVars) localBinders)
-    ECase scrut alts -> do
-      scrutVars <- freeVarsExpr scrut
-      altVars <- Set.unions <$> mapM freeVarsAlt alts
-      pure (scrutVars <> altVars)
-    ETypeSig inner _ -> freeVarsExpr inner
-    EParen inner -> freeVarsExpr inner
-    EList items -> Set.unions <$> mapM freeVarsExpr items
-    EArithSeq arithSeq -> freeVarsArithSeq arithSeq
-    ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
-    EApp fun arg -> do
-      funVars <- freeVarsExpr fun
-      argVars <- freeVarsExpr arg
-      pure (funVars <> argVars)
-    _ -> pure Set.empty
-
-freeVarsArithSeq :: ArithSeq -> TcM (Set.Set TcTermKey)
-freeVarsArithSeq arithSeq =
-  case arithSeq of
-    ArithSeqAnn ann inner -> do
-      innerVars <- freeVarsArithSeq inner
-      case fromAnnotation ann :: Maybe ResolutionAnnotation of
-        Just resolution
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            IdentifierNamed methodName <- resolutionIdentifier resolution -> do
-              methodKey <- resolvedTargetTermKey methodName (resolutionTarget resolution)
-              pure (Set.insert methodKey innerVars)
-        _ -> pure innerVars
-    ArithSeqFrom from -> freeVarsExpr from
-    ArithSeqFromThen from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
-    ArithSeqFromTo from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to
-    ArithSeqFromThenTo from thenExpr to -> Set.unions <$> mapM freeVarsExpr [from, thenExpr, to]
-
-freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set TcTermKey)
-freeVarsAlt (CaseAlt _ pat rhs) = do
-  vars <- freeVarsRhs rhs
-  binders <- patternBinderKeys pat
-  pure (Set.difference vars binders)
-
-declBinderKeys :: [Decl] -> TcM (Set.Set TcTermKey)
-declBinderKeys decls =
-  Set.unions <$> mapM declBinderKeySet decls
-
-declBinderKeySet :: Decl -> TcM (Set.Set TcTermKey)
-declBinderKeySet decl =
-  case peelDeclAnn decl of
-    DeclValue (FunctionBind binder _) -> Set.singleton <$> resolvedUnqualifiedTermKey binder
-    DeclValue (PatternBind _ pat _) -> patternBinderKeys pat
-    _ -> pure Set.empty
-
-patternBinderKeys :: Pattern -> TcM (Set.Set TcTermKey)
-patternBinderKeys pat =
-  case pat of
-    PVar name -> Set.singleton <$> resolvedUnqualifiedTermKey name
-    PAnn _ inner -> patternBinderKeys inner
-    PParen inner -> patternBinderKeys inner
-    PAs name inner -> do
-      key <- resolvedUnqualifiedTermKey name
-      Set.insert key <$> patternBinderKeys inner
-    PStrict inner -> patternBinderKeys inner
-    PIrrefutable inner -> patternBinderKeys inner
-    PCon _ _ pats -> Set.unions <$> mapM patternBinderKeys pats
-    PInfix lhs _ rhs -> do
-      lhsKeys <- patternBinderKeys lhs
-      rhsKeys <- patternBinderKeys rhs
-      pure (lhsKeys <> rhsKeys)
-    _ -> pure Set.empty
 
 patternBinders :: Pattern -> [Text]
 patternBinders pat =

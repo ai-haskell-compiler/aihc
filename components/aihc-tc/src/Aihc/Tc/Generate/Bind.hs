@@ -3,6 +3,8 @@
 -- | Shared value-binding helpers for expression-local declarations.
 module Aihc.Tc.Generate.Bind
   ( InferExpr,
+    freeVarsDecl,
+    freeVarsMatch,
     inferLocalDecls,
     inferRhsWithLocals,
     boolTyCon,
@@ -25,6 +27,7 @@ import Aihc.Parser.Syntax
     Match (..),
     NameType (..),
     Pattern (..),
+    RecordField (..),
     Rhs (..),
     SourceSpan (..),
     Type (..),
@@ -699,12 +702,13 @@ freeVarsDecl decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) -> do
       vars <- Set.unions <$> mapM freeVarsMatch matches
-      binder <- resolvedLocalTermKey name
+      binder <- resolvedUnqualifiedTermKey name
       pure (Set.delete binder vars)
     DeclValue (PatternBind _ pat rhs) -> do
       vars <- freeVarsRhs rhs
+      patVars <- freeVarsPattern pat
       binders <- patternBinderKeys pat
-      pure (Set.difference vars binders)
+      pure (Set.difference (vars <> patVars) binders)
     DeclImplicitParam _ expr maybeDecls -> freeVarsRhs (UnguardedRhs [] expr maybeDecls)
     DeclTypeSig {} -> pure Set.empty
     _ -> pure Set.empty
@@ -712,8 +716,28 @@ freeVarsDecl decl =
 freeVarsMatch :: Match -> TcM (Set.Set TcTermKey)
 freeVarsMatch match = do
   vars <- freeVarsRhs (matchRhs match)
+  patVars <- Set.unions <$> mapM freeVarsPattern (matchPats match)
   binders <- Set.unions <$> mapM patternBinderKeys (matchPats match)
-  pure (Set.difference vars binders)
+  pure (Set.difference (vars <> patVars) binders)
+
+-- | The term variables that the view functions of a pattern use.
+freeVarsPattern :: Pattern -> TcM (Set.Set TcTermKey)
+freeVarsPattern pat =
+  case pat of
+    PAnn _ inner -> freeVarsPattern inner
+    PParen inner -> freeVarsPattern inner
+    PAs _ inner -> freeVarsPattern inner
+    PStrict inner -> freeVarsPattern inner
+    PIrrefutable inner -> freeVarsPattern inner
+    PTypeSig inner _ -> freeVarsPattern inner
+    PList items -> Set.unions <$> mapM freeVarsPattern items
+    PTuple _ items -> Set.unions <$> mapM freeVarsPattern items
+    PUnboxedSum _ _ inner -> freeVarsPattern inner
+    PCon _ _ subPats -> Set.unions <$> mapM freeVarsPattern subPats
+    PInfix lhs _ rhs -> Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs
+    PRecord _ fields _ -> Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields
+    PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
+    _ -> pure Set.empty
 
 freeVarsRhs :: Rhs Expr -> TcM (Set.Set TcTermKey)
 freeVarsRhs rhs =
@@ -722,8 +746,35 @@ freeVarsRhs rhs =
       exprVars <- freeVarsExpr expr
       declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
       pure (exprVars <> declVars)
-    GuardedRhss _ _ maybeDecls ->
-      maybe (pure Set.empty) freeVarsDecls maybeDecls
+    GuardedRhss _ alternatives maybeDecls -> do
+      altVars <- Set.unions <$> mapM freeVarsGuardedRhs alternatives
+      declVars <- maybe (pure Set.empty) freeVarsDecls maybeDecls
+      pure (altVars <> declVars)
+
+freeVarsGuardedRhs :: GuardedRhs Expr -> TcM (Set.Set TcTermKey)
+freeVarsGuardedRhs alternative =
+  freeVarsGuardQualifiers (guardedRhsGuards alternative) (freeVarsExpr (guardedRhsBody alternative))
+
+-- | The free variables of guard qualifiers and of the body they scope over.
+-- A pattern guard or a let guard binds names for the later qualifiers.
+freeVarsGuardQualifiers :: [GuardQualifier] -> TcM (Set.Set TcTermKey) -> TcM (Set.Set TcTermKey)
+freeVarsGuardQualifiers qualifiers bodyVars =
+  case qualifiers of
+    [] -> bodyVars
+    GuardAnn _ inner : rest -> freeVarsGuardQualifiers (inner : rest) bodyVars
+    GuardExpr condition : rest ->
+      Set.union <$> freeVarsExpr condition <*> freeVarsGuardQualifiers rest bodyVars
+    GuardPat pat scrutinee : rest -> do
+      scrutVars <- freeVarsExpr scrutinee
+      patVars <- freeVarsPattern pat
+      binders <- patternBinderKeys pat
+      restVars <- freeVarsGuardQualifiers rest bodyVars
+      pure (scrutVars <> patVars <> Set.difference restVars binders)
+    GuardLet decls : rest -> do
+      declVars <- freeVarsDecls decls
+      localBinders <- declBinderKeys decls
+      restVars <- freeVarsGuardQualifiers rest bodyVars
+      pure (Set.difference (declVars <> restVars) localBinders)
 
 freeVarsExpr :: Expr -> TcM (Set.Set TcTermKey)
 freeVarsExpr expr =
@@ -733,8 +784,9 @@ freeVarsExpr expr =
     EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
     ELambdaPats pats body -> do
       bodyVars <- freeVarsExpr body
+      patVars <- Set.unions <$> mapM freeVarsPattern pats
       binders <- Set.unions <$> mapM patternBinderKeys pats
-      pure (Set.difference bodyVars binders)
+      pure (Set.difference (bodyVars <> patVars) binders)
     EInfix lhs op rhs -> do
       lhsVars <- freeVarsExpr lhs
       rhsVars <- freeVarsExpr rhs
@@ -789,8 +841,9 @@ freeVarsArithSeq arithSeq =
 freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set TcTermKey)
 freeVarsAlt (CaseAlt _ pat rhs) = do
   vars <- freeVarsRhs rhs
+  patVars <- freeVarsPattern pat
   binders <- patternBinderKeys pat
-  pure (Set.difference vars binders)
+  pure (Set.difference (vars <> patVars) binders)
 
 declBinderKeys :: [Decl] -> TcM (Set.Set TcTermKey)
 declBinderKeys decls =
@@ -799,18 +852,18 @@ declBinderKeys decls =
 declBinderKeySet :: Decl -> TcM (Set.Set TcTermKey)
 declBinderKeySet decl =
   case peelDeclAnn decl of
-    DeclValue (FunctionBind name _) -> Set.singleton <$> resolvedLocalTermKey name
+    DeclValue (FunctionBind name _) -> Set.singleton <$> resolvedUnqualifiedTermKey name
     DeclValue (PatternBind _ pat _) -> patternBinderKeys pat
     _ -> pure Set.empty
 
 patternBinderKeys :: Pattern -> TcM (Set.Set TcTermKey)
 patternBinderKeys pat =
   case pat of
-    PVar name -> Set.singleton <$> resolvedLocalTermKey name
+    PVar name -> Set.singleton <$> resolvedUnqualifiedTermKey name
     PAnn _ inner -> patternBinderKeys inner
     PParen inner -> patternBinderKeys inner
     PAs name inner -> do
-      key <- resolvedLocalTermKey name
+      key <- resolvedUnqualifiedTermKey name
       Set.insert key <$> patternBinderKeys inner
     PStrict inner -> patternBinderKeys inner
     PIrrefutable inner -> patternBinderKeys inner

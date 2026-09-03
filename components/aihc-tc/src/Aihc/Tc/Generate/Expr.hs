@@ -9,6 +9,7 @@
 -- that produced them.
 module Aihc.Tc.Generate.Expr
   ( inferExpr,
+    inferExprAt,
   )
 where
 

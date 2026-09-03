@@ -17,6 +17,7 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
+    Expr (..),
     Literal (..),
     Name (..),
     NumericType (..),
@@ -37,6 +38,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
+import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
@@ -231,6 +233,18 @@ patternOwnSpan pat =
     PCon name _ _ -> sourceSpanFromAnnotations (nameAnns name)
     PInfix _ name _ -> sourceSpanFromAnnotations (nameAnns name)
     PTypeSig inner _ -> patternOwnSpan inner
+    PView expr inner -> viewExprSpan expr `orSourceSpan` patternOwnSpan inner
+    _ -> NoSourceSpan
+
+-- | The span of a view pattern function. The parser gives spans to names
+-- and to annotated expressions only.
+viewExprSpan :: Expr -> SourceSpan
+viewExprSpan expr =
+  case expr of
+    EAnn ann inner -> fromMaybe (viewExprSpan inner) (fromAnnotation ann)
+    EVar name -> sourceSpanFromAnnotations (nameAnns name)
+    EParen inner -> viewExprSpan inner
+    EApp function _ -> viewExprSpan function
     _ -> NoSourceSpan
 
 orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
@@ -272,6 +286,17 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PInfix lhs op rhs ->
       checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
     PList items -> checkListPattern gadtHandling sp items scrutTy
+    PView viewExpr inner -> do
+      let viewSpan = viewExprSpan viewExpr `orSourceSpan` sp
+      (viewExpr', viewTy, viewCts) <- inferExprAt viewSpan viewExpr
+      innerTy <- freshMetaTv
+      eqCt <- wantedEq viewSpan viewTy (TcFunTy scrutTy innerTy)
+      innerCheck <- checkPatternWith gadtHandling sp inner innerTy
+      pure
+        innerCheck
+          { pcWantedCts = eqCt : viewCts <> pcWantedCts innerCheck,
+            pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
+          }
     PTuple flavor items -> do
       elemTys <- mapM (const freshMetaTv) items
       let arity = length items

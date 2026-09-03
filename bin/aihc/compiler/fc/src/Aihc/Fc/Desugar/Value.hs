@@ -931,7 +931,7 @@ desugarMatches ty matches =
           dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
           arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
           body <-
-            withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType arguments argumentTypes (map emptyMatchWork matches))
+            withDictionaries (zipWith Dictionary predicates dictionaries) (desugarMatchArguments resultType Nothing arguments argumentTypes (map emptyMatchWork matches))
           pure (dictionaries, arguments, body)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
@@ -943,32 +943,89 @@ withTypeVariables variables action = do
   modify' $ \state -> state {vsConvertEnv = previous}
   pure result
 
-desugarMatchArguments :: TcType -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarMatchArguments resultType [] _ ((match, locals) : rest) = do
-  failure <- matchFailure resultType [] [] (Syn.matchRhs match) rest
+-- | Compile match rows against argument binders. The fallback expression,
+-- when given, runs when no row matches. Without a fallback, an empty case
+-- reports the failure.
+desugarMatchArguments :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarMatchArguments resultType fallback [] _ ((match, locals) : rest) = do
+  failure <- matchFailure resultType fallback [] [] (Syn.matchRhs match) rest
   withLocals locals (desugarRhsWithFailure resultType failure (Syn.matchRhs match))
-desugarMatchArguments _ [] _ [] = failValue "pattern match has no result"
-desugarMatchArguments resultType binders@(argument : arguments) argumentTypes works
+desugarMatchArguments _ fallback [] _ [] = maybe (failValue "pattern match has no result") pure fallback
+desugarMatchArguments resultType fallback binders@(argument : arguments) argumentTypes works
   | any (firstPatternIsOverloadedInteger . fst) works =
-      desugarOverloadedIntegerMatches resultType binders argumentTypes works
+      desugarOverloadedIntegerMatches resultType fallback binders argumentTypes works
   | (first, firstLocals) : rest <- works,
     let firstPatterns = Syn.matchPats first,
     length firstPatterns == length binders,
     all patternIsIrrefutable firstPatterns = do
       extra <- matchArgumentBindings binders argumentTypes first
-      failure <- matchFailure resultType binders argumentTypes (Syn.matchRhs first) rest
+      failure <- matchFailure resultType fallback binders argumentTypes (Syn.matchRhs first) rest
       withLocals (firstLocals <> extra) (desugarRhsWithFailure resultType failure (Syn.matchRhs first))
   | all (maybe False patternIsIrrefutable . listToMaybe . Syn.matchPats . fst) works = do
       (ty, restTypes) <- requiredArgumentTypes argumentTypes
       nextWorks <- mapM (extendMatchWork argument ty) works
-      desugarMatchArguments resultType arguments restTypes (map dropMatchWorkPattern nextWorks)
+      desugarMatchArguments resultType fallback arguments restTypes (map dropMatchWorkPattern nextWorks)
+  | (prefix, viewWork : viewRest) <- break (firstPatternIsView . fst) works =
+      if null prefix
+        then desugarViewPattern resultType fallback argument arguments argumentTypes viewWork viewRest
+        else do
+          failure <- desugarMatchArguments resultType fallback binders argumentTypes (viewWork : viewRest)
+          shareFailure resultType (Just failure) $ \shared ->
+            desugarMatchArguments resultType shared binders argumentTypes prefix
   | otherwise = do
       maybeFamily <- firstFamilyPattern (map fst works)
       maybeNewtype <- firstNewtypePattern (map fst works)
       case (maybeFamily, maybeNewtype) of
-        (Just (pattern', info), _) -> desugarFamilyPatterns resultType argument arguments argumentTypes works pattern' info
-        (_, Just (pattern', dataType)) -> desugarNewtypePatterns resultType argument arguments argumentTypes works pattern' dataType
-        _ -> desugarDataPatterns resultType argument arguments argumentTypes works
+        (Just (pattern', info), _) -> desugarFamilyPatterns resultType fallback argument arguments argumentTypes works pattern' info
+        (_, Just (pattern', dataType)) -> desugarNewtypePatterns resultType fallback argument arguments argumentTypes works pattern' dataType
+        _ -> desugarDataPatterns resultType fallback argument arguments argumentTypes works
+
+-- | Compile a row whose first pattern is a view pattern. The view function
+-- is applied to the argument and the result is matched against the inner
+-- pattern. The later rows are the failure of the inner match.
+desugarViewPattern :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> MatchWork -> [MatchWork] -> ValueM Expr
+desugarViewPattern resultType fallback argument arguments argumentTypes (match, locals) rest = do
+  (ty, restTypes) <- requiredArgumentTypes argumentTypes
+  (viewPattern, viewFunction, inner) <-
+    case Syn.matchPats match of
+      pattern' : _
+        | Just (function, inner) <- patternView pattern' -> pure (pattern', function, inner)
+      _ -> failValue "view pattern row does not start with a view pattern"
+  failure <-
+    if null rest
+      then pure fallback
+      else Just <$> desugarMatchArguments resultType fallback (argument : arguments) argumentTypes rest
+  function <- desugarExpr viewFunction
+  innerType <- requiredPatternType inner
+  viewBinder <- freshPatternBinder inner innerType
+  extra <- patternMatchBindings viewPattern argument ty
+  let match' = match {Syn.matchPats = inner : drop 1 (Syn.matchPats match)}
+  body <-
+    shareFailure resultType failure $ \shared ->
+      desugarMatchArguments resultType shared (viewBinder : arguments) (innerType : restTypes) [(match', locals <> extra)]
+  pure (ExLet (Bind viewBinder (ExApp function (ExVar (binderName argument)))) body)
+
+-- | Bind a failure expression once so that each use is a variable.
+shareFailure :: TcType -> Maybe Expr -> (Maybe Expr -> ValueM Expr) -> ValueM Expr
+shareFailure resultType failure body =
+  case failure of
+    Nothing -> body Nothing
+    Just (ExVar _) -> body failure
+    Just expression -> do
+      binder <- freshBinder "_fail" resultType
+      ExLet (Bind binder expression) <$> body (Just (ExVar (binderName binder)))
+
+patternView :: Syn.Pattern -> Maybe (Syn.Expr, Syn.Pattern)
+patternView pattern' =
+  case peelPattern pattern' of
+    Syn.PView function inner -> Just (function, inner)
+    _ -> Nothing
+
+firstPatternIsView :: Syn.Match -> Bool
+firstPatternIsView match =
+  case Syn.matchPats match of
+    pattern' : _ -> isJust (patternView pattern')
+    [] -> False
 
 emptyMatchWork :: Syn.Match -> MatchWork
 emptyMatchWork match = (match, [])
@@ -981,12 +1038,12 @@ extendMatchWork binder ty (match, locals) = do
 dropMatchWorkPattern :: MatchWork -> MatchWork
 dropMatchWorkPattern (match, locals) = (dropFirstPattern match, locals)
 
-desugarOverloadedIntegerMatches :: TcType -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarOverloadedIntegerMatches resultType arguments argumentTypes works =
+desugarOverloadedIntegerMatches :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes works =
   case works of
-    [] -> overloadedPatternFailure resultType arguments
+    [] -> maybe (overloadedPatternFailure resultType arguments) pure fallback
     work : rest -> do
-      failure <- desugarOverloadedIntegerMatches resultType arguments argumentTypes rest
+      failure <- desugarOverloadedIntegerMatches resultType fallback arguments argumentTypes rest
       desugarOverloadedIntegerMatch resultType arguments argumentTypes work failure
 
 desugarOverloadedIntegerMatch :: TcType -> [Binder] -> [TcType] -> MatchWork -> Expr -> ValueM Expr
@@ -1019,7 +1076,7 @@ desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals)
           let remainingBinders = argument : [binder | (binder, _, _) <- rest]
               remainingTypes = ty : [remainingType | (_, remainingType, _) <- rest]
               remainingMatch = match {Syn.matchPats = pattern' : [remainingPattern | (_, _, remainingPattern) <- rest]}
-           in desugarMatchArguments resultType remainingBinders remainingTypes [(remainingMatch, current)]
+           in desugarMatchArguments resultType (Just failure) remainingBinders remainingTypes [(remainingMatch, current)]
 
 requiredArgumentTypes :: [TcType] -> ValueM (TcType, [TcType])
 requiredArgumentTypes types =
@@ -1120,27 +1177,27 @@ overloadedIntegerValue literal =
     Syn.LitInt value Syn.TInteger _ -> Just value
     _ -> Nothing
 
-desugarDataPatterns :: TcType -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarDataPatterns resultType argument arguments argumentTypes works = do
+desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarDataPatterns resultType fallback argument arguments argumentTypes works = do
   caseBinder <- freshBinderFromType "_scrut" (binderType argument)
-  desugarScrutineePatterns resultType (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+  desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
 
 -- | Match a scrutinee expression against constructor patterns. The root
 -- binder gets the variable bindings of the first pattern. It has the checked
 -- scrutinee type. The case binder has the type of the scrutinee expression.
-desugarScrutineePatterns :: TcType -> Expr -> Binder -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
-desugarScrutineePatterns resultType scrutinee caseBinder root arguments argumentTypes works = do
+desugarScrutineePatterns :: TcType -> Maybe Expr -> Expr -> Binder -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
+desugarScrutineePatterns resultType fallback scrutinee caseBinder root arguments argumentTypes works = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   resultType' <- convertCheckedType resultType
   let keys = patternKeys (map fst works)
       defaultWorks = filter (firstPatternIsDefault . fst) works
-  constructorAlternatives <- mapM (desugarPatternGroup resultType arguments restTypes scrutineeType root works) keys
+  constructorAlternatives <- mapM (desugarPatternGroup resultType fallback arguments restTypes scrutineeType root works) keys
   defaultAlternatives <-
     case defaultWorks of
-      [] -> pure []
+      [] -> pure [Alt AltDefault [] [] failure | Just failure <- [fallback]]
       _ -> do
         updated <- mapM (extendMatchWork root scrutineeType) defaultWorks
-        body <- desugarMatchArguments resultType arguments restTypes (map dropMatchWorkPattern updated)
+        body <- desugarMatchArguments resultType fallback arguments restTypes (map dropMatchWorkPattern updated)
         pure [Alt AltDefault [] [] body]
   pure (ExCase scrutinee caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
 
@@ -1163,8 +1220,8 @@ firstFamilyPattern matches = do
 -- | A data-family pattern matches the representation type. Cast the
 -- scrutinee with the family axiom. A newtype instance also casts with the
 -- representation axiom, and then binds the field.
-desugarFamilyPatterns :: TcType -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr
-desugarFamilyPatterns resultType argument remaining argumentTypes works representative info = do
+desugarFamilyPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataFamilyInstanceInfo -> ValueM Expr
+desugarFamilyPatterns resultType fallback argument remaining argumentTypes works representative info = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   instanceArguments <- familyInstanceArguments info scrutineeType
   axiomArguments <- mapM convertCheckedType instanceArguments
@@ -1181,12 +1238,12 @@ desugarFamilyPatterns resultType argument remaining argumentTypes works represen
       rooted <- mapM (extendMatchWork argument scrutineeType) works
       expanded <- mapMaybeM (specializeMatchWork (patternKey representative) 1 [field] [childType]) rooted
       let unwrapped = ExCast scrutinee (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments))
-      body <- desugarMatchArguments resultType (field : remaining) (childType : restTypes) expanded
+      body <- desugarMatchArguments resultType fallback (field : remaining) (childType : restTypes) expanded
       pure (ExLet (Bind field unwrapped) body)
     else do
       representationType <- convertCheckedType (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
       caseBinder <- freshBinderFromType "_scrut" representationType
-      desugarScrutineePatterns resultType (ExCast scrutinee familyCoercion) caseBinder argument remaining argumentTypes works
+      desugarScrutineePatterns resultType fallback (ExCast scrutinee familyCoercion) caseBinder argument remaining argumentTypes works
 
 firstNewtypePattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataTypeInfo))
 firstNewtypePattern matches = do
@@ -1211,8 +1268,8 @@ patternConstructorSourceName pattern' =
     Syn.PInfix _ name _ -> Just name
     _ -> Nothing
 
-desugarNewtypePatterns :: TcType -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataTypeInfo -> ValueM Expr
-desugarNewtypePatterns resultType argument remaining argumentTypes works representative dataType = do
+desugarNewtypePatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> Syn.Pattern -> DataTypeInfo -> ValueM Expr
+desugarNewtypePatterns resultType fallback argument remaining argumentTypes works representative dataType = do
   (scrutineeType, restTypes) <- requiredArgumentTypes argumentTypes
   child <-
     case patternChildren representative of
@@ -1227,7 +1284,7 @@ desugarNewtypePatterns resultType argument remaining argumentTypes works represe
   let tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
       unwrapped = ExCast (ExVar (binderName argument)) (CoAxiom axiom convertedArguments)
-  body <- desugarMatchArguments resultType (field : remaining) (childType : restTypes) expanded
+  body <- desugarMatchArguments resultType fallback (field : remaining) (childType : restTypes) expanded
   pure (ExLet (Bind field unwrapped) body)
 
 mapMaybeM :: (a -> ValueM (Maybe b)) -> [a] -> ValueM [b]
@@ -1256,8 +1313,8 @@ constructorResultType arity ty =
       | arity > 0 -> constructorResultType (arity - 1) result
     _ -> ty
 
-desugarPatternGroup :: TcType -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> ValueM Alt
-desugarPatternGroup resultType remaining restTypes scrutineeType caseBinder works key = do
+desugarPatternGroup :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> TcType -> Binder -> [MatchWork] -> Text -> ValueM Alt
+desugarPatternGroup resultType fallback remaining restTypes scrutineeType caseBinder works key = do
   pattern' <-
     case [candidate | (match, _) <- works, candidate : _ <- [Syn.matchPats match], not (patternIsDefault candidate), patternKey candidate == key] of
       candidate : _ -> pure candidate
@@ -1275,7 +1332,7 @@ desugarPatternGroup resultType remaining restTypes scrutineeType caseBinder work
   body <-
     withDictionaries
       (zipWith Dictionary predicates dictionaries)
-      (desugarMatchArguments resultType (fields <> remaining) (fieldTypes <> restTypes) expanded)
+      (desugarMatchArguments resultType fallback (fields <> remaining) (fieldTypes <> restTypes) expanded)
   pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
 specializeMatchWork :: Text -> Int -> [Binder] -> [TcType] -> MatchWork -> ValueM (Maybe MatchWork)
@@ -1557,9 +1614,10 @@ rhsHasGuards rhs =
 
 -- | The expression that the remaining equations give when every guard of
 -- the current equation fails. An equation without guards does not need it.
-matchFailure :: TcType -> [Binder] -> [TcType] -> Syn.Rhs Syn.Expr -> [MatchWork] -> ValueM (Maybe Expr)
-matchFailure resultType binders argumentTypes rhs rest
-  | rhsHasGuards rhs && not (null rest) = Just <$> desugarMatchArguments resultType binders argumentTypes rest
+matchFailure :: TcType -> Maybe Expr -> [Binder] -> [TcType] -> Syn.Rhs Syn.Expr -> [MatchWork] -> ValueM (Maybe Expr)
+matchFailure resultType fallback binders argumentTypes rhs rest
+  | rhsHasGuards rhs && not (null rest) = Just <$> desugarMatchArguments resultType fallback binders argumentTypes rest
+  | rhsHasGuards rhs = pure fallback
   | otherwise = pure Nothing
 
 -- | Desugar guarded alternatives in order. A later alternative is the
@@ -2345,6 +2403,12 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
     Syn.PAs name inner -> do
       locals <- binderEntry name binder ty
       withLocals locals (desugarPatternWithFailure resultType binder ty inner success failure)
+    Syn.PView viewFunction inner -> do
+      function <- desugarExpr viewFunction
+      innerType <- requiredPatternType inner
+      viewBinder <- freshPatternBinder inner innerType
+      body <- desugarPatternWithFailure resultType viewBinder innerType inner success failure
+      pure (ExLet (Bind viewBinder (ExApp function (ExVar (binderName binder)))) body)
     _ -> desugarDoConstructorPattern resultType binder pattern' success failure
 
 desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
@@ -2466,10 +2530,10 @@ desugarCase resultType scrutinee alternatives = do
     _ -> do
       let matches = map caseAlternativeMatch alternatives
       case scrutinee' of
-        ExVar name -> desugarMatchArguments resultType [Binder name convertedType] [scrutineeType] (map emptyMatchWork matches)
+        ExVar name -> desugarMatchArguments resultType Nothing [Binder name convertedType] [scrutineeType] (map emptyMatchWork matches)
         _ -> do
           binder <- freshBinder "_case" scrutineeType
-          body <- desugarMatchArguments resultType [binder] [scrutineeType] (map emptyMatchWork matches)
+          body <- desugarMatchArguments resultType Nothing [binder] [scrutineeType] (map emptyMatchWork matches)
           pure (ExLet (Bind binder scrutinee') body)
 
 caseAlternativeMatch :: Syn.CaseAlt Syn.Expr -> Syn.Match
