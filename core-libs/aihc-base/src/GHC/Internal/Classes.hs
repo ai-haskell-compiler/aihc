@@ -9,11 +9,26 @@ where
 
 import Data.Bool (not)
 import GHC.Classes (Eq (..), Ord (..))
-import GHC.Int (Int (..))
+import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Integer (Integer, compareInteger#, eqInteger#)
-import GHC.Prim (Int#, Word#, compareInt#, eqWord#, ltWord#, word64ToWord#, word8ToWord#, (==#))
+import GHC.Prim
+  ( Int#,
+    Word#,
+    compareInt#,
+    eqWord#,
+    int16ToInt#,
+    int32ToInt#,
+    int64ToInt#,
+    int8ToInt#,
+    ltWord#,
+    word16ToWord#,
+    word32ToWord#,
+    word64ToWord#,
+    word8ToWord#,
+    (==#),
+  )
 import GHC.Types (Bool (..), Ordering (..))
-import GHC.Word (Word (..), Word64 (..), Word8 (..))
+import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 instance Eq Bool where
   False == False = True
@@ -55,8 +70,32 @@ instance Eq Word8 where
   W8# left == W8# right = wordEquals (word8ToWord# left) (word8ToWord# right)
   left /= right = not (left == right)
 
+instance Eq Word16 where
+  W16# left == W16# right = wordEquals (word16ToWord# left) (word16ToWord# right)
+  left /= right = not (left == right)
+
+instance Eq Word32 where
+  W32# left == W32# right = wordEquals (word32ToWord# left) (word32ToWord# right)
+  left /= right = not (left == right)
+
 instance Eq Word64 where
   W64# left == W64# right = wordEquals (word64ToWord# left) (word64ToWord# right)
+  left /= right = not (left == right)
+
+instance Eq Int8 where
+  I8# left == I8# right = intEquals (int8ToInt# left) (int8ToInt# right)
+  left /= right = not (left == right)
+
+instance Eq Int16 where
+  I16# left == I16# right = intEquals (int16ToInt# left) (int16ToInt# right)
+  left /= right = not (left == right)
+
+instance Eq Int32 where
+  I32# left == I32# right = intEquals (int32ToInt# left) (int32ToInt# right)
+  left /= right = not (left == right)
+
+instance Eq Int64 where
+  I64# left == I64# right = intEquals (int64ToInt# left) (int64ToInt# right)
   left /= right = not (left == right)
 
 instance Ord Bool where
@@ -113,6 +152,24 @@ instance Ord Word8 where
   max = classesMaxBy compareWord8
   min = classesMinBy compareWord8
 
+instance Ord Word16 where
+  compare = compareWord16
+  left < right = classesLessBy compareWord16 left right
+  left <= right = classesLessOrEqualBy compareWord16 left right
+  left > right = classesGreaterBy compareWord16 left right
+  left >= right = classesGreaterOrEqualBy compareWord16 left right
+  max = classesMaxBy compareWord16
+  min = classesMinBy compareWord16
+
+instance Ord Word32 where
+  compare = compareWord32
+  left < right = classesLessBy compareWord32 left right
+  left <= right = classesLessOrEqualBy compareWord32 left right
+  left > right = classesGreaterBy compareWord32 left right
+  left >= right = classesGreaterOrEqualBy compareWord32 left right
+  max = classesMaxBy compareWord32
+  min = classesMinBy compareWord32
+
 instance Ord Word64 where
   compare = compareWord64
   left < right = classesLessBy compareWord64 left right
@@ -121,6 +178,42 @@ instance Ord Word64 where
   left >= right = classesGreaterOrEqualBy compareWord64 left right
   max = classesMaxBy compareWord64
   min = classesMinBy compareWord64
+
+instance Ord Int8 where
+  compare = compareInt8
+  left < right = classesLessBy compareInt8 left right
+  left <= right = classesLessOrEqualBy compareInt8 left right
+  left > right = classesGreaterBy compareInt8 left right
+  left >= right = classesGreaterOrEqualBy compareInt8 left right
+  max = classesMaxBy compareInt8
+  min = classesMinBy compareInt8
+
+instance Ord Int16 where
+  compare = compareInt16
+  left < right = classesLessBy compareInt16 left right
+  left <= right = classesLessOrEqualBy compareInt16 left right
+  left > right = classesGreaterBy compareInt16 left right
+  left >= right = classesGreaterOrEqualBy compareInt16 left right
+  max = classesMaxBy compareInt16
+  min = classesMinBy compareInt16
+
+instance Ord Int32 where
+  compare = compareInt32
+  left < right = classesLessBy compareInt32 left right
+  left <= right = classesLessOrEqualBy compareInt32 left right
+  left > right = classesGreaterBy compareInt32 left right
+  left >= right = classesGreaterOrEqualBy compareInt32 left right
+  max = classesMaxBy compareInt32
+  min = classesMinBy compareInt32
+
+instance Ord Int64 where
+  compare = compareInt64
+  left < right = classesLessBy compareInt64 left right
+  left <= right = classesLessOrEqualBy compareInt64 left right
+  left > right = classesGreaterBy compareInt64 left right
+  left >= right = classesGreaterOrEqualBy compareInt64 left right
+  max = classesMaxBy compareInt64
+  min = classesMinBy compareInt64
 
 compareBool :: Bool -> Bool -> Ordering
 compareBool False False = EQ
@@ -149,8 +242,32 @@ compareWord (W# left) (W# right) = compareWord# left right
 compareWord8 :: Word8 -> Word8 -> Ordering
 compareWord8 (W8# left) (W8# right) = compareWord# (word8ToWord# left) (word8ToWord# right)
 
+compareWord16 :: Word16 -> Word16 -> Ordering
+compareWord16 (W16# left) (W16# right) = compareWord# (word16ToWord# left) (word16ToWord# right)
+
+compareWord32 :: Word32 -> Word32 -> Ordering
+compareWord32 (W32# left) (W32# right) = compareWord# (word32ToWord# left) (word32ToWord# right)
+
 compareWord64 :: Word64 -> Word64 -> Ordering
 compareWord64 (W64# left) (W64# right) = compareWord# (word64ToWord# left) (word64ToWord# right)
+
+compareInt8 :: Int8 -> Int8 -> Ordering
+compareInt8 (I8# left) (I8# right) = orderingFromInt# (compareInt# (int8ToInt# left) (int8ToInt# right))
+
+compareInt16 :: Int16 -> Int16 -> Ordering
+compareInt16 (I16# left) (I16# right) = orderingFromInt# (compareInt# (int16ToInt# left) (int16ToInt# right))
+
+compareInt32 :: Int32 -> Int32 -> Ordering
+compareInt32 (I32# left) (I32# right) = orderingFromInt# (compareInt# (int32ToInt# left) (int32ToInt# right))
+
+compareInt64 :: Int64 -> Int64 -> Ordering
+compareInt64 (I64# left) (I64# right) = orderingFromInt# (compareInt# (int64ToInt# left) (int64ToInt# right))
+
+intEquals :: Int# -> Int# -> Bool
+intEquals left right =
+  case (==#) left right of
+    0# -> False
+    _ -> True
 
 wordEquals :: Word# -> Word# -> Bool
 wordEquals left right =

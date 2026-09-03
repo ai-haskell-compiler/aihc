@@ -11,6 +11,7 @@ module GHC.Prim.Integer
     integerBit#,
     integerComplement,
     integerFromTwoWords#,
+    integerFromWord#,
     integerMul,
     integerNegate,
     integerQuotRem,
