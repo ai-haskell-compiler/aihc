@@ -568,8 +568,8 @@ zonkKind kind =
       pure (TcTyVar (setTyVarKind kind' tyVar))
     TcTyCon tyCon arguments -> do
       tyCon' <- configuredTyCon tyCon
-      maybeInfo <- lookupTyConByIdentity tyCon'
-      case maybeInfo >>= tciTypeSynonym of
+      maybeSynonym <- lookupKindSynonym tyCon'
+      case maybeSynonym of
         Just synonym
           | Just {} <- tsiBody synonym,
             length arguments >= length (tsiParams synonym) ->
@@ -593,6 +593,17 @@ zonkKind kind =
             <*> mapM zonkKindPred antecedents
             <*> zonkKindPred consequent
     zonkVariable variable = setTyVarKind <$> zonkKind (tvKind variable) <*> pure variable
+
+-- | The synonym declaration of a type constructor in a kind, if it has one.
+--
+-- A promoted data constructor is never a synonym. The common kind
+-- constructors @BoxedRep@ and @Lifted@ thus need no environment lookup.
+lookupKindSynonym :: TyCon -> TcM (Maybe TypeSynonymInfo)
+lookupKindSynonym tyCon
+  | tyConNamespace tyCon == ResolutionNamespaceTerm = pure Nothing
+  | otherwise = do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      pure (maybeInfo >>= tciTypeSynonym)
 
 defaultKindMetas :: TcType -> TcM TcType
 defaultKindMetas kind =

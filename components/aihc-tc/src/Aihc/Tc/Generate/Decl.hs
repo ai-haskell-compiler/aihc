@@ -110,7 +110,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -618,7 +618,7 @@ globalStateKeys state =
       globalTyConKeys = Map.keysSet (tcsGlobalTyCons state),
       globalDataTypeKeys = Map.keysSet (tcsDataTypes state),
       globalClassKeys = Map.keysSet (tcsClasses state),
-      globalInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances state)),
+      globalInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances state))),
       globalDataFamilyInstanceKeys = Map.keysSet (tcsDataFamilyInstances state),
       globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state),
       globalPatSynKeys = Map.keysSet (tcsPatSyns state)
@@ -631,7 +631,7 @@ defaultGlobalKindMetas initialKeys = do
   tyCons <- traverseNewMap globalTyConKeys defaultTyConInfoKinds (tcsGlobalTyCons state)
   dataTypes <- traverseNewMap globalDataTypeKeys defaultDataTypeKinds (tcsDataTypes state)
   classes <- traverseNewMap globalClassKeys defaultClassKinds (tcsClasses state)
-  instances <- mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (tcsInstances state)
+  instances <- instanceEnvFromList <$> mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (instanceEnvList (tcsInstances state))
   dataFamilyInstances <- traverseNewMap globalDataFamilyInstanceKeys defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
   typeFamilyInstances <- traverseNewMap globalTypeFamilyInstanceKeys defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
   patSyns <- traverseNewMap globalPatSynKeys defaultPatSynKinds (tcsPatSyns state)
@@ -648,11 +648,12 @@ defaultGlobalKindMetas initialKeys = do
           tcsTypeFamilyInstances = typeFamilyInstances
         }
   where
-    traverseNewMap selectKeys transform =
-      Map.traverseWithKey $ \key value ->
-        if key `Set.member` selectKeys initialKeys
-          then pure value
-          else transform value
+    -- Only the entries that this component added need defaulting. Restrict
+    -- the walk to them before the traversal.
+    traverseNewMap selectKeys transform current = do
+      let fresh = Map.withoutKeys current (selectKeys initialKeys)
+      defaulted <- traverse transform fresh
+      pure (Map.union defaulted current)
     traverseNewList selectKeys key transform value
       | key value `Set.member` selectKeys initialKeys = pure value
       | otherwise = transform value

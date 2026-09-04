@@ -47,6 +47,7 @@ module Aihc.Tc.Monad
     lookupTerm,
     lookupKnownTerm,
     lookupResolvedTerm,
+    lookupTermKey,
     resolvedTermKey,
     resolvedTargetTermKey,
     resolvedTermTarget,
@@ -88,6 +89,7 @@ module Aihc.Tc.Monad
     withTcLevel,
     addInstance,
     getInstances,
+    getClassInstances,
     addDataFamilyInstance,
     getDataFamilyInstances,
     addTypeFamilyInstance,
@@ -118,7 +120,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -295,7 +297,7 @@ data TcState = TcState
     -- | Type classes in scope, including their superclass layouts and defaults.
     tcsClasses :: !(Map TcTypeKey ClassInfo),
     -- | Class instances in scope.
-    tcsInstances :: ![InstanceInfo],
+    tcsInstances :: !InstanceEnv,
     -- | Standalone data-family instance equations in scope.
     tcsDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
     -- | Type-family equations in scope.
@@ -322,7 +324,7 @@ initTcState =
       tcsDataTypes = Map.empty,
       tcsPatSyns = Map.empty,
       tcsClasses = Map.empty,
-      tcsInstances = [],
+      tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
       tcsTypeFamilyInstances = Map.empty,
       tcsGadtCons = Set.empty
@@ -691,12 +693,17 @@ lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)
 addInstance :: InstanceInfo -> TcM ()
 addInstance instanceInfo = do
   instances <- lift $ gets tcsInstances
-  when (any ((== instanceInfoKey instanceInfo) . instanceInfoKey) instances) $
+  when (any ((== instanceInfoKey instanceInfo) . instanceInfoKey) (instanceEnvList instances)) $
     abortTc ("duplicate instance state key: " <> show (iiDictName instanceInfo))
-  lift $ modify' $ \state -> state {tcsInstances = instanceInfo : instances}
+  lift $ modify' $ \state -> state {tcsInstances = addInstanceEnv instanceInfo instances}
 
+-- | Every instance in scope, most recent first.
 getInstances :: TcM [InstanceInfo]
-getInstances = lift $ gets tcsInstances
+getInstances = lift $ gets (instanceEnvList . tcsInstances)
+
+-- | The instances of a class by source name, most recent first.
+getClassInstances :: Text -> TcM [InstanceInfo]
+getClassInstances className = lift $ gets (instanceEnvForClass className . tcsInstances)
 
 addDataFamilyInstance :: DataFamilyInstanceInfo -> TcM ()
 addDataFamilyInstance instanceInfo = do
@@ -752,9 +759,10 @@ lookupDeclaredClass name = do
   maybe (pure Nothing) (lookupClass . tciTyCon) maybeInfo
 
 insertNewMap :: (Ord key, Show key) => String -> key -> value -> Map key value -> TcM (Map key value)
-insertNewMap label key value entries
-  | Map.member key entries = abortTc ("duplicate " <> label <> " key: " <> show key)
-  | otherwise = pure (Map.insert key value entries)
+insertNewMap label key value entries =
+  case Map.insertLookupWithKey (\_ _ existing -> existing) key value entries of
+    (Nothing, entries') -> pure entries'
+    (Just _, _) -> abortTc ("duplicate " <> label <> " key: " <> show key)
 
 replaceMapEntry :: (Ord key, Show key) => String -> key -> value -> Map key value -> TcM (Map key value)
 replaceMapEntry label key value entries

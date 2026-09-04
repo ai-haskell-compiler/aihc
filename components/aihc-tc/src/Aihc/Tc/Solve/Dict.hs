@@ -22,7 +22,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -72,7 +72,7 @@ solveDictWithGivensVisited visited givens ct
               case (tyConName className, args') of
                 ("Typeable", [ty]) -> tryTypeable className ty
                 _ -> do
-                  instances <- getInstances
+                  instances <- getClassInstances (tyConName className)
                   tryInstances (ctPred ct : visited) className args' instances
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
