@@ -37,6 +37,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Dict (DictResult (..), matchTypes, solveDictWithGivens)
 import Aihc.Tc.Types
 import Data.List (find, nub)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -46,17 +47,79 @@ finalizeDerivingModulesTc moduleOrigins modules = do
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
       originalOrigins = concat (zipWith (\origin modu -> replicate (length (moduleDerivingPlans modu)) origin) moduleOrigins modules)
-  contextPlans <- mapM (inferPlanContext existingInstances originalPlans) originalPlans
+      environment = derivingEnv existingInstances originalPlans
+  contextPlans <- mapM (inferPlanContext environment) originalPlans
   let derivedInstances = mapMaybe (uncurry derivingPlanInstanceInfo) (zip originalOrigins contextPlans)
   mapM_ addInstance derivedInstances
   evidencePlans <- mapM attachDerivingEvidence contextPlans
   pure (map (replaceModulePlans evidencePlans) modules)
 
-inferPlanContext :: [InstanceInfo] -> [TcDerivingPlan] -> TcDerivingPlan -> TcM TcDerivingPlan
-inferPlanContext existingInstances plans plan =
+-- | Everything context simplification needs about the batch: the instances
+-- and deriving plans in scope, indexed by class source name, and the context
+-- inferred for each plan whose context is left to the compiler.
+--
+-- Instance and plan lists keep their original order, because simplification
+-- commits to the first alternative that succeeds.
+data DerivingEnv = DerivingEnv
+  { derivingEnvInstances :: !(Map Text [InstanceInfo]),
+    derivingEnvPlans :: !(Map Text [TcDerivingPlan]),
+    derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred]))
+  }
+
+derivingEnv :: [InstanceInfo] -> [TcDerivingPlan] -> DerivingEnv
+derivingEnv existingInstances plans =
+  base {derivingEnvContexts = solveContexts (length inferable + 2) (Map.fromList (map initialContext inferable))}
+  where
+    base =
+      DerivingEnv
+        { derivingEnvInstances = groupByClass iiClassName existingInstances,
+          derivingEnvPlans = groupByClass tcDerivingClassName plans,
+          derivingEnvContexts = Map.empty
+        }
+    groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
+
+    inferable = [(plan, obligations) | plan <- plans, Just obligations <- [inferableObligations plan]]
+
+    -- A plan that mentions itself starts out with the context the old
+    -- depth-first search cut a cycle with: anyclass deriving rejects the
+    -- cycle, stock Eq assumes the recursive occurrence needs nothing.
+    initialContext (plan, _)
+      | tcDerivingStrategy plan == TcDerivingAnyclass = (planKey plan, Left (planPredicate plan))
+      | otherwise = (planKey plan, Right [])
+
+    -- Contexts are inferred simultaneously, so a plan can refer to a plan
+    -- declared later, or to itself through a cycle, without the search
+    -- re-deriving the same plan once per path through the batch.
+    solveContexts :: Int -> Map PlanKey (Either Pred [Pred]) -> Map PlanKey (Either Pred [Pred])
+    solveContexts fuel contexts
+      | fuel <= 0 = contexts
+      | next == contexts = contexts
+      | otherwise = solveContexts (fuel - 1) next
+      where
+        environment = base {derivingEnvContexts = contexts}
+        next =
+          Map.fromList
+            [ (planKey plan, nub . concat <$> mapM (simplifyPredicate environment plan) obligations)
+            | (plan, obligations) <- inferable
+            ]
+
+-- | The obligations of a plan whose context the compiler has to infer, or
+-- 'Nothing' when the plan carries its context or needs no inference.
+inferableObligations :: TcDerivingPlan -> Maybe [Pred]
+inferableObligations plan =
+  case (tcDerivingStrategy plan, tcDerivingContext plan) of
+    (TcDerivingAnyclass, TcDerivingInferContext) -> Just (anyClassObligations plan)
+    (TcDerivingStock, TcDerivingInferContext)
+      | tcDerivingClassName plan == "Eq",
+        Right obligations <- stockEqObligations plan ->
+          Just (concat obligations)
+    _ -> Nothing
+
+inferPlanContext :: DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
+inferPlanContext environment plan =
   case (tcDerivingStrategy plan, tcDerivingContext plan) of
     (TcDerivingAnyclass, TcDerivingInferContext) ->
-      case inferAnyClassContext existingInstances plans [] plan of
+      case inferredContext environment plan of
         Left predicate -> do
           emitError
             (tcDerivingSourceSpan plan)
@@ -70,11 +133,11 @@ inferPlanContext existingInstances plans plan =
             Left message -> do
               emitError (tcDerivingSourceSpan plan) (OtherError message)
               pure plan
-            Right obligations ->
+            Right _ ->
               case context of
                 TcDerivingExplicitContext {} -> pure plan
                 TcDerivingInferContext ->
-                  case inferStockEqContext existingInstances plans [] plan obligations of
+                  case inferredContext environment plan of
                     Left predicate -> do
                       emitError
                         (tcDerivingSourceSpan plan)
@@ -84,39 +147,18 @@ inferPlanContext existingInstances plans plan =
                       pure plan {tcDerivingContext = TcDerivingExplicitContext inferred}
     _ -> pure plan
 
-inferAnyClassContext :: [InstanceInfo] -> [TcDerivingPlan] -> [PlanKey] -> TcDerivingPlan -> Either Pred [Pred]
-inferAnyClassContext existingInstances plans stack plan
-  | key `elem` stack = Left (planPredicate plan)
-  | otherwise =
-      nub . concat
-        <$> mapM
-          (simplifyPredicate existingInstances plans (key : stack) plan)
-          (anyClassObligations plan)
-  where
-    key = planKey plan
+inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
+inferredContext environment plan =
+  Map.findWithDefault (Left (planPredicate plan)) (planKey plan) (derivingEnvContexts environment)
 
-inferStockEqContext :: [InstanceInfo] -> [TcDerivingPlan] -> [PlanKey] -> TcDerivingPlan -> [[Pred]] -> Either Pred [Pred]
-inferStockEqContext existingInstances plans stack plan obligations
-  | key `elem` stack = Right []
-  | otherwise =
-      nub . concat
-        <$> mapM
-          (simplifyPredicate existingInstances plans (key : stack) plan)
-          (concat obligations)
-  where
-    key = planKey plan
-
-simplifyPredicate :: [InstanceInfo] -> [TcDerivingPlan] -> [PlanKey] -> TcDerivingPlan -> Pred -> Either Pred [Pred]
-simplifyPredicate existingInstances plans stack owner predicate
+simplifyPredicate :: DerivingEnv -> TcDerivingPlan -> Pred -> Either Pred [Pred]
+simplifyPredicate environment owner predicate
   | isBareVariablePredicate (tcDerivingTyVars owner) predicate = Right [predicate]
-  | Just key <- predicatePlanKey predicate,
-    key `elem` stack =
-      Right []
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       concat
         <$> mapM
-          (simplifyPredicate existingInstances plans stack owner . ClassPred typeableTyCon . (: []))
+          (simplifyPredicate environment owner . ClassPred typeableTyCon . (: []))
           arguments
   | otherwise =
       case firstSuccessful (map simplifyExisting matchingExisting <> map simplifyDerived matchingDerived) of
@@ -125,40 +167,37 @@ simplifyPredicate existingInstances plans stack owner predicate
           | isAdmissibleContextPredicate owner predicate -> Right [predicate]
           | otherwise -> Left predicate
   where
+    className = predClassName predicate
     matchingExisting =
       [ (instanceInfo, substitution)
-      | instanceInfo <- existingInstances,
+      | instanceInfo <- Map.findWithDefault [] className (derivingEnvInstances environment),
         predIsForInstance predicate instanceInfo,
         Just substitution <- [matchTypes (iiHead instanceInfo) (predArguments predicate)]
       ]
     matchingDerived =
       [ (candidate, substitution)
-      | candidate <- plans,
+      | candidate <- Map.findWithDefault [] className (derivingEnvPlans environment),
         predIsForPlan predicate candidate,
         Just substitution <- [matchTypes (tcDerivingHeadTypes candidate) (predArguments predicate)]
       ]
     simplifyExisting (instanceInfo, substitution) =
       concat
         <$> mapM
-          (simplifyPredicate existingInstances plans stack owner . applySubstPred substitution)
+          (simplifyPredicate environment owner . applySubstPred substitution)
           (iiContext instanceInfo)
     simplifyDerived (candidate, substitution) = do
       context <- candidateContext candidate
       concat
         <$> mapM
-          (simplifyPredicate existingInstances plans stack owner . applySubstPred substitution)
+          (simplifyPredicate environment owner . applySubstPred substitution)
           context
     candidateContext candidate =
       case tcDerivingContext candidate of
         TcDerivingExplicitContext context -> Right context
-        TcDerivingInferContext
-          | tcDerivingStrategy candidate == TcDerivingAnyclass ->
-              inferAnyClassContext existingInstances plans stack candidate
-          | tcDerivingStrategy candidate == TcDerivingStock,
-            tcDerivingClassName candidate == "Eq",
-            Right obligations <- stockEqObligations candidate ->
-              inferStockEqContext existingInstances plans stack candidate obligations
-          | otherwise -> Left predicate
+        TcDerivingInferContext ->
+          case Map.lookup (planKey candidate) (derivingEnvContexts environment) of
+            Just context -> context
+            Nothing -> Left predicate
 
 firstSuccessful :: [Either error value] -> Maybe value
 firstSuccessful results =
@@ -375,14 +414,6 @@ type PlanKey = (Text, [TcType])
 
 planKey :: TcDerivingPlan -> PlanKey
 planKey plan = (tcDerivingClassName plan, tcDerivingHeadTypes plan)
-
-predicatePlanKey :: Pred -> Maybe PlanKey
-predicatePlanKey predicate =
-  case predicate of
-    ClassPred className arguments -> Just (tyConName className, arguments)
-    EqPred {} -> Nothing
-    QuantifiedPred {} -> Nothing
-    IParamPred {} -> Nothing
 
 planPredicate :: TcDerivingPlan -> Pred
 planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
