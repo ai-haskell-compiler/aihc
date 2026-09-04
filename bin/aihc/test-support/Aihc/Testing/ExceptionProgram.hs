@@ -99,6 +99,7 @@ putcharCall =
   GrinForeignCall
     { grinForeignCallName = "$ffi$putchar",
       grinForeignCallSymbol = "putchar",
+      grinForeignCallTarget = GrinForeignFunction,
       grinForeignCallSignature =
         GrinForeignSignature
           { grinForeignArgumentTypes = [GrinForeignInt32],

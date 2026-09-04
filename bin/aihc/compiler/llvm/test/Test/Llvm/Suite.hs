@@ -39,6 +39,8 @@ tests =
       testCase "lowers byte-array primitives" testByteArrayPrimitives,
       testCase "executes platform Int foreign calls" (testProgram "L" foreignIntProgram),
       testCase "executes Int# addition" (testProgram "*" intAddProgram),
+      testCase "takes the address of static foreign symbols" (testProgram "A" symbolAddressProgram),
+      testCase "declares address foreign imports as external data" testSymbolAddressDeclarations,
       testCase "preserves first-match case semantics" (testProgram "F" firstMatchCaseProgram),
       testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
       testCase "keeps static root entries in llvm.used" testStaticRootEntries,
@@ -205,6 +207,87 @@ verifyModule source =
         ["-Wno-override-module", "-c", sourcePath, "-o", objectPath]
         ""
     assertEqual ("clang rejected generated LLVM IR:\n" <> clangErr) ExitSuccess clangExit
+
+-- | Two address imports of distinct C symbols must produce distinct, real
+-- addresses, so the program prints @A@ only when the linker resolved both.
+symbolAddressProgram :: GrinProgram
+symbolAddressProgram =
+  GrinProgram
+    { grinConstructors = [("()", [])],
+      grinPrimitives = [(GrinVar "eqAddr#" 60 IntRep, 2)],
+      grinForeignCalls = [putcharAddressCall, putsAddressCall, putcharCall],
+      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainFunction,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind [putcharAddress] (GrinForeignCallExpr putcharAddressCall []) $
+                  GrinBind [putsAddress] (GrinForeignCallExpr putsAddressCall []) $
+                    GrinBind [same] (GrinPrimitiveCall IntRep "eqAddr#" [GrinVarValue putcharAddress, GrinVarValue putsAddress]) $
+                      GrinCase
+                        (GrinVarValue same)
+                        caseBinder
+                        [ outputAlternative (GrinLitAlt (GrinLitInt IntRep 0)) 'A' successOutput,
+                          outputAlternative GrinDefaultAlt '?' failureOutput
+                        ]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    mainFunction = FunctionName "$symbol_address_main"
+    mainClosure = GrinVar "main" 61 lifted
+    putcharAddress = GrinVar "putchar_address" 62 AddrRep
+    putsAddress = GrinVar "puts_address" 63 AddrRep
+    same = GrinVar "same" 64 IntRep
+    caseBinder = GrinVar "case_binder" 65 IntRep
+    successOutput = GrinVar "success_output" 66 Int32Rep
+    failureOutput = GrinVar "failure_output" 67 Int32Rep
+    unitValue = GrinVar "()" 68 lifted
+    outputAlternative constructor character output =
+      GrinAlt
+        { grinAltCon = constructor,
+          grinAltBinders = [],
+          grinAltRhs =
+            GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
+              GrinConstant [GrinGlobalValue (grinVarName unitValue)]
+        }
+
+putcharAddressCall :: GrinForeignCall
+putcharAddressCall = addressCall "putchar"
+
+putsAddressCall :: GrinForeignCall
+putsAddressCall = addressCall "puts"
+
+addressCall :: T.Text -> GrinForeignCall
+addressCall symbol =
+  GrinForeignCall
+    { grinForeignCallName = "$ffi$&" <> symbol,
+      grinForeignCallSymbol = symbol,
+      grinForeignCallTarget = GrinForeignAddress,
+      grinForeignCallSignature =
+        GrinForeignSignature
+          { grinForeignArgumentTypes = [],
+            grinForeignResultType = GrinForeignAddr,
+            grinForeignEffect = GrinForeignPure
+          }
+    }
+
+testSymbolAddressDeclarations :: IO ()
+testSymbolAddressDeclarations = do
+  sources <- compile symbolAddressProgram
+  let source = T.unlines sources
+  assertBool
+    "an address import is declared as external data"
+    ("@puts = external global i8" `T.isInfixOf` source)
+  assertBool
+    "an address import is not declared as a function"
+    (not ("declare i64 @puts(" `T.isInfixOf` source))
+  assertBool
+    "an address import materializes the symbol address"
+    ("ptrtoint ptr @puts to i64" `T.isInfixOf` source)
 
 intAddProgram :: GrinProgram
 intAddProgram =
@@ -442,6 +525,7 @@ putcharCall =
   GrinForeignCall
     { grinForeignCallName = "$ffi$putchar",
       grinForeignCallSymbol = "putchar",
+      grinForeignCallTarget = GrinForeignFunction,
       grinForeignCallSignature =
         GrinForeignSignature
           { grinForeignArgumentTypes = [GrinForeignInt32],
@@ -497,6 +581,7 @@ labsCall =
   GrinForeignCall
     { grinForeignCallName = "$ffi$labs",
       grinForeignCallSymbol = "labs",
+      grinForeignCallTarget = GrinForeignFunction,
       grinForeignCallSignature =
         GrinForeignSignature
           { grinForeignArgumentTypes = [GrinForeignInt],

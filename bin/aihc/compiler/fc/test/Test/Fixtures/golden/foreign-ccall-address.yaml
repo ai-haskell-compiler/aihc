@@ -1,0 +1,45 @@
+---
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Addr#)
+
+  data Unit = Unit
+  data Ptr a = Ptr Addr#
+
+  foreign import ccall "&puts" putsAddress :: Ptr Unit
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tAddr# :: 3.tTYPE 3.vAddrRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vAddrRep :: 3.tRuntimeRep;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub type 1.tUnit :: 3.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub type 1.tPtr (a : 3.tType) :: 3.tType {
+      pub 1.vPtr :: ∀(a : 3.tType). FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (1.tPtr a)
+  }
+
+  pub foreign import ccall address safe "puts" [ → Addr; pure] using [constructor 1.vPtr] 1.vputsAddress :: 1.tPtr 1.tUnit
+status: pass
+reason: an address entity keeps the symbol but marks the import as taking its address

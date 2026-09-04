@@ -21,6 +21,7 @@ module Aihc.Fc.Syntax
     ForeignImportDependency (..),
     CallingConvention (..),
     CCallSpec (..),
+    CCallTarget (..),
     CAbiType (..),
     ForeignEffect (..),
     ForeignSafety (..),
@@ -192,11 +193,19 @@ data CallingConvention
 
 data CCallSpec = CCallSpec
   { ccallSymbol :: Text,
+    ccallTarget :: CCallTarget,
     ccallSafety :: ForeignSafety,
     ccallArgumentTypes :: [CAbiType],
     ccallResultType :: CAbiType,
     ccallEffect :: ForeignEffect
   }
+  deriving (Eq, Ord, Show, Read)
+
+-- | What a C entity string names: a function to call, or a static symbol
+-- whose address is the imported value (@foreign import ccall "&sym"@).
+data CCallTarget
+  = CCallFunction
+  | CCallAddress
   deriving (Eq, Ord, Show, Read)
 
 data CAbiType

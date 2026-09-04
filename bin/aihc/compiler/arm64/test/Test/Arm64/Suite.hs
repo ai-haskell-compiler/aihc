@@ -160,6 +160,7 @@ tests =
               GrinForeignCall
                 { grinForeignCallName = "$ffi$puts",
                   grinForeignCallSymbol = "puts",
+                  grinForeignCallTarget = GrinForeignFunction,
                   grinForeignCallSignature =
                     GrinForeignSignature
                       { grinForeignArgumentTypes = [GrinForeignAddr],
@@ -186,6 +187,38 @@ tests =
         assertBool "loads the static string address" (".Laihc_addr_0" `T.isInfixOf` listing)
         assertBool "emits NUL-terminated Latin-1" ("ff0062617200" `T.isInfixOf` T.filter (/= ' ') listing)
         assertBool "calls puts" ("_puts" `T.isInfixOf` listing),
+      testCase "materializes the address of a static foreign symbol" $ do
+        let functionName = FunctionName "table_addr"
+            foreignCall =
+              GrinForeignCall
+                { grinForeignCallName = "$ffi$hs_table",
+                  grinForeignCallSymbol = "hs_table",
+                  grinForeignCallTarget = GrinForeignAddress,
+                  grinForeignCallSignature =
+                    GrinForeignSignature
+                      { grinForeignArgumentTypes = [],
+                        grinForeignResultType = GrinForeignAddr,
+                        grinForeignEffect = GrinForeignPure
+                      }
+                }
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [foreignCall],
+                  grinGlobals = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = AddrRep,
+                          grinFunctionBody = GrinForeignCallExpr foreignCall []
+                        }
+                    ]
+                }
+        listing <- compileModuleListing (expectGcGrin program)
+        assertBool "takes the symbol address" (any (\line -> "adrp" `T.isInfixOf` line && "_hs_table" `T.isInfixOf` line) (T.lines listing))
+        assertBool "does not call the symbol" (not (any (\line -> "bl" `T.isPrefixOf` T.stripStart line && "_hs_table" `T.isInfixOf` line) (T.lines listing))),
       testCase "returns unboxed tuples as direct machine values" $ do
         let functionName = FunctionName "pair_code"
             program =

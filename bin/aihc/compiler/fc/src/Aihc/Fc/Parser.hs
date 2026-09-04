@@ -193,20 +193,25 @@ callingConvention =
   MP.choice
     [ keyword "prim" $> Prim,
       makeCCall
-        <$> (keyword "ccall" *> foreignSafety)
+        <$> (keyword "ccall" *> callTarget)
+        <*> foreignSafety
         <*> stringLiteral
         <*> MP.between (symbol "[") (symbol "]") foreignSignature
     ]
   where
-    makeCCall safety foreignSymbol (arguments, result, effect) =
+    makeCCall target safety foreignSymbol (arguments, result, effect) =
       CCall
         CCallSpec
           { ccallSymbol = foreignSymbol,
+            ccallTarget = target,
             ccallSafety = safety,
             ccallArgumentTypes = arguments,
             ccallResultType = result,
             ccallEffect = effect
           }
+
+callTarget :: Parser CCallTarget
+callTarget = MP.option CCallFunction (keyword "address" $> CCallAddress)
 
 foreignSafety :: Parser ForeignSafety
 foreignSafety = (keyword "unsafe" $> ForeignUnsafe) <|> (keyword "safe" $> ForeignSafe)

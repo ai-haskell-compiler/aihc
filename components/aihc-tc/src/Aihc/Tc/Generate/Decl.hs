@@ -37,6 +37,7 @@ import Aihc.Parser.Syntax
     ForallTelescope (..),
     ForeignDecl (..),
     ForeignDirection (..),
+    ForeignEntitySpec (..),
     GadtBody (..),
     IEBundledMember (..),
     InstanceDecl (..),
@@ -1030,8 +1031,25 @@ annotateForeignDeclTc foreignDecl = do
   case foreignCallConv foreignDecl of
     CCall -> do
       plan <- checkForeignImportType sourceSpan ty
-      pure (DeclAnn (mkAnnotation plan) annotated)
+      checkedPlan <- checkForeignEntity sourceSpan (foreignEntity foreignDecl) plan
+      pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     _ -> pure annotated
+
+-- | An address import (@foreign import ccall "&sym"@) names static data
+-- rather than a function, so it takes no arguments and its value is the
+-- symbol address itself.
+checkForeignEntity :: SourceSpan -> ForeignEntitySpec -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
+checkForeignEntity sourceSpan entity plan =
+  case entity of
+    ForeignEntityAddress {} -> do
+      unless (null (tcForeignArguments plan)) $
+        emitError sourceSpan (OtherError "an address foreign import must not take arguments")
+      unless (tcForeignEffect plan == TcForeignPure) $
+        emitError sourceSpan (OtherError "an address foreign import must not return IO")
+      unless (tcForeignAbiType (tcForeignResult plan) == TcForeignAddr) $
+        emitError sourceSpan (OtherError "an address foreign import must produce a pointer")
+      pure plan
+    _ -> pure plan
 
 checkForeignImportType :: SourceSpan -> TcType -> TcM TcForeignImportAnnotation
 checkForeignImportType sourceSpan ty = do

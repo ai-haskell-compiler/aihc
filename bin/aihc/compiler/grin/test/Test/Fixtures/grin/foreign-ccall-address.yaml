@@ -1,0 +1,23 @@
+expected: |-
+  constructor Test.Ptr [AddrRep]
+
+  foreign putsAddress = address "puts" :: () -> addr ! pure
+
+  global "\NULTest\NULPtr" = (CTest.Ptr/1)
+
+  global "\NULTest\NULputsAddress" = (F$grin_putsAddress_foreign_0)
+
+  $grin_putsAddress_foreign_0 -> BoxedRep Lifted =
+    foreign_result :: AddrRep <-
+      foreign-call putsAddress = address "puts" :: () -> addr ! pure with
+    store (CTest.Ptr (foreign_result :: AddrRep))
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+source: |
+  module Test where
+  import GHC.Prim
+  data Ptr a = Ptr Addr#
+  foreign import ccall "&puts" putsAddress :: Ptr ()
+reason: takes the address of a static C symbol instead of calling it, and suspends it as a value
+status: pass

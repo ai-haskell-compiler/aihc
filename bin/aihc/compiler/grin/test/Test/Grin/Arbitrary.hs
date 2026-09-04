@@ -125,7 +125,11 @@ genForeignCall =
   GrinForeignCall
     <$> genText
     <*> genText
+    <*> genForeignTarget
     <*> (GrinForeignSignature <$> smallList genForeignType <*> genForeignType <*> genForeignEffect)
+
+genForeignTarget :: Gen GrinForeignTarget
+genForeignTarget = Gen.element [GrinForeignFunction, GrinForeignAddress]
 
 genForeignEffect :: Gen GrinForeignEffect
 genForeignEffect = Gen.element [GrinForeignPure, GrinForeignRealWorld]

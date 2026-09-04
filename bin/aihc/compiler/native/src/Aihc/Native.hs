@@ -480,6 +480,7 @@ runtimeCall passMachine resultCount primitive symbol arguments result =
           GrinForeignCall
             { grinForeignCallName = "$runtime$" <> symbol,
               grinForeignCallSymbol = symbol,
+              grinForeignCallTarget = GrinForeignFunction,
               grinForeignCallSignature =
                 GrinForeignSignature
                   { grinForeignArgumentTypes = arguments,

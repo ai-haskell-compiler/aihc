@@ -277,7 +277,7 @@ moduleHeader env program =
        | (functionName, label) <- Map.toAscList (compileFunctionLabels env),
          let arity = Map.findWithDefault 0 functionName (compileFunctionArities env)
        ]
-    <> map renderForeignType (grinForeignCalls program)
+    <> [renderForeignType foreignCall | foreignCall <- grinForeignCalls program, grinForeignCallTarget foreignCall == GrinForeignFunction]
     <> [""]
   where
     renderFunctionType (name, (arguments, results)) =
@@ -757,6 +757,10 @@ compileDirectBinding env vars expression =
         ((if passMachine then machine else []) <> materializeValue env pointer <> materializeValue env value <> call function <> materializeValue env value)
 
 compileForeignCall :: ValueEnv -> GrinForeignCall -> [GrinValue] -> Either WasmError Instructions
+compileForeignCall _ foreignCall _
+  -- Taking the address of a static C symbol has no wasm lowering yet.
+  | GrinForeignAddress <- grinForeignCallTarget foreignCall =
+      Left (WasmUnsupportedExpression "address foreign import")
 compileForeignCall env foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
       argumentTypes = grinForeignArgumentTypes signature

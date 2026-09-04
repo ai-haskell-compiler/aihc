@@ -21,6 +21,7 @@ module Aihc.Grin.Syntax
     GrinAltCon (..),
     GrinLiteral (..),
     GrinForeignCall (..),
+    GrinForeignTarget (..),
     GrinForeignSignature (..),
     GrinForeignEffect (..),
     GrinForeignType (..),
@@ -393,8 +394,16 @@ isPointerRuntimeRep runtimeRep =
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,
     grinForeignCallSymbol :: !Text,
+    grinForeignCallTarget :: !GrinForeignTarget,
     grinForeignCallSignature :: !GrinForeignSignature
   }
+  deriving (Eq, Show, Read)
+
+-- | Whether the symbol is called, or is static data whose address is the
+-- result (@foreign import ccall "&sym"@).
+data GrinForeignTarget
+  = GrinForeignFunction
+  | GrinForeignAddress
   deriving (Eq, Show, Read)
 
 data GrinForeignSignature = GrinForeignSignature

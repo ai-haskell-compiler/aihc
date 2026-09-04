@@ -531,6 +531,12 @@ compileRuntimeCallLines env runtimeCall =
   compileCallLines env (nativeRuntimeCallPassMachine runtimeCall) (nativeRuntimeCallForeignCall runtimeCall)
 
 compileCallLines :: ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> FunctionM [Amd64Statement]
+compileCallLines _ _ foreignCall arguments
+  -- An address import materializes the symbol address instead of calling it.
+  | GrinForeignAddress <- grinForeignCallTarget foreignCall =
+      if null arguments
+        then pure [address RAX (grinForeignCallSymbol foreignCall)]
+        else lift (Left (Amd64UnsupportedExpression "address foreign import with arguments"))
 compileCallLines env passMachine foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
       operandArity = length (grinForeignArgumentTypes signature)
