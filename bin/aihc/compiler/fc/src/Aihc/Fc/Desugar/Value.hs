@@ -47,6 +47,7 @@ import Aihc.Tc.Annotations
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
     TcForeignMarshal (..),
+    TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
@@ -587,13 +588,12 @@ desugarForeign annotation foreignPlan foreignDecl =
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
       safety <- convertForeignSafety (Syn.foreignSafety foreignDecl)
-      (target, symbol) <- foreignSymbol foreignDecl
       dependencies <- foreignImportPlanDependencies annotation plan
       let convention =
             CCall
               CCallSpec
-                { ccallSymbol = symbol,
-                  ccallTarget = target,
+                { ccallSymbol = tcForeignSymbol plan,
+                  ccallTarget = convertForeignTarget (tcForeignTarget plan),
                   ccallSafety = safety,
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
@@ -684,19 +684,14 @@ foreignNewtypeDependency dataType =
   let tyCon = dtiTyCon dataType
    in ForeignAxiom (Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
 
--- | The C entity a foreign import names, together with whether the import
--- calls that entity or takes its address (@foreign import ccall "&sym"@).
-foreignSymbol :: Syn.ForeignDecl -> ValueM (CCallTarget, Text)
-foreignSymbol foreignDecl =
-  case Syn.foreignEntity foreignDecl of
-    Syn.ForeignEntityNamed name -> pure (CCallFunction, name)
-    Syn.ForeignEntityStatic (Just name) -> pure (CCallFunction, name)
-    Syn.ForeignEntityOmitted -> pure (CCallFunction, declaredName)
-    Syn.ForeignEntityAddress (Just name) -> pure (CCallAddress, name)
-    Syn.ForeignEntityAddress Nothing -> pure (CCallAddress, declaredName)
-    _ -> failValue "System FC accepts only statically named foreign imports"
-  where
-    declaredName = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
+-- | Whether the import calls the C symbol or takes its address
+-- (@foreign import ccall "&sym"@).  The type checker reads the entity string
+-- and gives this fact in the checked plan.
+convertForeignTarget :: TcForeignTarget -> CCallTarget
+convertForeignTarget target =
+  case target of
+    TcForeignCall -> CCallFunction
+    TcForeignAddress -> CCallAddress
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =
