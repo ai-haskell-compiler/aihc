@@ -14,7 +14,7 @@ module Aihc.Tc.Generalize
 where
 
 import Aihc.Tc.Kind (defaultKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, void)
@@ -60,7 +60,10 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   envMetaVars <- environmentMetaVars ignoredKeys
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
-  let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
+  defaultRuntimeRepMetas envMetaVars ty' preds'
+  ty'' <- zonkType ty'
+  preds'' <- mapM zonkPred preds'
+  let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds''
       uniqueFreeMetaVars = nubOrd freeMetaVars
   mapM_ defaultMetaKind (envMetaVars <> uniqueFreeMetaVars)
   let uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
@@ -68,9 +71,46 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
-  let ty'' = substMetas subst ty'
-  let preds'' = map (substMetasPred subst) preds'
-  pure (ForAll tvs preds'' ty'', subst)
+  let quantifiedTy = substMetas subst ty''
+  let quantifiedPreds = map (substMetasPred subst) preds''
+  pure (ForAll tvs quantifiedPreds quantifiedTy, subst)
+
+-- | Solve every RuntimeRep meta-variable that quantification would capture.
+--
+-- GHC never generalizes over a RuntimeRep variable, so @seqAlias = seq@ gets
+-- the type @a -> b -> b@ instead of a representation-polymorphic scheme. The
+-- representation variables of a binding hide in the /kinds/ of the type's
+-- meta-variables, so we walk those kinds transitively and default each
+-- unsolved RuntimeRep meta-variable to LiftedRep. Meta-variables the
+-- environment already mentions are left alone: they belong to an enclosing
+-- binding that decides their fate.
+defaultRuntimeRepMetas :: [Unique] -> TcType -> [Pred] -> TcM ()
+defaultRuntimeRepMetas envMetaVars ty preds = do
+  reachable <- reachableMetaVars (collectMetaVars ty ++ concatMap predMetaVars preds)
+  mapM_ defaultOne (filter (`notElem` envMetaVars) reachable)
+  where
+    defaultOne unique = do
+      solution <- readMetaTv unique
+      case solution of
+        Just {} -> pure ()
+        Nothing -> do
+          kind <- zonkType =<< readMetaTvKind unique
+          case kind of
+            KRuntimeRep -> writeMetaTv unique liftedRep
+            _ -> pure ()
+
+-- | The meta-variables reachable from a set of roots, following the kind of
+-- each meta-variable. A type such as @a -> b -> b@ does not mention the
+-- RuntimeRep variable of @b@ anywhere except in @b@'s kind.
+reachableMetaVars :: [Unique] -> TcM [Unique]
+reachableMetaVars = go []
+  where
+    go seen [] = pure (reverse seen)
+    go seen (unique : rest)
+      | unique `elem` seen = go seen rest
+      | otherwise = do
+          kind <- zonkType =<< readMetaTvKind unique
+          go (unique : seen) (collectMetaVars kind ++ rest)
 
 -- | Meta-variables that the environment mentions. Generalization does not
 -- quantify over them. The ignored binders are not part of the environment.

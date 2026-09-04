@@ -14,5 +14,6 @@ modules:
 output: |
   42
 expression: applyAlias 42#
-status: xfail
-reason: an unsaturated seq binding retains its RuntimeRep-polymorphic type through generalization
+error: "typecheck error: Test: kind mismatch: expected 'BoxedRep 'Lifted, got 'IntRep"
+status: fail
+reason: generalization defaults the RuntimeRep of seqAlias to LiftedRep, so the alias is a -> b -> b and cannot take an Int#
