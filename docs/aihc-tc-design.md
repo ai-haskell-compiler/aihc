@@ -521,7 +521,37 @@ per OutsideIn(X) recommendation.
 For local `let` with a type signature: check against the signature, using
 an implication to scope the signature's quantified variables.
 
-### 10.6 Zonking
+### 10.6 Defaulting
+
+`Solve/Defaulting.hs` applies the Haskell 2010 section 4.3.4 rule to the
+constraints that survive the solver. A meta-variable is a candidate when the
+enclosing binding does not generalize over it and the environment does not
+mention it. A binding with a signature makes every one of its type variables
+rigid, so each meta-variable that survives is a candidate.
+
+A candidate `v` defaults only when:
+
+1. Every unsolved constraint that mentions `v` has the form `C v`. A
+   constraint such as `C [v]`, a multi-parameter constraint, or an unsolved
+   equality blocks defaulting.
+2. At least one `C` is a numeric class: `Num`, `Real`, `Integral`,
+   `Fractional`, `Floating`, `RealFrac`, or `RealFloat`.
+3. Every `C` is a standard class. A user class blocks defaulting, so
+   defaulting never picks an instance the program did not ask for.
+
+The solver then takes the first type of the default list that is an instance
+of every class in the group, and writes it as the solution of `v`. The
+instance trial runs the real dictionary solver under `tcSpeculate`, which
+discards the evidence, the meta-variable solutions, and the diagnostics of a
+failed trial.
+
+The default list comes from the module `default` declaration. A module
+without one uses `(Integer, Double)`. `default ()` gives an empty list and
+turns defaulting off.
+
+`ExtendedDefaultRules` is not implemented.
+
+### 10.7 Zonking
 
 After solving, replace all meta-variables with their solutions throughout
 the type annotations. Any remaining unsolved meta-variables become
@@ -579,7 +609,8 @@ Build in this order, each stage adding to the previous:
 
 ### Stage 6: Polish
 
-- Defaulting and ambiguity resolution.
+- Defaulting and ambiguity resolution. Done, less `ExtendedDefaultRules`.
+  See section 10.6.
 - Higher-rank polymorphism (subsumption).
 - Error message quality.
 - Performance.
