@@ -15,7 +15,8 @@ annotated:
   │     └─ v 2
   └─ v Main
   mk x y = Point {px = x, py = y}
-  │  │ └─ v 4          └─ v 3  └─ v 4
+  │  │ │   └─ v Main   └─ v 3  └─ v 4
+  │  │ └─ v 4
   │  └─ v 3
   └─ v Main
   second (Point {py}) = py

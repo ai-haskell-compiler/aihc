@@ -3,7 +3,8 @@
 
 -- | Minimal UTF-8 marshalling used for POSIX file paths.
 module GHC.Foreign
-  ( openUtf8FilePath,
+  ( openIOHandle,
+    openUtf8FilePath,
     peekCString,
     peekCStringLen,
     newCString,
@@ -18,9 +19,10 @@ import Data.Either (Either (..))
 import Foreign.C.String (CString, CStringLen)
 import GHC.Base (List (..), Monad (..), String)
 import GHC.Char (ord)
+import GHC.Event (awaitIO)
 import GHC.IO (IO (..))
 import GHC.IO.Encoding (TextEncoding)
-import GHC.IO.FD (IOHandle, openIOHandle, writeMemoryByte)
+import GHC.IO.Runtime (IOHandle, openResultError, submitOpen, takeOpenResult, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
@@ -160,3 +162,15 @@ withCStringLen _ _ _ = marshalError "GHC.Foreign.withCStringLen: string marshall
 
 marshalError :: String -> a
 marshalError = raise#
+
+-- | Open a file through the runtime. The result is the error number of a
+-- failed open.
+openIOHandle :: Addr# -> Int -> Int -> IO (Either Int (Ptr IOHandle))
+openIOHandle path length mode = do
+  request <- submitOpen path length mode
+  awaitIO request
+  result <- takeOpenResult request
+  openCode <- openResultError result
+  case openCode == 0 of
+    True -> return (Right result)
+    False -> return (Left openCode)

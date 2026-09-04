@@ -27,13 +27,19 @@ module GHC.ForeignPtr
   )
 where
 
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Maybe (Maybe (..))
 import Foreign.Ptr (FunPtr, Ptr (..))
 import Foreign.Storable (Storable (..))
+import GHC.Base (Monad (..), foldr)
+import GHC.Err (error, undefined)
 import GHC.IO (IO (..))
+import GHC.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.Int (Int (..))
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, plusAddr#, touch#)
-import Prelude (Eq (..), Maybe (..), Num (..), Ord (..), error, return, sequence_, undefined, (>>=))
+
+sequence_ :: [IO ()] -> IO ()
+sequence_ = foldr (>>) (return ())
 
 data ForeignPtr a = ForeignPtr Addr# ForeignPtrContents
 

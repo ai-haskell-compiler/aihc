@@ -1,6 +1,5 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 
 {-# HLINT ignore "Use sequence_" #-}
 
@@ -170,12 +169,13 @@ where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..))
+import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, foldr, id, ($), (++), (.))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
-import GHC.IO (IO (..))
+import GHC.IO (FilePath, IO (..))
 import GHC.IO.Exception (IOError, ioError, userError)
 import GHC.IO.Handle.Text (hPutStr)
 import GHC.IO.StdHandles (stdout)
@@ -205,13 +205,12 @@ import GHC.Real
     (^),
     (^^),
   )
+import GHC.Show (Show (..), ShowS, showChar, showListWith, showParen, showString, shows)
 import GHC.Tuple ()
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
 
 type ReadS a = String -> [(a, String)]
-
-type FilePath = String
 
 type Prec = Int
 
@@ -221,11 +220,6 @@ minPrec = 0
 -- | Function application. The result type can have any runtime
 -- representation, as in GHC. The definition returns the function itself, so
 -- the value that the definition returns is always lifted.
-($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
-($) function = function
-
-infixr 0 $
-
 ($!) :: (a -> b) -> a -> b
 function $! argument = argument `seq` function argument
 
@@ -385,16 +379,9 @@ takeWhile predicate (value : values) =
     then value : takeWhile predicate values
     else []
 
-maybe :: b -> (a -> b) -> Maybe a -> b
-maybe initial _ Nothing = initial
-maybe _ function (Just value) = function value
-
 mapM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
 mapM_ _ [] = return ()
 mapM_ function (value : values) = function value >> mapM_ function values
-
-flip :: (a -> b -> c) -> b -> a -> c
-flip function right left = function left right
 
 sequence :: (Monad m) => [m a] -> m [a]
 sequence [] = return []
@@ -620,61 +607,6 @@ isPreludeReadPunctuation ',' = True
 isPreludeReadPunctuation ';' = True
 isPreludeReadPunctuation _ = False
 
-id :: a -> a
-id x = x
-
-(.) :: (b -> c) -> (a -> b) -> a -> c
-f . g = compose
-  where
-    compose value = f (g value)
-
-infixr 9 .
-
-instance Eq Char where
-  C# x == C# y =
-    case (==#) (ord# x) (ord# y) of
-      0# -> False
-      _ -> True
-
-  x /= y = not (x == y)
-
-instance Eq () where
-  () == () = True
-  () /= () = False
-
-instance (Eq a) => Eq [a] where
-  [] == [] = True
-  [] == (_ : _) = False
-  (_ : _) == [] = False
-  (x : xs) == (y : ys) = x == y && xs == ys
-
-  xs /= ys = not (xs == ys)
-
-instance (Eq a) => Eq (Maybe a) where
-  Nothing == Nothing = True
-  Nothing == Just _ = False
-  Just _ == Nothing = False
-  Just x == Just y = x == y
-
-  x /= y = not (x == y)
-
-instance (Eq a, Eq b) => Eq (Either a b) where
-  Left x == Left y = x == y
-  Left _ == Right _ = False
-  Right _ == Left _ = False
-  Right x == Right y = x == y
-
-  x /= y = not (x == y)
-
-instance (Eq a, Eq b) => Eq (a, b) where
-  (leftA, leftB) == (rightA, rightB) = leftA == rightA && leftB == rightB
-  left /= right = not (left == right)
-
-instance (Eq a, Eq b, Eq c) => Eq (a, b, c) where
-  (leftA, leftB, leftC) == (rightA, rightB, rightC) =
-    leftA == rightA && leftB == rightB && leftC == rightC
-  left /= right = not (left == right)
-
 instance (Ord a) => Ord [a] where
   compare = compareList
   xs < ys = lessBy compareList xs ys
@@ -802,64 +734,11 @@ minBy cmp x y =
     GT -> y
     _ -> x
 
-type ShowS = String -> String
-
-class Show a where
-  showsPrec :: Int -> a -> ShowS
-  show :: a -> String
-  showList :: [a] -> ShowS
-
-  showsPrec _ value suffix = show value ++ suffix
-  show value = showsPrec (I# 0#) value []
-  showList = showListWith shows
-
-shows :: (Show a) => a -> ShowS
-shows = showsPrec (I# 0#)
-
-showChar :: Char -> ShowS
-showChar char suffix = char : suffix
-
-showString :: String -> ShowS
-showString = (++)
-
-showParen :: Bool -> ShowS -> ShowS
-showParen condition output =
-  case condition of
-    False -> output
-    True -> showChar '(' . output . showChar ')'
-
-instance Show Bool where
-  showsPrec _ False = showString "False"
-  showsPrec _ True = showString "True"
-
-instance Show Int where
-  showsPrec precedence (I# value) =
-    case (<#) value 0# of
-      0# -> showsUnsignedInt (int2Word# value)
-      _ -> showParen (precedence > 6) (showChar '-' . showsUnsignedInt (minusWord# (int2Word# 0#) (int2Word# value)))
-
-instance Show Word where
-  showsPrec _ (W# value) = showsUnsignedInt value
-
-instance Show Word8 where
-  showsPrec _ (W8# value) = showsUnsignedInt (word8ToWord# value)
-
-instance Show Integer where
-  showsPrec = showsSignedInteger
-
 instance (Show a) => Show (Ratio a) where
   showsPrec precedence value =
     showParen
       (precedence > 7)
       (showsPrec 8 (numerator value) . showString " % " . showsPrec 8 (denominator value))
-
-instance Show () where
-  showsPrec _ () = showString "()"
-
-instance Show Ordering where
-  showsPrec _ LT = showString "LT"
-  showsPrec _ EQ = showString "EQ"
-  showsPrec _ GT = showString "GT"
 
 instance Show Char where
   showsPrec _ char = showChar '\'' . showLitChar char . showChar '\''
@@ -867,11 +746,6 @@ instance Show Char where
 
 instance (Show a) => Show [a] where
   showsPrec _ = showList
-
-instance (Show a) => Show (Maybe a) where
-  showsPrec _ Nothing = showString "Nothing"
-  showsPrec precedence (Just value) =
-    showParen (precedence > 10) (showString "Just " . showsPrec 11 value)
 
 instance (Show a, Show b) => Show (Either a b) where
   showsPrec precedence (Left value) =
@@ -892,41 +766,6 @@ instance (Show a, Show b, Show c) => Show (a, b, c) where
       . showChar ','
       . shows third
       . showChar ')'
-
-showsSignedInteger :: Int -> Integer -> ShowS
-showsSignedInteger precedence value =
-  case (<#) (compareInteger# value (IS 0#)) 0# of
-    0# -> showsUnsignedInteger value
-    _ -> showParen (precedence > 6) (showChar '-' . showsUnsignedInteger (integerAbs value))
-
-showsUnsignedInteger :: Integer -> ShowS
-showsUnsignedInteger value suffix =
-  case integerQuotRemWord# value (int2Word# 10#) of
-    (# quotient, remainder #) ->
-      case eqInteger# quotient (IS 0#) of
-        1# -> digitChar remainder : suffix
-        _ -> showsUnsignedInteger quotient (digitChar remainder : suffix)
-
-showsUnsignedInt :: Word# -> ShowS
-showsUnsignedInt value suffix =
-  case quotRemWord# value (int2Word# 10#) of
-    (# quotient, remainder #) ->
-      case eqWord# quotient (int2Word# 0#) of
-        1# -> digitChar remainder : suffix
-        _ -> showsUnsignedInt quotient (digitChar remainder : suffix)
-
-digitChar :: Word# -> Char
-digitChar digit = C# (chr# ((+#) (word2Int# digit) 48#))
-
-showListWith :: (a -> ShowS) -> [a] -> ShowS
-showListWith _ [] = showString "[]"
-showListWith showElement (value : values) =
-  showChar '[' . showElement value . showListTail showElement values
-
-showListTail :: (a -> ShowS) -> [a] -> ShowS
-showListTail _ [] = showChar ']'
-showListTail showElement (value : values) =
-  showChar ',' . showElement value . showListTail showElement values
 
 showLitString :: String -> ShowS
 showLitString [] = id
@@ -1001,7 +840,7 @@ asciiControlName code =
 
 showNumericEscape :: Int# -> ShowS
 showNumericEscape value suffix =
-  showChar '\\' (showsUnsignedInteger (IS value) (protectNumericEscape suffix))
+  showChar '\\' (shows (IS value) (protectNumericEscape suffix))
 
 protectNumericEscape :: String -> String
 protectNumericEscape [] = []
@@ -1030,14 +869,6 @@ putStrLn characters = do
 
 print :: (Show a) => a -> IO ()
 print value = putStrLn (show value)
-
-(++) :: [a] -> [a] -> [a]
-(++) [] ys = ys
-(++) (x : xs) ys = x : (xs ++ ys)
-
-foldr :: (a -> b -> b) -> b -> [a] -> b
-foldr _ initial [] = initial
-foldr combine initial (value : values) = combine value (foldr combine initial values)
 
 instance Functor List where
   fmap = fmapList
@@ -1132,9 +963,6 @@ bindMaybe (Just x) k = k x
 thenList :: [a] -> [b] -> [b]
 thenList [] _ = []
 thenList (_ : xs) ys = ys ++ thenList xs ys
-
-const :: a -> b -> a
-const value _ = value
 
 curry :: ((a, b) -> c) -> a -> b -> c
 curry function left right = function (left, right)

@@ -26,23 +26,25 @@ import Aihc.Parser.Syntax
     Name (..),
     NumericType (..),
     Pattern (..),
+    RecordField (..),
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
     Type,
-    UnqualifiedName,
+    UnqualifiedName (..),
     fromAnnotation,
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generate.Bind (boolTyCon, inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
@@ -130,6 +132,10 @@ inferExprAt ambient expr = case expr of
     inferIf (exprSpan expr `orSourceSpan` ambient) cond thenE elseE
   ECase scrutinee alts ->
     inferCase (exprSpan expr `orSourceSpan` ambient) scrutinee alts
+  ERecordCon name fields wildcard ->
+    inferRecordCon (sourceSpanFromAnns (nameAnns name) `orSourceSpan` ambient) name fields wildcard
+  ERecordUpd record fields ->
+    inferRecordUpdate (exprSpan expr `orSourceSpan` ambient) record fields
   ELetDecls decls body -> do
     (decls', body', bodyTy, cts) <- inferLocalDecls inferExpr decls (inferExpr body)
     pure (ELetDecls decls' body', bodyTy, cts)
@@ -429,6 +435,43 @@ inferCase sp scrutinee alts = do
   (alts', altCts) <- inferCaseAlts sp scrutTy resTy alts
   let pending = pendingAnnotation resTy [] [] []
   pure (annotatePendingExprAt sp pending (ECase scrutinee' alts'), resTy, scrutCts ++ altCts)
+
+-- | Record construction is constructor application with the arguments in
+-- field declaration order.
+inferRecordCon :: SourceSpan -> Name -> [RecordField Expr] -> Bool -> TcM (Expr, TcType, [Ct])
+inferRecordCon sp name fields wildcard = do
+  when wildcard $
+    abortTc ("record wildcard construction is not supported at " <> show sp)
+  con <- lookupRecordConstructor name
+  args <- orderRecordFields sp con fields missingField
+  inferExprAt sp (foldl EApp (EVar name) args)
+  where
+    missingField field =
+      abortTc ("record construction of " <> T.unpack (nameText name) <> " does not give the field " <> show (fromMaybe "<positional>" (dcfiLabel field)) <> " at " <> show sp)
+
+-- | A record update is a case expression. Each alternative matches one
+-- constructor that has every updated field and rebuilds it with the new
+-- field values.
+inferRecordUpdate :: SourceSpan -> Expr -> [RecordField Expr] -> TcM (Expr, TcType, [Ct])
+inferRecordUpdate sp record fields = do
+  (record', recordTy, recordCts) <- inferExprAt sp record
+  zonked <- zonkType recordTy
+  constructors <- recordUpdateConstructors sp (Just zonked) (map recordFieldLabel fields)
+  alts <- mapM updateAlternative constructors
+  resTy <- freshMetaTv
+  (alts', altCts) <- inferCaseAlts sp recordTy resTy alts
+  let pending = pendingAnnotation resTy [] [] []
+  pure (annotatePendingExprAt sp pending (ECase record' alts'), resTy, recordCts ++ altCts)
+  where
+    updateAlternative con = do
+      binders <- mapM (\index -> synthesizedRecordLocal ("$field" <> T.pack (show index))) [1 .. length (dciFields con)]
+      let conSyntax = constructorNameSyntax con
+          argument field binder =
+            case [recordFieldValue occurrence | occurrence <- fields, Just (recordFieldLabel occurrence) == dcfiLabel field] of
+              value : _ -> value
+              [] -> EVar (Name Nothing (unqualifiedNameType binder) (unqualifiedNameText binder) (unqualifiedNameAnns binder))
+          body = foldl EApp (EVar conSyntax) (zipWith argument (dciFields con) binders)
+      pure (CaseAlt [] (PCon conSyntax [] (map PVar binders)) (UnguardedRhs [] body Nothing))
 
 inferLambdaCases :: SourceSpan -> [LambdaCaseAlt] -> TcM (Expr, TcType, [Ct])
 inferLambdaCases sp alts = do

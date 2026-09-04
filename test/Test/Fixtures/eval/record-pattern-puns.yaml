@@ -1,0 +1,20 @@
+extensions:
+  - NamedFieldPuns
+modules:
+  - |
+    {-# LANGUAGE NamedFieldPuns #-}
+    module Test where
+
+    data Buf = Buf { bufL :: Int, bufR :: Int }
+
+    run :: Buf -> Int
+    run Buf{bufL, bufR} = bufL + bufR * 2
+
+    mk :: Buf
+    mk = Buf { bufL = 1, bufR = 2 }
+output: |
+  I# 5
+expression: |
+  run mk
+status: pass
+reason: a NamedFieldPuns pattern binds each field to a variable of the same name

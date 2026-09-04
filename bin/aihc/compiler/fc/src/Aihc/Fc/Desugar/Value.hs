@@ -498,7 +498,12 @@ desugarRecordSelectors declarations = do
             field <- dciFields constructor,
             Just label <- [dcfiLabel field]
           ]
-  mapM (desugarRecordSelector constructors) labels
+  bindingTypes <- gets vsBindingTypes
+  -- A field whose type mentions an existential variable has no selector,
+  -- so the type checker gives it no binding type.
+  let (package, moduleName') = moduleOrigin
+      selectable label = Map.member (TcTermGlobal package moduleName' label) bindingTypes
+  mapM (desugarRecordSelector constructors) (filter selectable labels)
 
 recordConstructorNames :: Syn.DataConDecl -> [Text]
 recordConstructorNames declaration =

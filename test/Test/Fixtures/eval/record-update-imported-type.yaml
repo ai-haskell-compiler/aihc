@@ -1,0 +1,25 @@
+modules:
+  - |
+    module Buf where
+
+    data Buf = Buf { bufL :: Int, bufR :: Int }
+
+    mk :: Buf
+    mk = Buf { bufL = 1, bufR = 2 }
+  - |
+    module Test where
+
+    import Buf (Buf (..), mk)
+
+    bump :: Buf -> Buf
+    bump b = b { bufR = bufR b + 3 }
+
+    run :: Int
+    run = case bump mk of
+      Buf {bufL = l, bufR = r} -> l + r
+output: |
+  I# 6
+expression: |
+  run
+status: pass
+reason: a record update on a type from another module finds the constructor through the data type of the scrutinee

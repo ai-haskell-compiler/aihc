@@ -1,6 +1,3 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-
 module Control.Exception.Base
   ( Exception (..),
     SomeException (..),
@@ -21,38 +18,20 @@ module Control.Exception.Base
     bracket_,
     bracketOnError,
     assert,
+    mask,
+    mask_,
+    uninterruptibleMask,
+    uninterruptibleMask_,
+    MaskingState (..),
+    getMaskingState,
+    interruptible,
   )
 where
 
 import GHC.Exception (ArithException (..), Exception (..), SomeException (..), throw)
-import GHC.IO (IO (..))
+import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
 import GHC.IO.Exception (IOException)
-import GHC.Prim (catch#, raise#)
-import Prelude (Bool, Either (..), Maybe (..), const, pure, seq, (.), (>>), (>>=))
-
-throwIO :: (Exception e) => e -> IO a
-throwIO exception = IO (\_state -> raise# (toException exception))
-
-catch :: (Exception e) => IO a -> (e -> IO a) -> IO a
-catch action handler =
-  catchSomeException action (selectHandler handler)
-
-catchSomeException :: IO a -> (SomeException -> IO a) -> IO a
-catchSomeException (IO action) handler =
-  IO
-    ( catch#
-        action
-        ( \exception ->
-            case handler exception of
-              IO handlerAction -> handlerAction
-        )
-    )
-
-selectHandler :: (Exception e) => (e -> IO a) -> SomeException -> IO a
-selectHandler handler exception =
-  case fromException exception of
-    Just selected -> handler selected
-    Nothing -> throwIO exception
+import Prelude (Bool, Either (..), IO, Maybe (..), const, pure, (.), (>>=))
 
 handle :: (Exception e) => (e -> IO a) -> IO a -> IO a
 handle handler action = catch action handler
@@ -82,32 +61,6 @@ tryJust predicate action =
     predicate
     (action >>= \value -> pure (Right value))
     (pure . Left)
-
-evaluate :: a -> IO a
-evaluate value =
-  IO
-    ( \state ->
-        seq value (# state, value #)
-    )
-
--- | Run the second action when the first action raises an exception.
--- Asynchronous exception masking is not available in this runtime.
-onException :: IO a -> IO b -> IO a
-onException action cleanup =
-  catchSomeException action (\exception -> cleanup >> throwIO exception)
-
-finally :: IO a -> IO b -> IO a
-finally action cleanup = do
-  result <- action `onException` cleanup
-  _ <- cleanup
-  pure result
-
-bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
-bracket acquire release use = do
-  resource <- acquire
-  result <- use resource `onException` release resource
-  _ <- release resource
-  pure result
 
 bracket_ :: IO a -> IO b -> IO c -> IO c
 bracket_ before after use = bracket before (const after) (const use)

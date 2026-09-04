@@ -13,10 +13,11 @@ where
 import Data.Foldable (any, elem, foldr)
 import GHC.Char (chr, ord)
 import GHC.IO (IO (..))
-import GHC.IO.Exception (IOException (..), ioError)
+import GHC.IO.Exception (IOErrorType (..), ioError)
 import GHC.IO.Runtime (readMemoryByte, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import System.IO.Error (mkIOError)
 import Prelude
 
 data ArgumentBuffer = ArgumentBuffer (MutableByteArray# RealWorld)
@@ -48,7 +49,7 @@ readSnapshot requested = do
 setFullArgs :: [String] -> IO ()
 setFullArgs arguments =
   case anyContainsNul arguments of
-    True -> ioError (IOError 22)
+    True -> ioError (mkIOError InvalidArgument "setArgs" Nothing Nothing)
     False -> do
       let bytes = encodeArguments arguments
           size = byteCount bytes
@@ -57,7 +58,7 @@ setFullArgs arguments =
       result <- replaceArgumentBuffer buffer size
       case result == 0 of
         True -> return ()
-        False -> ioError (IOError 22)
+        False -> ioError (mkIOError InvalidArgument "setArgs" Nothing Nothing)
 
 newArgumentBuffer :: Int -> IO ArgumentBuffer
 newArgumentBuffer (I# size) =
@@ -100,7 +101,7 @@ writeBytes buffer offset (byte : rest) = do
   result <- writeArgumentByte buffer offset byte
   case result == 0 of
     True -> writeBytes buffer (offset + 1) rest
-    False -> ioError (IOError 22)
+    False -> ioError (mkIOError InvalidArgument "setArgs" Nothing Nothing)
 
 encodeArguments :: [String] -> [Int]
 encodeArguments [] = []

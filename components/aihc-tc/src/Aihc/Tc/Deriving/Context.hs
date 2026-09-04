@@ -9,6 +9,7 @@
 -- mutually recursive derived dictionaries are independent of source order.
 module Aihc.Tc.Deriving.Context
   ( finalizeDerivingModulesTc,
+    typeTyVars,
     derivingPlanInstanceInfo,
   )
 where

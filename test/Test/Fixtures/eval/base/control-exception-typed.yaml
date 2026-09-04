@@ -24,6 +24,12 @@ modules:
     data FirstException = FirstException
     data SecondException = SecondException
 
+    instance Show FirstException where
+      show FirstException = "FirstException"
+
+    instance Show SecondException where
+      show SecondException = "SecondException"
+
     instance Exception FirstException
     instance Exception SecondException
 
