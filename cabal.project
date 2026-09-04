@@ -19,3 +19,5 @@ package aihc-tc
   flags: +fuzz
 
 tests: True
+jobs: $ncpus
+semaphore: True
