@@ -74,10 +74,29 @@
           old:
             addCheckSettings drv old
             // {
-              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.bintools pkgs.llvmPackages.clang];
+              # Tasty defaults to one worker per processor and raises the RTS
+              # capability count to match. The eval fixtures allocate several
+              # gigabytes each, so on a 32-thread runner that many concurrent
+              # tests saturate memory bandwidth and the parallel GC: every
+              # fixture took ~30 s instead of ~2 s. Eight workers keep the
+              # machine busy without the collapse. The capability count is
+              # pinned to match, otherwise the -N default still runs one
+              # parallel-GC thread per processor. The RTS statistics stay in
+              # the log to keep an eye on GC time and capability counts, and
+              # successes stay hidden because fixtures that capture stdout
+              # would otherwise capture tasty's own progress output.
+              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-N8" "-s" "-RTS"];
+              # The C toolchain is only needed while the tests run. Adding it to
+              # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
+              # to the configure flags, which changes GHC's flag hash and forces a
+              # full recompilation instead of reusing the package intermediates.
               preCheck =
                 (old.preCheck or "")
                 + ''
+                  # The LLVM bintools must shadow the GNU binutils that the clang wrapper
+                  # links into its own bin directory: the arm64 and amd64 suites
+                  # disassemble their objects with objdump.
+                  export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:$PATH
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"
                   ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
