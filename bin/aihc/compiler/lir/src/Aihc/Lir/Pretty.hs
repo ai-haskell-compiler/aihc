@@ -123,6 +123,8 @@ prettyDataField field =
     DataInt ty value -> prettyType ty <+> pretty value
     DataFloat ty value -> prettyType ty <+> prettyFloat value
     DataSymbol symbol addend -> "ptr" <+> prettySymbol symbol <> prettyAddend addend
+    DataNull -> "ptr null"
+    DataCode symbol -> "code" <+> maybe "null" prettySymbol symbol
     DataBytes bytes -> "bytes" <+> prettyBytes bytes
     DataZero count -> "zero" <+> pretty count
 
@@ -247,6 +249,7 @@ prettyType ty =
     F32 -> "f32"
     F64 -> "f64"
     Ptr -> "ptr"
+    Code -> "code"
 
 prettySymbol :: Symbol -> Doc ann
 prettySymbol (Symbol name) = "@" <> prettyName name
@@ -311,7 +314,7 @@ reservedWords =
     <> map floatUnaryOpName [minBound .. maxBound]
     <> map convertOpName [minBound .. maxBound]
     <> ["ptr.to_int", "ptr.from_int", "select", "load", "store", "ptr.add", "stack.alloc", "global.get", "global.set", "call", "call.indirect"]
-    <> ["i1", "i8", "i16", "i32", "i64", "f32", "f64", "ptr"]
+    <> ["i1", "i8", "i16", "i32", "i64", "f32", "f64", "ptr", "code"]
 
 binaryOpName :: BinaryOp -> Text
 binaryOpName op =

@@ -1,0 +1,46 @@
+; expect: 42, 1, 1, 0x10000
+; An info table in the layout of the "Info tables" section: ten word-sized
+; fields, two code fields with the fixed entry signatures, and null fields.
+
+data @bitmap align 1 = { bytes "\x01\x00" }
+data @info align 8 = {
+  ptr null,
+  code @entry,
+  i64 2,
+  i64 0,
+  ptr @bitmap,
+  ptr null,
+  code null,
+  i64 0,
+  i64 3,
+  ptr null
+}
+data mut @result align 8 = { i64 0 }
+
+func @entry(%args: ptr) {
+entry:
+  %x = load i64 [%args] align 8
+  %y = load i64 [%args + 8] align 8
+  %sum = add i64 %x, %y
+  store i64 %sum, [@result] align 8
+  return
+}
+
+func @main() -> (i64, i1, i1, ptr) {
+entry:
+  %args = stack.alloc 16 align 8
+  store i64 40, [%args] align 8
+  store i64 2, [%args + 8] align 8
+  %enter = load code [@info + 8] align 8
+  call.indirect %enter(%args) : (ptr)
+  %r = load i64 [@result] align 8
+  %backend = load code [@info + 48] align 8
+  %none = eq code %backend, null
+  %bitmap = load ptr [@info + 32] align 8
+  %first = load i8 [%bitmap] align 1
+  %pointer = eq i8 %first, 1
+  %next = load ptr [@info + 40] align 8
+  %entryIsEntry = eq code %enter, @entry
+  %both = and i1 %none, %entryIsEntry
+  return %r, %both, %pointer, %bitmap
+}

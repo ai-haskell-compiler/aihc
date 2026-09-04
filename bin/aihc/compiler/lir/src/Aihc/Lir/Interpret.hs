@@ -34,6 +34,8 @@ data Value
   | VF32 !Float
   | VF64 !Double
   | VPtr !Word64
+  | -- | The address of a function. Code addresses are not readable memory.
+    VCode !Word64
   deriving (Eq, Show)
 
 data InterpretError
@@ -147,6 +149,8 @@ fieldSize field =
     DataInt ty _ -> typeBytes ty
     DataFloat ty _ -> typeBytes ty
     DataSymbol _ _ -> 8
+    DataNull -> 8
+    DataCode _ -> 8
     DataBytes bytes -> fromIntegral (BS.length bytes)
     DataZero count -> fromInteger count
 
@@ -162,12 +166,16 @@ writeData addresses memory (dataItem, address) = do
       case field of
         DataInt ty value -> pure (littleEndian (typeBytes ty) (fromInteger value))
         DataFloat ty value -> pure (encodeValue ty (floatValue ty value))
-        DataSymbol symbol addend ->
-          case Map.lookup symbol addresses of
-            Nothing -> Left (InterpretFailure ("unknown symbol " <> renderSymbol symbol))
-            Just target -> pure (littleEndian 8 (target + fromInteger addend))
+        DataSymbol symbol addend -> symbolBytes symbol addend
+        DataNull -> pure (replicate 8 0)
+        DataCode Nothing -> pure (replicate 8 0)
+        DataCode (Just symbol) -> symbolBytes symbol 0
         DataBytes bytes -> pure (BS.unpack bytes)
         DataZero count -> pure (replicate (fromInteger count) 0)
+    symbolBytes symbol addend =
+      case Map.lookup symbol addresses of
+        Nothing -> Left (InterpretFailure ("unknown symbol " <> renderSymbol symbol))
+        Just target -> pure (littleEndian 8 (target + fromInteger addend))
 
 writeBytes :: Word64 -> [Word8] -> IntMap Word8 -> IntMap Word8
 writeBytes address bytes memory =
@@ -185,6 +193,7 @@ zeroValue ty =
     F32 -> VF32 0
     F64 -> VF64 0
     Ptr -> VPtr 0
+    Code -> VCode 0
     _ -> VInt 0
 
 floatValue :: Type -> Double -> Value
@@ -223,6 +232,7 @@ encodeValue ty value =
     VF32 float -> littleEndian 4 (fromIntegral (castFloatToWord32 float))
     VF64 double -> littleEndian 8 (castDoubleToWord64 double)
     VPtr address -> littleEndian 8 address
+    VCode address -> littleEndian 8 address
 
 decodeValue :: Type -> [Word8] -> Value
 decodeValue ty bytes =
@@ -230,6 +240,7 @@ decodeValue ty bytes =
     F32 -> VF32 (castWord32ToFloat (fromIntegral word))
     F64 -> VF64 (castWord64ToDouble word)
     Ptr -> VPtr word
+    Code -> VCode word
     _ -> VInt (mask ty word)
   where
     word = fromLittleEndian bytes
@@ -239,14 +250,16 @@ literalValue program ty literal =
   case literal of
     LitInt value
       | isFloatType ty -> pure (floatValue ty (fromInteger value))
-      | ty == Ptr -> failure "integer literal used as a pointer"
+      | ty `elem` [Ptr, Code] -> failure "integer literal used as an address"
       | otherwise -> pure (VInt (fromIntegerBits ty value))
     LitFloat value -> pure (floatValue ty value)
-    LitNull -> pure (VPtr 0)
+    LitNull -> pure (address 0)
     LitSymbol symbol ->
       case Map.lookup symbol (programAddresses program) of
         Nothing -> failure ("unknown symbol " <> renderSymbol symbol)
-        Just address -> pure (VPtr address)
+        Just target -> pure (address target)
+  where
+    address = if ty == Code then VCode else VPtr
 
 -- | Render a result with its declared type. Integers are signed decimals and
 -- @i1@ is @0@ or @1@.
@@ -259,6 +272,7 @@ renderValue ty value =
     VF32 float -> T.pack (show float)
     VF64 double -> T.pack (show double)
     VPtr address -> T.pack ("0x" <> showHex address "")
+    VCode address -> T.pack ("0x" <> showHex address "")
 
 renderValues :: [Type] -> [Value] -> Text
 renderValues types values = T.intercalate ", " (zipWith renderValue types values)
@@ -345,9 +359,9 @@ lookupSignature program symbol =
 
 resolveIndirect :: Program -> Locals -> Operand -> Signature -> M Symbol
 resolveIndirect program locals target signature = do
-  address <- evalOperand program locals Ptr target
+  address <- evalOperand program locals Code target
   case address of
-    VPtr code
+    VCode code
       | Just symbol <- Map.lookup code (programCode program) -> do
           actual <- lookupSignature program symbol
           unless (actual == signature) $ trap "indirect call signature mismatch"

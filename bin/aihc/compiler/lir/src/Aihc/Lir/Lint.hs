@@ -95,11 +95,29 @@ lintData symbols dataItem =
         DataFloat ty _
           | isFloatType ty -> []
           | otherwise -> ["data field type " <> renderType ty <> " is not a float type"]
-        DataSymbol symbol _
-          | Map.member symbol symbols -> []
-          | otherwise -> ["unknown symbol " <> renderSymbol symbol]
+        DataSymbol symbol _ -> dataSymbolErrors symbols symbol
+        DataNull -> []
+        DataCode Nothing -> []
+        DataCode (Just symbol) -> functionSymbolErrors symbols symbol
         DataBytes _ -> []
         DataZero _ -> []
+
+-- | A @ptr@ literal or data field names a data object. A global has no
+-- address and a function is a @code@ value.
+dataSymbolErrors :: Symbols -> Symbol -> [Text]
+dataSymbolErrors symbols symbol =
+  case Map.lookup symbol symbols of
+    Just SymbolData -> []
+    Just _ -> [renderSymbol symbol <> " is not a data object"]
+    Nothing -> ["unknown symbol " <> renderSymbol symbol]
+
+-- | A @code@ literal or data field names a function.
+functionSymbolErrors :: Symbols -> Symbol -> [Text]
+functionSymbolErrors symbols symbol =
+  case Map.lookup symbol symbols of
+    Just (SymbolFunction _) -> []
+    Just _ -> [renderSymbol symbol <> " is not a function"]
+    Nothing -> ["unknown symbol " <> renderSymbol symbol]
 
 alignmentErrors :: Integer -> [Text]
 alignmentErrors alignment
@@ -291,7 +309,7 @@ lintInstruction env blockIndex position instruction =
             _ -> globalErrors symbol
         Call symbol arguments -> callErrors env location symbol arguments
         CallIndirect target arguments signature ->
-          check Ptr target <> signatureErrors signature <> argumentErrors env location (renderOperand target) (signatureParameters signature) arguments
+          check Code target <> signatureErrors signature <> argumentErrors env location (renderOperand target) (signatureParameters signature) arguments
     globalErrors symbol =
       case Map.lookup symbol (envSymbols env) of
         Just (SymbolGlobal _) -> []
@@ -372,7 +390,7 @@ lintTerminator env blockIndex terminator =
         Just _ -> [renderSymbol symbol <> " is not a function"]
         Nothing -> ["unknown symbol " <> renderSymbol symbol]
     TailCallIndirect target arguments signature ->
-      check Ptr target
+      check Code target
         <> signatureErrors signature
         <> argumentErrors env location (renderOperand target) (signatureParameters signature) arguments
         <> tailErrors ("tailcall.indirect " <> renderOperand target) signature
@@ -440,12 +458,12 @@ literalErrors env expected literal =
       | isFloatType expected -> []
       | otherwise -> mismatch
     LitNull
-      | expected == Ptr -> []
+      | expected `elem` [Ptr, Code] -> []
       | otherwise -> mismatch
     LitSymbol symbol
-      | expected /= Ptr -> mismatch
-      | Map.member symbol (envSymbols env) -> []
-      | otherwise -> ["unknown symbol " <> renderSymbol symbol]
+      | expected == Ptr -> dataSymbolErrors (envSymbols env) symbol
+      | expected == Code -> functionSymbolErrors (envSymbols env) symbol
+      | otherwise -> mismatch
   where
     mismatch = ["literal " <> renderDoc (prettyLiteral literal) <> " does not have type " <> renderType expected]
 

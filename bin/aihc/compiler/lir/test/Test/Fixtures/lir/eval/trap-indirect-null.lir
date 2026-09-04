@@ -1,0 +1,11 @@
+; expect-trap: indirect call to a non-function
+; A null code field is the trap case of call.indirect.
+
+data @info align 8 = { code null }
+
+func @main() -> i64 {
+entry:
+  %f = load code [@info] align 8
+  %r = call.indirect %f() : () -> i64
+  return %r
+}

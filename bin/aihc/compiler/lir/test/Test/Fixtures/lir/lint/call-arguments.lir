@@ -10,7 +10,7 @@ entry:
 func @main() -> i64 {
 entry:
   %r = call @f(1)
-  %p = ptr.from_int 0
+  %p = select code 1, @f, null
   %s = call.indirect %p() : (i64) -> i64
   %t = call @f(1.5, 2)
   return %r

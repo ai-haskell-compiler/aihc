@@ -125,7 +125,8 @@ typeParser =
       I64 <$ keyword "i64",
       F32 <$ keyword "f32",
       F64 <$ keyword "f64",
-      Ptr <$ keyword "ptr"
+      Ptr <$ keyword "ptr",
+      Code <$ keyword "code"
     ]
 
 literal :: Parser Literal
@@ -219,7 +220,8 @@ dataField =
   MP.choice
     [ DataBytes <$> (keyword "bytes" *> lexeme quotedBytes),
       DataZero <$> (keyword "zero" *> natural),
-      DataSymbol <$> (keyword "ptr" *> symbolName) <*> addend,
+      keyword "ptr" *> (DataNull <$ keyword "null" <|> DataSymbol <$> symbolName <*> addend),
+      keyword "code" *> (DataCode Nothing <$ keyword "null" <|> DataCode . Just <$> symbolName),
       typedField
     ]
   where

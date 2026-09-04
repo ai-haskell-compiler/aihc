@@ -121,6 +121,8 @@ genDataField =
     [ DataInt <$> Gen.element [I1, I8, I16, I32, I64] <*> genInteger,
       DataFloat <$> Gen.element [F32, F64] <*> genDouble,
       DataSymbol <$> genSymbol <*> genInteger,
+      pure DataNull,
+      DataCode <$> Gen.maybe genSymbol,
       DataBytes . BS.pack <$> Gen.list (Range.linear 0 8) (Gen.word8 Range.constantBounded),
       DataZero <$> genNatural
     ]

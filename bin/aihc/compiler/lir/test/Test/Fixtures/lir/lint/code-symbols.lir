@@ -1,0 +1,37 @@
+; error: @t: @f is not a data object
+; error: @t: @g is not a data object
+; error: @t: @d is not a function
+; error: @t: unknown symbol @missing
+; error: @main/entry: %p has type ptr, expected code
+; error: @main/entry: %c has type code, expected ptr
+; error: @main/entry: lt.u does not accept code
+; error: @main/entry: @f is not a data object
+; error: @main/entry: @d is not a function
+; error: @main/entry: literal null does not have type i64
+; error: @main/exit: %p has type ptr, expected code
+
+data @d align 8 = { i64 0 }
+global @g: i64
+data @t align 8 = { ptr @f, ptr @g, code @d, code @missing, ptr null, code null }
+
+func @f() -> i64 {
+entry:
+  return 1
+}
+
+func @main() -> i64 {
+entry:
+  %p = ptr.add @d, 0
+  %c = load code [@t] align 8
+  %r = call.indirect %p() : () -> i64
+  %n = ptr.to_int %c
+  %lt = lt.u code %c, null
+  %q = load i64 [@f] align 8
+  %s = call.indirect @d() : () -> i64
+  %z = add i64 null, 1
+  %ok = eq code %c, null
+  br %ok, exit, exit
+
+exit:
+  tailcall.indirect %p() : () -> i64
+}
