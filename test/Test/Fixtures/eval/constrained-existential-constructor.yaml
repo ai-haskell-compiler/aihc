@@ -1,6 +1,5 @@
 extensions:
   - ExistentialQuantification
-dependencies: []
 modules:
   - |
     {-# LANGUAGE ExistentialQuantification #-}

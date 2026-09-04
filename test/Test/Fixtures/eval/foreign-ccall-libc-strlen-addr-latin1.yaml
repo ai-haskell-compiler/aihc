@@ -1,7 +1,6 @@
 extensions:
   - ForeignFunctionInterface
   - MagicHash
-dependencies: []
 modules:
   - |
     module Test where

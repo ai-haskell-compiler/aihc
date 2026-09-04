@@ -4,9 +4,6 @@ extensions:
   - KindSignatures
   - MagicHash
   - UndecidableInstances
-dependencies:
-  - aihc-base
-  - aihc-prim
 modules:
   - |
     module Test where

@@ -1,7 +1,5 @@
 extensions:
   - RebindableSyntax
-dependencies:
-  - aihc-base
 modules:
   - |
     {-# LANGUAGE RebindableSyntax #-}

@@ -1,33 +1,12 @@
 extensions:
   - DerivingStrategies
   - StandaloneDeriving
-dependencies: []
 modules:
-  - |
-    module GHC.Classes where
-
-    import GHC.Types (Bool)
-
-    class Eq a where
-      (==) :: a -> a -> Bool
-      (/=) :: a -> a -> Bool
   - |
     {-# LANGUAGE DerivingStrategies, StandaloneDeriving #-}
     module Test where
 
-    import GHC.Classes (Eq(..))
-    import GHC.Types (Bool(..))
-
     data Results = Results Bool Bool Bool Bool Bool
-
-    instance Eq Bool where
-      False == False = True
-      True == True = True
-      _ == _ = False
-
-      False /= False = False
-      True /= True = False
-      _ /= _ = True
 
     data Pair a = None | Pair a a
       deriving stock Eq

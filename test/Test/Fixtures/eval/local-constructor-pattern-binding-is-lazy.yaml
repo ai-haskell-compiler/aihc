@@ -1,5 +1,3 @@
-dependencies:
-  - aihc-base
 evaluators:
   - fc
 extensions:

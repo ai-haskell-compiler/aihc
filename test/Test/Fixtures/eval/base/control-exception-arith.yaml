@@ -1,9 +1,6 @@
 extensions:
   - MagicHash
   - UnboxedTuples
-dependencies:
-  - aihc-base
-  - aihc-prim
 modules:
   - |
     module Test where

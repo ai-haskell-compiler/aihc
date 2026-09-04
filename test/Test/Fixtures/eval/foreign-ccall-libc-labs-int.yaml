@@ -1,7 +1,5 @@
 extensions:
   - ForeignFunctionInterface
-dependencies:
-  - aihc-base
 modules:
   - |
     module Test where

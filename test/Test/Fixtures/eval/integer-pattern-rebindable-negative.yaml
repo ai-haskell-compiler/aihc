@@ -1,7 +1,6 @@
 extensions:
   - MagicHash
   - RebindableSyntax
-dependencies: []
 modules:
   - |
     {-# LANGUAGE MagicHash, RebindableSyntax #-}

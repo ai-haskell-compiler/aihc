@@ -1,4 +1,3 @@
-dependencies: []
 expression: |
   [(x, y) | x <- xs, y <- ys]
 extensions: []

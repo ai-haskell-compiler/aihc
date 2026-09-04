@@ -1,8 +1,5 @@
 extensions:
   - MagicHash
-dependencies:
-  - aihc-base
-  - aihc-prim
 modules:
   - |
     {-# LANGUAGE MagicHash #-}

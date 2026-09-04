@@ -1,6 +1,5 @@
 extensions:
   - RebindableSyntax
-dependencies: []
 modules:
   - |
     {-# LANGUAGE RebindableSyntax #-}

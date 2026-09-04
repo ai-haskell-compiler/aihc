@@ -1,5 +1,4 @@
 extensions: []
-dependencies: []
 modules:
   - |
     module First where
