@@ -474,8 +474,8 @@ static void print_object(AihcValue *object) {
     printf("\n");
     return;
   }
-  printf("obj %" PRIuPTR " %s %" PRIu64, identity, kind_name(info->object_kind),
-         info->field_count);
+  printf("obj %" PRIuPTR " %s %" PRIuPTR, identity,
+         kind_name(info->object_kind), info->field_count);
   for (uint64_t index = 0; index < info->field_count; ++index) {
     if (entry->pointers[index]) {
       print_pointer(object->fields[index]);

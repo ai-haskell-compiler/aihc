@@ -1,17 +1,12 @@
--- | Direct WebAssembly code generation for runtime-explicit GRIN.
+-- | The WebAssembly runtime sources of the WASI P3 target. The code
+-- generator is "Aihc.Wasm.Lir".
 module Aihc.Wasm
-  ( WasmError (..),
-    compileEntry,
-    compileModule,
-    validatePrimitiveNames,
-    validateProgramPrimitives,
-    wasip3RuntimeSourcePath,
+  ( wasip3RuntimeSourcePath,
     wasip3RuntimeSourcePaths,
     wasip3WorldPath,
   )
 where
 
-import Aihc.Wasm.Codegen
 import Paths_aihc (getDataFileName)
 
 wasip3RuntimeSourcePath :: IO FilePath
@@ -22,7 +17,6 @@ wasip3RuntimeSourcePaths =
   mapM
     getDataFileName
     [ "compiler/wasm/runtime/aihc_wasm_libc.c",
-      "compiler/wasm/runtime/aihc_wasm_adapter.c",
       "compiler/wasm/runtime/aihc_wasip3.c"
     ]
 

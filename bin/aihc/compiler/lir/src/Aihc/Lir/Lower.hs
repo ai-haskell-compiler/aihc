@@ -17,7 +17,11 @@
 module Aihc.Lir.Lower
   ( LowerError (..),
     LowerOptions (..),
+    LowerTarget (..),
+    HostKind (..),
     UnitKind (..),
+    posixTarget64,
+    wasip3Target,
     lowerEntry,
     lowerModule,
     lowerProgramWith,
@@ -45,6 +49,8 @@ module Aihc.Lir.Lower
     Helper (..),
     helperSymbol,
     runtimeCallSignature,
+    loadSlot,
+    storeSlot,
   )
 where
 
@@ -97,22 +103,49 @@ data UnitKind
     ExecutableUnit
   deriving (Eq, Show)
 
+-- | The host that starts the program and owns the IO loop.
+data HostKind
+  = -- | A POSIX process. The entry unit defines @main@.
+    PosixHost
+  | -- | A WASI P3 component. The entry unit exports the start and resume
+    -- functions that the P3 driver calls.
+    Wasip3Host
+  deriving (Eq, Show)
+
+-- | The properties of the target that the lowering depends on. Heap slots
+-- are 8 bytes on every target; the word size decides the layout of the
+-- info tables, the static reference tables, and the resume records.
+data LowerTarget = LowerTarget
+  { lowerWordSize :: !Int,
+    lowerHost :: !HostKind
+  }
+  deriving (Eq, Show)
+
+-- | A 64-bit POSIX target: Apple ARM64, Linux AMD64, and LLVM.
+posixTarget64 :: LowerTarget
+posixTarget64 = LowerTarget {lowerWordSize = 8, lowerHost = PosixHost}
+
+-- | The 32-bit WASI P3 target.
+wasip3Target :: LowerTarget
+wasip3Target = LowerTarget {lowerWordSize = 4, lowerHost = Wasip3Host}
+
 data LowerOptions = LowerOptions
   { lowerUnitKind :: !UnitKind,
     -- | Export every function symbol. Test harnesses use the symbols.
-    lowerExposeFunctions :: !Bool
+    lowerExposeFunctions :: !Bool,
+    lowerTarget :: !LowerTarget
   }
   deriving (Eq, Show)
 
 -- | Lower one library module.
-lowerModule :: GcGrinProgram -> Either LowerError Module
-lowerModule = lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False}
+lowerModule :: LowerTarget -> GcGrinProgram -> Either LowerError Module
+lowerModule target = lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target}
 
 -- | Lower the fixed executable entry unit.
-lowerEntry :: Either LowerError Module
-lowerEntry = do
+lowerEntry :: LowerTarget -> Either LowerError Module
+lowerEntry target = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -120,7 +153,10 @@ lowerProgramWith options gcProgram =
   where
     unit env = do
       lowerUnitItems env
-      when (lowerUnitKind options == ExecutableUnit) (lowerExecutableMain gcProgram)
+      when (lowerUnitKind options == ExecutableUnit) $
+        case lowerHost (lowerTarget options) of
+          PosixHost -> lowerExecutableMain gcProgram
+          Wasip3Host -> lowerWasip3Entry gcProgram
 
 -- Types
 
@@ -190,6 +226,10 @@ data Helper
   | HelperQuotRem2
   | HelperContinue ![Type]
   | HelperApply ![Type]
+  | -- | Continue with one value that arrives as a raw slot: the runtime
+    -- does not know whether it is a pointer, so the info table decides.
+    HelperContinueSlot
+  | HelperApplySlot
   deriving (Eq, Ord, Show)
 
 helperSymbol :: Helper -> Symbol
@@ -201,6 +241,8 @@ helperSymbol helper =
     HelperQuotRem2 -> "aihc_lir_quotrem2"
     HelperContinue shape -> "aihc_lir_continue_" <> shapeName shape
     HelperApply shape -> "aihc_lir_apply_" <> shapeName shape
+    HelperContinueSlot -> "aihc_lir_continue_slot"
+    HelperApplySlot -> "aihc_lir_apply_slot"
 
 shapeName :: [Type] -> Text
 shapeName = T.pack . map letter
@@ -216,6 +258,7 @@ data OpenBlock = OpenBlock
 
 data LowerState = LowerState
   { stateNext :: !Int,
+    stateTarget :: !LowerTarget,
     stateExterns :: !(Map Symbol Signature),
     stateExternData :: !(Set Symbol),
     stateHelpers :: !(Set Helper),
@@ -237,6 +280,7 @@ runLower options gcProgram action = do
       initial =
         LowerState
           { stateNext = 0,
+            stateTarget = lowerTarget options,
             stateExterns = Map.empty,
             stateExternData = Set.empty,
             stateHelpers = Set.empty,
@@ -456,6 +500,99 @@ finishFunction symbol linkage parameters results convention = do
           }
     )
 
+-- Target layout
+
+targetM :: LowerM LowerTarget
+targetM = stateTarget <$> get
+
+-- | The integer type with the width of a machine word.
+wordType :: LowerTarget -> Type
+wordType target = if lowerWordSize target == 8 then I64 else I32
+
+-- | A heap slot is 8 bytes on every target. A pointer that lives in a slot
+-- travels through @i64@ on a 32-bit target, so the high bytes of the slot
+-- are always zero.
+loadSlot :: Text -> Type -> Operand -> Integer -> LowerM Typed
+loadSlot base ty object offset = do
+  target <- targetM
+  if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
+    then emitValue base ty (Load ty (Address object offset) 8)
+    else do
+      word <- emitValue base I64 (Load I64 (Address object offset) 8)
+      emitValue base ty (PtrFromInt (typedOperand word))
+
+storeSlot :: Type -> Operand -> Operand -> Integer -> LowerM ()
+storeSlot ty value object offset = do
+  target <- targetM
+  if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
+    then emit [] (Store ty value (Address object offset) 8)
+    else do
+      word <- emitValue "slot" I64 (PtrToInt value)
+      emit [] (Store I64 (typedOperand word) (Address object offset) 8)
+
+-- | Field @index@ of an info table as an @i64@.
+loadInfoWord :: Text -> Operand -> Int -> LowerM Typed
+loadInfoWord base header index = do
+  target <- targetM
+  let offset = toInteger (lowerWordSize target * index)
+  case wordType target of
+    I64 -> emitValue base I64 (Load I64 (Address header offset) 8)
+    narrow -> do
+      value <- emitValue base narrow (Load narrow (Address header offset) 4)
+      emitValue base I64 (Convert ZExt narrow (typedOperand value) I64)
+
+-- | A @code@ field of an info table.
+loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
+loadInfoCode base header index = do
+  target <- targetM
+  let width = lowerWordSize target
+  emitValue base Code (Load Code (Address header (toInteger (width * index))) (toInteger width))
+
+-- | A @ptr@ field of an info table.
+loadInfoPointer :: Text -> Operand -> Int -> LowerM Typed
+loadInfoPointer base header index = do
+  target <- targetM
+  let width = lowerWordSize target
+  emitValue base Ptr (Load Ptr (Address header (toInteger (width * index))) (toInteger width))
+
+-- | A word-sized integer field of a data object.
+wordField :: LowerTarget -> Integer -> DataField
+wordField target = DataInt (wordType target)
+
+-- | A pointer stored in an 8-byte slot of a static object.
+slotPointerFields :: LowerTarget -> DataField -> [DataField]
+slotPointerFields target field
+  | lowerWordSize target == 8 = [field]
+  | otherwise = [field, DataInt I32 0]
+
+-- | The byte offsets of the fields of a C @AihcResume@ record, and its size.
+data ResumeLayout = ResumeLayout
+  { resumeKindOffset :: !Integer,
+    resumeFunctionOffset :: !Integer,
+    resumeContinuationOffset :: !Integer,
+    resumeValueOffset :: !Integer,
+    resumeCountOffset :: !Integer,
+    resumeSize :: !Integer
+  }
+
+resumeLayout :: LowerTarget -> ResumeLayout
+resumeLayout target =
+  ResumeLayout
+    { resumeKindOffset = 0,
+      resumeFunctionOffset = 8,
+      resumeContinuationOffset = 8 + word,
+      resumeValueOffset = value,
+      resumeCountOffset = value + 8,
+      resumeSize = value + 16
+    }
+  where
+    word = toInteger (lowerWordSize target)
+    value = ((8 + 2 * word + 7) `div` 8) * 8
+
+-- | The exit-code field of the machine, at the same offset on every target.
+machineExitCodeOffset :: Integer
+machineExitCodeOffset = 16
+
 -- Coercion
 
 -- | Convert a typed operand to a type. Pointers and words convert both ways.
@@ -509,9 +646,11 @@ validateRuntimeRep runtimeRep =
 
 lowerInfo :: RuntimeInfo -> LowerM ()
 lowerInfo info = do
+  target <- targetM
   let bitmap = Symbol (unSymbol (infoSymbol info) <> "_bitmap")
       stub = Symbol (unSymbol (infoSymbol info) <> "_enter")
       fields = infoFields info
+      word = wordField target
   unless (null fields) $
     emitItem (ItemData (DataItem bitmap Internal False 1 [DataBytes (BS.pack [if isPointerRuntimeRep field then 1 else 0 | field <- fields])]))
   forM_ (infoEnter info) (lowerEnterStub stub)
@@ -521,17 +660,17 @@ lowerInfo info = do
           { dataName = infoSymbol info,
             dataLinkage = infoLinkage info,
             dataMutable = False,
-            dataAlignment = 8,
+            dataAlignment = toInteger (lowerWordSize target),
             dataFields =
               [ infoIdentity info,
                 DataCode Nothing,
-                DataInt I64 (toInteger (length fields)),
-                DataInt I64 (toInteger (infoRemainingArity info)),
+                word (toInteger (length fields)),
+                word (toInteger (infoRemainingArity info)),
                 if null fields then DataNull else DataSymbol bitmap 0,
                 maybe DataNull (`DataSymbol` 0) (infoNext info),
                 DataCode (stub <$ infoEnter info),
-                DataInt I64 (toInteger (continuationFrameKindCode (infoFrameKind info))),
-                DataInt I64 (toInteger (infoObjectKind info)),
+                word (toInteger (continuationFrameKindCode (infoFrameKind info))),
+                word (toInteger (infoObjectKind info)),
                 maybe DataNull (`DataSymbol` 0) (infoSrt info)
               ]
           }
@@ -547,7 +686,7 @@ lowerEnterStub stub enter = do
   supplied <- forM (enterSupplied enter) $ \ty -> (,ty) <$> fresh "supplied"
   beginBlock (Label "entry") []
   stored <- forM (zip [0 :: Int ..] (enterStored enter)) $ \(index, ty) ->
-    emitValue "stored" ty (Load ty (Address (OperandVar object) (toInteger (8 * (index + 1)))) 8)
+    loadSlot "stored" ty (OperandVar object) (toInteger (8 * (index + 1)))
   let values = stored <> [Typed (OperandVar var) ty | (var, ty) <- supplied] <> [Typed (OperandVar continuation) Ptr | enterPassesContinuation enter]
       parameters = enterTargetParameters enter
   when (length parameters /= length values) $
@@ -608,32 +747,34 @@ continuationInfoItems spec = do
     -- the Lir type.
     typeRep ty = if ty == Ptr then BoxedRep Lifted else IntRep
 
+-- | A static object has the layout of a heap object: an 8-byte header slot
+-- and 8-byte field slots. A pointer occupies the low bytes of its slot.
 lowerStaticObject :: LowerEnv -> StaticObject -> LowerM ()
 lowerStaticObject env object = do
-  header <- staticHeader
-  fields <- mapM staticField (grinNodeFields node)
+  target <- targetM
+  header <- slotPointerFields target . (`DataSymbol` 0) <$> nodeInfoSymbol env node
+  fields <- concat <$> mapM (staticField target) (grinNodeFields node)
   let payload = if null fields && isThunk then [DataZero 8] else fields
-  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) Export True 8 (header : payload)))
+  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) Export True 8 (header <> payload)))
   where
     node = staticObjectNode object
     isThunk = case grinNodeTag node of
       GrinThunk {} -> True
       _ -> False
-    staticHeader = (`DataSymbol` 0) <$> nodeInfoSymbol env node
-    staticField value =
+    staticField target value =
       case value of
-        GrinVarValue var -> referenceGlobal (grinVarName var)
-        GrinGlobalValue name -> referenceGlobal name
+        GrinVarValue var -> referenceGlobal target (grinVarName var)
+        GrinGlobalValue name -> referenceGlobal target name
         GrinLitValue literal ->
           case literal of
             GrinLitAddr bytes -> do
               symbol <- addrLiteralSymbol env bytes
-              pure (DataSymbol symbol 0)
-            _ -> maybe (failWith (LowerUnsupportedValue "string literal")) (pure . DataInt I64) (normalizedLiteralInteger literal)
-    referenceGlobal name = do
+              pure (slotPointerFields target (DataSymbol symbol 0))
+            _ -> maybe (failWith (LowerUnsupportedValue "string literal")) (pure . (: []) . DataInt I64) (normalizedLiteralInteger literal)
+    referenceGlobal target name = do
       let symbol = globalSymbol name
       requireExternData symbol
-      pure (DataSymbol symbol 0)
+      pure (slotPointerFields target (DataSymbol symbol 0))
 
 nodeInfoSymbol :: LowerEnv -> GrinNode -> LowerM Symbol
 nodeInfoSymbol env node =
@@ -660,11 +801,13 @@ addrLiteralSymbol env bytes =
   maybe (failWith (LowerUnsupportedValue "unregistered Addr# literal")) pure (Map.lookup bytes (envAddrLiterals env))
 
 lowerStaticReferenceTables :: LowerEnv -> LowerM ()
-lowerStaticReferenceTables env =
+lowerStaticReferenceTables env = do
+  target <- targetM
   forM_ (Map.toList (staticReferenceTables (envStaticReferences env))) $ \(name, table) ->
     forM_ (Map.lookup name (envSrtSymbols env)) $ \symbol -> do
       let objects = map globalSymbol (srtObjects table)
           children = [child | name' <- srtChildren table, Just child <- [Map.lookup name' (envSrtSymbols env)]]
+          word = wordField target
       mapM_ requireExternData objects
       emitItem
         ( ItemData
@@ -672,8 +815,8 @@ lowerStaticReferenceTables env =
                 symbol
                 Internal
                 True
-                8
-                ( [DataInt I64 0, DataInt I64 (toInteger (length objects)), DataInt I64 (toInteger (length children))]
+                (toInteger (lowerWordSize target))
+                ( [word 0, word (toInteger (length objects)), word (toInteger (length children))]
                     <> [DataSymbol object 0 | object <- objects]
                     <> [DataSymbol child 0 | child <- children]
                 )
@@ -888,10 +1031,10 @@ compileBinding ctx env vars expression =
               (_, Just array) -> pure array
               _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
           forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-            emit [] (Store Ptr root (Address array (toInteger (8 * index))) 8)
+            storeSlot Ptr root array (toInteger (8 * index))
           _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
           relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) -> do
-            typed <- emitValue (varBase var) Ptr (Load Ptr (Address array (toInteger (8 * index))) 8)
+            typed <- loadSlot (varBase var) Ptr array (toInteger (8 * index))
             pure (var, typed)
           pure (Map.fromList relocated `Map.union` env)
       | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
@@ -936,7 +1079,7 @@ initializeFields :: FunctionCtx -> ValueEnv -> Typed -> GrinNode -> LowerM ()
 initializeFields ctx env object node =
   forM_ (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
     typed <- materialize ctx env field
-    emit [] (Store (typedType typed) (typedOperand typed) (Address (typedOperand object) (toInteger (8 * (index + 1)))) 8)
+    storeSlot (typedType typed) (typedOperand typed) (typedOperand object) (toInteger (8 * (index + 1)))
 
 -- | A GRIN value as a typed Lir operand.
 materialize :: FunctionCtx -> ValueEnv -> GrinValue -> LowerM Typed
@@ -1226,8 +1369,8 @@ compileCase ctx env scrutinee binder alternatives = do
       [] -> freshLabel "no_match"
   if isPointer
     then do
-      header <- emitValue "header" Ptr (Load Ptr (Address (typedOperand typed) 0) 8)
-      identity <- emitValue "identity" Ptr (Load Ptr (Address (typedOperand header) 0) 8)
+      header <- loadSlot "header" Ptr (typedOperand typed) 0
+      identity <- loadInfoPointer "identity" (typedOperand header) 0
       checks <- forM [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt] $ \(alternative, label) ->
         case grinAltCon alternative of
           GrinDataAlt name -> do
@@ -1277,7 +1420,7 @@ compileCase ctx env scrutinee binder alternatives = do
           let live = freeExprVars (grinAltRhs alternative)
           bound <- forM [(index, field) | (index, field) <- zip [0 :: Int ..] (grinAltBinders alternative), field `Set.member` live] $ \(index, field) -> do
             let ty = repType (grinVarRuntimeRep field)
-            value <- emitValue (varBase field) ty (Load ty (Address (typedOperand typed) (toInteger (8 * (index + 1)))) 8)
+            value <- loadSlot (varBase field) ty (typedOperand typed) (toInteger (8 * (index + 1)))
             pure (field, value)
           pure (Map.fromList bound `Map.union` env')
         GrinLitAlt _ -> pure env'
@@ -1295,20 +1438,65 @@ compileCase ctx env scrutinee binder alternatives = do
 -- done continuation returns to the scheduler.
 lowerExecutableMain :: GcGrinProgram -> LowerM ()
 lowerExecutableMain gcProgram = do
-  let entryGlobal = globalSymbol executableEntryName
-      finalInfo = Symbol "aihc_lir_final_info"
-      topInfo = Symbol "aihc_lir_top_info"
-      updateInfo = Symbol "aihc_lir_update_info"
-      threadDoneInfo = Symbol "aihc_lir_thread_done_info"
-      finalTarget = Symbol "aihc_lir_final_continuation"
-      topTarget = Symbol "aihc_lir_top_continuation"
-      threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
-      updateTarget = functionSymbol (gcUpdateFunction gcProgram)
-  requireExternData entryGlobal
+  entryItems gcProgram
+  argc <- fresh "argc"
+  argv <- fresh "argv"
+  beginBlock (Label "entry") []
+  _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
+  _ <- startMachine
+  terminate (Return [OperandLiteral (LitInt 0)])
+  finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention
+
+-- | The WASI P3 entry unit. The P3 driver initializes the program
+-- arguments, calls @aihc_lir_program_start@, and calls
+-- @aihc_lir_program_resume@ with the scheduler resumption of every
+-- completed IO request. Both return one when the program has halted and zero
+-- when every thread waits for IO. The machine is published in the C global
+-- @aihc_machine@ for the driver.
+lowerWasip3Entry :: GcGrinProgram -> LowerM ()
+lowerWasip3Entry gcProgram = do
+  entryItems gcProgram
+  requireExternData wasmMachineSymbol
+  do
+    beginBlock (Label "entry") []
+    machine <- startMachine
+    emit [] (Store Ptr machine (Address (OperandLiteral (LitSymbol wasmMachineSymbol)) 0) 4)
+    finished <- loadFinished
+    terminate (Return [finished])
+    finishFunction (Symbol "aihc_lir_program_start") Export [] [I32] CConvention
+  do
+    resume <- fresh "resume"
+    beginBlock (Label "entry") []
+    machine <- emitValue "machine" Ptr (Load Ptr (Address (OperandLiteral (LitSymbol wasmMachineSymbol)) 0) 4)
+    helper <- requireHelper HelperResume
+    emit [] (Call helper [typedOperand machine, OperandVar resume])
+    finished <- loadFinished
+    terminate (Return [finished])
+    finishFunction (Symbol "aihc_lir_program_resume") Export [(resume, Ptr)] [I32] CConvention
+  where
+    loadFinished = do
+      flag <- emitValue "finished" I64 (Load I64 (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
+      typedOperand <$> emitValue "finished" I32 (Convert Trunc I64 (typedOperand flag) I32)
+
+wasmMachineSymbol :: Symbol
+wasmMachineSymbol = Symbol "aihc_machine"
+
+-- | The word the exit function sets when the machine halts.
+finishedSymbol :: Symbol
+finishedSymbol = Symbol "aihc_lir_finished"
+
+-- | The special continuations of an executable: the top continuation
+-- applies the evaluated entry, the final continuation halts, the update
+-- continuation is the GC-GRIN update function, and the thread done
+-- continuation returns to the scheduler.
+entryItems :: GcGrinProgram -> LowerM ()
+entryItems gcProgram = do
+  requireExternData (globalSymbol executableEntryName)
   continuationInfoItems (ContinuationSpec finalInfo (Symbol "aihc_lir_final_applied_info") finalTarget [] [Ptr] ContinuationFrameStop)
   continuationInfoItems (ContinuationSpec topInfo (Symbol "aihc_lir_top_applied_info") topTarget [Ptr] [Ptr] ContinuationFrameNormal)
-  continuationInfoItems (ContinuationSpec updateInfo (Symbol "aihc_lir_update_applied_info") updateTarget [Ptr, Ptr] [Ptr] ContinuationFrameUpdate)
+  continuationInfoItems (ContinuationSpec updateInfo (Symbol "aihc_lir_update_applied_info") (functionSymbol (gcUpdateFunction gcProgram)) [Ptr, Ptr] [Ptr] ContinuationFrameUpdate)
   continuationInfoItems (ContinuationSpec threadDoneInfo (Symbol "aihc_lir_thread_done_applied_info") threadDoneTarget [] [Ptr] ContinuationFrameStop)
+  emitItem (ItemData (DataItem finishedSymbol Internal True 8 [DataInt I64 0]))
   -- The top continuation applies the evaluated entry action to no arguments
   -- with the final continuation.
   do
@@ -1327,28 +1515,40 @@ lowerExecutableMain gcProgram = do
     terminate (TailCallIndirect entry [OperandVar machine] (Signature [Ptr] [] AihcConvention))
     finishFunction finalTarget Internal [(machine, Ptr), (value, Ptr)] [] AihcConvention
   threadDoneContinuation threadDoneTarget
+  where
+    finalTarget = Symbol "aihc_lir_final_continuation"
+    topTarget = Symbol "aihc_lir_top_continuation"
+    threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
+
+finalInfo, topInfo, updateInfo, threadDoneInfo :: Symbol
+finalInfo = Symbol "aihc_lir_final_info"
+topInfo = Symbol "aihc_lir_top_info"
+updateInfo = Symbol "aihc_lir_update_info"
+threadDoneInfo = Symbol "aihc_lir_thread_done_info"
+
+-- | Create the machine and its continuations and evaluate the entry. The
+-- call returns when the machine halts or when every thread waits for IO.
+startMachine :: LowerM Operand
+startMachine = do
+  target <- targetM
   exit <- requireHelper HelperExit
-  do
-    argc <- fresh "argc"
-    argv <- fresh "argv"
-    beginBlock (Label "entry") []
-    _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
-    machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
-    _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull]
-    final <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol finalInfo)]
-    top <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol topInfo)]
-    emit [] (Store Ptr final (Address top 8) 8)
-    update <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol updateInfo)]
-    emit [] (Store Ptr top (Address update 8) 8)
-    emit [] (Store Ptr (OperandLiteral (LitSymbol entryGlobal)) (Address update 16) 8)
-    threadDone <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol threadDoneInfo)]
-    _ <- callRuntime "aihc_set_thread_done_continuation" [Ptr, Ptr] [] [machine, threadDone]
-    -- The halt path returns through this exit function to main.
-    emit [] (Store Code (OperandLiteral (LitSymbol exit)) (Address machine 16) 8)
-    eval <- requireHelper HelperEval
-    emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), OperandLiteral (LitInt 1), top, update])
-    terminate (Return [OperandLiteral (LitInt 0)])
-    finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention
+  let entryGlobal = globalSymbol executableEntryName
+  machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
+  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull]
+  final <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol finalInfo)]
+  top <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol topInfo)]
+  storeSlot Ptr final top 8
+  update <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol updateInfo)]
+  storeSlot Ptr top update 8
+  storeSlot Ptr (OperandLiteral (LitSymbol entryGlobal)) update 16
+  threadDone <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol threadDoneInfo)]
+  _ <- callRuntime "aihc_set_thread_done_continuation" [Ptr, Ptr] [] [machine, threadDone]
+  -- The halt path returns through the exit function to the caller.
+  emit [] (Store Code (OperandLiteral (LitSymbol exit)) (Address machine machineExitCodeOffset) (toInteger (lowerWordSize target)))
+  emit [] (Store I64 (OperandLiteral (LitInt 0)) (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
+  eval <- requireHelper HelperEval
+  emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), OperandLiteral (LitInt 1), top, update])
+  pure machine
 
 -- | The continuation that a finished thread enters. Exported for harnesses
 -- that build their own entry.
@@ -1375,11 +1575,15 @@ generateHelpers env done = do
     generateHelpers env (done `Set.union` Set.fromList pending)
 
 generateHelper :: LowerEnv -> Helper -> LowerM ()
-generateHelper _ helper =
+generateHelper env helper =
   case helper of
+    -- The exit function records that the machine halted and returns to the
+    -- function that started the machine.
     HelperExit -> do
       machine <- fresh "machine"
       beginBlock (Label "entry") []
+      when (lowerUnitKind (envOptions env) == ExecutableUnit) $
+        emit [] (Store I64 (OperandLiteral (LitInt 1)) (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
       terminate (Return [])
       finishFunction symbol Internal [(machine, Ptr)] [] AihcConvention
     HelperContinue shape -> do
@@ -1391,14 +1595,14 @@ generateHelper _ helper =
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
       header <- loadHeader (OperandVar current)
-      kind <- emitValue "kind" I64 (Load I64 (Address header 64) 8)
+      kind <- loadInfoWord "kind" header infoObjectKindIndex
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
       terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "enter") []))
       beginBlock (Label "indirection") []
-      next <- emitValue "next" Ptr (Load Ptr (Address (OperandVar current) 8) 8)
+      next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "enter") []
-      entry <- emitValue "entry" Code (Load Code (Address header 48) 8)
+      entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
         ( TailCallIndirect
             (typedOperand entry)
@@ -1407,31 +1611,33 @@ generateHelper _ helper =
         )
       finishFunction symbol Internal ((machine, Ptr) : (continuation, Ptr) : values) [] AihcConvention
     HelperApply shape -> do
+      target <- targetM
+      let word = toInteger (lowerWordSize target)
       machine <- fresh "machine"
       function <- fresh "function"
       continuation <- fresh "continuation"
       values <- forM shape $ \ty -> (,ty) <$> fresh "value"
       beginBlock (Label "entry") []
       arguments <- if null shape then pure (OperandLiteral LitNull) else typedOperand <$> emitValue "arguments" Ptr (StackAlloc (toInteger (8 * length shape)) 8)
-      continuationSlot <- typedOperand <$> emitValue "slot" Ptr (StackAlloc 8 8)
+      continuationSlot <- typedOperand <$> emitValue "slot" Ptr (StackAlloc word word)
       terminate (Jump (Target (Label "loop") [OperandVar function]))
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
       header <- loadHeader (OperandVar current)
-      kind <- emitValue "kind" I64 (Load I64 (Address header 64) 8)
+      kind <- loadInfoWord "kind" header infoObjectKindIndex
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
       terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "apply") []))
       beginBlock (Label "indirection") []
-      next <- emitValue "next" Ptr (Load Ptr (Address (OperandVar current) 8) 8)
+      next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "apply") []
-      arity <- emitValue "arity" I64 (Load I64 (Address header 24) 8)
+      arity <- loadInfoWord "arity" header infoRemainingArityIndex
       isClosure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
       isSaturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt 1)))
       isFast <- emitValue "fast" I1 (Binary And I1 (typedOperand isClosure) (typedOperand isSaturated))
       terminate (Branch (typedOperand isFast) (Target (Label "fast") []) (Target (Label "slow") []))
       beginBlock (Label "fast") []
-      entry <- emitValue "entry" Code (Load Code (Address header 48) 8)
+      entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
         ( TailCallIndirect
             (typedOperand entry)
@@ -1440,23 +1646,34 @@ generateHelper _ helper =
         )
       beginBlock (Label "slow") []
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
-        emit [] (Store ty (OperandVar var) (Address arguments (toInteger (8 * index))) 8)
-      emit [] (Store Ptr (OperandVar continuation) (Address continuationSlot 0) 8)
+        storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
+      -- The continuation slot is a C pointer variable, not a heap slot.
+      emit [] (Store Ptr (OperandVar continuation) (Address continuationSlot 0) word)
       applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt (toInteger (length shape))), arguments, continuationSlot]
-      adjusted <- emitValue "adjusted" Ptr (Load Ptr (Address continuationSlot 0) 8)
+      adjusted <- emitValue "adjusted" Ptr (Load Ptr (Address continuationSlot 0) word)
       continue <- requireHelper (HelperContinue [Ptr])
       terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
       finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention
+    -- A null resumption means that every thread waits for IO and the host
+    -- owns the IO loop: return to the function that started the machine.
     HelperResume -> do
+      target <- targetM
+      let layout = resumeLayout target
+          word = toInteger (lowerWordSize target)
       machine <- fresh "machine"
       resume <- fresh "resume"
       beginBlock (Label "entry") []
-      kind <- emitValue "kind" I64 (Load I64 (Address (OperandVar resume) 0) 8)
-      function <- emitValue "function" Ptr (Load Ptr (Address (OperandVar resume) 8) 8)
-      continuation <- emitValue "continuation" Ptr (Load Ptr (Address (OperandVar resume) 16) 8)
-      value <- emitValue "value" I64 (Load I64 (Address (OperandVar resume) 24) 8)
-      count <- emitValue "count" I64 (Load I64 (Address (OperandVar resume) 32) 8)
-      forM_ [0, 8 .. 32] $ \offset -> emit [] (Store I64 (OperandLiteral (LitInt 0)) (Address (OperandVar resume) offset) 8)
+      isNull <- emitValue "no_resume" I1 (Compare Eq Ptr (OperandVar resume) (OperandLiteral LitNull))
+      terminate (Branch (typedOperand isNull) (Target (Label "suspend") []) (Target (Label "dispatch") []))
+      beginBlock (Label "suspend") []
+      terminate (Return [])
+      beginBlock (Label "dispatch") []
+      kind <- emitValue "kind" I64 (Load I64 (Address (OperandVar resume) (resumeKindOffset layout)) 8)
+      function <- emitValue "function" Ptr (Load Ptr (Address (OperandVar resume) (resumeFunctionOffset layout)) word)
+      continuation <- emitValue "continuation" Ptr (Load Ptr (Address (OperandVar resume) (resumeContinuationOffset layout)) word)
+      value <- emitValue "value" I64 (Load I64 (Address (OperandVar resume) (resumeValueOffset layout)) 8)
+      count <- emitValue "count" I64 (Load I64 (Address (OperandVar resume) (resumeCountOffset layout)) 8)
+      forM_ [0, 8 .. resumeSize layout - 8] $ \offset -> emit [] (Store I64 (OperandLiteral (LitInt 0)) (Address (OperandVar resume) offset) 8)
       terminate (Switch I64 (typedOperand kind) [SwitchCase 1 (Target (Label "apply") []), SwitchCase 2 (Target (Label "continue") []), SwitchCase 3 (Target (Label "raise") [])] (Just (Target (Label "invalid") [])))
       beginBlock (Label "apply") []
       terminate (Switch I64 (typedOperand count) [SwitchCase 0 (Target (Label "apply_zero") []), SwitchCase 1 (Target (Label "apply_one") [])] (Just (Target (Label "invalid") [])))
@@ -1464,7 +1681,7 @@ generateHelper _ helper =
       applyZero <- requireHelper (HelperApply [])
       terminate (TailCall applyZero [OperandVar machine, typedOperand function, typedOperand continuation])
       beginBlock (Label "apply_one") []
-      applyOne <- requireHelper (HelperApply [I64])
+      applyOne <- requireHelper HelperApplySlot
       terminate (TailCall applyOne [OperandVar machine, typedOperand function, typedOperand continuation, typedOperand value])
       beginBlock (Label "continue") []
       terminate (Switch I64 (typedOperand count) [SwitchCase 0 (Target (Label "continue_zero") []), SwitchCase 1 (Target (Label "continue_one") [])] (Just (Target (Label "invalid") [])))
@@ -1472,7 +1689,7 @@ generateHelper _ helper =
       continueZero <- requireHelper (HelperContinue [])
       terminate (TailCall continueZero [OperandVar machine, typedOperand function])
       beginBlock (Label "continue_one") []
-      continueOne <- requireHelper (HelperContinue [I64])
+      continueOne <- requireHelper HelperContinueSlot
       terminate (TailCall continueOne [OperandVar machine, typedOperand function, typedOperand value])
       beginBlock (Label "raise") []
       raised <- callRuntime "aihc_raise" [Ptr, Ptr, Ptr] [Ptr] [OperandVar machine, typedOperand function, typedOperand continuation]
@@ -1492,7 +1709,7 @@ generateHelper _ helper =
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
       header <- loadHeader (OperandVar current)
-      kind <- emitValue "kind" I64 (Load I64 (Address header 64) 8)
+      kind <- loadInfoWord "kind" header infoObjectKindIndex
       terminate
         ( Switch
             I64
@@ -1505,19 +1722,19 @@ generateHelper _ helper =
         )
       beginBlock (Label "thunk") []
       _ <- callRuntime "aihc_begin_blackhole" [Ptr, Ptr] [] [OperandVar machine, OperandVar current]
-      entry <- emitValue "entry" Code (Load Code (Address header 48) 8)
+      entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate (TailCallIndirect (typedOperand entry) [OperandVar machine, OperandVar current, OperandVar updateContinuation] (Signature [Ptr, Ptr, Ptr] [] AihcConvention))
       beginBlock (Label "indirection") []
       isLifted <- emitValue "is_lifted" I1 (Compare Ne I64 (OperandVar lifted) (OperandLiteral (LitInt 0)))
       terminate (Branch (typedOperand isLifted) (Target (Label "indirection_lifted") []) (Target (Label "indirection_unlifted") []))
       beginBlock (Label "indirection_lifted") []
-      next <- emitValue "next" Ptr (Load Ptr (Address (OperandVar current) 8) 8)
+      next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       -- An unlifted result travels through the indirection as a raw slot.
       beginBlock (Label "indirection_unlifted") []
       raw <- emitValue "raw" I64 (Load I64 (Address (OperandVar current) 8) 8)
-      continueWord <- requireHelper (HelperContinue [I64])
-      terminate (TailCall continueWord [OperandVar machine, OperandVar continuation, typedOperand raw])
+      continueSlot <- requireHelper HelperContinueSlot
+      terminate (TailCall continueSlot [OperandVar machine, OperandVar continuation, typedOperand raw])
       beginBlock (Label "blackhole") []
       resume <- callRuntime "aihc_block_on_blackhole" [Ptr, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandVar continuation]
       resumeHelper <- requireHelper HelperResume
@@ -1526,6 +1743,34 @@ generateHelper _ helper =
       continuePointer <- requireHelper (HelperContinue [Ptr])
       terminate (TailCall continuePointer [OperandVar machine, OperandVar continuation, OperandVar current])
       finishFunction symbol Internal [(machine, Ptr), (value, Ptr), (lifted, I64), (continuation, Ptr), (updateContinuation, Ptr)] [] AihcConvention
+    -- The value is a pointer when the bitmap of the next application stage
+    -- says so for the field the value becomes. An object without a next
+    -- stage cannot enter a code entry, so its value stays a word.
+    HelperContinueSlot -> do
+      machine <- fresh "machine"
+      continuation <- fresh "continuation"
+      value <- fresh "value"
+      continuePointer <- requireHelper (HelperContinue [Ptr])
+      continueWord <- requireHelper (HelperContinue [I64])
+      slotDispatch
+        (OperandVar continuation)
+        (\object pointer -> terminate (TailCall continuePointer [OperandVar machine, object, pointer]))
+        (\object -> terminate (TailCall continueWord [OperandVar machine, object, OperandVar value]))
+        (OperandVar value)
+      finishFunction symbol Internal [(machine, Ptr), (continuation, Ptr), (value, I64)] [] AihcConvention
+    HelperApplySlot -> do
+      machine <- fresh "machine"
+      function <- fresh "function"
+      continuation <- fresh "continuation"
+      value <- fresh "value"
+      applyPointer <- requireHelper (HelperApply [Ptr])
+      applyWord <- requireHelper (HelperApply [I64])
+      slotDispatch
+        (OperandVar function)
+        (\object pointer -> terminate (TailCall applyPointer [OperandVar machine, object, OperandVar continuation, pointer]))
+        (\object -> terminate (TailCall applyWord [OperandVar machine, object, OperandVar continuation, OperandVar value]))
+        (OperandVar value)
+      finishFunction symbol Internal [(machine, Ptr), (function, Ptr), (continuation, Ptr), (value, I64)] [] AihcConvention
     HelperQuotRem2 -> do
       high <- fresh "high"
       low <- fresh "low"
@@ -1567,7 +1812,47 @@ generateHelper _ helper =
       finishFunction symbol Internal [(high, I64), (low, I64), (divisor, I64)] [I64, I64] AihcConvention
   where
     symbol = helperSymbol helper
-    loadHeader object = typedOperand <$> emitValue "header" Ptr (Load Ptr (Address object 0) 8)
+    loadHeader object = typedOperand <$> loadSlot "header" Ptr object 0
+    -- Follow indirections, then branch on the pointer bitmap of the next
+    -- stage. The blocks of the function start here.
+    slotDispatch :: Operand -> (Operand -> Operand -> LowerM ()) -> (Operand -> LowerM ()) -> Operand -> LowerM ()
+    slotDispatch object asPointer asWord value = do
+      beginBlock (Label "entry") []
+      terminate (Jump (Target (Label "loop") [object]))
+      current <- fresh "current"
+      beginBlock (Label "loop") [(current, Ptr)]
+      header <- loadHeader (OperandVar current)
+      kind <- loadInfoWord "kind" header infoObjectKindIndex
+      isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
+      terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "check") []))
+      beginBlock (Label "indirection") []
+      next <- loadSlot "next" Ptr (OperandVar current) 8
+      terminate (Jump (Target (Label "loop") [typedOperand next]))
+      beginBlock (Label "check") []
+      count <- loadInfoWord "count" header infoFieldCountIndex
+      nextInfo <- loadInfoPointer "next_info" header infoNextIndex
+      hasNext <- emitValue "has_next" I1 (Compare Ne Ptr (typedOperand nextInfo) (OperandLiteral LitNull))
+      terminate (Branch (typedOperand hasNext) (Target (Label "bitmap") []) (Target (Label "word") []))
+      beginBlock (Label "bitmap") []
+      bitmap <- loadInfoPointer "bitmap" (typedOperand nextInfo) infoFieldIsPointerIndex
+      entry <- emitValue "entry" Ptr (PtrAdd (typedOperand bitmap) (typedOperand count))
+      flag <- emitValue "flag" I8 (Load I8 (Address (typedOperand entry) 0) 1)
+      isPointer <- emitValue "is_pointer" I1 (Compare Ne I8 (typedOperand flag) (OperandLiteral (LitInt 0)))
+      terminate (Branch (typedOperand isPointer) (Target (Label "pointer") []) (Target (Label "word") []))
+      beginBlock (Label "pointer") []
+      pointer <- emitValue "pointer" Ptr (PtrFromInt value)
+      asPointer (OperandVar current) (typedOperand pointer)
+      beginBlock (Label "word") []
+      asWord (OperandVar current)
+
+-- | The word indices of the info-table fields the helpers read.
+infoFieldCountIndex, infoRemainingArityIndex, infoFieldIsPointerIndex, infoNextIndex, infoBackendEntryIndex, infoObjectKindIndex :: Int
+infoFieldCountIndex = 2
+infoRemainingArityIndex = 3
+infoFieldIsPointerIndex = 4
+infoNextIndex = 5
+infoBackendEntryIndex = 6
+infoObjectKindIndex = 8
 
 runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk, runtimeObjectPartialConstructor :: Int
 runtimeObjectNode = 0

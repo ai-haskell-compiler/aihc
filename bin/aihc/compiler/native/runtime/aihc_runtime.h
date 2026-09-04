@@ -22,7 +22,7 @@ enum {
      moves and holds no heap pointers the collector has to update. */
   AIHC_OBJECT_RUNTIME,
 };
-typedef uint64_t AihcObjectKind;
+typedef uintptr_t AihcObjectKind;
 
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
@@ -36,9 +36,12 @@ typedef struct AihcIoBackend AihcIoBackend;
 typedef struct AihcMVar AihcMVar;
 typedef struct AihcStableName AihcStableName;
 typedef uint64_t AihcSlot;
-typedef void (*AihcEntry)(AihcSlot *arguments);
-/* The backend entry is interpreted by the selected code generator. Common
-   runtime code preserves it but never calls it. */
+/* The portable entry of an info table. Reserved: Lir stores null until the
+   runtime moves to Lir. The exit code of a machine has this type. */
+typedef void (*AihcEntry)(AihcMachine *machine);
+/* The backend entry is a Lir function with the signature
+   (machine, object, continuation, supplied values...). Common runtime code
+   preserves it but never calls it. */
 typedef void (*AihcBackendEntry)(void);
 
 enum {
@@ -65,7 +68,7 @@ enum {
   AIHC_FRAME_RESTORE_MASK = 4,
   AIHC_FRAME_STOP = 5,
 };
-typedef uint64_t AihcFrameKind;
+typedef uintptr_t AihcFrameKind;
 
 /* A static reference table names the static objects one function reaches
    without going through a heap object. Tables are chained: a table names the
@@ -87,15 +90,18 @@ struct AihcSrt {
   uintptr_t entries[];
 };
 
+/* Every field of an info table is one word wide, so Lir addresses field k
+   at offset k words on every target. See the "Info tables" section of
+   docs/lir.md. */
 struct AihcInfo {
   uintptr_t identity;
   AihcEntry entry;
-  uint64_t field_count;
-  uint64_t remaining_arity;
+  uintptr_t field_count;
+  uintptr_t remaining_arity;
   const uint8_t *field_is_pointer;
   const AihcInfo *next;
-  /* Backend-owned dynamic entry. Native and WebAssembly adapters give this
-     word their own callable type. */
+  /* Backend-owned dynamic entry. Lir gives this word its own callable
+     type. */
   AihcBackendEntry backend_entry;
   /* Continuation closures have their parent in field zero. This kind is
      backend-independent so the runtime can unwind them uniformly. */
@@ -138,9 +144,6 @@ struct AihcMachine {
   uint64_t io_request_count;
   const AihcIoBackend *io_backend;
   uint64_t allocation_count;
-  AihcSlot *locals;
-  uint64_t locals_capacity;
-  void *trampoline_state;
   AihcResume selected_resume;
   int64_t exit_status;
   uint64_t other_space_bytes;
@@ -196,10 +199,6 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
-/* Reserve the slot area that compiled functions use for spilled locals. The
-   entry unit reserves a fixed count that every backend enforces at compile
-   time, so no function needs more slots than the area holds. */
-AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 /* The runtime removes RTS options before the Haskell machine starts. argv[0]

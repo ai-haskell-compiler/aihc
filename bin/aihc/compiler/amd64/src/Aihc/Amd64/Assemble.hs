@@ -11,6 +11,7 @@ module Aihc.Amd64.Assemble
     Amd64BinarySource (..),
     Amd64JumpTarget (..),
     Amd64Condition (..),
+    Amd64SseOp (..),
     assembleElf,
     amd64Align,
     amd64Bytes,
@@ -19,6 +20,7 @@ module Aihc.Amd64.Assemble
     amd64Label,
     amd64Quad,
     amd64QuadSymbol,
+    amd64QuadSymbolAddend,
     amd64Section,
   )
 where
@@ -40,6 +42,7 @@ data Amd64Statement
   | Amd64Label !Text
   | Amd64Quad !Word64
   | Amd64QuadSymbol !Text
+  | Amd64QuadSymbolAddend !Text !Int64
   | Amd64Bytes !ByteString
   | Amd64Instruction ![Item]
 
@@ -130,6 +133,7 @@ data Amd64JumpTarget
 
 data Amd64Condition
   = AmdOverflow
+  | AmdNotOverflow
   | AmdCarry
   | AmdBelow
   | AmdAboveOrEqual
@@ -141,6 +145,22 @@ data Amd64Condition
   | AmdGreaterOrEqual
   | AmdLessOrEqual
   | AmdGreater
+  | AmdSign
+  | AmdNotSign
+  | AmdParity
+  | AmdNotParity
+  deriving (Eq, Ord, Show)
+
+-- | A scalar SSE operation. The double flag of the instruction selects the
+-- @sd@ or the @ss@ form.
+data Amd64SseOp
+  = SseAdd
+  | SseSub
+  | SseMul
+  | SseDiv
+  | SseSqrt
+  | -- | @cvtss2sd@ or @cvtsd2ss@: convert from the other width.
+    SseConvertWidth
   deriving (Eq, Ord, Show)
 
 data Amd64Instruction
@@ -177,6 +197,40 @@ data Amd64Instruction
   | AmdMul !Amd64Rm
   | AmdDiv !Amd64Rm
   | AmdSet !Amd64Condition !Amd64Rm
+  | -- | @ret imm16@: pop the return address and the given number of bytes.
+    AmdRetImm !Int
+  | AmdCallRegister !Amd64Register
+  | AmdJcc !Amd64Condition !Text
+  | -- | @cmovcc r64, r/m64@.
+    AmdCmov !Amd64Condition !Amd64Register !Amd64Rm
+  | AmdNeg !Amd64Rm
+  | -- | Arithmetic shift right by @cl@.
+    AmdSar !Amd64Rm
+  | AmdIdiv !Amd64Rm
+  | -- | One-operand signed multiplication into @rdx:rax@.
+    AmdImulWide !Amd64Rm
+  | AmdCqo
+  | -- | Store the low byte of a register. The register is @al@ or an
+    -- extended register; the legacy high-byte encodings are not used.
+    AmdStoreByte !Amd64Memory !Amd64Register
+  | -- | Store the low 16 bits of a register.
+    AmdStoreWord !Amd64Memory !Amd64Register
+  | -- | @movq xmm, r64@.
+    AmdMovqToXmm !Int !Amd64Register
+  | -- | @movq r64, xmm@.
+    AmdMovqFromXmm !Amd64Register !Int
+  | -- | @movd xmm, r32@.
+    AmdMovdToXmm !Int !Amd64Register
+  | -- | @movd r32, xmm@. The high 32 bits of the register are cleared.
+    AmdMovdFromXmm !Amd64Register !Int
+  | -- | @op xmm, xmm@ with the double flag, the destination, and the source.
+    AmdSse !Amd64SseOp !Bool !Int !Int
+  | -- | @ucomisd@ or @ucomiss@.
+    AmdUcomis !Bool !Int !Int
+  | -- | @cvtsi2sd xmm, r64@ or @cvtsi2ss xmm, r64@.
+    AmdCvtsi2s !Bool !Int !Amd64Register
+  | -- | @cvttsd2si r64, xmm@ or @cvttss2si r64, xmm@.
+    AmdCvtts2si !Bool !Amd64Register !Int
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
 assembleElf statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeAmd64Elf
@@ -199,6 +253,9 @@ amd64Quad = Amd64Quad
 amd64QuadSymbol :: Text -> Amd64Statement
 amd64QuadSymbol = Amd64QuadSymbol
 
+amd64QuadSymbolAddend :: Text -> Int64 -> Amd64Statement
+amd64QuadSymbolAddend = Amd64QuadSymbolAddend
+
 amd64Bytes :: ByteString -> Amd64Statement
 amd64Bytes = Amd64Bytes
 
@@ -215,6 +272,7 @@ applyStatement result statement = do
     Amd64Label symbol -> addItem (Label symbol) draft
     Amd64Quad value -> addItem (Bytes (word64Bytes value)) draft
     Amd64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 (BS.replicate 8 0))) draft
+    Amd64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol addend (BS.replicate 8 0))) draft
     Amd64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
@@ -337,6 +395,38 @@ encodeInstruction instruction =
     AmdMul source -> encodeGroup True [0xf7] 4 (rmOperand source) []
     AmdDiv source -> encodeGroup True [0xf7] 6 (rmOperand source) []
     AmdSet condition destination -> encodeGroupWithWidth False [0x0f, 0x90 + conditionCode condition] 0 (rmOperand destination) [] True
+    AmdRetImm count -> bytes [0xc2, fromIntegral count, fromIntegral (count `shiftR` 8)]
+    AmdCallRegister register -> encodeGroup False [0xff] 2 (RegisterOperand (registerInfo register)) []
+    AmdJcc condition target -> relativeBranch [0x0f, 0x80 + conditionCode condition] X86Pc32 target
+    AmdCmov condition destination source -> encodeRegisterSource True [0x0f, 0x40 + conditionCode condition] destination source
+    AmdNeg destination -> encodeGroup True [0xf7] 3 (rmOperand destination) []
+    AmdSar destination -> encodeGroup True [0xd3] 7 (rmOperand destination) []
+    AmdIdiv source -> encodeGroup True [0xf7] 7 (rmOperand source) []
+    AmdImulWide source -> encodeGroup True [0xf7] 5 (rmOperand source) []
+    AmdCqo -> bytes [0x48, 0x99]
+    AmdStoreByte destination source -> encodeRm False [0x88] (registerNumber (registerInfo source)) (memoryOperand destination) False []
+    AmdStoreWord destination source -> bytes [0x66] <> encodeRm False [0x89] (registerNumber (registerInfo source)) (memoryOperand destination) False []
+    AmdMovqToXmm xmm source -> bytes [0x66] <> encodeRm True [0x0f, 0x6e] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
+    AmdMovqFromXmm destination xmm -> bytes [0x66] <> encodeRm True [0x0f, 0x7e] (fromIntegral xmm) (RegisterOperand (registerInfo destination)) False []
+    AmdMovdToXmm xmm source -> bytes [0x66] <> encodeRm False [0x0f, 0x6e] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
+    AmdMovdFromXmm destination xmm -> bytes [0x66] <> encodeRm False [0x0f, 0x7e] (fromIntegral xmm) (RegisterOperand (registerInfo destination)) False []
+    AmdSse op double destination source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm False [0x0f, sseOpcode op] (fromIntegral destination) (RegisterOperand (xmmRegister source)) False []
+    AmdUcomis double left right -> bytes [0x66 | double] <> encodeRm False [0x0f, 0x2e] (fromIntegral left) (RegisterOperand (xmmRegister right)) False []
+    AmdCvtsi2s double xmm source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2a] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
+    AmdCvtts2si double destination xmm -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2c] (registerNumber (registerInfo destination)) (RegisterOperand (xmmRegister xmm)) False []
+
+xmmRegister :: Int -> Register
+xmmRegister number = Register (fromIntegral number) 128
+
+sseOpcode :: Amd64SseOp -> Word8
+sseOpcode op =
+  case op of
+    SseAdd -> 0x58
+    SseSub -> 0x5c
+    SseMul -> 0x59
+    SseDiv -> 0x5e
+    SseSqrt -> 0x51
+    SseConvertWidth -> 0x5a
 
 encodePushPop :: Bool -> Amd64Register -> [Item]
 encodePushPop popValue source =
@@ -447,6 +537,7 @@ conditionCode :: Amd64Condition -> Word8
 conditionCode condition =
   case condition of
     AmdOverflow -> 0
+    AmdNotOverflow -> 1
     AmdCarry -> 2
     AmdBelow -> 2
     AmdAboveOrEqual -> 3
@@ -458,6 +549,10 @@ conditionCode condition =
     AmdGreaterOrEqual -> 13
     AmdLessOrEqual -> 14
     AmdGreater -> 15
+    AmdSign -> 8
+    AmdNotSign -> 9
+    AmdParity -> 10
+    AmdNotParity -> 11
 
 rex :: Bool -> Bool -> Bool -> Bool -> Word8
 rex width register index base =

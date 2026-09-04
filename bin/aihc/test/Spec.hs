@@ -20,7 +20,10 @@ main = do
   fc <- Fc.tests
   grin <- Grin.tests
   lir <- Lir.tests
+  amd64 <- Amd64.tests
   arm64 <- Arm64.tests
+  llvm <- Llvm.tests
+  wasm <- Wasm.tests
   defaultMain
     ( testGroup
         "aihc"
@@ -29,10 +32,10 @@ main = do
           testGroup "grin-spec" [grin],
           testGroup "lir-spec" [lir],
           testGroup "native-spec" [Native.tests],
-          testGroup "amd64-spec" [Amd64.tests],
+          testGroup "amd64-spec" [amd64],
           testGroup "arm64-spec" [arm64],
-          testGroup "llvm-spec" [Llvm.tests],
-          testGroup "wasm-spec" [Wasm.tests]
+          testGroup "llvm-spec" [llvm],
+          testGroup "wasm-spec" [wasm]
         ]
     )
 

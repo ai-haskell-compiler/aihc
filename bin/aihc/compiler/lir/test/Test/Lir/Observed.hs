@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Compile a nullary GRIN function through Lir with a test driver that
+-- | Lower a nullary GRIN function through Lir with a test driver that
 -- records its raw result through the heap snapshot runtime.
-module Test.Arm64.LirObserved
+module Test.Lir.Observed
   ( lowerObservedProgram,
   )
 where
@@ -20,8 +20,8 @@ import Test.Native.Observed (renderObservedMetadata)
 
 -- | The Lir module of the observed program and the C metadata of the
 -- snapshot runtime.
-lowerObservedProgram :: FunctionName -> GcGrinProgram -> Either LowerError (Module, Text)
-lowerObservedProgram entryName gcProgram = do
+lowerObservedProgram :: LowerTarget -> FunctionName -> GcGrinProgram -> Either LowerError (Module, Text)
+lowerObservedProgram target entryName gcProgram = do
   entryFunction <- maybe (Left (LowerMissingFunction entryName)) Right (find ((== entryName) . grinFunctionName) (grinFunctions program))
   case Map.lookup entryName (gcFunctionContinuations gcProgram) of
     Just continuation | grinFunctionParameters entryFunction == [continuation] -> pure ()
@@ -46,7 +46,7 @@ lowerObservedProgram entryName gcProgram = do
   pure (Module items, metadata)
   where
     program = gcGrinProgram gcProgram
-    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True}
+    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
     threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
     snapshotInfo = Symbol "aihc_lir_snapshot_info"
@@ -60,7 +60,7 @@ lowerObservedProgram entryName gcProgram = do
       buffer <- fresh "buffer"
       emit [buffer] (StackAlloc (toInteger (8 * max 1 (length resultTypes))) 8)
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
-        emit [] (Store ty (OperandVar var) (Address (OperandVar buffer) (toInteger (8 * index))) 8)
+        storeSlot ty (OperandVar var) (OperandVar buffer) (toInteger (8 * index))
       requireExtern (Symbol "aihc_snapshot_dump_result") [I64, Ptr, Ptr] []
       emit [] (Call (Symbol "aihc_snapshot_dump_result") [OperandLiteral (LitInt (toInteger (length resultTypes))), OperandVar buffer, OperandVar machine])
       terminate (Return [])
