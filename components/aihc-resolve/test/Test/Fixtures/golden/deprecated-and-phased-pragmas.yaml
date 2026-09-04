@@ -1,0 +1,57 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    {-# DEPRECATED old "use new" #-}
+    old :: () -> ()
+    old a = a
+    {-# WARNING risky "unsafe" #-}
+    risky :: () -> ()
+    risky a = a
+    {-# INLINE[1] new #-}
+    new :: () -> ()
+    new a = a
+    {-# NOINLINE [~2] other #-}
+    other :: () -> ()
+    other a = a
+    {-# CFILES cbits/helper.c #-}
+annotated:
+  - |
+    module Main where
+    {-# DEPRECATED old "use new" #-}
+    old :: () -> ()
+    │      │     └─ t Builtin ()
+    │      └─ t Builtin ()
+    └─ v Main
+    old a = a
+    │   │   └─ v 0
+    │   └─ v 0
+    └─ v Main
+    {-# WARNING risky "unsafe" #-}
+    risky :: () -> ()
+    └─ v Main│     └─ t Builtin ()
+             └─ t Builtin ()
+    risky a = a
+    │     │   └─ v 1
+    │     └─ v 1
+    └─ v Main
+    {-# INLINE[1] new #-}
+    new :: () -> ()
+    │      │     └─ t Builtin ()
+    │      └─ t Builtin ()
+    └─ v Main
+    new a = a
+    │   │   └─ v 2
+    │   └─ v 2
+    └─ v Main
+    {-# NOINLINE [~2] other #-}
+    other :: () -> ()
+    └─ v Main│     └─ t Builtin ()
+             └─ t Builtin ()
+    other a = a
+    │     │   └─ v 3
+    │     └─ v 3
+    └─ v Main
+    {-# CFILES cbits/helper.c #-}
+status: pass
+reason: DEPRECATED, WARNING, CFILES, and phased INLINE pragmas are accepted without resolver diagnostics
