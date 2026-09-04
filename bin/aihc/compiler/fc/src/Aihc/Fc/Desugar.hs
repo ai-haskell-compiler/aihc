@@ -36,7 +36,8 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc
-  ( ClassInfo (..),
+  ( AssociatedTypeInfo (..),
+    ClassInfo (..),
     DataConFieldInfo (..),
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
@@ -60,6 +61,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typeFamilyAxiomKey,
   )
+import Aihc.Tc.Annotations (TcInstanceAnnotation (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Pred (..),
@@ -412,6 +414,11 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           convertDataFamilyInst env package moduleName' bindings familyInfo
       | Just familyEquation <- fromAnnotation ann ->
           (: []) <$> convertTypeFamilyEquation env familyEquation
+      | Just instanceAnnotation <- fromAnnotation ann,
+        Syn.DeclInstance {} <- peelDeclAnn inner ->
+          -- The associated type family equations of an instance, explicit
+          -- ones and instantiated class defaults, become axioms.
+          mapM (convertTypeFamilyEquation env) (tcInstanceAssociatedTypes instanceAnnotation)
       | otherwise ->
           dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
     _ ->
@@ -424,7 +431,18 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           convertSynonym env info
         Syn.DeclClass classDecl -> do
           info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
-          (: []) <$> convertClass env info
+          classDecl' <- convertClass env info
+          -- Each associated type family of the class is an empty family
+          -- type, the same as a top-level family declaration.
+          families <-
+            mapM
+              ( \associated -> do
+                  let familyName = tyConName (atiTyCon associated)
+                  familyInfo <- lookupTyConFlavor TypeFamilyTyCon package moduleName' familyName tyCons
+                  convertEmptyFamily env (associatedFamilyParamNames familyName classDecl) Nominal familyInfo
+              )
+              (ciAssociatedTypes info)
+          pure (classDecl' : families)
         Syn.DeclNewtype newtypeDecl ->
           convertNewtype env
             =<< lookupDataType NewtypeTyCon package moduleName' (unqualifiedNameText (binderHeadName (Syn.newtypeDeclHead newtypeDecl))) dataTypes
@@ -453,6 +471,17 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
             Syn.CCall -> Right []
             callConv -> Left ("unsupported System FC foreign calling convention: " <> show callConv)
         _ -> Right []
+
+-- | The parameter names of an associated type family, as written in the
+-- class body.
+associatedFamilyParamNames :: Text -> Syn.ClassDecl -> [Text]
+associatedFamilyParamNames familyName classDecl =
+  concat
+    [ map tyVarBinderName (Syn.typeFamilyDeclParams familyDecl)
+    | item <- Syn.classDeclItems classDecl,
+      Syn.ClassItemTypeFamilyDecl familyDecl <- [Syn.peelClassDeclItemAnn item],
+      typeFamilyDeclName familyDecl == familyName
+    ]
 
 sourceTyConKey :: PackageId -> Text -> Text -> TcTypeKey
 sourceTyConKey package moduleName' name =
