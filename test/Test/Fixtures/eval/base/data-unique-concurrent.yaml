@@ -22,5 +22,5 @@ modules:
 expression: concurrentPairIsDistinct
 output: |
   True
-status: xfail
+status: pass
 reason: Data.Unique uses an atomic global source so concurrent callers cannot receive the same value

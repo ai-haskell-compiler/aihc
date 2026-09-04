@@ -392,7 +392,10 @@ evalScheduledPrimitive :: Text -> [RuntimeValue] -> ScheduledContinuation -> Eva
 evalScheduledPrimitive "fork#" [action] continue = do
   threadId <- allocateCell HeapThread
   enqueueThread
-    ( applyScheduledValue action [] (const scheduleNextThread)
+    ( -- The child thread enters its own closure. Forking a thunk is legal, and
+      -- an already forced action may sit behind an indirection, so neither is
+      -- a value 'applyScheduledValue' can consume directly.
+      forceScheduledValue action (\entered -> applyScheduledValue entered [] (const scheduleNextThread))
         `catchE` finishChild
     )
   continue [threadId]
