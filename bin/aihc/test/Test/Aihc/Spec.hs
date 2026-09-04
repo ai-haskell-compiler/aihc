@@ -421,6 +421,7 @@ test_installTargetArchives = do
   withTempDir "aihc-install-targets" $ \root -> do
     let targets =
           [ (AppleArm64, "arm64-macos-apple", ".objdump"),
+            (AppleArm64Lir, "arm64-macos-apple-lir", ".lir"),
             (Llvm, "llvm", ".ll")
           ]
             <> [(LinuxAmd64, "amd64-linux-gnu", ".objdump") | foreignArchivesSupported]
@@ -438,6 +439,9 @@ test_installTargetArchives = do
       objectHeader <- BS.take 4 <$> BS.readFile objectPath
       case target of
         AppleArm64 -> do
+          assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
+          assertFileDoesNotExist (objectPath <> ".s")
+        AppleArm64Lir -> do
           assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
           assertFileDoesNotExist (objectPath <> ".s")
         LinuxAmd64 -> do

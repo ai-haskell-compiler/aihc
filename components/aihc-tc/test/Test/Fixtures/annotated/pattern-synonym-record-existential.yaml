@@ -1,0 +1,23 @@
+annotated:
+- |-
+  {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+  module Test where
+  data Box = forall a. Box a
+       │     └─ type: ∀ a. a → Box
+       └─ type: Type
+  pattern Wrapped {unwrap} <- Box unwrap
+  │       │                   │   └─ type: a
+  │       │                   └─ type: a → Box; type-args: a
+  │       └─ error: the field unwrap of a record pattern synonym has an existential type, so it has no selector
+  └─ type: ∀ a. a → Box
+extensions:
+- ExistentialQuantification
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification, PatternSynonyms #-}
+  module Test where
+  data Box = forall a. Box a
+  pattern Wrapped {unwrap} <- Box unwrap
+reason: a field whose type is existential has no selector, because the selector result type would escape
+status: pass

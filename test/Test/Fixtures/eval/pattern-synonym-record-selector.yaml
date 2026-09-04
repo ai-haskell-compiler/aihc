@@ -1,0 +1,16 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+    data Flag = On | Off
+    data Pair = Pair Flag Flag
+    pattern Point {px, py} = Pair px py
+    swap p = Point (py p) (px p)
+output: |
+  Pair Off On
+expression: |
+  swap (Point On Off)
+status: pass
+reason: the field selectors of a record pattern synonym select through its matcher

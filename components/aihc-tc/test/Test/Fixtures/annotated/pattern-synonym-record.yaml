@@ -1,4 +1,27 @@
-annotated: []
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Pair a = Pair a a
+       │        └─ type: ∀ a. a → a → Pair a
+       └─ type: Type → Type
+  pattern Point {px, py} = Pair px py
+  │                        │    │  └─ type: a
+  │                        │    └─ type: a
+  │                        └─ type: Pair a
+  └─ type: ∀ a. a → a → Pair a
+  first :: Pair a -> a
+  first p = px p
+  │     │   └─ type: Pair a → a; type-args: a
+  │     └─ type: Pair a
+  └─ type: ∀ a. Pair a → a
+  swap :: Pair a -> Pair a
+  swap p = Point (py p) (px p)
+  │    │   │      │      └─ type: Pair a → a; type-args: a
+  │    │   │      └─ type: Pair a → a; type-args: a
+  │    │   └─ type: a → a → Pair a; type-args: a
+  │    └─ type: Pair a
+  └─ type: ∀ a. Pair a → Pair a
 extensions:
 - PatternSynonyms
 modules:
@@ -9,7 +32,7 @@ modules:
   pattern Point {px, py} = Pair px py
   first :: Pair a -> a
   first p = px p
-  mk :: a -> a -> Pair a
-  mk x y = Point {px = x, py = y}
-reason: record pattern synonyms abort the type checker; the generated field selectors (px, py) are never added to the type environment
-status: xfail
+  swap :: Pair a -> Pair a
+  swap p = Point (py p) (px p)
+reason: a record pattern synonym gives each field a selector with the type of the synonym scrutinee
+status: pass
