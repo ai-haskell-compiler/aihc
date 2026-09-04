@@ -73,7 +73,8 @@ finalizeAnnotationTc ann =
           -- The generic traversal does not enter an annotation payload.
           matcher <- everywhereM finalizeAnnotationNode (tcPatSynMatcher patSyn)
           builder <- traverse (everywhereM finalizeAnnotationNode) (tcPatSynBuilder patSyn)
-          pure (mkAnnotation (TcPatSynAnnotation matcher builder))
+          selectors <- traverse (traverse (everywhereM finalizeAnnotationNode)) (tcPatSynSelectors patSyn)
+          pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
         Nothing -> do
           rejectMetaFinalAnnotation ann
           pure ann

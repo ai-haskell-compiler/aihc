@@ -1,0 +1,10 @@
+annotated: []
+extensions: []
+modules:
+- |
+  module Test where
+  data Pair a = MkPair {px :: a, py :: a}
+  mk :: a -> a -> Pair a
+  mk x y = MkPair {px = x, py = y}
+reason: record construction syntax is unsupported in the type checker, for data constructors and for record pattern synonyms alike
+status: xfail
