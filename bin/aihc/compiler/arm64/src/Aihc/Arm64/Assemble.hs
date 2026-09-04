@@ -7,6 +7,7 @@ module Aihc.Arm64.Assemble
     Arm64Value (..),
     Arm64Shift (..),
     Arm64Condition (..),
+    Arm64FloatOp (..),
     assembleMachO,
     arm64Align,
     arm64Bytes,
@@ -15,6 +16,7 @@ module Aihc.Arm64.Assemble
     arm64Label,
     arm64Quad,
     arm64QuadSymbol,
+    arm64QuadSymbolAddend,
     arm64Section,
   )
 where
@@ -36,6 +38,8 @@ data Arm64Statement
   | Arm64Label !Text
   | Arm64Quad !Word64
   | Arm64QuadSymbol !Text
+  | -- | The address of a symbol plus a constant addend.
+    Arm64QuadSymbolAddend !Text !Int64
   | Arm64Bytes !ByteString
   | Arm64Instruction ![Item]
 
@@ -140,6 +144,19 @@ data Arm64Condition
   | ArmLe
   deriving (Eq, Ord, Show)
 
+-- | Scalar floating-point operations. The 'Bool' of each float instruction
+-- selects double precision; single precision otherwise. Float registers are
+-- numbered @d0@ to @d31@.
+data Arm64FloatOp
+  = ArmFAdd
+  | ArmFSub
+  | ArmFMul
+  | ArmFDiv
+  | ArmFNeg
+  | ArmFAbs
+  | ArmFSqrt
+  deriving (Eq, Show)
+
 data Arm64Instruction
   = ArmRet
   | ArmBrk !Word32
@@ -176,6 +193,36 @@ data Arm64Instruction
   | ArmCset !Arm64Register !Arm64Condition
   | ArmCsinv !Arm64Register !Arm64Register !Arm64Register !Arm64Condition
   | ArmSxtw !Arm64Register !Arm64Register
+  | ArmBlr !Arm64Register
+  | ArmSdiv !Arm64Register !Arm64Register !Arm64Register
+  | ArmSmulh !Arm64Register !Arm64Register !Arm64Register
+  | ArmAsr !Arm64Register !Arm64Register !Arm64Shift
+  | -- | @and xd, xn, #(2^k - 1)@ for @k@ from 1 to 63.
+    ArmAndMask !Arm64Register !Arm64Register !Int
+  | ArmCsel !Arm64Register !Arm64Register !Arm64Register !Arm64Condition
+  | -- | Byte and halfword loads and stores with an unsigned offset.
+    ArmLdrb !Arm64Register !Arm64Register !Int64
+  | ArmLdrh !Arm64Register !Arm64Register !Int64
+  | ArmStrb !Arm64Register !Arm64Register !Int64
+  | ArmStrh !Arm64Register !Arm64Register !Int64
+  | ArmSxtb !Arm64Register !Arm64Register
+  | ArmSxth !Arm64Register !Arm64Register
+  | -- | @fmov dN, xn@ or @fmov sN, wn@.
+    ArmFmovToFloat !Bool !Int !Arm64Register
+  | -- | @fmov xd, dN@ or @fmov wd, sN@.
+    ArmFmovFromFloat !Bool !Arm64Register !Int
+  | -- | A binary float operation @op dd, dn, dm@. Unary operations ignore
+    -- the last register.
+    ArmFloat !Arm64FloatOp !Bool !Int !Int !Int
+  | ArmFcmp !Bool !Int !Int
+  | -- | @fcvt dd, sn@ when the flag is set, otherwise @fcvt sd, dn@.
+    ArmFcvt !Bool !Int !Int
+  | -- | Signed and unsigned integer to float, from a 64-bit register.
+    ArmScvtf !Bool !Int !Arm64Register
+  | ArmUcvtf !Bool !Int !Arm64Register
+  | -- | Float to signed and unsigned 64-bit integer, rounding toward zero.
+    ArmFcvtzs !Bool !Arm64Register !Int
+  | ArmFcvtzu !Bool !Arm64Register !Int
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
 assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
@@ -198,6 +245,9 @@ arm64Quad = Arm64Quad
 arm64QuadSymbol :: Text -> Arm64Statement
 arm64QuadSymbol = Arm64QuadSymbol
 
+arm64QuadSymbolAddend :: Text -> Int64 -> Arm64Statement
+arm64QuadSymbolAddend = Arm64QuadSymbolAddend
+
 arm64Bytes :: ByteString -> Arm64Statement
 arm64Bytes = Arm64Bytes
 
@@ -214,6 +264,8 @@ applyStatement result statement = do
     Arm64Label symbol -> addItem (Label symbol) draft
     Arm64Quad value -> addItem (Bytes (word64Bytes value)) draft
     Arm64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 (BS.replicate 8 0))) draft
+    -- Mach-O keeps the addend of an absolute relocation in the section bytes.
+    Arm64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol 0 (word64Bytes (fromIntegral addend)))) draft
     Arm64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
@@ -282,10 +334,86 @@ encodeInstruction instruction =
     ArmLsr destination left right -> encodeShift 0x9ac02400 False destination left right
     ArmCset destination condition -> encodeCset destination condition
     ArmCsinv destination trueValue falseValue condition -> encodeCsinv destination trueValue falseValue condition
-    ArmSxtw destination source ->
+    ArmSxtw destination source -> encodeTwoRegister 0x93407c00 destination source
+    ArmBlr target -> words32 [0xd63f0000 .|. registerNumber (registerInfo target) `shiftL` 5]
+    ArmSdiv destination left right -> encodeThreeRegister 0x9ac00c00 destination left right
+    ArmSmulh destination left right -> encodeThreeRegister 0x9b407c00 destination left right
+    ArmAsr destination left right -> encodeArithmeticShift destination left right
+    ArmAndMask destination source ones ->
       let rd = registerInfo destination
           rn = registerInfo source
-       in words32 [0x93407c00 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+       in words32 [0x92400000 .|. fromIntegral (ones - 1) `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+    ArmCsel destination trueValue falseValue condition ->
+      let rd = registerInfo destination
+          rn = registerInfo trueValue
+          rm = registerInfo falseValue
+       in words32 [0x9a800000 .|. registerNumber rm `shiftL` 16 .|. conditionCode condition `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+    ArmLdrb value base offset -> encodeNarrowLoadStore 0x39400000 1 value base offset
+    ArmLdrh value base offset -> encodeNarrowLoadStore 0x79400000 2 value base offset
+    ArmStrb value base offset -> encodeNarrowLoadStore 0x39000000 1 value base offset
+    ArmStrh value base offset -> encodeNarrowLoadStore 0x79000000 2 value base offset
+    ArmSxtb destination source -> encodeTwoRegister 0x93401c00 destination source
+    ArmSxth destination source -> encodeTwoRegister 0x93403c00 destination source
+    ArmFmovToFloat double float general ->
+      words32 [(if double then 0x9e670000 else 0x1e270000) .|. registerNumber (registerInfo general) `shiftL` 5 .|. fromIntegral float]
+    ArmFmovFromFloat double general float ->
+      words32 [(if double then 0x9e660000 else 0x1e260000) .|. fromIntegral float `shiftL` 5 .|. registerNumber (registerInfo general)]
+    ArmFloat op double destination left right -> encodeFloatOp op double destination left right
+    ArmFcmp double left right ->
+      words32 [floatType double 0x1e202000 .|. fromIntegral right `shiftL` 16 .|. fromIntegral left `shiftL` 5]
+    ArmFcvt toDouble destination source ->
+      words32 [(if toDouble then 0x1e22c000 else 0x1e624000) .|. fromIntegral source `shiftL` 5 .|. fromIntegral destination]
+    ArmScvtf double destination source ->
+      words32 [floatType double 0x9e220000 .|. registerNumber (registerInfo source) `shiftL` 5 .|. fromIntegral destination]
+    ArmUcvtf double destination source ->
+      words32 [floatType double 0x9e230000 .|. registerNumber (registerInfo source) `shiftL` 5 .|. fromIntegral destination]
+    ArmFcvtzs double destination source ->
+      words32 [floatType double 0x9e380000 .|. fromIntegral source `shiftL` 5 .|. registerNumber (registerInfo destination)]
+    ArmFcvtzu double destination source ->
+      words32 [floatType double 0x9e390000 .|. fromIntegral source `shiftL` 5 .|. registerNumber (registerInfo destination)]
+
+-- | Set the precision bit of a scalar float encoding.
+floatType :: Bool -> Word32 -> Word32
+floatType double base = if double then base .|. 0x00400000 else base
+
+encodeFloatOp :: Arm64FloatOp -> Bool -> Int -> Int -> Int -> [Item]
+encodeFloatOp op double destination left right =
+  words32 [floatType double base .|. fromIntegral right `shiftL` 16 .|. fromIntegral left `shiftL` 5 .|. fromIntegral destination]
+  where
+    base =
+      case op of
+        ArmFAdd -> 0x1e202800
+        ArmFSub -> 0x1e203800
+        ArmFMul -> 0x1e200800
+        ArmFDiv -> 0x1e201800
+        ArmFNeg -> 0x1e214000
+        ArmFAbs -> 0x1e20c000
+        ArmFSqrt -> 0x1e21c000
+
+encodeTwoRegister :: Word32 -> Arm64Register -> Arm64Register -> [Item]
+encodeTwoRegister base destination source =
+  let rd = registerInfo destination
+      rn = registerInfo source
+   in words32 [base .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+
+encodeNarrowLoadStore :: Word32 -> Int64 -> Arm64Register -> Arm64Register -> Int64 -> [Item]
+encodeNarrowLoadStore base scale value baseRegister offset =
+  let rt = registerInfo value
+      rn = registerInfo baseRegister
+   in words32 [base .|. fromIntegral ((offset `div` scale) .&. 0xfff) `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rt]
+
+encodeArithmeticShift :: Arm64Register -> Arm64Register -> Arm64Shift -> [Item]
+encodeArithmeticShift destination left right =
+  case right of
+    Arm64ImmediateShift amount ->
+      let shift = amount .&. 63
+       in words32 [0x93400000 .|. shift `shiftL` 16 .|. 63 `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+    Arm64RegisterShift register ->
+      let rm = registerInfo register
+       in words32 [0x9ac02800 .|. registerNumber rm `shiftL` 16 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
+  where
+    rd = registerInfo destination
+    rn = registerInfo left
 
 xorWord32 :: Word32 -> Word32 -> Word32
 xorWord32 left right = (left .|. right) .&. complement (left .&. right)

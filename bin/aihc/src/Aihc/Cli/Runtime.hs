@@ -15,8 +15,10 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
+import Aihc.Arm64.Lir qualified as Arm64Lir
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
+import Aihc.Lir.Lower qualified as Lir
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native
   ( NativeTarget (..),
@@ -53,6 +55,9 @@ prepareEntryArchive storeRoot target = do
     case target of
       AppleArm64 ->
         either (ioError . userError . show) (BL.writeFile object) Arm64.compileEntryObject
+      AppleArm64Lir -> do
+        entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure Lir.lowerEntry
+        either (ioError . userError . ("Lir object generation failed: " <>) . show) (BL.writeFile object) (Arm64Lir.compileLirObject entryModule)
       LinuxAmd64 ->
         either (ioError . userError . show) (BL.writeFile object) Amd64.compileEntryObject
       _ -> do
@@ -70,6 +75,7 @@ entrySource :: NativeTarget -> Either String Text
 entrySource target =
   case target of
     AppleArm64 -> Left "Apple ARM64 uses direct object generation"
+    AppleArm64Lir -> Left "Apple ARM64 through Lir uses direct object generation"
     LinuxAmd64 -> Left "Linux AMD64 uses direct object generation"
     Llvm -> firstBackend Llvm.compileEntry
     Wasm32Wasip3 -> firstBackend Wasm.compileEntry

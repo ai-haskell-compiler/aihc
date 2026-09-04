@@ -76,6 +76,7 @@ library compiler
     Aihc.Arm64.Codegen
     Aihc.Arm64.Codegen.Function
     Aihc.Arm64.Codegen.Runtime
+    Aihc.Arm64.Lir
     Aihc.Arm64.RegisterAllocate
     Aihc.Cli
     Aihc.Cli.BuildExe
@@ -118,6 +119,7 @@ library compiler
     Aihc.Lir
     Aihc.Lir.Interpret
     Aihc.Lir.Lint
+    Aihc.Lir.Lower
     Aihc.Lir.Parser
     Aihc.Lir.Pretty
     Aihc.Lir.Syntax
@@ -291,6 +293,8 @@ test-suite spec
     Test.Amd64.Observed
     Test.Amd64.Spec
     Test.Amd64.Suite
+    Test.Arm64.LirObserved
+    Test.Arm64.LirSuite
     Test.Arm64.Observed
     Test.Arm64.Spec
     Test.Arm64.Suite

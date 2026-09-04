@@ -12,6 +12,7 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
+import Aihc.Arm64.Lir qualified as Arm64Lir
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan
@@ -44,6 +45,8 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
+import Aihc.Lir qualified as Lir
+import Aihc.Lir.Lower qualified as Lir
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax
@@ -1390,6 +1393,10 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
         AppleArm64 -> do
           object <- either (ioError . userError . ("Apple ARM64 object generation failed: " <>) . show) pure (Arm64.compileModuleObject gcProgram)
           pure (NativeModule name Nothing (Just object))
+        AppleArm64Lir -> do
+          lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule gcProgram)
+          object <- either (ioError . userError . ("Lir object generation failed: " <>) . show) pure (Arm64Lir.compileLirObject lirModule)
+          pure (NativeModule name (Just (Lir.renderModule lirModule)) (Just object))
         LinuxAmd64 -> do
           object <- either (ioError . userError . ("Linux AMD64 object generation failed: " <>) . show) pure (Amd64.compileModuleObject gcProgram)
           pure (NativeModule name Nothing (Just object))
@@ -1417,13 +1424,15 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
           runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 
+    -- A backend that keeps its own source next to the object needs no
+    -- disassembly.
     writeNativeDisassembly nativeModule =
-      case nativeObject nativeModule of
-        Nothing -> pure ()
-        Just _ -> do
+      case (nativeSource nativeModule, nativeObject nativeModule) of
+        (Nothing, Just _) -> do
           let paths = outputPaths (nativeModuleName nativeModule)
           disassembleObject (outputObjectPath paths) (outputNativePath paths)
           verbose ("Write native disassembly: " <> T.unpack (nativeModuleName nativeModule))
+        _ -> pure ()
 
     removeNativeSourceFile nativeModule =
       case nativeSource nativeModule of
@@ -1434,6 +1443,7 @@ generateNativeCode :: NativeTarget -> Grin.GcGrinProgram -> IO Text
 generateNativeCode target gcProgram =
   case target of
     AppleArm64 -> ioError (userError "Apple ARM64 uses direct object generation")
+    AppleArm64Lir -> ioError (userError "Apple ARM64 through Lir uses direct object generation")
     LinuxAmd64 -> ioError (userError "Linux AMD64 uses direct object generation")
     Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
     Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
@@ -1462,6 +1472,7 @@ nativeSourceExtension target =
   case target of
     Llvm -> ".ll"
     AppleArm64 -> ".objdump"
+    AppleArm64Lir -> ".lir"
     LinuxAmd64 -> ".objdump"
     Wasm32Wasip3 -> ".s"
 
