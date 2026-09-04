@@ -1,0 +1,22 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..), Eq (..))
+
+    fromInteger _ = ()
+
+    ifThenElse _ _ _ = ()
+
+    data Color = Red | Green | Blue deriving (Eq)
+output: |
+  (True,False)
+expression: |
+  (Red == Red, Red == Blue)
+status: xfail
+reason: derived instance dictionaries are not evaluated yet, so this case tracks derived Eq under RebindableSyntax

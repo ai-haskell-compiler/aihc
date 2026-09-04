@@ -21,6 +21,7 @@ import Aihc.Parser.Syntax
     ArithSeq (..),
     CaseAlt (..),
     Decl (..),
+    DoStmt (..),
     Expr (..),
     GuardQualifier (..),
     GuardedRhs (..),
@@ -735,7 +736,9 @@ freeVarsMatch match = do
 freeVarsPattern :: Pattern -> TcM (Set.Set TcTermKey)
 freeVarsPattern pat =
   case pat of
-    PAnn _ inner -> freeVarsPattern inner
+    PAnn ann inner -> do
+      innerVars <- freeVarsPattern inner
+      insertSyntaxTermKey ann innerVars
     PParen inner -> freeVarsPattern inner
     PAs _ inner -> freeVarsPattern inner
     PStrict inner -> freeVarsPattern inner
@@ -793,13 +796,7 @@ freeVarsExpr expr =
     EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn ann inner -> do
       innerVars <- freeVarsExpr inner
-      case fromAnnotation ann :: Maybe ResolutionAnnotation of
-        Just resolution
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "ifThenElse" -> do
-              methodKey <- resolvedTargetTermKey "ifThenElse" (resolutionTarget resolution)
-              pure (Set.insert methodKey innerVars)
-        _ -> pure innerVars
+      insertSyntaxTermKey ann innerVars
     EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
     ELambdaPats pats body -> do
       bodyVars <- freeVarsExpr body
@@ -838,20 +835,52 @@ freeVarsExpr expr =
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
+    EDo stmts _ -> freeVarsDoStmts stmts
     _ -> pure Set.empty
+
+-- | Add the syntax term that a resolver annotation names, if it names one.
+--
+-- RebindableSyntax can bind a syntax term such as @>>@ or @negate@ in the
+-- same binding group, so the term is a dependency of the binding.
+insertSyntaxTermKey :: Annotation -> Set.Set TcTermKey -> TcM (Set.Set TcTermKey)
+insertSyntaxTermKey ann vars =
+  case fromAnnotation ann :: Maybe ResolutionAnnotation of
+    Just resolution
+      | resolutionNamespace resolution == ResolutionNamespaceTerm,
+        IdentifierNamed methodName <- resolutionIdentifier resolution -> do
+          methodKey <- resolvedTargetTermKey methodName (resolutionTarget resolution)
+          pure (Set.insert methodKey vars)
+    _ -> pure vars
+
+freeVarsDoStmts :: [DoStmt Expr] -> TcM (Set.Set TcTermKey)
+freeVarsDoStmts stmts =
+  case stmts of
+    [] -> pure Set.empty
+    stmt : rest ->
+      case stmt of
+        DoAnn ann inner -> do
+          vars <- freeVarsDoStmts (inner : rest)
+          insertSyntaxTermKey ann vars
+        DoExpr body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
+        DoBind pat body -> do
+          bodyVars <- freeVarsExpr body
+          patVars <- freeVarsPattern pat
+          restVars <- freeVarsDoStmts rest
+          binders <- patternBinderKeys pat
+          pure (bodyVars <> patVars <> Set.difference restVars binders)
+        DoLetDecls decls -> do
+          declVars <- freeVarsDecls decls
+          restVars <- freeVarsDoStmts rest
+          binders <- declBinderKeys decls
+          pure (Set.difference (declVars <> restVars) binders)
+        DoRecStmt inner -> Set.union <$> freeVarsDoStmts inner <*> freeVarsDoStmts rest
 
 freeVarsArithSeq :: ArithSeq -> TcM (Set.Set TcTermKey)
 freeVarsArithSeq arithSeq =
   case arithSeq of
     ArithSeqAnn ann inner -> do
       innerVars <- freeVarsArithSeq inner
-      case fromAnnotation ann :: Maybe ResolutionAnnotation of
-        Just resolution
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            IdentifierNamed methodName <- resolutionIdentifier resolution -> do
-              methodKey <- resolvedTargetTermKey methodName (resolutionTarget resolution)
-              pure (Set.insert methodKey innerVars)
-        _ -> pure innerVars
+      insertSyntaxTermKey ann innerVars
     ArithSeqFrom from -> freeVarsExpr from
     ArithSeqFromThen from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
     ArithSeqFromTo from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to

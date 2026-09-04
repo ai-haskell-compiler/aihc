@@ -1,0 +1,22 @@
+extensions:
+  - OverloadedStrings
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE OverloadedStrings, RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..))
+
+    fromString _ = True
+
+    text :: Bool
+    text = "hello"
+output: |
+  True
+expression: |
+  text
+status: xfail
+reason: RebindableSyntax with OverloadedStrings gives a string literal the in-scope fromString

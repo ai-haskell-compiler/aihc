@@ -1,0 +1,29 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  negate :: Bool -> Bool
+  negate True = False
+  negate False = True
+  flipped = - True
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  negate :: Bool -> Bool
+  negate True = False
+  │      └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → GHC.Types.Bool
+  negate False = True
+  │      └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → GHC.Types.Bool
+  flipped = - True
+  │         └─ type: GHC.Types.Bool
+  │         └─ type: GHC.Types.Bool → GHC.Types.Bool
+  └─ type: GHC.Types.Bool
+reason: RebindableSyntax applies the in-scope negate to a negated expression
+status: pass

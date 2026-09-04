@@ -1917,6 +1917,12 @@ desugarAnnotatedExpr annotation inner = do
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
               desugarRebindableIf annotation resolution condition thenExpression elseExpression
+        Syn.EAnn resolutionAnnotation (Syn.ENegate operand)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "negate" -> do
+              method <- desugarResolvedOccurrence annotation resolution
+              ExApp method <$> desugarExpr operand
         Syn.EAnn resolutionAnnotation primitiveLiteral
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             resolutionNamespace resolution == ResolutionNamespaceType,
@@ -2568,12 +2574,10 @@ desugarDo statements =
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
-          bind <- desugarResolvedOccurrence annotation resolution
+          method <- desugarResolvedOccurrence annotation resolution
           action' <- desugarExpr action
-          argumentType <- doBindArgumentType annotation
-          argument <- freshBinder "_do" argumentType
-          continuation <- ExLam argument <$> desugarDo rest
-          pure (ExApp (ExApp bind action') continuation)
+          continuation <- desugarDo rest
+          pure (ExApp (ExApp method action') continuation)
         other -> failValue ("unsupported do statement: " <> take 80 (show other))
 
 doResultType :: [Syn.DoStmt Syn.Expr] -> ValueM TcType
@@ -2710,7 +2714,7 @@ requiredDoBindOccurrence :: Syn.DoStmt Syn.Expr -> ValueM (TcAnnotation, Resolut
 requiredDoBindOccurrence statement =
   case doBindOccurrence statement of
     Just occurrence -> pure occurrence
-    Nothing -> failValue ("missing checked >>= occurrence: " <> take 80 (show statement))
+    Nothing -> failValue ("missing checked do method occurrence: " <> take 80 (show statement))
 
 doBindOccurrence :: Syn.DoStmt Syn.Expr -> Maybe (TcAnnotation, ResolutionAnnotation)
 doBindOccurrence = go Nothing Nothing
@@ -2724,16 +2728,11 @@ doBindOccurrence = go Nothing Nothing
             inner
         _ -> (,) <$> maybeAnnotation <*> maybeResolution
 
-doBindArgumentType :: TcAnnotation -> ValueM TcType
-doBindArgumentType annotation =
-  case tcAnnType annotation of
-    TcFunTy _ (TcFunTy (TcFunTy argumentType _) _) -> pure argumentType
-    ty -> failValue ("invalid checked >>= type: " <> show ty)
-
+-- | The type of the continuation body of a checked @>>=@ method.
 doBindResultType :: TcAnnotation -> ValueM TcType
 doBindResultType annotation =
   case tcAnnType annotation of
-    TcFunTy _ (TcFunTy _ resultType) -> pure resultType
+    TcFunTy _ (TcFunTy (TcFunTy _ resultType) _) -> pure resultType
     ty -> failValue ("invalid checked >>= result type: " <> show ty)
 
 desugarCase :: TcType -> Syn.Expr -> [Syn.CaseAlt Syn.Expr] -> ValueM Expr

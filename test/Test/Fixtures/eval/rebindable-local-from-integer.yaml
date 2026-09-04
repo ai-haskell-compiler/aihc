@@ -1,0 +1,21 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..))
+
+    value :: Bool
+    value =
+      let fromInteger _ = True
+       in 1
+output: |
+  True
+expression: |
+  value
+status: pass
+reason: RebindableSyntax takes fromInteger from a local binding in scope

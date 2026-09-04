@@ -1,0 +1,23 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    sequenced :: Maybe Bool
+    sequenced = do
+      Just True
+      Nothing
+      Just False
+
+    result :: Bool
+    result = case sequenced of
+      Nothing -> True
+      Just _ -> False
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: an expression statement in a do block sequences with the built-in (>>) method

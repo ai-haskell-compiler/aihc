@@ -1,0 +1,25 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  a >> b = (a, b)
+  pair = do True; False
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  a >> b = (a, b)
+  ││    │   └─ type: (a, b); type-args: a, b
+  ││    └─ type: b
+  └─ type: a
+  └─ type: ∀ a b. a → b → (a, b)
+  pair = do True; False
+  │      │  └─ type: GHC.Types.Bool → GHC.Types.Bool → (GHC.Types.Bool, GHC.Types.Bool); type-args: Bool, Bool
+  │      └─ type: (GHC.Types.Bool, GHC.Types.Bool)
+  └─ type: (GHC.Types.Bool, GHC.Types.Bool)
+reason: RebindableSyntax sequences an expression statement with the in-scope (>>)
+status: pass

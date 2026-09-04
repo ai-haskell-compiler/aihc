@@ -1,0 +1,20 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..))
+
+    enumFromTo a b = (a, b)
+
+    range = [True .. False]
+output: |
+  (True,False)
+expression: |
+  range
+status: pass
+reason: RebindableSyntax gives an arithmetic sequence the in-scope enumFromTo

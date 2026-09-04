@@ -773,7 +773,7 @@ resolveExpr expr =
     EInfix {} ->
       resolveInfixExpr expr
     ENegate inner ->
-      ENegate <$> resolveExpr inner
+      annotateNegate . ENegate =<< resolveExpr inner
     ESectionL inner op ->
       ESectionL <$> resolveExpr inner <*> resolveTermUseAtName op
     ESectionR op inner ->
@@ -839,18 +839,40 @@ resolveExpr expr =
     ETHTypeNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
     EProc {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
 
+-- | An overloaded integer literal applies fromInteger to an Integer.
+--
+-- The fromInteger annotation sits inside the Integer type annotation.
 resolveIntegerLiteral :: Expr -> ResolveM Expr
 resolveIntegerLiteral expr = do
   sp <- currentSpan
-  scope <- currentScope
-  info <- currentModuleInfo
-  let resolved =
-        if RebindableSyntax `elem` moduleInfoExtensions info
-          then rebindableFromInteger info scope
-          else lookupTerm "fromInteger" (moduleInfoBuiltinScope info)
-      annotation =
-        ResolutionAnnotation sp (IdentifierNamed "fromInteger") ResolutionNamespaceTerm resolved
+  maybeIntegerAnn <- integerTypeAnnotation sp
+  annotated <- annotateSyntaxTerm "fromInteger" expr
+  pure (maybe annotated (\integerAnn -> EAnn (mkAnnotation integerAnn) annotated) maybeIntegerAnn)
+
+-- | The resolution of the Integer type in the built-in scope.
+--
+-- The result is 'Nothing' when the built-in scope does not have Integer.
+-- A module without Integer then gives the literal only the fromInteger term.
+integerTypeAnnotation :: SourceSpan -> ResolveM (Maybe ResolutionAnnotation)
+integerTypeAnnotation sp = do
+  annotation <- primitiveLiteralTypeAnnotation sp "Integer"
+  pure $ case resolutionTarget annotation of
+    ResolvedError _ -> Nothing
+    _ -> Just annotation
+
+-- | Annotate an expression with the syntax term that its desugaring applies.
+--
+-- The term comes from the built-in scope.
+-- RebindableSyntax takes the term from the lexical scope instead.
+annotateSyntaxTerm :: Text -> Expr -> ResolveM Expr
+annotateSyntaxTerm name expr = do
+  sp <- currentSpan
+  annotation <- syntaxTermAnnotation sp name
   pure (EAnn (mkAnnotation annotation) expr)
+
+-- | Negation applies the negate syntax term to its operand.
+annotateNegate :: Expr -> ResolveM Expr
+annotateNegate = annotateSyntaxTerm "negate"
 
 resolvePrimitiveLiteralType :: NumericType -> Expr -> ResolveM Expr
 resolvePrimitiveLiteralType numericType expr =
@@ -911,23 +933,8 @@ annotateRebindableIf :: Expr -> ResolveM Expr
 annotateRebindableIf expr = do
   info <- currentModuleInfo
   if RebindableSyntax `elem` moduleInfoExtensions info
-    then do
-      sp <- currentSpan
-      scope <- currentScope
-      let resolved = rebindableSyntaxTerm info scope "ifThenElse"
-          annotation =
-            ResolutionAnnotation sp (IdentifierNamed "ifThenElse") ResolutionNamespaceTerm resolved
-      pure (EAnn (mkAnnotation annotation) expr)
+    then annotateSyntaxTerm "ifThenElse" expr
     else pure expr
-
-rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
-rebindableFromInteger info scope =
-  case lookupTerm "fromInteger" scope of
-    ResolvedTopLevel _ name
-      | nameQualifier name == Just "Prelude",
-        not (moduleInfoExplicitPreludeImport info) ->
-          ResolvedError "unbound"
-    resolved -> resolved
 
 -- | Annotate a literal pattern with the names that the type checker needs.
 --
@@ -947,8 +954,9 @@ annotatePatternLiteral pat lit = do
                 case peelPatternAnn pat of
                   PNegLit {} -> ["fromInteger", "negate", "=="]
                   _ -> ["fromInteger", "=="]
+          maybeIntegerAnn <- integerTypeAnnotation sp
           methodAnns <- mapM (syntaxTermAnnotation sp) methodNames
-          pure (foldr (PAnn . mkAnnotation) pat methodAnns)
+          pure (foldr (PAnn . mkAnnotation) pat (maybe methodAnns (: methodAnns) maybeIntegerAnn))
         _ -> pure pat
 
 literalSpan :: SourceSpan -> Literal -> SourceSpan
@@ -975,7 +983,17 @@ builtinSyntaxTerm info name =
     then lookupTerm name (moduleInfoBuiltinScope info)
     else ResolvedError "unknown built-in syntax term"
   where
-    builtinSyntaxTermNames = ["fromInteger", "negate", "==", "enumFrom", "enumFromThen", "enumFromTo", "enumFromThenTo"]
+    builtinSyntaxTermNames =
+      [ "fromInteger",
+        "negate",
+        "==",
+        ">>=",
+        ">>",
+        "enumFrom",
+        "enumFromThen",
+        "enumFromTo",
+        "enumFromThenTo"
+      ]
 
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
 rebindableSyntaxTerm info scope name =
@@ -1080,13 +1098,13 @@ resolveDoStmt isLast stmt =
     DoExpr body -> do
       scope <- currentScope
       body' <- resolveExpr body
-      stmt' <- annotateDoBind isLast (DoExpr body')
+      stmt' <- annotateDoMethod isLast ">>" (DoExpr body')
       pure (scope, stmt')
     DoBind pat body -> do
       scope <- currentScope
       body' <- resolveExpr body
       (patScope, pat') <- bindPattern pat
-      stmt' <- annotateDoBind isLast (DoBind pat' body')
+      stmt' <- annotateDoMethod isLast ">>=" (DoBind pat' body')
       pure (unionScope patScope scope, stmt')
     DoLetDecls decls -> do
       scope <- currentScope
@@ -1098,25 +1116,19 @@ resolveDoStmt isLast stmt =
       (_, stmts') <- resolveDoStmts stmts
       pure (scope, DoRecStmt stmts')
 
-annotateDoBind :: Bool -> DoStmt Expr -> ResolveM (DoStmt Expr)
-annotateDoBind isLast stmt
+-- | Annotate a do statement with the method that sequences it.
+--
+-- A bind statement uses @>>=@ and an expression statement uses @>>@.
+-- The last statement is the result of the block and gets no method.
+-- Ordinary do notation uses the built-in Monad methods.
+-- RebindableSyntax uses lexical lookup instead.
+annotateDoMethod :: Bool -> Text -> DoStmt Expr -> ResolveM (DoStmt Expr)
+annotateDoMethod isLast name stmt
   | isLast = pure stmt
   | otherwise = do
       sp <- currentSpan
-      bindAnn <- doBindAnnotation sp
-      pure (DoAnn (mkAnnotation bindAnn) stmt)
-
-doBindAnnotation :: SourceSpan -> ResolveM ResolutionAnnotation
-doBindAnnotation sp = do
-  scope <- currentScope
-  info <- currentModuleInfo
-  -- Ordinary do notation uses the built-in Monad method.
-  -- RebindableSyntax uses lexical lookup instead.
-  let resolved =
-        if RebindableSyntax `elem` moduleInfoExtensions info
-          then rebindableSyntaxTerm info scope ">>="
-          else lookupTerm ">>=" (moduleInfoBuiltinScope info)
-  pure (ResolutionAnnotation sp (IdentifierNamed ">>=") ResolutionNamespaceTerm resolved)
+      methodAnn <- syntaxTermAnnotation sp name
+      pure (DoAnn (mkAnnotation methodAnn) stmt)
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =

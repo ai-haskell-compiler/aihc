@@ -1,0 +1,26 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..), Integer, fromInteger)
+
+    _ == _ = True
+
+    callsEq :: Integer -> Bool
+    callsEq 0 = True
+    callsEq _ = False
+
+    doesNotCallEq :: Bool -> Bool
+    doesNotCallEq True = False
+    doesNotCallEq False = True
+output: |
+  (True,True)
+expression: |
+  (callsEq 100, doesNotCallEq False)
+status: pass
+reason: RebindableSyntax compares an integer pattern with the in-scope equality operator

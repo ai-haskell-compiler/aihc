@@ -82,16 +82,18 @@ annotated:
   └─ v 2
 
   one = 1
+  │     └─ t GHC.Num
   │     └─ v GHC.Num
   └─ v Main
 
   match = \case
   └─ v Main
     -1 -> ()
-    │││     └─ v Builtin ()
+    ││││     └─ v Builtin ()
+    └─ v GHC.Num
+    └─ t GHC.Num
     └─ v GHC.Num
     └─ v GHC.Classes
-    └─ v GHC.Num
 status: pass
 reason: ordinary integer syntax resolves canonical methods from GHC.Num and
   GHC.Classes without importing or defining Prelude

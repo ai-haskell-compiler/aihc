@@ -1,0 +1,18 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    neg :: Int -> Int
+    neg x = - x
+
+    same :: Bool
+    same = neg 5 == -5
+output: |
+  True
+expression: |
+  same
+status: pass
+reason: a negated expression applies the built-in negate method

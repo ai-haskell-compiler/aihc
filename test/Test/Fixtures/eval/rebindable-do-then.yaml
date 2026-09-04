@@ -1,0 +1,20 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..))
+
+    a >> b = (a, b)
+
+    pair = do True; False
+output: |
+  (True,False)
+expression: |
+  pair
+status: pass
+reason: RebindableSyntax sequences a do statement with the in-scope (>>) operator

@@ -3,7 +3,7 @@ module Control.Monad.Fail
   )
 where
 
-import Prelude (IO, List, Maybe, Monad, String, error)
+import Prelude (IO, List, Maybe (..), Monad, String, error)
 
 class (Monad m) => MonadFail m where
   fail :: String -> m a

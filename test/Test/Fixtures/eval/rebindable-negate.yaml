@@ -1,0 +1,23 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..))
+
+    negate :: Bool -> Bool
+    negate True = False
+    negate False = True
+
+    flipped :: Bool
+    flipped = - True
+output: |
+  False
+expression: |
+  flipped
+status: pass
+reason: RebindableSyntax applies the in-scope negate to a negated expression

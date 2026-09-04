@@ -40,6 +40,7 @@ import Aihc.Parser.Syntax
     DataFamilyInst (..),
     Decl (..),
     ExportSpec (..),
+    Extension (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForeignDecl (..),
@@ -65,6 +66,8 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
+    applyExtensionSetting,
+    applyImpliedExtensions,
     binderHeadName,
     mkUnqualifiedName,
     moduleExports,
@@ -434,9 +437,24 @@ moduleScope packageId exports modu =
     ownScope = topLevelScope packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
-    implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+    implicitPrelude
+      | moduleImportsImplicitPrelude modu = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+      | otherwise = emptyScope
     ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
     listConstructorScope = selectTerm ":" ghcTypesScope `unionScope` selectTerm "[]" ghcTypesScope
+
+-- | Whether the module gets the implicit Prelude import.
+--
+-- NoImplicitPrelude removes the implicit import.
+-- RebindableSyntax implies NoImplicitPrelude.
+-- An explicit Prelude import replaces the implicit import.
+moduleImportsImplicitPrelude :: Module -> Bool
+moduleImportsImplicitPrelude modu =
+  ImplicitPrelude `elem` extensions && not explicitPreludeImport
+  where
+    extensions =
+      applyImpliedExtensions (foldr applyExtensionSetting [ImplicitPrelude] (moduleLanguagePragmas modu))
+    explicitPreludeImport = any ((== "Prelude") . importDeclModule) (moduleImports modu)
 
 importedScope :: Package -> ModuleExports -> Module -> Scope
 importedScope packageId exports modu =

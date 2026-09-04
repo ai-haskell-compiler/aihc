@@ -1,0 +1,41 @@
+extensions:
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module GHC.Base where
+  import GHC.Types (Type)
+  class Monad (m :: Type -> Type) where
+    (>>=) :: m a -> (a -> m b) -> m b
+    (>>) :: m a -> m b -> m b
+    return :: a -> m a
+- |
+  module Test where
+  import GHC.Base (Monad (..))
+  twice :: Monad m => m a -> m a
+  twice action = do
+    action
+    action
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module GHC.Base where
+  import GHC.Types (Type)
+  class Monad (m :: Type -> Type) where
+  └─ class methods: >>= ∷ ∀ m a b. (Monad m) ⇒ m a → (a → m b) → m b, >> ∷ ∀ m a b. (Monad m) ⇒ m a → m b → m b, return ∷ ∀ m a. (Monad m) ⇒ a → m a
+    (>>=) :: m a -> (a -> m b) -> m b
+    (>>) :: m a -> m b -> m b
+    return :: a -> m a
+- |-
+  module Test where
+  import GHC.Base (Monad (..))
+  twice :: Monad m => m a -> m a
+  twice action = do
+  │     │        └─ type: m a
+  │     └─ type: m a
+  └─ type: ∀ m a. (GHC.Base.Monad m) ⇒ m a → m a
+    action
+    └─ type: m a → m a → m a; type-args: m, a, a; evidence: given Monad m
+    action
+reason: an expression statement in a do block uses the built-in (>>) method
+status: pass

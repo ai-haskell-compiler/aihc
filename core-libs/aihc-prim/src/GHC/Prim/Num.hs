@@ -1,7 +1,8 @@
 {-# LANGUAGE MagicHash #-}
 
 module GHC.Prim.Num
-  ( Num (..),
+  ( Integer,
+    Num (..),
     integerAdd,
     integerFromTwoWords#,
     integerNegate,

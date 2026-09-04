@@ -1,0 +1,35 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
+  fromInteger _ = ()
+  ifThenElse _ _ _ = ()
+  data Color = Red | Green | Blue deriving (Eq)
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
+  fromInteger _ = ()
+  │           │   └─ type: ()
+  │           └─ type: a
+  └─ type: ∀ a. a → ()
+  ifThenElse _ _ _ = ()
+  │          │ │ │   └─ type: ()
+  │          │ │ └─ type: c
+  │          │ └─ type: b
+  │          └─ type: a
+  └─ type: ∀ a b c. a → b → c → ()
+  data Color = Red | Green | Blue deriving (Eq)
+  │    │       │     │       └─ type: Color
+  │    │       │     └─ type: Color
+  │    │       └─ type: Color
+  │    └─ type: Type
+  └─ deriving plans: stock Eq Color [context: ()] [methods: ==, /=]
+reason: derived code does not use the RebindableSyntax terms in scope
+status: pass

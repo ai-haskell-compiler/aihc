@@ -68,11 +68,19 @@ inferExpr = inferExprAt NoSourceSpan
 
 inferExprAt :: SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
 inferExprAt ambient expr = case expr of
+  EAnn integerAnn (EAnn ann inner)
+    | Just integerResolution <- fromAnnotation @ResolutionAnnotation integerAnn,
+      resolutionNamespace integerResolution == ResolutionNamespaceType,
+      Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isFromIntegerResolution resolution,
+      EInt _ TInteger _ <- inner -> do
+        (literal, ty, cts) <- inferOverloadedIntegerLiteral ambient (Just integerResolution) ann resolution inner
+        pure (EAnn integerAnn literal, ty, cts)
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       isFromIntegerResolution resolution,
       EInt _ TInteger _ <- inner ->
-        inferOverloadedIntegerLiteral ambient ann resolution inner
+        inferOverloadedIntegerLiteral ambient Nothing ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
@@ -82,6 +90,10 @@ inferExprAt ambient expr = case expr of
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       isIfThenElseResolution resolution ->
         inferRebindableIf (resolutionSpan resolution `orSourceSpan` ambient) ann resolution cond thenE elseE
+  EAnn ann (ENegate inner)
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "negate" resolution ->
+        inferNegate (resolutionSpan resolution `orSourceSpan` ambient) ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
   EImplicitParam name ->
@@ -244,8 +256,12 @@ inferTypeSig sp inner tyAnn = do
           sp
   pure (ETypeSig inner' tyAnn, sigTy, cts <> [sigCt])
 
-inferOverloadedIntegerLiteral :: SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
-inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
+-- | An overloaded integer literal is @fromInteger (n :: Integer)@.
+--
+-- The resolver gives the Integer type when the built-in scope has it.
+-- The argument type of the method then equals Integer.
+inferOverloadedIntegerLiteral :: SourceSpan -> Maybe ResolutionAnnotation -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedIntegerLiteral ambient integerResolution resolutionAnn resolution literalExpr = do
   let sp = resolutionSpan resolution `orSourceSpan` ambient
   (methodTy, typeArgs, methodCts) <- inferResolvedFromInteger sp resolution
   resultTy <- freshMetaTv
@@ -254,6 +270,7 @@ inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
     case methodTy of
       TcFunTy argumentTy _ -> pure argumentTy
       _ -> abortTc "fromInteger does not have a function type"
+  integerCts <- resolvedIntegerCts sp integerResolution integerArgTy
   let expectedMethodTy = TcFunTy integerArgTy resultTy
       methodEq =
         mkWantedEqCt
@@ -276,7 +293,7 @@ inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
           typeArgs
           (map ctEvVar methodCts)
           []
-  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq])
+  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq] <> integerCts)
 
 inferResolvedFromInteger :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
 inferResolvedFromInteger sp resolution = do
@@ -309,20 +326,22 @@ isPrimitiveLiteral expr =
     EStringHash {} -> True
     _ -> False
 
-isFromIntegerResolution :: ResolutionAnnotation -> Bool
-isFromIntegerResolution resolution =
+-- | Whether a resolver annotation names the given syntax term.
+isSyntaxTermResolution :: Text -> ResolutionAnnotation -> Bool
+isSyntaxTermResolution name resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionIdentifier resolution == IdentifierNamed "fromInteger"
+    && resolutionIdentifier resolution == IdentifierNamed name
 
-isDoBindResolution :: ResolutionAnnotation -> Bool
-isDoBindResolution resolution =
-  resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionIdentifier resolution == IdentifierNamed ">>="
+isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution = isSyntaxTermResolution "fromInteger"
+
+-- | Whether a resolver annotation names the method that sequences a do statement.
+isDoMethodResolution :: ResolutionAnnotation -> Bool
+isDoMethodResolution resolution =
+  isSyntaxTermResolution ">>=" resolution || isSyntaxTermResolution ">>" resolution
 
 isIfThenElseResolution :: ResolutionAnnotation -> Bool
-isIfThenElseResolution resolution =
-  resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionIdentifier resolution == IdentifierNamed "ifThenElse"
+isIfThenElseResolution = isSyntaxTermResolution "ifThenElse"
 
 isArithSeqResolution :: ResolutionAnnotation -> Bool
 isArithSeqResolution resolution =
@@ -727,6 +746,27 @@ inferRebindableIf sp resolutionAnn resolution cond thenE elseE = do
       condCts <> thenCts <> elseCts <> methodCts <> [methodEquality]
     )
 
+-- | Negation applies the resolved negate method to its operand.
+--
+-- The method annotation sits inside the result annotation. The desugarer
+-- applies the method to the operand.
+inferNegate :: SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferNegate sp resolutionAnn resolution inner = do
+  (inner', innerTy, innerCts) <- inferExpr inner
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "negate" resolution
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy innerTy resultTy
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "negate") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      resultPending = pendingAnnotation resultTy [] [] []
+      annotated = annotatePendingExpr methodPending (EAnn resolutionAnn (ENegate inner'))
+  pure
+    ( annotatePendingExprAt sp resultPending annotated,
+      resultTy,
+      innerCts <> methodCts <> [methodEquality]
+    )
+
 inferTuple :: SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
 inferTuple sp flavor elems = do
   results <- mapM inferElem elems
@@ -1005,7 +1045,7 @@ inferDoStmt ambient stmt rest =
   case stmt of
     DoAnn ann inner
       | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
-        isDoBindResolution resolution ->
+        isDoMethodResolution resolution ->
           inferResolvedDoStmt ambient ann resolution inner rest
     DoAnn ann inner -> do
       (stmts', resultTy, cts) <- inferDoStmt (doStmtSpan stmt `orSourceSpan` ambient) inner rest
@@ -1062,43 +1102,47 @@ inferResolvedDoStmt ambient resolutionAnn resolution stmt rest =
       itemTy <- freshMetaTv
       (action', actionTy, actionCts) <- inferExprAt ambient action
       patCheck <- checkPattern ambient pat itemTy
-      (rest', resultTy, restCts) <-
+      (rest', restTy, restCts) <-
         withPatternBindings (pcBindings patCheck) (inferDoStmts ambient rest)
-      (pending, methodCts) <- inferDoBindMethod ambient resolution actionTy itemTy resultTy
+      blockTy <- freshMetaTv
+      let bindTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy restTy) blockTy)
+      (pending, methodCts) <- inferDoMethod ambient ">>=" resolution bindTy
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
           stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action'))
-      remainingCts <- solvePatternBranch ambient patCheck resultTy restCts
-      pure (stmt' : rest', resultTy, actionCts <> remainingCts <> methodCts)
+      remainingCts <- solvePatternBranch ambient patCheck restTy restCts
+      pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts)
     DoExpr action -> do
-      itemTy <- freshMetaTv
       (action', actionTy, actionCts) <- inferExprAt ambient action
-      (rest', resultTy, restCts) <- inferDoStmts ambient rest
-      (pending, methodCts) <- inferDoBindMethod ambient resolution actionTy itemTy resultTy
+      (rest', restTy, restCts) <- inferDoStmts ambient rest
+      blockTy <- freshMetaTv
+      let thenTy = TcFunTy actionTy (TcFunTy restTy blockTy)
+      (pending, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
       let stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoExpr action'))
-      pure (stmt' : rest', resultTy, actionCts <> restCts <> methodCts)
+      pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts)
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
       inferDoStmt ambient stmt rest
 
-inferDoBindMethod :: SourceSpan -> ResolutionAnnotation -> TcType -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
-inferDoBindMethod sp resolution actionTy itemTy resultTy = do
-  mBinder <- lookupResolvedTerm ">>=" (resolutionTarget resolution)
-  case mBinder of
-    Just (TcIdBinder scheme _) -> do
-      inst <- instantiateWithArgs scheme
-      methodCts <- mapM (predToCt sp ">>=") (instPreds inst)
+-- | The constraint that equates the argument of fromInteger with the resolved Integer type.
+--
+-- The list is empty when the built-in scope does not give the Integer type.
+resolvedIntegerCts :: SourceSpan -> Maybe ResolutionAnnotation -> TcType -> TcM [Ct]
+resolvedIntegerCts sp integerResolution argumentTy = do
+  maybeInfo <- maybe (pure Nothing) lookupResolvedTypeSyntax integerResolution
+  case maybeInfo of
+    Nothing -> pure []
+    Just info -> do
       ev <- freshEvVar
-      let expectedTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy resultTy) resultTy)
-          methodEq = mkWantedCt (EqPred (instType inst) expectedTy) ev (OccurrenceOf ">>=") sp
-          pending = pendingAnnotation (instType inst) (instTypeArgs inst) (map ctEvVar methodCts) []
-      pure (pending, methodCts <> [methodEq])
-    Just (TcMonoIdBinder ty) -> do
-      ev <- freshEvVar
-      let expectedTy = TcFunTy actionTy (TcFunTy (TcFunTy itemTy resultTy) resultTy)
-          methodEq = mkWantedCt (EqPred ty expectedTy) ev (OccurrenceOf ">>=") sp
-      pure (pendingAnnotation ty [] [] [], [methodEq])
-    Nothing ->
-      abortTc ("resolved >>= missing from type environment: " <> show (resolutionTarget resolution))
+      pure [mkWantedCt (EqPred argumentTy (TcTyCon (tciTyCon info) [])) ev (LitOrigin sp) sp]
+
+-- | Instantiate the method that sequences a do statement and equate it with the expected type.
+inferDoMethod :: SourceSpan -> Text -> ResolutionAnnotation -> TcType -> TcM (PendingTcAnnotation, [Ct])
+inferDoMethod sp methodName resolution expectedTy = do
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
+  ev <- freshEvVar
+  let methodEq = mkWantedCt (EqPred methodTy expectedTy) ev (OccurrenceOf methodName) sp
+      pending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+  pure (pending, methodCts <> [methodEq])
 
 wantedDoEq :: SourceSpan -> TcType -> TcType -> TcM Ct
 wantedDoEq sp actual expected = do
