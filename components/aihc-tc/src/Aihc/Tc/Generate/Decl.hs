@@ -102,6 +102,7 @@ import Aihc.Tc.Annotations
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
     TcForeignMarshal (..),
+    TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
@@ -126,10 +127,11 @@ import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict,
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.Char (isAlphaNum, ord)
+import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
@@ -1030,18 +1032,74 @@ annotateForeignDeclTc foreignDecl = do
       annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
     CCall -> do
-      plan <- checkForeignImportType sourceSpan ty
-      checkedPlan <- checkForeignEntity sourceSpan (foreignEntity foreignDecl) plan
+      let declaredName = unqualifiedNameText (foreignName foreignDecl)
+      (target, symbol) <- checkForeignEntity sourceSpan declaredName (foreignEntity foreignDecl)
+      plan <- checkForeignImportType sourceSpan target symbol ty
+      checkedPlan <- checkForeignTarget sourceSpan plan
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     _ -> pure annotated
+
+-- | Read the C entity of a foreign import and report a bad entity.
+checkForeignEntity :: SourceSpan -> Text -> ForeignEntitySpec -> TcM (TcForeignTarget, Text)
+checkForeignEntity sourceSpan declaredName entity =
+  case resolveForeignEntity declaredName entity of
+    Right resolved -> pure resolved
+    Left message -> do
+      emitError sourceSpan (OtherError message)
+      pure (TcForeignCall, declaredName)
+
+-- | The C entity string has the form @[static] [header] [&] [symbol]@.  The
+-- @static@ keyword and the header file name give no information to this
+-- compiler, because it does not include the header when it makes the call.
+-- Thus it accepts both and then ignores them, as GHC does.
+--
+-- The parser removes the @static@ keyword.  This function must remove an
+-- optional header file name and read an optional @&@ address mark.  An empty
+-- entity, or an entity that gives only a header file name, names the declared
+-- Haskell function.
+resolveForeignEntity :: Text -> ForeignEntitySpec -> Either String (TcForeignTarget, Text)
+resolveForeignEntity declaredName entity =
+  case entity of
+    ForeignEntityOmitted -> Right (TcForeignCall, declaredName)
+    ForeignEntityStatic Nothing -> Right (TcForeignCall, declaredName)
+    ForeignEntityStatic (Just text) -> readEntityText TcForeignCall text
+    ForeignEntityNamed text -> readEntityText TcForeignCall text
+    ForeignEntityAddress Nothing -> Right (TcForeignAddress, declaredName)
+    ForeignEntityAddress (Just text) -> readEntityText TcForeignAddress text
+    ForeignEntityDynamic -> Left "a dynamic foreign import is not supported"
+    ForeignEntityWrapper -> Left "a wrapper foreign import is not supported"
+  where
+    -- Read the entity words. If that fails, read them again without the first
+    -- word, which is then the header file name.
+    readEntityText defaultTarget text =
+      let entityWords = T.words text
+       in case readEntityWords defaultTarget entityWords <|> readEntityWords defaultTarget (drop 1 entityWords) of
+            Just resolved -> Right resolved
+            Nothing -> Left ("unsupported foreign import entity: " <> T.unpack text)
+    readEntityWords defaultTarget entityWords =
+      case entityWords of
+        [] -> Just (defaultTarget, declaredName)
+        ["&"] -> Just (TcForeignAddress, declaredName)
+        ["&", name] -> (TcForeignAddress,) <$> cIdentifier name
+        [name]
+          | Just addressName <- T.stripPrefix "&" name -> (TcForeignAddress,) <$> cIdentifier addressName
+          | otherwise -> (defaultTarget,) <$> cIdentifier name
+        _ -> Nothing
+    cIdentifier name =
+      case T.uncons name of
+        Just (first, rest)
+          | isIdentifierStart first && T.all isIdentifierPart rest -> Just name
+        _ -> Nothing
+    isIdentifierStart character = isAlpha character || character == '_'
+    isIdentifierPart character = isAlphaNum character || character == '_'
 
 -- | An address import (@foreign import ccall "&sym"@) names static data
 -- rather than a function, so it takes no arguments and its value is the
 -- symbol address itself.
-checkForeignEntity :: SourceSpan -> ForeignEntitySpec -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
-checkForeignEntity sourceSpan entity plan =
-  case entity of
-    ForeignEntityAddress {} -> do
+checkForeignTarget :: SourceSpan -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
+checkForeignTarget sourceSpan plan =
+  case tcForeignTarget plan of
+    TcForeignAddress -> do
       unless (null (tcForeignArguments plan)) $
         emitError sourceSpan (OtherError "an address foreign import must not take arguments")
       unless (tcForeignEffect plan == TcForeignPure) $
@@ -1049,10 +1107,10 @@ checkForeignEntity sourceSpan entity plan =
       unless (tcForeignAbiType (tcForeignResult plan) == TcForeignAddr) $
         emitError sourceSpan (OtherError "an address foreign import must produce a pointer")
       pure plan
-    _ -> pure plan
+    TcForeignCall -> pure plan
 
-checkForeignImportType :: SourceSpan -> TcType -> TcM TcForeignImportAnnotation
-checkForeignImportType sourceSpan ty = do
+checkForeignImportType :: SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
+checkForeignImportType sourceSpan target symbol ty = do
   let (argumentTypes, resultType) = splitFunctionType ty
       (effect, valueResultType) =
         case resultType of
@@ -1064,7 +1122,9 @@ checkForeignImportType sourceSpan ty = do
     TcForeignImportAnnotation
       { tcForeignArguments = arguments,
         tcForeignResult = result,
-        tcForeignEffect = effect
+        tcForeignEffect = effect,
+        tcForeignSymbol = symbol,
+        tcForeignTarget = target
       }
 
 splitFunctionType :: TcType -> ([TcType], TcType)
