@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Test where
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  quoted :: Box -> Box
+  quoted b = [| b |]
+  │      │   └─ type: Box
+  │      └─ type: Box
+  └─ type: Box → Box
+  named :: Box
+  named = 'Box
+  │       └─ type: Box
+  └─ type: Box
+extensions:
+- TemplateHaskellQuotes
+modules:
+- |
+  module Test where
+  data Box = Box
+  quoted :: Box -> Box
+  quoted b = [| b |]
+  named :: Box
+  named = 'Box
+reason: A Template Haskell quote takes the type the context wants
+status: pass

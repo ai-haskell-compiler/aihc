@@ -142,10 +142,26 @@ inferExprAt ambient expr = case expr of
     inferArithSeq (exprSpan expr `orSourceSpan` ambient) arithSeq
   EDo stmts flavor ->
     inferDo (exprSpan expr `orSourceSpan` ambient) flavor stmts
+  -- A Template Haskell quote compiles to a runtime error, so it has any
+  -- type the context wants.
+  _ | isTemplateHaskellQuote expr -> literalResult expr freshMetaTv
   other -> do
     emitError (exprSpan expr `orSourceSpan` ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
     pure (expr, ty, [])
+
+-- | A Template Haskell quote such as @[| e |]@, @[t| ty |]@, or @'name@.
+isTemplateHaskellQuote :: Expr -> Bool
+isTemplateHaskellQuote expr =
+  case expr of
+    ETHExpQuote {} -> True
+    ETHTypedQuote {} -> True
+    ETHDeclQuote {} -> True
+    ETHTypeQuote {} -> True
+    ETHPatQuote {} -> True
+    ETHNameQuote {} -> True
+    ETHTypeNameQuote {} -> True
+    _ -> False
 
 literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
 literalResult expr typeAction = do
@@ -745,9 +761,12 @@ inferTuple sp flavor elems = do
     case maybeTyCon of
       Just info -> pure (tciTyCon info)
       Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName n fallbackKind
+  -- A tuple section such as @(0,)@ is a function of its missing fields.
   let tupleTy = TcTyCon tc tys
-      pending = pendingAnnotation tupleTy tys [] []
-  pure (annotatePendingExprAt sp pending (ETuple flavor elems'), tupleTy, cts)
+      missingTys = [ty | (Nothing, ty, _) <- results]
+      sectionTy = foldr TcFunTy tupleTy missingTys
+      pending = pendingAnnotation sectionTy tys [] []
+  pure (annotatePendingExprAt sp pending (ETuple flavor elems'), sectionTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv

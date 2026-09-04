@@ -1,0 +1,39 @@
+extensions: []
+modules:
+  - |
+    module Cls where
+    class Lift a where
+      lift :: a -> a
+      liftTwice :: a -> a
+  - |
+    module Main where
+    import qualified Cls as Q
+    data Box = Box
+    instance Q.Lift Box where
+      lift value = value
+      liftTwice = Q.lift
+annotated:
+  - |
+    module Cls where
+    class Lift a where
+          └─ t Cls
+      lift :: a -> a
+      └─ v Cls
+      liftTwice :: a -> a
+      └─ v Cls
+  - |
+    module Main where
+    import qualified Cls as Q
+    data Box = Box
+         │     └─ v Main
+         └─ t Main
+    instance Q.Lift Box where
+             │      └─ t Main
+             └─ t Cls
+      lift value = value
+      │    └─ v 0  └─ v 0
+      └─ v Cls
+      liftTwice = Q.lift
+      └─ v Cls    └─ v Cls
+status: pass
+reason: An instance method binding names a method of the class even when the class is only in scope under a qualifier

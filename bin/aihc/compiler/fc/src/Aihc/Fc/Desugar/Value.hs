@@ -1934,6 +1934,8 @@ desugarAnnotatedExpr annotation inner = do
           representation <- convertRuntimeRep WordRep
           pure (ExLit (LitChar representation value))
         Syn.EString value _ -> desugarString annotation value
+        _
+          | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
         Syn.EStringHash value _ -> do
           representation <- convertRuntimeRep AddrRep
           pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
@@ -2486,6 +2488,35 @@ arithSeqArguments arithSeq =
     Syn.ArithSeqFromTo from to -> [from, to]
     Syn.ArithSeqFromThenTo from thenExpression to -> [from, thenExpression, to]
 
+-- | A Template Haskell quote such as @[| e |]@, @[t| ty |]@, or @'name@.
+isTemplateHaskellQuote :: Syn.Expr -> Bool
+isTemplateHaskellQuote expression =
+  case expression of
+    Syn.ETHExpQuote {} -> True
+    Syn.ETHTypedQuote {} -> True
+    Syn.ETHDeclQuote {} -> True
+    Syn.ETHTypeQuote {} -> True
+    Syn.ETHPatQuote {} -> True
+    Syn.ETHNameQuote {} -> True
+    Syn.ETHTypeNameQuote {} -> True
+    _ -> False
+
+-- | Template Haskell is not supported. A quote compiles to a call of
+-- @raise#@ with a message, so code that only defines quotes still
+-- compiles.
+desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
+desugarTemplateHaskellQuote annotation = do
+  let resultType = tcAnnType annotation
+  convertedResult <- convertCheckedType resultType
+  representation <- checkedRuntimeRep resultType
+  raiseName <- primitiveName "GHC.Prim" "raise#" SortValue
+  listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
+  charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
+  message <- desugarStringValue "TH is unsupported"
+  let stringType = TyApp (TyCon listName) (TyCon charName)
+      raise = foldl ExTyApp (ExVar raiseName) [representation, stringType, convertedResult]
+  pure (ExApp raise message)
+
 desugarString :: TcAnnotation -> Text -> ValueM Expr
 desugarString annotation value = do
   elementType <-
@@ -2541,12 +2572,17 @@ tupleConstructorName annotation flavor arity = do
         Syn.Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
         Syn.Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
     origin primPackage =
-      case tcAnnType annotation of
+      case sectionResultType (tcAnnType annotation) of
         TcTyCon tyCon _ -> OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
         _ ->
           case flavor of
             Syn.Boxed -> OriginTop (PackageId "") "GHC.Tuple"
             Syn.Unboxed -> OriginTop primPackage "GHC.Types"
+    -- A tuple section has a function type whose result is the tuple.
+    sectionResultType ty =
+      case ty of
+        TcFunTy _ result -> sectionResultType result
+        _ -> ty
 
 desugarDo :: [Syn.DoStmt Syn.Expr] -> ValueM Expr
 desugarDo statements =
