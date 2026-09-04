@@ -791,7 +791,15 @@ freeVarsExpr :: Expr -> TcM (Set.Set TcTermKey)
 freeVarsExpr expr =
   case expr of
     EVar name -> Set.singleton <$> resolvedTermKey name
-    EAnn _ inner -> freeVarsExpr inner
+    EAnn ann inner -> do
+      innerVars <- freeVarsExpr inner
+      case fromAnnotation ann :: Maybe ResolutionAnnotation of
+        Just resolution
+          | resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "ifThenElse" -> do
+              methodKey <- resolvedTargetTermKey "ifThenElse" (resolutionTarget resolution)
+              pure (Set.insert methodKey innerVars)
+        _ -> pure innerVars
     EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
     ELambdaPats pats body -> do
       bodyVars <- freeVarsExpr body

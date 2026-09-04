@@ -1875,6 +1875,9 @@ desugarExpr expression =
   case expression of
     Syn.EAnn annotation inner
       | Just tcAnnotation <- Syn.fromAnnotation annotation -> desugarAnnotatedExpr tcAnnotation inner
+      | Just resolution <- Syn.fromAnnotation annotation,
+        isIfThenElseResolution resolution ->
+          failValue "rebindable if expression is missing its checked ifThenElse method"
       | otherwise -> desugarExpr inner
     Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
@@ -1910,6 +1913,10 @@ desugarAnnotatedExpr annotation inner = do
             resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
               desugarOverloadedInteger annotation resolution value
+        Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            isIfThenElseResolution resolution ->
+              desugarRebindableIf annotation resolution condition thenExpression elseExpression
         Syn.EAnn resolutionAnnotation primitiveLiteral
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             resolutionNamespace resolution == ResolutionNamespaceType,
@@ -1948,6 +1955,19 @@ desugarAnnotatedExpr annotation inner = do
         _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
+
+isIfThenElseResolution :: ResolutionAnnotation -> Bool
+isIfThenElseResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionIdentifier resolution == IdentifierNamed "ifThenElse"
+
+-- | RebindableSyntax applies the checked ifThenElse method to the
+-- condition and the two branches.
+desugarRebindableIf :: TcAnnotation -> ResolutionAnnotation -> Syn.Expr -> Syn.Expr -> Syn.Expr -> ValueM Expr
+desugarRebindableIf annotation resolution condition thenExpression elseExpression = do
+  method <- desugarResolvedOccurrence annotation resolution
+  arguments <- mapM desugarExpr [condition, thenExpression, elseExpression]
+  pure (foldl ExApp method arguments)
 
 desugarIf :: TcType -> Syn.Expr -> Syn.Expr -> Syn.Expr -> ValueM Expr
 desugarIf resultType condition thenExpression elseExpression = do

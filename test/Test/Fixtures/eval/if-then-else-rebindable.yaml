@@ -1,0 +1,18 @@
+extensions:
+  - RebindableSyntax
+dependencies: []
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    data MyBool = MyTrue | MyFalse
+
+    ifThenElse MyTrue a _ = a
+    ifThenElse MyFalse _ b = b
+output: |
+  : 't' (: 'r' (: 'u' (: 'e' [])))
+expression: |
+  if MyTrue then "true" else "false"
+status: pass
+reason: RebindableSyntax evaluates an if expression with the in-scope ifThenElse

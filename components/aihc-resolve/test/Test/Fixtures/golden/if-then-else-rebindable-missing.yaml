@@ -1,0 +1,20 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Main where
+  data MyBool = MyTrue | MyFalse
+  pick = if MyTrue then "true" else "false"
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Main where
+  data MyBool = MyTrue | MyFalse
+       └─ t Main│        └─ v Main
+                └─ v Main
+  pick = if MyTrue then "true" else "false"
+  └─ v Main └─ v Error unbound
+            └─ v Main
+reason: RebindableSyntax reports an unbound ifThenElse for an if expression
+status: pass

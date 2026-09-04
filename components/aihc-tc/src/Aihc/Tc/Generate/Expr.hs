@@ -77,6 +77,10 @@ inferExprAt ambient expr = case expr of
       resolutionNamespace resolution == ResolutionNamespaceType,
       isPrimitiveLiteral inner ->
         inferPrimitiveLiteral ann resolution inner
+  EAnn ann (EIf cond thenE elseE)
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isIfThenElseResolution resolution ->
+        inferRebindableIf (resolutionSpan resolution `orSourceSpan` ambient) ann resolution cond thenE elseE
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
   EImplicitParam name ->
@@ -312,6 +316,11 @@ isDoBindResolution :: ResolutionAnnotation -> Bool
 isDoBindResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionIdentifier resolution == IdentifierNamed ">>="
+
+isIfThenElseResolution :: ResolutionAnnotation -> Bool
+isIfThenElseResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionIdentifier resolution == IdentifierNamed "ifThenElse"
 
 isArithSeqResolution :: ResolutionAnnotation -> Bool
 isArithSeqResolution resolution =
@@ -693,6 +702,29 @@ inferIf sp cond thenE elseE = do
       pending = pendingAnnotation resultTy [] [] []
   pure (annotatePendingExprAt sp pending (EIf cond' thenE' elseE'), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
 
+-- | RebindableSyntax gives an if expression the in-scope ifThenElse.
+--
+-- The method annotation sits inside the result annotation. The desugarer
+-- applies the method to the condition and the two branches.
+inferRebindableIf :: SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
+inferRebindableIf sp resolutionAnn resolution cond thenE elseE = do
+  (cond', condTy, condCts) <- inferExpr cond
+  (thenE', thenTy, thenCts) <- inferExpr thenE
+  (elseE', elseTy, elseCts) <- inferExpr elseE
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "ifThenElse" resolution
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy condTy (TcFunTy thenTy (TcFunTy elseTy resultTy))
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "ifThenElse") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      resultPending = pendingAnnotation resultTy [] [] []
+      annotated = annotatePendingExpr methodPending (EAnn resolutionAnn (EIf cond' thenE' elseE'))
+  pure
+    ( annotatePendingExprAt sp resultPending annotated,
+      resultTy,
+      condCts <> thenCts <> elseCts <> methodCts <> [methodEquality]
+    )
+
 inferTuple :: SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
 inferTuple sp flavor elems = do
   results <- mapM inferElem elems
@@ -811,7 +843,7 @@ inferResolvedArithSeq :: SourceSpan -> Annotation -> ResolutionAnnotation -> Ari
 inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
   (arithSeq', argumentTypes, argumentCts) <- inferArithSeqForm arithSeq
   let methodName = displayIdentifier (resolutionIdentifier resolution)
-  (methodTy, typeArgs, methodCts) <- inferResolvedArithSeqMethod sp methodName resolution
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   resultTy <- freshMetaTv
   equalityEvidence <- freshEvVar
   let expectedMethodTy = foldr TcFunTy resultTy argumentTypes
@@ -820,8 +852,9 @@ inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
       annotated = ArithSeqAnn (mkAnnotation methodPending) (ArithSeqAnn resolutionAnn arithSeq')
   pure (annotated, resultTy, argumentCts <> methodCts <> [methodEquality])
 
-inferResolvedArithSeqMethod :: SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
-inferResolvedArithSeqMethod sp methodName resolution = do
+-- | Instantiate a resolved syntax method such as enumFrom or ifThenElse.
+inferResolvedSyntaxMethod :: SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedSyntaxMethod sp methodName resolution = do
   mBinder <- lookupResolvedTerm methodName (resolutionTarget resolution)
   case mBinder of
     Just (TcIdBinder scheme _) -> do
@@ -830,7 +863,7 @@ inferResolvedArithSeqMethod sp methodName resolution = do
       pure (instType inst, instTypeArgs inst, cts)
     Just (TcMonoIdBinder ty) -> pure (ty, [], [])
     Nothing ->
-      abortTc ("resolved arithmetic sequence method is missing from the type environment: " <> show (resolutionTarget resolution))
+      abortTc ("resolved " <> T.unpack methodName <> " is missing from the type environment: " <> show (resolutionTarget resolution))
 
 inferArithSeqForm :: ArithSeq -> TcM (ArithSeq, [TcType], [Ct])
 inferArithSeqForm arithSeq =
