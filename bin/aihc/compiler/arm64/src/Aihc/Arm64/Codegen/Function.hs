@@ -28,6 +28,7 @@ import Aihc.Native
     NativeCpsTransfer (..),
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
+    nativeLocalsSlots,
     nativeRuntimePrimitiveCall,
     nativeSplitRuntimePrimitiveCall,
   )
@@ -61,7 +62,8 @@ compileFunction env function = do
       valueEnv = ValueEnv env locations label (grinFunctionName function) (grinFunctionParameters function) bodyLabel
   finalState <- execStateT (compileExpr valueEnv [] bodyLabel (grinFunctionBody function)) initialState
   let slotCount = max 1 (functionNextSlot finalState)
-      parameterRegisterPairs =
+  validateSlotCount label slotCount
+  let parameterRegisterPairs =
         zip (take valueParameterCount parameters) applyArgumentRegisters
           <> [ (parameters !! valueParameterCount, applyContinuationRegister)
              | parameterCount > 0 && not isContinuation
@@ -90,15 +92,22 @@ compileFunction env function = do
         compiledFunctionLines = entry <> blocks
       }
 
-reserveLocalsLines :: [CompiledFunction] -> [Arm64Statement]
-reserveLocalsLines functions =
-  [ immediate X1 maximumSlots,
+-- | The entry unit reserves the slot area once for every linked function.
+-- Modules cannot report their slot counts to the entry unit, so the area has
+-- the fixed size 'nativeLocalsSlots' and 'validateSlotCount' rejects a
+-- function that would overflow it.
+reserveLocalsLines :: [Arm64Statement]
+reserveLocalsLines =
+  [ immediate X1 nativeLocalsSlots,
     arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
     arm64Instruction (ArmBl "_aihc_alloc_locals"),
     arm64Instruction (ArmMov X19 (Arm64RegisterValue X0))
   ]
-  where
-    maximumSlots = maximum (2 : map compiledFunctionSlots functions)
+
+validateSlotCount :: Text -> Int -> Either Arm64Error ()
+validateSlotCount label slotCount
+  | slotCount > nativeLocalsSlots = Left (Arm64UnsupportedExpression ("function " <> label <> " needs " <> tshow slotCount <> " local slots"))
+  | otherwise = Right ()
 
 exportLines :: CompileEnv -> GrinFunction -> Text -> [Arm64Statement]
 exportLines env _function label

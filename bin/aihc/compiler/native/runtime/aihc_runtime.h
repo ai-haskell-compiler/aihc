@@ -16,6 +16,11 @@ enum {
   AIHC_OBJECT_BLACKHOLE,
   AIHC_OBJECT_ARRAY,
   AIHC_OBJECT_THREAD,
+  /* An object the runtime allocates outside the managed heap: a byte array,
+     an MVar, or a stable name. Compiled code stores its address in pointer
+     fields, so it carries a header like every other object, but it never
+     moves and holds no heap pointers the collector has to update. */
+  AIHC_OBJECT_RUNTIME,
 };
 typedef uint64_t AihcObjectKind;
 
@@ -191,8 +196,10 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
+/* Reserve the slot area that compiled functions use for spilled locals. The
+   entry unit reserves a fixed count that every backend enforces at compile
+   time, so no function needs more slots than the area holds. */
 AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
-AihcSlot *aihc_alloc_linked_locals(AihcMachine *machine);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 /* The runtime removes RTS options before the Haskell machine starts. argv[0]

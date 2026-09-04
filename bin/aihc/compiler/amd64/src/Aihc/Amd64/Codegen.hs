@@ -14,7 +14,6 @@ module Aihc.Amd64.Codegen
     nonExecutableStack,
     programRuntimeReps,
     renderCompiledSupport,
-    renderLinkedLocals,
     renderStaticGlobals,
     supportedNativePrimitiveNames,
     threadDoneContinuation,
@@ -102,7 +101,6 @@ compileModuleStatements gcProgram = do
   pure $
     staticGlobals
       <> renderStaticReferenceTables compileEnv
-      <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions []
       <> nonExecutableStack
   where
@@ -121,7 +119,7 @@ compileEntryUnit entryName gcProgram = do
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure $
     mainPrologue 0
-      <> [amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)), amd64Instruction (AmdCall "aihc_alloc_linked_locals"), amd64Instruction (AmdMov R14 (Amd64MoveRegister RAX))]
+      <> reserveLocalsLines
       <> [ amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
            immediate RSI (7 :: Int),
            amd64Instruction (AmdXor (Amd64RmRegister EDX) (Amd64BinaryRegister EDX)),
@@ -178,7 +176,6 @@ compileEntryUnit entryName gcProgram = do
       <> mainEpilogue
       <> staticGlobals
       <> renderStaticReferenceTables compileEnv
-      <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)
       <> nonExecutableStack
   where
@@ -365,18 +362,6 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticO
           amd64QuadSymbol info
         ]
           <> payload
-          -- Only objects the collector has to mark get an entry. A nullary
-          -- constructor has no fields, so it can neither move nor retain
-          -- anything, and the collector leaves a pointer to one alone whether
-          -- or not it knows the object is static.
-          <> [ statement
-             | staticObjectTraced object,
-               statement <-
-                 [ amd64Section RootsSection,
-                   amd64Align 3,
-                   amd64QuadSymbol symbol
-                 ]
-             ]
     staticNodeInfo node =
       case grinNodeTag node of
         GrinConstructor name remaining -> pure (constructorStageLabel name remaining)
@@ -397,13 +382,6 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticO
       case grinNodeTag node of
         GrinThunk {} -> True
         _ -> False
-
-renderLinkedLocals :: [CompiledFunction] -> [Amd64Statement]
-renderLinkedLocals functions =
-  [ amd64Section LocalsSection,
-    amd64Align 3,
-    amd64Quad (fromIntegral (maximum (2 : map compiledFunctionSlots functions)))
-  ]
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
 validatePrimitiveName allowUnsupported name

@@ -11,6 +11,7 @@ module Aihc.Tc.Annotations
     TcAnnotation (..),
     TcForeignImportAnnotation (..),
     TcForeignEffect (..),
+    TcForeignTarget (..),
     TcForeignMarshal (..),
     TcForeignAbiType (..),
     PendingTcAnnotation (..),
@@ -89,8 +90,17 @@ data TcAnnotation = TcAnnotation
 data TcForeignImportAnnotation = TcForeignImportAnnotation
   { tcForeignArguments :: ![TcForeignMarshal],
     tcForeignResult :: !TcForeignMarshal,
-    tcForeignEffect :: !TcForeignEffect
+    tcForeignEffect :: !TcForeignEffect,
+    -- | The C symbol that the entity string names.
+    tcForeignSymbol :: !Text,
+    tcForeignTarget :: !TcForeignTarget
   }
+  deriving (Eq, Show)
+
+-- | Whether a foreign import calls the C symbol or takes its address.
+data TcForeignTarget
+  = TcForeignCall
+  | TcForeignAddress
   deriving (Eq, Show)
 
 -- | Whether a raw foreign call is pure or explicitly threads the real-world

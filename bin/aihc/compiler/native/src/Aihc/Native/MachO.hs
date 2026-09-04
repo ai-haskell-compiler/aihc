@@ -85,8 +85,6 @@ describeSection section =
     TextConstantsSection -> description "__TEXT" "__const" 0
     ReadOnlySection -> description "__DATA" "__const" 0
     DataSection -> description "__DATA" "__data" 0
-    RootsSection -> description "__DATA" "__aihc_roots" 0x10000000
-    LocalsSection -> description "__DATA" "__aihc_locals" 0x10000000
     NoExecuteStackSection -> Left (ObjectInvalidInput "Mach-O stack section")
   where
     description segment name flags = pure (SectionDescription section segment name flags)

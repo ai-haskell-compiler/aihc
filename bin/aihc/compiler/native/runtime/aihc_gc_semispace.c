@@ -23,18 +23,22 @@ typedef struct {
    reference table names it, when a table reachable from a live object or from
    the running function names it, or when a live object points at it.
 
-   The static-root section lists exactly the objects worth marking, so the
-   collector hashes those addresses once into an open-addressed table and keeps
-   one mark byte per slot. */
+   The collector has no list of static objects. It finds them by address: a
+   pointer that is outside both spaces of the managed heap names an object
+   that never moves, and every such object carries an info table. Each
+   collection records the objects it marks in an open-addressed hash set and
+   scans each one once through its info table, so an evaluated CAF gets its
+   target forwarded like any heap field.
+
+   An evaluated CAF that only code references is reachable through no pointer.
+   aihc_update therefore records every object outside the heap that becomes an
+   indirection in a second set that lives for the whole program. By default a
+   collection marks all of them. Under -Zs the reference tables decide. */
 typedef struct {
   AihcValue **slots;
-  uint8_t *marked;
   size_t capacity;
   size_t count;
-  uintptr_t lowest;
-  uintptr_t highest;
-  int initialized;
-} AihcStaticObjects;
+} AihcAddressSet;
 
 typedef struct {
   AihcValue **items;
@@ -48,7 +52,9 @@ typedef struct {
   size_t capacity;
 } AihcSrtWorklist;
 
-static AihcStaticObjects aihc_static_objects;
+static AihcAddressSet aihc_marked_statics;
+static AihcAddressSet aihc_updated_statics;
+static AihcMachine *aihc_gc_machine;
 static AihcStaticWorklist aihc_static_worklist;
 static AihcSrtWorklist aihc_srt_worklist;
 /* Terminates the list of tables this collection has walked. Tables form a
@@ -66,66 +72,50 @@ static size_t aihc_static_slot_of(uintptr_t address, size_t capacity) {
   return (size_t)mixed & (capacity - 1);
 }
 
-static void aihc_static_objects_insert(AihcValue *object) {
-  size_t slot =
-      aihc_static_slot_of((uintptr_t)object, aihc_static_objects.capacity);
-  while (aihc_static_objects.slots[slot] != NULL) {
-    if (aihc_static_objects.slots[slot] == object) {
-      return;
+static void aihc_address_set_grow(AihcAddressSet *set) {
+  size_t capacity = set->capacity == 0 ? 64 : set->capacity * 2;
+  if (capacity > SIZE_MAX / sizeof(*set->slots) / 2) {
+    aihc_fail("static object set is too large");
+  }
+  AihcValue **slots = aihc_allocate_zeroed(sizeof(*slots) * capacity);
+  for (size_t index = 0; index < set->capacity; ++index) {
+    AihcValue *object = set->slots[index];
+    if (object == NULL) {
+      continue;
     }
-    slot = (slot + 1) & (aihc_static_objects.capacity - 1);
+    size_t slot = aihc_static_slot_of((uintptr_t)object, capacity);
+    while (slots[slot] != NULL) {
+      slot = (slot + 1) & (capacity - 1);
+    }
+    slots[slot] = object;
   }
-  aihc_static_objects.slots[slot] = object;
-  ++aihc_static_objects.count;
-  if ((uintptr_t)object < aihc_static_objects.lowest) {
-    aihc_static_objects.lowest = (uintptr_t)object;
-  }
-  if ((uintptr_t)object > aihc_static_objects.highest) {
-    aihc_static_objects.highest = (uintptr_t)object;
-  }
+  free(set->slots);
+  set->slots = slots;
+  set->capacity = capacity;
 }
 
-/* The static-root section is a linker-assembled array. An address sanitizer
-   pads every global with a redzone, so the walk from the start symbol to the
-   end symbol also crosses those pads. They read as null entries, and the walk
-   skips null, but the sanitizer must not check the reads. */
-#if defined(__has_attribute)
-#if __has_attribute(no_sanitize)
-__attribute__((no_sanitize("address")))
-#endif
-#endif
-static void aihc_static_objects_initialize(void) {
-  if (aihc_static_objects.initialized) {
-    return;
+/* Add one address to a set. Returns whether the address was new. */
+static int aihc_address_set_insert(AihcAddressSet *set, AihcValue *object) {
+  if (set->count * 2 >= set->capacity) {
+    aihc_address_set_grow(set);
   }
-  aihc_static_objects.initialized = 1;
-  aihc_static_objects.lowest = UINTPTR_MAX;
-  AihcValue **first = aihc_static_root_start();
-  AihcValue **last = aihc_static_root_end();
-  size_t entries = (first == NULL || last == NULL) ? 0 : (size_t)(last - first);
-  size_t capacity = 8;
-  while (capacity < entries * 2) {
-    if (capacity > SIZE_MAX / 2) {
-      aihc_fail("static object table is too large");
+  size_t slot = aihc_static_slot_of((uintptr_t)object, set->capacity);
+  while (set->slots[slot] != NULL) {
+    if (set->slots[slot] == object) {
+      return 0;
     }
-    capacity *= 2;
+    slot = (slot + 1) & (set->capacity - 1);
   }
-  aihc_static_objects.capacity = capacity;
-  aihc_static_objects.slots =
-      aihc_allocate_zeroed(sizeof(*aihc_static_objects.slots) * capacity);
-  aihc_static_objects.marked =
-      aihc_allocate_zeroed(sizeof(*aihc_static_objects.marked) * capacity);
-  if (first != NULL && last != NULL) {
-    for (AihcValue **entry = first; entry < last; ++entry) {
-      if (*entry != NULL) {
-        aihc_static_objects_insert(*entry);
-      }
-    }
+  set->slots[slot] = object;
+  ++set->count;
+  return 1;
+}
+
+static void aihc_address_set_clear(AihcAddressSet *set) {
+  if (set->count != 0) {
+    memset(set->slots, 0, sizeof(*set->slots) * set->capacity);
   }
-  if (aihc_static_objects.count == 0) {
-    aihc_static_objects.lowest = 1;
-    aihc_static_objects.highest = 0;
-  }
+  set->count = 0;
 }
 
 static void *aihc_worklist_grow(void *items, size_t *capacity,
@@ -142,33 +132,19 @@ static void *aihc_worklist_grow(void *items, size_t *capacity,
   return grown;
 }
 
-/* Mark one static object and queue it for scanning. Returns whether the
-   address belongs to a static object at all, so callers can tell a static
-   object from an ordinary to-space pointer. */
-static int aihc_mark_static(AihcValue *object) {
-  uintptr_t address = (uintptr_t)object;
-  if (address < aihc_static_objects.lowest ||
-      address > aihc_static_objects.highest) {
-    return 0;
+/* Mark one object outside the heap and queue it for scanning. The caller
+   has established that the address is outside both spaces. */
+static void aihc_mark_static(AihcValue *object) {
+  if (object == NULL ||
+      !aihc_address_set_insert(&aihc_marked_statics, object)) {
+    return;
   }
-  size_t slot = aihc_static_slot_of(address, aihc_static_objects.capacity);
-  while (aihc_static_objects.slots[slot] != NULL) {
-    if (aihc_static_objects.slots[slot] == object) {
-      if (aihc_static_objects.marked[slot]) {
-        return 1;
-      }
-      aihc_static_objects.marked[slot] = 1;
-      if (aihc_static_worklist.count == aihc_static_worklist.capacity) {
-        aihc_static_worklist.items = aihc_worklist_grow(
-            aihc_static_worklist.items, &aihc_static_worklist.capacity,
-            sizeof(*aihc_static_worklist.items));
-      }
-      aihc_static_worklist.items[aihc_static_worklist.count++] = object;
-      return 1;
-    }
-    slot = (slot + 1) & (aihc_static_objects.capacity - 1);
+  if (aihc_static_worklist.count == aihc_static_worklist.capacity) {
+    aihc_static_worklist.items = aihc_worklist_grow(
+        aihc_static_worklist.items, &aihc_static_worklist.capacity,
+        sizeof(*aihc_static_worklist.items));
   }
-  return 0;
+  aihc_static_worklist.items[aihc_static_worklist.count++] = object;
 }
 
 static void aihc_walk_srt(const AihcSrt *srt) {
@@ -235,10 +211,13 @@ static AihcValue *aihc_forward(AihcForwardingContext *context,
       return value;
     }
     if (!aihc_in_space(context->from_start, context->from_bytes, value)) {
-      /* Anything outside from-space is either already copied or a static
-         object. Static objects stay where they are, but a live one still has
-         to be scanned, and an evaluated CAF still holds a heap pointer. */
-      aihc_mark_static(value);
+      /* Anything outside from-space is either already copied or an object
+         that never moves. Such an object stays where it is, but a live one
+         still has to be scanned: an evaluated CAF holds a heap pointer. */
+      if (!aihc_in_space(machine->heap_start, aihc_semispace_capacity(machine),
+                         value)) {
+        aihc_mark_static(value);
+      }
       return value;
     }
     AihcValue *forwarded = (AihcValue *)(uintptr_t)value->header;
@@ -276,6 +255,11 @@ static void aihc_scan_object(AihcForwardingContext *context,
   const AihcInfo *info = aihc_value_info_table(object);
   AihcObjectKind kind = info->object_kind;
   uint64_t count = info->field_count;
+  if (kind == AIHC_OBJECT_RUNTIME || kind == AIHC_OBJECT_THREAD) {
+    /* Runtime objects hold no heap pointers of their own. The scheduler
+       visits the resume record of a thread as a root. */
+    return;
+  }
   aihc_walk_srt(info->srt);
   if (kind == AIHC_OBJECT_INDIRECTION) {
     /* Only a static object reaches this branch: an evaluated CAF keeps its
@@ -335,21 +319,6 @@ static void aihc_trace(AihcForwardingContext *context) {
   }
 }
 
-/* Overwrite the indirection target of every static object this collection did
-   not mark. A table that is missing an entry then fails on the next use of
-   that CAF instead of quietly reading collected memory. */
-static void aihc_poison_dead_cafs(void) {
-  for (size_t slot = 0; slot < aihc_static_objects.capacity; ++slot) {
-    AihcValue *object = aihc_static_objects.slots[slot];
-    if (object == NULL || aihc_static_objects.marked[slot]) {
-      continue;
-    }
-    if (aihc_value_kind(object) == AIHC_OBJECT_INDIRECTION) {
-      object->fields[0] = (AihcSlot)UINT64_C(0xDEAD0000CAF00000);
-    }
-  }
-}
-
 /* Select the capacity of the destination space. Live data never exceeds the
    used part of the source space, so that size plus the pending reservation
    always fits unless the -M limit forbids it. */
@@ -404,7 +373,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   machine->heap_limit = to_start + machine->other_space_bytes;
 
   AihcForwardingContext context = {machine, from_start, from_bytes};
-  memset(aihc_static_objects.marked, 0, aihc_static_objects.capacity);
+  aihc_address_set_clear(&aihc_marked_statics);
   aihc_static_worklist.count = 0;
   aihc_srt_worklist.count = 0;
   if (aihc_rts_config()->static_reference_roots) {
@@ -413,19 +382,16 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
        and reaches its table through its info table like any other object. */
     aihc_walk_srt(aihc_current_srt);
   } else {
-    /* Every static object stays alive. The tables do not yet name everything
-       a running program reaches, so this remains the default. */
-    for (size_t slot = 0; slot < aihc_static_objects.capacity; ++slot) {
-      if (aihc_static_objects.slots[slot] != NULL) {
-        aihc_mark_static(aihc_static_objects.slots[slot]);
+    /* Every evaluated static object stays alive. The tables do not yet name
+       everything a running program reaches, so this remains the default. */
+    for (size_t slot = 0; slot < aihc_updated_statics.capacity; ++slot) {
+      if (aihc_updated_statics.slots[slot] != NULL) {
+        aihc_mark_static(aihc_updated_statics.slots[slot]);
       }
     }
   }
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
   aihc_trace(&context);
-  if (aihc_rts_config()->poison_dead_cafs) {
-    aihc_poison_dead_cafs();
-  }
   aihc_clear_srt_stamps();
 
   machine->other_space = from_start;
@@ -438,7 +404,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 }
 
 void aihc_gc_init(AihcMachine *machine) {
-  aihc_static_objects_initialize();
+  aihc_gc_machine = machine;
   machine->semispace_bytes = AIHC_SEMISPACE_BYTES;
   if (machine->heap_limit_enabled &&
       machine->semispace_bytes > machine->heap_max_bytes) {
@@ -449,6 +415,16 @@ void aihc_gc_init(AihcMachine *machine) {
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
   machine->other_space = NULL;
   machine->other_space_bytes = 0;
+}
+
+void aihc_gc_note_update(AihcValue *object) {
+  AihcMachine *machine = aihc_gc_machine;
+  if (machine != NULL &&
+      aihc_in_space(machine->heap_start, aihc_semispace_capacity(machine),
+                    object)) {
+    return;
+  }
+  (void)aihc_address_set_insert(&aihc_updated_statics, object);
 }
 
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,

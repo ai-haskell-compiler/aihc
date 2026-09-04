@@ -13,14 +13,13 @@ import Aihc.Arm64.Codegen
     mainPrologue,
     programRuntimeReps,
     renderCompiledSupport,
-    renderLinkedLocals,
     renderStaticGlobals,
     threadDoneContinuation,
     threadDoneRuntimeInfos,
     validateProgramPrimitives,
     validateRuntimeRep,
   )
-import Aihc.Arm64.Codegen.Function (compileFunction)
+import Aihc.Arm64.Codegen.Function (compileFunction, reserveLocalsLines)
 import Aihc.Arm64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
 import Aihc.Grin.Gc
@@ -56,7 +55,7 @@ compileObservedFunction entryName gcProgram = do
   let resultCount = length resultReps
       statements =
         mainPrologue 0
-          <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)), arm64Instruction (ArmBl "_aihc_alloc_linked_locals"), arm64Instruction (ArmMov X19 (Arm64RegisterValue X0))]
+          <> reserveLocalsLines
           <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
           <> [ arm64Instruction (ArmMov X1 (Arm64RegisterValue X0)),
                arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
@@ -81,7 +80,6 @@ compileObservedFunction entryName gcProgram = do
           <> threadDoneContinuation
           <> staticGlobals
           <> renderStaticReferenceTables compileEnv
-          <> renderLinkedLocals functions
           <> renderCompiledSupport compileEnv functions observedRuntimeInfos
   object <- assembleObject statements
   pure ObservedProgram {observedObject = object, observedMetadataSource = metadata}

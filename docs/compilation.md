@@ -579,12 +579,11 @@ Each module object must contain:
 - Native relocations for all cross-symbol references.
 - Read-only info tables and other constant data.
 - Writable static objects for CAFs and other mutable static values.
-- Static-root section entries for static objects the collector has to mark.
 - Unwind or debug sections when the selected compiler options request them.
 
 The object must use one uniform value ABI. References to external Haskell values are object addresses used through `eval` and `apply`.
 
-Each backend defines its native symbol encoding, static-root sections, and other target-specific object conventions.
+Each backend defines its native symbol encoding and other target-specific object conventions.
 
 The backend must derive each external value symbol from its definition identity. Defined and undefined symbols must use the same encoding.
 
@@ -600,9 +599,7 @@ Use native relocations for info tables and captured static values. The native li
 
 Reserve at least one payload word for an updateable zero-field thunk. Evaluation uses this word for the indirection target.
 
-Put one pointer to each static object the collector has to mark in the target's AIHC static-root section. A static object needs marking when it is an updateable thunk, because evaluating it makes it an indirection into the managed heap, or when it has any fields. Nullary constructors need no entry: they never move and never retain anything.
-
-The test is the field count rather than the field representations. The collector follows an object's info table and its pointer bitmap, and a constructor's bitmap comes from the declared layout rather than from the values one object stores, so leaving that decision entirely with the bitmap costs only the occasional scan of a static node whose fields are all unboxed.
+Do not list the static objects in a section. The collector finds a static object by its address: a pointer outside both spaces of the managed heap names an object that never moves. The runtime records each static thunk that becomes an indirection, so an evaluated CAF that only code references stays alive.
 
 The collector must not move a static object. When it marks one, it must scan the object with its current info table and its pointer bitmap, and update each heap pointer in the object's fields.
 
@@ -627,8 +624,6 @@ A table record is word-uniform: a mutable walk link, the object count, the child
 ### Native linking
 
 Use the native linker and archive index to resolve object symbols. An undefined reference can cause extraction of the applicable archive member.
-
-Keep static-root entries with their static objects during section removal. Use target-specific section groups or equivalent linker features.
 
 Foreign libraries and linker options come from package configuration. They do not come from an object link manifest.
 

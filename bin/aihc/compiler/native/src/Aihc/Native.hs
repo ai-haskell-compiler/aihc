@@ -15,6 +15,7 @@ module Aihc.Native
     hostNativeTarget,
     nativeTargetTriple,
     nativeTargetStoreDirectory,
+    nativeLocalsSlots,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     nativeSplitRuntimePrimitiveCall,
@@ -43,6 +44,15 @@ import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory)
 import System.Info qualified as System
+
+-- | The number of slots the entry unit reserves for spilled locals.
+--
+-- Compiled functions share one machine-owned slot area and address it from a
+-- base register that the entry unit loads once. A module cannot tell the entry
+-- unit how many slots its functions need, so the entry unit reserves this
+-- fixed count and each backend rejects a function that needs more.
+nativeLocalsSlots :: Int
+nativeLocalsSlots = 65536
 
 -- | The fixed linked global that starts each executable.
 executableEntryName :: Text

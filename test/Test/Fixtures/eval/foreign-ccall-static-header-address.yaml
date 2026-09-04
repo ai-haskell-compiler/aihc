@@ -1,0 +1,30 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim (eqAddr#, neAddr#)
+    import GHC.Ptr (Ptr(..))
+
+    foreign import ccall "static stdio.h &puts" putsAddress :: Ptr ()
+
+    foreign import ccall "stdio.h &puts" alsoPutsAddress :: Ptr ()
+
+    foreign import ccall "&strlen" strlenAddress :: Ptr ()
+
+    data Results = Results Int Int
+
+    results :: Results
+    results =
+      case putsAddress of
+        Ptr puts1 -> case alsoPutsAddress of
+          Ptr puts2 -> case strlenAddress of
+            Ptr strlen -> Results (I# (eqAddr# puts1 puts2)) (I# (neAddr# puts1 strlen))
+output: |
+  Results (I# 1) (I# 1)
+expression: results
+status: pass
+reason: reads the address mark after the static keyword and the header file name

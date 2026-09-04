@@ -14,5 +14,5 @@ modules:
 output: ""
 exception: Failure
 expression: result
-status: xfail
+status: pass
 reason: evaluating a Complex constructor to weak head normal form raises the exact Failure exception from its strict imaginary component

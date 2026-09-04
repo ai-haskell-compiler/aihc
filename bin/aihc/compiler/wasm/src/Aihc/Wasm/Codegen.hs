@@ -1021,18 +1021,6 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticO
           ]
             <> payload
             <> ["\t.size\t" <> symbol <> ", " <> tshow size]
-            -- Only objects the collector has to mark get an entry. A
-            -- nullary constructor has no fields, so it can neither move nor
-            -- retain anything, and the collector leaves a pointer to one alone
-            -- whether or not it knows the object is static.
-            <> [ line
-               | staticObjectTraced object,
-                 line <-
-                   [ "\t.section\taihc_roots,\"\",@",
-                     "\t.p2align\t2, 0x0",
-                     "\t.int32\t" <> symbol
-                   ]
-               ]
             <> [""]
         )
     renderStaticValue value =

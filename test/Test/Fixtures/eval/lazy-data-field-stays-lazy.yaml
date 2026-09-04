@@ -1,0 +1,22 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Failure = Failure
+
+    data Pair = Pair !Int Int
+
+    result :: Int
+    result = case Pair 1 (raise# Failure) of Pair first _ -> first
+output: |
+  I# 1
+expression: result
+status: pass
+reason: a data constructor with a strict field does not force its lazy fields
