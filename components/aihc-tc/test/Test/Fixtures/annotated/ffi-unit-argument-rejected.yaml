@@ -1,0 +1,20 @@
+annotated:
+- |-
+  module Test where
+
+  data IO a
+       └─ type: Type → Type
+
+  foreign import ccall unsafe "touch" c_touch :: () -> IO ()
+  └─ type: () → IO ()                 └─ error: a foreign import argument must not have a unit type
+extensions:
+- ForeignFunctionInterface
+modules:
+- |
+  module Test where
+
+  data IO a
+
+  foreign import ccall unsafe "touch" c_touch :: () -> IO ()
+reason: the unit type has no C representation, so it is rejected as a foreign import argument
+status: pass

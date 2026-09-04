@@ -155,7 +155,13 @@ data Amd64Instruction
   | AmdMov !Amd64Register !Amd64MoveSource
   | AmdStore !Amd64Memory !Amd64StoreSource
   | AmdMovsxd !Amd64Register !Amd64Rm
+  | -- | Sign-extend a byte register into a 64-bit register.
+    AmdMovsxByte !Amd64Register !Amd64Rm
+  | -- | Sign-extend the low 16 bits of a register into a 64-bit register.
+    AmdMovsxWord !Amd64Register !Amd64Rm
   | AmdMovzx !Amd64Register !Amd64Rm
+  | -- | Zero-extend the low 16 bits of a register into a 64-bit register.
+    AmdMovzxWord !Amd64Register !Amd64Rm
   | AmdLea !Amd64Register !Amd64Address
   | AmdAdd !Amd64Rm !Amd64BinarySource
   | AmdSub !Amd64Rm !Amd64BinarySource
@@ -310,7 +316,10 @@ encodeInstruction instruction =
     AmdMov destination source -> encodeMove destination source
     AmdStore destination source -> encodeStore destination source
     AmdMovsxd destination source -> encodeRegisterSource True [0x63] destination source
+    AmdMovsxByte destination source -> encodeRegisterSource True [0x0f, 0xbe] destination source
+    AmdMovsxWord destination source -> encodeRegisterSource True [0x0f, 0xbf] destination source
     AmdMovzx destination source -> encodeRegisterSource True [0x0f, 0xb6] destination source
+    AmdMovzxWord destination source -> encodeRegisterSource True [0x0f, 0xb7] destination source
     AmdLea destination source -> encodeLea destination source
     AmdAdd destination source -> encodeBinary [0x01] 0 destination source
     AmdSub destination source -> encodeBinary [0x29] 5 destination source

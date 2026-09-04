@@ -125,9 +125,18 @@ data TcForeignMarshal = TcForeignMarshal
 -- independent from lifted Haskell wrapper types.
 data TcForeignAbiType
   = TcForeignInt
+  | TcForeignInt8
+  | TcForeignInt16
   | TcForeignInt32
+  | TcForeignInt64
+  | TcForeignWord
+  | TcForeignWord8
+  | TcForeignWord16
+  | TcForeignWord32
   | TcForeignWord64
   | TcForeignAddr
+  | -- | The unit result of a C procedure.
+    TcForeignVoid
   deriving (Eq, Show)
 
 -- | Type-checker annotation payload before constraint solving has finished.

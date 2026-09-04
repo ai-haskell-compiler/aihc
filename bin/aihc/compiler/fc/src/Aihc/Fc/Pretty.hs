@@ -225,9 +225,17 @@ prettyCAbiType :: CAbiType -> Doc ann
 prettyCAbiType abiType =
   case abiType of
     CAbiInt -> "Int"
+    CAbiInt8 -> "Int8"
+    CAbiInt16 -> "Int16"
     CAbiInt32 -> "Int32"
+    CAbiInt64 -> "Int64"
+    CAbiWord -> "Word"
+    CAbiWord8 -> "Word8"
+    CAbiWord16 -> "Word16"
+    CAbiWord32 -> "Word32"
     CAbiWord64 -> "Word64"
     CAbiAddr -> "Addr"
+    CAbiVoid -> "Void"
 
 prettyForeignSafety :: ForeignSafety -> Doc ann
 prettyForeignSafety safety =

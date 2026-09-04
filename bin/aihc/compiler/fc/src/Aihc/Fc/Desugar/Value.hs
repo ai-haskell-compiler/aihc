@@ -664,6 +664,9 @@ foreignTypeNewtypeDependencies ty = do
         TcQualTy _ body -> go newtypes body
         TcAppTy function argument -> go newtypes function <> go newtypes argument
 
+-- | The constructors a foreign value marshals through, outermost first.  A
+-- unary constructor continues to its field type; the nullary constructor of
+-- a unit result ends the chain.
 foreignMarshalDependencies :: TcForeignMarshal -> ValueM [ForeignImportDependency]
 foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeignConstructors marshal)
   where
@@ -673,22 +676,28 @@ foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeign
       constructors <- Map.findWithDefault [] constructorName <$> gets vsConstructorInfos
       case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField sourceType constructor]] of
         [(dataType, _, fieldType)] ->
-          (foreignNewtypeDependency dataType :) <$> go fieldType rest
+          (foreignNewtypeDependency dataType :) <$> continue constructorName fieldType rest
         [] ->
           case [(constructor, fieldType) | constructor <- constructors, Just fieldType <- [foreignConstructorField sourceType constructor]] of
             [(constructor, fieldType)] ->
               let (package, moduleName) = dciOrigin constructor
                   dependency = ForeignConstructor (Name constructorName SortDataConstructor (OriginTop package moduleName))
-               in (dependency :) <$> go fieldType rest
+               in (dependency :) <$> continue constructorName fieldType rest
             [] -> failValue ("missing checked foreign constructor " <> T.unpack constructorName)
             _ -> failValue ("ambiguous checked foreign constructor " <> T.unpack constructorName)
         _ -> failValue ("ambiguous checked foreign newtype constructor " <> T.unpack constructorName)
+    continue _ (Just fieldType) rest = go fieldType rest
+    continue _ Nothing [] = pure []
+    continue constructorName Nothing _ = failValue ("checked foreign constructor " <> T.unpack constructorName <> " has no field to marshal through")
 
-foreignConstructorField :: TcType -> DataConInfo -> Maybe TcType
+-- | The field type of a unary constructor at the source type, or 'Nothing'
+-- inside for a nullary constructor.
+foreignConstructorField :: TcType -> DataConInfo -> Maybe (Maybe TcType)
 foreignConstructorField sourceType constructor = do
   substitution <- matchTypes [dciResTy constructor] [sourceType]
   case dciFields constructor of
-    [field] -> pure (applySubst substitution (dcfiType field))
+    [field] -> pure (Just (applySubst substitution (dcfiType field)))
+    [] -> pure Nothing
     _ -> Nothing
 
 foreignNewtypeDependency :: DataTypeInfo -> ForeignImportDependency
@@ -709,9 +718,17 @@ convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =
   case abiType of
     TcForeignInt -> CAbiInt
+    TcForeignInt8 -> CAbiInt8
+    TcForeignInt16 -> CAbiInt16
     TcForeignInt32 -> CAbiInt32
+    TcForeignInt64 -> CAbiInt64
+    TcForeignWord -> CAbiWord
+    TcForeignWord8 -> CAbiWord8
+    TcForeignWord16 -> CAbiWord16
+    TcForeignWord32 -> CAbiWord32
     TcForeignWord64 -> CAbiWord64
     TcForeignAddr -> CAbiAddr
+    TcForeignVoid -> CAbiVoid
 
 -- | An omitted safety mark means @safe@, as in the Haskell report. The runtime
 -- is single-threaded, so both marks lower to the same call. An @interruptible@
@@ -1502,7 +1519,7 @@ newtypeFieldType :: DataTypeInfo -> TcType -> Syn.Pattern -> ValueM TcType
 newtypeFieldType dataType scrutineeType child =
   case dtiConstructors dataType of
     [constructor]
-      | Just fieldType <- foreignConstructorField scrutineeType constructor ->
+      | Just (Just fieldType) <- foreignConstructorField scrutineeType constructor ->
           pure fieldType
     _ -> requiredPatternType child
 

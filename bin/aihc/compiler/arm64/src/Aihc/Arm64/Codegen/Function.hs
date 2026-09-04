@@ -446,8 +446,9 @@ compileDirectBinding env vars expression =
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure [arm64Instruction (ArmBl "_aihc_unsupported_primitive")]
       | otherwise -> lift (Left (Arm64UnsupportedExpression ("primitive call " <> name)))
-    GrinForeignCallExpr foreignCall arguments ->
-      compileForeignCallLines env foreignCall arguments >>= storeSingleResult
+    GrinForeignCallExpr foreignCall arguments
+      | null vars -> compileForeignCallLines env foreignCall arguments
+      | otherwise -> compileForeignCallLines env foreignCall arguments >>= storeSingleResult
     _ -> lift (Left (Arm64UnsupportedExpression "non-direct expression remained in a CPS bind"))
   where
     storeSingleResult lines' =
@@ -584,13 +585,23 @@ materializeIntoSlots env = fmap concat . mapM store
       lines' <- liftEither (materializeValue env value)
       pure (lines' <> [storeAt X0 X19 slot])
 
+-- | Extend a narrow C result to the 64 bits that GRIN keeps, because the
+-- high bits of the result register are unspecified.
 normalizeForeignResult :: GrinForeignType -> [Arm64Statement]
 normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt -> []
+    GrinForeignInt8 -> [arm64Instruction (ArmSxtb X0 X0)]
+    GrinForeignInt16 -> [arm64Instruction (ArmSxth X0 X0)]
     GrinForeignInt32 -> [arm64Instruction (ArmSxtw X0 W0)]
+    GrinForeignInt64 -> []
+    GrinForeignWord -> []
+    GrinForeignWord8 -> [arm64Instruction (ArmAndMask X0 X0 8)]
+    GrinForeignWord16 -> [arm64Instruction (ArmAndMask X0 X0 16)]
+    GrinForeignWord32 -> [arm64Instruction (ArmAndMask X0 X0 32)]
     GrinForeignWord64 -> []
     GrinForeignAddr -> []
+    GrinForeignVoid -> []
 
 compileCase :: ValueEnv -> [Arm64Statement] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
