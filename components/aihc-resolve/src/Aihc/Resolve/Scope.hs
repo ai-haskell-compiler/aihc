@@ -82,7 +82,7 @@ import Aihc.Resolve.Span (spanStartNameSpan)
 import Aihc.Resolve.Types
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -92,6 +92,8 @@ data Scope = Scope
     scopeConstructors :: Map.Map Text [Text],
     scopeRecordFields :: Map.Map Text [Text],
     scopeMethods :: Map.Map Text [Text],
+    -- | Associated type families of a class, keyed by the class name.
+    scopeAssociatedTypes :: Map.Map Text [Text],
     scopeFixities :: Map.Map Text OperatorFixity,
     scopeQualifiedModules :: Map.Map Text Scope
   }
@@ -189,17 +191,23 @@ selectTypeWithMembers name scope members =
   selectType name scope
     `unionScope` emptyScope
       { scopeTerms = Map.filterWithKey (\n _ -> n `elem` members) (scopeTerms scope),
+        scopeTypes = Map.filterWithKey (\n _ -> n `elem` bundledAssociatedTypes) (scopeTypes scope),
         scopeConstructors = bundledConstructors,
         scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` members) (scopeRecordFields scope),
         scopeMethods = Map.filterWithKey (\n _ -> n == name) (scopeMethods scope),
+        scopeAssociatedTypes =
+          if null bundledAssociatedTypes then Map.empty else Map.singleton name bundledAssociatedTypes,
         scopeFixities = Map.filterWithKey (\n _ -> n `elem` members) (scopeFixities scope)
       }
   where
     existingConstructors = Map.findWithDefault [] name (scopeConstructors scope)
+    bundledAssociatedTypes =
+      [member | member <- associatedTypeMembers name scope, member `elem` members]
     knownMembers =
       existingConstructors
         <> concat (Map.elems (scopeRecordFields scope))
         <> concat (Map.elems (scopeMethods scope))
+        <> bundledAssociatedTypes
     bundledPatternSynonyms =
       List.nub [member | member <- members, member `notElem` knownMembers, Map.member member (scopeTerms scope)]
     bundledConstructors
@@ -209,11 +217,16 @@ selectTypeWithMembers name scope members =
 
 allTypeMembers :: Text -> Scope -> [Text]
 allTypeMembers name scope =
-  constructors <> recordFields <> methods
+  constructors <> recordFields <> methods <> associatedTypeMembers name scope
   where
     constructors = Map.findWithDefault [] name (scopeConstructors scope)
     recordFields = concatMap (\constructor -> Map.findWithDefault [] constructor (scopeRecordFields scope)) constructors
     methods = Map.findWithDefault [] name (scopeMethods scope)
+
+-- | The associated type families that a class bundles in an export or
+-- import item such as @C(..)@.
+associatedTypeMembers :: Text -> Scope -> [Text]
+associatedTypeMembers name scope = Map.findWithDefault [] name (scopeAssociatedTypes scope)
 
 -- | The @pattern@ and @data@ namespace keywords select a term in an import
 -- or export list.
@@ -234,15 +247,19 @@ topLevelScope package modu =
     moduleKeyText = moduleKey modu
     qualify = ResolvedTopLevel (packageId package) . qualifyName (Just moduleKeyText)
     addDecl scope decl =
-      let DeclExports termNames typeNames constructors recordFields methods fixities = declExportedNames decl
+      let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames decl
           scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
           scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
           scope''' = scope'' {scopeConstructors = constructors `Map.union` scopeConstructors scope''}
           scope'''' = scope''' {scopeRecordFields = recordFields `Map.union` scopeRecordFields scope'''}
           scope''''' = scope'''' {scopeMethods = methods `Map.union` scopeMethods scope''''}
-       in scope''''' {scopeFixities = fixities `Map.union` scopeFixities scope'''''}
+          scope'''''' = scope''''' {scopeAssociatedTypes = associatedTypes `Map.union` scopeAssociatedTypes scope'''''}
+       in scope'''''' {scopeFixities = fixities `Map.union` scopeFixities scope''''''}
 
-data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text OperatorFixity)
+-- | The names that one declaration adds to the module scope: terms, types,
+-- constructors by type, record fields by constructor, methods by class,
+-- associated type families by class, and operator fixities.
+data DeclExports = DeclExports [UnqualifiedName] [UnqualifiedName] (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text [Text]) (Map.Map Text OperatorFixity)
 
 declExportedNames :: Decl -> DeclExports
 declExportedNames decl =
@@ -250,14 +267,14 @@ declExportedNames decl =
     DeclAnn _ inner -> declExportedNames inner
     DeclValue valueDecl ->
       case valueDecl of
-        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty Map.empty
+        FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty Map.empty Map.empty
         PatternBind _ pat _ ->
-          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty
-    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty
+          DeclExports (map snd (collectPatVarBinders NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
+    DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclForeign foreignDecl
       | foreignDirection foreignDecl == ForeignImport ->
-          DeclExports [foreignName foreignDecl] [] Map.empty Map.empty Map.empty Map.empty
-      | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
+          DeclExports [foreignName foreignDecl] [] Map.empty Map.empty Map.empty Map.empty Map.empty
+      | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclFixity assoc mNamespace mPrec ops
       | mNamespace /= Just IEEntityNamespaceType ->
           DeclExports
@@ -266,17 +283,20 @@ declExportedNames decl =
             Map.empty
             Map.empty
             Map.empty
+            Map.empty
             (Map.fromList [(renderUnqualifiedName op, OperatorFixity assoc (fromMaybe 9 mPrec)) | op <- ops])
-      | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
+      | otherwise -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclClass classDecl ->
       let className = binderHeadName (classDeclHead classDecl)
           methodNames = classDeclMethodNames (classDeclItems classDecl)
+          associatedNames = classDeclAssociatedTypeNames (classDeclItems classDecl)
        in DeclExports
             methodNames
-            [className]
+            (className : associatedNames)
             Map.empty
             Map.empty
             (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName methodNames))
+            (Map.singleton (renderUnqualifiedName className) (map renderUnqualifiedName associatedNames))
             Map.empty
     DeclTypeData dataDecl ->
       dataDeclExports (dataDeclHead dataDecl) (dataDeclConstructors dataDecl)
@@ -286,21 +306,21 @@ declExportedNames decl =
       let typeName = binderHeadName (newtypeDeclHead newtypeDecl)
           termNames = maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
           constructorNames = maybe [] dataConDeclConstructorNames (newtypeDeclConstructor newtypeDecl)
-       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty Map.empty
+       in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty Map.empty Map.empty
     DeclDataFamilyDecl familyDecl ->
-      DeclExports [] [binderHeadName (dataFamilyDeclHead familyDecl)] Map.empty Map.empty Map.empty Map.empty
+      DeclExports [] [binderHeadName (dataFamilyDeclHead familyDecl)] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclDataFamilyInst familyInst -> dataFamilyInstExports familyInst
     DeclTypeFamilyDecl familyDecl ->
       case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
-        Just name -> DeclExports [] [name] Map.empty Map.empty Map.empty Map.empty
-        Nothing -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
-    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty Map.empty
+        Just name -> DeclExports [] [name] Map.empty Map.empty Map.empty Map.empty Map.empty
+        Nothing -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty Map.empty
+    DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclPatSyn patSyn ->
       let name = patSynDeclName patSyn
           fields = patSynFieldNames patSyn
-       in DeclExports (name : fields) [] Map.empty (patSynRecordFieldMap name fields) Map.empty Map.empty
-    DeclPatSynSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty
-    _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
+       in DeclExports (name : fields) [] Map.empty (patSynRecordFieldMap name fields) Map.empty Map.empty Map.empty
+    DeclPatSynSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty Map.empty
+    _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | The field selectors of a record pattern synonym.
 patSynFieldNames :: PatSynDecl -> [UnqualifiedName]
@@ -317,13 +337,14 @@ patSynRecordFieldMap name fields
 dataFamilyInstExports :: DataFamilyInst -> DeclExports
 dataFamilyInstExports familyInst =
   case typeFamilyHeadName (dataFamilyInstHead familyInst) of
-    Nothing -> DeclExports termNames [] Map.empty recordFields Map.empty Map.empty
+    Nothing -> DeclExports termNames [] Map.empty recordFields Map.empty Map.empty Map.empty
     Just familyName ->
       DeclExports
         termNames
         []
         (constructorMap familyName constructorNames)
         recordFields
+        Map.empty
         Map.empty
         Map.empty
   where
@@ -351,6 +372,7 @@ dataDeclExports headBinder constructors =
         (recordFieldMap constructors)
         Map.empty
         Map.empty
+        Map.empty
 
 constructorMap :: UnqualifiedName -> [UnqualifiedName] -> Map.Map Text [Text]
 constructorMap typeName constructors =
@@ -369,6 +391,15 @@ classDeclMethodNames = concatMap go
     go (ClassItemAnn _ inner) = go inner
     go (ClassItemTypeSig names _) = names
     go (ClassItemDefaultSig name _) = [name]
+    go _ = []
+
+-- | The associated type and data families that a class declares.
+classDeclAssociatedTypeNames :: [ClassDeclItem] -> [UnqualifiedName]
+classDeclAssociatedTypeNames = concatMap go
+  where
+    go (ClassItemAnn _ inner) = go inner
+    go (ClassItemTypeFamilyDecl familyDecl) = maybeToList (typeFamilyHeadName (typeFamilyDeclHead familyDecl))
+    go (ClassItemDataFamilyDecl familyDecl) = [binderHeadName (dataFamilyDeclHead familyDecl)]
     go _ = []
 
 dataDeclConstructorNames :: [DataConDecl] -> [UnqualifiedName]
@@ -507,7 +538,7 @@ filterImportSpec maybeSpec scope =
   case maybeSpec of
     Nothing -> scope
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      let allowedTypes = allowedTypeNames importSpecItems
+      let allowedTypes = allowedTypeNames scope importSpecItems
           allowedTerms = allowedTermNames scope importSpecItems
        in Scope
             { scopeTerms =
@@ -516,14 +547,25 @@ filterImportSpec maybeSpec scope =
               scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeConstructors scope),
               scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeRecordFields scope),
               scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeMethods scope),
+              scopeAssociatedTypes = Map.map (filter (`elem` allowedTypes)) (Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeAssociatedTypes scope)),
               scopeFixities = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeFixities scope),
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
-      filterScopeByNames (`notElem` (allowedTypeNames importSpecItems <> allowedTermNames scope importSpecItems)) scope
+      filterScopeByNames (`notElem` (allowedTypeNames scope importSpecItems <> allowedTermNames scope importSpecItems)) scope
 
-allowedTypeNames :: [ImportItem] -> [Text]
-allowedTypeNames = mapMaybe (fmap renderUnqualifiedName . importItemTypeName)
+-- | The type names that an import list admits. A bundled member of a class
+-- item that is an associated type family of the class is a type name.
+allowedTypeNames :: Scope -> [ImportItem] -> [Text]
+allowedTypeNames scope = concatMap allowedTypeNamesForItem
+  where
+    allowedTypeNamesForItem item =
+      case importItemTypeName item of
+        Nothing -> []
+        Just itemName ->
+          let parentName = renderUnqualifiedName itemName
+              associated = associatedTypeMembers parentName scope
+           in parentName : filter (`elem` associated) (bundledImportMembers scope item)
 
 allowedTermNames :: Scope -> [ImportItem] -> [Text]
 allowedTermNames scope = concatMap (allowedTermNamesForItem scope)
@@ -535,10 +577,25 @@ allowedTermNamesForItem scope item =
     ImportItemVar _ itemName -> [renderUnqualifiedName itemName]
     ImportItemAbs (Just namespace) itemName
       | isTermNamespace namespace -> [renderUnqualifiedName itemName]
+    ImportItemAbs {} -> []
+    _ ->
+      case importItemTypeName item of
+        Nothing -> []
+        Just itemName ->
+          let associated = associatedTypeMembers (renderUnqualifiedName itemName) scope
+           in filter (`notElem` associated) (bundledImportMembers scope item)
+
+-- | The bundled members that an import item names, with @(..)@ expanded
+-- to every member of the parent. A parent without members stands for
+-- itself.
+bundledImportMembers :: Scope -> ImportItem -> [Text]
+bundledImportMembers scope item =
+  case item of
+    ImportAnn _ sub -> bundledImportMembers scope sub
     ImportItemAll _ itemName -> allBundledMembers itemName
     ImportItemWith _ _ members -> map bundledMemberName members
     ImportItemAllWith _ itemName _ members -> map bundledMemberName members <> allBundledMembers itemName
-    ImportItemAbs {} -> []
+    _ -> []
   where
     bundledMemberName = nameText . ieBundledMemberName
     allBundledMembers itemName =
@@ -587,7 +644,7 @@ moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Scope containing fixed Haskell names that are always available.
 --
@@ -606,6 +663,7 @@ builtinScope =
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
+      scopeAssociatedTypes = Map.empty,
       scopeFixities = Map.empty,
       scopeQualifiedModules = Map.empty
     }
@@ -629,6 +687,7 @@ unionScope left right =
       scopeConstructors = scopeConstructors left `Map.union` scopeConstructors right,
       scopeRecordFields = scopeRecordFields left `Map.union` scopeRecordFields right,
       scopeMethods = scopeMethods left `Map.union` scopeMethods right,
+      scopeAssociatedTypes = scopeAssociatedTypes left `Map.union` scopeAssociatedTypes right,
       scopeFixities = scopeFixities left `Map.union` scopeFixities right,
       scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
     }
@@ -676,6 +735,7 @@ filterScopeByNames keep scope =
       scopeConstructors = Map.filterWithKey (\name _ -> keep name) (scopeConstructors scope),
       scopeRecordFields = Map.filterWithKey (\name _ -> keep name) (scopeRecordFields scope),
       scopeMethods = Map.filterWithKey (\name _ -> keep name) (scopeMethods scope),
+      scopeAssociatedTypes = Map.filterWithKey (\name _ -> keep name) (scopeAssociatedTypes scope),
       scopeFixities = Map.filterWithKey (\name _ -> keep name) (scopeFixities scope),
       scopeQualifiedModules = scopeQualifiedModules scope
     }
