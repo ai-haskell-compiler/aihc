@@ -1,0 +1,19 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Lib (Flag (..), Pair (..), pattern Point, px, py) where
+    data Flag = On | Off
+    data Pair = Pair Flag Flag
+    pattern Point {px, py} = Pair px py
+  - |
+    module Test where
+    import Lib
+    swap p = Point (py p) (px p)
+output: |
+  Pair Off On
+expression: |
+  swap (Point On Off)
+status: pass
+reason: imports the field selectors of a record pattern synonym from another module

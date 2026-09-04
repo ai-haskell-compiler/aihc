@@ -234,11 +234,13 @@ newtype TcDerivingAnnotation = TcDerivingAnnotation
   }
   deriving (Eq, Show)
 
--- | The checked matcher equation and builder equations of a pattern
--- synonym. The desugarer emits them as ordinary functions.
+-- | The checked matcher equation, builder equations, and record field
+-- selector equations of a pattern synonym. The desugarer emits them as
+-- ordinary functions. A selector pairs its field label with its equation.
 data TcPatSynAnnotation = TcPatSynAnnotation
   { tcPatSynMatcher :: !Match,
-    tcPatSynBuilder :: !(Maybe [Match])
+    tcPatSynBuilder :: !(Maybe [Match]),
+    tcPatSynSelectors :: ![(Text, Match)]
   }
   deriving (Eq, Show)
 

@@ -305,7 +305,8 @@ desugarPatSynDecl declaration =
           Nothing -> failValue ("pattern synonym does not have checked information: " <> T.unpack (Syn.unqualifiedNameText (Syn.patSynDeclName patSyn)))
       matcher <- desugarPatSynHelper moduleOrigin "$m" info [tcPatSynMatcher annotation]
       builder <- traverse (desugarPatSynHelper moduleOrigin "$b" info) (tcPatSynBuilder annotation)
-      pure (matcher : maybeToList builder)
+      selectors <- mapM (desugarPatSynSelector moduleOrigin) (tcPatSynSelectors annotation)
+      pure (matcher : maybeToList builder <> selectors)
     Nothing -> pure []
 
 patSynDeclAnnotation :: Syn.Decl -> Maybe (TcPatSynAnnotation, Syn.PatSynDecl)
@@ -325,6 +326,17 @@ desugarPatSynHelper moduleOrigin prefix info matches = do
   body <- desugarMatches helperType matches
   ty <- convertCheckedType helperType
   pure (DeclVal (ValDecl Pub (topName moduleOrigin (patSynHelperName prefix info)) ty body))
+
+-- | The field selector of a record pattern synonym as an ordinary
+-- top-level function. The type checker checks its equation against the
+-- pattern of the synonym and registers its type.
+desugarPatSynSelector :: (PackageId, Text) -> (Text, Syn.Match) -> ValueM Decl
+desugarPatSynSelector moduleOrigin (label, match) = do
+  let (package, moduleName') = moduleOrigin
+  selectorType <- lookupBindingType (TcTermGlobal package moduleName' label)
+  body <- desugarMatches selectorType [match]
+  ty <- convertCheckedType selectorType
+  pure (DeclVal (ValDecl Pub (topName moduleOrigin label) ty body))
 
 patSynHelperName :: Text -> PatSynInfo -> Text
 patSynHelperName prefix info = prefix <> psiName info

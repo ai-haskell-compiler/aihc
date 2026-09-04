@@ -1,0 +1,71 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Pair a = Pair a a
+  pattern Point {px, py} = Pair px py
+  first p = px p
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tPair (a : 2.tType) :: 2.tType {
+      pub 1.vPair :: ∀(a : 2.tType). a 2.→ a 2.→ 1.tPair a
+  }
+
+  pub val 1.v$mPoint :: ∀(a : 2.tType) (r : 2.tType). 1.tPair a 2.→ (a 2.→ a 2.→ r) 2.→ r 2.→ r
+   = Λ(a : 2.tType).
+    Λ(r : 2.tType).
+      λ(x : 1.tPair a).
+        λ(y : a 2.→ a 2.→ r).
+          λ(z : r).
+            case x as (_scrut : 1.tPair a) return (r) of {
+                1.vPair (px : a) (py : a) →
+                    y px py;
+                _ →
+                    z
+            }
+
+  pub val 1.v$bPoint :: ∀(a : 2.tType). a 2.→ a 2.→ 1.tPair a
+   = Λ(a : 2.tType).
+    λ(x : a).
+      λ(y : a).
+        1.vPair @a x y
+
+  pub val 1.vpx :: ∀(a : 2.tType). 1.tPair a 2.→ a
+   = Λ(a : 2.tType).
+    λ(x : 1.tPair a).
+      case x as (_scrut : 1.tPair a) return (a) of {
+          1.vPair (px : a) (py : a) →
+              px
+      }
+
+  pub val 1.vpy :: ∀(a : 2.tType). 1.tPair a 2.→ a
+   = Λ(a : 2.tType).
+    λ(x : 1.tPair a).
+      case x as (_scrut : 1.tPair a) return (a) of {
+          1.vPair (px : a) (py : a) →
+              py
+      }
+
+  pub val 1.vfirst :: ∀(a : 2.tType). 1.tPair a 2.→ a
+   = Λ(a : 2.tType).
+    λ(x : 1.tPair a).
+      1.vpx @a x
+status: pass
+reason: A record pattern synonym gives a matcher, a builder, and one selector for each field.

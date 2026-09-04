@@ -1744,19 +1744,25 @@ hasSameName name d = case extractFunctionBind d of
 -- their dependencies have been generalized into the global environment.
 sortDeclGroups :: [(Int, DeclGroup)] -> TcM [(Int, DeclGroup)]
 sortDeclGroups groups = do
-  allBinders <- Set.unions <$> mapM (fmap Set.fromList . declGroupBinderKeys . snd) groups
-  nodes <- mapM (declGraphNode allBinders) groups
+  -- A group can bind more than one name, so a dependency edge goes to the
+  -- graph key of the group that binds the name, not to the name itself.
+  keyed <- mapM groupNodeKeys groups
+  let owners = Map.fromList [(binder, nodeKey) | (_, nodeKey, binders) <- keyed, binder <- binders]
+  nodes <- mapM (declGraphNode owners) keyed
   pure (concatMap flattenScc (stronglyConnComp nodes))
   where
+    groupNodeKeys numberedGroup@(groupId, group) = do
+      nodeKey <- groupKey groupId group
+      binders <- declGroupBinderKeys group
+      pure (numberedGroup, nodeKey, binders)
     flattenScc (AcyclicSCC group) = [group]
     flattenScc (CyclicSCC cyclicGroups) = cyclicGroups
 
-declGraphNode :: Set.Set TcTermKey -> (Int, DeclGroup) -> TcM ((Int, DeclGroup), DeclGraphKey, [DeclGraphKey])
-declGraphNode allBinders numberedGroup@(groupId, group) = do
-  key <- groupKey groupId group
-  freeVars <- freeVarsGroup group
-  let deps = map DeclGraphBinder (Set.toList (Set.intersection allBinders freeVars))
-  pure (numberedGroup, key, deps)
+declGraphNode :: Map TcTermKey DeclGraphKey -> ((Int, DeclGroup), DeclGraphKey, [TcTermKey]) -> TcM ((Int, DeclGroup), DeclGraphKey, [DeclGraphKey])
+declGraphNode owners (numberedGroup, nodeKey, _) = do
+  freeVars <- freeVarsGroup (snd numberedGroup)
+  let deps = nub (mapMaybe (`Map.lookup` owners) (Set.toList freeVars))
+  pure (numberedGroup, nodeKey, deps)
 
 groupKey :: Int -> DeclGroup -> TcM DeclGraphKey
 groupKey ix group = do
@@ -1773,7 +1779,13 @@ declGroupBinderKeys group =
       case peelDeclAnn decl of
         DeclValue (FunctionBind binder _) -> (: []) <$> resolvedUnqualifiedTermKey binder
         DeclValue (PatternBind _ pat _) -> maybe (pure []) (fmap (: []) . resolvedUnqualifiedTermKey) (patternBinderSyntaxName pat)
-        DeclPatSyn patSyn -> (: []) <$> resolvedUnqualifiedTermKey (patSynDeclName patSyn)
+        -- The record fields of a pattern synonym are top-level binders of
+        -- the same group, so a use of a field selector orders its group
+        -- after the pattern synonym.
+        DeclPatSyn patSyn -> do
+          key <- resolvedUnqualifiedTermKey (patSynDeclName patSyn)
+          fieldKeys <- mapM (patSynFieldTermKey key) (patSynRecordFields (patSynDeclArgs patSyn))
+          pure (key : fieldKeys)
         _ -> pure []
 
 freeVarsGroup :: DeclGroup -> TcM (Set.Set TcTermKey)
@@ -1954,6 +1966,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   case (builderMatches, maybeBuilderMatches) of
                     (Just _, Nothing) -> pure failedResult
                     _ -> do
+                      (selectorMatches, selectorResults) <-
+                        tcPatSynRecordSelectors package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
                       addPatSyn
                         PatSynInfo
                           { psiName = name,
@@ -1978,9 +1992,9 @@ tcPatSynDecl sigs groupId decl patSyn = do
                               NoSourceSpan -> checkedPat
                               patSpan -> PAnn (mkAnnotation patSpan) checkedPat
                           patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir'}
-                          annotation = TcPatSynAnnotation matcherMatch' maybeBuilderMatches
+                          annotation = TcPatSynAnnotation matcherMatch' maybeBuilderMatches selectorMatches
                           decl' = DeclAnn (mkAnnotation annotation) (replacePatSynDecl patSyn' decl)
-                          results = TcBindingResult name displayName zonkedTy : matcherResults <> builderResults
+                          results = TcBindingResult name displayName zonkedTy : matcherResults <> builderResults <> selectorResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
             _ -> pure failedResult
 
@@ -2140,6 +2154,63 @@ commitCheckedHelper key name results =
       replaceTermKeyEnvPermanent key binder
       replaceTermKeyEnvPermanent (unqualifiedTermKey name) binder
     [] -> pure ()
+
+-- | The field labels of a record pattern synonym. Other forms have none.
+patSynRecordFields :: PatSynArgs -> [Text]
+patSynRecordFields args =
+  case args of
+    PatSynRecordArgs fields -> fields
+    _ -> []
+
+-- | A field selector of a record pattern synonym lives in the module of
+-- the synonym.
+patSynFieldTermKey :: TcTermKey -> Text -> TcM TcTermKey
+patSynFieldTermKey key field =
+  case key of
+    TcTermGlobal package moduleName' _ -> pure (TcTermGlobal package moduleName' field)
+    TcTermLocal {} -> abortTc ("record pattern synonym field " <> T.unpack field <> " is not a top-level binder")
+
+-- | Check the field selectors of a record pattern synonym. The selector
+-- of the field @f@ that the argument binder @x@ names is the function
+-- @f $scrutinee = case $scrutinee of pat -> x@. Its signature quantifies
+-- the universal variables and keeps the required context, so it has the
+-- type @req => scrutinee -> field@. A field whose type mentions an
+-- existential variable has no selector.
+tcPatSynRecordSelectors :: PackageId -> Text -> SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
+tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders = do
+  checked <- sequence (zipWith3 selector (patSynRecordFields args) argBinders (patSynLayoutArgTypes layout))
+  pure (concatMap fst checked, concatMap snd checked)
+  where
+    selector field argBinder argType
+      | any (`typeMentionsTyVar` argType) (patSynLayoutExistentials layout) = do
+          emitError nameSpan (OtherError ("the field " <> T.unpack field <> " of a record pattern synonym has an existential type, so it has no selector"))
+          pure ([], [])
+      | otherwise = do
+          let key = TcTermGlobal package moduleName' field
+              scheme = ForAll (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
+              sig = CheckedSig field scheme nameSpan
+          registerCheckedSig key sig
+          (maybeMatches, results) <- tcFunctionWithSig field field sig [patSynSelectorMatch pat argBinder]
+          commitCheckedHelper key field results
+          case maybeMatches of
+            Just [match] -> pure ([(field, match)], results)
+            _ -> pure ([], results)
+
+-- | The equation of a record pattern synonym field selector.
+patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
+patSynSelectorMatch pat argBinder =
+  Match
+    { matchAnns = [],
+      matchHeadForm = MatchHeadPrefix,
+      matchPats = [PVar scrutinee],
+      matchRhs =
+        UnguardedRhs
+          []
+          (ECase (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] (localVar argBinder) Nothing)])
+          Nothing
+    }
+  where
+    scrutinee = synthesizedLocal (-1) "$scrutinee"
 
 patSynArgNames :: PatSynArgs -> [Text]
 patSynArgNames args =
