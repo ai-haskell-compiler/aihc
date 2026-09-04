@@ -32,7 +32,6 @@ library
     Aihc.Tc.Generate.Expr
     Aihc.Tc.Generate.Pattern
     Aihc.Tc.Generate.PatternBranch
-    Aihc.Tc.Generic
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
@@ -44,7 +43,6 @@ library
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy
-    Aihc.Tc.Traverse
     Aihc.Tc.TypeScheme
     Aihc.Tc.Types
     Aihc.Tc.Unify

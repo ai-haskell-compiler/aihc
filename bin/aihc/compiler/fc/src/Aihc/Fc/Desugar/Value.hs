@@ -37,6 +37,11 @@ import Aihc.Tc
     TyConFlavor (..),
     defaultMethodName,
     patSynKey,
+    tcInterfaceDataFamilyInstances,
+    tcInterfaceDataTypes,
+    tcInterfaceInstances,
+    tcInterfacePatSyns,
+    tcInterfaceTerms,
   )
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),

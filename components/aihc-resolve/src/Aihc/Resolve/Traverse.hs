@@ -1,7 +1,7 @@
 -- | A hand-written walk over the annotations of the parser syntax tree.
 --
--- The type checker reads and rewrites the annotations of a whole module
--- several times. A generic "Data.Data" walk does this work, but it visits
+-- The resolver and the type checker read and rewrite the annotations of a
+-- whole module several times. A generic "Data.Data" walk does this work, but it visits
 -- every field of every node and does a runtime type test at each one. This
 -- module walks the same tree with one case for each constructor. The walk
 -- visits the annotations in source order: the fields of a constructor from
@@ -9,7 +9,7 @@
 --
 -- The pattern matches are exhaustive without a wildcard. A new syntax
 -- constructor therefore fails the build until its case is added.
-module Aihc.Tc.Traverse
+module Aihc.Resolve.Traverse
   ( HasAnnotations (..),
     annotationList,
   )

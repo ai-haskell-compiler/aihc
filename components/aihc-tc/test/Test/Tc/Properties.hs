@@ -23,6 +23,7 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    tcInterfaceFromLists,
   )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
 import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, runTcM, tcConfig, writeMetaTv)
@@ -68,7 +69,7 @@ genInterface = do
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])
   tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] False)
   tcInterfaceTypeFamilyInstances <- optionalEntry (TypeFamilyInstanceInfo "F" "$axF" (packageId, moduleName) [] ty ty False)
-  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances, tcInterfaceTypeFamilyInstances, tcInterfacePatSyns = []}
+  pure (tcInterfaceFromLists tcInterfaceTerms tcInterfaceTyCons tcInterfaceDataTypes tcInterfaceClasses tcInterfaceInstances tcInterfaceDataFamilyInstances tcInterfaceTypeFamilyInstances [])
 
 optionalEntry :: value -> Gen [value]
 optionalEntry value = Gen.element [[], [value]]

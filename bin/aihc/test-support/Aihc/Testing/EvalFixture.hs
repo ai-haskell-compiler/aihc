@@ -54,7 +54,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, evaluate, mask, onException)
 import Control.Monad (forM, unless)
