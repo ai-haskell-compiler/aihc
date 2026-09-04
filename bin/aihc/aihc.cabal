@@ -280,6 +280,7 @@ test-suite spec
     Test.Fc.Properties
     Test.Fc.Spec
     Test.Fc.Suite
+    Test.Grin.Anf
     Test.Grin.Arbitrary
     Test.Grin.Spec
     Test.Grin.Srt
