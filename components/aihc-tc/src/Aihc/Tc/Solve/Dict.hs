@@ -19,10 +19,10 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
-import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getInstances, implicitParamType, lookupClass, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -73,7 +73,7 @@ solveDictWithGivensVisited visited givens ct
                 ("Typeable", [ty]) -> tryTypeable className ty
                 _ -> do
                   instances <- getInstances
-                  tryInstances (ctPred ct : visited) (tyConName className) args' instances
+                  tryInstances (ctPred ct : visited) className args' instances
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -106,7 +106,7 @@ solveDictWithGivensVisited visited givens ct
         ClassPred sourceClass sourceArgs
           | sourceClass `elem` classVisited -> pure Nothing
           | otherwise -> do
-              classInfo <- lookupClass (tyConName sourceClass)
+              classInfo <- lookupClass sourceClass
               case classInfo of
                 Nothing -> pure Nothing
                 Just info -> do
@@ -131,7 +131,7 @@ solveDictWithGivensVisited visited givens ct
 
     tryInstances _ _ _ [] = pure (DictStuck ct)
     tryInstances visited' className args (instanceInfo : rest)
-      | iiClassName instanceInfo /= className =
+      | not (instanceIsForClass className instanceInfo) =
           tryInstances visited' className args rest
       | otherwise =
           case matchTypes (iiHead instanceInfo) args of
@@ -163,7 +163,7 @@ solveDictWithGivensVisited visited givens ct
       case typeableArguments ty of
         Nothing -> pure (DictStuck ct)
         Just arguments -> do
-          classOrigin <- maybe Nothing ciOrigin <$> lookupClass "Typeable"
+          classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
           argumentEvidence <- mapM (solveSubPred [ctPred ct] . ClassPred typeableTyCon . (: [])) arguments
           case sequence argumentEvidence of
             Just evidence -> do
@@ -221,7 +221,7 @@ solveDictWithGivensVisited visited givens ct
             ClassPred sourceClass sourceArguments
               | sourceClass `elem` classVisited -> pure Nothing
               | otherwise -> do
-                  classInfo <- lookupClass (tyConName sourceClass)
+                  classInfo <- lookupClass sourceClass
                   case classInfo of
                     Nothing -> pure Nothing
                     Just info -> do
@@ -332,7 +332,7 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
       | otherwise = TcQualTy remainingPredicates body
     isClassPredicate predicate =
       case predicate of
-        ClassPred className _ -> tyConName className == ciName classInfo
+        ClassPred className _ -> tyConKey className == tyConKey (ciTyCon classInfo)
         EqPred {} -> False
         QuantifiedPred {} -> False
         IParamPred {} -> False

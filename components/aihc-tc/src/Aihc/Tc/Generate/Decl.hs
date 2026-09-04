@@ -584,7 +584,7 @@ data GlobalStateKeys = GlobalStateKeys
   { globalTermKeys :: !(Set.Set TcTermKey),
     globalTyConKeys :: !(Set.Set TcTypeKey),
     globalDataTypeKeys :: !(Set.Set TcTypeKey),
-    globalClassKeys :: !(Set.Set Text),
+    globalClassKeys :: !(Set.Set TcTypeKey),
     globalInstanceKeys :: !(Set.Set ((Text, Text), Text)),
     globalDataFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
     globalTypeFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
@@ -839,7 +839,7 @@ valueDeclBinderNames valueDecl =
 annotateClassDeclTc :: ClassDecl -> TcM Decl
 annotateClassDeclTc classDecl = do
   let className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
-  classInfo <- lookupClass className
+  classInfo <- lookupDeclaredClass (binderHeadName (classDeclHead classDecl))
   case classInfo of
     Nothing -> missingTypeInfo ("class " <> T.unpack className)
     Just info -> do
@@ -1166,13 +1166,13 @@ annotateInstanceDeclTc origin instanceDecl =
     (Just className, headArgTypes) -> do
       (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
       let classNameText = nameText className
-      rawHeadTys <- checkInstanceHeadTypes classNameText tvEnv headArgTypes
+      rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       tvIds <- mapM defaultTyVarKinds rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
       dictName <- lookupInstanceDictName origin classNameText headTys
-      classInfo <- lookupClass classNameText
+      classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       let classSubstitution =
             Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys]
@@ -1277,7 +1277,7 @@ tcInstanceDeclBodies (DeclAnn ann inner)
       let classNameText = tyConName (tcInstanceClassTyCon annotation)
           headTys = tcInstanceHeadTypes annotation
       givens <- mapM (constraintTypePred . tcDictBinderType) (tcInstanceContextDicts annotation)
-      classInfo <- lookupClass classNameText >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
+      classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       items <- mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
       pure (DeclAnn ann (DeclInstance (instanceDecl {instanceDeclItems = items})))
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
@@ -1288,11 +1288,11 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
     (Just className, headArgTypes) -> do
       let classNameText = nameText className
       (_, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
-      rawHeadTys <- checkInstanceHeadTypes classNameText tvEnv headArgTypes
+      rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawGivens <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       headTys <- mapM defaultTypeKinds rawHeadTys
       givens <- mapM defaultPredKinds rawGivens
-      classInfo <- lookupClass classNameText >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
+      classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       items <- mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies decl =
@@ -1585,7 +1585,7 @@ makeInstanceTyVarEnv instanceDecl headArgTypes = do
       implicitEnv = Map.fromList (zip implicitNames (zip implicitTyVars implicitKinds))
   pure (map paramTyVar explicitParams <> implicitTyVars, explicitEnv <> implicitEnv)
 
-checkInstanceHeadTypes :: Text -> TvKindEnv -> [Type] -> TcM [TcType]
+checkInstanceHeadTypes :: Name -> TvKindEnv -> [Type] -> TcM [TcType]
 checkInstanceHeadTypes className tvEnv headArgTypes = do
   argKinds <- classPredicateArgKinds className (length headArgTypes)
   zipWithM (checkSurfaceType tvEnv) headArgTypes argKinds
@@ -2620,10 +2620,10 @@ registerInstanceDecl origin instanceDecl =
       let headArgs = instanceHeadTypes (instanceDeclHead instanceDecl)
       (tvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgs
       let classNameText = nameText className
-      headTys <- checkInstanceHeadTypes classNameText tvEnv headArgs
+      headTys <- checkInstanceHeadTypes className tvEnv headArgs
       dictName <- allocateInstanceDictName origin classNameText headTys
       context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
-      classInfo <- lookupClass classNameText >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
+      classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo

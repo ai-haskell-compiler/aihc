@@ -817,7 +817,7 @@ surfaceClassPredToPred tvEnv ty =
     Just className -> do
       let classNameText = nameText className
           headArgs = instanceHeadTypes (peelTypeHead ty)
-      maybeClassInfo <- lookupTyCon classNameText
+      maybeClassInfo <- lookupResolvedTyCon className
       case maybeClassInfo of
         Just classInfo
           | Just {} <- tciTypeSynonym classInfo -> do
@@ -842,9 +842,9 @@ surfaceClassPredToPred tvEnv ty =
       emitError NoSourceSpan (OtherError ("invalid class predicate: " <> show ty))
       abortTc "invalid checked class predicate"
 
-classPredicateArgKinds :: Text -> Int -> TcM [TcType]
+classPredicateArgKinds :: Name -> Int -> TcM [TcType]
 classPredicateArgKinds className argCount = do
-  mInfo <- lookupTyCon className
+  mInfo <- lookupResolvedTyCon className
   case mInfo of
     Just info -> takeClassArgKinds argCount <$> predicateClassKind info
     Nothing -> mapM (const freshKindMeta) [1 .. argCount]
