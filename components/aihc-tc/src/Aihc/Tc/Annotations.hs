@@ -58,7 +58,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionNamespace (..))
-import Aihc.Tc.Env (DataTypeInfo)
+import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, tyConModuleName, tyConNamespace, pattern KType)
 import Data.Text (Text)
@@ -177,7 +177,8 @@ data TcClassAnnotation = TcClassAnnotation
     tcClassSuperClasses :: ![TcDictBinderAnnotation],
     tcClassMethods :: ![TcClassMethodAnnotation],
     tcClassDefaultMethods :: ![Text],
-    tcClassDefaultSignatures :: ![(Text, TcType)]
+    tcClassDefaultSignatures :: ![(Text, TcType)],
+    tcClassAssociatedTypes :: ![AssociatedTypeInfo]
   }
   deriving (Eq, Show)
 
@@ -266,7 +267,10 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceContextDicts :: ![TcDictBinderAnnotation],
     tcInstanceSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
     tcInstanceMethodOrder :: ![Text],
-    tcInstanceDefaultMethods :: ![Text]
+    tcInstanceDefaultMethods :: ![Text],
+    -- | The checked associated type family equations of the instance,
+    -- explicit ones and instantiated class defaults.
+    tcInstanceAssociatedTypes :: ![TypeFamilyInstanceInfo]
   }
   deriving (Eq, Show)
 
