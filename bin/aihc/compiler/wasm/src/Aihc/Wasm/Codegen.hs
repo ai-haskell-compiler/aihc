@@ -285,7 +285,7 @@ moduleHeader env program =
     renderForeignType foreignCall =
       renderFunctionType
         ( grinForeignCallSymbol foreignCall,
-          (map foreignValueType (grinForeignArgumentTypes signature), [foreignValueType (grinForeignResultType signature)])
+          (map foreignValueType (grinForeignArgumentTypes signature), [foreignValueType (grinForeignResultType signature) | grinForeignResultType signature /= GrinForeignVoid])
         )
       where
         signature = grinForeignCallSignature foreignCall
@@ -297,10 +297,20 @@ renderValueType I32 = "i32"
 renderValueType I64 = "i64"
 
 foreignValueType :: GrinForeignType -> WasmValueType
-foreignValueType GrinForeignInt = I64
-foreignValueType GrinForeignInt32 = I32
-foreignValueType GrinForeignWord64 = I64
-foreignValueType GrinForeignAddr = I32
+foreignValueType foreignType =
+  case foreignType of
+    GrinForeignInt -> I64
+    GrinForeignInt8 -> I32
+    GrinForeignInt16 -> I32
+    GrinForeignInt32 -> I32
+    GrinForeignInt64 -> I64
+    GrinForeignWord -> I64
+    GrinForeignWord8 -> I32
+    GrinForeignWord16 -> I32
+    GrinForeignWord32 -> I32
+    GrinForeignWord64 -> I64
+    GrinForeignAddr -> I32
+    GrinForeignVoid -> I32
 
 runtimeFunctionTypes :: [(Text, ([WasmValueType], [WasmValueType]))]
 runtimeFunctionTypes =
@@ -706,7 +716,9 @@ compileDirectBinding env vars expression =
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure (call "aihc_unsupported_primitive" <> concatMap (\var -> localSetFor env var (i64Const "0")) vars)
     GrinPrimitiveCall _ name _ -> Left (WasmUnsupportedExpression ("primitive call " <> name))
-    GrinForeignCallExpr foreignCall arguments -> compileForeignCall env foreignCall arguments >>= storeSingle
+    GrinForeignCallExpr foreignCall arguments
+      | null vars -> compileForeignCall env foreignCall arguments
+      | otherwise -> compileForeignCall env foreignCall arguments >>= storeSingle
     _ -> Left (WasmUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
     storeSingle instructions = case vars of
@@ -771,17 +783,27 @@ compileForeignCall env foreignCall arguments = do
             <> foreignResultInstructions (grinForeignResultType signature)
         )
   where
+    -- GRIN keeps narrow integers extended to 64 bits, so their low 32 bits
+    -- are the extended C argument.
     foreignArgumentInstructions kind value =
-      materializeValue env value <> case kind of
-        GrinForeignInt -> []
-        GrinForeignInt32 -> ["i32.wrap_i64"]
-        GrinForeignWord64 -> []
-        GrinForeignAddr -> ["i32.wrap_i64"]
+      materializeValue env value <> case foreignValueType kind of
+        I64 -> []
+        I32 -> ["i32.wrap_i64"]
+    -- A narrow C result may carry unspecified high bits, so it is extended
+    -- from its own width.
     foreignResultInstructions kind = case kind of
       GrinForeignInt -> []
+      GrinForeignInt8 -> ["i32.extend8_s", "i64.extend_i32_s"]
+      GrinForeignInt16 -> ["i32.extend16_s", "i64.extend_i32_s"]
       GrinForeignInt32 -> ["i64.extend_i32_s"]
+      GrinForeignInt64 -> []
+      GrinForeignWord -> []
+      GrinForeignWord8 -> ["i32.const 255", "i32.and", "i64.extend_i32_u"]
+      GrinForeignWord16 -> ["i32.const 65535", "i32.and", "i64.extend_i32_u"]
+      GrinForeignWord32 -> ["i64.extend_i32_u"]
       GrinForeignWord64 -> []
       GrinForeignAddr -> ["i64.extend_i32_u"]
+      GrinForeignVoid -> []
 
 compileCase :: ValueEnv -> GrinValue -> GrinVar -> [GrinAlt] -> Either WasmError Instructions
 compileCase env scrutinee binder alternatives = do

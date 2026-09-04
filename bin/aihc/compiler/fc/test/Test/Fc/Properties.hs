@@ -290,7 +290,7 @@ genForeignSymbol =
     )
 
 genCAbiType :: Gen CAbiType
-genCAbiType = Gen.element [CAbiInt, CAbiInt32, CAbiWord64, CAbiAddr]
+genCAbiType = Gen.element [minBound .. maxBound]
 
 genForeignSafety :: Gen ForeignSafety
 genForeignSafety = Gen.element [ForeignUnsafe, ForeignSafe]

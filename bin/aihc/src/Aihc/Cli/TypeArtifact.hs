@@ -28,6 +28,15 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     Unique (..),
+    tcInterfaceClasses,
+    tcInterfaceDataFamilyInstances,
+    tcInterfaceDataTypes,
+    tcInterfaceFromLists,
+    tcInterfaceInstances,
+    tcInterfacePatSyns,
+    tcInterfaceTerms,
+    tcInterfaceTyCons,
+    tcInterfaceTypeFamilyInstances,
     tvKind,
     tyConArity,
     tyConName,
@@ -119,23 +128,23 @@ putInterface table interface =
 getInterface :: TyConTable -> Get.Get TcInterface
 getInterface table = do
   length' <- getArrayLength
-  tcInterfaceTerms <- getList (getTerm table)
-  tcInterfaceTyCons <- getList (getTyConInfo table)
-  tcInterfaceDataTypes <- getList (getDataTypeInfo table)
-  tcInterfaceClasses <- getList (getClassInfo table)
-  tcInterfaceInstances <- getList (getInstanceInfo table)
-  tcInterfaceDataFamilyInstances <- getList (getDataFamilyInstanceInfo table)
-  tcInterfaceTypeFamilyInstances <-
+  terms <- getList (getTerm table)
+  tyCons <- getList (getTyConInfo table)
+  dataTypes <- getList (getDataTypeInfo table)
+  classes <- getList (getClassInfo table)
+  instances <- getList (getInstanceInfo table)
+  dataFamilyInstances <- getList (getDataFamilyInstanceInfo table)
+  typeFamilyInstances <-
     if length' >= 7
       then getList (getTypeFamilyInstanceInfo table)
       else pure []
-  tcInterfacePatSyns <-
+  patSyns <-
     if length' >= 8
       then getList (getPatSynInfo table)
       else pure []
   when (length' < 6 || length' > 8) $
     fail ("unsupported type interface array length: " <> show length')
-  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances, tcInterfaceTypeFamilyInstances, tcInterfacePatSyns}
+  pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns)
 
 putPatSynInfo :: Map TyCon Word64 -> PatSynInfo -> Builder.Builder
 putPatSynInfo table info =

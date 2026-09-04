@@ -3,12 +3,13 @@
 
 -- | Generic traversals over the parser syntax tree.
 --
--- The type checker walks a whole module with "Data.Data". A new syntax
--- constructor then cannot hide an annotation from a pass. A plain generic
--- walk also enters each 'Text', 'String', and 'SourceSpan' value, and the
--- 'Data' instances of those types present each character as one node. No
--- annotation lives inside them, so the traversals here stop at them.
-module Aihc.Tc.Generic
+-- The resolver and the type checker walk a whole module with "Data.Data".
+-- A new syntax constructor then cannot hide an annotation from a pass. A
+-- plain generic walk also enters each 'Text', 'String', and 'SourceSpan'
+-- value, and the 'Data' instances of those types present each character as
+-- one node. No annotation lives inside them, so the traversals here stop at
+-- them.
+module Aihc.Resolve.Generic
   ( everywhereM,
     everything,
   )

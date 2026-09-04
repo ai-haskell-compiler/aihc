@@ -229,10 +229,18 @@ foreignEffect = (keyword "pure" $> ForeignPure) <|> (keyword "real-world" $> For
 cAbiType :: Parser CAbiType
 cAbiType =
   MP.choice
-    [ keyword "Int32" $> CAbiInt32,
+    [ keyword "Int8" $> CAbiInt8,
+      keyword "Int16" $> CAbiInt16,
+      keyword "Int32" $> CAbiInt32,
+      keyword "Int64" $> CAbiInt64,
       keyword "Int" $> CAbiInt,
+      keyword "Word8" $> CAbiWord8,
+      keyword "Word16" $> CAbiWord16,
+      keyword "Word32" $> CAbiWord32,
       keyword "Word64" $> CAbiWord64,
-      keyword "Addr" $> CAbiAddr
+      keyword "Word" $> CAbiWord,
+      keyword "Addr" $> CAbiAddr,
+      keyword "Void" $> CAbiVoid
     ]
 
 valDeclaration :: Parser Decl
