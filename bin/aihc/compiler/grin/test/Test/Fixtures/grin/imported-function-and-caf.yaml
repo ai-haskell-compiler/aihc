@@ -1,25 +1,31 @@
 expected: |-
-  constructor Dependency.Box [IntRep]
+  scope 1 = "" Dependency
 
-  global "\NULDependency\NULBox" = (CDependency.Box/1)
+  constructor 1.Box [IntRep]
 
-  global "\NULDependency\NULidentity" = (P$grin_closure_0/1)
+  global 1.Box = (C1.Box/1)
 
-  global "\NULDependency\NULcaf" = (CDependency.Box (7 :: IntRep))
+  global 1.identity = (P$identity/1)
 
-  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  global 1.caf = (C1.Box (7 :: IntRep))
+
+  $identity (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
-  global "\NULTarget\NULuseFunction" = (F$grin_useFunction_thunk_0)
+  scope 1 = "" Dependency
 
-  global "\NULTarget\NULuseCaf" = (F$grin_useCaf_thunk_1)
+  scope 2 = "" Target
 
-  $grin_useFunction_thunk_0 -> BoxedRep Lifted =
+  global 2.useFunction = (F$useFunction_thunk)
+
+  global 2.useCaf = (F$useCaf_thunk)
+
+  $useFunction_thunk -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
-      eval @(BoxedRep Lifted) global-ref "\NULDependency\NULidentity"
-    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULDependency\NULcaf"
+      eval @(BoxedRep Lifted) global-ref 1.identity
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 1.caf
 
-  $grin_useCaf_thunk_1 -> BoxedRep Lifted =
-    eval @(BoxedRep Lifted) global-ref "\NULDependency\NULcaf"
+  $useCaf_thunk -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref 1.caf
 extensions:
 - MagicHash
 modules:

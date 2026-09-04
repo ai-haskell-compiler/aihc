@@ -8,23 +8,44 @@ where
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
 import Data.Char (chr, isPrint, isSpace)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Prettyprinter (Doc, comma, hardline, hsep, indent, parens, pretty, punctuate, space, vsep, (<+>))
+
+-- | The number that the printed program gives to each scope. A name from a
+-- numbered scope prints as @number.name@, so that the package and the module
+-- occur one time only.
+newtype Scopes = Scopes (Map GrinScope Int)
+
+noScopes :: Scopes
+noScopes = Scopes Map.empty
+
+programScopes :: GrinProgram -> Scopes
+programScopes program = Scopes (Map.fromList (zip (grinProgramScopes program) [1 ..]))
 
 prettyProgram :: GrinProgram -> Doc ann
 prettyProgram program =
   vsep (punctuate hardline documents)
   where
+    scopes = programScopes program
     documents =
-      map prettyConstructor (grinConstructors program)
+      prettyScopes scopes
+        <> map (prettyConstructor scopes) (grinConstructors program)
         <> map prettyPrimitive (grinPrimitives program)
-        <> map prettyForeign (grinForeignCalls program)
-        <> map prettyGlobal (grinGlobals program)
-        <> map prettyFunction (grinFunctions program)
+        <> map (prettyForeign scopes) (grinForeignCalls program)
+        <> map (prettyGlobal scopes) (grinGlobals program)
+        <> map (prettyFunction scopes) (grinFunctions program)
 
-prettyConstructor :: (T.Text, [[GrinRep]]) -> Doc ann
-prettyConstructor (name, fieldLayouts) =
-  "constructor" <+> prettyName name <+> "[" <> hsep (punctuate comma (map prettyLayout fieldLayouts)) <> "]"
+prettyScopes :: Scopes -> [Doc ann]
+prettyScopes (Scopes numbers) =
+  [ "scope" <+> pretty number <+> "=" <+> prettyQuoted (grinScopePackage scope) <+> prettyBareName (grinScopeModule scope)
+  | (scope, number) <- Map.toAscList numbers
+  ]
+
+prettyConstructor :: Scopes -> (T.Text, [[GrinRep]]) -> Doc ann
+prettyConstructor scopes (name, fieldLayouts) =
+  "constructor" <+> prettyName scopes name <+> "[" <> hsep (punctuate comma (map prettyLayout fieldLayouts)) <> "]"
   where
     prettyLayout layout =
       case layout of
@@ -35,137 +56,142 @@ prettyPrimitive :: (GrinVar, Int) -> Doc ann
 prettyPrimitive (var, arity) =
   "primitive" <+> prettyVar var <> "/" <> pretty arity
 
-prettyForeign :: GrinForeignCall -> Doc ann
-prettyForeign foreignCall =
-  "foreign" <+> prettyForeignCall foreignCall
+prettyForeign :: Scopes -> GrinForeignCall -> Doc ann
+prettyForeign scopes foreignCall =
+  "foreign" <+> prettyForeignCall scopes foreignCall
 
-prettyGlobal :: (T.Text, GrinNode) -> Doc ann
-prettyGlobal (name, node) =
-  "global" <+> prettyName name <+> "=" <+> prettyNode node
+prettyGlobal :: Scopes -> (T.Text, GrinNode) -> Doc ann
+prettyGlobal scopes (name, node) =
+  "global" <+> prettyName scopes name <+> "=" <+> prettyNode scopes node
 
-prettyFunction :: GrinFunction -> Doc ann
-prettyFunction function =
+prettyFunction :: Scopes -> GrinFunction -> Doc ann
+prettyFunction scopes function =
   prettyFunctionName (grinFunctionName function)
     <> foldMap ((space <>) . prettyVarAtom) (grinFunctionParameters function)
     <+> "->"
     <+> prettyShow (grinFunctionResultRep function)
     <+> "="
     <> hardline
-    <> indent 2 (prettyExpr (grinFunctionBody function))
+    <> indent 2 (prettyExprWith scopes (grinFunctionBody function))
 
+-- | Print one expression without a scope table. Diagnostics use this, where a
+-- name has no numbered scope to refer to.
 prettyExpr :: GrinExpr -> Doc ann
-prettyExpr expr =
+prettyExpr = prettyExprWith noScopes
+
+prettyExprWith :: Scopes -> GrinExpr -> Doc ann
+prettyExprWith scopes expr =
   case expr of
-    GrinConstant values -> "constant" <> prettyValues values
+    GrinConstant values -> "constant" <> prettyValues scopes values
     GrinBind vars valueExpr body ->
       prettyBinders vars
         <+> "<-"
         <> hardline
-        <> indent 2 (prettyExpr valueExpr)
+        <> indent 2 (prettyExprWith scopes valueExpr)
         <> hardline
-        <> prettyExpr body
-    GrinStore node -> "store" <+> prettyNode node
+        <> prettyExprWith scopes body
+    GrinStore node -> "store" <+> prettyNode scopes node
     GrinEnsureHeap requiredWords roots ->
-      "ensure-heap" <+> prettyValue requiredWords <> prettyValues roots
-    GrinStoreUnchecked node -> "store-unchecked" <+> prettyNode node
+      "ensure-heap" <+> prettyValue scopes requiredWords <> prettyValues scopes roots
+    GrinStoreUnchecked node -> "store-unchecked" <+> prettyNode scopes node
     GrinStoreRec bindings body ->
-      prettyStoreRec "store-rec" bindings body
+      prettyStoreRec scopes "store-rec" bindings body
     GrinStoreRecUnchecked bindings body ->
-      prettyStoreRec "store-rec-unchecked" bindings body
+      prettyStoreRec scopes "store-rec-unchecked" bindings body
     GrinUpdate pointer value ->
-      "update" <+> prettyValue pointer <+> prettyValue value
+      "update" <+> prettyValue scopes pointer <+> prettyValue scopes value
     GrinUpdateBlackhole pointer value ->
-      "update-blackhole" <+> prettyValue pointer <+> prettyValue value
+      "update-blackhole" <+> prettyValue scopes pointer <+> prettyValue scopes value
     GrinEval runtimeRep value ->
-      "eval" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue value
+      "eval" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue scopes value
     GrinCpsEval runtimeRep value continuation updateContinuation ->
       "cps-eval"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> hsep (map prettyValue [value, continuation, updateContinuation])
+        <+> hsep (map (prettyValue scopes) [value, continuation, updateContinuation])
     GrinCall runtimeRep functionName arguments ->
       "call"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
         <+> prettyFunctionName functionName
-        <> prettyValues arguments
+        <> prettyValues scopes arguments
     GrinPrimitiveCall runtimeRep name arguments ->
       "primitive-call"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> prettyName name
-        <> prettyValues arguments
+        <+> prettyName scopes name
+        <> prettyValues scopes arguments
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       "cps-primitive-call"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> prettyName name
-        <> prettyValues arguments
+        <+> prettyName scopes name
+        <> prettyValues scopes arguments
         <+> "->"
-        <+> prettyValue continuation
+        <+> prettyValue scopes continuation
     GrinApply runtimeRep function arguments ->
       "apply"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> prettyValue function
-        <> prettyArgument arguments
+        <+> prettyValue scopes function
+        <> prettyArgument scopes arguments
     GrinCpsApply runtimeRep function arguments continuation ->
       "cps-apply"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> prettyValue function
-        <> prettyArgument arguments
+        <+> prettyValue scopes function
+        <> prettyArgument scopes arguments
         <+> "->"
-        <+> prettyValue continuation
+        <+> prettyValue scopes continuation
     GrinContinue continuation values ->
-      "continue" <+> prettyValue continuation <> prettyArgument values
+      "continue" <+> prettyValue scopes continuation <> prettyArgument scopes values
     GrinCpsRaise exception continuation ->
-      "raise-cps" <+> prettyValue exception <+> prettyValue continuation
-    GrinHalt values -> "halt" <> prettyValues values
-    GrinExit status -> "exit" <+> prettyValue status
+      "raise-cps" <+> prettyValue scopes exception <+> prettyValue scopes continuation
+    GrinHalt values -> "halt" <> prettyValues scopes values
+    GrinExit status -> "exit" <+> prettyValue scopes status
     GrinCase scrutinee binder alternatives ->
       "case"
-        <+> prettyValue scrutinee
+        <+> prettyValue scopes scrutinee
         <+> "as"
         <+> prettyVar binder
         <+> "of"
         <> hardline
         <> case alternatives of
           [] -> mempty
-          _ -> indent 2 (vsep (map prettyAlt alternatives))
-    GrinThrow exception -> "throw" <+> prettyValue exception
+          _ -> indent 2 (vsep (map (prettyAlt scopes) alternatives))
+    GrinThrow exception -> "throw" <+> prettyValue scopes exception
     GrinCatch runtimeRep action handler state ->
       "catch"
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
-        <+> hsep (map prettyValue [action, handler])
-        <> prettyValues state
+        <+> hsep (map (prettyValue scopes) [action, handler])
+        <> prettyValues scopes state
     GrinForeignCallExpr foreignCall arguments ->
       "foreign-call"
-        <+> prettyForeignCall foreignCall
+        <+> prettyForeignCall scopes foreignCall
         <+> "with"
-        <> prettyValues arguments
+        <> prettyValues scopes arguments
 
-prettyStoreRec :: Doc ann -> [(GrinVar, GrinNode)] -> GrinExpr -> Doc ann
-prettyStoreRec name bindings body =
+prettyStoreRec :: Scopes -> Doc ann -> [(GrinVar, GrinNode)] -> GrinExpr -> Doc ann
+prettyStoreRec scopes name bindings body =
   name
     <> hardline
     <> indent 2 (vsep (map prettyBinding bindings))
     <> hardline
-    <> prettyExpr body
+    <> prettyExprWith scopes body
   where
-    prettyBinding (var, node) = prettyVar var <+> "=" <+> prettyNode node
+    prettyBinding (var, node) = prettyVar var <+> "=" <+> prettyNode scopes node
 
-prettyValues :: [GrinValue] -> Doc ann
-prettyValues = foldMap ((space <>) . prettyValue)
+prettyValues :: Scopes -> [GrinValue] -> Doc ann
+prettyValues scopes = foldMap ((space <>) . prettyValue scopes)
 
-prettyArgument :: [GrinValue] -> Doc ann
-prettyArgument values =
+prettyArgument :: Scopes -> [GrinValue] -> Doc ann
+prettyArgument scopes values =
   space
     <> case values of
       [] -> "()"
-      [value] -> prettyValue value
-      _ -> parens (hsep (map prettyValue values))
+      [value] -> prettyValue scopes value
+      _ -> parens (hsep (map (prettyValue scopes) values))
 
 prettyBinders :: [GrinVar] -> Doc ann
 prettyBinders vars =
@@ -173,40 +199,40 @@ prettyBinders vars =
     [] -> "()"
     _ -> hsep (punctuate comma (map prettyVar vars))
 
-prettyAlt :: GrinAlt -> Doc ann
-prettyAlt alt =
-  prettyAltCon (grinAltCon alt)
+prettyAlt :: Scopes -> GrinAlt -> Doc ann
+prettyAlt scopes alt =
+  prettyAltCon scopes (grinAltCon alt)
     <> foldMap ((space <>) . prettyVarAtom) (grinAltBinders alt)
     <+> "->"
     <> hardline
-    <> indent 2 (prettyExpr (grinAltRhs alt))
+    <> indent 2 (prettyExprWith scopes (grinAltRhs alt))
 
-prettyAltCon :: GrinAltCon -> Doc ann
-prettyAltCon altCon =
+prettyAltCon :: Scopes -> GrinAltCon -> Doc ann
+prettyAltCon scopes altCon =
   case altCon of
-    GrinDataAlt name -> "data" <+> prettyName name
+    GrinDataAlt name -> "data" <+> prettyName scopes name
     GrinLitAlt literal -> prettyLiteral literal
     GrinDefaultAlt -> "_"
 
-prettyValue :: GrinValue -> Doc ann
-prettyValue value =
+prettyValue :: Scopes -> GrinValue -> Doc ann
+prettyValue scopes value =
   case value of
     GrinVarValue var -> prettyVarAtom var
-    GrinGlobalValue name -> "global-ref" <+> prettyName name
+    GrinGlobalValue name -> "global-ref" <+> prettyName scopes name
     GrinLitValue literal -> prettyLiteral literal
 
-prettyNode :: GrinNode -> Doc ann
-prettyNode node =
+prettyNode :: Scopes -> GrinNode -> Doc ann
+prettyNode scopes node =
   parens
-    ( prettyNodeTag (grinNodeTag node)
-        <> foldMap ((space <>) . prettyValue) (grinNodeFields node)
+    ( prettyNodeTag scopes (grinNodeTag node)
+        <> foldMap ((space <>) . prettyValue scopes) (grinNodeFields node)
     )
 
-prettyNodeTag :: GrinNodeTag -> Doc ann
-prettyNodeTag nodeTag =
+prettyNodeTag :: Scopes -> GrinNodeTag -> Doc ann
+prettyNodeTag scopes nodeTag =
   case nodeTag of
     GrinConstructor name remaining ->
-      "C" <> prettyName name <> if remaining == 0 then mempty else "/" <> pretty remaining
+      "C" <> prettyName scopes name <> if remaining == 0 then mempty else "/" <> pretty remaining
     GrinClosure functionName argumentLayouts ->
       "P"
         <> prettyFunctionName functionName
@@ -228,7 +254,7 @@ prettyLiteral literal =
 -- case of a single binder for a name prints without one.
 prettyVar :: GrinVar -> Doc ann
 prettyVar var =
-  prettyName (grinVarName var)
+  prettyBareName (grinVarName var)
     <> prettyNumber
     <+> "::"
     <+> prettyShow (grinVarRuntimeRep var)
@@ -258,9 +284,9 @@ prettyLayouts layouts =
   where
     prettyLayout layout = "[" <> hsep (punctuate comma (map prettyShow layout)) <> "]"
 
-prettyForeignCall :: GrinForeignCall -> Doc ann
-prettyForeignCall foreignCall =
-  prettyName (grinForeignCallName foreignCall)
+prettyForeignCall :: Scopes -> GrinForeignCall -> Doc ann
+prettyForeignCall scopes foreignCall =
+  prettyName scopes (grinForeignCallName foreignCall)
     <+> "="
     <+> prettyForeignTarget (grinForeignCallTarget foreignCall)
     <> pretty (show (T.unpack (grinForeignCallSymbol foreignCall)))
@@ -300,17 +326,30 @@ prettyForeignType foreignType =
     GrinForeignVoid -> "void"
 
 prettyFunctionName :: FunctionName -> Doc ann
-prettyFunctionName = prettyName . unFunctionName
+prettyFunctionName = prettyBareName . unFunctionName
 
-prettyName :: T.Text -> Doc ann
-prettyName name
+-- | Print one top-level name. A name whose scope has a number prints as
+-- @number.name@. Every other name prints in full.
+prettyName :: Scopes -> T.Text -> Doc ann
+prettyName (Scopes numbers) name =
+  case grinNameScope name of
+    Just (scope, baseName)
+      | Just number <- Map.lookup scope numbers ->
+          pretty number <> "." <> prettyBareName baseName
+    _ -> prettyBareName name
+
+prettyBareName :: T.Text -> Doc ann
+prettyBareName name
   | not (T.null name) && T.all isBareNameCharacter name = pretty name
-  | otherwise = pretty (show (T.unpack name))
+  | otherwise = prettyQuoted name
   where
     isBareNameCharacter character =
       isPrint character
         && not (isSpace character)
         && character `notElem` ['"', '(', ')', '[', ']', ',', '=', '/', '%']
+
+prettyQuoted :: T.Text -> Doc ann
+prettyQuoted = pretty . show . T.unpack
 
 prettyShow :: (Show value) => value -> Doc ann
 prettyShow = pretty . show

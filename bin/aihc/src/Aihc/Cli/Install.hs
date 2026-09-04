@@ -1365,7 +1365,7 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
       let gcProgram = Grin.lowerGc cpsProgram
       when (compileLint config) $ do
-        let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+        let gcErrors = Grin.lintGcProgram gcProgram
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       pure
         GrinModule

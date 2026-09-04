@@ -4,11 +4,15 @@ source: |
   identity x = x
   unit = identity ()
 expected: |-
-  global "\NULTest\NULidentity" = (P$grin_closure_0/1)
+  scope 1 = "" Test
 
-  global "\NULTest\NULunit" = (F$grin_closure_0 global-ref "aihc-prim\NULGHC.Tuple\NUL()")
+  scope 2 = "aihc-prim" GHC.Tuple
 
-  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  global 1.identity = (P$identity/1)
+
+  global 1.unit = (F$identity global-ref 2."()")
+
+  $identity (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 status: pass
 reason: calls a local function directly when one argument saturates its known arity, suspending the call on that function

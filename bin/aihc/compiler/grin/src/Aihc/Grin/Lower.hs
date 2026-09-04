@@ -52,7 +52,10 @@ localFunctionArity = length . localFunctionLayouts
 
 data LowerState = LowerState
   { lowerNextUnique :: !Int,
-    lowerNextFunction :: !Int,
+    -- | The top-level value that lowering works on. Each function that this
+    -- value needs takes its name from this name.
+    lowerCurrentValue :: !Text,
+    lowerUsedFunctions :: !(Set FunctionName),
     lowerFunctionsRev :: ![GrinFunction]
   }
 
@@ -84,7 +87,7 @@ lowerProgram program = do
       globals = globalNameTable types
       constructorArities = constructorArityTable types
       baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
-      initialState = LowerState (-1000000000) 0 []
+      initialState = LowerState (-1000000000) "" Set.empty []
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
@@ -106,14 +109,26 @@ lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
   case declaration of
     Fc.DeclType value -> lowerTypeDecl env value
-    Fc.DeclVal value -> withLowerContext ("value " <> show (Fc.valName value)) (lowerValueDecl env value)
-    Fc.DeclForeignImport value -> lowerForeignDecl env value
+    Fc.DeclVal value ->
+      withLowerContext ("value " <> show (Fc.valName value)) $
+        withCurrentValue (Fc.valName value) (lowerValueDecl env value)
+    Fc.DeclForeignImport value ->
+      withCurrentValue (Fc.foreignImportName value) (lowerForeignDecl env value)
     Fc.DeclSynonym {} -> pure mempty
     Fc.DeclAxiom {} -> pure mempty
 
 withLowerContext :: String -> LowerM a -> LowerM a
 withLowerContext context =
   mapStateT (either (Left . ((context <> ": ") <>)) Right)
+
+-- | Lower one top-level value. Every function that this value needs takes its
+-- name from the value, so that a reader can find the source of the code.
+withCurrentValue :: Fc.Name -> LowerM a -> LowerM a
+withCurrentValue name action = do
+  modify' (\state -> state {lowerCurrentValue = Fc.nameText name})
+  result <- action
+  modify' (\state -> state {lowerCurrentValue = ""})
+  pure result
 
 lowerTypeDecl :: LowerEnv -> Fc.TypeDecl -> LowerM TopParts
 lowerTypeDecl env declaration = do
@@ -1249,26 +1264,25 @@ localFunctionTable env program =
   Map.fromList
     <$> sequence
       [ withLowerContext ("value " <> show (Fc.valName declaration)) $ do
-          entry <- freshFunction "closure"
+          entry <- withCurrentValue (Fc.valName declaration) (freshFunction "")
           shape <- closureShape env (Fc.valBody declaration)
           pure (Fc.valName declaration, LocalFunction entry (closureLayouts shape) (closureResultRep shape))
       | Fc.DeclVal declaration <- Fc.programDecls program,
         isFunctionExpression (Fc.valBody declaration)
       ]
 
+-- | GRIN identifies a top-level name by its package, its module, and its text.
+-- Globals and constructor tags use the same encoding, so that the printer, the
+-- linker, and the backends all split a name in one way.
 stableGlobalName :: Fc.Name -> Text
 stableGlobalName name =
   case Fc.nameOrigin name of
     Fc.OriginTop (PackageId packageName) moduleName ->
-      T.intercalate "\0" [packageName, moduleName, Fc.nameText name]
+      grinScopedName packageName moduleName (Fc.nameText name)
     Fc.OriginLocal (Unique unique) -> Fc.nameText name <> "\0" <> T.pack (show unique)
 
 constructorTag :: Fc.Name -> Text
-constructorTag name =
-  case Fc.nameOrigin name of
-    Fc.OriginTop (PackageId packageName) moduleName ->
-      (if packageName == "" then "" else packageName <> ":") <> moduleName <> "." <> Fc.nameText name
-    Fc.OriginLocal {} -> Fc.nameText name
+constructorTag = stableGlobalName
 
 lookupGlobalName :: LowerEnv -> Fc.Name -> LowerM Text
 lookupGlobalName env name =
@@ -1335,12 +1349,24 @@ freshVar hint representation = do
   modify' (\current -> current {lowerNextUnique = unique - 1})
   pure (GrinVar hint unique representation)
 
+-- | Name one generated function after the top-level value that needs it. An
+-- empty hint names the entry of the value itself. A name that is already in
+-- use gets a number, so that no two functions share a name.
 freshFunction :: Text -> LowerM FunctionName
 freshFunction hint = do
   state <- get
-  let unique = lowerNextFunction state
-  modify' (\current -> current {lowerNextFunction = unique + 1})
-  pure (FunctionName ("$grin_" <> hint <> "_" <> T.pack (show unique)))
+  let candidate = unusedFunctionName ("$" <> qualifiedHint (lowerCurrentValue state) hint) (lowerUsedFunctions state)
+  modify' (\current -> current {lowerUsedFunctions = Set.insert candidate (lowerUsedFunctions current)})
+  pure candidate
+
+-- | Put the value name in front of the hint. A hint that already starts with
+-- the value name keeps its own text, so that no name repeats itself.
+qualifiedHint :: Text -> Text -> Text
+qualifiedHint value hint
+  | T.null value = hint
+  | T.null hint = value
+  | hint == value || (value <> "_") `T.isPrefixOf` hint = hint
+  | otherwise = value <> "_" <> hint
 
 emitFunction :: GrinFunction -> LowerM ()
 emitFunction function = modify' (\state -> state {lowerFunctionsRev = function : lowerFunctionsRev state})

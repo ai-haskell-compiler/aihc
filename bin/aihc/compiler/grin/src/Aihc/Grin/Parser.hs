@@ -13,8 +13,11 @@ where
 import Aihc.Grin.Syntax
 import Control.Applicative (optional, (<|>))
 import Control.Monad (guard, void, when)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isSpace, ord)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -24,7 +27,11 @@ import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
 import Text.Megaparsec.Char.Lexer qualified as L
 
-type Parser = Parsec Void Text
+-- | The scope declarations of the program give the package and the module of
+-- each numbered scope. A name that has no number needs no scope.
+type Scopes = Map Int GrinScope
+
+type Parser = ReaderT Scopes (Parsec Void Text)
 
 type GrinParseError = ParseErrorBundle Text Void
 
@@ -32,7 +39,7 @@ parseProgram :: Text -> Either GrinParseError GrinProgram
 parseProgram = MP.parse programParser "<grin>"
 
 parseExpr :: Text -> Either GrinParseError GrinExpr
-parseExpr = MP.parse (exprAfterIndent 0 <* MP.eof) "<grin-expression>"
+parseExpr = MP.parse (runReaderT (exprAfterIndent 0 <* MP.eof) Map.empty) "<grin-expression>"
 
 renderParseError :: GrinParseError -> String
 renderParseError = MP.errorBundlePretty
@@ -44,12 +51,33 @@ data TopDeclaration
   | TopGlobal (Text, GrinNode)
   | TopFunction GrinFunction
 
-programParser :: Parser GrinProgram
+programParser :: Parsec Void Text GrinProgram
 programParser = do
-  blankLines
+  scopes <- runReaderT (blankLines *> MP.many (scopeDeclaration <* blankLines)) Map.empty
+  runReaderT programBody (Map.fromList scopes)
+
+programBody :: Parser GrinProgram
+programBody = do
   declarations <- MP.many (topDeclaration <* blankLines)
   MP.eof
   pure (foldl' addDeclaration emptyProgram declarations)
+
+-- | @scope 1 = "package" Module.Name@ names one scope. Every later name of
+-- that scope prints as @1.name@.
+scopeDeclaration :: Parser (Int, GrinScope)
+scopeDeclaration = do
+  exactIndent 0
+  keyword "scope"
+  horizontal1
+  number <- natural
+  horizontal1
+  _ <- MPC.char '='
+  horizontal1
+  packageName <- stringText
+  horizontal1
+  moduleName <- name
+  lineEnd
+  pure (number, GrinScope packageName moduleName)
 
 emptyProgram :: GrinProgram
 emptyProgram =
@@ -85,7 +113,7 @@ constructorDeclaration :: Parser TopDeclaration
 constructorDeclaration = do
   keyword "constructor"
   horizontal1
-  constructorName <- name
+  constructorName <- scopedName
   legacyArity <- optional (MPC.char '/' *> natural)
   horizontal1
   fieldLayouts <- constructorLayouts
@@ -115,7 +143,7 @@ globalDeclaration :: Parser (Text, GrinNode)
 globalDeclaration = do
   keyword "global"
   horizontal1
-  globalName <- name
+  globalName <- scopedName
   horizontal1
   _ <- MPC.char '='
   horizontal1
@@ -231,11 +259,11 @@ alternativeAt indentation binder = do
 
 altConstructor :: GrinVar -> Parser GrinAltCon
 altConstructor binder =
-  MP.try (GrinDataAlt <$> (keyword "data" *> horizontal1 *> name))
+  MP.try (GrinDataAlt <$> (keyword "data" *> horizontal1 *> scopedName))
     <|> GrinDefaultAlt <$ MPC.char '_'
     <|> MP.try (GrinLitAlt <$> grinLiteral)
     <|> MP.try (GrinLitAlt . GrinLitInt (grinVarRuntimeRep binder) <$> signedInteger)
-    <|> GrinDataAlt <$> name
+    <|> GrinDataAlt <$> scopedName
 
 storeRecExpr :: Int -> Text -> ([(GrinVar, GrinNode)] -> GrinExpr -> GrinExpr) -> Parser GrinExpr
 storeRecExpr indentation expressionName constructor = do
@@ -479,7 +507,7 @@ nodeTag =
   MP.choice
     [ do
         _ <- MPC.char 'C'
-        constructorName <- name
+        constructorName <- scopedName
         remaining <- optional (MPC.char '/' *> signedInt)
         pure (GrinConstructor constructorName (fromMaybe 0 remaining)),
       do
@@ -499,7 +527,7 @@ nodeTag =
 
 grinValue :: Parser GrinValue
 grinValue =
-  MP.try (GrinGlobalValue <$> (keyword "global-ref" *> horizontal1 *> name))
+  MP.try (GrinGlobalValue <$> (keyword "global-ref" *> horizontal1 *> scopedName))
     <|> MP.try (GrinVarValue <$> varAtom)
     <|> GrinLitValue <$> grinLiteral
 
@@ -560,7 +588,7 @@ bareVar = do
 
 foreignCallDefinition :: Parser GrinForeignCall
 foreignCallDefinition = do
-  callName <- name
+  callName <- scopedName
   horizontal1
   _ <- MPC.char '='
   horizontal1
@@ -681,6 +709,18 @@ vecElem =
       FloatElemRep <$ keyword "FloatElemRep",
       DoubleElemRep <$ keyword "DoubleElemRep"
     ]
+
+-- | A top-level name. @1.name@ takes its package and its module from scope 1.
+scopedName :: Parser Text
+scopedName = MP.try qualified <|> name
+  where
+    qualified = do
+      number <- natural
+      _ <- MPC.char '.'
+      scopes <- ask
+      case Map.lookup number scopes of
+        Nothing -> fail "unknown scope number"
+        Just scope -> grinScopedName (grinScopePackage scope) (grinScopeModule scope) <$> name
 
 name :: Parser Text
 name = stringText <|> MP.takeWhile1P (Just "name") isBareNameCharacter

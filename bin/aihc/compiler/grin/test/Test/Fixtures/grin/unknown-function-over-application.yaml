@@ -3,9 +3,11 @@ source: |
   module Test where
   apply2 f x y = f x y
 expected: |-
-  global "\NULTest\NULapply2" = (P$grin_closure_0/3)
+  scope 1 = "" Test
 
-  $grin_closure_0 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+  global 1.apply2 = (P$apply2/3)
+
+  $apply2 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     function_whnf%1 :: BoxedRep Lifted <-

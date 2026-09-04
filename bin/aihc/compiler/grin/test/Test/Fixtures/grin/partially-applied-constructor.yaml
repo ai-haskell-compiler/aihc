@@ -4,13 +4,15 @@ source: |
   data Pair a b = Pair a b
   pairWith x = Pair x
 expected: |-
-  constructor Test.Pair [BoxedRep Lifted, BoxedRep Lifted]
+  scope 1 = "" Test
 
-  global "\NULTest\NULPair" = (CTest.Pair/2)
+  constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
 
-  global "\NULTest\NULpairWith" = (P$grin_closure_0/1)
+  global 1.Pair = (C1.Pair/2)
 
-  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
-    store (CTest.Pair/1 (x :: BoxedRep Lifted))
+  global 1.pairWith = (P$pairWith/1)
+
+  $pairWith (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (C1.Pair/1 (x :: BoxedRep Lifted))
 status: pass
 reason: stores a partially applied constructor directly with its remaining arity

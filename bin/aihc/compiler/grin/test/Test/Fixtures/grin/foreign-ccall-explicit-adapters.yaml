@@ -9,21 +9,23 @@ source: |
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
 expected: |-
-  constructor Test.I# [IntRep]
+  scope 1 = "" Test
+
+  constructor 1.I# [IntRep]
 
   foreign identityInt = "identity_int" :: (int) -> int ! real-world
 
-  global "\NULTest\NULI#" = (CTest.I#/1)
+  global 1.I# = (C1.I#/1)
 
-  global "\NULTest\NULidentityInt" = (P$grin_identityInt_foreign_0/[[BoxedRep Lifted], []])
+  global 1.identityInt = (P$identityInt_foreign/[[BoxedRep Lifted], []])
 
-  $grin_identityInt_foreign_0 (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
+  $identityInt_foreign (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
     foreign_box :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (foreign_argument_0 :: BoxedRep Lifted)
     case (foreign_box :: BoxedRep Lifted) as foreign_box_case :: BoxedRep Lifted of
-      data Test.I# (foreign_field :: IntRep) ->
+      data 1.I# (foreign_field :: IntRep) ->
         foreign_result :: IntRep <-
           foreign-call identityInt = "identity_int" :: (int) -> int ! real-world with (foreign_field :: IntRep)
-        store (CTest.I# (foreign_result :: IntRep))
+        store (C1.I# (foreign_result :: IntRep))
 reason: uses only the adapters named by the System FC foreign declaration
 status: pass

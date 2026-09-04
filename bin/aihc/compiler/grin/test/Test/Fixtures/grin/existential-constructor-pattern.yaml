@@ -8,17 +8,19 @@ source: |
   copyBox box = case box of
     Box value -> Box value
 expected: |-
-  constructor Test.Box [BoxedRep Lifted]
+  scope 1 = "" Test
 
-  global "\NULTest\NULBox" = (CTest.Box/1)
+  constructor 1.Box [BoxedRep Lifted]
 
-  global "\NULTest\NULcopyBox" = (P$grin_closure_0/1)
+  global 1.Box = (C1.Box/1)
 
-  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  global 1.copyBox = (P$copyBox/1)
+
+  $copyBox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
-      data Test.Box (value :: BoxedRep Lifted) ->
-        store (CTest.Box (value :: BoxedRep Lifted))
+      data 1.Box (value :: BoxedRep Lifted) ->
+        store (C1.Box (value :: BoxedRep Lifted))
 status: pass
 reason: preserves the lifted representation of an existential constructor field

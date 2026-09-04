@@ -1,9 +1,11 @@
 expected: |-
-  constructor Test.Narrow [Int8Rep, Word16Rep]
+  scope 1 = "" Test
 
-  global "\NULTest\NULNarrow" = (CTest.Narrow/2)
+  constructor 1.Narrow [Int8Rep, Word16Rep]
 
-  global "\NULTest\NULvalue" = (CTest.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
+  global 1.Narrow = (C1.Narrow/2)
+
+  global 1.value = (C1.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
 extensions:
 - MagicHash
 - ExtendedLiterals

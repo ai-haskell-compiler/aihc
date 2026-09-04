@@ -1,27 +1,29 @@
 expected: |-
-  constructor Test.First []
+  scope 1 = "" Test
 
-  constructor Test.Second []
+  constructor 1.First []
 
-  global "\NULTest\NULFirst" = (CTest.First)
+  constructor 1.Second []
 
-  global "\NULTest\NULSecond" = (CTest.Second)
+  global 1.First = (C1.First)
 
-  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+  global 1.Second = (C1.Second)
 
-  $grin_closure_1 (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
+  global 1.value = (F$value_thunk)
+
+  $value_closure (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (seq_first :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as seq_evaluated :: BoxedRep Lifted of
       _ ->
         eval @(BoxedRep Lifted) (seq_second :: BoxedRep Lifted)
 
-  $grin_value_thunk_0 -> BoxedRep Lifted =
+  $value_thunk -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
-      store (P$grin_closure_1/2)
+      store (P$value_closure/2)
     function_whnf%1 :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref "\NULTest\NULFirst"
-    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) global-ref "\NULTest\NULSecond"
+      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 1.First
+    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) global-ref 1.Second
 extensions: []
 source: |
   module Test where

@@ -73,7 +73,6 @@ data CpsGrinError
 
 data CpsState = CpsState
   { cpsNextVarUnique :: !Int,
-    cpsNextContinuationUnique :: !Int,
     cpsUsedFunctionNames :: !(Set FunctionName),
     cpsGeneratedFunctionsRev :: ![GrinFunction],
     cpsContinuationFramesState :: !(Map FunctionName ContinuationFrameKind),
@@ -107,14 +106,13 @@ toCpsGrin sourceProgram = do
     initialState =
       CpsState
         { cpsNextVarUnique = 1 + maximumProgramVarUnique program,
-          cpsNextContinuationUnique = 0,
           cpsUsedFunctionNames = Set.fromList (map grinFunctionName sourceFunctions),
           cpsGeneratedFunctionsRev = [],
           cpsContinuationFramesState = Map.empty,
           cpsComputationContinuations = Map.empty
         }
     transform = do
-      updateName <- freshFunctionName "$cps$update"
+      updateName <- freshFunctionName "$cps_update"
       functions <- mapM (transformFunction updateName) sourceFunctions
       updateFunction <- makeUpdateFunction updateName
       pure (functions, updateFunction)
@@ -391,22 +389,18 @@ isDirectExpression expression =
     GrinForeignCallExpr {} -> True
     _ -> False
 
+-- | Name a continuation after the function that needs it, so that a reader
+-- can find the code that the continuation returns to.
 freshContinuationName :: FunctionName -> CpsM FunctionName
 freshContinuationName parent =
-  freshFunctionName ("$cps$" <> unFunctionName parent <> "$")
+  freshFunctionName (unFunctionName parent <> "_cont")
 
 freshFunctionName :: T.Text -> CpsM FunctionName
-freshFunctionName prefix = do
+freshFunctionName base = do
   state <- get
-  let unique = cpsNextContinuationUnique state
-      candidate = FunctionName (prefix <> T.pack (show unique))
-  put state {cpsNextContinuationUnique = unique + 1}
-  if candidate `Set.member` cpsUsedFunctionNames state
-    then freshFunctionName prefix
-    else do
-      modify' $ \current ->
-        current {cpsUsedFunctionNames = Set.insert candidate (cpsUsedFunctionNames current)}
-      pure candidate
+  let candidate = unusedFunctionName base (cpsUsedFunctionNames state)
+  put state {cpsUsedFunctionNames = Set.insert candidate (cpsUsedFunctionNames state)}
+  pure candidate
 
 freshVar :: T.Text -> GrinRep -> CpsM GrinVar
 freshVar name runtimeRep = do
