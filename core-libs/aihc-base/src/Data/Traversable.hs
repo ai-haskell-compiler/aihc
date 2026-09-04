@@ -16,6 +16,7 @@ import Prelude
     Maybe (..),
     Monad,
     id,
+    (.),
   )
 
 class (Functor t, Foldable t) => Traversable (t :: Type -> Type) where

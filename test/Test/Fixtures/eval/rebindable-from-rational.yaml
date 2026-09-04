@@ -1,0 +1,21 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..))
+
+    fromRational _ = True
+
+    half :: Bool
+    half = 0.5
+output: |
+  True
+expression: |
+  half
+status: xfail
+reason: RebindableSyntax gives a fractional literal the in-scope fromRational

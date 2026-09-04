@@ -1,0 +1,28 @@
+extensions: []
+modules:
+- |
+  module GHC.Num where
+  class Num a where
+    negate :: a -> a
+- |
+  module Test where
+  import GHC.Num (Num (..))
+  neg :: Num a => a -> a
+  neg x = - x
+annotated:
+- |-
+  module GHC.Num where
+  class Num a where
+  └─ class methods: negate ∷ ∀ a. (Num a) ⇒ a → a
+    negate :: a -> a
+- |-
+  module Test where
+  import GHC.Num (Num (..))
+  neg :: Num a => a -> a
+  neg x = - x
+  │   │   └─ type: a
+  │   │   └─ type: a → a; type-args: a; evidence: given Num a
+  │   └─ type: a
+  └─ type: ∀ a. (GHC.Num.Num a) ⇒ a → a
+reason: a negated expression uses the built-in negate method
+status: pass

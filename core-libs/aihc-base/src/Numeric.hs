@@ -9,7 +9,7 @@ module Numeric
 where
 
 import GHC.Show (intToDigit)
-import Prelude (Bool (..), Char, Int, Integral (..), Num (..), Ord (..), Real (..), Show (..), ShowS, errorWithoutStackTrace, fromIntegral, showChar, showParen, (.))
+import Prelude (Bool (..), Char, Eq (..), Int, Integral (..), Num (..), Ord (..), Real (..), Show (..), ShowS, errorWithoutStackTrace, fromIntegral, showChar, showParen, (.))
 
 showSigned :: (Real a) => (a -> ShowS) -> Int -> a -> ShowS
 showSigned showPositive precedence value =

@@ -1,0 +1,53 @@
+extensions:
+- MagicHash
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE MagicHash, RebindableSyntax #-}
+  module Test where
+  import GHC.Prim (Int#)
+  import GHC.Types (Bool (..))
+  data Integer = IS Int#
+  fromInteger :: Integer -> Integer
+  fromInteger n = n
+  _ == _ = True
+  callsEq :: Integer -> Bool
+  callsEq 0 = True
+  callsEq _ = False
+  doesNotCallEq :: Bool -> Bool
+  doesNotCallEq True = False
+  doesNotCallEq False = True
+annotated:
+- |-
+  {-# LANGUAGE MagicHash, RebindableSyntax #-}
+  module Test where
+  import GHC.Prim (Int#)
+  import GHC.Types (Bool (..))
+  data Integer = IS Int#
+       │         └─ type: GHC.Prim.Int# → Integer
+       └─ type: Type
+  fromInteger :: Integer -> Integer
+  fromInteger n = n
+  │           └─ type: Integer
+  └─ type: Integer → Integer
+  _ == _ = True
+  ││    └─ type: b
+  └─ type: ∀ a b. a → b → GHC.Types.Bool
+  └─ type: a
+  callsEq :: Integer -> Bool
+  callsEq 0 = True
+  │       └─ type: Integer
+  │       └─ type: Integer → Integer → GHC.Types.Bool; type-args: Integer, Integer
+  └─ type: Integer → GHC.Types.Bool
+  callsEq _ = False
+  │       └─ type: Integer
+  └─ type: Integer → GHC.Types.Bool
+  doesNotCallEq :: Bool -> Bool
+  doesNotCallEq True = False
+  │             └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → GHC.Types.Bool
+  doesNotCallEq False = True
+  │             └─ type: GHC.Types.Bool
+  └─ type: GHC.Types.Bool → GHC.Types.Bool
+reason: RebindableSyntax compares an integer pattern with the in-scope (==)
+status: pass

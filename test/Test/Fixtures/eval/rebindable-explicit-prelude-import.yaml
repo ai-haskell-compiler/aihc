@@ -1,0 +1,19 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude
+
+    value :: Integer
+    value = 1 + 2
+output: |
+  IS 3
+expression: |
+  value
+status: pass
+reason: an explicit Prelude import gives RebindableSyntax the Prelude syntax terms

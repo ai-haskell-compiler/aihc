@@ -20,6 +20,7 @@ annotated:
   └─ v Main   │   └─ v 0
               └─ v 0
   one = 1
+  │     └─ t GHC.Num
   │     └─ v GHC.Num
   └─ v Main
 extensions:

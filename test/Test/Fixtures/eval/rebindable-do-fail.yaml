@@ -1,0 +1,29 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..), Maybe (..), String, (>>=))
+
+    fail :: String -> Maybe a
+    fail _ = Nothing
+
+    firstJust :: Maybe (Maybe Bool) -> Maybe Bool
+    firstJust action = do
+      Just value <- action
+      Just value
+
+    result :: Bool
+    result = case firstJust (Just Nothing) of
+      Nothing -> True
+      Just _ -> False
+output: |
+  True
+expression: |
+  result
+status: xfail
+reason: RebindableSyntax gives a refutable do pattern the in-scope fail

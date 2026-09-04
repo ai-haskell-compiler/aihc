@@ -1,0 +1,32 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  fromInteger _ = ()
+  () == () = True
+  fn :: () -> ()
+  fn 10 = 20
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  fromInteger _ = ()
+  │           │   └─ type: ()
+  │           └─ type: a
+  └─ type: ∀ a. a → ()
+  () == () = True
+  ││     └─ type: ()
+  └─ type: () → () → GHC.Types.Bool
+  └─ type: ()
+  fn :: () -> ()
+  fn 10 = 20
+  │  ││    └─ type: (); type-args: ()
+  │  └─ type: (); type-args: ()
+  │  └─ type: () → () → GHC.Types.Bool
+  └─ type: () → ()
+reason: RebindableSyntax gives an integer literal the result type of the in-scope fromInteger
+status: pass

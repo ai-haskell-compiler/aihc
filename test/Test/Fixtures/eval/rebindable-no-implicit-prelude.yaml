@@ -1,0 +1,16 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    value = not True
+output: ""
+expression: |
+  value
+error: 'resolve error: [ResolveResolutionError {resolveErrorSpan = SourceSpan 4 9 4 12, resolveErrorName = "not", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "unbound"},ResolveResolutionError {resolveErrorSpan = SourceSpan 4 13 4 17, resolveErrorName = "True", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "unbound"}]'
+status: fail
+reason: RebindableSyntax implies NoImplicitPrelude, so Prelude names are unbound

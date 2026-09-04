@@ -1,0 +1,21 @@
+extensions:
+  - RebindableSyntax
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE RebindableSyntax #-}
+    module Test where
+
+    import Prelude (Bool (..), Eq (..))
+
+    fromInteger _ = ()
+
+    fn :: () -> ()
+    fn 10 = 20
+output: |
+  (True,())
+expression: |
+  (10 == (), fn ())
+status: pass
+reason: RebindableSyntax gives an integer literal the result type of the in-scope fromInteger

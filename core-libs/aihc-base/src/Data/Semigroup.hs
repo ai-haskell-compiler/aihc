@@ -22,7 +22,7 @@ import Data.Semigroup.Internal
     stimesMonoid,
   )
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import Prelude (Eq (..), Ord (..), Ordering (..))
+import Prelude (Bool (..), Eq (..), Ord (..), Ordering (..))
 
 newtype Min a = Min {getMin :: a}
 

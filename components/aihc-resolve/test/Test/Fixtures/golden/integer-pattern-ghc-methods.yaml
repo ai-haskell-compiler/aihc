@@ -30,8 +30,9 @@ annotated:
   match = \case
   └─ v Main
     1 -> ()
-    ││    └─ v Builtin ()
+    │││    └─ v Builtin ()
     └─ v GHC.Num
+    └─ t GHC.Num
     └─ v GHC.Classes
 extensions:
 - LambdaCase

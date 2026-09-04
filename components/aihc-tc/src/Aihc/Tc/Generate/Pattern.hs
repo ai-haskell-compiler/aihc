@@ -444,6 +444,15 @@ checkPrimitiveLiteralPattern sp pat scrutTy = do
   eqCt <- wantedEq sp scrutTy literalTy
   pure (checkedOnly (checkedLiteralPattern scrutTy pat)) {pcWantedCts = [eqCt]}
 
+-- | The Integer type that the resolver gives an overloaded integer pattern.
+--
+-- The result is 'Nothing' when the built-in scope does not give the type.
+resolvedIntegerPatternType :: Pattern -> TcM (Maybe TcType)
+resolvedIntegerPatternType pat =
+  case [resolution | resolution <- patternResolutions pat, resolutionNamespace resolution == ResolutionNamespaceType] of
+    resolution : _ -> fmap (\info -> TcTyCon (tciTyCon info) []) <$> lookupResolvedTypeSyntax resolution
+    [] -> pure Nothing
+
 requiredPrimitiveLiteralResolution :: Pattern -> TcM ResolutionAnnotation
 requiredPrimitiveLiteralResolution pat =
   case [resolution | resolution <- patternResolutions pat, resolutionNamespace resolution == ResolutionNamespaceType] of
@@ -470,9 +479,10 @@ isOverloadedIntegerLiteral lit =
 
 checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
+  integerTy <- resolvedIntegerPatternType pat
   (fromIntegerPending, fromIntegerCts) <-
     checkPatternMethodWithExpected sp pat "fromInteger" $ \case
-      TcFunTy integerTy _ -> pure (scrutTy, TcFunTy integerTy scrutTy)
+      TcFunTy argumentTy _ -> pure (scrutTy, TcFunTy (fromMaybe argumentTy integerTy) scrutTy)
       _ -> abortTc "fromInteger does not have a function type"
   negateCheck <-
     if isNegative
