@@ -111,7 +111,7 @@ import Data.String (IsString (..))
 import GHC.Base (augment, build)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
-import GHC.IsList (IsList (..), Item)
+import GHC.IsList (IsList (..))
 import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
 import GHC.Types (Bool (..), Constraint, Double (..), Float (..), Int (..), RuntimeRep (..), TYPE, isTrue#)

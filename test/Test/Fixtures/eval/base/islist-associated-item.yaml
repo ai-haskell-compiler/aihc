@@ -1,0 +1,30 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (IsList (..))
+
+    newtype Empty = Empty ()
+
+    instance IsList Empty where
+      type Item Empty = Char
+      fromList _ = Empty ()
+      toList _ = []
+
+    -- Item is an associated type of IsList, so IsList (..) imports it.
+    elemsOf :: IsList l => l -> [Item l]
+    elemsOf = toList
+
+    roundTrip :: IsList l => l -> l
+    roundTrip container = fromListN 0 (elemsOf container)
+
+    count :: Int
+    count = length (elemsOf (roundTrip (Empty ())))
+output: |
+  I# 0
+expression: count
+status: pass
+reason: the Item family of IsList is an associated type, IsList (..) imports it with the class,
+  and an instance in another package defines it
