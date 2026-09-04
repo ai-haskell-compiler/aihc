@@ -123,7 +123,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -194,7 +194,7 @@ mergeTcInterfaces interfaces =
     { tcInterfaceTerms = mergeInterfaceEntries "term interface" fst (concatMap tcInterfaceTerms interfaces),
       tcInterfaceTyCons = mergeTyConInfos (concatMap tcInterfaceTyCons interfaces),
       tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dataTypeKey (concatMap tcInterfaceDataTypes interfaces),
-      tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (concatMap tcInterfaceClasses interfaces),
+      tcInterfaceClasses = mergeInterfaceEntries "class interface" classInfoKey (concatMap tcInterfaceClasses interfaces),
       tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (concatMap tcInterfaceInstances interfaces),
       tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dataFamilyAxiomKey (concatMap tcInterfaceDataFamilyInstances interfaces),
       tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" typeFamilyAxiomKey (concatMap tcInterfaceTypeFamilyInstances interfaces),
@@ -400,7 +400,7 @@ initialTcState imported =
           ]
           <> tcsGlobalTyCons initTcState,
       tcsDataTypes = mapFromListNoDuplicates "imported data type state" [(dataTypeKey dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
-      tcsClasses = mapFromListNoDuplicates "imported class state" [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
+      tcsClasses = mapFromListNoDuplicates "imported class state" [(classInfoKey classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
       tcsInstances = mergeInterfaceEntries "imported instance state" instanceInfoKey (tcInterfaceInstances imported),
       tcsDataFamilyInstances =
         mapFromListNoDuplicates

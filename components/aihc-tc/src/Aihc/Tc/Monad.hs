@@ -93,6 +93,9 @@ module Aihc.Tc.Monad
     addClass,
     getClasses,
     lookupClass,
+    lookupClassByName,
+    lookupClassNamed,
+    lookupDeclaredClass,
 
     -- * GADT constructor registry
     markGadtCon,
@@ -110,7 +113,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataFamilyAxiomKey, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -278,7 +281,7 @@ data TcState = TcState
     -- | Checked constructor layouts for data and newtype declarations.
     tcsDataTypes :: !(Map TcTypeKey DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
-    tcsClasses :: !(Map Text ClassInfo),
+    tcsClasses :: !(Map TcTypeKey ClassInfo),
     -- | Class instances in scope.
     tcsInstances :: ![InstanceInfo],
     -- | Standalone data-family instance equations in scope.
@@ -708,14 +711,33 @@ getTypeFamilyInstances = lift $ gets (Map.elems . tcsTypeFamilyInstances)
 addClass :: ClassInfo -> TcM ()
 addClass classInfo = do
   classes <- lift $ gets tcsClasses
-  classes' <- insertNewMap "class state" (ciName classInfo) classInfo classes
+  classes' <- insertNewMap "class state" (classInfoKey classInfo) classInfo classes
   lift $ modify' $ \state -> state {tcsClasses = classes'}
 
 getClasses :: TcM [ClassInfo]
 getClasses = lift $ gets (Map.elems . tcsClasses)
 
-lookupClass :: Text -> TcM (Maybe ClassInfo)
-lookupClass className = lift $ gets (Map.lookup className . tcsClasses)
+-- | Look up a class by its exact type constructor.
+lookupClass :: TyCon -> TcM (Maybe ClassInfo)
+lookupClass classTyCon = lift $ gets (Map.lookup (tyConKey classTyCon) . tcsClasses)
+
+-- | Look up a class by its source name alone. Only for well-known classes
+-- whose origin is not available, such as @Typeable@.
+lookupClassByName :: Text -> TcM (Maybe ClassInfo)
+lookupClassByName className =
+  lift $ gets (find ((== className) . ciName) . Map.elems . tcsClasses)
+
+-- | Look up the class that a resolved class-name occurrence refers to.
+lookupClassNamed :: Name -> TcM (Maybe ClassInfo)
+lookupClassNamed name = do
+  maybeInfo <- lookupResolvedTyCon name
+  maybe (pure Nothing) (lookupClass . tciTyCon) maybeInfo
+
+-- | Look up the class declared by a class-declaration binder.
+lookupDeclaredClass :: UnqualifiedName -> TcM (Maybe ClassInfo)
+lookupDeclaredClass name = do
+  maybeInfo <- lookupDeclaredTyCon name
+  maybe (pure Nothing) (lookupClass . tciTyCon) maybeInfo
 
 insertNewMap :: (Ord key, Show key) => String -> key -> value -> Map key value -> TcM (Map key value)
 insertNewMap label key value entries

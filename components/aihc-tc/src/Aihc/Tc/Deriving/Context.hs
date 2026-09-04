@@ -29,7 +29,7 @@ import Aihc.Tc.Annotations
     TcStockDerivingPlan (..),
   )
 import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Monad
@@ -127,13 +127,13 @@ simplifyPredicate existingInstances plans stack owner predicate
     matchingExisting =
       [ (instanceInfo, substitution)
       | instanceInfo <- existingInstances,
-        iiClassName instanceInfo == predClassName predicate,
+        predIsForInstance predicate instanceInfo,
         Just substitution <- [matchTypes (iiHead instanceInfo) (predArguments predicate)]
       ]
     matchingDerived =
       [ (candidate, substitution)
       | candidate <- plans,
-        tcDerivingClassName candidate == predClassName predicate,
+        predIsForPlan predicate candidate,
         Just substitution <- [matchTypes (tcDerivingHeadTypes candidate) (predArguments predicate)]
       ]
     simplifyExisting (instanceInfo, substitution) =
@@ -385,6 +385,18 @@ predicatePlanKey predicate =
 
 planPredicate :: TcDerivingPlan -> Pred
 planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
+
+predIsForInstance :: Pred -> InstanceInfo -> Bool
+predIsForInstance predicate instanceInfo =
+  case predicate of
+    ClassPred classTyCon _ -> instanceIsForClass classTyCon instanceInfo
+    _ -> iiClassName instanceInfo == predClassName predicate
+
+predIsForPlan :: Pred -> TcDerivingPlan -> Bool
+predIsForPlan predicate plan =
+  case predicate of
+    ClassPred classTyCon _ -> tyConKey classTyCon == tyConKey (tcDerivingClassTyCon plan)
+    _ -> tcDerivingClassName plan == predClassName predicate
 
 predClassName :: Pred -> Text
 predClassName predicate =

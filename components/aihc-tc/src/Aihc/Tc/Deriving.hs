@@ -132,7 +132,7 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
   let className = nameText (attachedClassName classHead)
       classSpan = attachedClassSpan classHead
       suppliedArguments = attachedClassArguments classHead
-  maybeClassInfo <- lookupClass className
+  maybeClassInfo <- lookupClassNamed (attachedClassName classHead)
   case maybeClassInfo of
     Nothing -> do
       emitError classSpan (OtherError ("deriving target " <> T.unpack className <> " is not a type class"))
@@ -195,7 +195,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       implicitParams <- mapM implicitParam implicitNames
       let params = explicitParams <> implicitParams
           tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
-      maybeClassInfo <- lookupClass className
+      maybeClassInfo <- lookupClassNamed classNameSyntax
       case maybeClassInfo of
         Nothing -> do
           emitError classSpan (OtherError ("deriving target " <> T.unpack className <> " is not a type class"))
