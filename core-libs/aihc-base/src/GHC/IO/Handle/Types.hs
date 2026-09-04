@@ -1,25 +1,39 @@
+-- | Handle types. The definitions live in "GHC.Internal.IO.Types".
 module GHC.IO.Handle.Types
   ( Handle (..),
-    HandleState (..),
-    newHandle,
+    Handle__ (..),
+    showHandle,
+    checkHandleInvariants,
+    BufferList (..),
+    HandleType (..),
+    isReadableHandleType,
+    isWritableHandleType,
+    isReadWriteHandleType,
+    BufferMode (..),
+    Newline (..),
+    NewlineMode (..),
+    nativeNewline,
+    universalNewlineMode,
+    noNewlineTranslation,
+    nativeNewlineMode,
   )
 where
 
-import GHC.Base (Monad (..), String)
-import GHC.IO (IO)
-import GHC.IO.FD (IOHandle)
-import GHC.IO.IOMode (IOMode)
-import GHC.MVar (MVar, newMVar)
-import GHC.Ptr (Ptr)
-
--- | A named, serialized reference to mutable IO resource state.
-data Handle = FileHandle String (MVar HandleState)
-
-data HandleState
-  = HandleOpen (Ptr IOHandle) IOMode
-  | HandleClosed
-
-newHandle :: String -> Ptr IOHandle -> IOMode -> IO Handle
-newHandle name rawHandle mode = do
-  state <- newMVar (HandleOpen rawHandle mode)
-  return (FileHandle name state)
+import GHC.Internal.IO.Types
+  ( BufferList (..),
+    BufferMode (..),
+    Handle (..),
+    HandleType (..),
+    Handle__ (..),
+    Newline (..),
+    NewlineMode (..),
+    checkHandleInvariants,
+    isReadWriteHandleType,
+    isReadableHandleType,
+    isWritableHandleType,
+    nativeNewline,
+    nativeNewlineMode,
+    noNewlineTranslation,
+    showHandle,
+    universalNewlineMode,
+  )

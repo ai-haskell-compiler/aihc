@@ -11,7 +11,8 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Pattern (PatternCheck (..))
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (solveWithImpls)
+import Aihc.Tc.Solve (SolveResult (..), solveWithImpls)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (unless)
@@ -33,9 +34,10 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
                 implTcLevel = level,
                 implInfo = CaseBranchOrigin sourceSpan
               }
-      _ <- solveWithImpls [] [implication]
+      result <- solveWithImpls [] [implication]
       rejectEscapingPatternType sourceSpan (pcSkolems patternCheck) branchResultType
-      pure []
+      -- The wanteds that wait on the enclosing scope continue outward.
+      pure (inertDicts (srInerts result))
 
 rejectEscapingPatternType :: SourceSpan -> [TyVarId] -> TcType -> TcM ()
 rejectEscapingPatternType sourceSpan skolems outerType = do

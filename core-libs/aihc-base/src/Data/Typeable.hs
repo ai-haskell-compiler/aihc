@@ -16,6 +16,7 @@ where
 
 import Data.Maybe (Maybe (..))
 import Data.Proxy (Proxy (..))
+import GHC.Types (Bool (..))
 import Type.Reflection
   ( SomeTypeRep,
     TyCon,
@@ -30,7 +31,6 @@ import Type.Reflection
     typeRepTyCon,
   )
 import Unsafe.Coerce (unsafeCoerce)
-import Prelude (Bool (..))
 
 type TypeRep = SomeTypeRep
 

@@ -1,0 +1,35 @@
+extensions:
+  - ExistentialQuantification
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Test where
+
+    data Buf = Buf { bufL :: Int, bufR :: Int }
+
+    class Dev a where
+      fill :: a -> Buf -> (Int, Buf)
+
+    data D = D
+
+    instance Dev D where
+      fill D b = (3, b { bufR = bufR b + 3 })
+
+    data H = forall dev. (Dev dev) => H { haDev :: dev, haBuf :: Buf, haMode :: Int }
+
+    run :: H -> Int
+    run (H haDev haBuf _) =
+      case fill haDev haBuf of
+        (n, b) -> n + bufR b + bufL haBuf
+
+    mk :: H
+    mk = H { haDev = D, haBuf = Buf { bufL = 1, bufR = 2 }, haMode = 0 }
+
+    modeOf :: H -> Int
+    modeOf h = haMode h
+output: |
+  I# 9
+expression: |
+  run mk + modeOf mk
+status: pass
+reason: record construction and update work on a constructor with an existential device and a class context, and a field without an existential type has a selector

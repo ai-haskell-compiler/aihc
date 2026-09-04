@@ -149,14 +149,24 @@ exportedScope package exports modu =
         ExportModule _ exportModuleName
           | exportModuleName == moduleKey modu -> topLevelScope package modu
           | otherwise -> lookupImportedModule package Nothing exportModuleName exports
-        ExportVar _ _ name -> selectTerm (nameText name) availableScope
+        ExportVar _ _ name -> selectTerm (nameText name) (exportSource name)
         ExportAbs _ (Just namespace) name
-          | isTermNamespace namespace -> selectTerm (nameText name) availableScope
-        ExportAbs _ _ name -> selectType (nameText name) availableScope
-        ExportAll _ _ name -> selectTypeWithMembers (nameText name) availableScope (allTypeMembers (nameText name) availableScope)
-        ExportWith _ _ name members -> selectTypeWithMembers (nameText name) availableScope (map exportBundledMemberName members)
+          | isTermNamespace namespace -> selectTerm (nameText name) (exportSource name)
+        ExportAbs _ _ name -> selectType (nameText name) (exportSource name)
+        ExportAll _ _ name -> selectTypeWithMembers (nameText name) (exportSource name) (allTypeMembers (nameText name) (exportSource name))
+        ExportWith _ _ name members -> selectTypeWithMembers (nameText name) (exportSource name) (map exportBundledMemberName members)
         ExportWithAll _ _ name _ members ->
-          selectTypeWithMembers (nameText name) availableScope (map exportBundledMemberName members <> allTypeMembers (nameText name) availableScope)
+          selectTypeWithMembers (nameText name) (exportSource name) (map exportBundledMemberName members <> allTypeMembers (nameText name) (exportSource name))
+
+    -- A qualified export item such as @L.smallChunkSize@ names an entity
+    -- of the module that the qualifier imports. The module can also use
+    -- its own name as the qualifier.
+    exportSource name =
+      case nameQualifier name of
+        Nothing -> availableScope
+        Just qualifier
+          | qualifier == moduleKey modu -> availableScope
+          | otherwise -> Map.findWithDefault availableScope qualifier (scopeQualifiedModules availableScope)
 
 selectTerm :: Text -> Scope -> Scope
 selectTerm name scope =

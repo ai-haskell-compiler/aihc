@@ -15,10 +15,9 @@ module GHC.IO.Encoding
   )
 where
 
-import Prelude (IO, String, pure)
-
--- | Text encodings carry only a name. All handles use UTF-8.
-newtype TextEncoding = TextEncoding {textEncodingName :: String}
+import GHC.Base (Applicative (..), String)
+import GHC.IO (IO)
+import GHC.IO.Encoding.Types (TextEncoding (..))
 
 utf8 :: TextEncoding
 utf8 = TextEncoding "UTF-8"

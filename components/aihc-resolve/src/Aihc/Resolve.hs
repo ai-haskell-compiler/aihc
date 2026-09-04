@@ -836,7 +836,7 @@ resolveExpr expr =
     EArithSeq arithSeq ->
       EArithSeq <$> resolveArithSeq arithSeq
     ERecordCon name fields wildcard ->
-      ERecordCon name <$> resolveRecordFields fields <*> pure wildcard
+      ERecordCon <$> resolveTermUse name <*> resolveRecordFields fields <*> pure wildcard
     ERecordUpd record fields ->
       ERecordUpd <$> resolveExpr record <*> resolveRecordFields fields
     EGetField record name ->

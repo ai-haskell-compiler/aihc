@@ -1,0 +1,17 @@
+modules:
+  - |
+    module Test where
+
+    data Buf = Buf { bufL :: Int, bufR :: Int }
+
+    run :: Buf -> Int
+    run Buf{bufL = l, bufR = r} = l + r
+
+    mk :: Buf
+    mk = Buf { bufL = 1, bufR = 2 }
+output: |
+  I# 3
+expression: |
+  run mk
+status: pass
+reason: record patterns select the fields by label and the type checker rewrites them to positional constructor patterns

@@ -9,6 +9,9 @@ modules:
 
     data Boom = Boom
 
+    instance Show Boom where
+      show Boom = "Boom"
+
     instance Exception Boom
 
     results :: IO (Int, Int, Int, Int, Int)

@@ -1,3 +1,4 @@
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -10,6 +11,13 @@ module GHC.Base
     unpackCString#,
     unpackCStringUtf8#,
     unpackFoldrCString#,
+    ($),
+    id,
+    const,
+    flip,
+    (.),
+    (++),
+    foldr,
   )
 where
 
@@ -17,7 +25,7 @@ import GHC.Char (unsafeChr)
 import GHC.Int (Int (..))
 import GHC.Prim
 import GHC.Prim.Base
-import GHC.Types (Bool (..), Char, isTrue#)
+import GHC.Types (Bool (..), Char, RuntimeRep, TYPE, Type, isTrue#)
 
 build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
 build generate = generate (:) []
@@ -101,3 +109,34 @@ foldrLatin1From address index combine initial =
   case byteAt address index of
     0# -> initial
     code -> combine (unsafeChr (I# code)) (foldrLatin1From address (index +# 1#) combine initial)
+
+id :: a -> a
+id x = x
+
+const :: a -> b -> a
+const value _ = value
+
+flip :: (a -> b -> c) -> b -> a -> c
+flip function right left = function left right
+
+(.) :: (b -> c) -> (a -> b) -> a -> c
+f . g = compose
+  where
+    compose value = f (g value)
+
+infixr 9 .
+
+(++) :: [a] -> [a] -> [a]
+(++) [] ys = ys
+(++) (x : xs) ys = x : (xs ++ ys)
+
+infixr 5 ++
+
+foldr :: (a -> b -> b) -> b -> [a] -> b
+foldr _ initial [] = initial
+foldr combine initial (value : values) = combine value (foldr combine initial values)
+
+($) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+($) function = function
+
+infixr 0 $

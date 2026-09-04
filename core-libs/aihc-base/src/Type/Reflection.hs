@@ -21,9 +21,11 @@ module Type.Reflection
   )
 where
 
+import Data.Bool (Bool (..), (&&))
 import Data.Proxy (Proxy (..))
-import GHC.Prim (ord#, (==#))
-import Prelude (Bool (..), Char (..), List (..), String, foldr, seq, (&&), (.))
+import GHC.Base (List (..), String, foldr, (.))
+import GHC.Prim (ord#, seq, (==#))
+import GHC.Types (Char (..))
 
 newtype TyCon = TyCon String
 

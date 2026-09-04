@@ -27,8 +27,8 @@ import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solve
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet, addInertDict, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
-import Aihc.Tc.Types (Pred (..), TcType (..))
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
 
 -- | Result of solving constraints.
 data SolveResult = SolveResult
@@ -69,8 +69,10 @@ solveLoop wl inerts = case popWork wl of
     processConstraint ct wl' inerts
   Just (Right impl, wl') -> do
     -- Solve the implication by using its given constraints to satisfy wanteds.
-    solveImplication impl
-    solveLoop wl' inerts
+    -- A wanted that is stuck on a meta variable of the enclosing scope waits
+    -- in the inert set for the enclosing solve.
+    deferred <- solveImplication impl
+    solveLoop wl' (foldr addInertDict inerts deferred)
 
 -- | Process a single constraint from the worklist.
 processConstraint :: Ct -> WorkList -> InertSet -> TcM SolveResult
@@ -114,7 +116,10 @@ processEq wl ct = do
 -- The implication's given constraints (from GADT pattern matches) are
 -- canonicalized into atomic equalities, which are then used as rewrite
 -- rules to solve the implication's wanted constraints.
-solveImplication :: Implication -> TcM ()
+-- | Solve the wanteds of an implication. The result holds the dictionary
+-- wanteds that are stuck on a meta variable of the enclosing scope and do
+-- not mention a skolem of the implication.
+solveImplication :: Implication -> TcM [Ct]
 solveImplication impl = withTcLevel $ do
   let rawGivens = implGivenCts impl
       wanteds = implWantedCts impl
@@ -124,8 +129,8 @@ solveImplication impl = withTcLevel $ do
   -- Equalities refine the types mentioned by dictionary wanteds, so preserve
   -- the main worklist's equality-before-dictionary ordering inside branches.
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
-  mapM_ (solveWantedWithGivens givenPredicates givenEqs) equalityWanteds
-  mapM_ (solveWantedWithGivens givenPredicates givenEqs) dictionaryWanteds
+  mapM_ (solveWantedWithGivens [] givenPredicates givenEqs) equalityWanteds
+  concat <$> mapM (solveWantedWithGivens (implSkols impl) givenPredicates givenEqs) dictionaryWanteds
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
 partitionWanteds = foldr partitionOne ([], [])
@@ -175,8 +180,8 @@ applyGivenSubst givens ty = foldr applyOne ty givens
 -- | Attempt to solve a wanted constraint using given equalities.
 -- Rewrites both sides of the wanted using the given substitution and
 -- then tries to solve the resulting equality.
-solveWantedWithGivens :: [Pred] -> [(TcType, TcType)] -> Ct -> TcM ()
-solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
+solveWantedWithGivens :: [TyVarId] -> [Pred] -> [(TcType, TcType)] -> Ct -> TcM [Ct]
+solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred ct of
   EqPred t1 t2 -> do
     t1' <- zonkType t1
     t2' <- zonkType t2
@@ -184,36 +189,89 @@ solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
         t2'' = applyGivenSubst givenEqualities t2'
     result <- solveEquality (ct {ctPred = EqPred t1'' t2''})
     case result of
-      EqSolved -> pure ()
-      EqStuck _ -> pure ()
-      EqError errCt ->
+      EqSolved -> pure []
+      EqStuck _ -> pure []
+      EqError errCt -> do
         case ctPred errCt of
           EqPred et1 et2 ->
             emitError (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
           p ->
             emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
+        pure []
   ClassPred className arguments -> do
     arguments' <- mapM zonkType arguments
     let rewritten = ClassPred className (map (applyGivenSubst givenEqualities) arguments')
         rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
-      DictSolved -> pure ()
-      DictStuck stuck -> reportUnsolvedDict stuck
+      DictSolved -> pure []
+      DictStuck stuck -> deferOrReport skolems stuck
   quantified@QuantifiedPred {} -> do
     let rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred givenEqualities quantified})
     case result of
-      DictSolved -> pure ()
-      DictStuck stuck -> reportUnsolvedDict stuck
+      DictSolved -> pure []
+      DictStuck stuck -> deferOrReport skolems stuck
   IParamPred name payload -> do
     payload' <- zonkType payload
     let rewritten = IParamPred name (applyGivenSubst givenEqualities payload')
         rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
-      DictSolved -> pure ()
-      DictStuck stuck -> reportUnsolvedDict stuck
+      DictSolved -> pure []
+      DictStuck stuck -> deferOrReport skolems stuck
+
+-- | A stuck dictionary wanted that mentions a meta variable and no skolem
+-- of the implication can still be solved by the enclosing scope, so it is
+-- deferred. Every other stuck wanted is an error.
+deferOrReport :: [TyVarId] -> Ct -> TcM [Ct]
+deferOrReport skolems stuck = do
+  predicate <- zonkPred (ctPred stuck)
+  let deferrable = not (null (predMetaVars predicate)) && not (any (`elem` skolems) (predTyVars predicate))
+  if deferrable
+    then pure [stuck {ctPred = predicate}]
+    else do
+      reportUnsolvedDict stuck
+      pure []
+
+predMetaVars :: Pred -> [Unique]
+predMetaVars predicate =
+  case predicate of
+    ClassPred _ arguments -> concatMap typeMetaVars arguments
+    EqPred left right -> typeMetaVars left <> typeMetaVars right
+    IParamPred _ payload -> typeMetaVars payload
+    QuantifiedPred _ antecedents consequent -> concatMap predMetaVars antecedents <> predMetaVars consequent
+
+typeMetaVars :: TcType -> [Unique]
+typeMetaVars ty =
+  case ty of
+    TcMetaTv unique -> [unique]
+    TcTyVar _ -> []
+    TcTyCon _ arguments -> concatMap typeMetaVars arguments
+    TcFunTy argument result -> typeMetaVars argument <> typeMetaVars result
+    TcForAllTy _ body -> typeMetaVars body
+    TcQualTy predicates body -> concatMap predMetaVars predicates <> typeMetaVars body
+    TcAppTy function argument -> typeMetaVars function <> typeMetaVars argument
+
+predTyVars :: Pred -> [TyVarId]
+predTyVars predicate =
+  case predicate of
+    ClassPred _ arguments -> concatMap typeTyVars arguments
+    EqPred left right -> typeTyVars left <> typeTyVars right
+    IParamPred _ payload -> typeTyVars payload
+    QuantifiedPred variables antecedents consequent ->
+      filter (`notElem` variables) (concatMap predTyVars antecedents <> predTyVars consequent)
+
+typeTyVars :: TcType -> [TyVarId]
+typeTyVars ty =
+  case ty of
+    TcTyVar tyVar -> [tyVar]
+    TcMetaTv _ -> []
+    TcTyCon _ arguments -> concatMap typeTyVars arguments
+    TcFunTy argument result -> typeTyVars argument <> typeTyVars result
+    TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
+    TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body
+    TcAppTy function argument -> typeTyVars function <> typeTyVars argument
 
 rewritePred :: [(TcType, TcType)] -> Pred -> Pred
 rewritePred equalities predicate =

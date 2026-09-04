@@ -12,10 +12,14 @@ module GHC.Exception.Type
 where
 
 import Data.Maybe (Maybe (..))
-import Data.Typeable (Typeable, cast, tyConName, typeOf, typeRepTyCon)
-import Prelude (Bool (..), Eq (..), Int, Ord (..), Show (..), String, showString)
+import Data.Typeable (Typeable, cast)
+import GHC.Base (String)
+import GHC.Int (Int)
+import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Show (Show (..), showString)
+import GHC.Types (Bool (..))
 
-class (Typeable e) => Exception e where
+class (Typeable e, Show e) => Exception e where
   toException :: e -> SomeException
   toException = SomeException
 
@@ -23,9 +27,12 @@ class (Typeable e) => Exception e where
   fromException (SomeException exception) = cast exception
 
   displayException :: e -> String
-  displayException exception = tyConName (typeRepTyCon (typeOf exception))
+  displayException = show
 
 data SomeException = forall e. (Exception e) => SomeException e
+
+instance Show SomeException where
+  showsPrec precedence (SomeException exception) = showsPrec precedence exception
 
 instance Exception SomeException where
   toException exception = exception

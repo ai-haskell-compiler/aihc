@@ -12,7 +12,13 @@ module Data.Maybe
   )
 where
 
-import Prelude (Bool (..), Maybe (..), errorWithoutStackTrace, maybe)
+import GHC.Base (Maybe (..))
+import GHC.Err (errorWithoutStackTrace)
+import GHC.Types (Bool (..))
+
+maybe :: b -> (a -> b) -> Maybe a -> b
+maybe initial _ Nothing = initial
+maybe _ function (Just value) = function value
 
 isJust :: Maybe a -> Bool
 isJust Nothing = False

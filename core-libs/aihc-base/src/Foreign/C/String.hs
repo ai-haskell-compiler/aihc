@@ -7,8 +7,8 @@ module Foreign.C.String
 where
 
 import Foreign.C.Types (CChar, CWchar)
+import GHC.Int (Int)
 import GHC.Ptr (Ptr)
-import Prelude (Int)
 
 type CString = Ptr CChar
 

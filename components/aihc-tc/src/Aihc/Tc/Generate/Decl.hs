@@ -110,7 +110,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
-import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
+import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc, typeTyVars)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -415,18 +415,21 @@ recordSelectorBindings declaration =
   where
     selectorBindingsFromConstructorType constructorType inner =
       let (typeVariables, qualifiedConstructor) = peelForAlls constructorType
-          (predicates, body) =
+          body =
             case qualifiedConstructor of
-              TcQualTy context result -> (context, result)
-              result -> ([], result)
+              TcQualTy _ result -> result
+              result -> result
           (fieldTypes, resultType) = splitFunctionType body
           (_, sourceFields, _) = dataConSourceLayout inner
-       in [ TcBindingResult label label (foldr TcForAllTy (qualify predicates (TcFunTy resultType fieldType)) typeVariables)
+          -- The constructor context and the existential variables do not
+          -- reach the selector type. A field whose type mentions an
+          -- existential variable has no selector.
+          universals = filter (`elem` typeTyVars resultType) typeVariables
+       in [ TcBindingResult label label (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
+            all (`elem` universals) (typeTyVars fieldType),
             Just label <- [maybeLabel]
           ]
-    qualify [] ty = ty
-    qualify predicates ty = TcQualTy predicates ty
 
 valueDeclBindingNames :: ValueDecl -> [(Text, Text)]
 valueDeclBindingNames valueDecl =
@@ -1438,8 +1441,11 @@ solveInstanceBodyConstraints givens results = do
 solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
   implications <- mapM addOuterGivens impls
-  _ <- solveWithImpls cts implications
-  stuck <- concat <$> mapM attemptClassCt cts
+  solveResult <- solveWithImpls cts implications
+  -- The inert set holds the stuck flat wanteds, which are in @cts@, and
+  -- the wanteds that the implications deferred, which are not.
+  let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
+  stuck <- concat <$> mapM attemptClassCt (cts <> deferred)
   -- The signature makes every type variable of the binding rigid, so a
   -- meta-variable that survives the solve is ambiguous. Defaulting may make
   -- it concrete, which lets a second attempt discharge the constraint.
@@ -3354,19 +3360,22 @@ registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult
 registerRecordSelectors origin constructors =
   mapM registerSelector (Map.toList selectors)
   where
+    -- A field whose type mentions an existential variable has no selector.
+    -- The constructor context does not reach the selector type.
     selectors =
       Map.fromListWith
         (++)
         [ (label, [(constructor, field)])
         | constructor <- constructors,
           field <- dciFields constructor,
+          not (any (`elem` dciExTyVars constructor) (typeTyVars (dcfiType field))),
           Just label <- [dcfiLabel field]
         ]
     registerSelector (label, (constructor, field) : _) = do
       let scheme =
             ForAll
               (dciUnivTyVars constructor)
-              (dciTheta constructor)
+              []
               (TcFunTy (dciResTy constructor) (dcfiType field))
       let binder = TcIdBinder scheme Closed
           (packageId, moduleName') = origin

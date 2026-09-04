@@ -1,0 +1,34 @@
+extensions:
+  - ExistentialQuantification
+  - NamedFieldPuns
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    {-# LANGUAGE NamedFieldPuns #-}
+    module Test where
+
+    data Buf = Buf { bufL :: Int, bufR :: Int }
+
+    class Dev a where
+      fill :: a -> Buf -> (Int, Buf)
+
+    data D = D
+
+    instance Dev D where
+      fill D b = (3, b { bufR = bufR b + 3 })
+
+    data H = forall dev. (Dev dev) => H { haDev :: dev, haBuf :: Buf, haMode :: Int }
+
+    run :: H -> Int
+    run H{haDev, haBuf} =
+      case fill haDev haBuf of
+        (n, b) -> n + bufR b + bufL haBuf
+
+    mk :: H
+    mk = H { haDev = D, haBuf = Buf { bufL = 1, bufR = 2 }, haMode = 0 }
+output: |
+  I# 9
+expression: |
+  run mk
+status: pass
+reason: a NamedFieldPuns pattern on an existential record binds the fields and brings the class context into scope

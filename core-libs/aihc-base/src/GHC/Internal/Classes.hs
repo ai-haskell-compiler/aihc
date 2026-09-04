@@ -7,7 +7,8 @@ module GHC.Internal.Classes
   )
 where
 
-import Data.Bool (not)
+import Data.Bool (not, (&&))
+import Data.Either (Either (..))
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Integer (Integer, compareInteger#, eqInteger#)
@@ -21,13 +22,15 @@ import GHC.Prim
     int64ToInt#,
     int8ToInt#,
     ltWord#,
+    ord#,
     word16ToWord#,
     word32ToWord#,
     word64ToWord#,
     word8ToWord#,
     (==#),
   )
-import GHC.Types (Bool (..), Ordering (..))
+import GHC.Prim.Base (List (..), Maybe (..))
+import GHC.Types (Bool (..), Char (..), Ordering (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 instance Eq Bool where
@@ -326,3 +329,48 @@ classesMinBy comparison left right =
   case comparison left right of
     GT -> right
     _ -> left
+
+instance Eq Char where
+  C# x == C# y =
+    case (==#) (ord# x) (ord# y) of
+      0# -> False
+      _ -> True
+
+  x /= y = not (x == y)
+
+instance Eq () where
+  () == () = True
+  () /= () = False
+
+instance (Eq a) => Eq [a] where
+  [] == [] = True
+  [] == (_ : _) = False
+  (_ : _) == [] = False
+  (x : xs) == (y : ys) = x == y && xs == ys
+
+  xs /= ys = not (xs == ys)
+
+instance (Eq a) => Eq (Maybe a) where
+  Nothing == Nothing = True
+  Nothing == Just _ = False
+  Just _ == Nothing = False
+  Just x == Just y = x == y
+
+  x /= y = not (x == y)
+
+instance (Eq a, Eq b) => Eq (Either a b) where
+  Left x == Left y = x == y
+  Left _ == Right _ = False
+  Right _ == Left _ = False
+  Right x == Right y = x == y
+
+  x /= y = not (x == y)
+
+instance (Eq a, Eq b) => Eq (a, b) where
+  (leftA, leftB) == (rightA, rightB) = leftA == rightA && leftB == rightB
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c) => Eq (a, b, c) where
+  (leftA, leftB, leftC) == (rightA, rightB, rightC) =
+    leftA == rightA && leftB == rightB && leftC == rightC
+  left /= right = not (left == right)

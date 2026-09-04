@@ -1,111 +1,171 @@
+-- | The standard IO interface.
 module System.IO
-  ( Handle,
-    IOMode (..),
-    BufferMode (..),
-    withBinaryFile,
-    withFile,
-    openFile,
-    hFlush,
-    hFileSize,
-    hGetBufSome,
-    hGetBufNonBlocking,
-    hPutBufNonBlocking,
-    hSetBinaryMode,
-    hSetBuffering,
-    hClose,
-    hGetBuf,
-    hPutBuf,
-    hPutStr,
-    hPutStrLn,
-    openBinaryFile,
-    readFile,
-    writeFile,
+  ( IO,
+    fixIO,
+    FilePath,
+    Handle,
     stdin,
     stdout,
     stderr,
+    withFile,
+    openFile,
+    IOMode (..),
+    hClose,
+    readFile,
+    readFile',
+    writeFile,
+    appendFile,
+    hFileSize,
+    hSetFileSize,
+    hIsEOF,
+    isEOF,
+    BufferMode (..),
+    hSetBuffering,
+    hGetBuffering,
+    hFlush,
+    hGetPosn,
+    hSetPosn,
+    HandlePosn,
+    hSeek,
+    SeekMode (..),
+    hTell,
+    hIsOpen,
+    hIsClosed,
+    hIsReadable,
+    hIsWritable,
+    hIsSeekable,
+    hIsTerminalDevice,
+    hSetEcho,
+    hGetEcho,
+    hShow,
+    hWaitForInput,
+    hReady,
+    hGetChar,
+    hGetLine,
+    hLookAhead,
+    hGetContents,
+    hGetContents',
+    hPutChar,
+    hPutStr,
+    hPutStrLn,
+    hPrint,
+    interact,
+    putChar,
+    putStr,
+    putStrLn,
+    print,
+    getChar,
+    getLine,
+    getContents,
+    getContents',
+    readIO,
+    readLn,
+    withBinaryFile,
+    openBinaryFile,
+    hSetBinaryMode,
+    hPutBuf,
+    hGetBuf,
+    hGetBufSome,
+    hPutBufNonBlocking,
+    hGetBufNonBlocking,
+    hSetEncoding,
+    hGetEncoding,
+    TextEncoding,
+    latin1,
+    utf8,
+    utf8_bom,
+    utf16,
+    utf16le,
+    utf16be,
+    utf32,
+    utf32le,
+    utf32be,
+    localeEncoding,
+    char8,
+    mkTextEncoding,
+    hSetNewlineMode,
+    Newline (..),
+    nativeNewline,
+    NewlineMode (..),
+    noNewlineTranslation,
+    universalNewlineMode,
+    nativeNewlineMode,
   )
 where
 
-import Control.Exception.Base (bracket)
-import GHC.IO.Handle (Handle, hClose)
-import GHC.IO.Handle.Text (hGetBuf, hPutBuf, hPutStr)
+import GHC.IO.Encoding (TextEncoding, char8, latin1, mkTextEncoding, utf8, utf8_bom)
+import GHC.IO.Handle
+import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hLookAhead, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
 import GHC.IO.IOMode (IOMode (..))
-import GHC.IO.StdHandles (openBinaryFile, stderr, stdin, stdout)
-import GHC.Ptr (Ptr)
-import Prelude (Bool (..), Eq (..), FilePath, IO, Int, Integer, Maybe (..), Ord (..), Ordering (..), Show (..), String, error, not, pure, showParen, showString, (++), (.), (>>))
+import GHC.IO.StdHandles (openBinaryFile, openFile, stderr, stdin, stdout, withBinaryFile, withFile)
+import Prelude (Bool (..), Char, FilePath, IO, Read (..), Show (..), String, error, pure, read, return, (>>=))
 
-hPutStrLn :: Handle -> String -> IO ()
-hPutStrLn handle value = hPutStr handle (value ++ "\n")
+-- | Handles cannot tell whether they are terminals.
+hIsTerminalDevice :: Handle -> IO Bool
+hIsTerminalDevice _ = pure False
 
-writeFile :: FilePath -> String -> IO ()
-writeFile path value = do
-  handle <- openBinaryFile path WriteMode
-  hPutStr handle value
-  hClose handle
+hReady :: Handle -> IO Bool
+hReady handle = hWaitForInput handle 0
+
+hPrint :: (Show a) => Handle -> a -> IO ()
+hPrint handle value = hPutStrLn handle (show value)
+
+putChar :: Char -> IO ()
+putChar = hPutChar stdout
+
+putStr :: String -> IO ()
+putStr = hPutStr stdout
+
+putStrLn :: String -> IO ()
+putStrLn = hPutStrLn stdout
+
+print :: (Show a) => a -> IO ()
+print value = putStrLn (show value)
+
+getChar :: IO Char
+getChar = hGetChar stdin
+
+getLine :: IO String
+getLine = hGetLine stdin
+
+getContents :: IO String
+getContents = hGetContents stdin
+
+getContents' :: IO String
+getContents' = hGetContents' stdin
+
+interact :: (String -> String) -> IO ()
+interact function = do
+  input <- getContents
+  putStr (function input)
 
 readFile :: FilePath -> IO String
-readFile path = pure (error ("System.IO.readFile is not available: " ++ path))
+readFile path = openFile path ReadMode >>= hGetContents
 
-data BufferMode
-  = NoBuffering
-  | LineBuffering
-  | BlockBuffering (Maybe Int)
+readFile' :: FilePath -> IO String
+readFile' path = withFile path ReadMode hGetContents'
 
-instance Eq BufferMode where
-  NoBuffering == NoBuffering = True
-  LineBuffering == LineBuffering = True
-  BlockBuffering left == BlockBuffering right = left == right
-  _ == _ = False
-  left /= right = not (left == right)
+writeFile :: FilePath -> String -> IO ()
+writeFile path text = withFile path WriteMode (`hPutStr` text)
 
-instance Ord BufferMode where
-  compare left right = compare (bufferModeIndex left) (bufferModeIndex right)
-  left < right = compare left right == LT
-  left <= right = compare left right /= GT
-  left > right = compare left right == GT
-  left >= right = compare left right /= LT
-  min left right = if left <= right then left else right
-  max left right = if left >= right then left else right
+appendFile :: FilePath -> String -> IO ()
+appendFile path text = withFile path AppendMode (`hPutStr` text)
 
-bufferModeIndex :: BufferMode -> (Int, Maybe Int)
-bufferModeIndex NoBuffering = (0, Nothing)
-bufferModeIndex LineBuffering = (1, Nothing)
-bufferModeIndex (BlockBuffering size) = (2, size)
+readLn :: (Read a) => IO a
+readLn = getLine >>= readIO
 
-instance Show BufferMode where
-  showsPrec _ NoBuffering = showString "NoBuffering"
-  showsPrec _ LineBuffering = showString "LineBuffering"
-  showsPrec precedence (BlockBuffering size) =
-    showParen (precedence > 10) (showString "BlockBuffering " . showsPrec 11 size)
+readIO :: (Read a) => String -> IO a
+readIO text = return (read text)
 
--- | Files are always opened in binary mode.
-openFile :: FilePath -> IOMode -> IO Handle
-openFile = openBinaryFile
+fixIO :: (a -> IO a) -> IO a
+fixIO _ = error "System.IO.fixIO: not available"
 
-withFile :: FilePath -> IOMode -> (Handle -> IO r) -> IO r
-withFile path mode = bracket (openFile path mode) hClose
-
-withBinaryFile :: FilePath -> IOMode -> (Handle -> IO r) -> IO r
-withBinaryFile path mode = bracket (openBinaryFile path mode) hClose
-
--- | Handles are unbuffered, so there is nothing to flush.
-hFlush :: Handle -> IO ()
-hFlush _ = pure ()
-
-hFileSize :: Handle -> IO Integer
-hFileSize _ = error "System.IO.hFileSize: file sizes are not available"
-
-hGetBufSome :: Handle -> Ptr a -> Int -> IO Int
-hGetBufSome = hGetBuf
-
-hGetBufNonBlocking :: Handle -> Ptr a -> Int -> IO Int
-hGetBufNonBlocking = hGetBuf
-
-hPutBufNonBlocking :: Handle -> Ptr a -> Int -> IO Int
-hPutBufNonBlocking handle buffer count = hPutBuf handle buffer count >> pure count
-
-hSetBinaryMode :: Handle -> Bool -> IO ()
-hSetBinaryMode _ _ = pure ()
-
-hSetBuffering :: Handle -> BufferMode -> IO ()
-hSetBuffering _ _ = pure ()
+-- The runtime only has UTF-8. The other encodings carry their names.
+utf16, utf16le, utf16be, utf32, utf32le, utf32be, localeEncoding :: TextEncoding
+utf16 = utf8
+utf16le = utf8
+utf16be = utf8
+utf32 = utf8
+utf32le = utf8
+utf32be = utf8
+localeEncoding = utf8

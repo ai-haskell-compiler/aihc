@@ -21,11 +21,17 @@ import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Prim (Int#, RealWorld, State#)
 import System.Exit (ExitCode (..))
-import System.IO (hPutStr, stderr)
+import System.IO (hFlush, hPutStr, stderr, stdout)
 import Prelude
 
+-- | Run the main action. The standard handles are flushed when the
+-- action returns. The top handler flushes them when the action raises an
+-- exception.
 runMainIO :: IO a -> IO a
-runMainIO action = catch action topHandler
+runMainIO action = do
+  result <- catch action topHandler
+  flushStdHandles
+  return result
 
 runIO :: IO a -> IO a
 runIO action = catch action topHandler
@@ -58,8 +64,15 @@ reportStackOverflow = writeStderrLine "stack overflow"
 reportError :: SomeException -> IO ()
 reportError = writeStderrLine . displayException
 
+-- | Flush the standard output handles. An error during the flush is
+-- dropped, because the program is about to exit.
 flushStdHandles :: IO ()
-flushStdHandles = return ()
+flushStdHandles = do
+  catch (hFlush stdout) ignoreException
+  catch (hFlush stderr) ignoreException
+
+ignoreException :: SomeException -> IO ()
+ignoreException _ = return ()
 
 safeExit :: Int -> IO a
 safeExit = exitWithStatus

@@ -6,10 +6,14 @@ module Foreign.Storable
   )
 where
 
+import GHC.Err (undefined)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
+import GHC.Num (Num (..))
 import GHC.Prim
-  ( int2Word#,
+  ( chr#,
+    int2Word#,
+    ord#,
     readWord16OffAddr#,
     readWord32OffAddr#,
     readWord64OffAddr#,
@@ -17,7 +21,9 @@ import GHC.Prim
     readWord8OffAddrAsDouble#,
     readWord8OffAddrAsFloat#,
     word2Int#,
+    word32ToWord#,
     word64ToWord#,
+    wordToWord32#,
     wordToWord64#,
     writeWord16OffAddr#,
     writeWord32OffAddr#,
@@ -27,9 +33,8 @@ import GHC.Prim
     writeWord8OffAddrAsFloat#,
   )
 import GHC.Ptr (Ptr (..), plusPtr)
-import GHC.Types (Double (..), Float (..))
+import GHC.Types (Char (..), Double (..), Float (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
-import Prelude (Num (..), undefined)
 
 class Storable a where
   sizeOf :: a -> Int
@@ -182,5 +187,21 @@ instance Storable Double where
     IO
       ( \state ->
           case writeWord8OffAddrAsDouble# address offset value state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Char where
+  sizeOf _ = 4
+  alignment _ = 4
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readWord32OffAddr# address index state of
+            (# readState, value #) -> (# readState, C# (chr# (word2Int# (word32ToWord# value))) #)
+      )
+  pokeElemOff (Ptr address) (I# index) (C# value) =
+    IO
+      ( \state ->
+          case writeWord32OffAddr# address index (wordToWord32# (int2Word# (ord# value))) state of
             nextState -> (# nextState, () #)
       )

@@ -22,7 +22,9 @@ module Foreign.Ptr
   )
 where
 
+import GHC.Base (Monad (..))
 import GHC.Enum (Bounded (..), Enum (..))
+import GHC.IO (IO)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
@@ -42,7 +44,6 @@ import GHC.Ptr
   )
 import GHC.Real (Integral (..), Real (..))
 import GHC.Word (Word (..))
-import Prelude (IO, return)
 
 freeHaskellFunPtr :: FunPtr a -> IO ()
 freeHaskellFunPtr _ = return ()
