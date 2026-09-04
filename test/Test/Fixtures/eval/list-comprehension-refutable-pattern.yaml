@@ -1,4 +1,3 @@
-dependencies: []
 expression: |
   [x | Just x <- xs]
 extensions: []

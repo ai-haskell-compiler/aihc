@@ -1,6 +1,3 @@
-dependencies:
-  - aihc-base
-  - aihc-prim
 extensions:
   - UnboxedTuples
 modules:

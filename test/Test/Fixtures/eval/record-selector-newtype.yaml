@@ -1,4 +1,3 @@
-dependencies: []
 modules:
   - |
     module Test where

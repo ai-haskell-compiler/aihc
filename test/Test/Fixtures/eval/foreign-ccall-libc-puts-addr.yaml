@@ -3,7 +3,6 @@ extensions:
   - ForeignFunctionInterface
   - MagicHash
   - UnboxedTuples
-dependencies: []
 modules:
   - |
     module Test where

@@ -1,8 +1,6 @@
 extensions: []
 evaluators:
   - grin
-dependencies:
-  - aihc-base
 modules:
   - |
     module Test where

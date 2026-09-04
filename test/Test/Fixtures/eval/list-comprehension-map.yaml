@@ -1,4 +1,3 @@
-dependencies: []
 expression: |
   [not x | x <- xs]
 extensions: []

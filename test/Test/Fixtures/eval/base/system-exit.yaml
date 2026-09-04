@@ -1,5 +1,4 @@
 extensions: []
-dependencies: [aihc-base]
 modules:
   - |
     module Main where

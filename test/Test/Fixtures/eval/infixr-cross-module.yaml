@@ -1,14 +1,15 @@
 extensions: []
 modules:
   - |
-    module Prelude where
+    module Chain where
     data L a = N | a :+: L a
     infixr 5 :+:
   - |
     module Test where
+    import Chain
 output: |
   :+: 'a' (:+: 'b' (:+: 'c' N))
 expression: |
   'a' :+: 'b' :+: 'c' :+: N
 status: pass
-reason: reassociates a right-associative constructor operator to the right, using fixity declared in an implicitly-imported Prelude module
+reason: reassociates a right-associative constructor operator to the right, using fixity declared in another module

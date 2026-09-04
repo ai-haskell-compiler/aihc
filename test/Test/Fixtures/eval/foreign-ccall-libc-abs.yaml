@@ -2,8 +2,6 @@ extensions:
   - ExtendedLiterals
   - ForeignFunctionInterface
   - MagicHash
-dependencies:
-  - aihc-base
 modules:
   - |
     module Test where

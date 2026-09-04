@@ -1,7 +1,5 @@
 extensions:
   - LambdaCase
-dependencies:
-  - aihc-base
 modules:
   - |
     module Test where

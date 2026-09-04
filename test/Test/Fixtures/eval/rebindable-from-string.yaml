@@ -1,8 +1,6 @@
 extensions:
   - OverloadedStrings
   - RebindableSyntax
-dependencies:
-  - aihc-base
 modules:
   - |
     {-# LANGUAGE OverloadedStrings, RebindableSyntax #-}

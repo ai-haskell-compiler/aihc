@@ -1,7 +1,5 @@
 extensions:
   - TypeApplications
-dependencies:
-  - aihc-base
 modules:
   - |
     module Test where

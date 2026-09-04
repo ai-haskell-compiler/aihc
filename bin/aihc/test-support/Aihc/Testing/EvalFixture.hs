@@ -5,12 +5,14 @@
 module Aihc.Testing.EvalFixture
   ( Outcome (..),
     EvalCase (..),
+    EvalEnvironment,
     EvaluationFailure (..),
     ProgramEvaluator,
     evalFixtureRoot,
     evalBindingName,
     evalBindingNameInProgram,
     loadEvalCases,
+    loadEvalEnvironment,
     compileEvalCase,
     evaluateEvalCase,
   )
@@ -40,7 +42,8 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve
-  ( Package (..),
+  ( ModuleExports,
+    Package (..),
     PackageId (..),
     ResolveResult (..),
     Scope,
@@ -51,15 +54,16 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcErrorKind (..), TcInterface, diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), diagKind, emptyTcInterface, renderPred, renderTcType, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (bracket, mask, onException)
+import Control.Exception (bracket, evaluate, mask, onException)
+import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -67,9 +71,9 @@ import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
 import Foreign.LibFFI (argPtr, callFFI, retCInt)
 import Foreign.Ptr (nullPtr)
-import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
+import System.Directory (doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
 import System.Environment (lookupEnv)
-import System.FilePath (joinPath, makeRelative, takeDirectory, takeExtension, (</>))
+import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, openTempFile, stdout)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
@@ -94,7 +98,6 @@ data EvalCase = EvalCase
     evalCaseCategory :: !String,
     evalCasePath :: !FilePath,
     evalCaseExtensions :: ![Extension],
-    evalCaseDependencies :: ![Text],
     evalCaseModules :: ![Text],
     evalCaseExpression :: !Text,
     evalCaseOutput :: !String,
@@ -172,11 +175,10 @@ loadEvalCase root path = do
 
 parseEvalFixture :: FilePath -> FilePath -> Y.Value -> Either String EvalCase
 parseEvalFixture root path value = do
-  (extNames, dependencies, modules, expression, output, expectedError, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
+  (extNames, modules, expression, output, expectedError, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
     parseEither
       ( withObject "eval fixture" $ \obj -> do
           exts <- obj .:? "extensions" .!= []
-          deps <- obj .:? "dependencies" .!= []
           mods <- obj .: "modules" >>= parseModules
           expr <- obj .: "expression"
           expected <- obj .: "output"
@@ -186,7 +188,7 @@ parseEvalFixture root path value = do
           fixtureEvaluators <- obj .:? "evaluators" .!= ["fc", "grin"]
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, deps, mods, expr, expected, failureError, exception, stdoutOutput, fixtureEvaluators, status, reason)
+          pure (exts, mods, expr, expected, failureError, exception, stdoutOutput, fixtureEvaluators, status, reason)
       )
       value
   if null modules
@@ -215,7 +217,6 @@ parseEvalFixture root path value = do
             evalCaseCategory = category,
             evalCasePath = relPath,
             evalCaseExtensions = exts,
-            evalCaseDependencies = dependencies,
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
@@ -242,10 +243,20 @@ parseModules = withArray "modules" $ \arr ->
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
 
-evaluateEvalCase :: ProgramEvaluator -> EvalCase -> IO (Outcome, String)
-evaluateEvalCase evaluator tc = do
-  compileResult <- compileEvalCase tc
-  case compileResult of
+-- | The shared compilation environment: every module of aihc-prim and
+-- aihc-base, resolved, typechecked and desugared once per test run.
+-- Fixtures compile only their own modules against it.
+data EvalEnvironment = EvalEnvironment
+  { envExports :: !ModuleExports,
+    envBuiltinScope :: !Scope,
+    envInterface :: !TcInterface,
+    envBindings :: ![TcBindingResult],
+    envProgram :: !Fc.Program
+  }
+
+evaluateEvalCase :: EvalEnvironment -> ProgramEvaluator -> EvalCase -> IO (Outcome, String)
+evaluateEvalCase env evaluator tc =
+  case compileEvalCase env tc of
     Left errMsg -> pure (classifyCompileFailure tc errMsg)
     Right program -> do
       (actualStdout, renderResult) <-
@@ -255,57 +266,40 @@ evaluateEvalCase evaluator tc = do
           Right actual -> classifySuccess tc (T.unpack actual) actualStdout
           Left failure -> classifyEvaluationFailure tc failure actualStdout
 
-compileEvalCase :: EvalCase -> IO (Either String Fc.Program)
-compileEvalCase tc =
-  case parseInputs tc of
-    Left errMsg -> pure (Left errMsg)
-    Right (modules, expr) -> do
-      let evalModules = combineModules modules expr
-      dependencyModules <- loadDependencyModules tc evalModules
-      case dependencyModules of
-        Left errMsg -> pure (Left errMsg)
-        Right deps ->
-          let depModules = map snd deps
-              dependencyByModuleName = Map.fromList [(name, dependency) | (dependency, modu) <- deps, Just name <- [Surface.moduleName modu]]
-              allModules = addListSupport (depModules <> evalModules)
-              packageModules = map (modulePackage dependencyByModuleName) allModules
-              resolved = resolveWithDeps (evalBuiltinScope packageModules) mempty packageModules
-           in case resolved of
-                ResolveResult {resolvedModules, resolveErrors = []} ->
-                  let moduleAsts = map snd resolvedModules
-                      (tcResults, tcInterface) = typecheckDependencyModules moduleAsts
-                   in if all tcModuleSuccess tcResults
-                        then do
-                          let allBindings = moduleGroupBindings tcResults
-                              results =
-                                map
-                                  (Fc.desugarModuleFc (Fc.DesugarConfig {Fc.primPackageId = PackageId "aihc-prim"}) allBindings tcInterface)
-                                  tcResults
-                          if all Fc.dsSuccess results
-                            then pure (Right (concatPrograms (map Fc.dsProgram results)))
-                            else pure (Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results)))
-                        else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
-                ResolveResult {resolveErrors} ->
-                  pure (Left ("resolve error: " <> show resolveErrors))
-  where
-    addListSupport modules
-      | any ((== Just "GHC.Types") . Surface.moduleName) modules = modules
-      | otherwise = listSupportModule : modules
-    listSupportModule =
-      case parseOneModule "GHC.Types" [] "module GHC.Types (Bool(..), List(..)) where\ndata Bool = False | True\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
-        Right modu -> modu
-        Left err -> error err
-    modulePackage dependencyByModuleName modu
-      | Just name <- Surface.moduleName modu,
-        Map.lookup name dependencyByModuleName == Just "aihc-prim" || name == "GHC.Types" =
-          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (unnamedPackage, modu)
+compileEvalCase :: EvalEnvironment -> EvalCase -> Either String Fc.Program
+compileEvalCase env tc = do
+  (modules, expr) <- parseInputs tc
+  let packageModules = [(unnamedPackage, modu) | modu <- combineModules modules expr]
+  case resolveWithDeps (envBuiltinScope env) (envExports env) packageModules of
+    ResolveResult {resolvedModules, resolveErrors = []} -> do
+      let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) (map snd resolvedModules)
+      unless (all tcModuleSuccess tcResults) $
+        Left ("typecheck error: " <> renderTcErrors tcResults)
+      let interface = envInterface env <> localInterface
+          bindings = envBindings env <> moduleGroupBindings tcResults
+          results = map (Fc.desugarModuleFc evalDesugarConfig bindings interface) tcResults
+      unless (all Fc.dsSuccess results) $
+        Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
+      pure (concatPrograms (envProgram env : map Fc.dsProgram results))
+    ResolveResult {resolveErrors} ->
+      Left ("resolve error: " <> show resolveErrors)
 
-evalBuiltinScope :: [(Package, Module)] -> Scope
-evalBuiltinScope packageModules =
+evalTcConfig :: TcConfig
+evalTcConfig = tcConfig primPackageId
+
+evalDesugarConfig :: Fc.DesugarConfig
+evalDesugarConfig = Fc.DesugarConfig {Fc.primPackageId = primPackageId}
+
+primPackageId :: PackageId
+primPackageId = PackageId "aihc-prim"
+
+primPackage :: Package
+primPackage = Package "aihc-prim" primPackageId
+
+evalBuiltinScope :: ModuleExports -> Scope
+evalBuiltinScope allExports =
   foldr (unionScope . lookupBuiltin) emptyScope ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim"]
   where
-    allExports = collectModuleExportsWithDeps mempty packageModules
     lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name allExports
 
 parseInputs :: EvalCase -> Either String ([Module], Expr)
@@ -419,17 +413,16 @@ moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
   concatMap tcModuleBindings
 
-typecheckDependencyModules :: [Module] -> ([Module], TcInterface)
-typecheckDependencyModules modules =
+-- | Typecheck the core library modules, which must arrive in dependency
+-- order. The wired-in modules are checked first as one group.
+typecheckCoreModules :: [Module] -> ([Module], TcInterface)
+typecheckCoreModules modules =
   let (checkedPrim, primInterface) =
-        typecheckModuleSccWithInterface config emptyTcInterface (sortOn moduleOrder primModules)
+        typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)
       (checkedOther, localInterface) =
-        typecheckModulesWithInterface config primInterface orderedOtherModules
+        typecheckModulesWithInterface evalTcConfig primInterface orderedOtherModules
    in (checkedPrim <> checkedOther, primInterface <> localInterface)
   where
-    config = tcConfig (PackageId "aihc-prim")
-    moduleKey = fromMaybe "Main" . Surface.moduleName
-    wiredTypeModules = ["GHC.Prim", "GHC.Tuple", "GHC.Types"]
     primModules = filter ((`elem` wiredTypeModules) . moduleKey) modules
     orderedOtherModules = filter ((`notElem` wiredTypeModules) . moduleKey) modules
     moduleOrder modu =
@@ -439,10 +432,16 @@ typecheckDependencyModules modules =
         "GHC.Tuple" -> (2, moduleKey modu)
         _ -> (3, moduleKey modu)
 
+moduleKey :: Module -> Text
+moduleKey = fromMaybe "Main" . Surface.moduleName
+
+wiredTypeModules :: [Text]
+wiredTypeModules = ["GHC.Prim", "GHC.Tuple", "GHC.Types"]
+
 concatPrograms :: [Fc.Program] -> Fc.Program
 concatPrograms programs =
   Fc.Program
-    { Fc.programScopes = Fc.insertScope minBound (PackageId "aihc-prim") "GHC.Types" mergedScopes,
+    { Fc.programScopes = Fc.insertScope minBound primPackageId "GHC.Types" mergedScopes,
       Fc.programImports =
         Fc.Imports
           { Fc.importHeaders = Map.unions (map (Fc.importHeaders . Fc.programImports) programs),
@@ -460,117 +459,98 @@ concatPrograms programs =
         scopes
         (Fc.scopeEntries (Fc.programScopes program))
 
-loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [(Text, Module)])
-loadDependencyModules tc evalModules = do
-  let dependencies = evalCaseDependencies tc
-      transitiveDependencies = nub (dependencies <> ["aihc-base", "aihc-prim"])
-      localModuleNames = Set.fromList (mapMaybe Surface.moduleName evalModules)
-      initialModules = filter (`Set.notMember` localModuleNames) (initialDependencyModules evalModules)
-  roots <- traverse resolveDependencyRoot transitiveDependencies
-  case sequence roots of
-    Left errMsg -> pure (Left errMsg)
-    Right packageRoots ->
-      loadTransitiveModules packageRoots initialModules
+-- | Compile the complete aihc-prim and aihc-base packages. Any failure is
+-- fatal: every fixture depends on this environment.
+loadEvalEnvironment :: IO EvalEnvironment
+loadEvalEnvironment = do
+  primRoot <- packageSourceRoot "AIHC_PRIM_SRC" "aihc-prim"
+  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
+  primModules <- loadPackageModules primPackage primRoot
+  baseModules <- loadPackageModules unnamedPackage baseRoot
+  let packageModules = orderPackageModules (primModules <> baseModules)
+  let exports = collectModuleExportsWithDeps mempty packageModules
+      builtinScope = evalBuiltinScope exports
+  case resolveWithDeps builtinScope mempty packageModules of
+    ResolveResult {resolvedModules, resolveErrors = []} -> do
+      let (tcResults, interface) = typecheckCoreModules (map snd resolvedModules)
+      unless (all tcModuleSuccess tcResults) $
+        fail ("core library typecheck error: " <> renderTcErrors tcResults)
+      let bindings = moduleGroupBindings tcResults
+          results = map (Fc.desugarModuleFc evalDesugarConfig bindings interface) tcResults
+      unless (all Fc.dsSuccess results) $
+        fail ("core library desugar error: " <> unlines (concatMap Fc.dsErrors results))
+      let program = concatPrograms (map Fc.dsProgram results)
+      -- Force the shared structures once so no fixture pays for them again.
+      _ <- evaluate (length (Fc.programDecls program))
+      _ <- evaluate (length (tcInterfaceTerms interface))
+      _ <- evaluate (length bindings)
+      pure
+        EvalEnvironment
+          { envExports = exports,
+            envBuiltinScope = builtinScope,
+            envInterface = interface,
+            envBindings = bindings,
+            envProgram = program
+          }
+    ResolveResult {resolveErrors} ->
+      fail ("core library resolve error: " <> show resolveErrors)
 
-resolveDependencyRoot :: Text -> IO (Either String (Text, FilePath))
-resolveDependencyRoot dependency =
-  case dependency of
-    "aihc-base" -> do
-      envRoot <- lookupEnv "AIHC_BASE_SRC"
-      root <- maybe defaultAihcBaseRoot pure envRoot
-      pure (Right (dependency, root))
-    "aihc-prim" -> do
-      envRoot <- lookupEnv "AIHC_PRIM_SRC"
-      root <- maybe defaultAihcPrimRoot pure envRoot
-      pure (Right (dependency, root))
-    _ ->
-      pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
-
-defaultAihcBaseRoot :: IO FilePath
-defaultAihcBaseRoot = do
-  cwd <- getCurrentDirectory
-  findUp cwd
+packageSourceRoot :: String -> FilePath -> IO FilePath
+packageSourceRoot variable packageName = do
+  configured <- lookupEnv variable
+  maybe (findUp =<< getCurrentDirectory) pure configured
   where
     findUp dir = do
-      let candidate = dir </> "core-libs" </> "aihc-base"
+      let candidate = dir </> "core-libs" </> packageName
       exists <- doesDirectoryExist candidate
       if exists
         then pure candidate
         else do
           let parent = takeDirectory dir
           if parent == dir
-            then pure candidate
+            then fail ("Cannot find the " <> packageName <> " sources; set " <> variable)
             else findUp parent
 
-defaultAihcPrimRoot :: IO FilePath
-defaultAihcPrimRoot = do
-  cwd <- getCurrentDirectory
-  findUp cwd
+-- | Parse every Haskell source file below the package's @src@ directory.
+loadPackageModules :: Package -> FilePath -> IO [(Package, Module)]
+loadPackageModules package root = do
+  paths <- listSourceFiles (root </> "src")
+  forM (sort paths) $ \path -> do
+    source <- TIO.readFile path
+    case parseOneModule path [] source of
+      Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
+      Right modu -> pure (package, modu)
+
+listSourceFiles :: FilePath -> IO [FilePath]
+listSourceFiles dir = do
+  entries <- listDirectory dir
+  concat
+    <$> forM
+      entries
+      ( \entry -> do
+          let path = dir </> entry
+          isDir <- doesDirectoryExist path
+          if isDir
+            then listSourceFiles path
+            else pure [path | takeExtension path == ".hs"]
+      )
+
+-- | Order the modules depth first along their imports, so that a module
+-- follows everything it imports unless the import is part of a cycle. The
+-- core libraries contain import cycles through Prelude, and the sequential
+-- typechecker accepts this order for them.
+orderPackageModules :: [(Package, Module)] -> [(Package, Module)]
+orderPackageModules packageModules =
+  reverse (snd (foldl visit (Set.empty, []) ("Prelude" : Map.keys byName)))
   where
-    findUp dir = do
-      let candidate = dir </> "core-libs" </> "aihc-prim"
-      exists <- doesDirectoryExist candidate
-      if exists
-        then pure candidate
-        else do
-          let parent = takeDirectory dir
-          if parent == dir
-            then pure candidate
-            else findUp parent
-
-initialDependencyModules :: [Module] -> [Text]
-initialDependencyModules modules
-  | any ((== Just "Prelude") . Surface.moduleName) modules = nub (importedModuleNameList modules)
-  | otherwise = nub ("Prelude" : importedModuleNameList modules)
-
-importedModuleNames :: [Module] -> Set.Set Text
-importedModuleNames modules =
-  Set.fromList (importedModuleNameList modules)
-
-importedModuleNameList :: [Module] -> [Text]
-importedModuleNameList modules =
-  [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
-
-loadTransitiveModules :: [(Text, FilePath)] -> [Text] -> IO (Either String [(Text, Module)])
-loadTransitiveModules packageRoots initialModules =
-  fmap snd <$> go Set.empty [] initialModules
-  where
-    go seen loaded [] =
-      pure (Right (seen, loaded))
-    go seen loaded (moduleName : pending)
-      | moduleName `Set.member` seen =
-          go seen loaded pending
-      | otherwise = do
-          maybeEntry <- findModulePathInDependencies packageRoots moduleName
-          case maybeEntry of
-            Nothing -> do
-              let dependencyNames = T.intercalate ", " (map fst packageRoots)
-              pure (Left ("dependency module " <> T.unpack moduleName <> " not found in dependencies: " <> T.unpack dependencyNames))
-            Just (dependency, path) -> do
-              source <- TIO.readFile path
-              case parseOneModule path [] source of
-                Left errMsg -> pure (Left ("dependency module " <> T.unpack moduleName <> " parse error: " <> errMsg))
-                Right modu -> do
-                  let seen' = Set.insert moduleName seen
-                      newImports = Set.toAscList (importedModuleNames [modu] `Set.difference` seen')
-                  depResult <- go seen' loaded newImports
-                  case depResult of
-                    Left errMsg -> pure (Left errMsg)
-                    Right (seenWithDeps, loadedWithDeps) ->
-                      go seenWithDeps (loadedWithDeps <> [(dependency, modu)]) pending
-
-findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe (Text, FilePath))
-findModulePathInDependencies [] _ = pure Nothing
-findModulePathInDependencies ((dependency, root) : rest) moduleName = do
-  let path = root </> "src" </> moduleNamePath moduleName
-  exists <- doesFileExist path
-  if exists
-    then pure (Just (dependency, path))
-    else findModulePathInDependencies rest moduleName
-
-moduleNamePath :: Text -> FilePath
-moduleNamePath moduleName =
-  joinPath (map T.unpack (T.splitOn "." moduleName)) <> ".hs"
+    byName = Map.fromList [(name, entry) | entry@(_, modu) <- packageModules, Just name <- [Surface.moduleName modu]]
+    visit (seen, ordered) name
+      | name `Set.member` seen = (seen, ordered)
+      | Just entry@(_, modu) <- Map.lookup name byName =
+          let imports = sort (nub (map importDeclModule (moduleImports modu)))
+              (seen', ordered') = foldl visit (Set.insert name seen, ordered) imports
+           in (seen', entry : ordered')
+      | otherwise = (seen, ordered)
 
 classifySuccess :: EvalCase -> String -> Maybe String -> (Outcome, String)
 classifySuccess tc actual actualStdout =

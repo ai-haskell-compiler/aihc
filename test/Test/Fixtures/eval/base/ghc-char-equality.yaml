@@ -1,7 +1,4 @@
 extensions: []
-dependencies:
-  - aihc-base
-  - aihc-prim
 modules:
   - |
     module Test where

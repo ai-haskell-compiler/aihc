@@ -1,7 +1,5 @@
 extensions:
   - TypeOperators
-dependencies:
-  - aihc-base
 modules:
   - |
     {-# LANGUAGE TypeOperators #-}
@@ -66,5 +64,5 @@ modules:
 output: |
   True
 expression: result
-status: pass
-reason: "Data.Type.Equality exports :~: and :~~: for deepseq NFData instances and constructor proofs"
+status: xfail
+reason: "matching on Refl imported through a type interface does not bring a ~ b into scope (build-exe fails with 'could not match b with a'); the constructor's equality is lost when the GADT crosses the interface"

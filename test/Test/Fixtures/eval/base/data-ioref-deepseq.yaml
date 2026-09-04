@@ -1,8 +1,6 @@
 extensions:
   - FlexibleInstances
   - KindSignatures
-dependencies:
-  - aihc-base
 modules:
   - |
     module Test where

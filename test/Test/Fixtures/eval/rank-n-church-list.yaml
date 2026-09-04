@@ -1,6 +1,5 @@
 extensions:
   - RankNTypes
-dependencies: []
 modules:
   - |
     module Test where

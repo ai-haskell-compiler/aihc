@@ -1,8 +1,5 @@
 extensions:
   - TypeOperators
-dependencies:
-  - aihc-base
-  - aihc-prim
 modules:
   - |
     {-# LANGUAGE TypeOperators #-}
