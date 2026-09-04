@@ -918,10 +918,19 @@ compileExpr ctx env expression =
     GrinHalt _ -> do
       entry <- callRuntime "aihc_halt" [Ptr] [Code] [ctxMachine ctx]
       terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
+    -- A POSIX process exits at once. A WASI P3 component records the
+    -- status and halts, so the driver reports it when the machine returns.
     GrinExit status -> do
       statusOperand <- materialize ctx env status >>= coerce I64
-      _ <- callRuntime "aihc_exit_process" [I64] [] [statusOperand]
-      terminate (Trap "unreachable")
+      target <- targetM
+      case lowerHost target of
+        PosixHost -> do
+          _ <- callRuntime "aihc_exit_process" [I64] [] [statusOperand]
+          terminate (Trap "unreachable")
+        Wasip3Host -> do
+          _ <- callRuntime "aihc_set_exit_status" [Ptr, I64] [] [ctxMachine ctx, statusOperand]
+          entry <- callRuntime "aihc_halt" [Ptr] [Code] [ctxMachine ctx]
+          terminate (TailCallIndirect entry [ctxMachine ctx] (Signature [Ptr] [] AihcConvention))
     GrinCase scrutinee binder alternatives -> compileCase ctx env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
