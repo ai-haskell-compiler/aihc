@@ -7,15 +7,16 @@ modules:
   - |
     module Test where
 
-    import Data.Complex
     import GHC.Prim (raise#)
 
     data Failure = Failure
 
+    data Pair = Pair !Int Int
+
     result :: Bool
-    result = seq ((1 :: Integer) :+ raise# Failure) True
+    result = seq (Pair (raise# Failure) 1) True
 output: ""
 exception: Failure
 expression: result
 status: pass
-reason: evaluating a Complex constructor to weak head normal form raises the exact Failure exception from its strict imaginary component
+reason: a data constructor with a strict field forces that field when it builds the value
