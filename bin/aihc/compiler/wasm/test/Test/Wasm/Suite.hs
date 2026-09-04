@@ -625,6 +625,7 @@ foreignIntProgram =
       GrinForeignCall
         { grinForeignCallName = "$ffi$takeResult",
           grinForeignCallSymbol = "aihc_io_take_result",
+          grinForeignCallTarget = GrinForeignFunction,
           grinForeignCallSignature = GrinForeignSignature [GrinForeignAddr] GrinForeignInt GrinForeignRealWorld
         }
 

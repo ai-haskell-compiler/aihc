@@ -1,0 +1,33 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim (eqAddr#, neAddr#)
+    import GHC.Ptr (Ptr(..))
+
+    foreign import ccall "&puts" putsAddress :: Ptr ()
+
+    foreign import ccall "&puts" alsoPutsAddress :: Ptr ()
+
+    foreign import ccall "&strlen" strlenAddress :: Ptr ()
+
+    data Results = Results Int Int
+
+    results :: Results
+    results =
+      case putsAddress of
+        Ptr puts1 -> case alsoPutsAddress of
+          Ptr puts2 -> case strlenAddress of
+            Ptr strlen -> Results (I# (eqAddr# puts1 puts2)) (I# (neAddr# puts1 strlen))
+output: |
+  Results (I# 1) (I# 1)
+expression: results
+status: pass
+reason: an address foreign import yields the static symbol address rather than calling it

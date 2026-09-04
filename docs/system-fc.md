@@ -105,6 +105,9 @@ GRIN lowering is temporarily disabled.
     The runtime has one thread, thus safe and unsafe calls are equal.
     An omitted safety mark means `safe`.
     If desugar sees `interruptible`, it fails the module.
+    A `ccall` whose entity is `&sym` names static data instead of a function.
+    It prints as `ccall address`, takes no arguments and yields the symbol
+    address.
 
 19. Recognise `GHC.Types` names by package and module identity.
     Do not add extra axioms for them.
@@ -201,6 +204,7 @@ Do not rebuild Haskell types in Fc.
 | Value | `val` with no `rec` mark |
 | `foreign import prim` | `foreign import prim` |
 | `foreign import ccall` | `foreign import ccall` with its safety mark |
+| `foreign import ccall "&sym"` | `foreign import ccall address` with its safety mark |
 
 `desugarModuleFc` already emits data types, synonyms, values, and `foreign import prim`.
 

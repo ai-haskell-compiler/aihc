@@ -207,11 +207,21 @@ lowerForeignDecl env declaration = do
         grinFunctionResultRep = resultRep,
         grinFunctionBody = body
       }
+  -- A foreign call that takes no arguments is a value, not a function, so its
+  -- global suspends the call instead of holding an empty closure.
+  node <-
+    case Fc.foreignImportCallingConvention declaration of
+      Fc.CCall {}
+        | arity == 0 ->
+            if resultRep == liftedGrinRep
+              then pure (GrinNode (GrinThunk functionName) [])
+              else throwLower ("GRIN cannot suspend an unlifted foreign import: " <> T.unpack (Fc.nameText name))
+      _ -> pure (GrinNode (GrinClosure functionName layouts) [])
   pure
     mempty
       { topPrimitives = primitives,
         topForeignCalls = foreignCalls,
-        topGlobals = [(globalName, GrinNode (GrinClosure functionName layouts) [])]
+        topGlobals = [(globalName, node)]
       }
 
 foreignAxiomDeclarations :: LowerEnv -> Fc.ForeignImportDecl -> LowerM [Fc.AxiomDecl]
@@ -1108,6 +1118,7 @@ lowerForeignCall name specification =
   GrinForeignCall
     { grinForeignCallName = Fc.nameText name,
       grinForeignCallSymbol = Fc.ccallSymbol specification,
+      grinForeignCallTarget = lowerForeignTarget (Fc.ccallTarget specification),
       grinForeignCallSignature =
         GrinForeignSignature
           { grinForeignArgumentTypes = map lowerForeignType (Fc.ccallArgumentTypes specification),
@@ -1118,6 +1129,12 @@ lowerForeignCall name specification =
                 Fc.ForeignRealWorld -> GrinForeignRealWorld
           }
     }
+
+lowerForeignTarget :: Fc.CCallTarget -> GrinForeignTarget
+lowerForeignTarget target =
+  case target of
+    Fc.CCallFunction -> GrinForeignFunction
+    Fc.CCallAddress -> GrinForeignAddress
 
 lowerForeignType :: Fc.CAbiType -> GrinForeignType
 lowerForeignType foreignType =

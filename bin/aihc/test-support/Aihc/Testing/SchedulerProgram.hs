@@ -120,6 +120,7 @@ stdioSchedulerProgram =
       GrinForeignCall
         { grinForeignCallName = "$ffi$" <> symbol,
           grinForeignCallSymbol = symbol,
+          grinForeignCallTarget = GrinForeignFunction,
           grinForeignCallSignature =
             GrinForeignSignature
               { grinForeignArgumentTypes = arguments,
@@ -133,6 +134,7 @@ putcharCall =
   GrinForeignCall
     { grinForeignCallName = "$ffi$putchar",
       grinForeignCallSymbol = "putchar",
+      grinForeignCallTarget = GrinForeignFunction,
       grinForeignCallSignature =
         GrinForeignSignature
           { grinForeignArgumentTypes = [GrinForeignInt32],

@@ -37,7 +37,7 @@ import Foreign.LibFFI (Arg, argCInt, argInt64, argPtr, argWord64, callFFI, retCI
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
-import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
+import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
@@ -1460,6 +1460,9 @@ executeForeignCall foreignCall arguments
 
 callForeign :: GrinForeignCall -> [RuntimeValue] -> EvalM RuntimeValue
 callForeign foreignCall arguments
+  -- An address import names static data; its value is the symbol address.
+  | GrinForeignAddress <- grinForeignCallTarget foreignCall =
+      RuntimeAddress . castFunPtrToPtr <$> lookupForeignFunction foreignCall
   | symbol == "aihc_io_stdin",
     [] <- arguments =
       pure (RuntimeIOHandle (GrinIOHandle 0 stdin))

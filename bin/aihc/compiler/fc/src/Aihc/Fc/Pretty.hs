@@ -203,6 +203,7 @@ prettyCallingConvention convention =
     Prim -> "prim "
     CCall specification ->
       "ccall "
+        <> prettyCCallTarget (ccallTarget specification)
         <> prettyForeignSafety (ccallSafety specification)
         <> " "
         <> pretty (show (T.unpack (ccallSymbol specification)))
@@ -213,6 +214,12 @@ prettyCallingConvention convention =
         <> "; "
         <> prettyForeignEffect (ccallEffect specification)
         <> "] "
+
+prettyCCallTarget :: CCallTarget -> Doc ann
+prettyCCallTarget target =
+  case target of
+    CCallFunction -> mempty
+    CCallAddress -> "address "
 
 prettyCAbiType :: CAbiType -> Doc ann
 prettyCAbiType abiType =

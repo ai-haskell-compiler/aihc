@@ -1013,6 +1013,14 @@ compileDirectBinding env vars expression =
     internalArity name = lift (Left (LlvmUnsupportedExpression ("internal " <> name <> " arity")))
 
 compileForeignCall :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM ([Text], Text)
+compileForeignCall _ foreignCall arguments
+  -- An address import materializes the symbol address instead of calling it.
+  | GrinForeignAddress <- grinForeignCallTarget foreignCall =
+      if null arguments
+        then do
+          result <- freshValue
+          pure (["  " <> result <> " = ptrtoint ptr @" <> grinForeignCallSymbol foreignCall <> " to i64"], result)
+        else lift (Left (LlvmUnsupportedExpression "address foreign import with arguments"))
 compileForeignCall env foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
       argumentTypes = grinForeignArgumentTypes signature
@@ -1759,8 +1767,13 @@ renderForeignDeclarations program =
       <> T.intercalate ", " (["ptr" | passMachine] <> map llvmForeignType (grinForeignArgumentTypes signature))
       <> ")"
   | (passMachine, foreignCall) <- foreignCalls,
+    grinForeignCallTarget foreignCall == GrinForeignFunction,
     let signature = grinForeignCallSignature foreignCall
   ]
+    <> [ "@" <> grinForeignCallSymbol foreignCall <> " = external global i8"
+       | (_, foreignCall) <- foreignCalls,
+         grinForeignCallTarget foreignCall == GrinForeignAddress
+       ]
     <> ["" | not (null foreignCalls)]
   where
     foreignCalls =

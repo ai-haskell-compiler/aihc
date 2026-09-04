@@ -262,9 +262,16 @@ prettyForeignCall :: GrinForeignCall -> Doc ann
 prettyForeignCall foreignCall =
   prettyName (grinForeignCallName foreignCall)
     <+> "="
-    <+> pretty (show (T.unpack (grinForeignCallSymbol foreignCall)))
+    <+> prettyForeignTarget (grinForeignCallTarget foreignCall)
+    <> pretty (show (T.unpack (grinForeignCallSymbol foreignCall)))
     <+> "::"
     <+> prettyForeignSignature (grinForeignCallSignature foreignCall)
+
+prettyForeignTarget :: GrinForeignTarget -> Doc ann
+prettyForeignTarget target =
+  case target of
+    GrinForeignFunction -> mempty
+    GrinForeignAddress -> "address "
 
 prettyForeignSignature :: GrinForeignSignature -> Doc ann
 prettyForeignSignature signature =

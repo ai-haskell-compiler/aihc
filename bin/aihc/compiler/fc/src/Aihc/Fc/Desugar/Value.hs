@@ -568,12 +568,13 @@ desugarForeign annotation foreignPlan foreignDecl =
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
       safety <- convertForeignSafety (Syn.foreignSafety foreignDecl)
-      symbol <- foreignSymbol foreignDecl
+      (target, symbol) <- foreignSymbol foreignDecl
       dependencies <- foreignImportPlanDependencies annotation plan
       let convention =
             CCall
               CCallSpec
                 { ccallSymbol = symbol,
+                  ccallTarget = target,
                   ccallSafety = safety,
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
@@ -664,13 +665,19 @@ foreignNewtypeDependency dataType =
   let tyCon = dtiTyCon dataType
    in ForeignAxiom (Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
 
-foreignSymbol :: Syn.ForeignDecl -> ValueM Text
+-- | The C entity a foreign import names, together with whether the import
+-- calls that entity or takes its address (@foreign import ccall "&sym"@).
+foreignSymbol :: Syn.ForeignDecl -> ValueM (CCallTarget, Text)
 foreignSymbol foreignDecl =
   case Syn.foreignEntity foreignDecl of
-    Syn.ForeignEntityNamed name -> pure name
-    Syn.ForeignEntityStatic (Just name) -> pure name
-    Syn.ForeignEntityOmitted -> pure (Syn.unqualifiedNameText (Syn.foreignName foreignDecl))
+    Syn.ForeignEntityNamed name -> pure (CCallFunction, name)
+    Syn.ForeignEntityStatic (Just name) -> pure (CCallFunction, name)
+    Syn.ForeignEntityOmitted -> pure (CCallFunction, declaredName)
+    Syn.ForeignEntityAddress (Just name) -> pure (CCallAddress, name)
+    Syn.ForeignEntityAddress Nothing -> pure (CCallAddress, declaredName)
     _ -> failValue "System FC accepts only statically named foreign imports"
+  where
+    declaredName = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =

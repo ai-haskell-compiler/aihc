@@ -564,6 +564,7 @@ foreignCallDefinition = do
   horizontal1
   _ <- MPC.char '='
   horizontal1
+  target <- MP.option GrinForeignFunction (GrinForeignAddress <$ (keyword "address" <* horizontal1))
   symbolName <- stringText
   horizontal1
   _ <- MPC.string "::"
@@ -573,6 +574,7 @@ foreignCallDefinition = do
     GrinForeignCall
       { grinForeignCallName = callName,
         grinForeignCallSymbol = symbolName,
+        grinForeignCallTarget = target,
         grinForeignCallSignature = signature
       }
 

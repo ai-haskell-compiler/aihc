@@ -270,10 +270,14 @@ genCCallSpec :: Gen CCallSpec
 genCCallSpec =
   CCallSpec
     <$> genForeignSymbol
+    <*> genCCallTarget
     <*> genForeignSafety
     <*> Gen.list (Range.linear 0 6) genCAbiType
     <*> genCAbiType
     <*> genForeignEffect
+
+genCCallTarget :: Gen CCallTarget
+genCCallTarget = Gen.element [CCallFunction, CCallAddress]
 
 genForeignSymbol :: Gen Text
 genForeignSymbol =
