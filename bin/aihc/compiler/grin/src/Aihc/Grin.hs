@@ -24,6 +24,8 @@ module Aihc.Grin
     normalizeHeapReservations,
     lowerProgram,
     lintProgram,
+    lintCpsProgram,
+    lintGcProgram,
     GrinLintError (..),
     GrinParseError,
     parseProgram,
@@ -61,7 +63,7 @@ import Aihc.Grin.Cps
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
 import Aihc.Grin.Heap (normalizeHeapReservations)
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
-import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
+import Aihc.Grin.Lint (GrinLintError (..), lintCpsProgram, lintGcProgram, lintProgram)
 import Aihc.Grin.Lower (lowerProgram)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
 import Aihc.Grin.Pretty (prettyExpr, prettyProgram)

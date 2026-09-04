@@ -1,19 +1,20 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Structural validation for GRIN programs.
 module Aihc.Grin.Lint
   ( GrinLintError (..),
     lintProgram,
+    lintCpsProgram,
+    lintGcProgram,
   )
 where
 
+import Aihc.Grin.Cps (CpsGrinProgram, cpsFunctionContinuations, cpsGrinProgram)
+import Aihc.Grin.Gc (GcGrinProgram, gcFunctionContinuations, gcGrinProgram)
 import Aihc.Grin.Syntax
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Data.Text qualified as T
 
 data GrinLintError
   = GrinLintDuplicateFunction !FunctionName
@@ -23,6 +24,7 @@ data GrinLintError
   | GrinLintUnknownPrimitive !Text
   | GrinLintFunctionArity !FunctionName !Int !Int
   | GrinLintSaturatedClosure !FunctionName
+  | GrinLintContinuationParameter !FunctionName
   | GrinLintThunkResult !FunctionName !GrinRep
   | GrinLintRepresentationMismatch !String !GrinRep !GrinRep
   | GrinLintResultLayout !String ![GrinRep] ![GrinRep]
@@ -43,10 +45,29 @@ data LintEnv = LintEnv
     lintForeignCalls :: !(Map Text GrinForeignCall)
   }
 
+-- | Validate direct GRIN. No function has a hidden continuation parameter.
 lintProgram :: GrinProgram -> [GrinLintError]
-lintProgram program =
+lintProgram = lintProgramWith Map.empty
+
+-- | Validate CPS-GRIN. The program metadata gives the hidden continuation
+-- parameter of every computation entry.
+lintCpsProgram :: CpsGrinProgram -> [GrinLintError]
+lintCpsProgram cps = lintProgramWith (cpsFunctionContinuations cps) (cpsGrinProgram cps)
+
+-- | Validate GC-GRIN. The GC phase keeps the CPS metadata unchanged.
+lintGcProgram :: GcGrinProgram -> [GrinLintError]
+lintGcProgram gc = lintProgramWith (gcFunctionContinuations gc) (gcGrinProgram gc)
+
+-- | Validate one GRIN program. The first argument gives the hidden
+-- continuation parameter of each computation entry. The CPS transformation
+-- adds that parameter to the entry, but it does not add a field to the thunk
+-- and closure nodes that name the entry. A node therefore supplies one value
+-- less than the entry has parameters.
+lintProgramWith :: Map FunctionName GrinVar -> GrinProgram -> [GrinLintError]
+lintProgramWith continuations program =
   duplicateFunctionErrors
     <> duplicateGlobalErrors
+    <> continuationParameterErrors
     <> concatMap (lintGlobal env) (grinGlobals program)
     <> concatMap (lintFunction env) (grinFunctions program)
   where
@@ -75,13 +96,24 @@ lintProgram program =
           lintConstructorLayouts = Map.fromList (grinConstructors program),
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
+    -- The number of values that a thunk or closure node must supply.
     semanticFunctionArity function =
-      if "$cps$" `T.isPrefixOf` unFunctionName (grinFunctionName function)
-        then length (grinFunctionParameters function)
-        else case reverse (grinFunctionParameters function) of
-          continuation : rest
-            | grinVarName continuation == "$cps_return" -> length rest
-          _ -> length (grinFunctionParameters function)
+      length (grinFunctionParameters function) - hiddenParameterCount function
+    hiddenParameterCount function
+      | Map.member (grinFunctionName function) continuations = 1
+      | otherwise = 0
+    -- A recorded continuation must be the last parameter of its entry.
+    -- Nothing else keeps the node arities and the calling convention in step.
+    continuationParameterErrors =
+      [ GrinLintContinuationParameter (grinFunctionName function)
+      | function <- functions,
+        Just continuation <- [Map.lookup (grinFunctionName function) continuations],
+        lastParameter function /= Just continuation
+      ]
+    lastParameter function =
+      case reverse (grinFunctionParameters function) of
+        parameter : _ -> Just parameter
+        [] -> Nothing
 
 lintGlobal :: LintEnv -> (Text, GrinNode) -> [GrinLintError]
 lintGlobal env (_, node) = lintNode env Set.empty node

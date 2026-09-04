@@ -13,6 +13,7 @@ import Data.Text qualified as T
 import GrinGolden qualified
 import Test.Grin.Anf qualified as Anf
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
+import Test.Grin.Lint qualified as Lint
 import Test.Grin.Srt qualified as Srt
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertFailure, testCase)
@@ -27,6 +28,7 @@ tests = do
         "aihc-grin"
         [ testProperty "generated GRIN pretty-printer round-trip" prop_grinPrettyRoundTrip,
           Anf.tests,
+          Lint.tests,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource EvalFixture.loadEvalEnvironment (const (pure ())) $ \getEnvironment ->

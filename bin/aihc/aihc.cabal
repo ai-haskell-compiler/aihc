@@ -282,6 +282,7 @@ test-suite spec
     Test.Fc.Suite
     Test.Grin.Anf
     Test.Grin.Arbitrary
+    Test.Grin.Lint
     Test.Grin.Spec
     Test.Grin.Srt
     Test.Lir.Arbitrary
