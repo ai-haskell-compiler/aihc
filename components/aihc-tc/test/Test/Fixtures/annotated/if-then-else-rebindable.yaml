@@ -1,0 +1,36 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  data MyBool = MyTrue | MyFalse
+  ifThenElse MyTrue a _ = a
+  ifThenElse MyFalse _ b = b
+  pick = if MyTrue then "true" else "false"
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Test where
+  data MyBool = MyTrue | MyFalse
+       │        │        └─ type: MyBool
+       │        └─ type: MyBool
+       └─ type: Type
+  ifThenElse MyTrue a _ = a
+  │          │      │ └─ type: a
+  │          │      └─ type: a
+  │          └─ type: MyBool
+  └─ type: ∀ a. MyBool → a → a → a
+  ifThenElse MyFalse _ b = b
+  │          │       │ └─ type: a
+  │          │       └─ type: a
+  │          └─ type: MyBool
+  └─ type: ∀ a. MyBool → a → a → a
+  pick = if MyTrue then "true" else "false"
+  │         ││           │           └─ type: [GHC.Types.Char]
+  │         ││           └─ type: [GHC.Types.Char]
+  │         └─ type: MyBool → [GHC.Types.Char] → [GHC.Types.Char] → [GHC.Types.Char]; type-args: [Char]
+  │         └─ type: [GHC.Types.Char]
+  └─ type: [GHC.Types.Char]
+reason: RebindableSyntax checks an if expression with the in-scope ifThenElse
+status: pass

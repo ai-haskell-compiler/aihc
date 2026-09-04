@@ -1,0 +1,29 @@
+extensions:
+- RebindableSyntax
+modules:
+- |
+  {-# LANGUAGE RebindableSyntax #-}
+  module Main where
+  data MyBool = MyTrue | MyFalse
+  ifThenElse MyTrue a _ = a
+  ifThenElse MyFalse _ b = b
+  pick = if MyTrue then "true" else "false"
+annotated:
+- |-
+  {-# LANGUAGE RebindableSyntax #-}
+  module Main where
+  data MyBool = MyTrue | MyFalse
+       └─ t Main│        └─ v Main
+                └─ v Main
+  ifThenElse MyTrue a _ = a
+  └─ v Main  │      │     └─ v 0
+             │      └─ v 0
+             └─ v Main
+  ifThenElse MyFalse _ b = b
+  └─ v Main  └─ v Main │   └─ v 1
+                       └─ v 1
+  pick = if MyTrue then "true" else "false"
+  └─ v Main └─ v Main
+            └─ v Main
+reason: RebindableSyntax resolves an if expression to the in-scope ifThenElse
+status: pass

@@ -755,8 +755,9 @@ resolveExpr expr =
     EString {} -> pure expr
     EStringHash {} -> resolvePrimitiveLiteralTypeName "Addr#" expr
     EOverloadedLabel {} -> pure expr
-    EIf cond trueBranch falseBranch ->
-      EIf <$> resolveExpr cond <*> resolveExpr trueBranch <*> resolveExpr falseBranch
+    EIf cond trueBranch falseBranch -> do
+      resolved <- EIf <$> resolveExpr cond <*> resolveExpr trueBranch <*> resolveExpr falseBranch
+      annotateRebindableIf resolved
     EMultiWayIf guardedRhss ->
       EMultiWayIf <$> mapM resolveGuardedRhs guardedRhss
     ELambdaPats pats body -> do
@@ -878,6 +879,21 @@ primitiveNumericTypeName numericType =
     TWord16Hash -> Just "Word16#"
     TWord32Hash -> Just "Word32#"
     TWord64Hash -> Just "Word64#"
+
+-- | RebindableSyntax gives an if expression the in-scope ifThenElse.
+-- An ordinary if expression uses the built-in Bool and gets no annotation.
+annotateRebindableIf :: Expr -> ResolveM Expr
+annotateRebindableIf expr = do
+  info <- currentModuleInfo
+  if RebindableSyntax `elem` moduleInfoExtensions info
+    then do
+      sp <- currentSpan
+      scope <- currentScope
+      let resolved = rebindableSyntaxTerm info scope "ifThenElse"
+          annotation =
+            ResolutionAnnotation sp (IdentifierNamed "ifThenElse") ResolutionNamespaceTerm resolved
+      pure (EAnn (mkAnnotation annotation) expr)
+    else pure expr
 
 rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
 rebindableFromInteger info scope =
