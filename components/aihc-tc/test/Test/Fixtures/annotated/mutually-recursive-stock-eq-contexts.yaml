@@ -1,0 +1,38 @@
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies #-}
+  module Main where
+  import GHC.Classes (Eq)
+  data Expr a b = Lit a | Block (Stmt a b)
+  │    │          │       └─ type: ∀ a b. Stmt a b → Expr a b
+  │    │          └─ type: ∀ a b. a → Expr a b
+  │    └─ type: Type → Type → Type
+  └─ deriving plans: stock Eq (Expr a b) [context: Eq a, Eq b] [methods: ==, /=]
+    deriving stock Eq
+  data Stmt a b = Bind b (Expr a b) | Seq (Stmt a b) (Alt a b)
+  │    │          │                   └─ type: ∀ a b. Stmt a b → Alt a b → Stmt a b
+  │    │          └─ type: ∀ a b. b → Expr a b → Stmt a b
+  │    └─ type: Type → Type → Type
+  └─ deriving plans: stock Eq (Stmt a b) [context: Eq b, Eq a] [methods: ==, /=]
+    deriving stock Eq
+  data Alt a b = Alt (Expr a b) (Stmt a b)
+  │    │         └─ type: ∀ a b. Expr a b → Stmt a b → Alt a b
+  │    └─ type: Type → Type → Type
+  └─ deriving plans: stock Eq (Alt a b) [context: Eq a, Eq b] [methods: ==, /=]
+    deriving stock Eq
+extensions:
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies #-}
+  module Main where
+  import GHC.Classes (Eq)
+  data Expr a b = Lit a | Block (Stmt a b)
+    deriving stock Eq
+  data Stmt a b = Bind b (Expr a b) | Seq (Stmt a b) (Alt a b)
+    deriving stock Eq
+  data Alt a b = Alt (Expr a b) (Stmt a b)
+    deriving stock Eq
+reason: stock Eq contexts for a mutually recursive group are inferred as one batch,
+  so each plan is solved once instead of once per path through the group
+status: pass
