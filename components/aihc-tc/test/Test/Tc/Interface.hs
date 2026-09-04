@@ -6,6 +6,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc
 import Aihc.Tc.Types (mkTyConWithOrigin)
 import Control.Exception (ErrorCall, evaluate, try)
+import Data.Map.Strict qualified as Map
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 
@@ -26,5 +27,5 @@ tcInterfaceTests =
     listKind = ForAll [] [] (TcFunTy typeKindType typeKindType)
     canonicalInfo = TyConInfo "List" 1 listTyCon listKind DataTyCon Nothing
     supportInfo = TyConInfo "[]" 1 listTyCon listKind DataTyCon Nothing
-    canonicalInterface = emptyTcInterface {tcInterfaceTyCons = [canonicalInfo]}
-    supportInterface = emptyTcInterface {tcInterfaceTyCons = [supportInfo]}
+    canonicalInterface = emptyTcInterface {tcInterfaceTyConMap = Map.singleton (tyConKey listTyCon) canonicalInfo}
+    supportInterface = emptyTcInterface {tcInterfaceTyConMap = Map.singleton (tyConKey listTyCon) supportInfo}

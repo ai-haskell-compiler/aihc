@@ -9,6 +9,7 @@ module Aihc.Tc.Finalize
 where
 
 import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
+import Aihc.Resolve.Traverse (traverseAnnotations)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
     TcAnnotation (..),
@@ -30,7 +31,6 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
 import Aihc.Tc.Tidy (tidyType)
-import Aihc.Tc.Traverse (traverseAnnotations)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, pattern KType)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))

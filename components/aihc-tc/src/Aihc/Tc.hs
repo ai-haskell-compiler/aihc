@@ -27,8 +27,19 @@ module Aihc.Tc
     TcTermKey (..),
     tcTermKeyIdentifier,
     TcInterface (..),
+    InstanceKey,
+    tcInterfaceTerms,
+    tcInterfaceTyCons,
+    tcInterfaceDataTypes,
+    tcInterfaceClasses,
+    tcInterfaceInstances,
+    tcInterfaceDataFamilyInstances,
+    tcInterfaceTypeFamilyInstances,
+    tcInterfacePatSyns,
+    tcInterfaceFromLists,
     emptyTcInterface,
     mergeTcInterfaces,
+    unionTcInterfaces,
     restrictTcInterfaceToModules,
     tcInterfaceBindings,
 
@@ -121,16 +132,16 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (PackageId (..), ResolutionNamespace)
+import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve.Generic (everywhereM)
+import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
-import Aihc.Tc.Generic (everywhereM)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
-import Aihc.Tc.Traverse (annotationList)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
@@ -159,90 +170,149 @@ data TcResult = TcResult
 -- | The complete semantic interface shared between independently checked
 -- module groups. Implementations never cross this boundary: only the facts
 -- needed to type-check downstream source are retained.
+--
+-- Every fact is keyed by its global identity, so merging two interfaces is
+-- a map union and the type-checker state can adopt an interface without
+-- rebuilding it. The list views below present each map in key order.
 data TcInterface = TcInterface
-  { tcInterfaceTerms :: ![(TcTermKey, TypeScheme)],
-    tcInterfaceTyCons :: ![TyConInfo],
-    tcInterfaceDataTypes :: ![DataTypeInfo],
-    tcInterfaceClasses :: ![ClassInfo],
-    tcInterfaceInstances :: ![InstanceInfo],
-    tcInterfaceDataFamilyInstances :: ![DataFamilyInstanceInfo],
-    tcInterfaceTypeFamilyInstances :: ![TypeFamilyInstanceInfo],
-    tcInterfacePatSyns :: ![PatSynInfo]
+  { tcInterfaceTermMap :: !(Map.Map TcTermKey TypeScheme),
+    tcInterfaceTyConMap :: !(Map.Map TcTypeKey TyConInfo),
+    tcInterfaceDataTypeMap :: !(Map.Map TcTypeKey DataTypeInfo),
+    tcInterfaceClassMap :: !(Map.Map TcTypeKey ClassInfo),
+    tcInterfaceInstanceMap :: !(Map.Map InstanceKey InstanceInfo),
+    tcInterfaceDataFamilyInstanceMap :: !(Map.Map TcAxiomKey DataFamilyInstanceInfo),
+    tcInterfaceTypeFamilyInstanceMap :: !(Map.Map TcAxiomKey TypeFamilyInstanceInfo),
+    tcInterfacePatSynMap :: !(Map.Map TcTermKey PatSynInfo)
   }
   deriving (Eq, Show, Read)
+
+-- | The identity of an instance: its dictionary origin and name.
+type InstanceKey = ((Text, Text), Text)
+
+tcInterfaceTerms :: TcInterface -> [(TcTermKey, TypeScheme)]
+tcInterfaceTerms = Map.toList . tcInterfaceTermMap
+
+tcInterfaceTyCons :: TcInterface -> [TyConInfo]
+tcInterfaceTyCons = Map.elems . tcInterfaceTyConMap
+
+tcInterfaceDataTypes :: TcInterface -> [DataTypeInfo]
+tcInterfaceDataTypes = Map.elems . tcInterfaceDataTypeMap
+
+tcInterfaceClasses :: TcInterface -> [ClassInfo]
+tcInterfaceClasses = Map.elems . tcInterfaceClassMap
+
+tcInterfaceInstances :: TcInterface -> [InstanceInfo]
+tcInterfaceInstances = Map.elems . tcInterfaceInstanceMap
+
+tcInterfaceDataFamilyInstances :: TcInterface -> [DataFamilyInstanceInfo]
+tcInterfaceDataFamilyInstances = Map.elems . tcInterfaceDataFamilyInstanceMap
+
+tcInterfaceTypeFamilyInstances :: TcInterface -> [TypeFamilyInstanceInfo]
+tcInterfaceTypeFamilyInstances = Map.elems . tcInterfaceTypeFamilyInstanceMap
+
+tcInterfacePatSyns :: TcInterface -> [PatSynInfo]
+tcInterfacePatSyns = Map.elems . tcInterfacePatSynMap
+
+-- | Build an interface from lists of facts. Two facts with one identity
+-- must be equal.
+tcInterfaceFromLists :: [(TcTermKey, TypeScheme)] -> [TyConInfo] -> [DataTypeInfo] -> [ClassInfo] -> [InstanceInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [PatSynInfo] -> TcInterface
+tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns =
+  TcInterface
+    { tcInterfaceTermMap = fromListChecked "term interface" id terms,
+      tcInterfaceTyConMap = fromListChecked "type constructor interface" (keyed (tyConKey . tciTyCon)) tyCons,
+      tcInterfaceDataTypeMap = fromListChecked "data type interface" (keyed dataTypeKey) dataTypes,
+      tcInterfaceClassMap = fromListChecked "class interface" (keyed classInfoKey) classes,
+      tcInterfaceInstanceMap = fromListChecked "instance interface" (keyed instanceInfoKey) instances,
+      tcInterfaceDataFamilyInstanceMap = fromListChecked "data family instance interface" (keyed dataFamilyAxiomKey) dataFamilyInstances,
+      tcInterfaceTypeFamilyInstanceMap = fromListChecked "type family instance interface" (keyed typeFamilyAxiomKey) typeFamilyInstances,
+      tcInterfacePatSynMap = fromListChecked "pattern synonym interface" (keyed patSynKey) patSyns
+    }
+  where
+    keyed key value = (key value, value)
+    fromListChecked label key = Map.fromListWithKey (conflict label) . map key
 
 emptyTcInterface :: TcInterface
 emptyTcInterface =
   TcInterface
-    { tcInterfaceTerms = [],
-      tcInterfaceTyCons = [],
-      tcInterfaceDataTypes = [],
-      tcInterfaceClasses = [],
-      tcInterfaceInstances = [],
-      tcInterfaceDataFamilyInstances = [],
-      tcInterfaceTypeFamilyInstances = [],
-      tcInterfacePatSyns = []
+    { tcInterfaceTermMap = Map.empty,
+      tcInterfaceTyConMap = Map.empty,
+      tcInterfaceDataTypeMap = Map.empty,
+      tcInterfaceClassMap = Map.empty,
+      tcInterfaceInstanceMap = Map.empty,
+      tcInterfaceDataFamilyInstanceMap = Map.empty,
+      tcInterfaceTypeFamilyInstanceMap = Map.empty,
+      tcInterfacePatSynMap = Map.empty
     }
 
 instance Semigroup TcInterface where
-  left <> right = mergeTcInterfaces [left, right]
+  (<>) = mergeTcInterface
 
 instance Monoid TcInterface where
   mempty = emptyTcInterface
 
+-- | Merge interfaces. Two facts with one identity must be equal; the
+-- check runs only for identities present on both sides.
 mergeTcInterfaces :: [TcInterface] -> TcInterface
-mergeTcInterfaces interfaces =
+mergeTcInterfaces [] = emptyTcInterface
+mergeTcInterfaces (first : rest) = List.foldl' mergeTcInterface first rest
+
+mergeTcInterface :: TcInterface -> TcInterface -> TcInterface
+mergeTcInterface left right =
   TcInterface
-    { tcInterfaceTerms = mergeInterfaceEntries "term interface" (termMergeKey . fst) (concatMap tcInterfaceTerms interfaces),
-      tcInterfaceTyCons = mergeTyConInfos (concatMap tcInterfaceTyCons interfaces),
-      tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" (tyConMergeKey . dtiTyCon) (concatMap tcInterfaceDataTypes interfaces),
-      tcInterfaceClasses = mergeInterfaceEntries "class interface" (tyConMergeKey . ciTyCon) (concatMap tcInterfaceClasses interfaces),
-      tcInterfaceInstances = mergeInstanceInfos (concatMap tcInterfaceInstances interfaces),
-      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" (axiomMergeKey . dataFamilyAxiomKey) (concatMap tcInterfaceDataFamilyInstances interfaces),
-      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" (axiomMergeKey . typeFamilyAxiomKey) (concatMap tcInterfaceTypeFamilyInstances interfaces),
-      tcInterfacePatSyns = mergeInterfaceEntries "pattern synonym interface" (termMergeKey . patSynKey) (concatMap tcInterfacePatSyns interfaces)
+    { tcInterfaceTermMap = merge "term interface" tcInterfaceTermMap,
+      tcInterfaceTyConMap = merge "type constructor interface" tcInterfaceTyConMap,
+      tcInterfaceDataTypeMap = merge "data type interface" tcInterfaceDataTypeMap,
+      tcInterfaceClassMap = merge "class interface" tcInterfaceClassMap,
+      tcInterfaceInstanceMap = merge "instance interface" tcInterfaceInstanceMap,
+      tcInterfaceDataFamilyInstanceMap = merge "data family instance interface" tcInterfaceDataFamilyInstanceMap,
+      tcInterfaceTypeFamilyInstanceMap = merge "type family instance interface" tcInterfaceTypeFamilyInstanceMap,
+      tcInterfacePatSynMap = merge "pattern synonym interface" tcInterfacePatSynMap
     }
+  where
+    merge :: (Ord key, Show key, Eq value) => String -> (TcInterface -> Map.Map key value) -> Map.Map key value
+    merge label select = Map.unionWithKey (conflict label) (select left) (select right)
 
--- The merge keys put the most distinct component of an identity first, so a
--- map comparison stops early. Most entries share a package and a module. The
--- keys do not change the order of the merged entries.
+conflict :: (Show key, Eq value) => String -> key -> value -> value -> value
+conflict label key left right
+  | left == right = left
+  | otherwise = error ("conflicting " <> label <> " key: " <> show key)
 
-termMergeKey :: TcTermKey -> Either Int (Text, Text, PackageId)
-termMergeKey key =
-  case key of
-    TcTermLocal unique -> Left unique
-    TcTermGlobal package moduleName' identifier -> Right (identifier, moduleName', package)
-
-tyConMergeKey :: TyCon -> (Text, ResolutionNamespace, Text, PackageId)
-tyConMergeKey tyCon = (tyConName tyCon, tyConNamespace tyCon, tyConModuleName tyCon, tyConPackageId tyCon)
-
-axiomMergeKey :: TcAxiomKey -> (Text, Text, PackageId)
-axiomMergeKey key = (axiomKeyName key, axiomKeyModule key, axiomKeyPackage key)
-
-instanceMergeKey :: InstanceInfo -> (Text, (Text, Text))
-instanceMergeKey info = (iiDictName info, iiDictOrigin info)
-
-mergeInstanceInfos :: [InstanceInfo] -> [InstanceInfo]
-mergeInstanceInfos = mergeInterfaceEntries "instance interface" instanceMergeKey
+-- | The left-biased union of interfaces. Use this when both sides are known
+-- to agree, for example when one side extends the other.
+unionTcInterfaces :: [TcInterface] -> TcInterface
+unionTcInterfaces [] = emptyTcInterface
+unionTcInterfaces (first : rest) = List.foldl' union first rest
+  where
+    union left right =
+      TcInterface
+        { tcInterfaceTermMap = Map.union (tcInterfaceTermMap left) (tcInterfaceTermMap right),
+          tcInterfaceTyConMap = Map.union (tcInterfaceTyConMap left) (tcInterfaceTyConMap right),
+          tcInterfaceDataTypeMap = Map.union (tcInterfaceDataTypeMap left) (tcInterfaceDataTypeMap right),
+          tcInterfaceClassMap = Map.union (tcInterfaceClassMap left) (tcInterfaceClassMap right),
+          tcInterfaceInstanceMap = Map.union (tcInterfaceInstanceMap left) (tcInterfaceInstanceMap right),
+          tcInterfaceDataFamilyInstanceMap = Map.union (tcInterfaceDataFamilyInstanceMap left) (tcInterfaceDataFamilyInstanceMap right),
+          tcInterfaceTypeFamilyInstanceMap = Map.union (tcInterfaceTypeFamilyInstanceMap left) (tcInterfaceTypeFamilyInstanceMap right),
+          tcInterfacePatSynMap = Map.union (tcInterfacePatSynMap left) (tcInterfacePatSynMap right)
+        }
 
 -- | Keep only facts that the selected modules define.
 restrictTcInterfaceToModules :: PackageId -> [Text] -> TcInterface -> TcInterface
 restrictTcInterfaceToModules package names interface =
   TcInterface
-    { tcInterfaceTerms = filter localTerm (tcInterfaceTerms interface),
-      tcInterfaceTyCons = filter (localTyCon . tciTyCon) (tcInterfaceTyCons interface),
-      tcInterfaceDataTypes = filter (localTyCon . dtiTyCon) (tcInterfaceDataTypes interface),
-      tcInterfaceClasses = filter (localTyCon . ciTyCon) (tcInterfaceClasses interface),
-      tcInterfaceInstances = filter localInstance (tcInterfaceInstances interface),
-      tcInterfaceDataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface),
-      tcInterfaceTypeFamilyInstances = filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface),
-      tcInterfacePatSyns = filter (localTerm . (,()) . patSynKey) (tcInterfacePatSyns interface)
+    { tcInterfaceTermMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfaceTermMap interface),
+      tcInterfaceTyConMap = Map.filter (localTyCon . tciTyCon) (tcInterfaceTyConMap interface),
+      tcInterfaceDataTypeMap = Map.filter (localTyCon . dtiTyCon) (tcInterfaceDataTypeMap interface),
+      tcInterfaceClassMap = Map.filter (localTyCon . ciTyCon) (tcInterfaceClassMap interface),
+      tcInterfaceInstanceMap = Map.filter localInstance (tcInterfaceInstanceMap interface),
+      tcInterfaceDataFamilyInstanceMap = Map.filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap interface),
+      tcInterfaceTypeFamilyInstanceMap = Map.filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
+      tcInterfacePatSynMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfacePatSynMap interface)
     }
   where
     selected = Map.fromList [(name, ()) | name <- names]
     localModule moduleName' = Map.member moduleName' selected
     localTyCon tyCon = tyConPackageId tyCon == package && localModule (tyConModuleName tyCon)
-    localTerm (key, _) =
+    localTerm key =
       case key of
         TcTermGlobal package' moduleName' _ -> package' == package && localModule moduleName'
         TcTermLocal {} -> False
@@ -252,36 +322,6 @@ restrictTcInterfaceToModules package names interface =
     localTypeFamilyInstance info =
       let (originPackage, originModule) = tfiiOrigin info
        in originPackage == package && localModule originModule
-
-mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
-mergeInterfaceEntries label key values = reverse ordered
-  where
-    (_, ordered) = List.foldl' insertEntry (Map.empty, []) values
-    insertEntry (entries, previousValues) value =
-      case insertNewEntry (key value) value entries of
-        Right entries' -> (entries', value : previousValues)
-        Left previous
-          | previous == value -> (entries, previousValues)
-          | otherwise -> error ("conflicting " <> label <> " key: " <> show (key value))
-
-mapFromListNoDuplicates :: (Ord key, Show key) => String -> [(key, value)] -> Map.Map key value
-mapFromListNoDuplicates label = List.foldl' insertEntry Map.empty
-  where
-    insertEntry entries (key, value) =
-      case insertNewEntry key value entries of
-        Right entries' -> entries'
-        Left _ -> error ("duplicate " <> label <> " key: " <> show key)
-
--- | Insert a value under a new key with one map lookup. Give back the
--- existing value when the key is already present.
-insertNewEntry :: (Ord key) => key -> value -> Map.Map key value -> Either value (Map.Map key value)
-insertNewEntry key value entries =
-  case Map.insertLookupWithKey (\_ _ existing -> existing) key value entries of
-    (Nothing, entries') -> Right entries'
-    (Just existing, _) -> Left existing
-
-mergeTyConInfos :: [TyConInfo] -> [TyConInfo]
-mergeTyConInfos = mergeInterfaceEntries "type constructor interface" (tyConMergeKey . tciTyCon)
 
 tcTermKeyIdentifier :: TcTermKey -> Maybe Text
 tcTermKeyIdentifier key =
@@ -419,66 +459,56 @@ typecheckModuleSccWithInterface config imported modules =
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
   initTcState
-    { tcsGlobalTerms =
-        mapFromListNoDuplicates
-          "imported term state"
-          [ (key, TcIdBinder scheme Closed)
-          | (key, scheme) <- tcInterfaceTerms imported
-          ]
-          <> tcsGlobalTerms initTcState,
-      tcsGlobalTyCons =
-        Map.fromList
-          [ (tyConKey (tciTyCon tyCon), tyCon)
-          | tyCon <- mergeTyConInfos (tcInterfaceTyCons imported)
-          ]
-          <> tcsGlobalTyCons initTcState,
-      tcsDataTypes = mapFromListNoDuplicates "imported data type state" [(dataTypeKey dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
-      tcsClasses = mapFromListNoDuplicates "imported class state" [(classInfoKey classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
-      tcsInstances = instanceEnvFromList (mergeInstanceInfos (tcInterfaceInstances imported)),
-      tcsDataFamilyInstances =
-        mapFromListNoDuplicates
-          "imported data family instance state"
-          [(dataFamilyAxiomKey info, info) | info <- tcInterfaceDataFamilyInstances imported],
-      tcsTypeFamilyInstances =
-        mapFromListNoDuplicates
-          "imported type family instance state"
-          [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances imported],
-      tcsPatSyns = mapFromListNoDuplicates "imported pattern synonym state" [(patSynKey info, info) | info <- tcInterfacePatSyns imported]
+    { tcsGlobalTerms = Map.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
+      tcsGlobalTyCons = tcInterfaceTyConMap imported <> tcsGlobalTyCons initTcState,
+      tcsDataTypes = tcInterfaceDataTypeMap imported,
+      tcsClasses = tcInterfaceClassMap imported,
+      tcsInstances = instanceEnvFromList (tcInterfaceInstances imported),
+      tcsDataFamilyInstances = tcInterfaceDataFamilyInstanceMap imported,
+      tcsTypeFamilyInstances = tcInterfaceTypeFamilyInstanceMap imported,
+      tcsPatSyns = tcInterfacePatSynMap imported
     }
 
 tcInterfaceDifference :: TcState -> TcState -> TcInterface
 tcInterfaceDifference initial state =
   TcInterface
-    { tcInterfaceTerms = exportedGlobalTerms (Map.difference (tcsGlobalTerms state) (tcsGlobalTerms initial)),
-      tcInterfaceTyCons = Map.elems (Map.difference (tcsGlobalTyCons state) (tcsGlobalTyCons initial)),
-      tcInterfaceDataTypes = Map.elems (Map.difference (tcsDataTypes state) (tcsDataTypes initial)),
-      tcInterfaceClasses = Map.elems (Map.difference (tcsClasses state) (tcsClasses initial)),
-      tcInterfaceInstances = filter ((`Set.notMember` initialInstanceKeys) . instanceInfoKey) (instanceEnvList (tcsInstances state)),
-      tcInterfaceDataFamilyInstances = Map.elems (Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial)),
-      tcInterfaceTypeFamilyInstances = Map.elems (Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial)),
-      tcInterfacePatSyns = Map.elems (Map.difference (tcsPatSyns state) (tcsPatSyns initial))
+    { tcInterfaceTermMap = exportedGlobalTerms (Map.difference (tcsGlobalTerms state) (tcsGlobalTerms initial)),
+      tcInterfaceTyConMap = Map.difference (tcsGlobalTyCons state) (tcsGlobalTyCons initial),
+      tcInterfaceDataTypeMap = Map.difference (tcsDataTypes state) (tcsDataTypes initial),
+      tcInterfaceClassMap = Map.difference (tcsClasses state) (tcsClasses initial),
+      tcInterfaceInstanceMap =
+        Map.fromList
+          [ (instanceInfoKey info, info)
+          | info <- instanceEnvList (tcsInstances state),
+            instanceInfoKey info `Set.notMember` initialInstanceKeys
+          ],
+      tcInterfaceDataFamilyInstanceMap = Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial),
+      tcInterfaceTypeFamilyInstanceMap = Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial),
+      tcInterfacePatSynMap = Map.difference (tcsPatSyns state) (tcsPatSyns initial)
     }
   where
     initialInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances initial)))
 
-exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> [(TcTermKey, TypeScheme)]
+exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> Map.Map TcTermKey TypeScheme
 exportedGlobalTerms globalTerms =
-  filter (not . isRedundantUnqualifiedAlias . fst) terms
+  Map.filterWithKey (\key _ -> not (isRedundantUnqualifiedAlias key)) terms
   where
-    terms =
-      [ (key, scheme)
-      | (key, TcIdBinder scheme _) <- Map.toList globalTerms
-      ]
+    terms = Map.mapMaybe binderScheme globalTerms
+    binderScheme binder =
+      case binder of
+        TcIdBinder scheme _ -> Just scheme
+        _ -> Nothing
+    qualifiedIdentifiers =
+      Set.fromList
+        [ name
+        | TcTermGlobal packageId moduleName name <- Map.keys terms,
+          not (T.null (packageIdText packageId)) || not (T.null moduleName)
+        ]
     isRedundantUnqualifiedAlias key =
       case key of
         TcTermGlobal _ _ identifier
-          | isUnqualifiedTermKey key -> any (isQualifiedIdentity identifier . fst) terms
+          | isUnqualifiedTermKey key -> identifier `Set.member` qualifiedIdentifiers
         _ -> False
-    isQualifiedIdentity identifier key =
-      case key of
-        TcTermGlobal packageId moduleName name ->
-          name == identifier && (not (T.null (packageIdText packageId)) || not (T.null moduleName))
-        TcTermLocal {} -> False
 
 typecheckModuleSccWithState :: TcConfig -> TcState -> [Module] -> ([Module], TcState)
 typecheckModuleSccWithState config st modules =
