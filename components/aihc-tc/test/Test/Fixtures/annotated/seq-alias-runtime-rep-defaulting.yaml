@@ -1,0 +1,22 @@
+annotated:
+- |-
+  module Test where
+  import GHC.Prim (seq)
+  seqAlias = seq
+  │          └─ type: a → b → b; type-args: 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. a → b → b
+  strictApply f x = seqAlias x (f x)
+  │           │ │   └─ type: a → b → b; type-args: a, b
+  │           │ └─ type: a
+  │           └─ type: a → b
+  └─ type: ∀ a b. (a → b) → a → b
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+  import GHC.Prim (seq)
+  seqAlias = seq
+  strictApply f x = seqAlias x (f x)
+reason: generalization defaults the RuntimeRep of an unsaturated seq to LiftedRep instead of quantifying over it
+status: pass
