@@ -157,7 +157,6 @@ buildWasip3RuntimeObjects garbageCollector directory = do
 runtimeGarbageCollector :: GarbageCollector -> RuntimeGarbageCollector
 runtimeGarbageCollector garbageCollector =
   case garbageCollector of
-    GcCalloc -> RuntimeGcCalloc
     GcSemispace -> RuntimeGcSemispace
 
 -- | Select the ordinary Clang driver used for WebAssembly objects. Nix can

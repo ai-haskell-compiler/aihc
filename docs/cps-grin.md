@@ -57,13 +57,12 @@ preceded by `ensure-heap`, whose live pointer operands are returned under fresh
 SSA names, and is then represented by `store-unchecked`. A recursive store
 group receives one reservation covering the complete group.
 
-The native runtime is compiled with either `--gc calloc` (the default dummy
-collector, which never frees nodes) or `--gc semispace` (a stop-the-world
-copying collector). Static constructor and function info tables describe object
-identity, populated pointer fields, and the next application stage to both
-collectors; only the semispace collector uses the tracing layout. Application
-advances the header to the next static info table, so heap objects need only a
-single tagged info-table pointer before their payload fields.
+The native runtime is compiled with `--gc semispace`, a stop-the-world copying
+collector. Static constructor and function info tables describe object identity,
+populated pointer fields, the next application stage, and the tracing layout the
+collector walks. Application advances the header to the next static info table,
+so heap objects need only a single tagged info-table pointer before their
+payload fields.
 
 ## Cooperative scheduling
 

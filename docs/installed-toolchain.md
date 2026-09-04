@@ -7,9 +7,8 @@ application.
 Prepare every runtime variant that applications will select:
 
 ```console
-aihc prepare-runtime --target llvm --gc calloc --store "$AIHC_STORE"
 aihc prepare-runtime --target llvm --gc semispace --store "$AIHC_STORE"
-aihc prepare-runtime --target wasm32-wasip3 --gc calloc --store "$AIHC_STORE"
+aihc prepare-runtime --target wasm32-wasip3 --gc semispace --store "$AIHC_STORE"
 ```
 
 Then install the packages needed by the applications. Package dependencies are
@@ -41,7 +40,7 @@ variant:
 aihc compile Main.hs \
   --store "$AIHC_STORE" \
   --target llvm \
-  --gc calloc \
+  --gc semispace \
   --output program
 ```
 

@@ -67,8 +67,7 @@ data NativeTarget
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 data RuntimeGarbageCollector
-  = RuntimeGcCalloc
-  | RuntimeGcSemispace
+  = RuntimeGcSemispace
   deriving (Eq, Ord, Show)
 
 data RuntimePlan = RuntimePlan
@@ -198,7 +197,6 @@ runtimePlan target garbageCollector = do
   runtimeOptions <- getDataFileName "compiler/native/runtime/aihc_runtime_options.c"
   collector <-
     getDataFileName $ case garbageCollector of
-      RuntimeGcCalloc -> "compiler/native/runtime/aihc_gc_calloc.c"
       RuntimeGcSemispace -> "compiler/native/runtime/aihc_gc_semispace.c"
   host <-
     getDataFileName $ case target of

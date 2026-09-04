@@ -129,7 +129,7 @@
       flags = [];
     }
   ];
-  garbageCollectors = ["calloc" "semispace"];
+  garbageCollectors = ["semispace"];
   nativeBackendBySystem = {
     "aarch64-darwin" = "apple-arm64";
     "x86_64-linux" = "linux-amd64";
@@ -441,13 +441,11 @@
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       mkdir -p "$out"
 
-      ${aihcExe} prepare-runtime --target llvm --gc calloc --store "$out"
       ${aihcExe} prepare-runtime --target llvm --gc semispace --store "$out"
       ${pkgs.lib.optionalString (nativeBackend != null) ''
-        ${aihcExe} prepare-runtime --target ${nativeBackend} --gc calloc --store "$out"
         ${aihcExe} prepare-runtime --target ${nativeBackend} --gc semispace --store "$out"
       ''}
-      ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
+      ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc semispace --store "$out"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
           ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}

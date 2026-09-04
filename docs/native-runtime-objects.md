@@ -28,10 +28,6 @@ The size accepts an optional `K`, `M`, `G`, or `T` binary unit.
 Lower-case units have the same meaning.
 The default heap size is unlimited.
 
-The `calloc` collector stops the program when an allocation exceeds this limit.
-It counts managed heap objects because it does not release these objects.
-It does not count auxiliary runtime allocations or static objects.
-
 The semispace collector starts with a small space and grows it on demand.
 After each collection, the target capacity doubles until it holds twice the
 live data. The `-M` limit caps the capacity of one space. The collector stops

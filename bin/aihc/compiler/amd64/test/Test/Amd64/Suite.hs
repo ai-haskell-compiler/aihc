@@ -269,7 +269,7 @@ tests =
         pure (),
       testCase "runtime object ABI compiles cleanly on the host C compiler" $
         withTempDirectory "aihc-amd64-runtime" $ \directory -> do
-          runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+          runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
           snapshotRuntime <- snapshotSourcePath
           let executable = directory </> "runtime-check"
           (compilerExit, _compilerOut, compilerErr) <-
@@ -499,7 +499,7 @@ snapshotFixtureRoot = do
 runObservedProgram :: ObservedProgram -> IO (Either T.Text T.Text)
 runObservedProgram observed =
   withTempDirectory "aihc-amd64-snapshot" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
     snapshotRuntime <- snapshotSourcePath
     let objectPath = directory </> "snapshot.o"
         metadataPath = directory </> "snapshot_metadata.c"
@@ -679,7 +679,7 @@ compileEntryTestUnits program = do
 runSchedulerObjects :: String -> [BL.ByteString] -> IO ()
 runSchedulerObjects expected objects =
   withTempDirectory "aihc-amd64-scheduler" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
     objectPaths <- forM (zip [0 :: Int ..] objects) $ \(index, object) -> do
       let objectPath = directory </> "scheduler-" <> show index <> ".o"
       BL.writeFile objectPath object
@@ -698,7 +698,7 @@ runSchedulerObjects expected objects =
 runStdioObjects :: [BL.ByteString] -> IO ()
 runStdioObjects objects =
   withTempDirectory "aihc-amd64-stdio" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
     objectPaths <- forM (zip [0 :: Int ..] objects) $ \(index, object) -> do
       let objectPath = directory </> "stdio-" <> show index <> ".o"
       BL.writeFile objectPath object
