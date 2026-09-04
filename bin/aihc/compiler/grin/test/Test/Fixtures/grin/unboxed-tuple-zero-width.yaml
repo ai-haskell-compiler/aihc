@@ -1,19 +1,21 @@
 expected: |-
-  constructor Test.Box [IntRep]
+  scope 1 = "" Test
+
+  constructor 1.Box [IntRep]
 
   primitive realWorld# :: TupleRep []/0
 
-  global "\NULTest\NULBox" = (CTest.Box/1)
+  global 1.Box = (C1.Box/1)
 
-  global "\NULTest\NULrealWorld#" = (P$grin_realWorld#_foreign_0/0)
+  global 1.realWorld# = (P$grin_realWorld#_foreign_0/0)
 
-  global "\NULTest\NULvalue" = (F$grin_value_thunk_1)
+  global 1.value = (F$grin_value_thunk_1)
 
   $grin_realWorld#_foreign_0 -> TupleRep [] =
     primitive-call @(TupleRep []) realWorld#
 
   $grin_value_thunk_1 -> BoxedRep Lifted =
-    store (CTest.Box (42 :: IntRep))
+    store (C1.Box (42 :: IntRep))
 extensions:
 - EmptyDataDecls
 - MagicHash

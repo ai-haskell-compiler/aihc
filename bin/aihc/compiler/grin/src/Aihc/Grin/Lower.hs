@@ -1256,19 +1256,18 @@ localFunctionTable env program =
         isFunctionExpression (Fc.valBody declaration)
       ]
 
+-- | GRIN identifies a top-level name by its package, its module, and its text.
+-- Globals and constructor tags use the same encoding, so that the printer, the
+-- linker, and the backends all split a name in one way.
 stableGlobalName :: Fc.Name -> Text
 stableGlobalName name =
   case Fc.nameOrigin name of
     Fc.OriginTop (PackageId packageName) moduleName ->
-      T.intercalate "\0" [packageName, moduleName, Fc.nameText name]
+      grinScopedName packageName moduleName (Fc.nameText name)
     Fc.OriginLocal (Unique unique) -> Fc.nameText name <> "\0" <> T.pack (show unique)
 
 constructorTag :: Fc.Name -> Text
-constructorTag name =
-  case Fc.nameOrigin name of
-    Fc.OriginTop (PackageId packageName) moduleName ->
-      (if packageName == "" then "" else packageName <> ":") <> moduleName <> "." <> Fc.nameText name
-    Fc.OriginLocal {} -> Fc.nameText name
+constructorTag = stableGlobalName
 
 lookupGlobalName :: LowerEnv -> Fc.Name -> LowerM Text
 lookupGlobalName env name =

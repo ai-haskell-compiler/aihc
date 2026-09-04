@@ -29,6 +29,10 @@ module Aihc.Grin.Syntax
     grinForeignOperandReps,
     grinForeignCallResultReps,
     foreignTypeRuntimeRep,
+    GrinScope (..),
+    grinScopedName,
+    grinNameScope,
+    grinProgramScopes,
     grinProgramLiterals,
     grinExprGlobalReferences,
     grinProgramGlobalReferences,
@@ -41,6 +45,8 @@ where
 
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
+import Data.Maybe (mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -86,6 +92,29 @@ data GrinVecElem
 
 liftedGrinRep :: GrinRep
 liftedGrinRep = BoxedRep Lifted
+
+-- | The package and the module that a top-level GRIN name comes from.
+data GrinScope = GrinScope
+  { grinScopePackage :: !Text,
+    grinScopeModule :: !Text
+  }
+  deriving (Eq, Ord, Show, Read)
+
+-- | Join a package, a module, and a name into one GRIN name. Globals,
+-- constructor tags, and foreign call names all use this encoding. The linker
+-- splits the same name into its object symbol components.
+grinScopedName :: Text -> Text -> Text -> Text
+grinScopedName packageName moduleName baseName =
+  T.intercalate "\0" [packageName, moduleName, baseName]
+
+-- | Split a top-level GRIN name into its scope and its base name. A name that
+-- does not come from a module, such as a primitive or a local name, gives
+-- 'Nothing'.
+grinNameScope :: Text -> Maybe (GrinScope, Text)
+grinNameScope name =
+  case T.splitOn "\0" name of
+    [packageName, moduleName, baseName] -> Just (GrinScope packageName moduleName, baseName)
+    _ -> Nothing
 
 -- | A whole GRIN program.
 data GrinProgram = GrinProgram
@@ -248,6 +277,46 @@ data GrinLiteral
 
 -- | Every literal embedded in a program, including node fields and case
 -- alternatives. Native backends use this to build static literal pools.
+-- | Every scope that the top-level names of one program come from, in a
+-- stable order. The printer gives each of them a number, and it prints a name
+-- from a numbered scope without its package and its module.
+grinProgramScopes :: GrinProgram -> [GrinScope]
+grinProgramScopes program =
+  Set.toAscList (Set.fromList (mapMaybe (fmap fst . grinNameScope) names))
+  where
+    names =
+      map fst (grinConstructors program)
+        <> map fst (grinGlobals program)
+        <> map grinForeignCallName (grinForeignCalls program)
+        <> grinProgramGlobalReferences program
+        <> concatMap (nodeTagNames . snd) (grinGlobals program)
+        <> concatMap (exprTagNames . grinFunctionBody) (grinFunctions program)
+
+-- | The constructor tags that one expression names. Node tags and case
+-- alternatives are the only places that name a constructor.
+exprTagNames :: GrinExpr -> [Text]
+exprTagNames expression =
+  case expression of
+    GrinBind _ valueExpression body -> exprTagNames valueExpression <> exprTagNames body
+    GrinStore node -> nodeTagNames node
+    GrinStoreUnchecked node -> nodeTagNames node
+    GrinStoreRec bindings body -> concatMap (nodeTagNames . snd) bindings <> exprTagNames body
+    GrinStoreRecUnchecked bindings body -> concatMap (nodeTagNames . snd) bindings <> exprTagNames body
+    GrinCase _ _ alternatives -> concatMap altTagNames alternatives
+    _ -> []
+  where
+    altTagNames alternative = altConTagNames (grinAltCon alternative) <> exprTagNames (grinAltRhs alternative)
+    altConTagNames altCon =
+      case altCon of
+        GrinDataAlt name -> [name]
+        _ -> []
+
+nodeTagNames :: GrinNode -> [Text]
+nodeTagNames node =
+  case grinNodeTag node of
+    GrinConstructor name _ -> [name]
+    _ -> []
+
 grinProgramLiterals :: GrinProgram -> [GrinLiteral]
 grinProgramLiterals program =
   concatMap (nodeLiterals . snd) (grinGlobals program)

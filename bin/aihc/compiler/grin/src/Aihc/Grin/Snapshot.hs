@@ -100,10 +100,22 @@ renderNodeTag :: GrinNodeTag -> Text
 renderNodeTag tag =
   case tag of
     GrinConstructor name remaining ->
-      "C" <> name <> if remaining == 0 then "" else "/" <> tshow remaining
+      "C" <> renderTagName name <> if remaining == 0 then "" else "/" <> tshow remaining
     GrinClosure functionName argumentLayouts ->
       "P" <> unFunctionName functionName <> "/" <> tshow (length argumentLayouts)
     GrinThunk functionName -> "F" <> unFunctionName functionName
+
+-- | A snapshot shows a constructor tag with its package and its module, but
+-- it uses readable separators instead of the encoding that the linker needs.
+renderTagName :: Text -> Text
+renderTagName name =
+  case grinNameScope name of
+    Nothing -> name
+    Just (scope, baseName) -> qualifier <> grinScopeModule scope <> "." <> baseName
+      where
+        qualifier
+          | T.null (grinScopePackage scope) = ""
+          | otherwise = grinScopePackage scope <> ":"
 
 renderLiteral :: GrinLiteral -> Text
 renderLiteral literal =

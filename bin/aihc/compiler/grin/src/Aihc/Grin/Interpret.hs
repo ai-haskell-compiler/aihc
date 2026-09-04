@@ -1923,11 +1923,10 @@ isTupleConstructor name arity =
            || name == "(#" <> T.replicate (arity - 1) "," <> "#)"
        )
 
+-- | The name to show for one constructor. A tag names its package and its
+-- module, and neither belongs in a printed value.
 constructorDisplayName :: Text -> Text
-constructorDisplayName name =
-  case reverse (T.splitOn "." name) of
-    displayName : _ -> displayName
-    [] -> name
+constructorDisplayName name = maybe name snd (grinNameScope name)
 
 throwInterpret :: InterpretError -> EvalM value
 throwInterpret = throwE . EvalInterpret

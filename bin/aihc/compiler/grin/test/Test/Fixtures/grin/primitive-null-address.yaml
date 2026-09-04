@@ -1,14 +1,18 @@
 expected: |-
-  constructor Test.Address [AddrRep]
+  scope 1 = "" Test
 
-  global "\NULTest\NULAddress" = (CTest.Address/1)
+  scope 2 = "aihc-prim" GHC.Prim
 
-  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+  constructor 1.Address [AddrRep]
+
+  global 1.Address = (C1.Address/1)
+
+  global 1.value = (F$grin_value_thunk_0)
 
   $grin_value_thunk_0 -> BoxedRep Lifted =
     argument :: AddrRep <-
-      eval @AddrRep global-ref "aihc-prim\NULGHC.Prim\NULnullAddr#"
-    store (CTest.Address (argument :: AddrRep))
+      eval @AddrRep global-ref 2.nullAddr#
+    store (C1.Address (argument :: AddrRep))
 extensions:
 - MagicHash
 reason: evaluates an imported nullary primitive through its global binding

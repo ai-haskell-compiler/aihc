@@ -1,16 +1,18 @@
 expected: |-
-  constructor Test.Ptr [AddrRep]
+  scope 1 = "" Test
+
+  constructor 1.Ptr [AddrRep]
 
   foreign putsAddress = address "puts" :: () -> addr ! pure
 
-  global "\NULTest\NULPtr" = (CTest.Ptr/1)
+  global 1.Ptr = (C1.Ptr/1)
 
-  global "\NULTest\NULputsAddress" = (F$grin_putsAddress_foreign_0)
+  global 1.putsAddress = (F$grin_putsAddress_foreign_0)
 
   $grin_putsAddress_foreign_0 -> BoxedRep Lifted =
     foreign_result :: AddrRep <-
       foreign-call putsAddress = address "puts" :: () -> addr ! pure with
-    store (CTest.Ptr (foreign_result :: AddrRep))
+    store (C1.Ptr (foreign_result :: AddrRep))
 extensions:
 - ForeignFunctionInterface
 - MagicHash

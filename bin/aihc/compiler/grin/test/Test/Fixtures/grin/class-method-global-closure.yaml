@@ -5,21 +5,23 @@ source: |
   class Read a where
     reads :: Result -> a
 expected: |-
-  constructor Test.Result []
+  scope 1 = "" Test
 
-  constructor Test.$Dict$Read [BoxedRep Lifted]
+  constructor 1.Result []
 
-  global "\NULTest\NULResult" = (CTest.Result)
+  constructor 1.$Dict$Read [BoxedRep Lifted]
 
-  global "\NULTest\NUL$Dict$Read" = (CTest.$Dict$Read/1)
+  global 1.Result = (C1.Result)
 
-  global "\NULTest\NULreads" = (P$grin_closure_0/1)
+  global 1.$Dict$Read = (C1.$Dict$Read/1)
+
+  global 1.reads = (P$grin_closure_0/1)
 
   $grin_closure_0 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
-      data Test.$Dict$Read ($method0 :: BoxedRep Lifted) ->
+      data 1.$Dict$Read ($method0 :: BoxedRep Lifted) ->
         eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
 status: pass
 reason: emits a class method selector as a direct global closure

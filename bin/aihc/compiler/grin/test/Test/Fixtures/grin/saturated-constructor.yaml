@@ -4,9 +4,13 @@ source: |
   pair :: a -> b -> (a, b)
   pair x y = (x, y)
 expected: |-
-  global "\NULTest\NULpair" = (P$grin_closure_0/2)
+  scope 1 = "" Test
+
+  scope 2 = "aihc-prim" GHC.Tuple
+
+  global 1.pair = (P$grin_closure_0/2)
 
   $grin_closure_0 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
-    store (C"aihc-prim:GHC.Tuple.(,)" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+    store (C2."(,)" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
 status: pass
 reason: stores a saturated constructor directly without eval or apply operations

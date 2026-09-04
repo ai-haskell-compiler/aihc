@@ -1,9 +1,11 @@
 expected: |-
-  constructor Test.IS [IntRep]
+  scope 1 = "" Test
 
-  global "\NULTest\NULIS" = (CTest.IS/1)
+  constructor 1.IS [IntRep]
 
-  global "\NULTest\NULvalue" = (CTest.IS (42 :: IntRep))
+  global 1.IS = (C1.IS/1)
+
+  global 1.value = (C1.IS (42 :: IntRep))
 extensions:
 - MagicHash
 reason: removes the applied newtype conversion closure and does not allocate a newtype node

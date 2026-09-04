@@ -1,7 +1,9 @@
 expected: |-
+  scope 1 = "" Test
+
   foreign labs = "labs" :: (int) -> int ! pure
 
-  global "\NULTest\NULlabs" = (P$grin_labs_foreign_0/[[IntRep]])
+  global 1.labs = (P$grin_labs_foreign_0/[[IntRep]])
 
   $grin_labs_foreign_0 (foreign_argument_0 :: IntRep) -> IntRep =
     foreign-call labs = "labs" :: (int) -> int ! pure with (foreign_argument_0 :: IntRep)

@@ -34,10 +34,10 @@ prop_grinPrettyRoundTrip = property $ do
 genGrinProgram :: Gen GrinProgram
 genGrinProgram =
   GrinProgram
-    <$> smallList ((,) <$> genText <*> smallList (smallList genRuntimeRep))
+    <$> smallList ((,) <$> genName <*> smallList (smallList genRuntimeRep))
     <*> smallList ((,) <$> genVar <*> genInt)
     <*> smallList genForeignCall
-    <*> smallList ((,) <$> genText <*> genNode)
+    <*> smallList ((,) <$> genName <*> genNode)
     <*> smallList genFunction
 
 genFunction :: Gen GrinFunction
@@ -85,13 +85,13 @@ genAlt rhs = GrinAlt <$> genAltCon <*> smallList genVar <*> rhs
 genAltCon :: Gen GrinAltCon
 genAltCon =
   Gen.choice
-    [ GrinDataAlt <$> genText,
+    [ GrinDataAlt <$> genName,
       GrinLitAlt <$> genLiteral,
       pure GrinDefaultAlt
     ]
 
 genValue :: Gen GrinValue
-genValue = Gen.choice [GrinVarValue <$> genVar, GrinGlobalValue <$> genText, GrinLitValue <$> genLiteral]
+genValue = Gen.choice [GrinVarValue <$> genVar, GrinGlobalValue <$> genName, GrinLitValue <$> genLiteral]
 
 genNode :: Gen GrinNode
 genNode = GrinNode <$> genNodeTag <*> smallList genValue
@@ -99,7 +99,7 @@ genNode = GrinNode <$> genNodeTag <*> smallList genValue
 genNodeTag :: Gen GrinNodeTag
 genNodeTag =
   Gen.choice
-    [ GrinConstructor <$> genText <*> genInt,
+    [ GrinConstructor <$> genName <*> genInt,
       GrinClosure <$> genFunctionName <*> smallList (smallList genRuntimeRep),
       GrinThunk <$> genFunctionName
     ]
@@ -178,6 +178,15 @@ allVecElems =
     FloatElemRep,
     DoubleElemRep
   ]
+
+-- | A top-level name. Half of these names have a scope, so that the printer
+-- and the parser meet numbered scopes often.
+genName :: Gen Text
+genName =
+  Gen.choice
+    [ genText,
+      grinScopedName <$> genText <*> genText <*> genText
+    ]
 
 genText :: Gen Text
 genText = T.pack <$> Gen.string (Range.linear 0 8) Gen.unicodeAll
