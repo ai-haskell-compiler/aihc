@@ -449,10 +449,9 @@ The lowering keeps the control model of CPS-GRIN:
 
 The lowering emits the info tables, the enter stubs, the static objects, the
 static reference tables, and the address literals as data objects. Static
-objects are exported and mutable. Info tables are read-only. The lowering
-does not yet emit the static root section, so the semispace collector cannot
-find the static objects of a Lir module. Use the `calloc` collector with this
-pipeline.
+objects are exported and mutable. Info tables are read-only. The collector
+finds static objects by address, so a Lir module needs no root section and
+both collectors work with this pipeline.
 
 ## AArch64 backend
 

@@ -62,10 +62,14 @@ tests = do
           testGroup "GRIN heap snapshots through Lir" (map (snapshotTest snapshotDirectory) snapshots),
           testGroup
             "programs through Lir"
-            [ testCase "runs fork# and yield# with FIFO scheduling" (programTest "PCAB" schedulerProgram),
-              testCase "catches a synchronous exception" (programTest "E" synchronousExceptionProgram),
-              testCase "blocks and wakes threads that enter a shared blackhole" (programTest "TA" blackholeSchedulerProgram),
-              testCase "waits for stdin and resumes an async stdio continuation" stdioTest
+            [ testGroup
+                (collectorName collector)
+                [ testCase "runs fork# and yield# with FIFO scheduling" (programTest collector "PCAB" schedulerProgram),
+                  testCase "catches a synchronous exception" (programTest collector "E" synchronousExceptionProgram),
+                  testCase "blocks and wakes threads that enter a shared blackhole" (programTest collector "TA" blackholeSchedulerProgram),
+                  testCase "waits for stdin and resumes an async stdio continuation" (stdioTest collector)
+                ]
+            | collector <- [RuntimeGcCalloc, RuntimeGcSemispace]
             ]
         ]
     )
@@ -280,20 +284,26 @@ compileProgramObjects program = do
   entryObject <- either (assertFailure . show) pure (compileLirObject entryLir)
   pure [moduleObject, entryObject]
 
-programTest :: String -> GrinProgram -> IO ()
-programTest expected program = do
+collectorName :: RuntimeGarbageCollector -> String
+collectorName collector =
+  case collector of
+    RuntimeGcCalloc -> "calloc collector"
+    RuntimeGcSemispace -> "semispace collector"
+
+programTest :: RuntimeGarbageCollector -> String -> GrinProgram -> IO ()
+programTest collector expected program = do
   objects <- compileProgramObjects program
   when nativeHost $
-    withProgramExecutable objects $ \executablePath -> do
+    withProgramExecutable collector objects $ \executablePath -> do
       (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
       assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
       assertEqual "program stdout" expected programOut
 
-stdioTest :: IO ()
-stdioTest = do
+stdioTest :: RuntimeGarbageCollector -> IO ()
+stdioTest collector = do
   objects <- compileProgramObjects stdioSchedulerProgram
   when nativeHost $
-    withProgramExecutable objects $ \executablePath -> do
+    withProgramExecutable collector objects $ \executablePath -> do
       (Just childInput, Just childOutput, Just childError, processHandle) <-
         createProcess (proc executablePath []) {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe}
       threadDelay 50000
@@ -306,10 +316,10 @@ stdioTest = do
       assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
       assertEqual "async stdout" "Buffered async IO\n" programOut
 
-withProgramExecutable :: [BL.ByteString] -> (FilePath -> IO ()) -> IO ()
-withProgramExecutable objects action =
+withProgramExecutable :: RuntimeGarbageCollector -> [BL.ByteString] -> (FilePath -> IO ()) -> IO ()
+withProgramExecutable collector objects action =
   withTempDirectory "aihc-lir-program" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    runtimeArguments <- nativeRuntimeArguments collector
     objectPaths <- forM (zip [0 :: Int ..] objects) $ \(index, object) -> do
       let objectPath = directory </> "program-" <> show index <> ".o"
       BL.writeFile objectPath object
