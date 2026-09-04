@@ -423,8 +423,13 @@ recordSelectorBindings declaration =
           (_, sourceFields, _) = dataConSourceLayout inner
           -- The constructor context and the existential variables do not
           -- reach the selector type. A field whose type mentions an
-          -- existential variable has no selector.
-          universals = filter (`elem` typeTyVars resultType) typeVariables
+          -- existential variable has no selector. A kind variable of a
+          -- universal variable, such as the runtime representation in
+          -- @TExp (a :: TYPE r)@, is universal as well.
+          universals = filter (`elem` closeOverKinds (typeTyVars resultType)) typeVariables
+          closeOverKinds variables =
+            let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
+             in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
        in [ TcBindingResult label label (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
             all (`elem` universals) (typeTyVars fieldType),
