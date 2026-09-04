@@ -15,6 +15,13 @@ This document is the specification. The implementation lives in
 `bin/aihc/compiler/lir`. The specification and the implementation change
 together.
 
+The first two stages of the pipeline exist as a proof of concept. The module
+`Aihc.Lir.Lower` lowers GC-GRIN to Lir. The module `Aihc.Arm64.Lir` compiles
+Lir to Mach-O objects for Apple ARM64. The target `apple-arm64-lir` selects
+this pipeline in `aihc install`, `aihc prepare-runtime`, and
+`aihc build-exe`. The sections "Lowering from GC-GRIN" and "AArch64 backend"
+describe them.
+
 ## Design rules
 
 - Lir is a control-flow graph in static single assignment form.
@@ -178,8 +185,8 @@ value is `ptr null`, `code null`, or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `identity` | `ptr` | The saturated constructor table, or null for a function. Case code compares this field. |
-| `entry` | `code` | The portable entry. Null when the object cannot be entered. |
+| `identity` | `ptr` | The saturated constructor table of a constructor. Case code compares this field. A closure or a thunk stores the `code` of its function here, and the heap snapshot tool maps that address to a name. |
+| `entry` | `code` | The portable entry. Reserved: the lowering stores null until the runtime moves to Lir. |
 | `field_count` | integer | The number of payload words. |
 | `remaining_arity` | integer | The number of arguments the object still requires. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
@@ -189,20 +196,20 @@ value is `ptr null`, `code null`, or `0`. The fields are, in order:
 | `object_kind` | integer | Node, closure, thunk, partial constructor, or a runtime object kind. |
 | `srt` | `ptr` | The static reference table, or null. |
 
-Every `code` field of every info table has one fixed signature. A backend can
-therefore call through a field without a per-object type, which WebAssembly
-requires and which costs nothing elsewhere.
+The `backend_entry` field has the signature `(ptr, ptr, ptr, T...) -> ()`
+with the machine, the object, the continuation, and the supplied values. The
+types `T...` are the Lir types of the supplied values, so a call site with
+`n` supplied values states a signature with `n` value parameters. A
+continuation object ignores the continuation parameter. The lowering
+generates one function with this signature for each enterable object. That
+function loads the stored fields, takes the supplied values as parameters,
+and tail-calls the code of the object.
 
-| Field | Signature |
-| --- | --- |
-| `entry` | `(ptr) -> ()` with the address of the argument slots. |
-| `backend_entry` | `(ptr, i64, ptr, i64) -> ()` with the machine, the object slot, the address of the supplied argument slots, and the continuation slot. |
-
-GC-GRIN generates a function with the fixed signature for each enterable
-object. That function loads the stored fields and the supplied arguments and
-tail-calls the generated code. On 64-bit targets the runtime's `AihcInfo`
-structure has this layout already. On WebAssembly its counts and kinds shrink
-from 64 to 32 bits when GC-GRIN starts to emit Lir.
+The WebAssembly backend needs one fixed signature for every `code` field,
+because `call.indirect` checks the type of the callee. That form passes the
+supplied values through a machine-owned buffer. It is deferred until the
+WebAssembly backend consumes Lir. On 64-bit targets the runtime's `AihcInfo`
+structure has the layout of this section already.
 
 ## Functions and blocks
 
@@ -414,6 +421,61 @@ Lir modules with a function `@main` without parameters. The header comment
 `; expect: <results>` gives the rendered results separated by `, `. The header
 comment `; expect-trap: <message>` gives the trap message instead. Every
 fixture also passes the linter and the pretty-printer round-trip.
+
+## Lowering from GC-GRIN
+
+`Aihc.Lir.Lower` produces one Lir module for one GC-GRIN program. Every GRIN
+function becomes a Lir function with the `aihc` convention and no results.
+The first parameter is the machine. The other parameters are the GRIN
+parameters in order. A GRIN value with a pointer representation or an address
+representation becomes `ptr`. Every other GRIN value becomes `i64`, and a
+float travels as its bit pattern like in the native runtime ABI.
+
+The lowering keeps the control model of CPS-GRIN:
+
+- A direct call is a `tailcall`.
+- A direct expression is a sequence of instructions. A runtime operation is a
+  `call` of an extern C function.
+- A case on a pointer loads the header and the `identity` field and compares
+  it with the constructor tables. A case on a scalar is a `switch`.
+- A heap reservation stores the live roots in a `stack.alloc` array, calls
+  `aihc_ensure_heap`, and reloads the relocated roots.
+- Evaluation, application, continuation, and scheduler resumption go through
+  shared functions that the lowering generates into every module that uses
+  them. The functions `aihc_lir_continue_*` and `aihc_lir_apply_*` exist per
+  shape of the supplied values.
+- The executable entry unit defines `main`, the top, final, update, and thread
+  done continuations, and the exit function that returns to `main`.
+
+The lowering emits the info tables, the enter stubs, the static objects, the
+static reference tables, and the address literals as data objects. Static
+objects are exported and mutable. Info tables are read-only. The collector
+finds static objects by address, so a Lir module needs no root section and
+both collectors work with this pipeline.
+
+## AArch64 backend
+
+`Aihc.Arm64.Lir` lints a module and then assembles it with the direct Mach-O
+writer of the ARM64 backend. The backend is a proof of concept:
+
+- Every value lives in one 8-byte frame slot. Instruction selection loads the
+  operands into scratch registers and stores the result.
+- The `aihc` convention passes the first eight arguments in `x0` to `x7` and
+  the rest in a 16-byte aligned block on the stack. The callee pops that
+  block. A tail call restores the stack of the caller, copies the outgoing
+  block below it, and branches. The stack does not grow. Results come back in
+  `x0` to `x7`.
+- The `c` convention uses the platform convention for at most eight integer
+  or float arguments and one result.
+- A narrow integer is canonical: an `iN` value is zero-extended to 64 bits.
+  Signed operations sign-extend the operands first.
+- A trap writes its message and a newline to the standard error stream and
+  exits with status one.
+
+The backend does not check the alignment of a memory access, a store to
+read-only data, or the signature of an indirect call. A misaligned access
+gives the result of the hardware, and a store to read-only data is a memory
+fault.
 
 ## Binary format
 
