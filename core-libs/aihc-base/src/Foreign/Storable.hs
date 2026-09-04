@@ -14,6 +14,8 @@ import GHC.Prim
     readWord32OffAddr#,
     readWord64OffAddr#,
     readWord8OffAddr#,
+    readWord8OffAddrAsDouble#,
+    readWord8OffAddrAsFloat#,
     word2Int#,
     word64ToWord#,
     wordToWord64#,
@@ -21,8 +23,11 @@ import GHC.Prim
     writeWord32OffAddr#,
     writeWord64OffAddr#,
     writeWord8OffAddr#,
+    writeWord8OffAddrAsDouble#,
+    writeWord8OffAddrAsFloat#,
   )
 import GHC.Ptr (Ptr (..), plusPtr)
+import GHC.Types (Double (..), Float (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 import Prelude (Num (..), undefined)
 
@@ -139,5 +144,43 @@ instance Storable Int where
     IO
       ( \state ->
           case writeWord64OffAddr# address index (wordToWord64# (int2Word# value)) state of
+            nextState -> (# nextState, () #)
+      )
+
+-- | 'Float' has no dedicated address primop, so the unaligned byte-offset
+-- accessors carry the four-byte IEEE payload.
+instance Storable Float where
+  sizeOf _ = 4
+  alignment _ = 4
+  peekElemOff address index = peekByteOff address (index * 4)
+  pokeElemOff address index = pokeByteOff address (index * 4)
+  peekByteOff (Ptr address) (I# offset) =
+    IO
+      ( \state ->
+          case readWord8OffAddrAsFloat# address offset state of
+            (# readState, value #) -> (# readState, F# value #)
+      )
+  pokeByteOff (Ptr address) (I# offset) (F# value) =
+    IO
+      ( \state ->
+          case writeWord8OffAddrAsFloat# address offset value state of
+            nextState -> (# nextState, () #)
+      )
+
+instance Storable Double where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff address index = peekByteOff address (index * 8)
+  pokeElemOff address index = pokeByteOff address (index * 8)
+  peekByteOff (Ptr address) (I# offset) =
+    IO
+      ( \state ->
+          case readWord8OffAddrAsDouble# address offset state of
+            (# readState, value #) -> (# readState, D# value #)
+      )
+  pokeByteOff (Ptr address) (I# offset) (D# value) =
+    IO
+      ( \state ->
+          case writeWord8OffAddrAsDouble# address offset value state of
             nextState -> (# nextState, () #)
       )

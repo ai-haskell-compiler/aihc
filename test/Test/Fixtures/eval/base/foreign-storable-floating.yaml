@@ -1,0 +1,68 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Foreign.Ptr (Ptr, plusPtr)
+    import Foreign.Storable (Storable (..))
+    import GHC.ForeignPtr (ForeignPtr, mallocPlainForeignPtrBytes, plusForeignPtr, withForeignPtr)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    sizeChecks :: [Bool]
+    sizeChecks =
+      [ sizeOf (undefined :: Float) == 4
+      , alignment (undefined :: Float) == 4
+      , sizeOf (undefined :: Double) == 8
+      , alignment (undefined :: Double) == 8
+      ]
+
+    roundTrip :: IO [Bool]
+    roundTrip = do
+      buffer <- mallocPlainForeignPtrBytes 32 :: IO (ForeignPtr Float)
+      withForeignPtr buffer $ \base -> do
+        poke base 3
+        pokeElemOff base 1 5
+        pokeByteOff base 16 (7 :: Double)
+        pokeByteOff base 24 (negate 9 :: Double)
+        firstFloat <- peek base
+        secondFloat <- peekElemOff base 1
+        firstDouble <- peekByteOff base 16
+        secondDouble <- peekByteOff base 24
+        return
+          [ firstFloat == 3
+          , secondFloat == 5
+          , firstDouble == (7 :: Double)
+          , secondDouble == (negate 9 :: Double)
+          ]
+
+    pointerChecks :: IO [Bool]
+    pointerChecks = do
+      buffer <- mallocPlainForeignPtrBytes 32 :: IO (ForeignPtr Float)
+      let shifted = plusForeignPtr buffer 8
+      withForeignPtr buffer $ \base ->
+        return
+          [ base == base
+          , base /= plusPtr base 8
+          , base < plusPtr base 8
+          , plusPtr base 8 > base
+          , compare base base == EQ
+          , buffer == buffer
+          , buffer /= shifted
+          , buffer < shifted
+          ]
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (value : values) = value && allTrue values
+
+    checks :: Bool
+    checks =
+      allTrue sizeChecks
+        && allTrue (unsafePerformIO roundTrip)
+        && allTrue (unsafePerformIO pointerChecks)
+output: |
+  True
+expression: |
+  checks
+status: pass
+reason: Storable stores Float and Double through the unaligned address primops, and pointers and foreign pointers compare by address

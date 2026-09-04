@@ -15,8 +15,10 @@ module GHC.Ptr
   )
 where
 
+import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
-import GHC.Prim (Addr#, addr2Int#, int2Word#, minusAddr#, nullAddr#, plusAddr#, remWord#, word2Int#, (-#))
+import GHC.Prim (Addr#, addr2Int#, eqAddr#, int2Word#, ltAddr#, minusAddr#, nullAddr#, plusAddr#, remWord#, word2Int#, (-#))
+import GHC.Types (Bool (..), Ordering (..))
 
 data Ptr a = Ptr Addr#
 
@@ -52,3 +54,31 @@ castFunPtrToPtr (FunPtr address) = Ptr address
 
 castPtrToFunPtr :: Ptr a -> FunPtr b
 castPtrToFunPtr (Ptr address) = FunPtr address
+
+-- | Pointers compare by the address they hold; the phantom element type plays
+-- no part.
+instance Eq (Ptr a) where
+  Ptr left == Ptr right = addressEquals left right
+
+instance Ord (Ptr a) where
+  compare (Ptr left) (Ptr right) = compareAddress left right
+
+instance Eq (FunPtr a) where
+  FunPtr left == FunPtr right = addressEquals left right
+
+instance Ord (FunPtr a) where
+  compare (FunPtr left) (FunPtr right) = compareAddress left right
+
+addressEquals :: Addr# -> Addr# -> Bool
+addressEquals left right =
+  case eqAddr# left right of
+    0# -> False
+    _ -> True
+
+compareAddress :: Addr# -> Addr# -> Ordering
+compareAddress left right =
+  case eqAddr# left right of
+    0# -> case ltAddr# left right of
+      0# -> GT
+      _ -> LT
+    _ -> EQ
