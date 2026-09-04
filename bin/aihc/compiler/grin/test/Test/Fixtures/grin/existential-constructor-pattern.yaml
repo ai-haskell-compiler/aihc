@@ -14,9 +14,9 @@ expected: |-
 
   global 1.Box = (C1.Box/1)
 
-  global 1.copyBox = (P$grin_closure_0/1)
+  global 1.copyBox = (P$copyBox/1)
 
-  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  $copyBox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of

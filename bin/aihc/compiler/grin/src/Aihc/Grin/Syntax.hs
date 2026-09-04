@@ -38,6 +38,7 @@ module Aihc.Grin.Syntax
     grinProgramGlobalReferences,
     grinValueRuntimeRep,
     grinVarNameNeedsNumber,
+    unusedFunctionName,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
   )
@@ -46,6 +47,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
 import Data.Maybe (mapMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -280,6 +282,15 @@ data GrinLiteral
 -- | Every scope that the top-level names of one program come from, in a
 -- stable order. The printer gives each of them a number, and it prints a name
 -- from a numbered scope without its package and its module.
+-- | The first name that is free, starting from @base@. A name that is in use
+-- gets a number, so that no two functions of a program share a name.
+unusedFunctionName :: Text -> Set FunctionName -> FunctionName
+unusedFunctionName base used = search (FunctionName base) 2
+  where
+    search candidate index
+      | Set.member candidate used = search (FunctionName (base <> "_" <> T.pack (show index))) (index + 1 :: Int)
+      | otherwise = candidate
+
 grinProgramScopes :: GrinProgram -> [GrinScope]
 grinProgramScopes program =
   Set.toAscList (Set.fromList (mapMaybe (fmap fst . grinNameScope) names))

@@ -7,9 +7,9 @@ expected: |-
 
   global 1.Ptr = (C1.Ptr/1)
 
-  global 1.putsAddress = (F$grin_putsAddress_foreign_0)
+  global 1.putsAddress = (F$putsAddress_foreign)
 
-  $grin_putsAddress_foreign_0 -> BoxedRep Lifted =
+  $putsAddress_foreign -> BoxedRep Lifted =
     foreign_result :: AddrRep <-
       foreign-call putsAddress = address "puts" :: () -> addr ! pure with
     store (C1.Ptr (foreign_result :: AddrRep))

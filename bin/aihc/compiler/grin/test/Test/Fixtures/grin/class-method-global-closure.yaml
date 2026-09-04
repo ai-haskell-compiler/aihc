@@ -15,9 +15,9 @@ expected: |-
 
   global 1.$Dict$Read = (C1.$Dict$Read/1)
 
-  global 1.reads = (P$grin_closure_0/1)
+  global 1.reads = (P$reads/1)
 
-  $grin_closure_0 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+  $reads ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
     case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of

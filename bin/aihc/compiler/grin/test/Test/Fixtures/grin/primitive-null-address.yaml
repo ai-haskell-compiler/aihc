@@ -7,9 +7,9 @@ expected: |-
 
   global 1.Address = (C1.Address/1)
 
-  global 1.value = (F$grin_value_thunk_0)
+  global 1.value = (F$value_thunk)
 
-  $grin_value_thunk_0 -> BoxedRep Lifted =
+  $value_thunk -> BoxedRep Lifted =
     argument :: AddrRep <-
       eval @AddrRep global-ref 2.nullAddr#
     store (C1.Address (argument :: AddrRep))

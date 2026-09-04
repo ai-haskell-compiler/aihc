@@ -8,16 +8,16 @@ expected: |-
 
   scope 2 = "aihc-prim" GHC.Tuple
 
-  global 1.identity = (P$grin_closure_0/1)
+  global 1.identity = (P$identity/1)
 
-  global 1.unit = (F$grin_unit_thunk_1)
+  global 1.unit = (F$unit_thunk)
 
-  $grin_closure_0 (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+  $identity (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
-  $grin_unit_thunk_1 -> BoxedRep Lifted =
+  $unit_thunk -> BoxedRep Lifted =
     function_application :: BoxedRep Lifted <-
-      call @(BoxedRep Lifted) $grin_closure_0 global-ref 1.identity
+      call @(BoxedRep Lifted) $identity global-ref 1.identity
     apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) global-ref 2."()"
 status: pass
 reason: applies remaining arguments after a direct local function call reaches its arity
