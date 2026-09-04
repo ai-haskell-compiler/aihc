@@ -11,5 +11,5 @@ modules:
   first p = px p
   mk :: a -> a -> Pair a
   mk x y = Point {px = x, py = y}
-reason: the type checker does not type record pattern synonyms
+reason: record pattern synonyms abort the type checker; the generated field selectors (px, py) are never added to the type environment
 status: xfail

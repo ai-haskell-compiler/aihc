@@ -1,10 +1,26 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  fst (a, b) = a
+  │   ││  └─ type: b
+  │   │└─ type: a
+  │   └─ type: (a, b)
+  └─ type: ∀ a b. (a, b) → a
+  snd (a, b) = b
+  │   ││  └─ type: b
+  │   │└─ type: a
+  │   └─ type: (a, b)
+  └─ type: ∀ a b. (a, b) → b
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    fst (a, b) = a
-    snd (a, b) = b
-annotated: []
-status: xfail
-reason: "tuple patterns not yet supported in type checker"
+- |
+  module Test where
+  data Bool = True | False
+  fst (a, b) = a
+  snd (a, b) = b
+reason: tuple patterns bind their components independently and generalize over both element types
+status: pass

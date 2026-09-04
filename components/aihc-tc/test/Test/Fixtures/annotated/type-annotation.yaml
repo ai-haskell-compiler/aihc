@@ -1,9 +1,18 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  f x = x :: Bool
+  │ └─ type: Bool
+  └─ type: Bool → Bool
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    f x = x :: Bool
-annotated: []
-status: xfail
-reason: "type annotations not yet supported in type checker"
+- |
+  module Test where
+  data Bool = True | False
+  f x = x :: Bool
+reason: an expression type annotation propagates back into the argument's inferred type
+status: pass

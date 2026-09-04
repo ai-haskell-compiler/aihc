@@ -1,9 +1,18 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  f x | True = x
+  │ └─ type: a
+  └─ type: ∀ a. a → a
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    f x | True = x
-annotated: []
-status: xfail
-reason: "pattern guards not yet supported in type checker"
+- |
+  module Test where
+  data Bool = True | False
+  f x | True = x
+reason: a boolean guard leaves the guarded equation's argument fully polymorphic
+status: pass

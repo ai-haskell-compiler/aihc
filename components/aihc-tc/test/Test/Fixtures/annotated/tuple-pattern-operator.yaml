@@ -1,10 +1,26 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  f (x, y) = x + y
+  │ ││  │      └─ type: a → b → a; type-args: a, b
+  │ ││  └─ type: b
+  │ │└─ type: a
+  │ └─ type: (a, b)
+  └─ type: ∀ a b. (a, b) → a
+  (+) a b = a
+  │   │ └─ type: b
+  │   └─ type: a
+  └─ type: ∀ a b. a → b → a
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    f (x, y) = x + y
-    (+) a b = a
-annotated: []
-status: xfail
-reason: "tuple patterns with operators not yet supported"
+- |
+  module Test where
+  data Bool = True | False
+  f (x, y) = x + y
+  (+) a b = a
+reason: tuple pattern components feed a locally defined infix operator and stay polymorphic
+status: pass
