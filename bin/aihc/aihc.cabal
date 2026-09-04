@@ -260,7 +260,7 @@ common test-options
     -Wall
     -threaded
     -rtsopts
-    "-with-rtsopts=-N -M10G"
+    "-with-rtsopts=-maxN8 -M10G"
 
   default-language: GHC2021
 
