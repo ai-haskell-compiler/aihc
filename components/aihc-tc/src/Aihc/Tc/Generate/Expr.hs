@@ -21,6 +21,7 @@ import Aihc.Parser.Syntax
     DoFlavor (..),
     DoStmt (..),
     Expr (..),
+    FloatType (..),
     LambdaCaseAlt (..),
     Name (..),
     NumericType (..),
@@ -303,6 +304,7 @@ isPrimitiveLiteral :: Expr -> Bool
 isPrimitiveLiteral expr =
   case expr of
     EInt _ numericType _ -> numericType /= TInteger
+    EFloat _ floatType _ -> floatType /= TFractional
     ECharHash {} -> True
     EStringHash {} -> True
     _ -> False

@@ -57,6 +57,7 @@ import Aihc.Parser.Syntax
     Extension (..),
     FieldDecl (..),
     FixityAssoc (..),
+    FloatType (..),
     ForallTelescope (..),
     ForeignDecl (..),
     GadtBody (..),
@@ -749,7 +750,8 @@ resolveExpr expr =
     ETypeSyntax form ty -> ETypeSyntax form <$> resolveType ty
     EInt _ TInteger _ -> resolveIntegerLiteral expr
     EInt _ numericType _ -> resolvePrimitiveLiteralType numericType expr
-    EFloat {} -> pure expr
+    EFloat _ floatType _ ->
+      maybe (pure expr) (`resolvePrimitiveLiteralTypeName` expr) (primitiveFloatTypeName floatType)
     EChar {} -> pure expr
     ECharHash {} -> resolvePrimitiveLiteralTypeName "Char#" expr
     EString {} -> pure expr
@@ -859,11 +861,34 @@ resolvePrimitiveLiteralType numericType expr =
 resolvePrimitiveLiteralTypeName :: Text -> Expr -> ResolveM Expr
 resolvePrimitiveLiteralTypeName name expr = do
   sp <- currentSpan
+  annotation <- primitiveLiteralTypeAnnotation sp name
+  pure (EAnn (mkAnnotation annotation) expr)
+
+-- | The resolution annotation that names the type of a primitive literal.
+primitiveLiteralTypeAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
+primitiveLiteralTypeAnnotation sp name = do
   info <- currentModuleInfo
   let resolved = lookupType name (moduleInfoBuiltinScope info)
-      annotation =
-        ResolutionAnnotation sp (IdentifierNamed name) ResolutionNamespaceType resolved
-  pure (EAnn (mkAnnotation annotation) expr)
+  pure (ResolutionAnnotation sp (IdentifierNamed name) ResolutionNamespaceType resolved)
+
+-- | The type name of a primitive literal, or 'Nothing' for a boxed literal.
+primitiveLiteralTypeName :: Literal -> Maybe Text
+primitiveLiteralTypeName literal =
+  case literal of
+    LitAnn _ inner -> primitiveLiteralTypeName inner
+    LitInt _ numericType _ -> primitiveNumericTypeName numericType
+    LitFloat _ floatType _ -> primitiveFloatTypeName floatType
+    LitChar {} -> Nothing
+    LitCharHash {} -> Just "Char#"
+    LitString {} -> Nothing
+    LitStringHash {} -> Just "Addr#"
+
+primitiveFloatTypeName :: FloatType -> Maybe Text
+primitiveFloatTypeName floatType =
+  case floatType of
+    TFractional -> Nothing
+    TFloatHash -> Just "Float#"
+    TDoubleHash -> Just "Double#"
 
 primitiveNumericTypeName :: NumericType -> Maybe Text
 primitiveNumericTypeName numericType =
@@ -904,18 +929,27 @@ rebindableFromInteger info scope =
           ResolvedError "unbound"
     resolved -> resolved
 
-annotateIntegerPatternLiteral :: Pattern -> Literal -> ResolveM Pattern
-annotateIntegerPatternLiteral pat lit =
-  case peelLiteralAnn lit of
-    LitInt _ TInteger _ -> do
-      sp <- literalSpan <$> currentSpan <*> pure lit
-      let methodNames =
-            case peelPatternAnn pat of
-              PNegLit {} -> ["fromInteger", "negate", "=="]
-              _ -> ["fromInteger", "=="]
-      methodAnns <- mapM (syntaxTermAnnotation sp) methodNames
-      pure (foldr (PAnn . mkAnnotation) pat methodAnns)
-    _ -> pure pat
+-- | Annotate a literal pattern with the names that the type checker needs.
+--
+-- An overloaded integer pattern gets the syntax terms that compare it.
+-- A primitive literal pattern gets the resolution of its primitive type.
+annotatePatternLiteral :: Pattern -> Literal -> ResolveM Pattern
+annotatePatternLiteral pat lit = do
+  sp <- literalSpan <$> currentSpan <*> pure lit
+  case primitiveLiteralTypeName lit of
+    Just typeName -> do
+      typeAnn <- primitiveLiteralTypeAnnotation sp typeName
+      pure (PAnn (mkAnnotation typeAnn) pat)
+    Nothing ->
+      case peelLiteralAnn lit of
+        LitInt _ TInteger _ -> do
+          let methodNames =
+                case peelPatternAnn pat of
+                  PNegLit {} -> ["fromInteger", "negate", "=="]
+                  _ -> ["fromInteger", "=="]
+          methodAnns <- mapM (syntaxTermAnnotation sp) methodNames
+          pure (foldr (PAnn . mkAnnotation) pat methodAnns)
+        _ -> pure pat
 
 literalSpan :: SourceSpan -> Literal -> SourceSpan
 literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
@@ -1174,7 +1208,7 @@ bindPattern pat =
       pure (emptyScope, PTypeSyntax form ty')
     PWildcard -> pure (emptyScope, pat)
     PLit lit -> do
-      pat' <- annotateIntegerPatternLiteral (PLit lit) lit
+      pat' <- annotatePatternLiteral (PLit lit) lit
       pure (emptyScope, pat')
     PTuple flavor pats -> do
       (scope, pats') <- bindPatterns pats
@@ -1233,7 +1267,7 @@ bindPattern pat =
       ty' <- resolveType ty
       pure (scope, PTypeSig inner' ty')
     PNegLit lit -> do
-      pat' <- annotateIntegerPatternLiteral (PNegLit lit) lit
+      pat' <- annotatePatternLiteral (PNegLit lit) lit
       pure (emptyScope, pat')
     PSplice expr -> do
       expr' <- resolveExpr expr
@@ -1264,7 +1298,7 @@ resolvePatternDefinition termDefinition pat =
     PTypeSyntax form ty ->
       PTypeSyntax form <$> resolveType ty
     PWildcard -> pure pat
-    PLit lit -> annotateIntegerPatternLiteral (PLit lit) lit
+    PLit lit -> annotatePatternLiteral (PLit lit) lit
     PQuasiQuote {} -> annotateUnhandledPattern <$> currentSpan <*> pure pat
     PTuple flavor pats ->
       PTuple flavor <$> mapM (resolvePatternDefinition termDefinition) pats
@@ -1285,7 +1319,7 @@ resolvePatternDefinition termDefinition pat =
       PStrict <$> resolvePatternDefinition termDefinition inner
     PIrrefutable inner ->
       PIrrefutable <$> resolvePatternDefinition termDefinition inner
-    PNegLit lit -> annotateIntegerPatternLiteral (PNegLit lit) lit
+    PNegLit lit -> annotatePatternLiteral (PNegLit lit) lit
     PParen inner ->
       PParen <$> resolvePatternDefinition termDefinition inner
     PRecord name fields wildcard ->

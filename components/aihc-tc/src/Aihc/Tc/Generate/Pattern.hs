@@ -18,6 +18,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     Expr (..),
+    FloatType (..),
     Literal (..),
     Name (..),
     NumericType (..),
@@ -126,15 +127,15 @@ checkPattern = checkPatternWith GadtAsWanted
 
 checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWith gadtHandling sp pat scrutTy = do
-  check <- case overloadedIntegerPatternLiteral pat of
-    Just isNegative -> checkOverloadedIntegerPattern sp pat isNegative scrutTy
+  check <- case literalPatternCheck sp pat scrutTy of
+    Just literalCheck -> literalCheck
     Nothing -> checkPatternCore gadtHandling sp pat scrutTy
   pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
 
 checkPatternWithoutResultType :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWithoutResultType gadtHandling sp pat scrutTy =
-  case overloadedIntegerPatternLiteral pat of
-    Just isNegative -> checkOverloadedIntegerPattern sp pat isNegative scrutTy
+  case literalPatternCheck sp pat scrutTy of
+    Just literalCheck -> literalCheck
     Nothing ->
       case pat of
         PAnn ann inner -> do
@@ -264,14 +265,20 @@ checkPatternCore gadtHandling sp pat scrutTy =
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
       pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
     PWildcard {} -> pure (checkedOnly pat)
-    PLit lit -> do
-      maybeLiteralTy <- charLiteralPatternType lit
-      case maybeLiteralTy of
-        Just literalTy -> do
-          eqCt <- wantedEq sp scrutTy literalTy
-          pure (checkedOnly (PLit (checkedLiteral scrutTy lit))) {pcWantedCts = [eqCt]}
-        Nothing -> pure (checkedOnly (PLit (checkedLiteral scrutTy lit)))
-    PNegLit {} -> pure (checkedOnly pat)
+    PLit lit
+      | isPrimitiveLiteral lit ->
+          abortTc "primitive literal pattern is missing its resolver type annotation"
+      | otherwise -> do
+          maybeLiteralTy <- charLiteralPatternType lit
+          case maybeLiteralTy of
+            Just literalTy -> do
+              eqCt <- wantedEq sp scrutTy literalTy
+              pure (checkedOnly (PLit (checkedLiteral scrutTy lit))) {pcWantedCts = [eqCt]}
+            Nothing -> pure (checkedOnly (PLit (checkedLiteral scrutTy lit)))
+    PNegLit lit
+      | isPrimitiveLiteral lit ->
+          abortTc "primitive literal pattern is missing its resolver type annotation"
+      | otherwise -> pure (checkedOnly pat)
     PAs name inner -> do
       let innerSpan = patternOwnSpan inner `orSourceSpan` sp
       innerCheck <- checkPatternWithoutResultType gadtHandling innerSpan inner scrutTy
@@ -389,19 +396,71 @@ charLiteralPatternType literal =
       maybeInfo <- lookupTyCon "Char"
       tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 typeKindType) (pure . tciTyCon) maybeInfo
       pure (Just (TcTyCon tyCon []))
-    LitCharHash {} -> do
-      tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 typeKindType
-      pure (Just (TcTyCon tyCon []))
     _ -> pure Nothing
 
-overloadedIntegerPatternLiteral :: Pattern -> Maybe Bool
-overloadedIntegerPatternLiteral pat =
-  case peelPatternAnn pat of
-    PLit lit
-      | isOverloadedIntegerLiteral lit -> Just False
-    PNegLit lit
-      | isOverloadedIntegerLiteral lit -> Just True
+-- | The check of a literal pattern that needs its resolver annotations.
+--
+-- An overloaded integer pattern uses the resolved syntax terms.
+-- A primitive literal pattern uses the resolved primitive type.
+literalPatternCheck :: SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
+literalPatternCheck sp pat scrutTy =
+  case patternLiteral pat of
+    Just (isNegative, lit)
+      | isOverloadedIntegerLiteral lit -> Just (checkOverloadedIntegerPattern sp pat isNegative scrutTy)
+      | isPrimitiveLiteral lit -> Just (checkPrimitiveLiteralPattern sp pat scrutTy)
     _ -> Nothing
+
+-- | The literal of a literal pattern, with a flag for a negated literal.
+patternLiteral :: Pattern -> Maybe (Bool, Literal)
+patternLiteral pat =
+  case peelPatternAnn pat of
+    PLit lit -> Just (False, lit)
+    PNegLit lit -> Just (True, lit)
+    _ -> Nothing
+
+isPrimitiveLiteral :: Literal -> Bool
+isPrimitiveLiteral lit =
+  case peelLiteralAnn lit of
+    LitInt _ numericType _ -> numericType /= TInteger
+    LitFloat _ floatType _ -> floatType /= TFractional
+    LitCharHash {} -> True
+    LitStringHash {} -> True
+    _ -> False
+
+-- | Check a primitive literal pattern against the scrutinee type.
+--
+-- The resolver annotates the pattern with the primitive type of the literal.
+-- The pattern type is that primitive type, so the scrutinee must equal it.
+checkPrimitiveLiteralPattern :: SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPrimitiveLiteralPattern sp pat scrutTy = do
+  resolution <- requiredPrimitiveLiteralResolution pat
+  maybeInfo <- lookupResolvedTypeSyntax resolution
+  info <-
+    maybe
+      (abortTc ("resolved primitive literal type missing from type environment: " <> show (resolutionTarget resolution)))
+      pure
+      maybeInfo
+  let literalTy = TcTyCon (tciTyCon info) []
+  eqCt <- wantedEq sp scrutTy literalTy
+  pure (checkedOnly (checkedLiteralPattern scrutTy pat)) {pcWantedCts = [eqCt]}
+
+requiredPrimitiveLiteralResolution :: Pattern -> TcM ResolutionAnnotation
+requiredPrimitiveLiteralResolution pat =
+  case [resolution | resolution <- patternResolutions pat, resolutionNamespace resolution == ResolutionNamespaceType] of
+    resolution : _ -> pure resolution
+    [] -> abortTc "primitive literal pattern is missing its resolver type annotation"
+
+-- | Attach the checked type to the literal inside a literal pattern.
+checkedLiteralPattern :: TcType -> Pattern -> Pattern
+checkedLiteralPattern ty pat =
+  case pat of
+    PAnn ann inner -> PAnn ann (checkedLiteralPattern ty inner)
+    PParen inner -> PParen (checkedLiteralPattern ty inner)
+    PStrict inner -> PStrict (checkedLiteralPattern ty inner)
+    PIrrefutable inner -> PIrrefutable (checkedLiteralPattern ty inner)
+    PLit lit -> PLit (checkedLiteral ty lit)
+    PNegLit lit -> PNegLit (checkedLiteral ty lit)
+    _ -> pat
 
 isOverloadedIntegerLiteral :: Literal -> Bool
 isOverloadedIntegerLiteral lit =
