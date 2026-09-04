@@ -49,10 +49,7 @@ data-files:
   compiler/native/runtime/aihc_runtime.h
   compiler/native/runtime/aihc_runtime_internal.h
   compiler/native/runtime/aihc_runtime_options.c
-  compiler/native/runtime/aihc_runtime_trampoline.c
-  compiler/native/runtime/aihc_runtime_trampoline.h
   compiler/wasm/runtime/aihc_wasip3.c
-  compiler/wasm/runtime/aihc_wasm_adapter.c
   compiler/wasm/runtime/aihc_wasm_internal.h
   compiler/wasm/runtime/aihc_wasm_libc.c
   compiler/wasm/runtime/include/stdlib.h
@@ -64,20 +61,12 @@ data-files:
 library compiler
   visibility: private
   exposed-modules:
-    Aihc.Amd64
     Aihc.Amd64.Assemble
-    Aihc.Amd64.Codegen
-    Aihc.Amd64.Codegen.Function
-    Aihc.Amd64.Codegen.Runtime
-    Aihc.Amd64.RegisterAllocate
-    Aihc.Arm64
+    Aihc.Amd64.Lir
     Aihc.Arm64.Assemble
-    Aihc.Arm64.Codegen
-    Aihc.Arm64.Codegen.Function
-    Aihc.Arm64.Codegen.Runtime
     Aihc.Arm64.Lir
-    Aihc.Arm64.RegisterAllocate
     Aihc.Cli
+    Aihc.Cli.Backend
     Aihc.Cli.BuildExe
     Aihc.Cli.Install
     Aihc.Cli.Options
@@ -122,13 +111,10 @@ library compiler
     Aihc.Lir.Parser
     Aihc.Lir.Pretty
     Aihc.Lir.Syntax
-    Aihc.Llvm
-    Aihc.Llvm.Codegen
+    Aihc.Llvm.Lir
     Aihc.Native
-    Aihc.Native.BlockLayout
-    Aihc.Native.RegisterAllocate
     Aihc.Wasm
-    Aihc.Wasm.Codegen
+    Aihc.Wasm.Lir
 
   other-modules:
     Aihc.Cli.TaskGraph
@@ -289,14 +275,8 @@ test-suite spec
     FcGolden
     GrinGolden
     Test.Aihc.Spec
-    Test.Amd64.Observed
     Test.Amd64.Spec
-    Test.Amd64.Suite
-    Test.Arm64.LirObserved
-    Test.Arm64.LirSuite
-    Test.Arm64.Observed
     Test.Arm64.Spec
-    Test.Arm64.Suite
     Test.Fc.Properties
     Test.Fc.Spec
     Test.Fc.Suite
@@ -304,19 +284,17 @@ test-suite spec
     Test.Grin.Spec
     Test.Grin.Srt
     Test.Lir.Arbitrary
+    Test.Lir.NativeSuite
+    Test.Lir.Observed
     Test.Lir.Spec
     Test.Llvm.Spec
-    Test.Llvm.Suite
-    Test.Native.BlockLayout
     Test.Native.Compiler
     Test.Native.GcFuzz
     Test.Native.Observed
     Test.Native.Primitive
-    Test.Native.RegisterAllocate
     Test.Native.Runtime
     Test.Native.Spec
     Test.Wasm.Spec
-    Test.Wasm.Suite
 
   build-depends:
     aeson,

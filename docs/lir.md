@@ -15,12 +15,13 @@ This document is the specification. The implementation lives in
 `bin/aihc/compiler/lir`. The specification and the implementation change
 together.
 
-The first two stages of the pipeline exist as a proof of concept. The module
-`Aihc.Lir.Lower` lowers GC-GRIN to Lir. The module `Aihc.Arm64.Lir` compiles
-Lir to Mach-O objects for Apple ARM64. The target `apple-arm64-lir` selects
-this pipeline in `aihc install`, `aihc prepare-runtime`, and
-`aihc build-exe`. The sections "Lowering from GC-GRIN" and "AArch64 backend"
-describe them.
+Every target consumes Lir. The module `Aihc.Lir.Lower` lowers GC-GRIN to Lir.
+The backends are `Aihc.Arm64.Lir` (Mach-O objects for Apple ARM64),
+`Aihc.Amd64.Lir` (ELF objects for Linux AMD64), `Aihc.Llvm.Lir` (textual
+LLVM IR), and `Aihc.Wasm.Lir` (WebAssembly assembly for WASI P3). The module
+`Aihc.Cli.Backend` selects the backend of a target for `aihc install`,
+`aihc prepare-runtime`, and `aihc build-exe`. The sections "Lowering from
+GC-GRIN" and "Backends" describe them.
 
 ## Design rules
 
@@ -205,11 +206,11 @@ generates one function with this signature for each enterable object. That
 function loads the stored fields, takes the supplied values as parameters,
 and tail-calls the code of the object.
 
-The WebAssembly backend needs one fixed signature for every `code` field,
-because `call.indirect` checks the type of the callee. That form passes the
-supplied values through a machine-owned buffer. It is deferred until the
-WebAssembly backend consumes Lir. On 64-bit targets the runtime's `AihcInfo`
-structure has the layout of this section already.
+The runtime's `AihcInfo` structure has the layout of this section on every
+target: its counts and kinds are `uintptr_t`. On WebAssembly `call.indirect`
+checks the type of the callee, and the lowering states the signature with the
+types of the supplied values at every call site, so the same enter stubs work
+there.
 
 ## Functions and blocks
 
@@ -431,6 +432,14 @@ parameters in order. A GRIN value with a pointer representation or an address
 representation becomes `ptr`. Every other GRIN value becomes `i64`, and a
 float travels as its bit pattern like in the native runtime ABI.
 
+The lowering takes a `LowerTarget`: the word size and the host kind. Heap
+objects have 8-byte slots on every target, so a pointer that lives in a slot
+travels through `i64` on a 32-bit target and the high bytes of the slot are
+zero. The word size decides the layout of the info tables, the static
+reference tables, and the resume records of the scheduler. The targets are
+`posixTarget64` for Apple ARM64, Linux AMD64, and LLVM, and `wasip3Target`
+for WebAssembly.
+
 The lowering keeps the control model of CPS-GRIN:
 
 - A direct call is a `tailcall`.
@@ -444,8 +453,14 @@ The lowering keeps the control model of CPS-GRIN:
   shared functions that the lowering generates into every module that uses
   them. The functions `aihc_lir_continue_*` and `aihc_lir_apply_*` exist per
   shape of the supplied values.
-- The executable entry unit defines `main`, the top, final, update, and thread
-  done continuations, and the exit function that returns to `main`.
+- The executable entry unit defines the top, final, update, and thread done
+  continuations and the exit function. On a POSIX host it defines `main`,
+  which starts the machine and returns when the exit function returns. On
+  WASI P3 it exports `aihc_lir_program_start` and `aihc_lir_program_resume`
+  for the C driver, which owns the IO loop: a null scheduler resumption
+  means that every thread waits for IO, and the resume helper returns to the
+  driver. Both functions return one when the exit function has recorded
+  that the machine halted.
 
 The lowering emits the info tables, the enter stubs, the static objects, the
 static reference tables, and the address literals as data objects. Static
@@ -453,10 +468,17 @@ objects are exported and mutable. Info tables are read-only. The collector
 finds static objects by address, so a Lir module needs no root section and
 both collectors work with this pipeline.
 
-## AArch64 backend
+## Backends
 
-`Aihc.Arm64.Lir` lints a module and then assembles it with the direct Mach-O
-writer of the ARM64 backend. The backend is a proof of concept:
+Every backend lints the module first. No backend checks the alignment of a
+memory access, a store to read-only data, or the signature of an indirect
+call. A misaligned access gives the result of the hardware, and a store to
+read-only data is a memory fault. Every backend checks an indirect call of
+`null`.
+
+### AArch64
+
+`Aihc.Arm64.Lir` assembles the module with the direct Mach-O writer:
 
 - Every value lives in one 8-byte frame slot. Instruction selection loads the
   operands into scratch registers and stores the result.
@@ -472,10 +494,55 @@ writer of the ARM64 backend. The backend is a proof of concept:
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
 
-The backend does not check the alignment of a memory access, a store to
-read-only data, or the signature of an indirect call. A misaligned access
-gives the result of the hardware, and a store to read-only data is a memory
-fault.
+### AMD64
+
+`Aihc.Amd64.Lir` assembles the module with the direct ELF writer. It has the
+frame-slot design of the AArch64 backend:
+
+- The `aihc` convention passes the first six arguments in `rdi`, `rsi`,
+  `rdx`, `rcx`, `r8`, and `r9` and the rest in a 16-byte aligned block above
+  the return address. The callee pops that block with `ret imm16`. A tail
+  call builds the return address and the outgoing block below its frame,
+  moves them to the place of the incoming block, and jumps. Results come
+  back in `rax`, `rdx`, `rcx`, `rsi`, `rdi`, `r8`, `r9`, and `r10`.
+- The `c` convention is the System V convention with at most six integer and
+  eight float arguments and one result. A float travels as its bit pattern
+  in the frame and moves through `xmm0` at the boundary.
+- A trap writes its message and a newline to the standard error stream and
+  exits with status one.
+
+### LLVM
+
+`Aihc.Llvm.Lir` renders textual LLVM IR that Clang compiles for the host:
+
+- The `aihc` convention is `tailcc`, and a `tailcall` is a `musttail` call
+  followed by `ret`, so LLVM verifies that the stack does not grow.
+- Block parameters are `phi` instructions. Every edge with arguments goes
+  through its own block, so a target reached twice from one predecessor has
+  one `phi` entry per edge.
+- The operations that trap check their operands and branch to a block that
+  writes the message to the standard error stream and exits with status
+  one.
+
+### WebAssembly
+
+`Aihc.Wasm.Lir` renders WebAssembly in the assembly syntax of LLVM MC, which
+Clang assembles:
+
+- Every value is a local. The narrow integer types, `ptr`, and `code` are
+  `i32`; `i64`, `f32`, and `f64` are themselves. A `code` value is an index
+  into the function table.
+- A function is one loop with one nested block per Lir block and a
+  `br_table` on the current block index. A jump assigns the parameters of the
+  target and continues the loop.
+- Both conventions are the WebAssembly convention. A `tailcall` is
+  `return_call`, and `call.indirect` states the signature.
+- `stack.alloc` reserves memory on the shadow stack below `__stack_pointer`.
+- The full 64-bit multiplications are Lir helper functions that the backend
+  adds to the module.
+- A trap calls `aihc_lir_trap` with the message and its length and then
+  executes `unreachable`. The WASI P3 host has no synchronous error stream,
+  so its `aihc_lir_trap` drops the message and traps.
 
 ## Binary format
 

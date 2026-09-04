@@ -13,13 +13,10 @@ module Aihc.Cli.Runtime
   )
 where
 
-import Aihc.Amd64 qualified as Amd64
-import Aihc.Arm64 qualified as Arm64
-import Aihc.Arm64.Lir qualified as Arm64Lir
+import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Llvm qualified as Llvm
 import Aihc.Native
   ( NativeTarget (..),
     RuntimeGarbageCollector (..),
@@ -34,7 +31,6 @@ import Control.Exception (bracket)
 import Control.Monad (forM)
 import Data.ByteString.Lazy qualified as BL
 import Data.Maybe (fromMaybe)
-import Data.Text (Text)
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectory, createDirectoryIfMissing, removeDirectoryRecursive, removeFile, renameFile)
 import System.Environment (lookupEnv)
@@ -52,17 +48,12 @@ prepareEntryArchive storeRoot target = do
   withTemporaryDirectory destinationDirectory "entry-build" $ \directory -> do
     let object = directory </> "entry.o"
         archive = directory </> "entry.a"
-    case target of
-      AppleArm64 ->
-        either (ioError . userError . show) (BL.writeFile object) Arm64.compileEntryObject
-      AppleArm64Lir -> do
-        entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure Lir.lowerEntry
-        either (ioError . userError . ("Lir object generation failed: " <>) . show) (BL.writeFile object) (Arm64Lir.compileLirObject entryModule)
-      LinuxAmd64 ->
-        either (ioError . userError . show) (BL.writeFile object) Amd64.compileEntryObject
-      _ -> do
-        source <- either (ioError . userError) pure (entrySource target)
-        let sourcePath = directory </> if target == Llvm then "entry.ll" else "entry.s"
+    entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lir.lowerEntry (lowerTargetFor target))
+    output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir target entryModule)
+    case output of
+      BackendObject bytes -> BL.writeFile object bytes
+      BackendSource source -> do
+        let sourcePath = directory </> "entry" <> nativeSourceExtension target
         TIO.writeFile sourcePath source
         (compiler, arguments) <- backendCompiler target
         runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
@@ -70,18 +61,6 @@ prepareEntryArchive storeRoot target = do
     runTool archiver ["rcs", archive, object]
     renameFile archive destination
   pure destination
-
-entrySource :: NativeTarget -> Either String Text
-entrySource target =
-  case target of
-    AppleArm64 -> Left "Apple ARM64 uses direct object generation"
-    AppleArm64Lir -> Left "Apple ARM64 through Lir uses direct object generation"
-    LinuxAmd64 -> Left "Linux AMD64 uses direct object generation"
-    Llvm -> firstBackend Llvm.compileEntry
-    Wasm32Wasip3 -> firstBackend Wasm.compileEntry
-  where
-    firstBackend :: (Show error) => Either error Text -> Either String Text
-    firstBackend = either (Left . show) Right
 
 runPrepareRuntime :: PrepareRuntimeOptions -> IO ()
 runPrepareRuntime options = do
@@ -106,7 +85,8 @@ prepareRuntimeArchive storeRoot target garbageCollector = do
         Wasm32Wasip3 -> buildWasip3RuntimeObjects garbageCollector directory
         _ -> buildNativeRuntimeObjects target garbageCollector directory
     let archive = directory </> "runtime.a"
-    runTool "ar" (["rcs", archive] <> objects)
+    archiver <- backendArchiver target
+    runTool archiver (["rcs", archive] <> objects)
     renameFile archive destination
   pure destination
 

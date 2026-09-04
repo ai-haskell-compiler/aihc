@@ -10,9 +10,7 @@ module Aihc.Cli.Install
   )
 where
 
-import Aihc.Amd64 qualified as Amd64
-import Aihc.Arm64 qualified as Arm64
-import Aihc.Arm64.Lir qualified as Arm64Lir
+import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.PackagePlan
@@ -47,7 +45,6 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -113,7 +110,6 @@ import Aihc.Tc
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tvKind, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
@@ -145,7 +141,7 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showHex)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
@@ -1318,7 +1314,6 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
     nativeModules <- mapM (generateNativeModule target) grinModules
     mapM_ writeNativeSourceFile nativeModules
     mapM_ compileNativeSourceFile nativeModules
-    when keepNative (mapM_ writeNativeDisassembly nativeModules)
     unless keepNative (mapM_ removeNativeSourceFile nativeModules)
   pure
     BackendPhaseTimings
@@ -1394,23 +1389,17 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path (withFinalNewline (renderString (layoutPretty defaultLayoutOptions (Grin.prettyProgram program))))
 
+    -- Every target goes through Lir. An object target keeps the Lir text
+    -- as its source; a text target keeps the backend output that the
+    -- compiler driver consumes.
     generateNativeModule selectedTarget grinModule = do
       let name = grinModuleName grinModule
           gcProgram = gcGrinProgram grinModule
-      case selectedTarget of
-        AppleArm64 -> do
-          object <- either (ioError . userError . ("Apple ARM64 object generation failed: " <>) . show) pure (Arm64.compileModuleObject gcProgram)
-          pure (NativeModule name Nothing (Just object))
-        AppleArm64Lir -> do
-          lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule gcProgram)
-          object <- either (ioError . userError . ("Lir object generation failed: " <>) . show) pure (Arm64Lir.compileLirObject lirModule)
-          pure (NativeModule name (Just (Lir.renderModule lirModule)) (Just object))
-        LinuxAmd64 -> do
-          object <- either (ioError . userError . ("Linux AMD64 object generation failed: " <>) . show) pure (Amd64.compileModuleObject gcProgram)
-          pure (NativeModule name Nothing (Just object))
-        _ -> do
-          source <- generateNativeCode selectedTarget gcProgram
-          pure (NativeModule name (Just source) Nothing)
+      lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) gcProgram)
+      output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir selectedTarget lirModule)
+      pure $ case output of
+        BackendObject object -> NativeModule name (Just (Lir.renderModule lirModule)) (Just object)
+        BackendSource source -> NativeModule name (Just source) Nothing
 
     writeNativeSourceFile nativeModule = do
       case nativeSource nativeModule of
@@ -1432,29 +1421,10 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
           runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 
-    -- A backend that keeps its own source next to the object needs no
-    -- disassembly.
-    writeNativeDisassembly nativeModule =
-      case (nativeSource nativeModule, nativeObject nativeModule) of
-        (Nothing, Just _) -> do
-          let paths = outputPaths (nativeModuleName nativeModule)
-          disassembleObject (outputObjectPath paths) (outputNativePath paths)
-          verbose ("Write native disassembly: " <> T.unpack (nativeModuleName nativeModule))
-        _ -> pure ()
-
     removeNativeSourceFile nativeModule =
       case nativeSource nativeModule of
         Nothing -> pure ()
         Just _ -> removeFile (outputNativePath (outputPaths (nativeModuleName nativeModule)))
-
-generateNativeCode :: NativeTarget -> Grin.GcGrinProgram -> IO Text
-generateNativeCode target gcProgram =
-  case target of
-    AppleArm64 -> ioError (userError "Apple ARM64 uses direct object generation")
-    AppleArm64Lir -> ioError (userError "Apple ARM64 through Lir uses direct object generation")
-    LinuxAmd64 -> ioError (userError "Linux AMD64 uses direct object generation")
-    Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
-    Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
 
 moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =
@@ -1474,25 +1444,6 @@ withFinalNewline :: String -> String
 withFinalNewline rendered
   | "\n" `isSuffixOf` rendered = rendered
   | otherwise = rendered <> "\n"
-
-nativeSourceExtension :: NativeTarget -> String
-nativeSourceExtension target =
-  case target of
-    Llvm -> ".ll"
-    AppleArm64 -> ".objdump"
-    AppleArm64Lir -> ".lir"
-    LinuxAmd64 -> ".objdump"
-    Wasm32Wasip3 -> ".s"
-
-disassembleObject :: FilePath -> FilePath -> IO ()
-disassembleObject objectPath outputPath = do
-  llvmObjdump <- findExecutable "llvm-objdump"
-  objdump <- maybe (findExecutable "objdump") (pure . Just) llvmObjdump
-  executable <- maybe (ioError (userError "Keep-native requires llvm-objdump or objdump")) pure objdump
-  (status, output, errors) <- readProcessWithExitCode executable ["-dr", objectPath] ""
-  case status of
-    ExitSuccess -> writeFile outputPath output
-    ExitFailure _ -> ioError (userError (unlines ["Object disassembly failed: " <> executable, errors]))
 
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
 buildLibraryArchive target verbose archive moduleObjects = do

@@ -94,8 +94,8 @@
                 (old.preCheck or "")
                 + ''
                   # The LLVM bintools must shadow the GNU binutils that the clang wrapper
-                  # links into its own bin directory: the arm64 and amd64 suites
-                  # disassemble their objects with objdump.
+                  # links into its own bin directory: the foreign-target suites
+                  # archive their objects with llvm-ar.
                   export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:$PATH
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"

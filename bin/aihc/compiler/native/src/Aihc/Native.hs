@@ -15,7 +15,6 @@ module Aihc.Native
     hostNativeTarget,
     nativeTargetTriple,
     nativeTargetStoreDirectory,
-    nativeLocalsSlots,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     nativeSplitRuntimePrimitiveCall,
@@ -45,25 +44,14 @@ import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory)
 import System.Info qualified as System
 
--- | The number of slots the entry unit reserves for spilled locals.
---
--- Compiled functions share one machine-owned slot area and address it from a
--- base register that the entry unit loads once. A module cannot tell the entry
--- unit how many slots its functions need, so the entry unit reserves this
--- fixed count and each backend rejects a function that needs more.
-nativeLocalsSlots :: Int
-nativeLocalsSlots = 65536
-
 -- | The fixed linked global that starts each executable.
 executableEntryName :: Text
 executableEntryName = T.intercalate "\0" ["exe", "Aihc.Entry", "entry"]
 
 -- | A complete backend and executable target.
+-- Every target consumes Lir. See @docs/lir.md@.
 data NativeTarget
   = AppleArm64
-  | -- | Apple ARM64 through the Lir pipeline. This target is a proof of
-    -- concept for the Lir lowering and the Lir backend.
-    AppleArm64Lir
   | LinuxAmd64
   | Llvm
   | Wasm32Wasip3
@@ -83,7 +71,6 @@ renderNativeTarget :: NativeTarget -> String
 renderNativeTarget target =
   case target of
     AppleArm64 -> "apple-arm64"
-    AppleArm64Lir -> "apple-arm64-lir"
     LinuxAmd64 -> "linux-amd64"
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
@@ -93,13 +80,12 @@ parseNativeTarget value =
   case value of
     "apple-arm64" -> Right AppleArm64
     "arm64-apple-darwin" -> Right AppleArm64
-    "apple-arm64-lir" -> Right AppleArm64Lir
     "linux-amd64" -> Right LinuxAmd64
     "x86_64-unknown-linux-gnu" -> Right LinuxAmd64
     "llvm" -> Right Llvm
     "wasm32-wasip3" -> Right Wasm32Wasip3
     "wasip3" -> Right Wasm32Wasip3
-    _ -> Left "target must be apple-arm64, apple-arm64-lir, linux-amd64, llvm, or wasm32-wasip3"
+    _ -> Left "target must be apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
 
 -- | Render a NUL-separated logical linker identity as a readable, reversible
 -- object symbol. ASCII letters and digits stay intact, components use a single
@@ -142,7 +128,6 @@ nativeTargetTriple :: NativeTarget -> String
 nativeTargetTriple target =
   case target of
     AppleArm64 -> "arm64-apple-darwin"
-    AppleArm64Lir -> "arm64-apple-darwin"
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-unknown-unknown"
@@ -152,7 +137,6 @@ nativeTargetStoreDirectory :: NativeTarget -> FilePath
 nativeTargetStoreDirectory target =
   case target of
     AppleArm64 -> "arm64-macos-apple"
-    AppleArm64Lir -> "arm64-macos-apple-lir"
     LinuxAmd64 -> "amd64-linux-gnu"
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
@@ -164,9 +148,8 @@ backendCompiler target =
     Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
-      pure (compiler, ["--target=wasm32-unknown-unknown", "-mtail-call"])
+      pure (compiler, ["--target=wasm32-unknown-unknown", "-mtail-call", "-mmultivalue", "-mreference-types", "-msign-ext"])
     AppleArm64 -> nativeCompiler
-    AppleArm64Lir -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
@@ -210,12 +193,9 @@ runtimePlan target garbageCollector = do
     getDataFileName $ case target of
       Wasm32Wasip3 -> "compiler/native/runtime/aihc_host_wasip3.c"
       _ -> "compiler/native/runtime/aihc_host_posix.c"
-  trampoline <- getDataFileName "compiler/native/runtime/aihc_runtime_trampoline.c"
   pure
     RuntimePlan
-      { runtimeSources =
-          [core, runtimeOptions, collector, host]
-            <> [trampoline | target == Wasm32Wasip3],
+      { runtimeSources = [core, runtimeOptions, collector, host],
         runtimeIncludeDirectories = [takeDirectory core]
       }
 

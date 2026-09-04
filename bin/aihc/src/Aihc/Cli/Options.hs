@@ -183,7 +183,7 @@ nativeTargetOption =
     (OA.eitherReader parseNativeTarget)
     ( OA.long "target"
         <> OA.metavar "TARGET"
-        <> OA.help "Target: apple-arm64, apple-arm64-lir, linux-amd64, llvm, or wasm32-wasip3"
+        <> OA.help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
     )
 
 garbageCollectorOption :: OA.Parser GarbageCollector

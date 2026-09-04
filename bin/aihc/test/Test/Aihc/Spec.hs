@@ -380,7 +380,7 @@ test_installKeepGrin = do
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "gc.grin")
-    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "Demo.o.objdump")
+    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "Demo.o.lir")
     retained <- install (InstallOptions fixtureRoot (Just (root </> "with")) True False False False False False False AppleArm64)
     let corePath = installStorePath retained </> "Demo" </> "core"
         grinPath = installStorePath retained </> "Demo" </> "grin"
@@ -410,7 +410,7 @@ test_installKeepGrin = do
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.objdump")
+    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.lir")
     assertFileDoesNotExist (noCodeRoot </> "lib" </> "libdemo.a")
 
 test_installTargetArchives :: Assertion
@@ -420,11 +420,10 @@ test_installTargetArchives = do
   foreignArchivesSupported <- arSupportsForeignObjects
   withTempDir "aihc-install-targets" $ \root -> do
     let targets =
-          [ (AppleArm64, "arm64-macos-apple", ".objdump"),
-            (AppleArm64Lir, "arm64-macos-apple-lir", ".lir"),
+          [ (AppleArm64, "arm64-macos-apple", ".lir"),
             (Llvm, "llvm", ".ll")
           ]
-            <> [(LinuxAmd64, "amd64-linux-gnu", ".objdump") | foreignArchivesSupported]
+            <> [(LinuxAmd64, "amd64-linux-gnu", ".lir") | foreignArchivesSupported]
             <> [(Wasm32Wasip3, "wasm32-wasip3", ".s") | wasmSupported && foreignArchivesSupported]
     results <- forM targets $ \(target, directory, nativeExtension) -> do
       result <- install (InstallOptions fixtureRoot (Just (root </> "store")) False True False False False False False target)
@@ -439,9 +438,6 @@ test_installTargetArchives = do
       objectHeader <- BS.take 4 <$> BS.readFile objectPath
       case target of
         AppleArm64 -> do
-          assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
-          assertFileDoesNotExist (objectPath <> ".s")
-        AppleArm64Lir -> do
           assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
           assertFileDoesNotExist (objectPath <> ".s")
         LinuxAmd64 -> do

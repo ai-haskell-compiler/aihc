@@ -1,9 +1,9 @@
 # Native runtime objects
 
 The Apple ARM64 and Linux AMD64 backends share the runtime ABI, C runtime,
-constructor/global link layout, and snapshot support from `aihc-native`. Only
-instruction selection, register allocation, and assembly emission belong to
-the architecture packages.
+constructor/global link layout, and snapshot support from `aihc-native`. Both
+consume Lir (see `docs/lir.md`); only instruction selection and object
+emission belong to the architecture packages.
 
 Both backends are built on every platform. `aihc compile` defaults to the host
 target on supported hosts and accepts an explicit target for cross-compilation:
@@ -58,12 +58,12 @@ table. Consequently every managed object pays only for its tagged header and
 payload; arity, tracing metadata, and apply code consume no per-object shape
 word.
 
-The native backends give saturated closure stages a generated apply entry.
-Apply sites place the closure, continuation, and supplied values in the AIHC
-register convention and branch through that info-table entry. The stage stub
-loads captured fields directly from the closure, moves the supplied values into
-their final argument registers, and tail-branches to the target function's
-register entry. Non-saturating closures, partial constructors, and invalid
+The Lir lowering gives saturated closure stages a generated apply entry, the
+`backend_entry` of the info table. Apply sites pass the machine, the closure,
+the continuation, and the supplied values in the `aihc` convention and
+tail-call that entry. The stage stub loads captured fields directly from the
+closure, takes the supplied values as parameters, and tail-calls the target
+function. Non-saturating closures, partial constructors, and invalid
 applications leave the apply entry empty and use the shared C slow path.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
@@ -98,14 +98,11 @@ them.
 
 The cooperative scheduler keeps thread records, blackhole records, wait queues,
 and pending IO requests in auxiliary C allocations. Suspended threads retain
-ordinary action or continuation closures, which the WebAssembly adapter expands
-into the machine's growable reusable argument buffer only when selected. Native
-backends resume the same records through their register convention. The machine
-reuses one locals area because CPS transfers discard the preceding function
-frame; all retained closure values and pending-request continuations are precise
-collector roots. The argument buffer contains only transient transfers:
-generated entries copy their parameters into the locals area before reaching an
-allocation safepoint, so the collector does not scan the buffer.
+ordinary action or continuation closures. The scheduler hands a selected thread
+back to generated code as a resume record, which the Lir resume helper
+dispatches with a tail call. All retained closure values and pending-request
+continuations are precise collector roots; live values of generated code reach
+the collector only through the root vector of an explicit safepoint.
 
 `MVar#` uses a runtime-owned empty/full cell with separate FIFO queues for
 blocked readers, takers, and putters. Putting into an empty cell wakes every

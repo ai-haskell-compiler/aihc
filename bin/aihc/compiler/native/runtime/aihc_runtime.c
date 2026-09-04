@@ -10,6 +10,9 @@ _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 24, "machine heap-next ABI");
 _Static_assert(offsetof(AihcMachine, heap_limit) == 32,
                "machine heap-limit ABI");
+_Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 24,
+               "info-table remaining-arity ABI");
 _Static_assert(offsetof(AihcInfo, backend_entry) == 48,
                "info-table backend-entry ABI");
 _Static_assert(offsetof(AihcInfo, frame_kind) == 56,
@@ -28,17 +31,26 @@ _Static_assert(offsetof(AihcResume, continuation) == 16,
 _Static_assert(offsetof(AihcResume, value) == 24, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 32, "resume count ABI");
 #elif UINTPTR_MAX == UINT32_MAX
-_Static_assert(offsetof(AihcInfo, backend_entry) == 32,
+_Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 12,
+               "info-table remaining-arity ABI");
+_Static_assert(offsetof(AihcInfo, backend_entry) == 24,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 40,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 28,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 48,
+_Static_assert(offsetof(AihcInfo, object_kind) == 32,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 56, "info-table SRT ABI");
-_Static_assert(sizeof(AihcInfo) == 64, "info-table size ABI");
+_Static_assert(offsetof(AihcInfo, srt) == 36, "info-table SRT ABI");
+_Static_assert(sizeof(AihcInfo) == 40, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");
+_Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
+_Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
+_Static_assert(offsetof(AihcResume, continuation) == 12,
+               "resume continuation ABI");
+_Static_assert(offsetof(AihcResume, value) == 16, "resume value ABI");
+_Static_assert(offsetof(AihcResume, count) == 24, "resume count ABI");
 #endif
 
 const AihcSrt *aihc_current_srt = NULL;
@@ -91,28 +103,6 @@ void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes) {
   void *pointer = aihc_allocate_zeroed(bytes);
   aihc_record_allocation(machine);
   return pointer;
-}
-
-AihcSlot *aihc_reserve_slots(AihcMachine *machine, AihcSlot **slots,
-                             uint64_t *capacity, uint64_t count) {
-  uint64_t required = count == 0 ? 1 : count;
-  if (required <= *capacity) {
-    return *slots;
-  }
-  if (required > SIZE_MAX / sizeof(**slots)) {
-    aihc_fail("runtime slot area is too large");
-  }
-  size_t old_bytes = (size_t)*capacity * sizeof(**slots);
-  size_t new_bytes = (size_t)required * sizeof(**slots);
-  AihcSlot *resized = realloc(*slots, new_bytes);
-  if (resized == NULL) {
-    aihc_fail("out of memory");
-  }
-  memset((uint8_t *)resized + old_bytes, 0, new_bytes - old_bytes);
-  *slots = resized;
-  *capacity = required;
-  aihc_record_allocation(machine);
-  return resized;
 }
 
 static AihcSlot aihc_make_header(const AihcInfo *info) {
@@ -533,11 +523,6 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   machine->current_thread = aihc_thread_new(machine);
   machine->io_backend = aihc_host_io_backend();
   return machine;
-}
-
-AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count) {
-  return aihc_reserve_slots(machine, &machine->locals,
-                            &machine->locals_capacity, count);
 }
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }

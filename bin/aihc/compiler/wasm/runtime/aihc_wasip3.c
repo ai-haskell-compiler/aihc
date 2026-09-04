@@ -1,3 +1,4 @@
+#include "aihc_runtime_internal.h"
 #include "aihc_wasm_internal.h"
 #include "command.h"
 
@@ -6,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern void aihc_wasm_program_initialize(void);
+AihcMachine *aihc_machine;
 
 typedef enum {
   AIHC_WASI_IO_NONE,
@@ -509,8 +510,16 @@ void aihc_wasip3_close(int32_t descriptor) {
   wasi_filesystem_types_descriptor_drop_own(own);
 }
 
-static command_callback_code_t aihc_pump(void) {
-  if (aihc_wasm_pump_transfers()) {
+/* A Lir trap has no synchronous error stream on this host, so the message
+   is dropped and the component traps. */
+_Noreturn void aihc_lir_trap(const uint8_t *message, uint64_t length) {
+  (void)message;
+  (void)length;
+  __builtin_trap();
+}
+
+static command_callback_code_t aihc_pump(int32_t finished) {
+  if (finished) {
     exports_wasi_cli_run_result_void_void_t result = {0};
     result.is_err = aihc_get_exit_status(aihc_machine) != 0;
     exports_wasi_cli_run_run_return(result);
@@ -521,8 +530,7 @@ static command_callback_code_t aihc_pump(void) {
 
 command_callback_code_t exports_wasi_cli_run_run(void) {
   aihc_wasi_initialize_arguments();
-  aihc_wasm_program_initialize();
-  return aihc_pump();
+  return aihc_pump(aihc_lir_program_start());
 }
 
 command_callback_code_t
@@ -567,6 +575,6 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
   if (result == INT64_MIN) {
     return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
   }
-  aihc_wasm_complete_io(result);
-  return aihc_pump();
+  return aihc_pump(
+      aihc_lir_program_resume(aihc_complete_io(aihc_machine, result)));
 }

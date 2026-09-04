@@ -1,20 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The Lir pipeline on AArch64: the Lir evaluation fixtures, the GRIN heap
--- snapshot fixtures lowered through Lir, and the scheduler programs linked
--- with the C runtime.
-module Test.Arm64.LirSuite
-  ( tests,
+-- | The Lir pipeline on a native backend: the Lir evaluation fixtures, the
+-- GRIN heap snapshot fixtures lowered through Lir, and the scheduler
+-- programs linked with the C runtime. The backend produces an object or a
+-- source file that Clang compiles.
+module Test.Lir.NativeSuite
+  ( NativeBackend (..),
+    tests,
   )
 where
 
-import Aihc.Arm64.Lir (compileLirObject)
+import Aihc.Cli.Backend (BackendOutput (..))
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
-import Aihc.Lir.Lower (lowerEntry, lowerModule)
+import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native
-  ( NativeTarget (AppleArm64),
+  ( NativeTarget,
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
     executableEntryName,
@@ -41,15 +43,30 @@ import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, hPutStr, openTempFile)
-import System.Info (arch, os)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
-import Test.Arm64.LirObserved (lowerObservedProgram)
+import Test.Lir.Observed (lowerObservedProgram)
 import Test.Native.Observed (snapshotSourcePath)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
-tests :: IO TestTree
-tests = do
+-- | One native backend under test.
+data NativeBackend = NativeBackend
+  { backendName :: !String,
+    backendTarget :: !NativeTarget,
+    backendLowerTarget :: !LowerTarget,
+    -- | The Clang arguments that select the target.
+    backendClangArguments :: ![String],
+    -- | Whether this host can run the linked programs.
+    backendRuns :: !Bool,
+    -- | The allocation count key of the snapshot fixtures.
+    backendAllocationKey :: !Text,
+    -- | The extension of a source output.
+    backendSourceExtension :: !String,
+    backendCompile :: !(Module -> Either String BackendOutput)
+  }
+
+tests :: NativeBackend -> IO TestTree
+tests backend = do
   root <- fromMaybe "." <$> lookupEnv "AIHC_TEST_ROOT"
   let directory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "eval"
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
@@ -57,43 +74,57 @@ tests = do
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
   pure
     ( testGroup
-        "Lir pipeline"
-        [ testGroup "Lir evaluation fixtures on AArch64" (map (fixtureTest directory) names),
-          testGroup "GRIN heap snapshots through Lir" (map (snapshotTest snapshotDirectory) snapshots),
+        (backendName backend)
+        [ testGroup "Lir evaluation fixtures" (map (fixtureTest backend directory) names),
+          testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend snapshotDirectory) snapshots),
           testGroup
             "programs through Lir"
             [ testGroup
                 (collectorName collector)
-                [ testCase "runs fork# and yield# with FIFO scheduling" (programTest collector "PCAB" schedulerProgram),
-                  testCase "catches a synchronous exception" (programTest collector "E" synchronousExceptionProgram),
-                  testCase "blocks and wakes threads that enter a shared blackhole" (programTest collector "TA" blackholeSchedulerProgram),
-                  testCase "waits for stdin and resumes an async stdio continuation" (stdioTest collector)
+                [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend collector "PCAB" schedulerProgram),
+                  testCase "catches a synchronous exception" (programTest backend collector "E" synchronousExceptionProgram),
+                  testCase "blocks and wakes threads that enter a shared blackhole" (programTest backend collector "TA" blackholeSchedulerProgram),
+                  testCase "waits for stdin and resumes an async stdio continuation" (stdioTest backend collector)
                 ]
             | collector <- [RuntimeGcSemispace]
             ]
         ]
     )
 
--- | The backend does not check memory alignment or read-only data, so these
+-- | The backends do not check memory alignment or read-only data, so these
 -- interpreter traps have no native counterpart.
 uncheckedTraps :: [FilePath]
 uncheckedTraps = ["trap-misaligned.lir", "trap-read-only.lir"]
 
-nativeHost :: Bool
-nativeHost = arch == "aarch64" && os == "darwin"
+-- | Write the backend output into the directory and return the path that
+-- Clang links.
+writeUnit :: NativeBackend -> FilePath -> String -> BackendOutput -> IO FilePath
+writeUnit backend directory base output =
+  case output of
+    BackendObject object -> do
+      let path = directory </> base <> ".o"
+      BL.writeFile path object
+      pure path
+    BackendSource source -> do
+      let path = directory </> base <> backendSourceExtension backend
+      TIO.writeFile path source
+      pure path
 
-fixtureTest :: FilePath -> FilePath -> TestTree
-fixtureTest directory name = testCase name $ do
+compileUnit :: NativeBackend -> Module -> IO BackendOutput
+compileUnit backend lirModule = either (assertFailure . ("backend failed: " <>)) pure (backendCompile backend lirModule)
+
+fixtureTest :: NativeBackend -> FilePath -> FilePath -> TestTree
+fixtureTest backend directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
   lirModule <- either (assertFailure . renderParseError) pure (parseModule source)
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
-  object <- either (assertFailure . show) pure (compileLirObject wrapped)
-  when (nativeHost && name `notElem` uncheckedTraps) $ do
-    (exit, out, err) <- runObject object
+  output <- compileUnit backend wrapped
+  when (backendRuns backend && name `notElem` uncheckedTraps) $ do
+    (exit, out, err) <- runFixture backend output
     case (headerValues "expect" source, headerValues "expect-trap" source) of
       ([expected], []) -> do
-        assertEqual "exit status" ExitSuccess exit
+        assertEqual ("exit status, stderr: " <> err) ExitSuccess exit
         words' <- mapM parseWord (lines out)
         let values = zipWith decode resultTypes words'
             actual = T.splitOn ", " (renderValues resultTypes values)
@@ -168,16 +199,15 @@ driverSource =
       "}"
     ]
 
-runObject :: BL.ByteString -> IO (ExitCode, String, String)
-runObject object =
+runFixture :: NativeBackend -> BackendOutput -> IO (ExitCode, String, String)
+runFixture backend output =
   withTempDirectory "aihc-lir-fixture" $ \directory -> do
-    let objectPath = directory </> "fixture.o"
-        driverPath = directory </> "driver.c"
+    unit <- writeUnit backend directory "fixture" output
+    let driverPath = directory </> "driver.c"
         executable = directory </> "fixture"
-    BL.writeFile objectPath object
     writeFile driverPath driverSource
     (clangExit, _, clangErr) <-
-      readProcessWithExitCode "clang" ["--target=arm64-apple-darwin", "-std=c11", driverPath, objectPath, "-o", executable] ""
+      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", driverPath, unit, "-o", executable]) ""
     assertEqual ("clang failed to link the fixture:\n" <> clangErr) ExitSuccess clangExit
     readProcessWithExitCode executable [] ""
 
@@ -207,22 +237,22 @@ instance FromJSON SnapshotFixture where
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
 -- and compare the native heap snapshot with the fixture.
-snapshotTest :: FilePath -> FilePath -> TestTree
-snapshotTest directory name = testCase name $ do
+snapshotTest :: NativeBackend -> FilePath -> FilePath -> TestTree
+snapshotTest backend directory name = testCase name $ do
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
-  (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (FunctionName (snapshotFixtureEntry fixture)) gc)
+  (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
-  object <- either (assertFailure . show) pure (compileLirObject lirModule)
-  when nativeHost $ do
-    native <- runObservedObject object metadata
+  output <- compileUnit backend lirModule
+  when (backendRuns backend) $ do
+    native <- runObservedUnit backend output metadata
     case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
       (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
-        allocations <- maybe (assertFailure "fixture has no macos-arm64 allocation count") pure (snapshotFixtureAllocations fixture >>= Map.lookup "macos-arm64")
+        allocations <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocation count")) pure (snapshotFixtureAllocations fixture >>= Map.lookup (backendAllocationKey backend))
         let heap = T.stripEnd heapValue
             expected
               | heap == "[]" = "return: " <> returnValue <> "\nheap: []"
@@ -232,22 +262,22 @@ snapshotTest directory name = testCase name $ do
       (_, _, _, Left message) -> assertFailure ("native snapshot failed: " <> T.unpack message)
       (_, _, _, Right snapshot) -> assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
 
-runObservedObject :: BL.ByteString -> Text -> IO (Either Text Text)
-runObservedObject object metadata =
+runObservedUnit :: NativeBackend -> BackendOutput -> Text -> IO (Either Text Text)
+runObservedUnit backend output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
+    runtimeArguments <- nativeRuntimeArguments backend RuntimeGcSemispace
     snapshotRuntime <- snapshotSourcePath
-    let objectPath = directory </> "snapshot.o"
-        metadataPath = directory </> "snapshot_metadata.c"
+    unit <- writeUnit backend directory "snapshot" output
+    let metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
-    BL.writeFile objectPath object
     TIO.writeFile metadataPath metadata
     (clangExit, _, clangErr) <-
       readProcessWithExitCode
         "clang"
-        ( ["--target=arm64-apple-darwin", "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
+        ( backendClangArguments backend
+            <> ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
             <> runtimeArguments
-            <> [snapshotRuntime, metadataPath, objectPath, "-o", executablePath]
+            <> [snapshotRuntime, metadataPath, unit, "-o", executablePath]
         )
         ""
     assertEqual ("clang failed to link the observed program:\n" <> clangErr) ExitSuccess clangExit
@@ -265,8 +295,8 @@ runObservedObject object metadata =
 
 -- | Lower a program as a library module and link it with the Lir entry unit
 -- and the C runtime.
-compileProgramObjects :: GrinProgram -> IO [BL.ByteString]
-compileProgramObjects program = do
+compileProgramUnits :: NativeBackend -> GrinProgram -> IO [BackendOutput]
+compileProgramUnits backend program = do
   let linkedProgram =
         program
           { grinGlobals =
@@ -276,33 +306,33 @@ compileProgramObjects program = do
           }
   assertEqual "direct GRIN lint" [] (lintProgram linkedProgram)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin linkedProgram)
-  moduleLir <- either (assertFailure . show) pure (lowerModule gc)
-  entryLir <- either (assertFailure . show) pure lowerEntry
+  moduleLir <- either (assertFailure . show) pure (lowerModule (backendLowerTarget backend) gc)
+  entryLir <- either (assertFailure . show) pure (lowerEntry (backendLowerTarget backend))
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))
-  moduleObject <- either (assertFailure . show) pure (compileLirObject moduleLir)
-  entryObject <- either (assertFailure . show) pure (compileLirObject entryLir)
-  pure [moduleObject, entryObject]
+  moduleUnit <- compileUnit backend moduleLir
+  entryUnit <- compileUnit backend entryLir
+  pure [moduleUnit, entryUnit]
 
 collectorName :: RuntimeGarbageCollector -> String
 collectorName collector =
   case collector of
     RuntimeGcSemispace -> "semispace collector"
 
-programTest :: RuntimeGarbageCollector -> String -> GrinProgram -> IO ()
-programTest collector expected program = do
-  objects <- compileProgramObjects program
-  when nativeHost $
-    withProgramExecutable collector objects $ \executablePath -> do
+programTest :: NativeBackend -> RuntimeGarbageCollector -> String -> GrinProgram -> IO ()
+programTest backend collector expected program = do
+  units <- compileProgramUnits backend program
+  when (backendRuns backend) $
+    withProgramExecutable backend collector units $ \executablePath -> do
       (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
       assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
       assertEqual "program stdout" expected programOut
 
-stdioTest :: RuntimeGarbageCollector -> IO ()
-stdioTest collector = do
-  objects <- compileProgramObjects stdioSchedulerProgram
-  when nativeHost $
-    withProgramExecutable collector objects $ \executablePath -> do
+stdioTest :: NativeBackend -> RuntimeGarbageCollector -> IO ()
+stdioTest backend collector = do
+  units <- compileProgramUnits backend stdioSchedulerProgram
+  when (backendRuns backend) $
+    withProgramExecutable backend collector units $ \executablePath -> do
       (Just childInput, Just childOutput, Just childError, processHandle) <-
         createProcess (proc executablePath []) {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe}
       threadDelay 50000
@@ -315,23 +345,20 @@ stdioTest collector = do
       assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
       assertEqual "async stdout" "Buffered async IO\n" programOut
 
-withProgramExecutable :: RuntimeGarbageCollector -> [BL.ByteString] -> (FilePath -> IO ()) -> IO ()
-withProgramExecutable collector objects action =
+withProgramExecutable :: NativeBackend -> RuntimeGarbageCollector -> [BackendOutput] -> (FilePath -> IO ()) -> IO ()
+withProgramExecutable backend collector units action =
   withTempDirectory "aihc-lir-program" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments collector
-    objectPaths <- forM (zip [0 :: Int ..] objects) $ \(index, object) -> do
-      let objectPath = directory </> "program-" <> show index <> ".o"
-      BL.writeFile objectPath object
-      pure objectPath
+    runtimeArguments <- nativeRuntimeArguments backend collector
+    unitPaths <- forM (zip [0 :: Int ..] units) $ \(index, unit) -> writeUnit backend directory ("program-" <> show index) unit
     let executablePath = directory </> "program"
     (clangExit, _, clangErr) <-
-      readProcessWithExitCode "clang" (["--target=arm64-apple-darwin", "-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> objectPaths <> ["-o", executablePath]) ""
+      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> unitPaths <> ["-o", executablePath]) ""
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 
-nativeRuntimeArguments :: RuntimeGarbageCollector -> IO [String]
-nativeRuntimeArguments garbageCollector = do
-  plan <- runtimePlan AppleArm64 garbageCollector
+nativeRuntimeArguments :: NativeBackend -> RuntimeGarbageCollector -> IO [String]
+nativeRuntimeArguments backend garbageCollector = do
+  plan <- runtimePlan (backendTarget backend) garbageCollector
   pure (["-I" <> directory | directory <- runtimeIncludeDirectories plan] <> runtimeSources plan)
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
