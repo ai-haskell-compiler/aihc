@@ -74,10 +74,16 @@
           old:
             addCheckSettings drv old
             // {
-              # Print RTS statistics after the run to keep an eye on GC and
-              # capability counts. Successes stay hidden: fixtures that capture
-              # stdout would otherwise capture tasty's own progress output.
-              testFlags = (addHiddenSuccesses old).testFlags ++ ["+RTS" "-s" "-RTS"];
+              # Tasty defaults to one worker per processor and raises the RTS
+              # capability count to match. The eval fixtures allocate several
+              # gigabytes each, so on a 32-thread runner that many concurrent
+              # tests saturate memory bandwidth and the parallel GC: every
+              # fixture took ~30 s instead of ~2 s. Eight workers keep the
+              # machine busy without the collapse. The RTS statistics stay in
+              # the log to keep an eye on GC time and capability counts, and
+              # successes stay hidden because fixtures that capture stdout
+              # would otherwise capture tasty's own progress output.
+              testFlags = (addHiddenSuccesses old).testFlags ++ ["--num-threads" "8" "+RTS" "-s" "-RTS"];
               # The C toolchain is only needed while the tests run. Adding it to
               # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
               # to the configure flags, which changes GHC's flag hash and forces a
