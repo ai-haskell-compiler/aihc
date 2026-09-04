@@ -56,7 +56,7 @@ literal.
 Integer literals are decimal with an optional sign. Float literals contain a
 decimal point or an exponent, for example `1.5` and `1.0e-3`. The literals
 `inf`, `-inf`, and `nan` are also float literals. The literal `null` is the
-pointer with address zero.
+`ptr` or the `code` value with address zero.
 
 ## Types
 
@@ -65,7 +65,8 @@ pointer with address zero.
 | `i1` | A boolean. The value is `0` or `1`. |
 | `i8`, `i16`, `i32`, `i64` | An integer with the given number of bits. |
 | `f32`, `f64` | An IEEE 754 binary float. |
-| `ptr` | An address. Its size is the target word size. |
+| `ptr` | The address of data. Its size is the target word size. |
+| `code` | The address of a function. Its size is the target word size. |
 
 Integer types have no sign. Each operation names the sign it uses. The types
 `i8` to `i64` are the integer types. The type `i1` is not an integer type. It
@@ -76,10 +77,18 @@ gives the address as an `i64`. On a 32-bit target the high 32 bits are zero.
 `ptr.from_int` makes a pointer from an `i64`. On a 32-bit target it discards
 the high 32 bits.
 
+The type `code` is the type of a function symbol. A `code` value supports only
+`eq`, `ne`, `select`, `load`, `store`, `call.indirect`, and `tailcall.indirect`.
+No operation converts between `code` and another type, and no operation
+computes a `code` value from an integer. This keeps `code` valid on targets
+where a function address is not a memory address. On WebAssembly a `code` value
+is an index into the function table.
+
 A literal `n` fits a type `iN` when `n` is in the signed range or the unsigned
 range of `iN`. A literal for `i1` is `0` or `1`. A literal for `ptr` is `null`
-or a symbol. A literal for `f32` or `f64` is a float literal or an integer
-literal.
+or the symbol of a data object. A literal for `code` is `null` or the symbol of
+a function. A literal for `f32` or `f64` is a float literal or an integer
+literal. A global has no address, so its symbol is not a literal.
 
 ## Module
 
@@ -134,6 +143,9 @@ data ::= "export"? "data" "mut"? symbol "align" integer "=" "{" field ("," field
 field ::= int-type integer
         | float-type float
         | "ptr" symbol (("+" | "-") integer)?
+        | "ptr" "null"
+        | "code" symbol
+        | "code" "null"
         | "bytes" string
         | "zero" integer
 extern-data ::= "extern" "data" symbol
@@ -142,14 +154,55 @@ extern-data ::= "extern" "data" symbol
 A data object is a sequence of bytes in memory with a fixed address. Its
 alignment is a power of two. The fields are stored in order without padding.
 Integers and floats are little-endian. A `ptr` field stores the address of a
-symbol plus an addend. The addend gives tagged headers a direct encoding. A
-`bytes` field stores the UTF-8 encoding of the string. A `zero` field stores
-the given number of zero bytes.
+data object plus an addend. The addend gives tagged headers a direct encoding.
+A `code` field stores the address of a function. The fields `ptr null` and
+`code null` store a word of zero bytes; unlike `zero`, their size follows the
+target word size. A `bytes` field stores the UTF-8 encoding of the string. A
+`zero` field stores the given number of zero bytes.
 
 A data object without `mut` is read-only. A store to a read-only data object
-traps. The symbol of a function is also a pointer. It is the address of the
-code. The only valid use of a code pointer is `call.indirect`,
-`tailcall.indirect`, comparison, and storage.
+traps.
+
+### Info tables
+
+An info table describes one kind of heap object. The header of a heap object
+is the address of its info table. GC-GRIN emits one info table per object kind
+as a read-only data object, so every backend receives the same layout and emits
+it as bytes. No backend computes an info table of its own.
+
+Every field of an info table is one word wide. A pointer field is `ptr`, a
+code field is `code`, and a count or a kind is an integer of the word width:
+`i64` on a 64-bit target and `i32` on a 32-bit target. Field `k` starts at
+offset `k` words, and the table is aligned to the word size. A field without a
+value is `ptr null`, `code null`, or `0`. The fields are, in order:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `identity` | `ptr` | The saturated constructor table, or null for a function. Case code compares this field. |
+| `entry` | `code` | The portable entry. Null when the object cannot be entered. |
+| `field_count` | integer | The number of payload words. |
+| `remaining_arity` | integer | The number of arguments the object still requires. |
+| `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
+| `next` | `ptr` | The table of the next application stage. Null for the last stage. |
+| `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
+| `frame_kind` | integer | The continuation frame kind for stack unwinding. |
+| `object_kind` | integer | Node, closure, thunk, partial constructor, or a runtime object kind. |
+| `srt` | `ptr` | The static reference table, or null. |
+
+Every `code` field of every info table has one fixed signature. A backend can
+therefore call through a field without a per-object type, which WebAssembly
+requires and which costs nothing elsewhere.
+
+| Field | Signature |
+| --- | --- |
+| `entry` | `(ptr) -> ()` with the address of the argument slots. |
+| `backend_entry` | `(ptr, i64, ptr, i64) -> ()` with the machine, the object slot, the address of the supplied argument slots, and the continuation slot. |
+
+GC-GRIN generates a function with the fixed signature for each enterable
+object. That function loads the stored fields and the supplied arguments and
+tail-calls the generated code. On 64-bit targets the runtime's `AihcInfo`
+structure has this layout already. On WebAssembly its counts and kinds shrink
+from 64 to 32 bits when GC-GRIN starts to emit Lir.
 
 ## Functions and blocks
 
@@ -201,7 +254,7 @@ condition never traps.
 
 | Operation | Result | Semantics |
 | --- | --- | --- |
-| `eq T %a, %b` | `i1` | Equal. `T` is any type. Float comparison is IEEE 754. |
+| `eq T %a, %b` | `i1` | Equal. `T` is any type, including `code`. Float comparison is IEEE 754. |
 | `ne T %a, %b` | `i1` | Not equal. `T` is any type. |
 | `lt.s iN %a, %b` | `i1` | Signed less than. |
 | `lt.u T %a, %b` | `i1` | Unsigned less than. `T` is an integer type or `ptr`. |
@@ -251,7 +304,7 @@ condition never traps.
 
 | Operation | Result | Semantics |
 | --- | --- | --- |
-| `select T %c, %a, %b` | `T` | `%a` when `%c` is `1`. `%b` otherwise. `%c` is `i1`. |
+| `select T %c, %a, %b` | `T` | `%a` when `%c` is `1`. `%b` otherwise. `%c` is `i1`. `T` is any type. |
 
 ### Memory
 
@@ -268,7 +321,9 @@ The base of an address is a `ptr` value. The offset is a constant.
 | `ptr.add %p, %i` | `ptr` | Add an `i64` to a pointer. The addition wraps at the target word size. |
 | `stack.alloc N align A` | `ptr` | Reserve `N` bytes of stack memory. The memory is zero. It lives until the function returns. Only the entry block may contain this operation. |
 
-`A` is a power of two. `T` is `i1` only for `load` and `store` of one byte.
+`A` is a power of two. `T` is `i1` only for `load` and `store` of one byte. `T`
+may be `code`. Loading a `code` value from bytes that are not the address of a
+function gives a value that traps in `call.indirect`.
 
 ### Globals
 
@@ -282,7 +337,7 @@ The base of an address is a `ptr` value. The offset is a constant.
 | Operation | Result | Semantics |
 | --- | --- | --- |
 | `call @f(args)` | the results of `@f` | Call a function or an extern function. |
-| `call.indirect %p(args) : signature` | the results of the signature | Call the code at `%p`. Traps when `%p` is not a function with the same signature. |
+| `call.indirect %p(args) : signature` | the results of the signature | Call the code at `%p`. `%p` is `code`. Traps when `%p` is not a function with the same signature. |
 
 ```text
 signature ::= "(" (type ("," type)*)? ")" results? cc?
@@ -324,7 +379,7 @@ message of a `trap` terminator:
 | `memory access out of bounds` | A load or a store outside mapped memory. |
 | `misaligned memory access` | A load or a store with an address that is not a multiple of the alignment. |
 | `store to read-only data` | A store to a data object without `mut`. |
-| `indirect call to a non-function` | `call.indirect` of a pointer that is not the address of a function. |
+| `indirect call to a non-function` | `call.indirect` of a `code` value that is not the address of a function, for example `null`. |
 | `indirect call signature mismatch` | `call.indirect` of a function with a different signature. |
 | `switch without a matching case` | A `switch` without a default and without a matching case. |
 | `stack overflow` | The stack memory is exhausted. |
@@ -346,12 +401,13 @@ order.
 The interpreter is the reference implementation of this document. It executes a
 module from a named function and reports the results or the trap. Memory is a
 flat address space. Data objects, the stack, and code addresses have distinct
-regions. Code addresses are not readable. The interpreter uses a 64-bit word
-size. It cannot call an extern function.
+regions. Code addresses are not readable, and a `ptr.from_int` of a code
+address is a pointer that traps on `load` and `store`. The interpreter uses a
+64-bit word size. It cannot call an extern function.
 
 The interpreter renders results with their declared types. An `iN` result is a
 signed decimal. An `i1` result is `0` or `1`. A float result uses the Haskell
-`show` format. A `ptr` result is a hexadecimal address.
+`show` format. A `ptr` or a `code` result is a hexadecimal address.
 
 The test fixtures in `bin/aihc/compiler/lir/test/Test/Fixtures/lir/eval` are
 Lir modules with a function `@main` without parameters. The header comment

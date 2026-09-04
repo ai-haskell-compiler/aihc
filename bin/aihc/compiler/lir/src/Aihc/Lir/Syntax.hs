@@ -70,7 +70,9 @@ newtype Var = Var {unVar :: Text}
 newtype Label = Label {unLabel :: Text}
   deriving (Eq, Ord, Show)
 
-data Type = I1 | I8 | I16 | I32 | I64 | F32 | F64 | Ptr
+-- | 'Ptr' is the address of data and 'Code' is the address of a function.
+-- They have the same width but no operation converts between them.
+data Type = I1 | I8 | I16 | I32 | I64 | F32 | F64 | Ptr | Code
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | The width of a type in bits. The interpreter uses a 64-bit word.
@@ -85,6 +87,7 @@ typeBits ty =
     F32 -> 32
     F64 -> 64
     Ptr -> 64
+    Code -> 64
 
 -- | The integer types. 'I1' is not an integer type.
 isIntegerType :: Type -> Bool
@@ -154,8 +157,13 @@ data DataField
   | -- | A float stored little-endian in the width of the type. The type is
     -- 'F32' or 'F64'.
     DataFloat !Type !Double
-  | -- | The address of a symbol plus an addend.
+  | -- | @ptr \@symbol + addend@: the address of a data object plus an addend.
     DataSymbol !Symbol !Integer
+  | -- | @ptr null@: one word of zero bytes.
+    DataNull
+  | -- | @code \@symbol@ or @code null@: the address of a function, or one
+    -- word of zero bytes.
+    DataCode !(Maybe Symbol)
   | DataBytes !ByteString
   | DataZero !Integer
   deriving (Eq, Show)
