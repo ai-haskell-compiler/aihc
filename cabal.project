@@ -20,4 +20,4 @@ package aihc-tc
 
 tests: True
 jobs: $ncpus
-semaphore: True
+semaphore: False
