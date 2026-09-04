@@ -1,0 +1,18 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word32 (..))
+    import Foreign.C.Types (CUInt (..))
+
+    foreign import ccall unsafe "htonl" c_htonl :: CUInt -> CUInt
+output: |
+  W32# 16777216
+expression: |
+  c_htonl (CUInt (W32# 1#Word32))
+status: pass
+reason: a CUInt marshals through its newtype and Word32 as a 32-bit unsigned C value in both directions

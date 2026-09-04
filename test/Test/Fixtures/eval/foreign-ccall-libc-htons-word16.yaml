@@ -1,0 +1,18 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word16 (..))
+    import Foreign.C.Types (CUShort (..))
+
+    foreign import ccall unsafe "htons" c_htons :: CUShort -> CUShort
+output: |
+  W16# 256
+expression: |
+  c_htons (CUShort (W16# 1#Word16))
+status: pass
+reason: a CUShort marshals through its newtype and Word16 as a 16-bit unsigned C value in both directions

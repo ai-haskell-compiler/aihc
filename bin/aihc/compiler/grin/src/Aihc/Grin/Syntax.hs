@@ -28,6 +28,7 @@ module Aihc.Grin.Syntax
     runtimeRepComponents,
     grinForeignOperandReps,
     grinForeignCallResultReps,
+    foreignTypeRuntimeRep,
     grinProgramLiterals,
     grinExprGlobalReferences,
     grinProgramGlobalReferences,
@@ -415,12 +416,22 @@ data GrinForeignEffect
   | GrinForeignRealWorld
   deriving (Eq, Show, Read)
 
+-- | The C ABI value of one foreign operand or result.
 data GrinForeignType
   = GrinForeignInt
+  | GrinForeignInt8
+  | GrinForeignInt16
   | GrinForeignInt32
+  | GrinForeignInt64
+  | GrinForeignWord
+  | GrinForeignWord8
+  | GrinForeignWord16
+  | GrinForeignWord32
   | GrinForeignWord64
   | GrinForeignAddr
-  deriving (Eq, Show, Read)
+  | -- | The result of a C procedure. It binds no GRIN value.
+    GrinForeignVoid
+  deriving (Eq, Show, Read, Enum, Bounded)
 
 grinForeignOperandReps :: GrinForeignSignature -> [GrinRep]
 grinForeignOperandReps signature =
@@ -428,12 +439,20 @@ grinForeignOperandReps signature =
 
 grinForeignCallResultReps :: GrinForeignSignature -> [GrinRep]
 grinForeignCallResultReps signature =
-  [foreignTypeRuntimeRep (grinForeignResultType signature)]
+  runtimeRepComponents (foreignTypeRuntimeRep (grinForeignResultType signature))
 
 foreignTypeRuntimeRep :: GrinForeignType -> GrinRep
 foreignTypeRuntimeRep foreignType =
   case foreignType of
     GrinForeignInt -> IntRep
+    GrinForeignInt8 -> Int8Rep
+    GrinForeignInt16 -> Int16Rep
     GrinForeignInt32 -> Int32Rep
+    GrinForeignInt64 -> Int64Rep
+    GrinForeignWord -> WordRep
+    GrinForeignWord8 -> Word8Rep
+    GrinForeignWord16 -> Word16Rep
+    GrinForeignWord32 -> Word32Rep
     GrinForeignWord64 -> Word64Rep
     GrinForeignAddr -> AddrRep
+    GrinForeignVoid -> TupleRep []

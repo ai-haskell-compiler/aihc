@@ -107,6 +107,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
     annotateDecl,
+    renderTcType,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
@@ -1139,6 +1140,8 @@ checkForeignImportType sourceSpan target symbol ty = do
           _ -> (TcForeignPure, resultType)
   arguments <- mapM (checkForeignValueType sourceSpan) argumentTypes
   result <- checkForeignValueType sourceSpan valueResultType
+  when (any ((== TcForeignVoid) . tcForeignAbiType) arguments) $
+    emitError sourceSpan (OtherError "a foreign import argument must not have a unit type")
   pure
     TcForeignImportAnnotation
       { tcForeignArguments = arguments,
@@ -1158,45 +1161,95 @@ splitFunctionType ty =
     _ -> ([], ty)
 
 checkForeignValueType :: SourceSpan -> TcType -> TcM TcForeignMarshal
-checkForeignValueType sourceSpan ty =
-  case ty of
-    TcTyCon (TyCon "Int" 0) [] -> intMarshal ty ["I#"]
-    TcTyCon (TyCon "Int#" 0) [] -> intMarshal ty []
-    TcTyCon (TyCon "CInt" 0) [] -> int32Marshal ty ["CInt", "I32#"]
-    TcTyCon (TyCon "Int32" 0) [] -> int32Marshal ty ["I32#"]
-    TcTyCon (TyCon "Int32#" 0) [] -> int32Marshal ty []
-    TcTyCon (TyCon "Word64" 0) [] -> word64Marshal ty ["W64#"]
-    TcTyCon (TyCon "Word64#" 0) [] -> word64Marshal ty []
-    TcTyCon (TyCon "CSize" 0) [] -> word64Marshal ty ["CSize", "W64#"]
-    TcTyCon (TyCon "Addr#" 0) [] -> addrMarshal ty []
-    TcTyCon (TyCon "Ptr" 1) [_] -> addrMarshal ty ["Ptr"]
-    -- A byte array argument passes the address of its payload.
-    TcTyCon (TyCon "ByteArray#" 0) [] -> pure (byteArrayMarshal ty)
-    TcTyCon (TyCon "MutableByteArray#" 1) [_] -> pure (byteArrayMarshal ty)
-    _ -> do
-      emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
-      int32Marshal ty []
+checkForeignValueType sourceSpan ty = do
+  resolved <- resolveForeignValueType ty
+  case resolved of
+    Right marshal -> pure marshal
+    Left problem -> do
+      emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> problem))
+      primitiveMarshal ty [] "Int32#" TcForeignInt32
+
+-- | Find the primitive representation of a foreign value type.  The FFI
+-- chapter of the Haskell report marshals a value through any number of
+-- newtypes, and the boxed integer and pointer types of the base library are
+-- single-constructor, single-field data types around a primitive type.  Both
+-- unwrap the same way: through the one constructor of the type to its one
+-- field, until a primitive type or a nullary constructor (the unit type of a
+-- result) appears.
+resolveForeignValueType :: TcType -> TcM (Either String TcForeignMarshal)
+resolveForeignValueType sourceType = go (0 :: Int) [] sourceType
   where
-    intMarshal = marshal "Int#" TcForeignInt
-    int32Marshal = marshal "Int32#" TcForeignInt32
-    word64Marshal = marshal "Word64#" TcForeignWord64
-    addrMarshal = marshal "Addr#" TcForeignAddr
-    byteArrayMarshal sourceType =
+    go depth constructors ty
+      | depth > maximumUnwrapDepth = pure (Left ("too many newtype layers in " <> renderTcType sourceType))
+      | otherwise =
+          case ty of
+            TcTyCon tyCon _
+              | Just (primitiveName, abiType) <- lookup (tyConName tyCon, tyConArity tyCon) primitiveForeignTypes ->
+                  Right <$> primitiveMarshal sourceType (reverse constructors) primitiveName abiType
+              -- A byte array argument passes the address of its payload.
+              | (tyConName tyCon, tyConArity tyCon) `elem` [("ByteArray#", 0), ("MutableByteArray#", 1)] ->
+                  pure (Right (byteArrayMarshal ty))
+              | otherwise -> do
+                  mDataType <- lookupDataType tyCon
+                  case mDataType of
+                    Just dataType
+                      | [constructor] <- dtiConstructors dataType,
+                        null (dciExTyVars constructor),
+                        null (dciTheta constructor) ->
+                          case dciFields constructor of
+                            [field]
+                              | Just substitution <- matchTypes [dciResTy constructor] [ty] ->
+                                  go (depth + 1) (dciName constructor : constructors) (applySubst substitution (dcfiType field))
+                            [] -> pure (Right (voidMarshal (reverse (dciName constructor : constructors))))
+                            _ -> unsupported ty
+                    _ -> unsupported ty
+            _ -> unsupported ty
+    unsupported ty
+      | ty == sourceType = pure (Left (renderTcType ty))
+      | otherwise = pure (Left (renderTcType ty <> " in " <> renderTcType sourceType))
+    maximumUnwrapDepth = 64
+    byteArrayMarshal ty =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = sourceType,
+          tcForeignPrimitiveType = ty,
           tcForeignConstructors = [],
           tcForeignAbiType = TcForeignAddr
         }
-    marshal primitiveName abiType sourceType constructors = do
-      primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
-      pure
-        TcForeignMarshal
-          { tcForeignSourceType = sourceType,
-            tcForeignPrimitiveType = TcTyCon primitiveTyCon [],
-            tcForeignConstructors = constructors,
-            tcForeignAbiType = abiType
-          }
+    voidMarshal constructors =
+      TcForeignMarshal
+        { tcForeignSourceType = sourceType,
+          tcForeignPrimitiveType = sourceType,
+          tcForeignConstructors = constructors,
+          tcForeignAbiType = TcForeignVoid
+        }
+
+-- | Primitive types that the C ABI bridge understands, with the ABI value
+-- each one marshals as.
+primitiveForeignTypes :: [((Text, Int), (Text, TcForeignAbiType))]
+primitiveForeignTypes =
+  [ (("Int#", 0), ("Int#", TcForeignInt)),
+    (("Int8#", 0), ("Int8#", TcForeignInt8)),
+    (("Int16#", 0), ("Int16#", TcForeignInt16)),
+    (("Int32#", 0), ("Int32#", TcForeignInt32)),
+    (("Int64#", 0), ("Int64#", TcForeignInt64)),
+    (("Word#", 0), ("Word#", TcForeignWord)),
+    (("Word8#", 0), ("Word8#", TcForeignWord8)),
+    (("Word16#", 0), ("Word16#", TcForeignWord16)),
+    (("Word32#", 0), ("Word32#", TcForeignWord32)),
+    (("Word64#", 0), ("Word64#", TcForeignWord64)),
+    (("Addr#", 0), ("Addr#", TcForeignAddr))
+  ]
+
+primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
+primitiveMarshal sourceType constructors primitiveName abiType = do
+  primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
+  pure
+    TcForeignMarshal
+      { tcForeignSourceType = sourceType,
+        tcForeignPrimitiveType = TcTyCon primitiveTyCon [],
+        tcForeignConstructors = constructors,
+        tcForeignAbiType = abiType
+      }
 
 annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
 annotateDeclAt NoSourceSpan tcAnn decl =

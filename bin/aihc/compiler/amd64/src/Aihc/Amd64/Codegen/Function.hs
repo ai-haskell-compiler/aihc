@@ -442,8 +442,9 @@ compileDirectBinding env vars expression =
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure [amd64Instruction (AmdCall "aihc_unsupported_primitive")]
       | otherwise -> lift (Left (Amd64UnsupportedExpression ("primitive call " <> name)))
-    GrinForeignCallExpr foreignCall arguments ->
-      compileForeignCallLines env foreignCall arguments >>= storeSingleResult
+    GrinForeignCallExpr foreignCall arguments
+      | null vars -> compileForeignCallLines env foreignCall arguments
+      | otherwise -> compileForeignCallLines env foreignCall arguments >>= storeSingleResult
     _ -> lift (Left (Amd64UnsupportedExpression "non-direct expression remained in a CPS bind"))
   where
     storeSingleResult lines' =
@@ -582,13 +583,23 @@ materializeIntoSlots env = fmap concat . mapM store
       lines' <- liftEither (materializeValue env value)
       pure (lines' <> [storeAt RAX R14 slot])
 
+-- | Extend a narrow C result to the 64 bits that GRIN keeps, because the
+-- high bits of the result register are unspecified.
 normalizeForeignResult :: GrinForeignType -> [Amd64Statement]
 normalizeForeignResult foreignType =
   case foreignType of
     GrinForeignInt -> []
+    GrinForeignInt8 -> [amd64Instruction (AmdMovsxByte RAX (Amd64RmRegister AL))]
+    GrinForeignInt16 -> [amd64Instruction (AmdMovsxWord RAX (Amd64RmRegister EAX))]
     GrinForeignInt32 -> [amd64Instruction (AmdMovsxd RAX (Amd64RmRegister EAX))]
+    GrinForeignInt64 -> []
+    GrinForeignWord -> []
+    GrinForeignWord8 -> [amd64Instruction (AmdMovzx RAX (Amd64RmRegister AL))]
+    GrinForeignWord16 -> [amd64Instruction (AmdMovzxWord RAX (Amd64RmRegister EAX))]
+    GrinForeignWord32 -> [amd64Instruction (AmdMov EAX (Amd64MoveRegister EAX))]
     GrinForeignWord64 -> []
     GrinForeignAddr -> []
+    GrinForeignVoid -> []
 
 foreignArgumentRegisters :: [Amd64Register]
 foreignArgumentRegisters = [RDI, RSI, RDX, RCX, R8, R9]

@@ -1,7 +1,9 @@
 annotated:
 - |-
   module Test where
-  data Ptr a
+  import GHC.Prim (Addr#)
+  data Ptr a = Ptr Addr#
+       │       └─ type: ∀ a. GHC.Prim.Addr# → Ptr a
        └─ type: Type → Type
   data Word8
        └─ type: Type
@@ -11,10 +13,12 @@ annotated:
   └─ type: Ptr Word8
 extensions:
 - ForeignFunctionInterface
+- MagicHash
 modules:
 - |
   module Test where
-  data Ptr a
+  import GHC.Prim (Addr#)
+  data Ptr a = Ptr Addr#
   data Word8
   foreign import ccall "&hs_table" table :: Ptr Word8
   test = table

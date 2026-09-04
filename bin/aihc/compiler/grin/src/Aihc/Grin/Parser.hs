@@ -601,10 +601,18 @@ foreignSignature = do
 foreignType :: Parser GrinForeignType
 foreignType =
   MP.choice
-    [ GrinForeignInt32 <$ keyword "int32",
+    [ GrinForeignInt16 <$ keyword "int16",
+      GrinForeignInt32 <$ keyword "int32",
+      GrinForeignInt64 <$ keyword "int64",
+      GrinForeignInt8 <$ keyword "int8",
       GrinForeignInt <$ keyword "int",
+      GrinForeignWord16 <$ keyword "word16",
+      GrinForeignWord32 <$ keyword "word32",
       GrinForeignWord64 <$ keyword "word64",
-      GrinForeignAddr <$ keyword "addr"
+      GrinForeignWord8 <$ keyword "word8",
+      GrinForeignWord <$ keyword "word",
+      GrinForeignAddr <$ keyword "addr",
+      GrinForeignVoid <$ keyword "void"
     ]
 
 runtimeRepArgument :: Parser GrinRep

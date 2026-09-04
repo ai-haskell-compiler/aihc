@@ -1,0 +1,63 @@
+annotated:
+- |-
+  module Test where
+
+  import GHC.Prim (Addr#, Int64#, Word32#, Word8#)
+
+  data IO a
+       └─ type: Type → Type
+  data Ptr a = Ptr Addr#
+       │       └─ type: ∀ a. GHC.Prim.Addr# → Ptr a
+       └─ type: Type → Type
+  data Word8 = W8# Word8#
+       │       └─ type: GHC.Prim.Word8# → Word8
+       └─ type: Type
+  data Word32 = W32# Word32#
+       │        └─ type: GHC.Prim.Word32# → Word32
+       └─ type: Type
+  data Int64 = I64# Int64#
+       │       └─ type: GHC.Prim.Int64# → Int64
+       └─ type: Type
+  newtype CUInt = CUInt Word32
+          │       └─ type: Word32 → CUInt
+          └─ type: Type
+  newtype CLLong = CLLong Int64
+          │        └─ type: Int64 → CLLong
+          └─ type: Type
+  newtype CPtrdiff = CPtrdiff Int64
+          │          └─ type: Int64 → CPtrdiff
+          └─ type: Type
+  newtype Offset = Offset CPtrdiff
+          │        └─ type: CPtrdiff → Offset
+          └─ type: Type
+
+  foreign import ccall unsafe "fps_maximum" c_maximum :: Ptr Word8 -> CUInt -> IO Word8
+  └─ type: Ptr Word8 → CUInt → IO Word8
+  foreign import ccall unsafe "fps_sort" c_sort :: Ptr Word8 -> CLLong -> IO ()
+  └─ type: Ptr Word8 → CLLong → IO ()
+  foreign import ccall unsafe "fps_elem_index" c_elem_index :: Ptr Word8 -> Word8 -> IO Offset
+  └─ type: Ptr Word8 → Word8 → IO Offset
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Addr#, Int64#, Word32#, Word8#)
+
+  data IO a
+  data Ptr a = Ptr Addr#
+  data Word8 = W8# Word8#
+  data Word32 = W32# Word32#
+  data Int64 = I64# Int64#
+  newtype CUInt = CUInt Word32
+  newtype CLLong = CLLong Int64
+  newtype CPtrdiff = CPtrdiff Int64
+  newtype Offset = Offset CPtrdiff
+
+  foreign import ccall unsafe "fps_maximum" c_maximum :: Ptr Word8 -> CUInt -> IO Word8
+  foreign import ccall unsafe "fps_sort" c_sort :: Ptr Word8 -> CLLong -> IO ()
+  foreign import ccall unsafe "fps_elem_index" c_elem_index :: Ptr Word8 -> Word8 -> IO Offset
+reason: foreign import value types unwrap through newtypes and boxed integer types to their primitive representation, and a unit result is accepted
+status: pass

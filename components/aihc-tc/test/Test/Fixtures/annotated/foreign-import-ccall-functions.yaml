@@ -1,8 +1,14 @@
 annotated:
 - |-
   module Test where
-  data CInt
+  data Int32#
        └─ type: Type
+  data Int32 = I32# Int32#
+       │       └─ type: Int32# → Int32
+       └─ type: Type
+  newtype CInt = CInt Int32
+          │      └─ type: Int32 → CInt
+          └─ type: Type
   data IO a
        └─ type: Type → Type
   foreign import ccall safe "plus1" plus1 :: CInt -> IO CInt
@@ -15,10 +21,13 @@ annotated:
   └─ type: CInt → CInt → IO CInt
 extensions:
 - ForeignFunctionInterface
+- MagicHash
 modules:
 - |
   module Test where
-  data CInt
+  data Int32#
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
   data IO a
   foreign import ccall safe "plus1" plus1 :: CInt -> IO CInt
   foreign import capi interruptible "math.h plus2" plus2 :: CInt -> CInt -> IO CInt

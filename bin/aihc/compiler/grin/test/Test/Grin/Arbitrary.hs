@@ -134,7 +134,7 @@ genForeignEffect :: Gen GrinForeignEffect
 genForeignEffect = Gen.element [GrinForeignPure, GrinForeignRealWorld]
 
 genForeignType :: Gen GrinForeignType
-genForeignType = Gen.element [GrinForeignInt, GrinForeignInt32, GrinForeignWord64, GrinForeignAddr]
+genForeignType = Gen.element [minBound .. maxBound]
 
 genRuntimeRep :: Gen GrinRep
 genRuntimeRep =

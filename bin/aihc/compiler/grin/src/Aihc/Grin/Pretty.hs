@@ -287,9 +287,17 @@ prettyForeignType :: GrinForeignType -> Doc ann
 prettyForeignType foreignType =
   case foreignType of
     GrinForeignInt -> "int"
+    GrinForeignInt8 -> "int8"
+    GrinForeignInt16 -> "int16"
     GrinForeignInt32 -> "int32"
+    GrinForeignInt64 -> "int64"
+    GrinForeignWord -> "word"
+    GrinForeignWord8 -> "word8"
+    GrinForeignWord16 -> "word16"
+    GrinForeignWord32 -> "word32"
     GrinForeignWord64 -> "word64"
     GrinForeignAddr -> "addr"
+    GrinForeignVoid -> "void"
 
 prettyFunctionName :: FunctionName -> Doc ann
 prettyFunctionName = prettyName . unFunctionName
