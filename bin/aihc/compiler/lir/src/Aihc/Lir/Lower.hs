@@ -68,12 +68,11 @@ import Aihc.Native
     executableEntryName,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
-    nativeSplitRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
     renderLinkedFunctionSymbol,
     renderLinkedGlobalSymbol,
   )
-import Control.Monad (forM, forM_, unless, when, zipWithM)
+import Control.Monad (foldM, forM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.ByteString qualified as BS
@@ -224,6 +223,7 @@ data Helper
   | HelperResume
   | HelperExit
   | HelperQuotRem2
+  | HelperCStringLength
   | HelperContinue ![Type]
   | HelperApply ![Type]
   | -- | Continue with one value that arrives as a raw slot: the runtime
@@ -239,6 +239,7 @@ helperSymbol helper =
     HelperResume -> "aihc_lir_resume"
     HelperExit -> "aihc_lir_exit"
     HelperQuotRem2 -> "aihc_lir_quotrem2"
+    HelperCStringLength -> "aihc_lir_cstring_length"
     HelperContinue shape -> "aihc_lir_continue_" <> shapeName shape
     HelperApply shape -> "aihc_lir_apply_" <> shapeName shape
     HelperContinueSlot -> "aihc_lir_continue_slot"
@@ -1211,6 +1212,24 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           flag <- emitValue "flag" I1 (Compare op I64 leftOperand rightOperand)
           result <- widen flag
           bind [result]
+      | Just op <- lookup name addressComparisonPrimitives -> do
+          leftOperand <- pointerValue ctx env left
+          rightOperand <- pointerValue ctx env right
+          flag <- emitValue "flag" I1 (Compare op Ptr leftOperand rightOperand)
+          result <- widen flag
+          bind [result]
+      | Just (op, ty) <- lookup name floatBinaryPrimitives -> do
+          leftOperand <- floatOperand ty left
+          rightOperand <- floatOperand ty right
+          result <- emitValue "result" ty (FloatBinary op ty leftOperand rightOperand)
+          bits <- floatBits ty result
+          bind [bits]
+      | Just (op, ty) <- lookup name floatComparisonPrimitives -> do
+          leftOperand <- floatOperand ty left
+          rightOperand <- floatOperand ty right
+          flag <- emitValue "flag" I1 (Compare op ty leftOperand rightOperand)
+          result <- widen flag
+          bind [result]
     ("compareInt#", [left, right]) -> do
       leftOperand <- word left
       rightOperand <- word right
@@ -1233,6 +1252,18 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       high <- fresh "high"
       emit [low, high] (Wide MulWideU I64 leftOperand rightOperand)
       bind [Typed (OperandVar high) I64, Typed (OperandVar low) I64]
+    -- The high half is necessary when it is not the sign extension of the low
+    -- half.
+    ("timesInt2#", [left, right]) -> do
+      leftOperand <- word left
+      rightOperand <- word right
+      low <- fresh "low"
+      high <- fresh "high"
+      emit [low, high] (Wide MulWideS I64 leftOperand rightOperand)
+      sign <- emitValue "sign" I64 (Binary ShrS I64 (OperandVar low) (OperandLiteral (LitInt 63)))
+      needed <- emitValue "needed" I1 (Compare Ne I64 (OperandVar high) (typedOperand sign))
+      neededWord <- widen needed
+      bind [neededWord, Typed (OperandVar high) I64, Typed (OperandVar low) I64]
     ("quotRemWord#", [left, right]) -> do
       leftOperand <- word left
       rightOperand <- word right
@@ -1249,10 +1280,81 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     ("nullAddr#", []) -> bind [Typed (OperandLiteral LitNull) Ptr]
     ("realWorld#", [])
       | null vars && null (runtimeRepComponents runtimeRep) -> pure env
+    ("plusAddr#", [address, offset]) -> do
+      base <- pointerValue ctx env address
+      delta <- word offset
+      result <- emitValue "address" Ptr (PtrAdd base delta)
+      bind [result]
+    ("minusAddr#", [left, right]) -> do
+      leftOperand <- word left
+      rightOperand <- word right
+      result <- emitValue "result" I64 (Binary Sub I64 leftOperand rightOperand)
+      bind [result]
+    ("addr2Int#", [address]) -> do
+      operand <- word address
+      bind [Typed operand I64]
+    ("int2Addr#", [value]) -> do
+      operand <- pointerValue ctx env value
+      bind [Typed operand Ptr]
+    ("cstringLength#", [address]) -> do
+      operand <- pointerValue ctx env address
+      helper <- requireHelper HelperCStringLength
+      result <- emitValue "length" I64 (Call helper [operand])
+      bind [result]
+    -- The collector uses explicit root lists, thus touch# keeps no value
+    -- alive and gives no code.
+    ("touch#", [_])
+      | null vars -> pure env
+    ("float2Double#", [value]) -> do
+      operand <- floatOperand F32 value
+      result <- emitValue "result" F64 (Convert FpExt F32 operand F64)
+      bits <- floatBits F64 result
+      bind [bits]
+    ("double2Float#", [value]) -> do
+      operand <- floatOperand F64 value
+      result <- emitValue "result" F32 (Convert FpTrunc F64 operand F32)
+      bits <- floatBits F32 result
+      bind [bits]
+    (_, [address, index])
+      | Just (ty, scale) <- lookup name addressLoadPrimitives -> do
+          target <- addressElement address index scale
+          value <- emitValue "value" ty (Load ty (Address target 0) 1)
+          result <- if ty == I64 then pure value else emitValue "value" I64 (Convert ZExt ty (typedOperand value) I64)
+          bind [result]
+    (_, [address, index, value])
+      | Just (ty, scale) <- lookup name addressStorePrimitives -> do
+          target <- addressElement address index scale
+          operand <- word value
+          narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
+          emit [] (Store ty narrow (Address target 0) 1)
+          bind []
     (_, [value])
       | name `elem` identityPrimitives -> do
           typed <- materialize ctx env value
           bind [typed]
+      | Just (ty, op) <- lookup name narrowPrimitives -> do
+          operand <- word value
+          narrow <- emitValue "narrow" ty (Convert Trunc I64 operand ty)
+          result <- emitValue "result" I64 (Convert op ty (typedOperand narrow) I64)
+          bind [result]
+      | Just shift <- lookup name byteSwapPrimitives -> do
+          operand <- word value
+          result <- byteSwap shift operand
+          bind [result]
+      | Just (op, ty) <- lookup name floatUnaryPrimitives -> do
+          operand <- floatOperand ty value
+          result <- emitValue "result" ty (FloatUnary op ty operand)
+          bits <- floatBits ty result
+          bind [bits]
+      | Just ty <- lookup name intToFloatPrimitives -> do
+          operand <- word value
+          result <- emitValue "result" ty (Convert IToFS I64 operand ty)
+          bits <- floatBits ty result
+          bind [bits]
+      | Just ty <- lookup name floatToIntPrimitives -> do
+          operand <- floatOperand ty value
+          result <- emitValue "result" I64 (Convert FToIS ty operand I64)
+          bind [result]
     ("casMutVar#", [reference, expected, replacement])
       | Just swapCall <- nativeRuntimePrimitiveCall "casMutVar#",
         Just readCall <- nativeRuntimePrimitiveCall "readMutVar#" -> do
@@ -1260,10 +1362,6 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           current <- compileRuntimeCall ctx env readCall [reference]
           bind [flag, current]
     _
-      | Just splitCalls <- nativeSplitRuntimePrimitiveCall name,
-        length splitCalls == length vars -> do
-          results <- forM splitCalls $ \splitCall -> compileRuntimeCall ctx env splitCall arguments
-          bind results
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileRuntimeCall ctx env runtimeCall arguments
           case nativeRuntimeCallResultCount runtimeCall of
@@ -1279,6 +1377,47 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     word value = materialize ctx env value >>= coerce I64
     widen (Typed flag _) = emitValue "wide" I64 (Convert ZExt I1 flag I64)
     zeroValue ty = Typed (OperandLiteral (if ty == Ptr then LitNull else LitInt 0)) ty
+    -- The address of element @index@ of the given width. Every access uses
+    -- alignment one, because the source can give an unaligned address.
+    addressElement address index scale = do
+      base <- pointerValue ctx env address
+      offset <- word index
+      scaled <-
+        if scale == 1
+          then pure offset
+          else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (OperandLiteral (LitInt scale)))
+      typedOperand <$> emitValue "address" Ptr (PtrAdd base scaled)
+    -- A Float# value travels as its bit pattern in the low 32 bits and a
+    -- Double# value as its 64-bit pattern.
+    floatOperand ty value = do
+      operand <- word value
+      case ty of
+        F32 -> do
+          narrow <- emitValue "bits" I32 (Convert Trunc I64 operand I32)
+          typedOperand <$> emitValue "float" F32 (Convert Bitcast I32 (typedOperand narrow) F32)
+        _ -> typedOperand <$> emitValue "double" F64 (Convert Bitcast I64 operand F64)
+    floatBits ty (Typed operand _) =
+      case ty of
+        F32 -> do
+          bits <- emitValue "bits" I32 (Convert Bitcast F32 operand I32)
+          emitValue "result" I64 (Convert ZExt I32 (typedOperand bits) I64)
+        _ -> emitValue "result" I64 (Convert Bitcast F64 operand I64)
+    -- A byte swap of a narrow value moves the value to the high bytes first,
+    -- thus one 64-bit swap gives every width.
+    byteSwap shift operand = do
+      shifted <-
+        if shift == 0
+          then pure operand
+          else typedOperand <$> emitValue "shifted" I64 (Binary Shl I64 operand (OperandLiteral (LitInt shift)))
+      result <- foldM swapStage shifted [32, 16, 8]
+      pure (Typed result I64)
+    swapStage value stage = do
+      let mask = OperandLiteral (LitInt (byteSwapMask stage))
+      high <- emitValue "swapped" I64 (Binary ShrU I64 value (OperandLiteral (LitInt stage)))
+      highPart <- emitValue "swapped" I64 (Binary And I64 (typedOperand high) mask)
+      lowPart <- emitValue "swapped" I64 (Binary And I64 value mask)
+      low <- emitValue "swapped" I64 (Binary Shl I64 (typedOperand lowPart) (OperandLiteral (LitInt stage)))
+      typedOperand <$> emitValue "swapped" I64 (Binary Or I64 (typedOperand highPart) (typedOperand low))
     signedCarry op left right = do
       leftOperand <- word left
       rightOperand <- word right
@@ -1299,6 +1438,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       emit [result, carry] (Wide op I64 leftOperand rightOperand)
       flag <- widen (Typed (OperandVar carry) I1)
       bind [Typed (OperandVar result) I64, flag]
+
+-- | The mask of one stage of a 64-bit byte swap. The mask keeps every other
+-- block of @stage@ bits.
+byteSwapMask :: Integer -> Integer
+byteSwapMask stage = sum [(2 ^ stage - 1) * 2 ^ (2 * stage * block) | block <- [0 .. 64 `div` (2 * stage) - 1]]
 
 binaryPrimitives :: [(Text, BinaryOp)]
 binaryPrimitives =
@@ -1339,6 +1483,124 @@ comparisonPrimitives =
     ("geWord64#", GeU)
   ]
 
+-- | Comparisons of two addresses. An address compares as an unsigned number.
+addressComparisonPrimitives :: [(Text, CompareOp)]
+addressComparisonPrimitives =
+  [ ("eqAddr#", Eq),
+    ("neAddr#", Ne),
+    ("ltAddr#", LtU),
+    ("leAddr#", LeU),
+    ("gtAddr#", GtU),
+    ("geAddr#", GeU)
+  ]
+
+-- | Reads of memory at an address. Each entry gives the width of the value
+-- and the size of one index step in bytes.
+addressLoadPrimitives :: [(Text, (Type, Integer))]
+addressLoadPrimitives =
+  [ ("indexWord8OffAddr#", (I8, 1)),
+    ("readWord8OffAddr#", (I8, 1)),
+    ("indexWord16OffAddr#", (I16, 2)),
+    ("readWord16OffAddr#", (I16, 2)),
+    ("indexWord32OffAddr#", (I32, 4)),
+    ("readWord32OffAddr#", (I32, 4)),
+    ("indexWord64OffAddr#", (I64, 8)),
+    ("readWord64OffAddr#", (I64, 8)),
+    ("indexWord8OffAddrAsWord16#", (I16, 1)),
+    ("readWord8OffAddrAsWord16#", (I16, 1)),
+    ("indexWord8OffAddrAsWord32#", (I32, 1)),
+    ("readWord8OffAddrAsWord32#", (I32, 1)),
+    ("indexWord8OffAddrAsWord64#", (I64, 1)),
+    ("readWord8OffAddrAsWord64#", (I64, 1)),
+    -- A Float# value travels as its bit pattern in the low 32 bits and a
+    -- Double# value as its 64-bit pattern, thus the float accessors reuse
+    -- the word accessors of the same width.
+    ("indexWord8OffAddrAsFloat#", (I32, 1)),
+    ("readWord8OffAddrAsFloat#", (I32, 1)),
+    ("indexWord8OffAddrAsDouble#", (I64, 1)),
+    ("readWord8OffAddrAsDouble#", (I64, 1))
+  ]
+
+-- | Writes of memory at an address, with the same widths and index steps as
+-- the reads.
+addressStorePrimitives :: [(Text, (Type, Integer))]
+addressStorePrimitives =
+  [ ("writeWord8OffAddr#", (I8, 1)),
+    ("writeWord16OffAddr#", (I16, 2)),
+    ("writeWord32OffAddr#", (I32, 4)),
+    ("writeWord64OffAddr#", (I64, 8)),
+    ("writeWord8OffAddrAsWord16#", (I16, 1)),
+    ("writeWord8OffAddrAsWord32#", (I32, 1)),
+    ("writeWord8OffAddrAsWord64#", (I64, 1)),
+    ("writeWord8OffAddrAsFloat#", (I32, 1)),
+    ("writeWord8OffAddrAsDouble#", (I64, 1))
+  ]
+
+-- | Conversions to a narrow integer. The result keeps the width of a word.
+-- A word narrows without a sign and an integer keeps its sign.
+narrowPrimitives :: [(Text, (Type, ConvertOp))]
+narrowPrimitives =
+  [ ("wordToWord8#", (I8, ZExt)),
+    ("wordToWord16#", (I16, ZExt)),
+    ("wordToWord32#", (I32, ZExt)),
+    ("intToInt8#", (I8, SExt)),
+    ("intToInt16#", (I16, SExt)),
+    ("intToInt32#", (I32, SExt))
+  ]
+
+-- | Byte swaps. The value moves left by the given number of bits first, thus
+-- one 64-bit swap gives the result of every width.
+byteSwapPrimitives :: [(Text, Integer)]
+byteSwapPrimitives =
+  [ ("byteSwap16#", 48),
+    ("byteSwap32#", 32),
+    ("byteSwap64#", 0),
+    ("byteSwap#", 0)
+  ]
+
+floatBinaryPrimitives :: [(Text, (FloatBinaryOp, Type))]
+floatBinaryPrimitives =
+  [ ("plusFloat#", (FAdd, F32)),
+    ("minusFloat#", (FSub, F32)),
+    ("timesFloat#", (FMul, F32)),
+    ("+##", (FAdd, F64)),
+    ("-##", (FSub, F64)),
+    ("*##", (FMul, F64))
+  ]
+
+floatUnaryPrimitives :: [(Text, (FloatUnaryOp, Type))]
+floatUnaryPrimitives =
+  [ ("negateFloat#", (FNeg, F32)),
+    ("fabsFloat#", (FAbs, F32)),
+    ("negateDouble#", (FNeg, F64)),
+    ("fabsDouble#", (FAbs, F64))
+  ]
+
+floatComparisonPrimitives :: [(Text, (CompareOp, Type))]
+floatComparisonPrimitives =
+  [ ("gtFloat#", (FGt, F32)),
+    ("ltFloat#", (FLt, F32)),
+    ("eqFloat#", (Eq, F32)),
+    (">##", (FGt, F64)),
+    ("<##", (FLt, F64)),
+    ("==##", (Eq, F64))
+  ]
+
+intToFloatPrimitives :: [(Text, Type)]
+intToFloatPrimitives =
+  [ ("int2Float#", F32),
+    ("int2Double#", F64)
+  ]
+
+-- | Conversions of a float to an integer. GHC gives no result outside the
+-- range of an integer. Lir has no undefined behavior, thus the conversion
+-- traps there.
+floatToIntPrimitives :: [(Text, Type)]
+floatToIntPrimitives =
+  [ ("float2Int#", F32),
+    ("double2Int#", F64)
+  ]
+
 identityPrimitives :: [Text]
 identityPrimitives =
   [ "int2Word#",
@@ -1357,7 +1619,12 @@ identityPrimitives =
     "castFloatToWord32#",
     "castWord32ToFloat#",
     "castDoubleToWord64#",
-    "castWord64ToDouble#"
+    "castWord64ToDouble#",
+    "int8ToInt#",
+    "int16ToInt#",
+    "int32ToInt#",
+    "intToInt64#",
+    "int64ToInt#"
   ]
 
 -- Case
@@ -1819,6 +2086,24 @@ generateHelper env helper =
       beginBlock (Label "finish") [(quotient, I64), (remainder, I64)]
       terminate (Return [OperandVar quotient, OperandVar remainder])
       finishFunction symbol Internal [(high, I64), (low, I64), (divisor, I64)] [I64, I64] AihcConvention
+    HelperCStringLength -> do
+      address <- fresh "address"
+      beginBlock (Label "entry") []
+      terminate (Jump (Target (Label "loop") [OperandVar address, OperandLiteral (LitInt 0)]))
+      current <- fresh "current"
+      count <- fresh "count"
+      beginBlock (Label "loop") [(current, Ptr), (count, I64)]
+      byte <- emitValue "byte" I8 (Load I8 (Address (OperandVar current) 0) 1)
+      atEnd <- emitValue "at_end" I1 (Compare Eq I8 (typedOperand byte) (OperandLiteral (LitInt 0)))
+      terminate (Branch (typedOperand atEnd) (Target (Label "finish") [OperandVar count]) (Target (Label "step") []))
+      beginBlock (Label "step") []
+      nextAddress <- emitValue "next_address" Ptr (PtrAdd (OperandVar current) (OperandLiteral (LitInt 1)))
+      nextCount <- emitValue "next_count" I64 (Binary Add I64 (OperandVar count) (OperandLiteral (LitInt 1)))
+      terminate (Jump (Target (Label "loop") [typedOperand nextAddress, typedOperand nextCount]))
+      length' <- fresh "length"
+      beginBlock (Label "finish") [(length', I64)]
+      terminate (Return [OperandVar length'])
+      finishFunction symbol Internal [(address, Ptr)] [I64] AihcConvention
   where
     symbol = helperSymbol helper
     loadHeader object = typedOperand <$> loadSlot "header" Ptr object 0

@@ -443,8 +443,10 @@ for WebAssembly.
 The lowering keeps the control model of CPS-GRIN:
 
 - A direct call is a `tailcall`.
-- A direct expression is a sequence of instructions. A runtime operation is a
-  `call` of an extern C function.
+- A direct expression is a sequence of instructions. The integer, float,
+  address, and memory primitives become Lir operations. A primitive that needs
+  the heap, the collector, the scheduler, or the host becomes a `call` of an
+  extern C function.
 - A case on a pointer loads the header and the `identity` field and compares
   it with the constructor tables. A case on a scalar is a `switch`.
 - A heap reservation stores the live roots in a `stack.alloc` array, calls

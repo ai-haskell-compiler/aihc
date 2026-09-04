@@ -376,10 +376,15 @@ encodeInstruction instruction =
 floatType :: Bool -> Word32 -> Word32
 floatType double base = if double then base .|. 0x00400000 else base
 
+-- | The encoding of a one-operand instruction gives the operation in the
+-- field of the second source register, thus only a two-operand instruction
+-- puts a register there.
 encodeFloatOp :: Arm64FloatOp -> Bool -> Int -> Int -> Int -> [Item]
 encodeFloatOp op double destination left right =
-  words32 [floatType double base .|. fromIntegral right `shiftL` 16 .|. fromIntegral left `shiftL` 5 .|. fromIntegral destination]
+  words32 [floatType double base .|. secondSource .|. fromIntegral left `shiftL` 5 .|. fromIntegral destination]
   where
+    secondSource = if unary then 0 else fromIntegral right `shiftL` 16
+    unary = op `elem` [ArmFNeg, ArmFAbs, ArmFSqrt]
     base =
       case op of
         ArmFAdd -> 0x1e202800
