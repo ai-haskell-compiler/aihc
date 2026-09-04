@@ -21,8 +21,7 @@ data Command
   deriving (Eq, Show)
 
 data GarbageCollector
-  = GcCalloc
-  | GcSemispace
+  = GcSemispace
   deriving (Eq, Show)
 
 data BuildExeOptions = BuildExeOptions
@@ -168,9 +167,8 @@ lintOption =
 parseGarbageCollector :: String -> Either String GarbageCollector
 parseGarbageCollector value =
   case value of
-    "calloc" -> Right GcCalloc
     "semispace" -> Right GcSemispace
-    _ -> Left "expected calloc or semispace"
+    _ -> Left "expected semispace"
 
 prepareRuntimeOptionsParser :: OA.Parser PrepareRuntimeOptions
 prepareRuntimeOptionsParser =
@@ -193,9 +191,9 @@ garbageCollectorOption =
   OA.option
     (OA.eitherReader parseGarbageCollector)
     ( OA.long "gc"
-        <> OA.metavar "calloc|semispace"
-        <> OA.value GcCalloc
-        <> OA.showDefaultWith (const "calloc")
+        <> OA.metavar "semispace"
+        <> OA.value GcSemispace
+        <> OA.showDefaultWith (const "semispace")
         <> OA.help "Select the garbage collector"
     )
 

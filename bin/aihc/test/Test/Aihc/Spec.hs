@@ -4,7 +4,7 @@ module Test.Aihc.Spec (tests) where
 
 import Aihc.Cli.BuildExe (runBuildExe)
 import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallOptions (..))
+import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
@@ -103,7 +103,7 @@ test_buildExeSourceDirectories = do
               buildExeSourceDirectories = [fixtureRoot],
               buildExePackageConstraints = ["aihc-base == 4.21.2.0"],
               buildExeTarget = target,
-              buildExeGarbageCollector = GcCalloc,
+              buildExeGarbageCollector = GcSemispace,
               buildExeStoreRoot = Just storeRoot,
               buildExeBuildRoot = Nothing,
               buildExeLint = False,

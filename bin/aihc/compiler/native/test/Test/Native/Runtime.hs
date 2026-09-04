@@ -15,8 +15,7 @@ tests :: TestTree
 tests =
   testGroup
     "native runtime"
-    [ stableNameTest RuntimeGcCalloc,
-      stableNameTest RuntimeGcSemispace,
+    [ runtimeProgramTest "stable names survive collections" RuntimeGcSemispace [] stableNameSource,
       runtimeProgramTest "semispace grows when live data exceeds the initial space" RuntimeGcSemispace [] growthSource,
       runtimeProgramTest "semispace stops at the heap limit" RuntimeGcSemispace ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
@@ -30,10 +29,6 @@ tests =
         []
         (staticReferenceSource KeepsEveryCaf)
     ]
-
-stableNameTest :: RuntimeGarbageCollector -> TestTree
-stableNameTest collector =
-  runtimeProgramTest ("stable names survive " <> show collector) collector [] stableNameSource
 
 -- | Compile one C program against the selected runtime with a 64-byte initial
 -- semispace. Then, run it with the given arguments and expect exit status 0.

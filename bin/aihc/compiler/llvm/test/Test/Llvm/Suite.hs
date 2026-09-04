@@ -586,7 +586,7 @@ testProcessExit = do
     "LLVM main must not recover an exit status after the tail-call chain"
     (not ("call i64 @aihc_get_exit_status" `T.isInfixOf` source))
   withTempDirectory "aihc-llvm-exit" $ \directory -> do
-    runtimeArguments <- llvmRuntimeArguments RuntimeGcCalloc
+    runtimeArguments <- llvmRuntimeArguments RuntimeGcSemispace
     let modulePath = directory </> "program.ll"
         entryPath = directory </> "entry.ll"
         executablePath = directory </> "program"
@@ -630,7 +630,7 @@ processExitProgram =
     mainClosure = GrinVar "main" 120 (BoxedRep Lifted)
 
 testProgram :: String -> GrinProgram -> IO ()
-testProgram = testProgramWith RuntimeGcCalloc []
+testProgram = testProgramWith RuntimeGcSemispace []
 
 -- | Compile and run one program against the selected collector. The extra
 -- arguments reach the C compiler for the runtime and the generated modules.

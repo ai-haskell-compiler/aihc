@@ -42,5 +42,4 @@ installedRuntimeArchivePath storeRoot target garbageCollector =
 renderGarbageCollector :: RuntimeGarbageCollector -> FilePath
 renderGarbageCollector garbageCollector =
   case garbageCollector of
-    RuntimeGcCalloc -> "calloc"
     RuntimeGcSemispace -> "semispace"

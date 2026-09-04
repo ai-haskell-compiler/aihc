@@ -69,7 +69,7 @@ tests = do
                   testCase "blocks and wakes threads that enter a shared blackhole" (programTest collector "TA" blackholeSchedulerProgram),
                   testCase "waits for stdin and resumes an async stdio continuation" (stdioTest collector)
                 ]
-            | collector <- [RuntimeGcCalloc, RuntimeGcSemispace]
+            | collector <- [RuntimeGcSemispace]
             ]
         ]
     )
@@ -235,7 +235,7 @@ snapshotTest directory name = testCase name $ do
 runObservedObject :: BL.ByteString -> Text -> IO (Either Text Text)
 runObservedObject object metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
     snapshotRuntime <- snapshotSourcePath
     let objectPath = directory </> "snapshot.o"
         metadataPath = directory </> "snapshot_metadata.c"
@@ -287,7 +287,6 @@ compileProgramObjects program = do
 collectorName :: RuntimeGarbageCollector -> String
 collectorName collector =
   case collector of
-    RuntimeGcCalloc -> "calloc collector"
     RuntimeGcSemispace -> "semispace collector"
 
 programTest :: RuntimeGarbageCollector -> String -> GrinProgram -> IO ()

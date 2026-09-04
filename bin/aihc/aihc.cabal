@@ -42,7 +42,6 @@ extra-source-files:
   test/Test/Fixtures/install/resolve-error/src/Zulu.hs
 
 data-files:
-  compiler/native/runtime/aihc_gc_calloc.c
   compiler/native/runtime/aihc_gc_semispace.c
   compiler/native/runtime/aihc_host_posix.c
   compiler/native/runtime/aihc_host_wasip3.c
