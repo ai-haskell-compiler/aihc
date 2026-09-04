@@ -46,6 +46,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Control.Exception (ErrorCall, displayException, evaluate, try)
+import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -100,14 +101,28 @@ fixtureRoot = "test/Test/Fixtures/annotated"
 testTcConfig :: TcConfig
 testTcConfig = tcConfig (PackageId "aihc-prim")
 
+-- | Load every annotated fixture. The fixture root is resolved relative to the
+-- working directory, so running the suite from the wrong directory would
+-- otherwise silently produce an empty, always-green test tree. Fail loudly
+-- instead.
 loadTcAnnotatedCases :: IO [TcAnnotatedCase]
 loadTcAnnotatedCases = do
   exists <- doesDirectoryExist fixtureRoot
   if not exists
-    then pure []
+    then do
+      cwd <- getCurrentDirectory
+      fail
+        ( "TC annotated fixture directory not found: "
+            <> fixtureRoot
+            <> " (working directory: "
+            <> cwd
+            <> "). Run the suite from the aihc-tc package root."
+        )
     else do
       primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
+      when (null paths) $
+        fail ("TC annotated fixture directory is empty: " <> fixtureRoot)
       mapM loadTcAnnotatedCase paths
 
 primitiveSupport :: PrimitiveSupport
