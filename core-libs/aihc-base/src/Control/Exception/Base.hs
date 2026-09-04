@@ -4,6 +4,7 @@
 module Control.Exception.Base
   ( Exception (..),
     SomeException (..),
+    ArithException (..),
     IOException,
     catch,
     catchJust,
@@ -23,7 +24,7 @@ module Control.Exception.Base
   )
 where
 
-import GHC.Exception (Exception (..), SomeException (..), throw)
+import GHC.Exception (ArithException (..), Exception (..), SomeException (..), throw)
 import GHC.IO (IO (..))
 import GHC.IO.Exception (IOException)
 import GHC.Prim (catch#, raise#)

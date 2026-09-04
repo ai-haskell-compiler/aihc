@@ -5,18 +5,14 @@ module Numeric.Natural
 where
 
 import Data.Bits (Bits (..))
-import GHC.Exception (Exception, throw)
+import GHC.Exception (ArithException (..), throw)
 import GHC.Read ()
 import Prelude
 
 newtype Natural = Natural Integer
 
-data NaturalUnderflow = NaturalUnderflow
-
-instance Exception NaturalUnderflow
-
 underflow :: a
-underflow = throw NaturalUnderflow
+underflow = throw Underflow
 
 minusNaturalMaybe :: Natural -> Natural -> Maybe Natural
 minusNaturalMaybe (Natural left) (Natural right) =

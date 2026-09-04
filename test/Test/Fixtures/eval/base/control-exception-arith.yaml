@@ -1,0 +1,82 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException (..), catch, displayException, fromException, throwIO)
+    import GHC.Exception
+      ( SomeException,
+        divZeroException,
+        overflowException,
+        ratioZeroDenomException,
+        underflowException,
+      )
+    import GHC.IO (IO (..))
+    import GHC.Prim (RealWorld, State#, realWorld#)
+
+    showsEveryConstructor :: Bool
+    showsEveryConstructor =
+      show Overflow == "arithmetic overflow"
+        && show Underflow == "arithmetic underflow"
+        && show LossOfPrecision == "loss of precision"
+        && show DivideByZero == "divide by zero"
+        && show Denormal == "denormal"
+        && show RatioZeroDenominator == "Ratio has zero denominator"
+
+    displaysMessage :: Bool
+    displaysMessage = displayException DivideByZero == "divide by zero"
+
+    comparesConstructors :: Bool
+    comparesConstructors =
+      Underflow == Underflow
+        && Underflow /= Overflow
+        && compare Overflow Underflow == LT
+        && compare Underflow Overflow == GT
+        && compare Denormal Denormal == EQ
+        && Overflow < RatioZeroDenominator
+        && RatioZeroDenominator >= Denormal
+        && max Overflow Denormal == Denormal
+        && min Overflow Denormal == Overflow
+
+    wraps :: SomeException -> ArithException -> Bool
+    wraps wrapped expected =
+      case fromException wrapped of
+        Just actual -> actual == expected
+        Nothing -> False
+
+    wrapsEveryConstant :: Bool
+    wrapsEveryConstant =
+      wraps underflowException Underflow
+        && wraps overflowException Overflow
+        && wraps divZeroException DivideByZero
+        && wraps ratioZeroDenomException RatioZeroDenominator
+
+    catchesThrownValue :: IO Bool
+    catchesThrownValue =
+      catch (throwIO DivideByZero >> pure False) (\exception -> pure (exception == DivideByZero))
+
+    runTests :: IO Bool
+    runTests = do
+      caught <- catchesThrownValue
+      pure
+        ( showsEveryConstructor
+            && displaysMessage
+            && comparesConstructors
+            && wrapsEveryConstant
+            && caught
+        )
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+output: |
+  True
+expression: |
+  case runIO runTests realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: ArithException gives the GHC constructors, messages, order, and wrapped constants

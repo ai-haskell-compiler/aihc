@@ -8,7 +8,7 @@ modules:
   - |
     module Test where
 
-    import Control.Exception (SomeException, evaluate, try)
+    import Control.Exception (ArithException (..), evaluate, try)
     import GHC.IO (IO (..))
     import GHC.Prim (RealWorld, State#, realWorld#)
     import Numeric.Natural (Natural, minusNaturalMaybe)
@@ -17,7 +17,7 @@ modules:
     underflows value = do
       outcome <- try (evaluate value)
       case outcome of
-        Left exception -> let _ = (exception :: SomeException) in pure True
+        Left exception -> pure (exception == Underflow)
         Right _ -> pure False
 
     keepsNothingOnUnderflow :: Bool
@@ -41,4 +41,4 @@ expression: |
   case runIO runTests realWorld# of
     (# _, result #) -> result
 status: pass
-reason: Natural subtraction throws an exception when its result is negative
+reason: Natural underflow raises the ArithException value Underflow
