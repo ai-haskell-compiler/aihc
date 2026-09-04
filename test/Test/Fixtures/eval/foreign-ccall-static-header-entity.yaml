@@ -1,0 +1,29 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    foreign import ccall unsafe "static string.h strlen" strlenStatic :: Addr# -> Int
+
+    foreign import ccall unsafe "string.h strlen" strlenHeader :: Addr# -> Int
+
+    foreign import ccall unsafe "static strlen" strlenPlain :: Addr# -> Int
+
+    foreign import ccall unsafe "static string.h" strlen :: Addr# -> Int
+
+    data Results = Results Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (strlenStatic "ab"#)
+        (strlenHeader "abc"#)
+        (strlenPlain "abcd"#)
+        (strlen "abcde"#)
+output: |
+  Results (I# 2) (I# 3) (I# 4) (I# 5)
+expression: results
+status: pass
+reason: ignores the static keyword and the header file name in a ccall entity string

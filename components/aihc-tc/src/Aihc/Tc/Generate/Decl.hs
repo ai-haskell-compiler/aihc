@@ -102,6 +102,7 @@ import Aihc.Tc.Annotations
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
     TcForeignMarshal (..),
+    TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcPatSynAnnotation (..),
@@ -114,7 +115,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
-import Aihc.Tc.Generalize (generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -122,14 +123,16 @@ import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
+import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.Char (isAlphaNum, ord)
+import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
@@ -547,6 +550,25 @@ data PendingModule = PendingModule
 
 tcModuleBody :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
 tcModuleBody schemes m = do
+  declaredDefaults <- moduleDefaultTypes (moduleDecls m)
+  localDefaultTypes declaredDefaults (tcModuleBodyWithDefaults schemes m)
+
+-- | The candidate types of the module @default@ declaration.
+--
+-- A module without the declaration gives 'Nothing', and defaulting then uses
+-- the Haskell 2010 standard list. @default ()@ gives @Just []@ and turns
+-- defaulting off. A later declaration replaces an earlier one, as GHC
+-- permits only one for each module.
+moduleDefaultTypes :: [Decl] -> TcM (Maybe [TcType])
+moduleDefaultTypes decls =
+  case [tys | decl <- decls, DeclDefault tys <- [peelDeclAnn decl]] of
+    [] -> pure Nothing
+    groups -> Just <$> mapM checkDefaultType (last groups)
+  where
+    checkDefaultType ty = checkSurfaceType Map.empty ty typeKindType
+
+tcModuleBodyWithDefaults :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
+tcModuleBodyWithDefaults schemes m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let sourceGroups = zip [0 :: Int ..] (groupValueDecls (moduleDecls m))
   grouped <- sortDeclGroups sourceGroups
@@ -1030,18 +1052,74 @@ annotateForeignDeclTc foreignDecl = do
       annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
     CCall -> do
-      plan <- checkForeignImportType sourceSpan ty
-      checkedPlan <- checkForeignEntity sourceSpan (foreignEntity foreignDecl) plan
+      let declaredName = unqualifiedNameText (foreignName foreignDecl)
+      (target, symbol) <- checkForeignEntity sourceSpan declaredName (foreignEntity foreignDecl)
+      plan <- checkForeignImportType sourceSpan target symbol ty
+      checkedPlan <- checkForeignTarget sourceSpan plan
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     _ -> pure annotated
+
+-- | Read the C entity of a foreign import and report a bad entity.
+checkForeignEntity :: SourceSpan -> Text -> ForeignEntitySpec -> TcM (TcForeignTarget, Text)
+checkForeignEntity sourceSpan declaredName entity =
+  case resolveForeignEntity declaredName entity of
+    Right resolved -> pure resolved
+    Left message -> do
+      emitError sourceSpan (OtherError message)
+      pure (TcForeignCall, declaredName)
+
+-- | The C entity string has the form @[static] [header] [&] [symbol]@.  The
+-- @static@ keyword and the header file name give no information to this
+-- compiler, because it does not include the header when it makes the call.
+-- Thus it accepts both and then ignores them, as GHC does.
+--
+-- The parser removes the @static@ keyword.  This function must remove an
+-- optional header file name and read an optional @&@ address mark.  An empty
+-- entity, or an entity that gives only a header file name, names the declared
+-- Haskell function.
+resolveForeignEntity :: Text -> ForeignEntitySpec -> Either String (TcForeignTarget, Text)
+resolveForeignEntity declaredName entity =
+  case entity of
+    ForeignEntityOmitted -> Right (TcForeignCall, declaredName)
+    ForeignEntityStatic Nothing -> Right (TcForeignCall, declaredName)
+    ForeignEntityStatic (Just text) -> readEntityText TcForeignCall text
+    ForeignEntityNamed text -> readEntityText TcForeignCall text
+    ForeignEntityAddress Nothing -> Right (TcForeignAddress, declaredName)
+    ForeignEntityAddress (Just text) -> readEntityText TcForeignAddress text
+    ForeignEntityDynamic -> Left "a dynamic foreign import is not supported"
+    ForeignEntityWrapper -> Left "a wrapper foreign import is not supported"
+  where
+    -- Read the entity words. If that fails, read them again without the first
+    -- word, which is then the header file name.
+    readEntityText defaultTarget text =
+      let entityWords = T.words text
+       in case readEntityWords defaultTarget entityWords <|> readEntityWords defaultTarget (drop 1 entityWords) of
+            Just resolved -> Right resolved
+            Nothing -> Left ("unsupported foreign import entity: " <> T.unpack text)
+    readEntityWords defaultTarget entityWords =
+      case entityWords of
+        [] -> Just (defaultTarget, declaredName)
+        ["&"] -> Just (TcForeignAddress, declaredName)
+        ["&", name] -> (TcForeignAddress,) <$> cIdentifier name
+        [name]
+          | Just addressName <- T.stripPrefix "&" name -> (TcForeignAddress,) <$> cIdentifier addressName
+          | otherwise -> (defaultTarget,) <$> cIdentifier name
+        _ -> Nothing
+    cIdentifier name =
+      case T.uncons name of
+        Just (first, rest)
+          | isIdentifierStart first && T.all isIdentifierPart rest -> Just name
+        _ -> Nothing
+    isIdentifierStart character = isAlpha character || character == '_'
+    isIdentifierPart character = isAlphaNum character || character == '_'
 
 -- | An address import (@foreign import ccall "&sym"@) names static data
 -- rather than a function, so it takes no arguments and its value is the
 -- symbol address itself.
-checkForeignEntity :: SourceSpan -> ForeignEntitySpec -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
-checkForeignEntity sourceSpan entity plan =
-  case entity of
-    ForeignEntityAddress {} -> do
+checkForeignTarget :: SourceSpan -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
+checkForeignTarget sourceSpan plan =
+  case tcForeignTarget plan of
+    TcForeignAddress -> do
       unless (null (tcForeignArguments plan)) $
         emitError sourceSpan (OtherError "an address foreign import must not take arguments")
       unless (tcForeignEffect plan == TcForeignPure) $
@@ -1049,10 +1127,10 @@ checkForeignEntity sourceSpan entity plan =
       unless (tcForeignAbiType (tcForeignResult plan) == TcForeignAddr) $
         emitError sourceSpan (OtherError "an address foreign import must produce a pointer")
       pure plan
-    _ -> pure plan
+    TcForeignCall -> pure plan
 
-checkForeignImportType :: SourceSpan -> TcType -> TcM TcForeignImportAnnotation
-checkForeignImportType sourceSpan ty = do
+checkForeignImportType :: SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
+checkForeignImportType sourceSpan target symbol ty = do
   let (argumentTypes, resultType) = splitFunctionType ty
       (effect, valueResultType) =
         case resultType of
@@ -1064,7 +1142,9 @@ checkForeignImportType sourceSpan ty = do
     TcForeignImportAnnotation
       { tcForeignArguments = arguments,
         tcForeignResult = result,
-        tcForeignEffect = effect
+        tcForeignEffect = effect,
+        tcForeignSymbol = symbol,
+        tcForeignTarget = target
       }
 
 splitFunctionType :: TcType -> ([TcType], TcType)
@@ -1358,7 +1438,16 @@ solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
   implications <- mapM addOuterGivens impls
   _ <- solveWithImpls cts implications
-  mapM_ solveClassCt cts
+  stuck <- concat <$> mapM attemptClassCt cts
+  -- The signature makes every type variable of the binding rigid, so a
+  -- meta-variable that survives the solve is ambiguous. Defaulting may make
+  -- it concrete, which lets a second attempt discharge the constraint.
+  defaulted <- defaultAmbiguousMetas [] stuck
+  remaining <-
+    if defaulted
+      then concat <$> mapM attemptClassCt stuck
+      else pure stuck
+  mapM_ reportUnsolvedDict remaining
   where
     addOuterGivens implication = do
       outerGivens <- mapM givenConstraint givens
@@ -1367,13 +1456,15 @@ solveBodyConstraintsWithGivens givens cts impls = do
       evidence <- freshEvVar
       let origin = InstOrigin "class body"
       pure ((mkWantedCt predicate evidence origin NoSourceSpan) {ctFlavor = Given})
-    solveClassCt ct
+    -- Solve what it can and collect the rest. Reporting waits until
+    -- defaulting has had its turn.
+    attemptClassCt ct
       | isDictionaryPred (ctPred ct) = do
           result <- solveDictWithGivens givens ct
           case result of
-            DictSolved -> pure ()
-            DictStuck stuck -> reportUnsolvedDict stuck
-      | otherwise = pure ()
+            DictSolved -> pure []
+            DictStuck stuck -> pure [stuck]
+      | otherwise = pure []
     isDictionaryPred predicate =
       case predicate of
         ClassPred {} -> True
@@ -1989,7 +2080,9 @@ inferPatSynLayout sp name pat argBinders = do
         if null (pcGivenCts patCheck) && null (pcSkolems patCheck)
           then do
             solveResult <- solveWithImpls (pcWantedCts patCheck) []
-            generalizableResidualPreds solveResult
+            -- The scrutinee and the argument types carry every meta-variable
+            -- that the pattern synonym quantifies over.
+            generalizableResidualPreds (foldr TcFunTy scrutTy argTys) solveResult
           else do
             _ <- solvePatternBranch sp patCheck scrutTy []
             pure []
@@ -2235,7 +2328,7 @@ tcFunctionInfer key displayName name matches = do
       (matches', ty, cts', impls') <- tcMatches matches
       solveResult <- solveWithImpls cts' impls'
       rejectEscapingExistentials ty impls'
-      residualPreds <- generalizableResidualPreds solveResult
+      residualPreds <- generalizableResidualPreds ty solveResult
       pure (matches', ty, residualPreds)
   if failed
     then pure (Nothing, [])
@@ -2246,9 +2339,16 @@ tcFunctionInfer key displayName name matches = do
       finalizeInferredTermEnvPermanent name key placeholderTy scheme
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
-generalizableResidualPreds :: SolveResult -> TcM [Pred]
-generalizableResidualPreds solveResult = do
-  allResidualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+generalizableResidualPreds :: TcType -> SolveResult -> TcM [Pred]
+generalizableResidualPreds inferredType solveResult = do
+  initialCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+  -- A meta-variable that the binding type or the environment mentions still
+  -- becomes a quantified type variable, so defaulting must leave it alone.
+  -- Anything else is ambiguous and the Haskell 2010 rule may make it
+  -- concrete.
+  keep <- generalizedMetaVars inferredType
+  _ <- defaultAmbiguousMetas keep initialCts
+  allResidualCts <- mapM zonkCtPred initialCts
   -- GHC never infers a HasCallStack constraint. An unsolved call-stack
   -- parameter gets the empty call stack.
   let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
@@ -2271,6 +2371,14 @@ generalizableResidualPreds solveResult = do
       pure (ct {ctPred = pred'})
 
     sameCtPred left right = ctPred left == ctPred right
+
+-- | The meta-variables that generalization turns into quantified type
+-- variables: those of the binding type plus those the environment mentions.
+generalizedMetaVars :: TcType -> TcM [Unique]
+generalizedMetaVars inferredType = do
+  zonked <- zonkType inferredType
+  envMetaVars <- environmentMetaVars Set.empty
+  pure (collectMetaVars zonked <> envMetaVars)
 
 predicateCanGeneralize :: Pred -> Bool
 predicateCanGeneralize predicate =

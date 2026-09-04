@@ -1,0 +1,74 @@
+annotated:
+- |-
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
+       │         └─ type: GHC.Prim.Int# → Integer
+       └─ type: Type
+  data Double = D# Int#
+       │        └─ type: GHC.Prim.Int# → Double
+       └─ type: Type
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+  instance Num Int where
+  └─ $fNumInt ∷ () ⇒ Num Int
+    fromInteger (IS x) = I# x
+    │            │  └─ type: GHC.Prim.Int#
+    │            └─ type: Integer
+    └─ fromInteger ∷ Integer → Int
+  instance Num Integer where
+  └─ $fNumInteger ∷ () ⇒ Num Integer
+    fromInteger x = x
+    │           └─ type: Integer
+    └─ fromInteger ∷ Integer → Integer
+  instance Num Double where
+  └─ $fNumDouble ∷ () ⇒ Num Double
+    fromInteger (IS x) = D# x
+    │            │  └─ type: GHC.Prim.Int#
+    │            └─ type: Integer
+    └─ fromInteger ∷ Integer → Double
+- |-
+  module Main where
+  import GHC.Num (Double, Integer, Num)
+  import GHC.Types (Bool (..))
+  default (Double)
+  ignore :: Num a => a -> Bool
+  ignore _ = True
+  │      └─ type: a
+  └─ type: ∀ a. (GHC.Num.Num a) ⇒ a → GHC.Types.Bool
+  result :: Bool
+  result = ignore 1
+  │        │      └─ type: GHC.Num.Double; type-args: Double; evidence: $fNumDouble
+  │        └─ type: GHC.Num.Double → GHC.Types.Bool; type-args: Double; evidence: $fNumDouble
+  └─ type: GHC.Types.Bool
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
+  data Double = D# Int#
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Num Int where
+    fromInteger (IS x) = I# x
+  instance Num Integer where
+    fromInteger x = x
+  instance Num Double where
+    fromInteger (IS x) = D# x
+- |
+  module Main where
+  import GHC.Num (Double, Integer, Num)
+  import GHC.Types (Bool (..))
+  default (Double)
+  ignore :: Num a => a -> Bool
+  ignore _ = True
+  result :: Bool
+  result = ignore 1
+reason: a module default declaration replaces the standard default list, so the
+  ambiguous numeric constraint takes Double
+status: pass

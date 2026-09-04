@@ -82,6 +82,8 @@ module Aihc.Tc.Monad
     localTcOptions,
     tcMonoLocalBinds,
     tcMonomorphismRestriction,
+    localDefaultTypes,
+    getDefaultTypes,
     getTcLevel,
     withTcLevel,
     addInstance,
@@ -108,6 +110,9 @@ module Aihc.Tc.Monad
     getDiagnostics,
     withErrorTracking,
     currentErrorCount,
+
+    -- * Speculation
+    tcSpeculate,
   )
 where
 
@@ -120,7 +125,7 @@ import Aihc.Tc.Types
 import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
-import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
@@ -172,7 +177,13 @@ data TcEnv = TcEnv
     -- | Whether the monomorphism restriction is active.
     tcEnvMonomorphismRestriction :: !Bool,
     -- | Current implication nesting level.
-    tcEnvTcLevel :: !TcLevel
+    tcEnvTcLevel :: !TcLevel,
+    -- | The candidate types of the module @default@ declaration.
+    --
+    -- 'Nothing' means the module has no @default@ declaration, so defaulting
+    -- uses the Haskell 2010 standard list. @default ()@ gives @Just []@ and
+    -- turns defaulting off.
+    tcEnvDefaultTypes :: !(Maybe [TcType])
   }
   deriving (Show)
 
@@ -253,7 +264,8 @@ emptyTcEnv config =
       tcEnvTerms = Map.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
-      tcEnvTcLevel = topTcLevel
+      tcEnvTcLevel = topTcLevel,
+      tcEnvDefaultTypes = Nothing
     }
 
 -- | The mutable state of the type checker.
@@ -750,6 +762,14 @@ replaceMapEntry label key value entries
   | otherwise = abortTc ("missing " <> label <> " key for replacement: " <> show key)
 
 -- | Run a computation with adjusted local type-checker options.
+-- | Run an action with the candidate types of a module @default@ declaration.
+localDefaultTypes :: Maybe [TcType] -> TcM a -> TcM a
+localDefaultTypes types = local $ \env -> env {tcEnvDefaultTypes = types}
+
+-- | The candidate types of the module @default@ declaration, if it has one.
+getDefaultTypes :: TcM (Maybe [TcType])
+getDefaultTypes = asks tcEnvDefaultTypes
+
 localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a
 localTcOptions monoLocal monomorphism =
   local $ \env ->
@@ -819,6 +839,20 @@ withErrorTracking action = do
   result <- action
   after <- currentErrorCount
   pure (result, after > before)
+
+-- | Run an action, then discard every change it made to the type-checker
+-- state.
+--
+-- Defaulting uses this to test a candidate type against a class constraint
+-- without committing the evidence, the meta-variable solutions, or the
+-- diagnostics that the trial produces. The unique supply rolls back too, so
+-- the result must not mention a unique that the action allocated.
+tcSpeculate :: TcM a -> TcM a
+tcSpeculate action = do
+  saved <- lift get
+  result <- action
+  lift (put saved)
+  pure result
 
 currentErrorCount :: TcM Int
 currentErrorCount =
