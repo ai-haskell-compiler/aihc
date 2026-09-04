@@ -121,12 +121,13 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (PackageId (..), ResolutionNamespace)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
+import Aihc.Tc.Generic (everything, everywhereM)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
@@ -134,7 +135,7 @@ import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
-import Data.Data (Data, gmapM, gmapQ)
+import Data.Data (Data)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
@@ -191,15 +192,37 @@ instance Monoid TcInterface where
 mergeTcInterfaces :: [TcInterface] -> TcInterface
 mergeTcInterfaces interfaces =
   TcInterface
-    { tcInterfaceTerms = mergeInterfaceEntries "term interface" fst (concatMap tcInterfaceTerms interfaces),
+    { tcInterfaceTerms = mergeInterfaceEntries "term interface" (termMergeKey . fst) (concatMap tcInterfaceTerms interfaces),
       tcInterfaceTyCons = mergeTyConInfos (concatMap tcInterfaceTyCons interfaces),
-      tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dataTypeKey (concatMap tcInterfaceDataTypes interfaces),
-      tcInterfaceClasses = mergeInterfaceEntries "class interface" classInfoKey (concatMap tcInterfaceClasses interfaces),
-      tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (concatMap tcInterfaceInstances interfaces),
-      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dataFamilyAxiomKey (concatMap tcInterfaceDataFamilyInstances interfaces),
-      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" typeFamilyAxiomKey (concatMap tcInterfaceTypeFamilyInstances interfaces),
-      tcInterfacePatSyns = mergeInterfaceEntries "pattern synonym interface" patSynKey (concatMap tcInterfacePatSyns interfaces)
+      tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" (tyConMergeKey . dtiTyCon) (concatMap tcInterfaceDataTypes interfaces),
+      tcInterfaceClasses = mergeInterfaceEntries "class interface" (tyConMergeKey . ciTyCon) (concatMap tcInterfaceClasses interfaces),
+      tcInterfaceInstances = mergeInstanceInfos (concatMap tcInterfaceInstances interfaces),
+      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" (axiomMergeKey . dataFamilyAxiomKey) (concatMap tcInterfaceDataFamilyInstances interfaces),
+      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" (axiomMergeKey . typeFamilyAxiomKey) (concatMap tcInterfaceTypeFamilyInstances interfaces),
+      tcInterfacePatSyns = mergeInterfaceEntries "pattern synonym interface" (termMergeKey . patSynKey) (concatMap tcInterfacePatSyns interfaces)
     }
+
+-- The merge keys put the most distinct component of an identity first, so a
+-- map comparison stops early. Most entries share a package and a module. The
+-- keys do not change the order of the merged entries.
+
+termMergeKey :: TcTermKey -> Either Int (Text, Text, PackageId)
+termMergeKey key =
+  case key of
+    TcTermLocal unique -> Left unique
+    TcTermGlobal package moduleName' identifier -> Right (identifier, moduleName', package)
+
+tyConMergeKey :: TyCon -> (Text, ResolutionNamespace, Text, PackageId)
+tyConMergeKey tyCon = (tyConName tyCon, tyConNamespace tyCon, tyConModuleName tyCon, tyConPackageId tyCon)
+
+axiomMergeKey :: TcAxiomKey -> (Text, Text, PackageId)
+axiomMergeKey key = (axiomKeyName key, axiomKeyModule key, axiomKeyPackage key)
+
+instanceMergeKey :: InstanceInfo -> (Text, (Text, Text))
+instanceMergeKey info = (iiDictName info, iiDictOrigin info)
+
+mergeInstanceInfos :: [InstanceInfo] -> [InstanceInfo]
+mergeInstanceInfos = mergeInterfaceEntries "instance interface" instanceMergeKey
 
 -- | Keep only facts that the selected modules define.
 restrictTcInterfaceToModules :: PackageId -> [Text] -> TcInterface -> TcInterface
@@ -234,21 +257,30 @@ mergeInterfaceEntries label key values = reverse ordered
   where
     (_, ordered) = List.foldl' insertEntry (Map.empty, []) values
     insertEntry (entries, previousValues) value =
-      case Map.lookup (key value) entries of
-        Nothing -> (Map.insert (key value) value entries, value : previousValues)
-        Just previous
+      case insertNewEntry (key value) value entries of
+        Right entries' -> (entries', value : previousValues)
+        Left previous
           | previous == value -> (entries, previousValues)
           | otherwise -> error ("conflicting " <> label <> " key: " <> show (key value))
 
 mapFromListNoDuplicates :: (Ord key, Show key) => String -> [(key, value)] -> Map.Map key value
 mapFromListNoDuplicates label = List.foldl' insertEntry Map.empty
   where
-    insertEntry entries (key, value)
-      | Map.member key entries = error ("duplicate " <> label <> " key: " <> show key)
-      | otherwise = Map.insert key value entries
+    insertEntry entries (key, value) =
+      case insertNewEntry key value entries of
+        Right entries' -> entries'
+        Left _ -> error ("duplicate " <> label <> " key: " <> show key)
+
+-- | Insert a value under a new key with one map lookup. Give back the
+-- existing value when the key is already present.
+insertNewEntry :: (Ord key) => key -> value -> Map.Map key value -> Either value (Map.Map key value)
+insertNewEntry key value entries =
+  case Map.insertLookupWithKey (\_ _ existing -> existing) key value entries of
+    (Nothing, entries') -> Right entries'
+    (Just existing, _) -> Left existing
 
 mergeTyConInfos :: [TyConInfo] -> [TyConInfo]
-mergeTyConInfos = mergeInterfaceEntries "type constructor interface" tciTyCon
+mergeTyConInfos = mergeInterfaceEntries "type constructor interface" (tyConMergeKey . tciTyCon)
 
 tcTermKeyIdentifier :: TcTermKey -> Maybe Text
 tcTermKeyIdentifier key =
@@ -401,7 +433,7 @@ initialTcState imported =
           <> tcsGlobalTyCons initTcState,
       tcsDataTypes = mapFromListNoDuplicates "imported data type state" [(dataTypeKey dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
       tcsClasses = mapFromListNoDuplicates "imported class state" [(classInfoKey classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
-      tcsInstances = mergeInterfaceEntries "imported instance state" instanceInfoKey (tcInterfaceInstances imported),
+      tcsInstances = instanceEnvFromList (mergeInstanceInfos (tcInterfaceInstances imported)),
       tcsDataFamilyInstances =
         mapFromListNoDuplicates
           "imported data family instance state"
@@ -420,13 +452,13 @@ tcInterfaceDifference initial state =
       tcInterfaceTyCons = Map.elems (Map.difference (tcsGlobalTyCons state) (tcsGlobalTyCons initial)),
       tcInterfaceDataTypes = Map.elems (Map.difference (tcsDataTypes state) (tcsDataTypes initial)),
       tcInterfaceClasses = Map.elems (Map.difference (tcsClasses state) (tcsClasses initial)),
-      tcInterfaceInstances = filter ((`Set.notMember` initialInstanceKeys) . instanceInfoKey) (tcsInstances state),
+      tcInterfaceInstances = filter ((`Set.notMember` initialInstanceKeys) . instanceInfoKey) (instanceEnvList (tcsInstances state)),
       tcInterfaceDataFamilyInstances = Map.elems (Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial)),
       tcInterfaceTypeFamilyInstances = Map.elems (Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial)),
       tcInterfacePatSyns = Map.elems (Map.difference (tcsPatSyns state) (tcsPatSyns initial))
     }
   where
-    initialInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances initial))
+    initialInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances initial)))
 
 exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> [(TcTermKey, TypeScheme)]
 exportedGlobalTerms globalTerms =
@@ -549,18 +581,21 @@ attachLocatedDiagnostic m (sp, diagnostic) =
 
 -- Attach bottom-up so an exact child span wins over an exact parent span.
 -- Located diagnostics must never guess: if no exact syntax span exists, abort.
-attachDiagnosticAt :: forall a. (Data a) => SourceSpan -> TcDiagnostic -> a -> State Bool a
-attachDiagnosticAt sp diagnostic value = do
-  value' <- gmapM (attachDiagnosticAt sp diagnostic) value
-  alreadyAttached <- get
-  if alreadyAttached
-    then pure value'
-    else case attachDiagnosticHere sp diagnostic value' of
-      Just value'' -> do
-        put True
-        pure value''
-      Nothing ->
-        pure value'
+attachDiagnosticAt :: (Data a) => SourceSpan -> TcDiagnostic -> a -> State Bool a
+attachDiagnosticAt sp diagnostic =
+  everywhereM attachHere
+  where
+    attachHere :: forall node. (Data node) => node -> State Bool node
+    attachHere value = do
+      alreadyAttached <- get
+      if alreadyAttached
+        then pure value
+        else case attachDiagnosticHere sp diagnostic value of
+          Just value' -> do
+            put True
+            pure value'
+          Nothing ->
+            pure value
 
 attachDiagnosticHere :: forall a. (Data a) => SourceSpan -> TcDiagnostic -> a -> Maybe a
 attachDiagnosticHere sp diagnostic value =
@@ -730,10 +765,8 @@ concreteSpan NoSourceSpan = Nothing
 concreteSpan sp = Just sp
 
 collectTcDiagnostics :: (Data a) => a -> [TcDiagnostic]
-collectTcDiagnostics value =
-  case cast value of
-    Just ann -> maybeToList (fromAnnotation ann)
-    Nothing -> concat (gmapQ collectTcDiagnostics value)
+collectTcDiagnostics =
+  everything (maybe [] (maybeToList . fromAnnotation) . cast)
 
 internalAbortDiagnostic :: String -> TcDiagnostic
 internalAbortDiagnostic msg =

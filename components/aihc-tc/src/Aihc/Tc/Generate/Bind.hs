@@ -569,9 +569,9 @@ shouldGeneralizeLocal binderSet decls = do
 
 isClosedVar :: TcTermKey -> TcM Bool
 isClosedVar key = do
-  env <- getTermEnv
+  binder <- lookupTermKey key
   pure $
-    case Map.lookup key env of
+    case binder of
       Just (TcIdBinder _ Closed) -> True
       _ -> False
 

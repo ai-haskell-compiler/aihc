@@ -29,6 +29,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
+import Aihc.Tc.Generic (everywhereM)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
 import Aihc.Tc.Tidy (tidyType)
@@ -36,7 +37,7 @@ import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, patt
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
-import Data.Data (Data, gmapM)
+import Data.Data (Data)
 import Data.Typeable (cast)
 
 -- | Convert every pending type-checker annotation in a module to a final
@@ -45,10 +46,6 @@ import Data.Typeable (cast)
 finalizeModuleTc :: Module -> TcM Module
 finalizeModuleTc =
   everywhereM finalizeAnnotationNode
-
-everywhereM :: (Monad m, Data a) => (forall b. (Data b) => b -> m b) -> a -> m a
-everywhereM f value =
-  gmapM (everywhereM f) value >>= f
 
 finalizeAnnotationNode :: forall a. (Data a) => a -> TcM a
 finalizeAnnotationNode value =

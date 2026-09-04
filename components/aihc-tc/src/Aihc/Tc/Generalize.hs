@@ -204,14 +204,19 @@ zonkPred (QuantifiedPred variables antecedents consequent) =
   where
     zonkVariable variable = setTyVarKind <$> zonkType (tvKind variable) <*> pure variable
 
+-- | The meta-variables of one binder after zonking. Zonking only replaces
+-- meta-variables, so a binder without any needs no zonk. Most binders in the
+-- environment are closed top-level schemes.
 binderMetaVars :: TcBinder -> TcM [Unique]
-binderMetaVars (TcIdBinder (ForAll _ preds ty) _) =
-  do
-    ty' <- zonkType ty
-    preds' <- mapM zonkPred preds
-    pure (collectMetaVars ty' ++ concatMap predMetaVars preds')
-binderMetaVars (TcMonoIdBinder ty) =
-  collectMetaVars <$> zonkType ty
+binderMetaVars (TcIdBinder (ForAll _ preds ty) _)
+  | null (collectMetaVars ty) && all (null . predMetaVars) preds = pure []
+  | otherwise = do
+      ty' <- zonkType ty
+      preds' <- mapM zonkPred preds
+      pure (collectMetaVars ty' ++ concatMap predMetaVars preds')
+binderMetaVars (TcMonoIdBinder ty)
+  | null (collectMetaVars ty) = pure []
+  | otherwise = collectMetaVars <$> zonkType ty
 
 -- | Remove duplicates from an ordered list.
 nubOrd :: (Ord a) => [a] -> [a]

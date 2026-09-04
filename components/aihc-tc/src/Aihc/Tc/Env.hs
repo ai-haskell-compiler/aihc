@@ -30,6 +30,14 @@ module Aihc.Tc.Env
     instanceClassTyCon,
     instanceIsForClass,
 
+    -- * Instance environment
+    InstanceEnv,
+    emptyInstanceEnv,
+    instanceEnvFromList,
+    addInstanceEnv,
+    instanceEnvList,
+    instanceEnvForClass,
+
     -- * Data family instances
     DataFamilyInstanceInfo (..),
     dataFamilyAxiomKey,
@@ -45,6 +53,8 @@ where
 
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -243,6 +253,41 @@ instanceIsForClass classTyCon instanceInfo =
   case instanceClassTyCon instanceInfo of
     Just tyCon -> tyConKey tyCon == tyConKey classTyCon
     Nothing -> iiClassName instanceInfo == tyConName classTyCon
+
+-- | The class instances in scope.
+--
+-- Instance search looks only at the instances of one class, so the
+-- instances are also grouped by class source name. Both views list the most
+-- recent instance first.
+data InstanceEnv = InstanceEnv
+  { instanceEnvAll :: ![InstanceInfo],
+    instanceEnvByClass :: !(Map Text [InstanceInfo])
+  }
+  deriving (Show)
+
+emptyInstanceEnv :: InstanceEnv
+emptyInstanceEnv = InstanceEnv [] Map.empty
+
+-- | Build an environment that lists the instances in the given order.
+instanceEnvFromList :: [InstanceInfo] -> InstanceEnv
+instanceEnvFromList = foldr addInstanceEnv emptyInstanceEnv
+
+addInstanceEnv :: InstanceInfo -> InstanceEnv -> InstanceEnv
+addInstanceEnv instanceInfo env =
+  InstanceEnv
+    { instanceEnvAll = instanceInfo : instanceEnvAll env,
+      instanceEnvByClass = Map.insertWith (<>) (iiClassName instanceInfo) [instanceInfo] (instanceEnvByClass env)
+    }
+
+-- | Every instance, most recent first.
+instanceEnvList :: InstanceEnv -> [InstanceInfo]
+instanceEnvList = instanceEnvAll
+
+-- | The instances of a class, most recent first. The class is given by its
+-- source name, so the result can hold instances of another class with the
+-- same name. Use 'instanceIsForClass' to select the exact class.
+instanceEnvForClass :: Text -> InstanceEnv -> [InstanceInfo]
+instanceEnvForClass className = Map.findWithDefault [] className . instanceEnvByClass
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first

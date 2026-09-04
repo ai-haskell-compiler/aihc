@@ -102,7 +102,6 @@ import Aihc.Tc
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
-    tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (PatSynInfo (..), TypeSynonymInfo (..))
@@ -1131,17 +1130,17 @@ runTypeUnit context runtimes runtime = do
                 (tcConfig primIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
-        _ <- evaluate (sum (map (length . tcModuleDiagnostics) (fst checked)))
-        pure checked
+            checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)
+        _ <- evaluate (length checkedDiagnostics)
+        pure (checked, checkedDiagnostics)
       dependencySuccess = all typeUnitSuccess dependencyResults
       resolveSuccess = resolveUnitSuccess resolvedOutput
-  initialChecked@(_, checkedInterface) <- checkUnit
+  (initialChecked@(_, checkedInterface), diagnostics) <- checkUnit
   let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
       unitTypes = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
       ownInstanceInterface = addReferencedFacts completeInterface (instanceFacts checkedInterface)
       completeInstanceInterface = mergeTcInterfaces [importedInstanceInterface, ownInstanceInterface]
-      diagnostics = concatMap tcModuleDiagnostics (fst initialChecked)
-      typeSuccess = all tcModuleSuccess (fst initialChecked)
+      typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
       success = resolveSuccess && dependencySuccess && typeSuccess
   ownTypeHashes <-
     if success
