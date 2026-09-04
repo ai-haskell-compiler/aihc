@@ -31,6 +31,7 @@ import Aihc.Native
     NativeCpsTransfer (..),
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
+    nativeLocalsSlots,
     nativeRuntimePrimitiveCall,
     nativeSplitRuntimePrimitiveCall,
   )
@@ -71,7 +72,8 @@ compileFunction env function = do
       valueEnv = ValueEnv env locations label (grinFunctionName function) parameters bodyLabel
   finalState <- execStateT (compileExpr valueEnv [] bodyLabel (grinFunctionBody function)) initialState
   let slotCount = max 1 (functionNextSlot finalState)
-      registerParameterCopies =
+  validateSlotCount label slotCount
+  let registerParameterCopies =
         moveEntryParameters
           [ (source, location)
           | (parameter, source) <- parameterRegisterPairs,
@@ -100,15 +102,22 @@ compileFunction env function = do
         compiledFunctionLines = entry <> blocks
       }
 
-reserveLocalsLines :: [CompiledFunction] -> [Amd64Statement]
-reserveLocalsLines functions =
-  [ immediate RSI maximumSlots,
+-- | The entry unit reserves the slot area once for every linked function.
+-- Modules cannot report their slot counts to the entry unit, so the area has
+-- the fixed size 'nativeLocalsSlots' and 'validateSlotCount' rejects a
+-- function that would overflow it.
+reserveLocalsLines :: [Amd64Statement]
+reserveLocalsLines =
+  [ immediate RSI nativeLocalsSlots,
     amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
     amd64Instruction (AmdCall "aihc_alloc_locals"),
     amd64Instruction (AmdMov R14 (Amd64MoveRegister RAX))
   ]
-  where
-    maximumSlots = maximum (2 : map compiledFunctionSlots functions)
+
+validateSlotCount :: Text -> Int -> Either Amd64Error ()
+validateSlotCount label slotCount
+  | slotCount > nativeLocalsSlots = Left (Amd64UnsupportedExpression ("function " <> label <> " needs " <> tshow slotCount <> " local slots"))
+  | otherwise = Right ()
 
 exportLines :: CompileEnv -> GrinFunction -> Text -> [Amd64Statement]
 exportLines env _function label

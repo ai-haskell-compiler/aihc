@@ -42,7 +42,6 @@ import Data.Maybe (maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import System.Info qualified as System
 
 data LlvmError
   = LlvmMissingGlobal !Text
@@ -144,7 +143,6 @@ compileEntryUnit entryName gcProgram = do
           <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
           <> staticGlobals
           <> renderStaticReferenceTables env
-          <> renderLinkedLocals functions
           <> renderEnterStubs (compileRuntimeInfos env <> specialInfos)
           <> concatMap compiledFunctionLines functions
           <> renderNativeControlFunctions
@@ -172,7 +170,6 @@ compileModule gcProgram = do
           <> renderRuntimeInfos (compileRuntimeInfos env)
           <> staticGlobals
           <> renderStaticReferenceTables env
-          <> renderLinkedLocals functions
           <> renderEnterStubs (compileRuntimeInfos env)
           <> concatMap compiledFunctionLines functions
           <> renderNativeControlFunctions
@@ -319,13 +316,12 @@ compileFunction env function = do
             <> ", ptr @aihc_current_srt, align 8"
         ]
       blocks = concatMap renderBlock (reverse (functionBlocksRev final))
-  pure (CompiledFunction (header <> blocks <> ["}", ""]) slotCount)
+  pure (CompiledFunction (header <> blocks <> ["}", ""]))
   where
     renderParameters names = T.intercalate ", " ("ptr %machine" : map ("i64 " <>) names)
 
-data CompiledFunction = CompiledFunction
-  { compiledFunctionLines :: [Text],
-    compiledFunctionSlots :: !Int
+newtype CompiledFunction = CompiledFunction
+  { compiledFunctionLines :: [Text]
   }
 
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
@@ -1206,32 +1202,11 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
         GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
         GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
--- | Render each static object, and a root entry for the objects the collector
--- has to mark. The entries are private constants that no code references, so
--- @llvm.used@ must keep them. Without it, global dead-code elimination removes
--- every entry and the collector cannot tell a static object from a heap
--- pointer.
---
--- Objects that can neither move nor retain anything - nullary constructors -
--- get no entry. The collector then leaves a pointer to one alone, which is
--- what it would do after marking it anyway.
+-- | Render each static object. The collector finds static objects by
+-- address, so no unit lists them.
 renderStaticGlobals :: CompileEnv -> GrinProgram -> Either LlvmError [Text]
-renderStaticGlobals env program = do
-  rendered <- mapM renderGlobal objects
-  pure (concat rendered <> usedRoots)
+renderStaticGlobals env program = concat <$> mapM renderGlobal (programStaticObjects program)
   where
-    objects = programStaticObjects program
-    tracedObjects = filter staticObjectTraced objects
-    usedRoots
-      | null tracedObjects = []
-      | otherwise =
-          [ "@llvm.used = appending global ["
-              <> tshow (length tracedObjects)
-              <> " x ptr] ["
-              <> T.intercalate ", " ["ptr @" <> renderLinkedGlobalSymbol (staticObjectName object) <> "_root" | object <- tracedObjects]
-              <> "], section \"llvm.metadata\"",
-            ""
-          ]
     renderGlobal object = do
       let node = staticObjectNode object
       info <- staticNodeInfo node
@@ -1243,9 +1218,6 @@ renderStaticGlobals env program = do
       pure $
         [ "@" <> symbol <> " = global [" <> tshow count <> " x i64] [" <> T.intercalate ", " values <> "], align 8"
         ]
-          <> [ "@" <> symbol <> "_root = private constant ptr @" <> symbol <> ", section \"" <> nativeDataSection "aihc_roots" <> "\", align 8"
-             | staticObjectTraced object
-             ]
           <> [""]
     staticNodeInfo node =
       case grinNodeTag node of
@@ -1301,16 +1273,6 @@ renderStaticReferenceTables env =
                | child <- srtChildren table,
                  Just childLabel <- [Map.lookup child (compileSrtLabels env)]
                ]
-
-renderLinkedLocals :: [CompiledFunction] -> [Text]
-renderLinkedLocals functions =
-  [ "@aihc_llvm_linked_locals = private constant i64 "
-      <> tshow (maximum (2 : map compiledFunctionSlots functions))
-      <> ", section \""
-      <> nativeDataSection "aihc_locals"
-      <> "\", align 8",
-    ""
-  ]
 
 renderMain :: Text -> [Text]
 renderMain entryName =
@@ -2056,11 +2018,6 @@ functionLinkage _function = "internal "
 boolInteger :: Bool -> Text
 boolInteger True = "1"
 boolInteger False = "0"
-
-nativeDataSection :: Text -> Text
-nativeDataSection name
-  | System.os == "darwin" = "__DATA,__" <> name
-  | otherwise = name
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show

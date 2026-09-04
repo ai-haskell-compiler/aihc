@@ -103,8 +103,6 @@ describeSection section =
     TextConstantsSection -> description ".rodata" 1 0x2
     ReadOnlySection -> description ".rodata" 1 0x2
     DataSection -> description ".data" 1 0x3
-    RootsSection -> description "aihc_roots" 1 0x3
-    LocalsSection -> description "aihc_locals" 1 0x3
     NoExecuteStackSection -> description ".note.GNU-stack" 1 0
   where
     description name sectionType flags = pure (SectionDescription section name sectionType flags)

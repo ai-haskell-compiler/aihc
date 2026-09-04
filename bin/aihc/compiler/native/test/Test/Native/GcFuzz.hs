@@ -44,6 +44,7 @@ import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.Process (CreateProcess (std_err, std_in, std_out), ProcessHandle, StdStream (CreatePipe), createProcess, proc, readProcessWithExitCode, terminateProcess, waitForProcess)
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup, withResource)
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
 
 -- * Configuration
@@ -53,16 +54,13 @@ data Config = Config
   { cfgName :: String,
     cfgArgs :: [String],
     -- | The @-Zs@ option: static objects live only through reference tables.
-    cfgStaticRoots :: Bool,
-    -- | The @-Zp@ option: dead evaluated static objects get a poison target.
-    cfgPoison :: Bool
+    cfgStaticRoots :: Bool
   }
 
 configs :: [Config]
 configs =
-  [ Config "default" [] False False,
-    Config "-Zs" ["+RTS", "-Zs", "-RTS"] True False,
-    Config "-Zs -Zp" ["+RTS", "-Zs", "-Zp", "-RTS"] True True
+  [ Config "default" [] False,
+    Config "-Zs" ["+RTS", "-Zs", "-RTS"] True
   ]
 
 tests :: TestTree
@@ -71,9 +69,44 @@ tests =
     testGroup
       "semispace collector fuzz"
       [ withResource (newDriver getBuild config) stopDriver $ \getDriver ->
-          testProperty ("collects random heaps with " <> cfgName config) (prop_collect config getDriver)
+          testGroup
+            (cfgName config)
+            [ testProperty "collects random heaps" (prop_collect config getDriver),
+              testCase "forwards the target of an evaluated static thunk" (checkScript config getDriver evaluatedStaticScript)
+            ]
       | config <- configs
       ]
+
+-- | Evaluate a static thunk into a heap object that only the thunk keeps
+-- alive, then force a collection. The thunk must reach the moved object
+-- afterwards. By default the runtime keeps every evaluated static object.
+-- Under @-Zs@ the published table names the thunk.
+--
+-- This fixed script is a unit test for the same reason as the property
+-- above: no source fixture can force a collection at a chosen heap state, so
+-- the script drives the runtime directly.
+evaluatedStaticScript :: [Command]
+evaluatedStaticScript =
+  [ CMachine 0 0 64,
+    CSrt 0 [0] [],
+    CCurrentSrt (Just 0),
+    CReserve 2,
+    CNew 1 KNode [] Nothing,
+    CSUpdate 0 (VHeap 1),
+    CFill 0,
+    CCollect
+  ]
+
+-- | Run one fixed script and compare the driver's reports with the model.
+checkScript :: Config -> IO Driver -> [Command] -> IO ()
+checkScript config getDriver script = do
+  driver <- getDriver
+  result <- runScript driver (renderScript script)
+  output <- either assertFailure pure result
+  reports <- either assertFailure pure (parseReports output)
+  let problems = replay config script reports
+  assertBool ("driver output:\n" <> unlines output <> unlines problems) (null problems)
+  assertBool "the script reports one collection" (Map.size reports == 1)
 
 prop_collect :: Config -> IO Driver -> Property
 prop_collect config getDriver = property $ do
@@ -100,7 +133,7 @@ prop_collect config getDriver = property $ do
           classify (fromString "decoy word") (or [True | CSet _ _ (VDecoy _) <- script])
           classify (fromString "more than four survivors") (any ((> 4) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "more than sixteen survivors") (any ((> 16) . Map.size . rObjects) (Map.elems reports))
-          classify (fromString "stale static object") (or [True | CSUpdate {} <- script] && cfgStaticRoots config && not (cfgPoison config))
+          classify (fromString "stale static object") (or [True | CSUpdate {} <- script] && cfgStaticRoots config)
           unless (null problems) $ do
             annotate ("driver output:\n" <> unlines output)
             annotate (unlines problems)
@@ -131,9 +164,9 @@ data Object
   deriving (Eq, Show)
 
 -- | The state of one static thunk slot. A stale slot was an evaluated static
--- object that a collection under @-Zs@ did not mark and did not poison. Its
--- target is invalid, and nothing may reach the slot again.
-data StaticThunk = SThunk | SInd Value | SPoison | SStale
+-- object that a collection under @-Zs@ did not mark. Its target is invalid,
+-- and nothing may reach the slot again.
+data StaticThunk = SThunk | SInd Value | SStale
   deriving (Eq, Show)
 
 data ThreadSlot = SlotFunction | SlotContinuation | SlotValue
@@ -347,6 +380,11 @@ data Item = IHeap Id | IStatic Int | ISrt Int
 
 -- | Decide what one collection keeps: the heap objects it copies and the
 -- static objects it marks.
+--
+-- The collector has no list of static objects. By default it starts from the
+-- evaluated static thunks, which the runtime records when they are updated,
+-- and it marks any other static object only when something points at it.
+-- Under @-Zs@ it starts from the published reference table instead.
 liveness :: Config -> Model -> Live
 liveness config model = go initial (Live Set.empty Set.empty) Set.empty
   where
@@ -360,7 +398,7 @@ liveness config model = go initial (Live Set.empty Set.empty) Set.empty
         <> map VHeap (mBlackholes model)
     staticStart
       | cfgStaticRoots config = maybe [] (pure . ISrt) (mCurrentSrt model)
-      | otherwise = map IStatic [0 .. staticRootedCount - 1]
+      | otherwise = [IStatic slot | (slot, SInd _) <- zip [0 ..] (mStaticThunks model)]
     initial = concatMap fromValue rootValues <> staticStart
     fromValue value = case resolve model value of
       VHeap identity -> [IHeap identity]
@@ -385,7 +423,6 @@ liveness config model = go initial (Live Set.empty Set.empty) Set.empty
                   | slot < staticThunkCount = case mStaticThunks model !! slot of
                       SThunk -> fromSrt (mStaticThunkSrts model !! slot)
                       SInd target -> fromValue target
-                      SPoison -> []
                       SStale -> error "a stale static object became live"
                   | otherwise =
                       let node = slot - staticThunkCount
@@ -424,7 +461,6 @@ collectModel config model =
           other -> other
       | otherwise = case state of
           SInd _
-            | cfgPoison config -> SPoison
             | cfgStaticRoots config -> SStale
           other -> other
 
@@ -433,7 +469,7 @@ collectModel config model =
 data RValue = RNull | RHeap Id | RStatic Int | RWord Word64 | ROld | RForeign Word64
   deriving (Eq, Show)
 
-data RStatic = RThunk | RInd RValue | RPoison | RNode [RValue]
+data RStatic = RThunk | RInd RValue | RNode [RValue]
   deriving (Eq, Show)
 
 data Report = Report
@@ -520,7 +556,6 @@ parseReports = go Map.empty
         parsed <- parseRValue value
         block report {rBlackholes = rBlackholes report <> [parsed]} rest
       ["static", slot, "thunk"] -> insertStatic slot RThunk
-      ["static", slot, "poison"] -> insertStatic slot RPoison
       ["static", slot, "ind", value] -> parseRValue value >>= insertStatic slot . RInd
       "static" : slot : "node" : values -> traverse parseRValue values >>= insertStatic slot . RNode
       "violation" : message -> block report {rViolations = rViolations report <> [unwords message]} rest
@@ -622,7 +657,6 @@ checkReport expected capacityBefore report =
       (_, Nothing) -> ["static " <> show slot <> " is missing from the report"]
       (SStale, _) -> []
       (SThunk, Just RThunk) -> []
-      (SPoison, Just RPoison) -> []
       (SInd value, Just (RInd actual)) -> checkValues ("static " <> show slot) [value] [actual]
       (_, Just actual) -> ["static " <> show slot <> ": expected " <> show state <> " but the driver reported " <> show actual]
     nodeProblem (node, fields) = case Map.lookup (staticThunkCount + node) (rStatics report) of

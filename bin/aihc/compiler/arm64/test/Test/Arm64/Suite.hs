@@ -62,7 +62,7 @@ tests =
                 }
         assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
         listing <- compileModuleListing (expectGcGrin program)
-        assertBool "linked locals section" ("__aihc_locals" `T.isInfixOf` listing),
+        assertBool "no linked locals section" (not ("aihc_locals" `T.isInfixOf` listing)),
       testCase "adds Int# values with wrapping machine arithmetic" $ do
         let entryName = FunctionName "int_add"
             result = GrinVar "result" 2 IntRep
@@ -217,7 +217,7 @@ tests =
                     ]
                 }
         listing <- compileModuleListing (expectGcGrin program)
-        assertBool "takes the symbol address" (any (\line -> "adrp" `T.isInfixOf` line && "_hs_table" `T.isInfixOf` line) (T.lines listing))
+        assertBool "takes the symbol address" (any (\line -> "ARM64_RELOC_PAGE21" `T.isInfixOf` line && "_hs_table" `T.isInfixOf` line) (T.lines listing))
         assertBool "does not call the symbol" (not (any (\line -> "bl" `T.isPrefixOf` T.stripStart line && "_hs_table" `T.isInfixOf` line) (T.lines listing))),
       testCase "returns unboxed tuples as direct machine values" $ do
         let functionName = FunctionName "pair_code"

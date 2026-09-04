@@ -63,63 +63,10 @@ static const AihcInfo aihc_array_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_ARRAY,
 };
-
-#if defined(__APPLE__)
-extern AihcValue *
-    aihc_static_roots_start[] __asm("section$start$__DATA$__aihc_roots")
-        __attribute__((weak_import));
-extern AihcValue *
-    aihc_static_roots_end[] __asm("section$end$__DATA$__aihc_roots")
-        __attribute__((weak_import));
-extern const uint64_t
-    aihc_linked_locals_start[] __asm("section$start$__DATA$__aihc_locals")
-        __attribute__((weak_import));
-extern const uint64_t
-    aihc_linked_locals_end[] __asm("section$end$__DATA$__aihc_locals")
-        __attribute__((weak_import));
-#else
-extern AihcValue *aihc_elf_static_roots_start[] __asm__("__start_aihc_roots")
-    __attribute__((weak));
-extern AihcValue *aihc_elf_static_roots_end[] __asm__("__stop_aihc_roots")
-    __attribute__((weak));
-extern const uint64_t
-    aihc_elf_linked_locals_start[] __asm__("__start_aihc_locals")
-        __attribute__((weak));
-extern const uint64_t aihc_elf_linked_locals_end[] __asm__("__stop_aihc_locals")
-    __attribute__((weak));
-#endif
-
-AihcValue **aihc_static_root_start(void) {
-#if defined(__APPLE__)
-  return aihc_static_roots_start;
-#else
-  return aihc_elf_static_roots_start;
-#endif
-}
-
-AihcValue **aihc_static_root_end(void) {
-#if defined(__APPLE__)
-  return aihc_static_roots_end;
-#else
-  return aihc_elf_static_roots_end;
-#endif
-}
-
-static const uint64_t *aihc_linked_local_start(void) {
-#if defined(__APPLE__)
-  return aihc_linked_locals_start;
-#else
-  return aihc_elf_linked_locals_start;
-#endif
-}
-
-static const uint64_t *aihc_linked_local_end(void) {
-#if defined(__APPLE__)
-  return aihc_linked_locals_end;
-#else
-  return aihc_elf_linked_locals_end;
-#endif
-}
+const AihcInfo aihc_runtime_object_info = {
+    .frame_kind = AIHC_FRAME_NONE,
+    .object_kind = AIHC_OBJECT_RUNTIME,
+};
 
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
@@ -290,6 +237,7 @@ void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value) {
     aihc_fail("stable-name counter overflow");
   }
   AihcStableName *name = aihc_allocate_auxiliary(machine, sizeof(*name));
+  name->header = (AihcSlot)(uintptr_t)&aihc_runtime_object_info;
   name->value = value;
   name->hash = machine->next_stable_name++;
   name->next = machine->stable_names;
@@ -592,20 +540,6 @@ AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count) {
                             &machine->locals_capacity, count);
 }
 
-AihcSlot *aihc_alloc_linked_locals(AihcMachine *machine) {
-  uint64_t count = 2;
-  const uint64_t *linked_local = aihc_linked_local_start();
-  const uint64_t *linked_local_end = aihc_linked_local_end();
-  if (linked_local != NULL && linked_local_end != NULL) {
-    for (; linked_local < linked_local_end; ++linked_local) {
-      if (*linked_local > count) {
-        count = *linked_local;
-      }
-    }
-  }
-  return aihc_alloc_locals(machine, count);
-}
-
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
 AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
@@ -827,6 +761,7 @@ static AihcByteArray *aihc_byte_array_allocate(int64_t requested_size,
     aihc_fail("byte array allocation is too large");
   }
   AihcByteArray *array = aihc_allocate_zeroed(sizeof(*array));
+  array->header = (AihcSlot)(uintptr_t)&aihc_runtime_object_info;
   uint8_t *raw = aihc_allocate_zeroed(allocation_size + alignment - 1);
   uintptr_t aligned = ((uintptr_t)raw + alignment - 1) & ~(alignment - 1);
   array->size = size;
@@ -1504,6 +1439,7 @@ static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
 
 void *aihc_mvar_new(AihcMachine *machine) {
   AihcMVar *mvar = aihc_allocate_auxiliary(machine, sizeof(*mvar));
+  mvar->header = (AihcSlot)(uintptr_t)&aihc_runtime_object_info;
   mvar->next = machine->mvars;
   machine->mvars = mvar;
   return mvar;
@@ -1662,6 +1598,7 @@ void aihc_update(AihcValue *object, AihcValue *value) {
   }
   object->fields[0] = (AihcSlot)value;
   object->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
+  aihc_gc_note_update(object);
 }
 
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,

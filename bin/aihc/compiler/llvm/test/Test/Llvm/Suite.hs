@@ -43,7 +43,6 @@ tests =
       testCase "declares address foreign imports as external data" testSymbolAddressDeclarations,
       testCase "preserves first-match case semantics" (testProgram "F" firstMatchCaseProgram),
       testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
-      testCase "keeps static root entries in llvm.used" testStaticRootEntries,
       testCase "emits static reference tables and publishes them on entry" testStaticReferenceTables,
       testCase "traces an updated static thunk across collections" (testProgramWith RuntimeGcSemispace ["-DAIHC_SEMISPACE_BYTES=1024"] "S" staticRootProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
@@ -406,20 +405,6 @@ thunkEntryProgram =
     mainThunk = GrinVar "main" 90 lifted
     output = GrinVar "output" 91 Int32Rep
     unitValue = GrinVar "()" 92 lifted
-
--- | Root entries are private constants that no code references. Without
--- @llvm.used@, optimization removes them and the collector gets an empty root
--- section.
-testStaticRootEntries :: IO ()
-testStaticRootEntries = do
-  sources <- compile thunkEntryProgram
-  case sources of
-    [moduleSource, _entrySource] -> do
-      let usedLines = filter ("@llvm.used = appending global" `T.isPrefixOf`) (T.lines moduleSource)
-      assertEqual "one llvm.used declaration" 1 (length usedLines)
-      assertBool "llvm.used lists the main root" (any ("_root" `T.isInfixOf`) usedLines)
-      assertBool "llvm.used lives in llvm.metadata" (any ("section \"llvm.metadata\"" `T.isInfixOf`) usedLines)
-    _ -> assertFailure "LLVM compilation did not return two units"
 
 -- | Every compiled function publishes its own table on entry, the tables name
 -- the static objects their code reaches, and the info tables of a function's
