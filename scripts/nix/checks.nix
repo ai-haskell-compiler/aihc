@@ -74,10 +74,20 @@
           old:
             addCheckSettings drv old
             // {
-              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.bintools pkgs.llvmPackages.clang];
+              # TEMPORARY DIAGNOSTIC: show per-test timings and RTS statistics.
+              testFlags =
+                builtins.filter
+                (flag: !builtins.elem flag ["--pattern" "__nix-build-tests-without-running__"])
+                (old.testFlags or [])
+                ++ ["+RTS" "-s" "-RTS"];
+              # The C toolchain is only needed while the tests run. Adding it to
+              # testToolDepends would append --extra-include-dirs/--extra-lib-dirs
+              # to the configure flags, which changes GHC's flag hash and forces a
+              # full recompilation instead of reusing the package intermediates.
               preCheck =
                 (old.preCheck or "")
                 + ''
+                  export PATH=${pkgs.llvmPackages.clang}/bin:${pkgs.llvmPackages.bintools}/bin:$PATH
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"
                   ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
