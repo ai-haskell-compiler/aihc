@@ -33,7 +33,7 @@ import Foreign.Storable (Storable (..))
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, plusAddr#, touch#)
-import Prelude (Maybe (..), Num (..), error, return, sequence_, undefined, (>>=))
+import Prelude (Eq (..), Maybe (..), Num (..), Ord (..), error, return, sequence_, undefined, (>>=))
 
 data ForeignPtr a = ForeignPtr Addr# ForeignPtrContents
 
@@ -50,6 +50,14 @@ data ForeignPtrContents
 type FinalizerPtr a = FunPtr (Ptr a -> IO ())
 
 type FinalizerEnvPtr env a = FunPtr (Ptr env -> Ptr a -> IO ())
+
+-- | Foreign pointers compare by the address they wrap, ignoring the
+-- finalizer bookkeeping that rides along with it.
+instance Eq (ForeignPtr a) where
+  left == right = unsafeForeignPtrToPtr left == unsafeForeignPtrToPtr right
+
+instance Ord (ForeignPtr a) where
+  compare left right = compare (unsafeForeignPtrToPtr left) (unsafeForeignPtrToPtr right)
 
 unsafeForeignPtrToPtr :: ForeignPtr a -> Ptr a
 unsafeForeignPtrToPtr (ForeignPtr address _) = Ptr address
