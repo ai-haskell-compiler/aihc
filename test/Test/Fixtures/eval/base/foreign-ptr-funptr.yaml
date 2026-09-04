@@ -8,8 +8,7 @@ modules:
     {-# LANGUAGE MagicHash #-}
     module Test where
 
-    import Foreign.Ptr (FunPtr (..), Ptr (..))
-    import GHC.Prim (Addr#)
+    import GHC.Ptr (FunPtr (..), Ptr (..))
 
     class NFData a where
       rnf :: a -> ()
@@ -23,14 +22,11 @@ modules:
     instance NFData (FunPtr a) where
       rnf = rwhnf
 
-    nullAddr :: Addr#
-    nullAddr = "\0"#
-
     pointer :: Ptr ()
-    pointer = Ptr nullAddr
+    pointer = Ptr "\0"#
 
     functionPointer :: FunPtr ()
-    functionPointer = FunPtr nullAddr
+    functionPointer = FunPtr "\0"#
 
     result :: Bool
     result =
@@ -41,5 +37,4 @@ modules:
 output: |
   True
 expression: result
-status: xfail
-reason: Foreign.Ptr exports FunPtr with the same address representation as Ptr
+status: pass
