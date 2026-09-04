@@ -12,7 +12,6 @@ import Aihc.Native
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
-    nativeSplitRuntimePrimitiveCall,
     supportedNativePrimitiveNames,
   )
 import Data.Text (Text)
@@ -32,24 +31,22 @@ tests =
                 (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
-      testCase "maps sized conversion and floating point primitives to the shared runtime ABI" $
+      testCase "keeps the sized conversion and floating point primitives out of the runtime ABI" $
         mapM_
-          ( \(primitive, symbol) ->
-              assertEqual
-                ("runtime call for " <> show primitive)
-                (Just symbol)
-                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
-          )
-          numericRuntimeSymbols,
-      testCase "maps address indexing primitives to the shared runtime ABI" $
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
+          numericInlineNames,
+      testCase "accepts the sized conversion and floating point primitives in native programs" $
         mapM_
-          ( \(primitive, symbol) ->
-              assertEqual
-                ("runtime call for " <> show primitive)
-                (Just symbol)
-                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
-          )
-          addressIndexRuntimeSymbols,
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          numericInlineNames,
+      testCase "keeps the address indexing primitives out of the runtime ABI" $
+        mapM_
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
+          addressIndexInlineNames,
+      testCase "accepts the address indexing primitives in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          addressIndexInlineNames,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
         mapM_
           ( \(primitive, symbol) ->
@@ -85,11 +82,11 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           bitPatternCastNames,
-      testCase "gives timesInt2# one runtime call for each result" $ do
+      testCase "gives timesInt2# the wide multiplication of the backend" $ do
         assertEqual
-          "runtime calls for timesInt2#"
-          (Just ["aihc_int_times2_high_needed", "aihc_int_times2_high", "aihc_int_times2_low"])
-          (map runtimeCallSymbol <$> nativeSplitRuntimePrimitiveCall "timesInt2#")
+          "runtime call for timesInt2#"
+          Nothing
+          (nativeRuntimePrimitiveCall "timesInt2#")
         assertEqual
           "native support for timesInt2#"
           True
@@ -131,15 +128,14 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           ["+#", "-#", "*#", "compareInt#", "<#", "==#", ">#", ">=#", "<=#", "/=#", "ord#", "chr#"],
-      testCase "maps address arithmetic primitives to the shared runtime ABI" $
+      testCase "keeps the address arithmetic primitives out of the runtime ABI" $
         mapM_
-          ( \(primitive, symbol) ->
-              assertEqual
-                ("runtime call for " <> show primitive)
-                (Just symbol)
-                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
-          )
-          (addressArithmeticRuntimeSymbols <> wordNarrowRuntimeSymbols),
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
+          addressArithmeticInlineNames,
+      testCase "accepts the address arithmetic primitives in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          addressArithmeticInlineNames,
       testCase "accepts the Word64# comparison and conversion primitives in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -181,60 +177,6 @@ bitPatternCastNames :: [Text]
 bitPatternCastNames =
   ["castFloatToWord32#", "castWord32ToFloat#", "castDoubleToWord64#", "castWord64ToDouble#"]
 
-addressIndexRuntimeSymbols :: [(Text, Text)]
-addressIndexRuntimeSymbols =
-  [ ("indexWord8OffAddr#", "aihc_addr_index_word8"),
-    ("indexWord16OffAddr#", "aihc_addr_index_word16"),
-    ("indexWord32OffAddr#", "aihc_addr_index_word32"),
-    ("indexWord64OffAddr#", "aihc_addr_index_word64"),
-    ("readWord8OffAddr#", "aihc_addr_index_word8"),
-    ("readWord16OffAddr#", "aihc_addr_index_word16"),
-    ("readWord32OffAddr#", "aihc_addr_index_word32"),
-    ("readWord64OffAddr#", "aihc_addr_index_word64"),
-    ("writeWord8OffAddr#", "aihc_addr_write_word8"),
-    ("writeWord16OffAddr#", "aihc_addr_write_word16"),
-    ("writeWord32OffAddr#", "aihc_addr_write_word32"),
-    ("writeWord64OffAddr#", "aihc_addr_write_word64"),
-    ("indexWord8OffAddrAsWord16#", "aihc_addr_index_byte_word16"),
-    ("indexWord8OffAddrAsWord32#", "aihc_addr_index_byte_word32"),
-    ("indexWord8OffAddrAsWord64#", "aihc_addr_index_byte_word64"),
-    ("readWord8OffAddrAsWord16#", "aihc_addr_index_byte_word16"),
-    ("readWord8OffAddrAsWord32#", "aihc_addr_index_byte_word32"),
-    ("readWord8OffAddrAsWord64#", "aihc_addr_index_byte_word64"),
-    ("indexWord8OffAddrAsFloat#", "aihc_addr_index_byte_word32"),
-    ("indexWord8OffAddrAsDouble#", "aihc_addr_index_byte_word64"),
-    ("readWord8OffAddrAsFloat#", "aihc_addr_index_byte_word32"),
-    ("readWord8OffAddrAsDouble#", "aihc_addr_index_byte_word64"),
-    ("writeWord8OffAddrAsFloat#", "aihc_addr_write_byte_word32"),
-    ("writeWord8OffAddrAsDouble#", "aihc_addr_write_byte_word64"),
-    ("writeWord8OffAddrAsWord16#", "aihc_addr_write_byte_word16"),
-    ("writeWord8OffAddrAsWord32#", "aihc_addr_write_byte_word32"),
-    ("writeWord8OffAddrAsWord64#", "aihc_addr_write_byte_word64")
-  ]
-
-addressArithmeticRuntimeSymbols :: [(Text, Text)]
-addressArithmeticRuntimeSymbols =
-  [ ("plusAddr#", "aihc_addr_plus"),
-    ("minusAddr#", "aihc_addr_minus"),
-    ("eqAddr#", "aihc_addr_eq"),
-    ("neAddr#", "aihc_addr_ne"),
-    ("ltAddr#", "aihc_addr_lt"),
-    ("leAddr#", "aihc_addr_le"),
-    ("gtAddr#", "aihc_addr_gt"),
-    ("geAddr#", "aihc_addr_ge"),
-    ("addr2Int#", "aihc_addr_to_int"),
-    ("int2Addr#", "aihc_int_to_addr"),
-    ("cstringLength#", "aihc_addr_cstring_length"),
-    ("touch#", "aihc_touch")
-  ]
-
-wordNarrowRuntimeSymbols :: [(Text, Text)]
-wordNarrowRuntimeSymbols =
-  [ ("wordToWord8#", "aihc_word_to_word8"),
-    ("wordToWord16#", "aihc_word_to_word16"),
-    ("wordToWord32#", "aihc_word_to_word32")
-  ]
-
 arrayRuntimeSymbols :: [(Text, Text)]
 arrayRuntimeSymbols =
   [ ("indexArray#", "aihc_array_index"),
@@ -251,42 +193,94 @@ mutVarRuntimeSymbols =
     ("sameMutVar#", "aihc_mutvar_same")
   ]
 
-numericRuntimeSymbols :: [(Text, Text)]
-numericRuntimeSymbols =
-  [ ("intToInt8#", "aihc_int_to_int8"),
-    ("int8ToInt#", "aihc_int8_to_int"),
-    ("intToInt16#", "aihc_int_to_int16"),
-    ("int16ToInt#", "aihc_int16_to_int"),
-    ("intToInt32#", "aihc_int_to_int32"),
-    ("int32ToInt#", "aihc_int32_to_int"),
-    ("intToInt64#", "aihc_int_to_int64"),
-    ("int64ToInt#", "aihc_int64_to_int"),
-    ("plusFloat#", "aihc_float_plus"),
-    ("minusFloat#", "aihc_float_minus"),
-    ("timesFloat#", "aihc_float_times"),
-    ("negateFloat#", "aihc_float_negate"),
-    ("fabsFloat#", "aihc_float_abs"),
-    ("int2Float#", "aihc_int_to_float"),
-    ("float2Int#", "aihc_float_to_int"),
-    ("gtFloat#", "aihc_float_gt"),
-    ("ltFloat#", "aihc_float_lt"),
-    ("eqFloat#", "aihc_float_eq"),
-    ("+##", "aihc_double_plus"),
-    ("-##", "aihc_double_minus"),
-    ("*##", "aihc_double_times"),
-    ("negateDouble#", "aihc_double_negate"),
-    ("fabsDouble#", "aihc_double_abs"),
-    ("int2Double#", "aihc_int_to_double"),
-    ("double2Int#", "aihc_double_to_int"),
-    (">##", "aihc_double_gt"),
-    ("<##", "aihc_double_lt"),
-    ("==##", "aihc_double_eq"),
-    ("float2Double#", "aihc_float_to_double"),
-    ("double2Float#", "aihc_double_to_float"),
-    ("byteSwap#", "aihc_word_byte_swap64"),
-    ("byteSwap16#", "aihc_word_byte_swap16"),
-    ("byteSwap32#", "aihc_word_byte_swap32"),
-    ("byteSwap64#", "aihc_word_byte_swap64")
+-- | Primitives that the Lir lowering gives as Lir operations. They have no
+-- entry in the runtime ABI.
+addressIndexInlineNames :: [Text]
+addressIndexInlineNames =
+  [ "indexWord8OffAddr#",
+    "indexWord16OffAddr#",
+    "indexWord32OffAddr#",
+    "indexWord64OffAddr#",
+    "readWord8OffAddr#",
+    "readWord16OffAddr#",
+    "readWord32OffAddr#",
+    "readWord64OffAddr#",
+    "writeWord8OffAddr#",
+    "writeWord16OffAddr#",
+    "writeWord32OffAddr#",
+    "writeWord64OffAddr#",
+    "indexWord8OffAddrAsWord16#",
+    "indexWord8OffAddrAsWord32#",
+    "indexWord8OffAddrAsWord64#",
+    "readWord8OffAddrAsWord16#",
+    "readWord8OffAddrAsWord32#",
+    "readWord8OffAddrAsWord64#",
+    "indexWord8OffAddrAsFloat#",
+    "indexWord8OffAddrAsDouble#",
+    "readWord8OffAddrAsFloat#",
+    "readWord8OffAddrAsDouble#",
+    "writeWord8OffAddrAsFloat#",
+    "writeWord8OffAddrAsDouble#",
+    "writeWord8OffAddrAsWord16#",
+    "writeWord8OffAddrAsWord32#",
+    "writeWord8OffAddrAsWord64#"
+  ]
+
+addressArithmeticInlineNames :: [Text]
+addressArithmeticInlineNames =
+  [ "plusAddr#",
+    "minusAddr#",
+    "eqAddr#",
+    "neAddr#",
+    "ltAddr#",
+    "leAddr#",
+    "gtAddr#",
+    "geAddr#",
+    "addr2Int#",
+    "int2Addr#",
+    "cstringLength#",
+    "touch#",
+    "wordToWord8#",
+    "wordToWord16#",
+    "wordToWord32#"
+  ]
+
+numericInlineNames :: [Text]
+numericInlineNames =
+  [ "intToInt8#",
+    "int8ToInt#",
+    "intToInt16#",
+    "int16ToInt#",
+    "intToInt32#",
+    "int32ToInt#",
+    "intToInt64#",
+    "int64ToInt#",
+    "plusFloat#",
+    "minusFloat#",
+    "timesFloat#",
+    "negateFloat#",
+    "fabsFloat#",
+    "int2Float#",
+    "float2Int#",
+    "gtFloat#",
+    "ltFloat#",
+    "eqFloat#",
+    "+##",
+    "-##",
+    "*##",
+    "negateDouble#",
+    "fabsDouble#",
+    "int2Double#",
+    "double2Int#",
+    ">##",
+    "<##",
+    "==##",
+    "float2Double#",
+    "double2Float#",
+    "byteSwap#",
+    "byteSwap16#",
+    "byteSwap32#",
+    "byteSwap64#"
   ]
 
 stableNameRuntimeSymbols :: [(Text, Text)]
