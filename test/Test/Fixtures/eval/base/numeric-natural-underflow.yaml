@@ -1,17 +1,44 @@
-extensions: []
+extensions:
+  - MagicHash
+  - UnboxedTuples
 dependencies:
   - aihc-base
+  - aihc-prim
 modules:
   - |
     module Test where
 
-    import Numeric.Natural
+    import Control.Exception (SomeException, evaluate, try)
+    import GHC.IO (IO (..))
+    import GHC.Prim (RealWorld, State#, realWorld#)
+    import Numeric.Natural (Natural, minusNaturalMaybe)
 
-    result :: Natural
-    result = 3 - 5
+    underflows :: Natural -> IO Bool
+    underflows value = do
+      outcome <- try (evaluate value)
+      case outcome of
+        Left exception -> let _ = (exception :: SomeException) in pure True
+        Right _ -> pure False
+
+    keepsNothingOnUnderflow :: Bool
+    keepsNothingOnUnderflow =
+      case minusNaturalMaybe 3 5 of
+        Nothing -> True
+        Just _ -> False
+
+    runTests :: IO Bool
+    runTests = do
+      difference <- underflows (3 - 5)
+      negation <- underflows (negate 5)
+      literal <- underflows (fromInteger (negate 1))
+      pure (difference && negation && literal && keepsNothingOnUnderflow)
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
 output: |
-  NaturalUnderflow
+  True
 expression: |
-  result
-status: xfail
+  case runIO runTests realWorld# of
+    (# _, result #) -> result
+status: pass
 reason: Natural subtraction throws an exception when its result is negative
