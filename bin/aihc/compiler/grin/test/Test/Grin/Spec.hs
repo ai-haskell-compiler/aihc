@@ -11,6 +11,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GrinGolden qualified
+import Test.Grin.Anf qualified as Anf
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
 import Test.Grin.Srt qualified as Srt
 import Test.Tasty (TestTree, testGroup, withResource)
@@ -25,6 +26,7 @@ tests = do
     ( testGroup
         "aihc-grin"
         [ testProperty "generated GRIN pretty-printer round-trip" prop_grinPrettyRoundTrip,
+          Anf.tests,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource EvalFixture.loadEvalEnvironment (const (pure ())) $ \getEnvironment ->

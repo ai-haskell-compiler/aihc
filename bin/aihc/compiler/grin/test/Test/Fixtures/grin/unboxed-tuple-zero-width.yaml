@@ -13,15 +13,7 @@ expected: |-
     primitive-call @(TupleRep []) realWorld#
 
   $grin_value_thunk_1 -> BoxedRep Lifted =
-    argument :: IntRep <-
-      constant (42 :: IntRep)
-    _case :: IntRep <-
-      constant (argument :: IntRep)
-    answer :: IntRep <-
-      constant (_case :: IntRep)
-    argument%1 :: IntRep <-
-      constant (answer :: IntRep)
-    store (CTest.Box (argument%1 :: IntRep))
+    store (CTest.Box (42 :: IntRep))
 extensions:
 - EmptyDataDecls
 - MagicHash
