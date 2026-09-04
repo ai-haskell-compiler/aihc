@@ -1,0 +1,73 @@
+annotated:
+- |-
+  module A where
+  class Describe a where
+  └─ class methods: describe ∷ ∀ a. (Describe a) ⇒ a → a
+    describe :: a -> a
+  data Left = Left
+       │      └─ type: Left
+       └─ type: Type
+  instance Describe Left where
+  └─ $fDescribeLeft ∷ () ⇒ Describe Left
+    describe input = input
+    │        └─ type: Left
+    └─ describe ∷ Left → Left
+- |-
+  module B where
+  class Describe a where
+  └─ class methods: describe ∷ ∀ a. (Describe a) ⇒ a → a
+    describe :: a -> a
+  data Right = Right
+       │       └─ type: Right
+       └─ type: Type
+  instance Describe Right where
+  └─ $fDescribeRight ∷ () ⇒ Describe Right
+    describe input = input
+    │        └─ type: Right
+    └─ describe ∷ Right → Right
+- |-
+  module C where
+  import qualified A
+  import qualified B
+  leftValue = A.describe A.Left
+  │           └─ type: A.Left → A.Left; type-args: Left; evidence: $fDescribeLeft
+  └─ type: A.Left
+  rightValue = B.describe B.Right
+  │            └─ type: B.Right → B.Right; type-args: Right; evidence: $fDescribeRight
+  └─ type: B.Right
+  useLeft :: A.Describe a => a -> a
+  useLeft = A.describe
+  │         └─ type: a → a; type-args: a; evidence: given Describe a
+  └─ type: ∀ a. (A.Describe a) ⇒ a → a
+  useRight :: B.Describe a => a -> a
+  useRight = B.describe
+  │          └─ type: a → a; type-args: a; evidence: given Describe a
+  └─ type: ∀ a. (B.Describe a) ⇒ a → a
+extensions: []
+modules:
+- |
+  module A where
+  class Describe a where
+    describe :: a -> a
+  data Left = Left
+  instance Describe Left where
+    describe input = input
+- |
+  module B where
+  class Describe a where
+    describe :: a -> a
+  data Right = Right
+  instance Describe Right where
+    describe input = input
+- |
+  module C where
+  import qualified A
+  import qualified B
+  leftValue = A.describe A.Left
+  rightValue = B.describe B.Right
+  useLeft :: A.Describe a => a -> a
+  useLeft = A.describe
+  useRight :: B.Describe a => a -> a
+  useRight = B.describe
+reason: Class identities include their package and module origins, like data types and instance dictionaries.
+status: pass

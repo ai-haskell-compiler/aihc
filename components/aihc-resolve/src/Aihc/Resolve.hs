@@ -482,16 +482,26 @@ ignoredPragma pragma =
           || kind == "NOINLINABLE"
           || kind == "CONLIKE" ->
           True
+    PragmaDeprecated _ -> True
+    PragmaWarning _ -> True
     PragmaUnknown rawText ->
+      -- A phase such as @INLINE[1]@ is part of the first word.
       case T.words (T.toUpper (T.drop 3 rawText)) of
-        keyword : _ -> keyword `elem` ignoredPragmaKeywords
+        keyword : _ -> T.takeWhile (/= '[') keyword `elem` ignoredPragmaKeywords
         [] -> False
     _ -> False
 
 -- | Keywords of hint pragmas that do not change name resolution.
 ignoredPragmaKeywords :: [Text]
 ignoredPragmaKeywords =
-  [ "RULES",
+  [ "INLINE",
+    "INLINABLE",
+    "INLINEABLE",
+    "NOINLINE",
+    "NOINLINABLE",
+    "NOINLINEABLE",
+    "CONLIKE",
+    "RULES",
     "SPECIALISE",
     "SPECIALIZE",
     "SPECIALISE_INLINE",
@@ -499,7 +509,10 @@ ignoredPragmaKeywords =
     "MINIMAL",
     "COMPLETE",
     "ANN",
-    "OPAQUE"
+    "OPAQUE",
+    "DEPRECATED",
+    "WARNING",
+    "CFILES"
   ]
 
 resolveValueDecl :: TermDefinition -> ValueDecl -> ResolveM ValueDecl
@@ -606,11 +619,11 @@ resolveInstanceDecl :: InstanceDecl -> ResolveM InstanceDecl
 resolveInstanceDecl instanceDecl = do
   (forallScope, forallBinders') <- bindTyVarBinders (instanceDeclForall instanceDecl)
   (context', head', items') <-
-    extendScope forallScope $
-      (,,)
-        <$> mapM resolveType (instanceDeclContext instanceDecl)
-        <*> resolveType (instanceDeclHead instanceDecl)
-        <*> mapM resolveInstanceDeclItem (instanceDeclItems instanceDecl)
+    extendScope forallScope $ do
+      context' <- mapM resolveType (instanceDeclContext instanceDecl)
+      head' <- resolveType (instanceDeclHead instanceDecl)
+      items' <- mapM (resolveInstanceDeclItem (instanceHeadClass head')) (instanceDeclItems instanceDecl)
+      pure (context', head', items')
   pure
     instanceDecl
       { instanceDeclForall = forallBinders',
@@ -619,13 +632,48 @@ resolveInstanceDecl instanceDecl = do
         instanceDeclItems = items'
       }
 
-resolveInstanceDeclItem :: InstanceDeclItem -> ResolveM InstanceDeclItem
-resolveInstanceDeclItem instanceDeclItem =
+-- | The class of a resolved instance head, with the name as written.
+instanceHeadClass :: Type -> Maybe (Text, ResolvedName)
+instanceHeadClass ty =
+  case ty of
+    TAnn _ inner -> instanceHeadClass inner
+    TParen inner -> instanceHeadClass inner
+    TKindSig inner _ -> instanceHeadClass inner
+    TApp fun _ -> instanceHeadClass fun
+    TCon name Unpromoted ->
+      listToMaybe
+        [ (nameText name, resolutionTarget resolution)
+        | resolution <- mapMaybe fromAnnotation (nameAnns name)
+        ]
+    _ -> Nothing
+
+-- | A method binding in an instance names a method of the class. The
+-- class may be in scope only under a qualifier, so the lookup goes
+-- through the scopes that export the class rather than the plain term
+-- scope.
+instanceMethodDefinition :: Maybe (Text, ResolvedName) -> Scope -> TermDefinition
+instanceMethodDefinition headClass scope name =
+  case (headClass, lookupTerm rendered scope) of
+    (Just (className, resolvedClass), ResolvedError _)
+      | found : _ <- classMethods className resolvedClass -> Just found
+    (_, resolved) -> Just resolved
+  where
+    rendered = renderUnqualifiedName name
+    classMethods className resolvedClass =
+      [ resolved
+      | candidate <- scope : Map.elems (scopeQualifiedModules scope),
+        lookupType className candidate == resolvedClass,
+        rendered `elem` Map.findWithDefault [] className (scopeMethods candidate),
+        resolved@ResolvedTopLevel {} <- [lookupTerm rendered candidate]
+      ]
+
+resolveInstanceDeclItem :: Maybe (Text, ResolvedName) -> InstanceDeclItem -> ResolveM InstanceDeclItem
+resolveInstanceDeclItem headClass instanceDeclItem =
   case instanceDeclItem of
-    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> withPushedSpan ann (resolveInstanceDeclItem inner)
+    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> withPushedSpan ann (resolveInstanceDeclItem headClass inner)
     InstanceItemBind valueDecl -> do
       scope <- currentScope
-      InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (topLevelTermDefinition scope) valueDecl)
+      InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
     InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
     InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
@@ -830,13 +878,15 @@ resolveExpr expr =
       body' <- withScope scope (resolveExpr body)
       pure (EListComp body' stmts')
     EListCompParallel {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHExpQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHTypedQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHDeclQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHTypeQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHPatQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
-    ETHTypeNameQuote {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
+    -- Template Haskell quotes compile to a runtime error. The quoted
+    -- syntax stays unresolved because nothing consumes it.
+    ETHExpQuote {} -> pure expr
+    ETHTypedQuote {} -> pure expr
+    ETHDeclQuote {} -> pure expr
+    ETHTypeQuote {} -> pure expr
+    ETHPatQuote {} -> pure expr
+    ETHNameQuote {} -> pure expr
+    ETHTypeNameQuote {} -> pure expr
     EProc {} -> annotateUnhandledExpr <$> currentSpan <*> pure expr
 
 -- | An overloaded integer literal applies fromInteger to an Integer.

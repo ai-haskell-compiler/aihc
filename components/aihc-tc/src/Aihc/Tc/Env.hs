@@ -22,10 +22,13 @@ module Aihc.Tc.Env
 
     -- * Class info
     ClassInfo (..),
+    classInfoKey,
 
     -- * Instance info
     InstanceInfo (..),
     instanceInfoKey,
+    instanceClassTyCon,
+    instanceIsForClass,
 
     -- * Data family instances
     DataFamilyInstanceInfo (..),
@@ -194,6 +197,11 @@ data ClassInfo = ClassInfo
   }
   deriving (Eq, Show, Read)
 
+-- | The identity of a class: the key of its type constructor. Two modules
+-- can each declare a class with the same source name.
+classInfoKey :: ClassInfo -> TcTypeKey
+classInfoKey = tyConKey . ciTyCon
+
 -- | Information about a class instance.
 data InstanceInfo = InstanceInfo
   { iiClassName :: !Text,
@@ -213,6 +221,28 @@ data InstanceInfo = InstanceInfo
 
 instanceInfoKey :: InstanceInfo -> ((Text, Text), Text)
 instanceInfoKey instanceInfo = (iiDictOrigin instanceInfo, iiDictName instanceInfo)
+
+-- | The exact class type constructor of an instance, read from the head of
+-- its dictionary type. 'iiClassName' alone cannot tell apart two classes with
+-- the same source name from different modules.
+instanceClassTyCon :: InstanceInfo -> Maybe TyCon
+instanceClassTyCon = go . iiDictType
+  where
+    go ty =
+      case ty of
+        TcForAllTy _ body -> go body
+        TcQualTy _ body -> go body
+        TcTyCon tyCon _ -> Just tyCon
+        _ -> Nothing
+
+-- | Whether an instance belongs to the class with the given type constructor.
+-- Falls back to the source name when the dictionary type has no constructor
+-- head.
+instanceIsForClass :: TyCon -> InstanceInfo -> Bool
+instanceIsForClass classTyCon instanceInfo =
+  case instanceClassTyCon instanceInfo of
+    Just tyCon -> tyConKey tyCon == tyConKey classTyCon
+    Nothing -> iiClassName instanceInfo == tyConName classTyCon
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first

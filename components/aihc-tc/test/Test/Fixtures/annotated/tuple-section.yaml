@@ -1,0 +1,26 @@
+annotated:
+- |-
+  module Test where
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  pair :: Box -> (Box, Box)
+  pair = (Box,)
+  │      └─ type: Box → (Box, Box); type-args: Box, Box
+  └─ type: Box → (Box, Box)
+  swapped :: Box -> Box -> (Box, Box, Box)
+  swapped = (,Box,)
+  │         └─ type: Box → Box → (Box, Box, Box); type-args: Box, Box, Box
+  └─ type: Box → Box → (Box, Box, Box)
+extensions:
+- TupleSections
+modules:
+- |
+  module Test where
+  data Box = Box
+  pair :: Box -> (Box, Box)
+  pair = (Box,)
+  swapped :: Box -> Box -> (Box, Box, Box)
+  swapped = (,Box,)
+reason: A tuple section is a function of its missing fields
+status: pass

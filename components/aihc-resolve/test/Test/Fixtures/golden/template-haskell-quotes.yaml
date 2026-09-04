@@ -1,0 +1,26 @@
+extensions:
+  - TemplateHaskellQuotes
+modules:
+  - |
+    module Main where
+    data Box = Box
+    quoteExpr = [| Box |]
+    quoteType = [t| Box |]
+    quoteName = 'Box
+    quoteTypeName = ''Box
+annotated:
+  - |
+    module Main where
+    data Box = Box
+         │     └─ v Main
+         └─ t Main
+    quoteExpr = [| Box |]
+    └─ v Main
+    quoteType = [t| Box |]
+    └─ v Main
+    quoteName = 'Box
+    └─ v Main
+    quoteTypeName = ''Box
+    └─ v Main
+status: pass
+reason: Template Haskell quotes are accepted and the quoted syntax stays unresolved
