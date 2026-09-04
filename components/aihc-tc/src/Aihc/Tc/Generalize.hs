@@ -9,6 +9,7 @@ module Aihc.Tc.Generalize
     generalizeAndCommit,
     generalizeAndCommitIgnoring,
     environmentMetaVars,
+    collectMetaVars,
     predMetaVars,
   )
 where

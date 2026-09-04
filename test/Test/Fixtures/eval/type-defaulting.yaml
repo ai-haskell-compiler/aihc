@@ -1,0 +1,21 @@
+dependencies: []
+modules:
+  - |
+    module Test where
+
+    countUp :: Int
+    countUp = length [1, 2, 3]
+
+    defaulted :: Integer
+    defaulted = 6 * 7
+
+    fromDefaulted :: Int
+    fromDefaulted = fromInteger (2 + 3)
+
+    result :: (Int, Integer, Int)
+    result = (countUp, defaulted, fromDefaulted)
+output: |
+  ((I# 3),(IS 42),(I# 5))
+expression: result
+status: pass
+reason: an ambiguous numeric literal defaults to Integer and evaluates

@@ -114,7 +114,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
-import Aihc.Tc.Generalize (generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -122,6 +122,7 @@ import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
+import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
@@ -547,6 +548,25 @@ data PendingModule = PendingModule
 
 tcModuleBody :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
 tcModuleBody schemes m = do
+  declaredDefaults <- moduleDefaultTypes (moduleDecls m)
+  localDefaultTypes declaredDefaults (tcModuleBodyWithDefaults schemes m)
+
+-- | The candidate types of the module @default@ declaration.
+--
+-- A module without the declaration gives 'Nothing', and defaulting then uses
+-- the Haskell 2010 standard list. @default ()@ gives @Just []@ and turns
+-- defaulting off. A later declaration replaces an earlier one, as GHC
+-- permits only one for each module.
+moduleDefaultTypes :: [Decl] -> TcM (Maybe [TcType])
+moduleDefaultTypes decls =
+  case [tys | decl <- decls, DeclDefault tys <- [peelDeclAnn decl]] of
+    [] -> pure Nothing
+    groups -> Just <$> mapM checkDefaultType (last groups)
+  where
+    checkDefaultType ty = checkSurfaceType Map.empty ty typeKindType
+
+tcModuleBodyWithDefaults :: Map TcTermKey CheckedSig -> Module -> TcM PendingModule
+tcModuleBodyWithDefaults schemes m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let sourceGroups = zip [0 :: Int ..] (groupValueDecls (moduleDecls m))
   grouped <- sortDeclGroups sourceGroups
@@ -1358,7 +1378,16 @@ solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
   implications <- mapM addOuterGivens impls
   _ <- solveWithImpls cts implications
-  mapM_ solveClassCt cts
+  stuck <- concat <$> mapM attemptClassCt cts
+  -- The signature makes every type variable of the binding rigid, so a
+  -- meta-variable that survives the solve is ambiguous. Defaulting may make
+  -- it concrete, which lets a second attempt discharge the constraint.
+  defaulted <- defaultAmbiguousMetas [] stuck
+  remaining <-
+    if defaulted
+      then concat <$> mapM attemptClassCt stuck
+      else pure stuck
+  mapM_ reportUnsolvedDict remaining
   where
     addOuterGivens implication = do
       outerGivens <- mapM givenConstraint givens
@@ -1367,13 +1396,15 @@ solveBodyConstraintsWithGivens givens cts impls = do
       evidence <- freshEvVar
       let origin = InstOrigin "class body"
       pure ((mkWantedCt predicate evidence origin NoSourceSpan) {ctFlavor = Given})
-    solveClassCt ct
+    -- Solve what it can and collect the rest. Reporting waits until
+    -- defaulting has had its turn.
+    attemptClassCt ct
       | isDictionaryPred (ctPred ct) = do
           result <- solveDictWithGivens givens ct
           case result of
-            DictSolved -> pure ()
-            DictStuck stuck -> reportUnsolvedDict stuck
-      | otherwise = pure ()
+            DictSolved -> pure []
+            DictStuck stuck -> pure [stuck]
+      | otherwise = pure []
     isDictionaryPred predicate =
       case predicate of
         ClassPred {} -> True
@@ -1989,7 +2020,9 @@ inferPatSynLayout sp name pat argBinders = do
         if null (pcGivenCts patCheck) && null (pcSkolems patCheck)
           then do
             solveResult <- solveWithImpls (pcWantedCts patCheck) []
-            generalizableResidualPreds solveResult
+            -- The scrutinee and the argument types carry every meta-variable
+            -- that the pattern synonym quantifies over.
+            generalizableResidualPreds (foldr TcFunTy scrutTy argTys) solveResult
           else do
             _ <- solvePatternBranch sp patCheck scrutTy []
             pure []
@@ -2235,7 +2268,7 @@ tcFunctionInfer key displayName name matches = do
       (matches', ty, cts', impls') <- tcMatches matches
       solveResult <- solveWithImpls cts' impls'
       rejectEscapingExistentials ty impls'
-      residualPreds <- generalizableResidualPreds solveResult
+      residualPreds <- generalizableResidualPreds ty solveResult
       pure (matches', ty, residualPreds)
   if failed
     then pure (Nothing, [])
@@ -2246,9 +2279,16 @@ tcFunctionInfer key displayName name matches = do
       finalizeInferredTermEnvPermanent name key placeholderTy scheme
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
-generalizableResidualPreds :: SolveResult -> TcM [Pred]
-generalizableResidualPreds solveResult = do
-  allResidualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+generalizableResidualPreds :: TcType -> SolveResult -> TcM [Pred]
+generalizableResidualPreds inferredType solveResult = do
+  initialCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
+  -- A meta-variable that the binding type or the environment mentions still
+  -- becomes a quantified type variable, so defaulting must leave it alone.
+  -- Anything else is ambiguous and the Haskell 2010 rule may make it
+  -- concrete.
+  keep <- generalizedMetaVars inferredType
+  _ <- defaultAmbiguousMetas keep initialCts
+  allResidualCts <- mapM zonkCtPred initialCts
   -- GHC never infers a HasCallStack constraint. An unsolved call-stack
   -- parameter gets the empty call stack.
   let (callStackCts, residualCts) = partition (isCallStackPred . ctPred) allResidualCts
@@ -2271,6 +2311,14 @@ generalizableResidualPreds solveResult = do
       pure (ct {ctPred = pred'})
 
     sameCtPred left right = ctPred left == ctPred right
+
+-- | The meta-variables that generalization turns into quantified type
+-- variables: those of the binding type plus those the environment mentions.
+generalizedMetaVars :: TcType -> TcM [Unique]
+generalizedMetaVars inferredType = do
+  zonked <- zonkType inferredType
+  envMetaVars <- environmentMetaVars Set.empty
+  pure (collectMetaVars zonked <> envMetaVars)
 
 predicateCanGeneralize :: Pred -> Bool
 predicateCanGeneralize predicate =
