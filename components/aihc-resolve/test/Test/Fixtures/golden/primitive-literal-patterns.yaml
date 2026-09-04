@@ -1,0 +1,33 @@
+annotated:
+- |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
+  data Double#
+       └─ t GHC.Prim
+- |-
+  module Main where
+  import GHC.Prim (Int#, Double#)
+  isZero# x# = case x# of
+  │       └─ v 0    └─ v 0
+  └─ v Main
+    0# -> 1.0##
+    │     └─ t GHC.Prim
+    └─ t GHC.Prim
+    _ -> 2.0##
+         └─ t GHC.Prim
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+  data Double#
+- |
+  module Main where
+  import GHC.Prim (Int#, Double#)
+  isZero# x# = case x# of
+    0# -> 1.0##
+    _ -> 2.0##
+reason: A primitive literal pattern resolves to its primitive type.
+status: pass

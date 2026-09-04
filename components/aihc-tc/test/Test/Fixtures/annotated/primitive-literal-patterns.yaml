@@ -1,0 +1,71 @@
+annotated:
+- |-
+  module Test where
+  import GHC.Prim (Int#, Word#, Char#, Float#, Double#)
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  isZero# value = case value of
+  │       │       └─ type: Bool
+  │       └─ type: GHC.Prim.Int#
+  └─ type: GHC.Prim.Int# → Bool
+    0# -> True
+    └─ type: GHC.Prim.Int#
+    _ -> False
+    └─ type: GHC.Prim.Int#
+  isOne## value = case value of
+  │       │       └─ type: Bool
+  │       └─ type: GHC.Prim.Word#
+  └─ type: GHC.Prim.Word# → Bool
+    1## -> True
+    └─ type: GHC.Prim.Word#
+    _ -> False
+    └─ type: GHC.Prim.Word#
+  isA# value = case value of
+  │    │       └─ type: Bool
+  │    └─ type: GHC.Prim.Char#
+  └─ type: GHC.Prim.Char# → Bool
+    'a'# -> True
+    └─ type: GHC.Prim.Char#
+    _ -> False
+    └─ type: GHC.Prim.Char#
+  isHalf## value = case value of
+  │        │       └─ type: Bool
+  │        └─ type: GHC.Prim.Double#
+  └─ type: GHC.Prim.Double# → Bool
+    0.5## -> True
+    └─ type: GHC.Prim.Double#
+    _ -> False
+    └─ type: GHC.Prim.Double#
+  quarter# _ = 0.25#
+  │        │   └─ type: GHC.Prim.Float#
+  │        └─ type: a
+  └─ type: ∀ a. a → GHC.Prim.Float#
+  probe :: Bool
+  probe = isZero# True
+          └─ error: couldn't match Int# with Bool
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+  import GHC.Prim (Int#, Word#, Char#, Float#, Double#)
+  data Bool = True | False
+  isZero# value = case value of
+    0# -> True
+    _ -> False
+  isOne## value = case value of
+    1## -> True
+    _ -> False
+  isA# value = case value of
+    'a'# -> True
+    _ -> False
+  isHalf## value = case value of
+    0.5## -> True
+    _ -> False
+  quarter# _ = 0.25#
+  probe :: Bool
+  probe = isZero# True
+reason: A primitive literal pattern gives the scrutinee its primitive type.
+status: pass
