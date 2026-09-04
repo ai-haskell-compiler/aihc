@@ -44,6 +44,7 @@ library
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy
+    Aihc.Tc.Traverse
     Aihc.Tc.TypeScheme
     Aihc.Tc.Types
     Aihc.Tc.Unify
@@ -101,6 +102,7 @@ test-suite spec
     Test.Tc.Interface
     Test.Tc.Properties
     Test.Tc.Suite
+    Test.Tc.Traverse
 
   build-depends:
     aeson,

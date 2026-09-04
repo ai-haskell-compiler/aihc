@@ -127,9 +127,10 @@ import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (.
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
-import Aihc.Tc.Generic (everything, everywhereM)
+import Aihc.Tc.Generic (everywhereM)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
+import Aihc.Tc.Traverse (annotationList)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
@@ -138,7 +139,7 @@ import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -764,9 +765,8 @@ concreteSpan :: SourceSpan -> Maybe SourceSpan
 concreteSpan NoSourceSpan = Nothing
 concreteSpan sp = Just sp
 
-collectTcDiagnostics :: (Data a) => a -> [TcDiagnostic]
-collectTcDiagnostics =
-  everything (maybe [] (maybeToList . fromAnnotation) . cast)
+collectTcDiagnostics :: Module -> [TcDiagnostic]
+collectTcDiagnostics = mapMaybe fromAnnotation . annotationList
 
 internalAbortDiagnostic :: String -> TcDiagnostic
 internalAbortDiagnostic msg =

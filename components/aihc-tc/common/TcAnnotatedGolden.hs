@@ -11,6 +11,7 @@ module TcAnnotatedGolden
     TcAnnotatedCase (..),
     fixtureRoot,
     loadTcAnnotatedCases,
+    checkTcAnnotatedCase,
     evaluateTcAnnotatedCase,
     renderAnnotatedTcResults,
   )
@@ -230,15 +231,18 @@ evaluateTcAnnotatedCasePure tc =
 
 renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
 renderTcAnnotatedCase tc =
+  renderAnnotatedTcResults (caseModules tc) <$> checkTcAnnotatedCase tc
+
+-- | Parse, resolve, and type-check the modules of one case.
+checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [Module]
+checkTcAnnotatedCase tc =
   let parsedModules = map parseOne (caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
           case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              case typecheckModuleGraph (supportTcInterface primitiveSupport) (map snd resolvedModules) of
-                Left errMsg -> Left errMsg
-                Right results -> Right (renderAnnotatedTcResults (caseModules tc) results)
+              typecheckModuleGraph (supportTcInterface primitiveSupport) (map snd resolvedModules)
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where

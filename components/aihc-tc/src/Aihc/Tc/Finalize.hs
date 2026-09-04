@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Finalize type-checker annotations after constraint solving.
@@ -29,35 +27,20 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
-import Aihc.Tc.Generic (everywhereM)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
 import Aihc.Tc.Tidy (tidyType)
+import Aihc.Tc.Traverse (traverseAnnotations)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, pattern KType)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
-import Data.Data (Data)
-import Data.Typeable (cast)
 
 -- | Convert every pending type-checker annotation in a module to a final
--- annotation. This is intentionally generic over the parser AST so adding new
--- syntax constructors cannot make pending annotations escape.
+-- annotation. The walk covers every syntax constructor, so a pending
+-- annotation cannot escape.
 finalizeModuleTc :: Module -> TcM Module
-finalizeModuleTc =
-  everywhereM finalizeAnnotationNode
-
-finalizeAnnotationNode :: forall a. (Data a) => a -> TcM a
-finalizeAnnotationNode value =
-  case cast value of
-    Just (ann :: Annotation) -> do
-      ann' <- finalizeAnnotationTc ann
-      case cast ann' of
-        Just value' -> pure value'
-        Nothing ->
-          abortTc "internal type annotation error: annotation cast failed during finalization"
-    Nothing ->
-      pure value
+finalizeModuleTc = traverseAnnotations finalizeAnnotationTc
 
 finalizeAnnotationTc :: Annotation -> TcM Annotation
 finalizeAnnotationTc ann =
@@ -66,11 +49,11 @@ finalizeAnnotationTc ann =
     Nothing ->
       case fromAnnotation @TcPatSynAnnotation ann of
         Just patSyn -> do
-          -- The matcher and builder equations live inside the annotation.
-          -- The generic traversal does not enter an annotation payload.
-          matcher <- everywhereM finalizeAnnotationNode (tcPatSynMatcher patSyn)
-          builder <- traverse (everywhereM finalizeAnnotationNode) (tcPatSynBuilder patSyn)
-          selectors <- traverse (traverse (everywhereM finalizeAnnotationNode)) (tcPatSynSelectors patSyn)
+          -- The matcher, builder, and selector equations live inside the
+          -- annotation. The walk does not enter an annotation payload.
+          matcher <- traverseAnnotations finalizeAnnotationTc (tcPatSynMatcher patSyn)
+          builder <- traverse (traverseAnnotations finalizeAnnotationTc) (tcPatSynBuilder patSyn)
+          selectors <- traverse (traverse (traverseAnnotations finalizeAnnotationTc)) (tcPatSynSelectors patSyn)
           pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
         Nothing -> do
           rejectMetaFinalAnnotation ann
