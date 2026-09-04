@@ -33,6 +33,14 @@ expected: |-
    = Λ(a : 2.tType).
     λ(x : a).
       λ(y : a).
-        1.vStrictPair @a x y
+        (λ(_strict_field : a).
+          λ(_strict_field{1} : a).
+            case _strict_field as (_strict_forced : a) return (1.tStrictPair a) of {
+                _ →
+                    case _strict_field{1} as (_strict_forced{1} : a) return (1.tStrictPair a) of {
+                        _ →
+                            1.vStrictPair @a _strict_field _strict_field{1}
+                    }
+            }) x y
 status: pass
-reason: A strict constructor application uses instantiated field binder types.
+reason: A strict constructor application forces each strict field before it builds the value.

@@ -89,6 +89,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper)
+import Data.Foldable (foldrM)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -110,6 +111,7 @@ data ValueState = ValueState
     vsConstructorInfos :: !(Map Text [DataConInfo]),
     vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
+    vsStrictConstructors :: !(Map TcTermKey [Bool]),
     vsPatSyns :: !(Map TcTermKey PatSynInfo)
   }
 
@@ -119,6 +121,9 @@ data PreparedValueInterface = PreparedValueInterface
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
     preparedNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     preparedFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
+    -- | Strict field flags of each data constructor that has one strict
+    -- field or more. The list gives one flag for each source field.
+    preparedStrictConstructors :: !(Map TcTermKey [Bool]),
     preparedPatSyns :: !(Map TcTermKey PatSynInfo)
   }
 
@@ -160,6 +165,7 @@ emptyPreparedValueInterface =
       preparedConstructorInfos = Map.empty,
       preparedNewtypeConstructors = Map.empty,
       preparedFamilyConstructors = Map.empty,
+      preparedStrictConstructors = Map.empty,
       preparedPatSyns = Map.empty
     }
 
@@ -171,6 +177,7 @@ prepareValueInterface interface =
       preparedConstructorInfos = constructorInfos,
       preparedNewtypeConstructors = newtypes,
       preparedFamilyConstructors = familyConstructors,
+      preparedStrictConstructors = strictConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface]
     }
   where
@@ -219,6 +226,16 @@ prepareValueInterface interface =
           let tyCon = dfiiRepresentationTyCon info,
           constructorName <- dfiiConstructorNames info
         ]
+    strictConstructors =
+      Map.fromList
+        [ (TcTermGlobal package moduleName' (dciName constructor), flags)
+        | dataType <- tcInterfaceDataTypes interface,
+          dtiFlavor dataType /= NewtypeTyCon,
+          constructor <- dtiConstructors dataType,
+          let flags = map dcfiStrict (dciFields constructor),
+          or flags,
+          let (package, moduleName') = dciOrigin constructor
+        ]
 
 mergePreparedValueInterfaces :: [PreparedValueInterface] -> PreparedValueInterface
 mergePreparedValueInterfaces interfaces =
@@ -228,6 +245,7 @@ mergePreparedValueInterfaces interfaces =
       preparedConstructorInfos = Map.unionsWith mergeCandidates (map preparedConstructorInfos interfaces),
       preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces),
       preparedFamilyConstructors = Map.unions (map preparedFamilyConstructors interfaces),
+      preparedStrictConstructors = Map.unions (map preparedStrictConstructors interfaces),
       preparedPatSyns = Map.unions (map preparedPatSyns interfaces)
     }
   where
@@ -253,6 +271,7 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsConstructorInfos = preparedConstructorInfos interface,
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
             vsFamilyConstructors = preparedFamilyConstructors interface,
+            vsStrictConstructors = preparedStrictConstructors interface,
             vsPatSyns = preparedPatSyns interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
@@ -2019,14 +2038,22 @@ localOccurrenceTypeArguments name annotation
         )
 
 desugarInfixOperator :: Syn.Name -> ValueM Expr
-desugarInfixOperator operator =
-  case listToMaybe (mapMaybe Syn.fromAnnotation (Syn.nameAnns operator)) of
-    Just annotation -> do
+desugarInfixOperator operator = do
+  let maybeAnnotation = listToMaybe (mapMaybe Syn.fromAnnotation (Syn.nameAnns operator))
+  maybeStrict <- strictConstructorData operator
+  case (maybeStrict, maybeAnnotation) of
+    (Just strictFlags, Just annotation) ->
+      desugarStrictConstructor operator annotation strictFlags
+    (Just strictFlags, Nothing) -> do
+      constructorType <- lookupBindingType =<< requiredNameTermKey operator
+      let annotation = TcAnnotation constructorType [] [] [] [] []
+      desugarStrictConstructor operator annotation strictFlags
+    (Nothing, Just annotation) -> do
       variable <- resolvedTermName operator
       types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
       evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
       desugarTermReference variable types evidence (seqTermArgumentTypes annotation)
-    Nothing -> do
+    (Nothing, Nothing) -> do
       variable <- resolvedTermName operator
       desugarTermReference variable [] [] []
 
@@ -2059,13 +2086,17 @@ desugarVariable :: Maybe TcAnnotation -> Syn.Name -> ValueM Expr
 desugarVariable maybeAnnotation name = do
   maybeFamily <- familyConstructorData name
   maybeNewtype <- newtypeConstructorData name
-  case (maybeFamily, maybeNewtype) of
-    (Just info, _) -> do
+  maybeStrict <- strictConstructorData name
+  case (maybeFamily, maybeNewtype, maybeStrict) of
+    (Just info, _, _) -> do
       annotation <- constructorAnnotation
       desugarFamilyConstructor name annotation info
-    (_, Just dataType) -> do
+    (_, Just dataType, _) -> do
       annotation <- constructorAnnotation
       desugarNewtypeConstructor annotation dataType
+    (_, _, Just strictFlags) -> do
+      annotation <- constructorAnnotation
+      desugarStrictConstructor name annotation strictFlags
     _ -> do
       variable <- patSynBuilderName =<< resolvedTermName name
       case maybeAnnotation of
@@ -2144,6 +2175,52 @@ desugarPrimitiveSeq termArgumentTypes =
             )
         )
     argumentTypes -> failValue ("GHC.Prim.seq has " <> show (length argumentTypes) <> " checked term argument types")
+
+-- | The strict field flags of a data constructor that has one strict field
+-- or more.
+strictConstructorData :: Syn.Name -> ValueM (Maybe [Bool])
+strictConstructorData name = do
+  strictConstructors <- gets vsStrictConstructors
+  pure (nameTermKey name >>= (`Map.lookup` strictConstructors))
+
+-- | A data constructor with strict fields evaluates each strict field before
+-- it builds the value. Give the constructor a wrapper that does this. The
+-- wrapper takes each field, forces the strict lifted fields in field order,
+-- and then applies the constructor. An unlifted field is already evaluated,
+-- so the wrapper does not force it.
+desugarStrictConstructor :: Syn.Name -> TcAnnotation -> [Bool] -> ValueM Expr
+desugarStrictConstructor name annotation strictFlags = do
+  let (_, afterForAlls) = peelForAlls (tcAnnType annotation)
+      (_, bodyType) = peelConstraints afterForAlls
+      (fieldTypes, resultType) = splitFunctionType bodyType
+  if length fieldTypes /= length strictFlags
+    then failValue ("strict constructor " <> T.unpack (Syn.nameText name) <> " has an unexpected field count")
+    else do
+      constructor <- resolvedTermName name
+      inferredTypes <- localOccurrenceTypeArguments name annotation
+      types <- mapM convertCheckedType inferredTypes
+      evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+      fields <- mapM (freshBinder "_strict_field") fieldTypes
+      convertedResult <- convertCheckedType resultType
+      kindEnv <- gets (ceKindEnv . vsConvertEnv)
+      let applied =
+            foldl
+              ExApp
+              (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence)
+              (map (ExVar . binderName) fields)
+          forced (strict, binder, fieldType) inner
+            | strict && not (isUnliftedTypeInEnv kindEnv fieldType) = do
+                evaluated <- freshBinder "_strict_forced" fieldType
+                pure
+                  ( ExCase
+                      (ExVar (binderName binder))
+                      evaluated
+                      convertedResult
+                      [Alt AltDefault [] [] inner]
+                  )
+            | otherwise = pure inner
+      body <- foldrM forced applied (zip3 strictFlags fields fieldTypes)
+      pure (foldr ExLam body fields)
 
 newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do

@@ -1,0 +1,22 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Failure = Failure
+
+    data Pair = Pair !Int Int
+
+    result :: Bool
+    result = seq (Pair (raise# Failure) 1) True
+output: ""
+exception: Failure
+expression: result
+status: pass
+reason: a data constructor with a strict field forces that field when it builds the value
