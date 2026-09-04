@@ -888,7 +888,9 @@ compileDirectBinding env vars expression =
             pure (storeLocal destination "0")
           pure (["  call void @aihc_unsupported_primitive()"] <> zeros)
     GrinPrimitiveCall _ name _ -> lift (Left (LlvmUnsupportedExpression ("primitive call " <> name)))
-    GrinForeignCallExpr foreignCall arguments -> compileForeignCall env foreignCall arguments >>= storeOne
+    GrinForeignCallExpr foreignCall arguments
+      | null vars -> fst <$> compileForeignCall env foreignCall arguments
+      | otherwise -> compileForeignCall env foreignCall arguments >>= storeOne
     _ -> lift (Left (LlvmUnsupportedExpression "non-direct expression remained in a CPS bind"))
   where
     storeOne (lines', operand) =
@@ -1028,15 +1030,21 @@ compileForeignCall env foreignCall arguments = do
       let conversionLines = concatMap fst converted
           callArguments = T.intercalate ", " (zipWith (\foreignType' (_, operand) -> llvmForeignType foreignType' <> " " <> operand) argumentTypes converted)
           resultType = grinForeignResultType signature
-      callResult <- freshValue
-      (resultLines, resultOperand) <- convertForeignResult resultType callResult
-      pure
-        ( lines'
-            <> conversionLines
-            <> ["  " <> callResult <> " = call " <> llvmForeignType resultType <> " @" <> grinForeignCallSymbol foreignCall <> "(" <> callArguments <> ")"]
-            <> resultLines,
-          resultOperand
-        )
+          callee = "@" <> grinForeignCallSymbol foreignCall <> "(" <> callArguments <> ")"
+      case resultType of
+        -- A procedure call binds nothing; the operand stands in for a result
+        -- that no bind reads.
+        GrinForeignVoid -> pure (lines' <> conversionLines <> ["  call void " <> callee], "0")
+        _ -> do
+          callResult <- freshValue
+          (resultLines, resultOperand) <- convertForeignResult resultType callResult
+          pure
+            ( lines'
+                <> conversionLines
+                <> ["  " <> callResult <> " = call " <> llvmForeignType resultType <> " " <> callee]
+                <> resultLines,
+              resultOperand
+            )
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
@@ -1566,24 +1574,31 @@ pointerIdentity operand = do
 convertForeignArgument :: GrinForeignType -> Text -> FunctionM ([Text], Text)
 convertForeignArgument foreignType operand =
   case foreignType of
-    GrinForeignInt -> pure ([], operand)
-    GrinForeignInt32 -> do
-      converted <- freshValue
-      pure (["  " <> converted <> " = trunc i64 " <> operand <> " to i32"], converted)
-    GrinForeignWord64 -> pure ([], operand)
     GrinForeignAddr -> intToPtr operand
+    GrinForeignVoid -> lift (Left (LlvmUnsupportedExpression "void foreign argument"))
+    _
+      | llvmForeignType foreignType == "i64" -> pure ([], operand)
+      | otherwise -> do
+          converted <- freshValue
+          pure (["  " <> converted <> " = trunc i64 " <> operand <> " to " <> llvmForeignType foreignType], converted)
 
 convertForeignResult :: GrinForeignType -> Text -> FunctionM ([Text], Text)
 convertForeignResult foreignType operand =
   case foreignType of
-    GrinForeignInt -> pure ([], operand)
-    GrinForeignInt32 -> do
-      converted <- freshValue
-      pure (["  " <> converted <> " = sext i32 " <> operand <> " to i64"], converted)
-    GrinForeignWord64 -> pure ([], operand)
     GrinForeignAddr -> do
       converted <- freshValue
       pure (["  " <> converted <> " = ptrtoint ptr " <> operand <> " to i64"], converted)
+    GrinForeignVoid -> pure ([], operand)
+    _
+      | llvmForeignType foreignType == "i64" -> pure ([], operand)
+      | otherwise -> do
+          converted <- freshValue
+          let extension = if foreignTypeSigned foreignType then "sext" else "zext"
+          pure (["  " <> converted <> " = " <> extension <> " " <> llvmForeignType foreignType <> " " <> operand <> " to i64"], converted)
+
+foreignTypeSigned :: GrinForeignType -> Bool
+foreignTypeSigned foreignType =
+  foreignType `elem` [GrinForeignInt, GrinForeignInt8, GrinForeignInt16, GrinForeignInt32, GrinForeignInt64]
 
 intToPtr :: Text -> FunctionM ([Text], Text)
 intToPtr operand = do
@@ -1848,9 +1863,17 @@ llvmForeignType :: GrinForeignType -> Text
 llvmForeignType foreignType =
   case foreignType of
     GrinForeignInt -> "i64"
+    GrinForeignInt8 -> "i8"
+    GrinForeignInt16 -> "i16"
     GrinForeignInt32 -> "i32"
+    GrinForeignInt64 -> "i64"
+    GrinForeignWord -> "i64"
+    GrinForeignWord8 -> "i8"
+    GrinForeignWord16 -> "i16"
+    GrinForeignWord32 -> "i32"
     GrinForeignWord64 -> "i64"
     GrinForeignAddr -> "ptr"
+    GrinForeignVoid -> "void"
 
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either LlvmError Text
 lookupRuntimeInfoLabel env key =

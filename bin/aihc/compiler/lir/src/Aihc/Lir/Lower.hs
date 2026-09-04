@@ -75,7 +75,7 @@ import Data.Char (ord)
 import Data.Foldable (for_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -898,9 +898,8 @@ compileBinding ctx env vars expression =
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
     GrinPrimitiveCall runtimeRep name arguments -> compilePrimitive ctx env vars runtimeRep name arguments
-    GrinForeignCallExpr foreignCall arguments -> do
-      result <- compileForeignCall ctx env foreignCall arguments
-      bindResults [result]
+    GrinForeignCallExpr foreignCall arguments ->
+      compileForeignCall ctx env foreignCall arguments >>= bindResults
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
     allocateAndInitialize allocator node = do
@@ -965,7 +964,8 @@ materialize ctx env value =
 pointerValue :: FunctionCtx -> ValueEnv -> GrinValue -> LowerM Operand
 pointerValue ctx env value = materialize ctx env value >>= coerce Ptr
 
-compileForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM Typed
+-- | A foreign call gives one value, or none for a C procedure.
+compileForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM [Typed]
 compileForeignCall ctx env foreignCall arguments =
   case grinForeignCallTarget foreignCall of
     -- An address import materializes the symbol address instead of calling it.
@@ -973,35 +973,74 @@ compileForeignCall ctx env foreignCall arguments =
       | null arguments -> do
           let symbol = Symbol (grinForeignCallSymbol foreignCall)
           requireExternData symbol
-          pure (Typed (OperandLiteral (LitSymbol symbol)) Ptr)
+          pure [Typed (OperandLiteral (LitSymbol symbol)) Ptr]
       | otherwise -> failWith (LowerUnsupportedExpression "address foreign import with arguments")
     GrinForeignFunction -> compileCCall ctx env False foreignCall arguments
 
 compileRuntimeCall :: FunctionCtx -> ValueEnv -> NativeRuntimeCall -> [GrinValue] -> LowerM Typed
-compileRuntimeCall ctx env runtimeCall = compileCCall ctx env (nativeRuntimeCallPassMachine runtimeCall) (nativeRuntimeCallForeignCall runtimeCall)
+compileRuntimeCall ctx env runtimeCall arguments = do
+  results <- compileCCall ctx env (nativeRuntimeCallPassMachine runtimeCall) (nativeRuntimeCallForeignCall runtimeCall) arguments
+  case results of
+    [result] -> pure result
+    _ -> failWith (LowerUnsupportedExpression "runtime call without a result")
 
-compileCCall :: FunctionCtx -> ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> LowerM Typed
+compileCCall :: FunctionCtx -> ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> LowerM [Typed]
 compileCCall ctx env passMachine foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
-      (parameters, result) = runtimeCallSignature passMachine signature
+      (parameters, results) = runtimeCallSignature passMachine signature
   when (length arguments /= length (grinForeignArgumentTypes signature)) $ failWith (LowerUnsupportedExpression "foreign call arity mismatch")
   values <- mapM (materialize ctx env) arguments
   operands <- zipWithM coerce (drop (fromEnum passMachine) parameters) values
-  resultOperand <- callRuntime (grinForeignCallSymbol foreignCall) parameters [result] ([ctxMachine ctx | passMachine] <> operands)
-  pure (Typed resultOperand result)
+  resultOperand <- callRuntime (grinForeignCallSymbol foreignCall) parameters results ([ctxMachine ctx | passMachine] <> operands)
+  case results of
+    [result] -> (: []) <$> extendForeignResult (grinForeignResultType signature) (Typed resultOperand result)
+    _ -> pure []
 
 -- | The Lir signature of a C runtime or foreign function.
-runtimeCallSignature :: Bool -> GrinForeignSignature -> ([Type], Type)
+runtimeCallSignature :: Bool -> GrinForeignSignature -> ([Type], [Type])
 runtimeCallSignature passMachine signature =
-  ([Ptr | passMachine] <> map foreignType (grinForeignArgumentTypes signature), foreignType (grinForeignResultType signature))
+  ([Ptr | passMachine] <> map foreignType (grinForeignArgumentTypes signature), maybeToList (foreignResultType (grinForeignResultType signature)))
 
+-- | The C ABI passes integers narrower than 32 bits extended to 32 bits, and
+-- GRIN keeps them extended to 64 bits, so their low 32 bits are the C value.
 foreignType :: GrinForeignType -> Type
 foreignType ty =
   case ty of
     GrinForeignInt -> I64
+    GrinForeignInt8 -> I32
+    GrinForeignInt16 -> I32
     GrinForeignInt32 -> I32
+    GrinForeignInt64 -> I64
+    GrinForeignWord -> I64
+    GrinForeignWord8 -> I32
+    GrinForeignWord16 -> I32
+    GrinForeignWord32 -> I32
     GrinForeignWord64 -> I64
     GrinForeignAddr -> Ptr
+    GrinForeignVoid -> I32
+
+foreignResultType :: GrinForeignType -> Maybe Type
+foreignResultType ty =
+  case ty of
+    GrinForeignVoid -> Nothing
+    _ -> Just (foreignType ty)
+
+-- | Extend a narrow C result to 64 bits from its own width, because the high
+-- bits of a narrow result register are unspecified.
+extendForeignResult :: GrinForeignType -> Typed -> LowerM Typed
+extendForeignResult foreignTy (Typed operand actual) =
+  case (foreignTy, actual) of
+    (GrinForeignInt8, I32) -> extend SExt I8
+    (GrinForeignInt16, I32) -> extend SExt I16
+    (GrinForeignInt32, I32) -> emitValue "foreign_result" I64 (Convert SExt I32 operand I64)
+    (GrinForeignWord8, I32) -> extend ZExt I8
+    (GrinForeignWord16, I32) -> extend ZExt I16
+    (GrinForeignWord32, I32) -> emitValue "foreign_result" I64 (Convert ZExt I32 operand I64)
+    _ -> pure (Typed operand actual)
+  where
+    extend op narrowTy = do
+      narrowed <- emitValue "foreign_narrow" narrowTy (Convert Trunc I32 operand narrowTy)
+      emitValue "foreign_result" I64 (Convert op narrowTy (typedOperand narrowed) I64)
 
 -- Primitives
 

@@ -1,0 +1,18 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word8 (..))
+    import Foreign.C.Types (CUChar (..))
+
+    foreign import ccall unsafe "toupper" c_toupper :: CUChar -> CUChar
+output: |
+  W8# 65
+expression: |
+  c_toupper (CUChar (W8# 97#Word8))
+status: pass
+reason: a CUChar marshals through its newtype and Word8 as an 8-bit unsigned C value in both directions

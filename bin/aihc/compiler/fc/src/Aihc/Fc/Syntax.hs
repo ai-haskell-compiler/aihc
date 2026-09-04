@@ -210,10 +210,19 @@ data CCallTarget
 
 data CAbiType
   = CAbiInt
+  | CAbiInt8
+  | CAbiInt16
   | CAbiInt32
+  | CAbiInt64
+  | CAbiWord
+  | CAbiWord8
+  | CAbiWord16
+  | CAbiWord32
   | CAbiWord64
   | CAbiAddr
-  deriving (Eq, Ord, Show, Read)
+  | -- | The result of a C procedure, which has no value.
+    CAbiVoid
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 data ForeignEffect
   = ForeignPure

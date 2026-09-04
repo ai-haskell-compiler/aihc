@@ -1,0 +1,24 @@
+annotated:
+- |-
+  module Test where
+
+  data IO a
+       └─ type: Type → Type
+  data Opaque
+       └─ type: Type
+
+  foreign import ccall unsafe "opaque" c_opaque :: Opaque -> IO Opaque
+  └─ type: Opaque → IO Opaque          └─ error: unsupported foreign import value type: Opaque
+                                       └─ error: unsupported foreign import value type: Opaque
+extensions:
+- ForeignFunctionInterface
+modules:
+- |
+  module Test where
+
+  data IO a
+  data Opaque
+
+  foreign import ccall unsafe "opaque" c_opaque :: Opaque -> IO Opaque
+reason: a type without a single-constructor, single-field representation is not a foreign import value type
+status: pass

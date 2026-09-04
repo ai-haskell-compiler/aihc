@@ -1,7 +1,7 @@
 {-
 Hand-written test exception.
 
-Essential property: the hand-written annotation walk in "Aihc.Tc.Traverse"
+Essential property: the hand-written annotation walk in "Aihc.Resolve.Traverse"
 visits every annotation of a checked module, in the same order as a generic
 "Data.Data" walk. A missed annotation would keep a pending type annotation
 in the output.
@@ -15,8 +15,8 @@ fixture. The user approved this exception.
 module Test.Tc.Traverse (tcTraverseTests) where
 
 import Aihc.Parser.Syntax (Annotation, Module)
-import Aihc.Tc.Generic (everything)
-import Aihc.Tc.Traverse (annotationList)
+import Aihc.Resolve.Generic (everything)
+import Aihc.Resolve.Traverse (annotationList)
 import Data.Maybe (maybeToList)
 import Data.Typeable (cast)
 import TcAnnotatedGolden qualified as TAG

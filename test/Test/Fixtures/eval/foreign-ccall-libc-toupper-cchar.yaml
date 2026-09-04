@@ -1,0 +1,18 @@
+extensions:
+  - ExtendedLiterals
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int8 (..))
+    import Foreign.C.Types (CChar (..))
+
+    foreign import ccall unsafe "toupper" c_toupper :: CChar -> CChar
+output: |
+  I8# 65
+expression: |
+  c_toupper (CChar (I8# 97#Int8))
+status: pass
+reason: a CChar marshals through its newtype and Int8 as an 8-bit signed C value in both directions

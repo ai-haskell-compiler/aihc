@@ -271,6 +271,15 @@ lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups r
           adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
             adaptForeignResult env axioms constructors resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
         pure (expression, adapterPrimitives)
+      -- A C procedure gives no value; the Haskell result is the nullary
+      -- constructor of its type, which is the unit type in practice.
+      ([(resultValueType, resultValueRep)], [])
+        | isLiftedRuntimeRep resultValueRep -> do
+            tag <- findNullaryConstructor env axioms constructors resultValueType
+            expression <-
+              adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
+                pure (GrinBind [] (GrinForeignCallExpr foreignCall values) (GrinStore (GrinNode (GrinConstructor tag 0) [])))
+            pure (expression, adapterPrimitives)
       _ -> throwLower ("GRIN foreign result does not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
 
 -- | The primitive that gives the payload address of a byte array.
@@ -352,15 +361,10 @@ adaptForeignResult env axioms constructors sourceType sourceRep foreignRep forei
 
 findUnaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> LowerM (Text, GrinRep)
 findUnaryConstructor env axioms constructors resultType expectedRep =
-  case listToMaybe (mapMaybe matchConstructor constructorEntries) of
+  case listToMaybe (mapMaybe matchConstructor (foreignConstructorEntries env constructors)) of
     Just result -> pure result
     Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType)
   where
-    constructorEntries =
-      [ (name, constructorType)
-      | name <- constructors,
-        Just constructorType <- [Map.lookup name (TypeOf.teHeaders (lowerTypes env))]
-      ]
     matchConstructor (name, constructorType)
       | Fc.nameSort name /= Fc.SortDataConstructor = Nothing
       | otherwise = do
@@ -372,6 +376,28 @@ findUnaryConstructor env axioms constructors resultType expectedRep =
                   | fieldRep == expectedRep -> Just (constructorTag name, fieldRep)
                 _ -> Nothing
             _ -> Nothing
+
+-- | The constructor of a type with no fields, such as the unit constructor.
+findNullaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> LowerM Text
+findNullaryConstructor env axioms constructors resultType =
+  case listToMaybe (mapMaybe matchConstructor (foreignConstructorEntries env constructors)) of
+    Just tag -> pure tag
+    Nothing -> throwLower ("GRIN cannot find a nullary constructor adapter for type: " <> show resultType)
+  where
+    matchConstructor (name, constructorType)
+      | Fc.nameSort name /= Fc.SortDataConstructor = Nothing
+      | otherwise = do
+          fieldTypes <- instantiateConstructorFields env axioms constructorType resultType
+          case fieldTypes of
+            [] -> Just (constructorTag name)
+            _ -> Nothing
+
+foreignConstructorEntries :: LowerEnv -> [Fc.Name] -> [(Fc.Name, Fc.Type)]
+foreignConstructorEntries env constructors =
+  [ (name, constructorType)
+  | name <- constructors,
+    Just constructorType <- [Map.lookup name (TypeOf.teHeaders (lowerTypes env))]
+  ]
 
 instantiateConstructorFields :: LowerEnv -> [Fc.AxiomDecl] -> Fc.Type -> Fc.Type -> Maybe [Fc.Type]
 instantiateConstructorFields env axioms constructorType targetType = do
@@ -1140,9 +1166,17 @@ lowerForeignType :: Fc.CAbiType -> GrinForeignType
 lowerForeignType foreignType =
   case foreignType of
     Fc.CAbiInt -> GrinForeignInt
+    Fc.CAbiInt8 -> GrinForeignInt8
+    Fc.CAbiInt16 -> GrinForeignInt16
     Fc.CAbiInt32 -> GrinForeignInt32
+    Fc.CAbiInt64 -> GrinForeignInt64
+    Fc.CAbiWord -> GrinForeignWord
+    Fc.CAbiWord8 -> GrinForeignWord8
+    Fc.CAbiWord16 -> GrinForeignWord16
+    Fc.CAbiWord32 -> GrinForeignWord32
     Fc.CAbiWord64 -> GrinForeignWord64
     Fc.CAbiAddr -> GrinForeignAddr
+    Fc.CAbiVoid -> GrinForeignVoid
 
 splitFunctionType :: Fc.Type -> Either String ([Fc.Type], Fc.Type)
 splitFunctionType sourceType =

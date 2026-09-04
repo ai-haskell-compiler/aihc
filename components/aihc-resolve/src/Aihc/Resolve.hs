@@ -115,10 +115,10 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
+import Aihc.Resolve.Traverse (HasAnnotations, annotationList)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mapAndUnzipM)
-import Data.Data (Data, cast, gmapQ)
+import Control.Monad (foldM, mapAndUnzipM, (<=<))
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -126,75 +126,10 @@ import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-collectResolveErrors :: (Data a) => a -> [ResolveError]
-collectResolveErrors node =
-  ownResolveErrors node <> concat (gmapQ collectResolveErrors node)
-
-ownResolveErrors :: (Data a) => a -> [ResolveError]
-ownResolveErrors node =
-  declResolutionErrors (cast node)
-    <> classDeclItemResolutionErrors (cast node)
-    <> importResolutionErrors (cast node)
-    <> importItemResolutionErrors (cast node)
-    <> nameResolutionErrors (cast node)
-    <> unqualifiedNameResolutionErrors (cast node)
-    <> patternResolutionErrors (cast node)
-    <> typeResolutionErrors (cast node)
-    <> exprResolutionErrors (cast node)
-
-declResolutionErrors :: Maybe Decl -> [ResolveError]
-declResolutionErrors maybeDecl =
-  case maybeDecl of
-    Just (DeclResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
-
-classDeclItemResolutionErrors :: Maybe ClassDeclItem -> [ResolveError]
-classDeclItemResolutionErrors maybeItem =
-  case maybeItem of
-    Just (ClassItemAnn ann _) -> maybeToList (fromAnnotation ann >>= annotationResolveError)
-    _ -> []
-
-importResolutionErrors :: Maybe ImportDecl -> [ResolveError]
-importResolutionErrors maybeImport =
-  case maybeImport of
-    Just importDecl -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (importDeclAnns importDecl))
-    _ -> []
-
-importItemResolutionErrors :: Maybe ImportItem -> [ResolveError]
-importItemResolutionErrors maybeItem =
-  case maybeItem of
-    Just (ImportAnn ann _) -> maybeToList (fromAnnotation ann >>= annotationResolveError)
-    _ -> []
-
-nameResolutionErrors :: Maybe Name -> [ResolveError]
-nameResolutionErrors maybeName =
-  case maybeName of
-    Just name -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (nameAnns name))
-    _ -> []
-
-unqualifiedNameResolutionErrors :: Maybe UnqualifiedName -> [ResolveError]
-unqualifiedNameResolutionErrors maybeName =
-  case maybeName of
-    Just name -> mapMaybe annotationResolveError (mapMaybe fromAnnotation (unqualifiedNameAnns name))
-    _ -> []
-
-patternResolutionErrors :: Maybe Pattern -> [ResolveError]
-patternResolutionErrors maybePattern =
-  case maybePattern of
-    Just (PResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
-
-typeResolutionErrors :: Maybe Type -> [ResolveError]
-typeResolutionErrors maybeType =
-  case maybeType of
-    Just (TResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
-
-exprResolutionErrors :: Maybe Expr -> [ResolveError]
-exprResolutionErrors maybeExpr =
-  case maybeExpr of
-    Just (EResolution resolution) -> maybeToList (annotationResolveError resolution)
-    _ -> []
+-- | Every resolution error of a piece of syntax, in source order. All
+-- errors live in resolution annotations, so one annotation walk finds them.
+collectResolveErrors :: (HasAnnotations a) => a -> [ResolveError]
+collectResolveErrors = mapMaybe (annotationResolveError <=< fromAnnotation) . annotationList
 
 annotationResolveError :: ResolutionAnnotation -> Maybe ResolveError
 annotationResolveError resolution =

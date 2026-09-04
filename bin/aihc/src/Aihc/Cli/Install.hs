@@ -94,17 +94,24 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
-    dataTypeKey,
     mergeTcInterfaces,
-    patSynKey,
     renderPred,
     renderTcType,
     tcConfig,
+    tcInterfaceClasses,
+    tcInterfaceDataFamilyInstances,
+    tcInterfaceDataTypes,
+    tcInterfaceInstances,
+    tcInterfaceTerms,
+    tcInterfaceTyCons,
+    tcInterfaceTypeFamilyInstances,
     tcModuleBindings,
     tcModuleDiagnostics,
+    tyConKey,
     typecheckModuleSccWithInterface,
+    unionTcInterfaces,
   )
-import Aihc.Tc.Env (PatSynInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tvKind, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
@@ -1105,8 +1112,10 @@ runTypeUnit context runtimes runtime = do
             name `notElem` unitNames
           ]
       externalInstanceInterface = selectInstanceProviders dependencyInstanceFacts externalInstanceProviders
+      -- Each dependency carries the instance closure of its own dependencies,
+      -- so the closures agree wherever they overlap.
       importedInstanceInterface =
-        mergeTcInterfaces
+        unionTcInterfaces
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
       importedTypes =
         mergeTcInterfaces
@@ -1139,7 +1148,7 @@ runTypeUnit context runtimes runtime = do
   let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
       unitTypes = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
       ownInstanceInterface = addReferencedFacts completeInterface (instanceFacts checkedInterface)
-      completeInstanceInterface = mergeTcInterfaces [importedInstanceInterface, ownInstanceInterface]
+      completeInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownInstanceInterface]
       typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
       success = resolveSuccess && dependencySuccess && typeSuccess
   ownTypeHashes <-
@@ -1199,9 +1208,9 @@ runBackendUnit context runtime = do
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
   mempty
-    { tcInterfaceInstances = tcInterfaceInstances interface,
-      tcInterfaceDataFamilyInstances = tcInterfaceDataFamilyInstances interface,
-      tcInterfaceTypeFamilyInstances = tcInterfaceTypeFamilyInstances interface
+    { tcInterfaceInstanceMap = tcInterfaceInstanceMap interface,
+      tcInterfaceDataFamilyInstanceMap = tcInterfaceDataFamilyInstanceMap interface,
+      tcInterfaceTypeFamilyInstanceMap = tcInterfaceTypeFamilyInstanceMap interface
     }
 
 interfaceInstanceProviders :: TcInterface -> Set.Set InstanceProvider
@@ -1222,9 +1231,9 @@ selectInstanceProviders complete providers
       addReferencedFacts
         complete
         mempty
-          { tcInterfaceInstances = filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstances complete),
-            tcInterfaceDataFamilyInstances = filter ((`Set.member` providers) . tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances complete),
-            tcInterfaceTypeFamilyInstances = filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstances complete)
+          { tcInterfaceInstanceMap = Map.filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstanceMap complete),
+            tcInterfaceDataFamilyInstanceMap = Map.filter ((`Set.member` providers) . tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap complete),
+            tcInterfaceTypeFamilyInstanceMap = Map.filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstanceMap complete)
           }
   where
     first transform (left, right) = (transform left, right)
@@ -1530,14 +1539,14 @@ moduleTypeInterface exports package interface source =
   addReferencedFacts
     interface
     interface
-      { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
-        tcInterfaceTyCons = filter visibleTyCon (tcInterfaceTyCons interface),
-        tcInterfaceDataTypes = filter (visibleTypeIdentity . dataTypeKey) (tcInterfaceDataTypes interface),
-        tcInterfaceClasses = filter visibleClass (tcInterfaceClasses interface),
-        tcInterfaceInstances = filter visibleInstance (tcInterfaceInstances interface),
-        tcInterfaceDataFamilyInstances = filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstances interface),
-        tcInterfaceTypeFamilyInstances = filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface),
-        tcInterfacePatSyns = filter (\info -> visibleTerm (patSynKey info, psiScheme info)) (tcInterfacePatSyns interface)
+      { tcInterfaceTermMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceTermMap interface),
+        tcInterfaceTyConMap = Map.filter visibleTyCon (tcInterfaceTyConMap interface),
+        tcInterfaceDataTypeMap = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface),
+        tcInterfaceClassMap = Map.filter visibleClass (tcInterfaceClassMap interface),
+        tcInterfaceInstanceMap = Map.filter visibleInstance (tcInterfaceInstanceMap interface),
+        tcInterfaceDataFamilyInstanceMap = Map.filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstanceMap interface),
+        tcInterfaceTypeFamilyInstanceMap = Map.filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
+        tcInterfacePatSynMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfacePatSynMap interface)
       }
   where
     name = fromMaybe "Main" (moduleName (sourceModuleAst source))
@@ -1546,10 +1555,10 @@ moduleTypeInterface exports package interface source =
     typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
     localIdentity identifier = (packageId package, name, identifier)
     localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
-    visibleTerm (TcTermGlobal packageId' moduleName' identifier, _) =
+    visibleTerm (TcTermGlobal packageId' moduleName' identifier) =
       visibleTermIdentity (packageId', moduleName', identifier)
         || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
-    visibleTerm (TcTermLocal {}, _) = False
+    visibleTerm (TcTermLocal {}) = False
     visibleTermIdentity identity@(_, _, identifier) =
       Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
     -- The matcher and the builder of a visible pattern synonym are visible.
@@ -1583,18 +1592,15 @@ moduleTypeInterface exports package interface source =
 addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
 addReferencedFacts complete interface =
   interface
-    { tcInterfaceTerms = tcInterfaceTerms interface <> callStackSupportTerms,
-      tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
-      tcInterfaceDataTypes = tcInterfaceDataTypes interface <> supportDataTypes,
-      tcInterfaceClasses = tcInterfaceClasses interface <> supportClasses
+    { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList callStackSupportTerms,
+      tcInterfaceTyConMap = tcInterfaceTyConMap interface <> supportTyCons,
+      tcInterfaceDataTypeMap = tcInterfaceDataTypeMap interface <> supportDataTypes,
+      tcInterfaceClassMap = tcInterfaceClassMap interface <> supportClasses
     }
   where
-    existingTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
-    availableTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
-    existingDataTypes = Set.fromList (map dtiTyCon (tcInterfaceDataTypes interface))
-    availableDataTypes = Map.fromList [(dtiTyCon info, info) | info <- tcInterfaceDataTypes complete]
-    existingClasses = Set.fromList (map ciTyCon (tcInterfaceClasses interface))
-    availableClasses = Map.fromList [(ciTyCon info, info) | info <- tcInterfaceClasses complete]
+    availableTyCons = tcInterfaceTyConMap complete
+    availableDataTypes = tcInterfaceDataTypeMap complete
+    availableClasses = tcInterfaceClassMap complete
     -- A use of a function with a HasCallStack constraint desugars to calls
     -- of the call-stack helpers, even when the module does not import them.
     callStackModules =
@@ -1603,20 +1609,23 @@ addReferencedFacts complete interface =
         | tyCon <- concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface),
           tyConName tyCon == "CallStack"
         ]
-    existingTermKeys = Set.fromList (map fst (tcInterfaceTerms interface))
     callStackSupportTerms =
-      [ entry
-      | entry@(TcTermGlobal package' moduleName' identifier, _) <- tcInterfaceTerms complete,
-        (package', moduleName') `Set.member` callStackModules,
-        identifier `elem` ["pushCallSite", "emptyCallStack"],
-        fst entry `Set.notMember` existingTermKeys
+      [ (key, scheme)
+      | (package', moduleName') <- Set.toList callStackModules,
+        identifier <- ["pushCallSite", "emptyCallStack"],
+        let key = TcTermGlobal package' moduleName' identifier,
+        key `Map.notMember` tcInterfaceTermMap interface,
+        Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
       ]
-    callStackSupportTyCons =
-      [ tyCon
-      | tyCon <- Map.keys availableTyCons,
-        (tyConPackageId tyCon, tyConModuleName tyCon) `Set.member` callStackModules,
-        tyConName tyCon `elem` ["SrcLoc", "CallStack"]
-      ]
+    callStackSupportTyCons
+      | Set.null callStackModules = []
+      | otherwise =
+          [ tyCon
+          | info <- Map.elems availableTyCons,
+            let tyCon = tciTyCon info,
+            (tyConPackageId tyCon, tyConModuleName tyCon) `Set.member` callStackModules,
+            tyConName tyCon `elem` ["SrcLoc", "CallStack"]
+          ]
     referenced =
       Set.fromList
         ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
@@ -1630,28 +1639,20 @@ addReferencedFacts complete interface =
             <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
         )
     reachable = closeTyCons Set.empty referenced
-    supportTyCons = Map.restrictKeys availableTyCons (reachable `Set.difference` Map.keysSet existingTyCons)
-    supportDataTypes =
-      [ info
-      | info <- tcInterfaceDataTypes complete,
-        dtiTyCon info `Set.member` reachable,
-        dtiTyCon info `Set.notMember` existingDataTypes
-      ]
-    supportClasses =
-      [ info
-      | info <- tcInterfaceClasses complete,
-        ciTyCon info `Set.member` reachable,
-        ciTyCon info `Set.notMember` existingClasses
-      ]
+    reachableKeys = Set.map tyConKey reachable
+    supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))
+    supportDataTypes = Map.restrictKeys availableDataTypes (reachableKeys `Set.difference` Map.keysSet (tcInterfaceDataTypeMap interface))
+    supportClasses = Map.restrictKeys availableClasses (reachableKeys `Set.difference` Map.keysSet (tcInterfaceClassMap interface))
     closeTyCons found pending
       | Set.null pending = found
       | otherwise =
           let (tyCon, pending') = Set.deleteFindMin pending
+              key = tyConKey tyCon
               dependencies =
                 Set.fromList
-                  ( maybe [] tyConInfoTyCons (Map.lookup tyCon availableTyCons)
-                      <> maybe [] dataTypeInfoTyCons (Map.lookup tyCon availableDataTypes)
-                      <> maybe [] classInfoTyCons (Map.lookup tyCon availableClasses)
+                  ( maybe [] tyConInfoTyCons (Map.lookup key availableTyCons)
+                      <> maybe [] dataTypeInfoTyCons (Map.lookup key availableDataTypes)
+                      <> maybe [] classInfoTyCons (Map.lookup key availableClasses)
                   )
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))

@@ -2,10 +2,14 @@ annotated:
 - |-
   module Test where
 
-  import GHC.Prim (Addr#)
+  import GHC.Prim (Addr#, Int32#)
 
-  data CInt
+  data Int32 = I32# Int32#
+       │       └─ type: GHC.Prim.Int32# → Int32
        └─ type: Type
+  newtype CInt = CInt Int32
+          │      └─ type: Int32 → CInt
+          └─ type: Type
   data IO a
        └─ type: Type → Type
 
@@ -23,9 +27,10 @@ modules:
 - |
   module Test where
 
-  import GHC.Prim (Addr#)
+  import GHC.Prim (Addr#, Int32#)
 
-  data CInt
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
   data IO a
 
   foreign import ccall unsafe puts :: Addr# -> IO CInt
