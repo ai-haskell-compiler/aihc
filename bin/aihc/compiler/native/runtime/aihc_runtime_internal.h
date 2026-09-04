@@ -72,6 +72,7 @@ struct AihcMVarWaiter {
 };
 
 struct AihcMVar {
+  AihcSlot header;
   uint8_t full;
   AihcSlot value;
   AihcMVarWaiter *readers_head;
@@ -84,6 +85,7 @@ struct AihcMVar {
 };
 
 struct AihcStableName {
+  AihcSlot header;
   AihcValue *value;
   uint64_t hash;
   AihcStableName *next;
@@ -98,6 +100,7 @@ struct AihcIoHandle {
 };
 
 typedef struct {
+  AihcSlot header;
   size_t size;
   uint8_t *contents;
   uint8_t pinned;
@@ -131,16 +134,10 @@ typedef struct {
   uint64_t heap_max_bytes;
   uint8_t heap_limit_enabled;
   /* Decide static object liveness from static reference tables instead of
-     keeping every one of them alive. This is off by default: the tables do
-     not yet name everything a running program reaches, so enabling it can
-     collect a CAF that is still needed. Pair it with poison_dead_cafs when
-     investigating. */
+     keeping every evaluated static object alive. This is off by default: the
+     tables do not yet name everything a running program reaches, so enabling
+     it can collect a CAF that is still needed. */
   uint8_t static_reference_roots;
-  /* After a collection, overwrite the indirection target of every static
-     object the collector did not mark. A table that is missing an entry then
-     crashes on the next use of that CAF instead of quietly reading collected
-     memory. */
-  uint8_t poison_dead_cafs;
 } AihcRtsConfig;
 
 _Noreturn void aihc_fail(const char *message);
@@ -163,13 +160,14 @@ void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
 const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result);
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
-/* The static-root section holds one pointer to each static object the
-   collector has to mark. Objects that can neither move nor retain anything
-   have no entry. */
-AihcValue **aihc_static_root_start(void);
-AihcValue **aihc_static_root_end(void);
+/* The header every runtime object outside the managed heap carries. */
+extern const AihcInfo aihc_runtime_object_info;
 
 void aihc_gc_init(AihcMachine *machine);
+/* Tell the collector that an object became an indirection. A static object
+   that holds a heap pointer is the only static object the collector cannot
+   find by itself, so the semispace collector records it as a root. */
+void aihc_gc_note_update(AihcValue *object);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots);
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);

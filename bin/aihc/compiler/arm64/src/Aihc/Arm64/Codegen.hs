@@ -13,7 +13,6 @@ module Aihc.Arm64.Codegen
     mainPrologue,
     programRuntimeReps,
     renderCompiledSupport,
-    renderLinkedLocals,
     renderStaticGlobals,
     supportedNativePrimitiveNames,
     threadDoneContinuation,
@@ -84,7 +83,7 @@ compileModuleStatements gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
-  pure (staticGlobals <> renderStaticReferenceTables compileEnv <> renderLinkedLocals functions <> renderCompiledSupport compileEnv functions [])
+  pure (staticGlobals <> renderStaticReferenceTables compileEnv <> renderCompiledSupport compileEnv functions [])
   where
     program = gcGrinProgram gcProgram
     compileEnv =
@@ -101,7 +100,7 @@ compileEntryUnit entryName gcProgram = do
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure $
     mainPrologue 0
-      <> [arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)), arm64Instruction (ArmBl "_aihc_alloc_linked_locals"), arm64Instruction (ArmMov X19 (Arm64RegisterValue X0))]
+      <> reserveLocalsLines
       <> [ arm64Instruction (ArmMov X0 (Arm64RegisterValue X22)),
            immediate X1 (7 :: Int),
            arm64Instruction (ArmMov X2 (Arm64RegisterValue XZR)),
@@ -159,7 +158,6 @@ compileEntryUnit entryName gcProgram = do
       <> entryEpilogue
       <> staticGlobals
       <> renderStaticReferenceTables compileEnv
-      <> renderLinkedLocals functions
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)
   where
     program = gcGrinProgram gcProgram
@@ -285,18 +283,6 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticO
           arm64QuadSymbol info
         ]
           <> payload
-          -- Only objects the collector has to mark get an entry. A nullary
-          -- constructor has no fields, so it can neither move nor retain
-          -- anything, and the collector leaves a pointer to one alone whether
-          -- or not it knows the object is static.
-          <> [ statement
-             | staticObjectTraced object,
-               statement <-
-                 [ arm64Section RootsSection,
-                   arm64Align 3,
-                   arm64QuadSymbol symbol
-                 ]
-             ]
     staticNodeInfo node =
       case grinNodeTag node of
         GrinConstructor name remaining -> pure (constructorStageLabel name remaining)
@@ -317,13 +303,6 @@ renderStaticGlobals env program = fmap concat (mapM renderGlobal (programStaticO
       case grinNodeTag node of
         GrinThunk {} -> True
         _ -> False
-
-renderLinkedLocals :: [CompiledFunction] -> [Arm64Statement]
-renderLinkedLocals functions =
-  [ arm64Section LocalsSection,
-    arm64Align 3,
-    arm64Quad (fromIntegral (maximum (2 : map compiledFunctionSlots functions)))
-  ]
 
 mainPrologue :: Int -> [Arm64Statement]
 mainPrologue globalCount =

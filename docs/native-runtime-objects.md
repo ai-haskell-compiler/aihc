@@ -40,14 +40,8 @@ capacity. It does not count the second space, auxiliary runtime allocations, or
 static objects.
 
 The `-Zs` option decides static object liveness from static reference tables
-instead of keeping every static object alive. It is off by default because the
-tables do not yet name everything a running program reaches.
-
-The `-Zp` option overwrites the indirection target of every static object a
-collection did not mark. A table that is missing an entry retains nothing and
-therefore goes unnoticed until the collected value is read, so this option
-turns the omission into a crash at the next use of that CAF. It is the tool for
-closing the gap that keeps `-Zs` off.
+instead of keeping every evaluated static object alive. It is off by default
+because the tables do not yet name everything a running program reaches.
 
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining
@@ -152,12 +146,23 @@ heap object of its own to carry its table, and a collection can happen at one
 of its safepoints or inside a runtime helper it called. Suspended code is an
 ordinary continuation closure and reaches its table through its info table.
 
-The static-root section lists the static objects worth marking: updateable
-thunks, which become indirections, and objects that have fields. The collector
-hashes those addresses once into a side table with one mark byte per entry,
-which also tells it whether any pointer outside the heap belongs to a static
-object at all. Nullary constructors have no entry, because a pointer to one
-needs no action either way.
+No section and no table lists the static objects. The collector finds them by
+address: a pointer that is outside both spaces of the managed heap names an
+object that never moves. Each collection records the addresses it marks in a
+hash set and scans each object once through its info table, so an evaluated
+CAF gets its target forwarded like any heap field. A nullary constructor has
+no fields, so marking it does nothing.
+
+Every object that compiled code can store in a pointer field carries an info
+table. The byte arrays, MVars, stable names, and threads that the runtime
+allocates outside the heap therefore also start with a header. Their info
+tables have the kind `AIHC_OBJECT_RUNTIME` or `AIHC_OBJECT_THREAD`, and the
+collector scans nothing behind them.
+
+An evaluated CAF that only code references is reachable through no pointer.
+`aihc_update` therefore records every object outside the heap that becomes an
+indirection. By default each collection marks all recorded objects. Under
+`-Zs` the reference tables decide instead.
 
 ## IO manager
 

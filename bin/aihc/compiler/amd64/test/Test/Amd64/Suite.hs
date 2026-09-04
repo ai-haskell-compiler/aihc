@@ -62,7 +62,7 @@ tests =
                 }
         assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
         listing <- compileModuleListing (expectGcGrin program)
-        assertBool "linked locals section" ("aihc_locals" `T.isInfixOf` listing),
+        assertBool "no linked locals section" (not ("aihc_locals" `T.isInfixOf` listing)),
       testCase "adds Int# values with wrapping machine arithmetic" $ do
         let entryName = FunctionName "int_add"
             result = GrinVar "result" 2 IntRep

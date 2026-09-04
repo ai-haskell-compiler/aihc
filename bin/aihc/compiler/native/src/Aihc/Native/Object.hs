@@ -38,8 +38,6 @@ data SectionRole
   | TextConstantsSection
   | ReadOnlySection
   | DataSection
-  | RootsSection
-  | LocalsSection
   | NoExecuteStackSection
   deriving (Eq, Ord, Show)
 

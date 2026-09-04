@@ -43,7 +43,8 @@
    Values: n (null), hID (heap object), sK (static slot), wHEX (raw word), and
    aID (the address of a heap object as a raw word). Static slots 0-7 are
    thunks, 8-11 are nodes with two pointer fields, and 12-15 are nullary
-   constructors outside the static-root section.
+   constructors. No section lists the static objects: the collector finds
+   them by address.
 
    The driver prints one block for each collection:
 
@@ -56,7 +57,7 @@
      mvar K full V | mvar K empty
      thread SLOT V
      blackhole V
-     static K thunk | static K ind V | static K poison | static K node V V
+     static K thunk | static K ind V | static K node V V
      violation TEXT
      endcollection
 
@@ -70,12 +71,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__APPLE__)
-#define FUZZ_ROOTS __attribute__((used, section("__DATA,__aihc_roots")))
-#else
-#define FUZZ_ROOTS __attribute__((used, section("aihc_roots")))
-#endif
-
 enum {
   STATIC_THUNKS = 8,
   STATIC_NODES = 4,
@@ -86,7 +81,6 @@ enum {
   MAX_TOKENS = 4096,
 };
 
-#define POISON_WORD UINT64_C(0xDEAD0000CAF00000)
 #define OLD_SPACE_FILL 0xAB
 
 typedef struct {
@@ -120,7 +114,6 @@ static const uint8_t static_node_pointers[STATIC_NODE_FIELDS] = {1, 1};
 static StaticThunk static_thunks[STATIC_THUNKS];
 static StaticNode static_nodes[STATIC_NODES];
 static StaticNullary static_nullary[STATIC_NULLARY];
-FUZZ_ROOTS static AihcValue *static_root_entries[STATIC_THUNKS + STATIC_NODES];
 
 static AihcMachine *machine;
 static Entry *entries;
@@ -237,7 +230,6 @@ static void initialize_statics(void) {
     static_thunk_info[index].identity = 0;
     static_thunks[index].header =
         (AihcSlot)(uintptr_t)&static_thunk_info[index];
-    static_root_entries[index] = (AihcValue *)&static_thunks[index];
   }
   for (int index = 0; index < STATIC_NODES; ++index) {
     static_node_info[index].object_kind = AIHC_OBJECT_NODE;
@@ -245,8 +237,6 @@ static void initialize_statics(void) {
     static_node_info[index].field_count = STATIC_NODE_FIELDS;
     static_node_info[index].field_is_pointer = static_node_pointers;
     static_nodes[index].header = (AihcSlot)(uintptr_t)&static_node_info[index];
-    static_root_entries[STATIC_THUNKS + index] =
-        (AihcValue *)&static_nodes[index];
   }
   for (int index = 0; index < STATIC_NULLARY; ++index) {
     static_nullary_info[index].object_kind = AIHC_OBJECT_NODE;
@@ -534,8 +524,6 @@ static void print_static_thunk(uint64_t slot) {
   } else if (aihc_value_kind(object) != AIHC_OBJECT_INDIRECTION) {
     violation("static thunk has an invalid kind");
     printf("static %" PRIu64 " invalid\n", slot);
-  } else if (thunk->target == POISON_WORD) {
-    printf("static %" PRIu64 " poison\n", slot);
   } else {
     printf("static %" PRIu64 " ind", slot);
     print_static_target(thunk->target);

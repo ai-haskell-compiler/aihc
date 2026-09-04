@@ -14,14 +14,13 @@ import Aihc.Amd64.Codegen
     nonExecutableStack,
     programRuntimeReps,
     renderCompiledSupport,
-    renderLinkedLocals,
     renderStaticGlobals,
     threadDoneContinuation,
     threadDoneRuntimeInfos,
     validateProgramPrimitives,
     validateRuntimeRep,
   )
-import Aihc.Amd64.Codegen.Function (compileFunction)
+import Aihc.Amd64.Codegen.Function (compileFunction, reserveLocalsLines)
 import Aihc.Amd64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
 import Aihc.Grin.Gc
@@ -56,7 +55,7 @@ compileObservedFunction entryName gcProgram = do
   let resultCount = length resultReps
       statements =
         mainPrologue 0
-          <> [amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)), amd64Instruction (AmdCall "aihc_alloc_linked_locals"), amd64Instruction (AmdMov R14 (Amd64MoveRegister RAX))]
+          <> reserveLocalsLines
           <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
           <> [ amd64Instruction (AmdMov RDI (Amd64MoveRegister R15)),
                amd64Instruction (AmdMov RSI (Amd64MoveRegister RAX)),
@@ -81,7 +80,6 @@ compileObservedFunction entryName gcProgram = do
           <> threadDoneContinuation
           <> staticGlobals
           <> renderStaticReferenceTables compileEnv
-          <> renderLinkedLocals functions
           <> renderCompiledSupport compileEnv functions observedRuntimeInfos
           <> nonExecutableStack
   object <- assembleObject statements

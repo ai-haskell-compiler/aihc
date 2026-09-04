@@ -22,6 +22,8 @@ void aihc_gc_init(AihcMachine *machine) {
   machine->heap_limit = (uint8_t *)UINTPTR_MAX;
 }
 
+void aihc_gc_note_update(AihcValue *object) { (void)object; }
+
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots) {
   (void)root_count;

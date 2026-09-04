@@ -25,15 +25,10 @@ tests =
         ["+RTS", "-Zs", "-RTS"]
         (staticReferenceSource CollectsUnreachableCaf),
       runtimeProgramTest
-        "every static object stays alive by default"
+        "every evaluated static object stays alive by default"
         RuntimeGcSemispace
         []
-        (staticReferenceSource KeepsEveryCaf),
-      runtimeProgramTest
-        "poisoning leaves the named static object alone"
-        RuntimeGcSemispace
-        ["+RTS", "-Zs", "-Zp", "-RTS"]
-        (staticReferenceSource CollectsUnreachableCaf)
+        (staticReferenceSource KeepsEveryCaf)
     ]
 
 stableNameTest :: RuntimeGarbageCollector -> TestTree
@@ -122,16 +117,12 @@ data StaticReferenceExpectation
 -- | Evaluate two static thunks, then collect with a table that names only one
 -- of them. Under @-Zs@ the named thunk must still reach its list and the list
 -- behind the unnamed thunk must be gone. By default the collector ignores
--- tables and both lists survive.
+-- tables and both lists survive. No code and no section lists the two
+-- thunks: the runtime records them when they become indirections.
 staticReferenceSource :: StaticReferenceExpectation -> String
 staticReferenceSource expectation =
   unlines
     ( [ "#include \"aihc_runtime.h\"",
-        "#if defined(__APPLE__)",
-        "#define AIHC_ROOTS __attribute__((used, section(\"__DATA,__aihc_roots\")))",
-        "#else",
-        "#define AIHC_ROOTS __attribute__((used, section(\"aihc_roots\")))",
-        "#endif",
         "static const uint8_t cell_is_pointer[] = {1};",
         "static const AihcInfo cell_info = {1, 0, 1, 0, cell_is_pointer, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
         "static const AihcInfo leaf_info = {2, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
@@ -139,8 +130,6 @@ staticReferenceSource expectation =
         "typedef struct { AihcSlot header; AihcSlot target; } StaticThunk;",
         "static StaticThunk named_caf = {(AihcSlot)(uintptr_t)&thunk_info, 0};",
         "static StaticThunk unnamed_caf = {(AihcSlot)(uintptr_t)&thunk_info, 0};",
-        "AIHC_ROOTS static AihcValue *named_root = (AihcValue *)&named_caf;",
-        "AIHC_ROOTS static AihcValue *unnamed_root = (AihcValue *)&unnamed_caf;",
         "/* The emitted table layout: walk link, the two counts, then the",
         "   static objects followed by the tables of called functions. */",
         "typedef struct {",
