@@ -1,10 +1,24 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  f x | x == x = x
+  │ │     └─ type: a → a → Bool; type-args: a, a
+  │ └─ type: a
+  └─ type: ∀ a. a → a
+  (==) a b = True
+  │    │ └─ type: b
+  │    └─ type: a
+  └─ type: ∀ a b. a → b → Bool
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    f x | x == x = x
-    (==) a b = True
-annotated: []
-status: xfail
-reason: "pattern guards with expressions not yet supported"
+- |
+  module Test where
+  data Bool = True | False
+  f x | x == x = x
+  (==) a b = True
+reason: a guard expression calling a locally defined operator instantiates it at the argument type
+status: pass
