@@ -1,6 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared data for direct native object generation.
+--
+-- A 'Draft' accumulates the bytes of every section in a
+-- 'Data.ByteString.Builder.Builder' as the assembler walks the instruction
+-- stream, together with the offset of each label and each fixup. Nothing is
+-- kept per instruction, so the assembler allocates a few bytes rather than a
+-- boxed item for every machine word it emits.
 module Aihc.Native.Object
   ( Draft (..),
     Fixup (..),
@@ -10,6 +16,7 @@ module Aihc.Native.Object
     Item (..),
     ObjectError (..),
     Relocation (..),
+    SectionDraft (..),
     SectionRole (..),
     Symbol (..),
     addGlobal,
@@ -31,7 +38,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Data.Word (Word32, Word64)
+import Data.Word (Word32, Word64, Word8)
 
 data SectionRole
   = TextSection
@@ -52,28 +59,43 @@ data FixupKind
   | X86Plt32
   deriving (Eq, Show)
 
+-- | A place in a section whose bytes depend on the address of a symbol. The
+-- width is the number of bytes the fixup occupies and the word is the value
+-- written there before the address is known: the encoded instruction for a
+-- branch, and zero for an absolute slot.
 data Fixup = Fixup
   { fixupKind :: !FixupKind,
     fixupTarget :: !Text,
     fixupAddend :: !Int64,
-    fixupBytes :: !ByteString
+    fixupWidth :: !Int,
+    fixupWord :: !Word64
   }
   deriving (Eq, Show)
 
 data Item
   = Bytes !ByteString
+  | -- | A little-endian word of the given byte width.
+    Word !Int !Word64
   | Align !Int !ByteString
   | Label !Text
   | Apply !Fixup
   deriving (Eq, Show)
 
+-- | The bytes of one section and the offsets recorded inside them.
+data SectionDraft = SectionDraft
+  { sectionSize :: !Word64,
+    sectionAlignment :: !Int,
+    sectionBytes :: !Builder.Builder,
+    sectionLabelsRev :: ![(Text, Word64)],
+    sectionFixupsRev :: ![(Word64, Fixup)]
+  }
+
 data Draft = Draft
   { draftCurrentSection :: !(Maybe SectionRole),
     draftSectionOrder :: ![SectionRole],
-    draftSectionItems :: !(Map SectionRole [Item]),
+    draftSections :: !(Map SectionRole SectionDraft),
     draftGlobals :: !(Set Text)
   }
-  deriving (Eq, Show)
 
 data Symbol = Symbol
   { symbolName :: !Text,
@@ -119,6 +141,9 @@ data ObjectError
 emptyDraft :: Draft
 emptyDraft = Draft Nothing [] Map.empty Set.empty
 
+emptySection :: SectionDraft
+emptySection = SectionDraft 0 0 mempty [] []
+
 selectSection :: SectionRole -> Draft -> Draft
 selectSection role draft =
   draft
@@ -127,26 +152,73 @@ selectSection role draft =
         if role `elem` draftSectionOrder draft
           then draftSectionOrder draft
           else draftSectionOrder draft <> [role],
-      -- Keep the existing list. An append would copy all previous items.
-      draftSectionItems = Map.insertWith (\_ items -> items) role [] (draftSectionItems draft)
+      draftSections = Map.insertWith (\_ existing -> existing) role emptySection (draftSections draft)
     }
 
 addGlobal :: Text -> Draft -> Draft
 addGlobal name draft = draft {draftGlobals = Set.insert name (draftGlobals draft)}
 
+-- | Append one item to the current section.
 addItem :: Item -> Draft -> Either ObjectError Draft
 addItem item draft =
   case draftCurrentSection draft of
     Nothing -> Left ObjectNoSection
-    Just role ->
-      Right
-        draft
-          { draftSectionItems = Map.adjust (item :) role (draftSectionItems draft)
-          }
+    Just role -> do
+      let section = Map.findWithDefault emptySection role (draftSections draft)
+      next <- appendItem item section
+      pure draft {draftSections = Map.insert role next (draftSections draft)}
+
+appendItem :: Item -> SectionDraft -> Either ObjectError SectionDraft
+appendItem item section =
+  case item of
+    Bytes value -> pure (appendBytes (fromIntegral (BS.length value)) (Builder.byteString value) section)
+    Word width value -> pure (appendBytes (fromIntegral width) (littleEndian width value) section)
+    Label name -> pure section {sectionLabelsRev = (name, sectionSize section) : sectionLabelsRev section}
+    Apply fixup ->
+      pure
+        ( appendBytes
+            (fromIntegral (fixupWidth fixup))
+            (littleEndian (fixupWidth fixup) (fixupWord fixup))
+            section {sectionFixupsRev = (sectionSize section, fixup) : sectionFixupsRev section}
+        )
+    Align alignmentPower fill
+      | alignmentPower < 0 || alignmentPower > 30 -> Left (ObjectInvalidAlignment alignmentPower)
+      | BS.null fill -> Left (ObjectInvalidInput "empty alignment fill")
+      | otherwise ->
+          let boundary = (1 `shiftL` alignmentPower) :: Word64
+              padding = fromIntegral ((boundary - sectionSize section `mod` boundary) `mod` boundary)
+              (fillCount, fillRemainder) = padding `divMod` BS.length fill
+              paddingBytes =
+                mconcat (replicate fillCount (Builder.byteString fill))
+                  <> Builder.byteString (BS.take fillRemainder fill)
+           in pure
+                ( appendBytes
+                    (fromIntegral padding)
+                    paddingBytes
+                    section {sectionAlignment = max (sectionAlignment section) alignmentPower}
+                )
+
+appendBytes :: Word64 -> Builder.Builder -> SectionDraft -> SectionDraft
+appendBytes width bytes section =
+  section
+    { sectionSize = sectionSize section + width,
+      sectionBytes = sectionBytes section <> bytes
+    }
+
+littleEndian :: Int -> Word64 -> Builder.Builder
+littleEndian width value =
+  case width of
+    1 -> Builder.word8 (fromIntegral value)
+    2 -> Builder.word16LE (fromIntegral value)
+    4 -> Builder.word32LE (fromIntegral value)
+    8 -> Builder.word64LE value
+    _ -> mconcat [Builder.word8 (byteAt index) | index <- [0 .. width - 1]]
+  where
+    byteAt index = fromIntegral (value `shiftR` (8 * index)) :: Word8
 
 layoutDraft :: Draft -> Either ObjectError Image
 layoutDraft draft = do
-  firstPass <- mapM layoutSection (draftSectionOrder draft)
+  let firstPass = map layoutSection (draftSectionOrder draft)
   definitions <- collectDefinitions firstPass
   let referenced = Set.fromList [fixupTarget fixup | section <- firstPass, (_, fixup) <- laidFixups section]
       names = Set.toAscList (Map.keysSet definitions <> referenced <> draftGlobals draft)
@@ -155,7 +227,15 @@ layoutDraft draft = do
   sections <- mapM (resolveSection globals definitions) firstPass
   pure Image {imageSections = sections, imageSymbols = symbols}
   where
-    layoutSection role = layoutItems role (reverse (Map.findWithDefault [] role (draftSectionItems draft)))
+    layoutSection role =
+      let section = Map.findWithDefault emptySection role (draftSections draft)
+       in LaidSection
+            { laidRole = role,
+              laidAlignment = sectionAlignment section,
+              laidBytes = BL.toStrict (Builder.toLazyByteString (sectionBytes section)),
+              laidLabels = reverse (sectionLabelsRev section),
+              laidFixups = reverse (sectionFixupsRev section)
+            }
     makeSymbol definitions name =
       case Map.lookup name definitions of
         Just (role, offset) -> Symbol name (name `Set.member` draftGlobals draft) (Just role) offset
@@ -168,38 +248,6 @@ data LaidSection = LaidSection
     laidLabels :: ![(Text, Word64)],
     laidFixups :: ![(Word64, Fixup)]
   }
-
-layoutItems :: SectionRole -> [Item] -> Either ObjectError LaidSection
-layoutItems role = go 0 0 [] [] []
-  where
-    go offset alignment bytes labels fixups remaining =
-      case remaining of
-        [] ->
-          pure
-            LaidSection
-              { laidRole = role,
-                laidAlignment = alignment,
-                laidBytes = BS.concat (reverse bytes),
-                laidLabels = reverse labels,
-                laidFixups = reverse fixups
-              }
-        item : rest ->
-          case item of
-            Bytes value -> go (offset + byteLength value) alignment (value : bytes) labels fixups rest
-            Apply fixup ->
-              let value = fixupBytes fixup
-               in go (offset + byteLength value) alignment (value : bytes) labels ((offset, fixup) : fixups) rest
-            Label name -> go offset alignment bytes ((name, offset) : labels) fixups rest
-            Align alignmentPower fill
-              | alignmentPower < 0 || alignmentPower > 30 -> Left (ObjectInvalidAlignment alignmentPower)
-              | BS.null fill -> Left (ObjectInvalidInput "empty alignment fill")
-              | otherwise ->
-                  let boundary = (1 `shiftL` alignmentPower) :: Word64
-                      padding = fromIntegral ((boundary - offset `mod` boundary) `mod` boundary)
-                      (fillCount, fillRemainder) = padding `divMod` BS.length fill
-                      paddingBytes = BS.concat (replicate fillCount fill) <> BS.take fillRemainder fill
-                   in go (offset + fromIntegral padding) (max alignment alignmentPower) (paddingBytes : bytes) labels fixups rest
-    byteLength = fromIntegral . BS.length
 
 collectDefinitions :: [LaidSection] -> Either ObjectError (Map Text (SectionRole, Word64))
 collectDefinitions = foldl' addSection (Right Map.empty)
@@ -232,7 +280,7 @@ resolveSection globals definitions section = do
           | canResolve (fixupKind fixup)
               && targetRole == laidRole section
               && fixupTarget fixup `Set.notMember` globals -> do
-              patched <- patchLocal offset targetOffset fixup (laidBytes section)
+              patched <- patchLocal offset targetOffset fixup
               pure ((offset, patched) : patches, relocations)
         _ ->
           pure
@@ -250,24 +298,18 @@ canResolve kind =
     X86Plt32 -> True
     _ -> False
 
-patchLocal :: Word64 -> Word64 -> Fixup -> ByteString -> Either ObjectError Word32
-patchLocal offset target fixup bytes =
+patchLocal :: Word64 -> Word64 -> Fixup -> Either ObjectError Word32
+patchLocal offset target fixup =
   case fixupKind fixup of
-    Arm64Branch26 -> do
-      instruction <- readWord32 offset bytes
-      let displacement = signedDifference target offset + fixupAddend fixup
+    Arm64Branch26 ->
       if displacement `mod` 4 /= 0 || not (fitsSigned 28 displacement)
         then Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
         else pure (instruction .|. fromIntegral ((displacement `shiftR` 2) .&. 0x03ffffff))
-    Arm64Branch19 -> do
-      instruction <- readWord32 offset bytes
-      let displacement = signedDifference target offset + fixupAddend fixup
+    Arm64Branch19 ->
       if displacement `mod` 4 /= 0 || not (fitsSigned 21 displacement)
         then Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
         else pure (instruction .|. fromIntegral (((displacement `shiftR` 2) .&. 0x7ffff) `shiftL` 5))
-    Arm64Adr21 -> do
-      instruction <- readWord32 offset bytes
-      let displacement = signedDifference target offset + fixupAddend fixup
+    Arm64Adr21 ->
       if not (fitsSigned 21 displacement)
         then Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
         else
@@ -279,11 +321,12 @@ patchLocal offset target fixup bytes =
     X86Plt32 -> patchX86
     kind -> Left (ObjectInvalidFixup kind)
   where
+    instruction = fromIntegral (fixupWord fixup) :: Word32
+    displacement = signedDifference target offset + fixupAddend fixup
     patchX86 =
-      let displacement = signedDifference target offset + fixupAddend fixup
-       in if fitsSigned 32 displacement
-            then pure (fromIntegral displacement)
-            else Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
+      if fitsSigned 32 displacement
+        then pure (fromIntegral displacement)
+        else Left (ObjectDisplacementOutOfRange (fixupTarget fixup))
 
 applyPatches :: ByteString -> [(Word64, Word32)] -> Either ObjectError BL.ByteString
 applyPatches bytes = fmap Builder.toLazyByteString . go 0
@@ -305,16 +348,3 @@ signedDifference left right = fromIntegral left - fromIntegral right
 
 fitsSigned :: Int -> Int64 -> Bool
 fitsSigned bits value = value >= negate (1 `shiftL` (bits - 1)) && value < (1 `shiftL` (bits - 1))
-
-readWord32 :: Word64 -> ByteString -> Either ObjectError Word32
-readWord32 offset bytes =
-  if offset + 4 > fromIntegral (BS.length bytes)
-    then Left (ObjectSizeOverflow "fixup offset")
-    else
-      let index = fromIntegral offset
-       in pure
-            ( fromIntegral (BS.index bytes index)
-                .|. fromIntegral (BS.index bytes (index + 1)) `shiftL` 8
-                .|. fromIntegral (BS.index bytes (index + 2)) `shiftL` 16
-                .|. fromIntegral (BS.index bytes (index + 3)) `shiftL` 24
-            )
