@@ -1,0 +1,59 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Nat = Z | S Nat
+    range :: Nat -> (Nat, Nat)
+    range n = (n, S n)
+    low :: Nat
+    high :: Nat
+    (low, high) = range (S Z)
+    [first, second] = [S high, low]
+    use :: Nat
+    use = first
+annotated:
+  - |-
+    module Test where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Test
+         │     │   └─ v Test
+         │     └─ v Test
+         └─ t Test
+    range :: Nat -> (Nat, Nat)
+    └─ v Test│      ││    └─ t Test
+             │      │└─ t Test
+             │      └─ t Builtin (,)
+             └─ t Test
+    range n = (n, S n)
+    │     │   ││  │ └─ v 0
+    │     │   ││  └─ v Test
+    │     │   │└─ v 0
+    │     │   └─ v Builtin (,)
+    │     └─ v 0
+    └─ v Test
+    low :: Nat
+    │      └─ t Test
+    └─ v Test
+    high :: Nat
+    │       └─ t Test
+    └─ v Test
+    (low, high) = range (S Z)
+     │    │       │      │ └─ v Test
+     │    │       │      └─ v Test
+     │    │       └─ v Test
+     │    └─ v Test
+     └─ v Test
+    [first, second] = [S high, low]
+     │      └─ v Test ││ │     └─ v Test
+     └─ v Test        ││ └─ v Test
+                      │└─ v Test
+                      └─ v Builtin []
+    use :: Nat
+    │      └─ t Test
+    └─ v Test
+    use = first
+    │     └─ v Test
+    └─ v Test
+status: pass
+reason: a tuple or list pattern at the top level binds its variables as
+  module-level definitions

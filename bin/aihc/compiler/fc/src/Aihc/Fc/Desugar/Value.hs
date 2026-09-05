@@ -93,6 +93,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (unless, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
+import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
 import Data.Char (isAsciiUpper)
 import Data.Foldable (foldrM)
@@ -140,6 +141,10 @@ type MatchWork = (Syn.Match, [(TcTermKey, (Binder, TcType))])
 data ValueGroup
   = FunctionGroup !TcTermKey !Text ![Syn.Match] !TcType
   | PatternGroup !TcTermKey !Text !(Syn.Rhs Syn.Expr) !TcType
+
+-- | A top-level pattern binding with several binders, such as
+-- @(low, high) = range x@, with the checked type of its right-hand side.
+data TopPatternGroup = TopPatternGroup !Syn.Pattern !(Syn.Rhs Syn.Expr) !TcType
 
 data LocalValueGroup
   = LocalNamedGroup !ValueGroup
@@ -287,10 +292,11 @@ desugarModuleValues checked = do
   phaseOne <- concat <$> mapM desugarEarlyDecl (Syn.moduleDecls checked)
   instances <- concat <$> mapM desugarInstanceDecl (Syn.moduleDecls checked)
   patSyns <- concat <$> mapM desugarPatSynDecl (Syn.moduleDecls checked)
-  groups <- groupValues (Syn.moduleDecls checked)
+  (groups, patternGroups) <- groupValues (Syn.moduleDecls checked)
   tops <- mapM allocateTopValue groups
   values <- mapM desugarTopValue tops
-  pure (phaseOne <> instances <> patSyns <> map DeclVal values)
+  patternValues <- concat <$> mapM desugarTopPatternGroup patternGroups
+  pure (phaseOne <> instances <> patSyns <> map DeclVal (values <> patternValues))
 
 -- | Make the matcher and the builder of a pattern synonym. The matcher
 -- @$mP@ takes the scrutinee, a success continuation with the argument
@@ -979,22 +985,28 @@ instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems inst
           [(tcInstanceMethodName methodAnnotation, (tcInstanceMethodType methodAnnotation, [emptyMatch rhs]))]
         _ -> []
 
-groupValues :: [Syn.Decl] -> ValueM [ValueGroup]
-groupValues [] = pure []
+groupValues :: [Syn.Decl] -> ValueM ([ValueGroup], [TopPatternGroup])
+groupValues [] = pure ([], [])
 groupValues (declaration : rest) =
   case functionBinding declaration of
     Just (Just key, name, matches, Just checkedType) ->
       let (same, remaining) = span (sameFunction key) rest
           moreMatches = concatMap (maybe [] functionMatches . functionBinding) same
-       in (FunctionGroup key name (matches <> moreMatches) checkedType :) <$> groupValues remaining
+       in Bifunctor.first (FunctionGroup key name (matches <> moreMatches) checkedType :) <$> groupValues remaining
     Just (Nothing, name, _, _) -> failValue ("function " <> T.unpack name <> " does not have a resolved binder")
     Just (_, name, _, Nothing) -> failValue ("function " <> T.unpack name <> " does not have a checked type annotation")
     Nothing ->
       case patternBinding declaration of
-        Just (Just key, name, rhs, Just checkedType) -> (PatternGroup key name rhs checkedType :) <$> groupValues rest
+        Just (Just key, name, rhs, Just checkedType) -> Bifunctor.first (PatternGroup key name rhs checkedType :) <$> groupValues rest
         Just (Nothing, name, _, _) -> failValue ("pattern binding " <> T.unpack name <> " does not have a resolved binder")
         Just (_, name, _, Nothing) -> failValue ("pattern binding " <> T.unpack name <> " does not have a checked type annotation")
-        Nothing -> groupValues rest
+        Nothing ->
+          case Syn.peelDeclAnn declaration of
+            Syn.DeclValue (Syn.PatternBind _ pattern' rhs)
+              | Just checkedType <- declarationType declaration ->
+                  Bifunctor.second (TopPatternGroup pattern' rhs checkedType :) <$> groupValues rest
+              | otherwise -> failValue "top-level pattern binding does not have a checked type annotation"
+            _ -> groupValues rest
 
 groupLocalValues :: [Syn.Decl] -> ValueM [LocalValueGroup]
 groupLocalValues [] = pure []
@@ -1132,6 +1144,43 @@ desugarTopValue top = do
         valType = ty,
         valBody = body
       }
+
+-- | A top-level pattern binding becomes one hidden value for the
+-- right-hand side and one public value per binder that selects its part.
+-- A binder is lazy, as in GHC: the right-hand side is a thunk that the
+-- first selection forces.
+desugarTopPatternGroup :: TopPatternGroup -> ValueM [ValDecl]
+desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
+  specs <- patternBinderSpecs pattern'
+  moduleOrigin <- gets vsModuleOrigin
+  let rhsName = topName moduleOrigin ("$pat$" <> T.intercalate "$" [name | (_, name, _) <- specs])
+  rhsBody <- desugarMatches rhsType [emptyMatch rhs]
+  convertedRhsType <- convertCheckedType rhsType
+  selectors <- mapM (selector rhsName) specs
+  pure
+    ( ValDecl
+        { valVis = Pub,
+          valName = rhsName,
+          valType = convertedRhsType,
+          valBody = rhsBody
+        }
+        : selectors
+    )
+  where
+    selector rhsName (key, name, ty) = do
+      moduleOrigin <- gets vsModuleOrigin
+      rhsBinder <- freshBinder "_pat_rhs" rhsType
+      body <- desugarDoPattern ty rhsBinder rhsType pattern' $ do
+        (field, _) <- lookupLocal key name
+        pure (ExVar (binderName field))
+      convertedType <- convertCheckedType ty
+      pure
+        ValDecl
+          { valVis = Pub,
+            valName = topName moduleOrigin name,
+            valType = convertedType,
+            valBody = ExLet (Bind rhsBinder (ExVar rhsName)) body
+          }
 
 emptyMatch :: Syn.Rhs Syn.Expr -> Syn.Match
 emptyMatch rhs =
