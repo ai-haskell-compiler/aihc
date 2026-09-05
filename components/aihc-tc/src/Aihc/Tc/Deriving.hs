@@ -165,12 +165,23 @@ attachedTargetType sourceSpan targetInfo params expectedKind = do
         [ TcTyCon tyCon (take argumentCount arguments)
         | argumentCount <- [length arguments, length arguments - 1 .. 0]
         ]
-  matching <- filterM (fmap (== expectedKind) . tcTypeKind) candidates
+  matching <- filterM (fmap (kindAccepts expectedKind) . tcTypeKind) candidates
   case matching of
     target : _ -> pure target
     [] -> do
       emitError sourceSpan (KindMismatch expectedKind (typeSchemeBody (tciKindScheme targetInfo)))
       pure (TcTyCon tyCon arguments)
+
+-- | Whether a target kind fits the kind that a class needs. A class whose
+-- parameter has kind @TYPE r@ with a variable representation accepts a
+-- type of any representation.
+kindAccepts :: TcType -> TcType -> Bool
+kindAccepts expected actual =
+  expected == actual
+    || case (expected, actual) of
+      (KTYPE (TcTyVar _), KTYPE _) -> True
+      (KTYPE (TcMetaTv _), KTYPE _) -> True
+      _ -> False
 
 annotateStandaloneDerivingTc :: [Extension] -> StandaloneDerivingDecl -> TcM Decl
 annotateStandaloneDerivingTc extensions derivingDecl = do
