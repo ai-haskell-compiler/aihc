@@ -2790,6 +2790,32 @@ desugarDoPattern resultType binder ty pattern' success =
 desugarPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
+    _
+      | isOverloadedIntegerPattern pattern' -> do
+          -- An overloaded integer literal compares with the equality
+          -- method of its type, as in a function equation.
+          test <- desugarOverloadedIntegerPatternTest (ExVar (binderName binder)) pattern'
+          testType <- requiredPatternMethodResultType "==" pattern'
+          testBinder <- freshBinder "_literal_guard" testType
+          resultType' <- convertCheckedType resultType
+          trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
+          falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
+          success' <- success
+          failure' <-
+            case failure of
+              Just failureExpression -> pure failureExpression
+              Nothing -> do
+                failureBinder <- freshBinderFromType "_literal_nomatch" (binderType binder)
+                pure (ExCase (ExVar (binderName binder)) failureBinder resultType' [])
+          pure
+            ( ExCase
+                test
+                testBinder
+                resultType'
+                [ Alt (AltData trueName) [] [] success',
+                  Alt (AltData falseName) [] [] failure'
+                ]
+            )
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> desugarPatternWithFailure resultType binder ty inner success failure
