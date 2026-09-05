@@ -17,10 +17,12 @@ module Test.Native.GcFuzz
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), RuntimePlan (..), runtimePlan)
+import Aihc.Cli.Runtime (RuntimeBuild (..))
+import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), backendCompiler)
+import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception (IOException, SomeException, throwIO, try)
-import Control.Monad (forM, replicateM, unless, when)
+import Control.Monad (forM, replicateM, unless)
 import Data.Bits (shiftL, (.|.))
 import Data.Char (isSpace)
 import Data.Either (fromRight)
@@ -37,9 +39,10 @@ import Hedgehog.Range qualified as Range
 import Numeric (readHex, showHex)
 import System.Directory (removeDirectoryRecursive)
 import System.Environment (lookupEnv)
-import System.Exit (ExitCode (ExitSuccess))
+import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath ((</>))
 import System.IO (BufferMode (BlockBuffering), Handle, hClose, hFlush, hGetContents, hGetLine, hPutStr, hSetBuffering)
+import System.IO.Error (tryIOError)
 import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.Process (CreateProcess (std_err, std_in, std_out), ProcessHandle, StdStream (CreatePipe), createProcess, proc, readProcessWithExitCode, terminateProcess, waitForProcess)
 import System.Timeout (timeout)
@@ -1000,25 +1003,40 @@ data Process = Process
   }
 
 -- | Compile the driver against the semispace runtime. Sanitizers are used
--- when the C compiler supports them.
+-- when the C compiler supports them, so the runtime archive is instrumented
+-- for this test rather than taken from the store.
 compileDriver :: IO (FilePath, FilePath)
 compileDriver = do
   root <- lookupEnv "AIHC_TEST_ROOT" >>= maybe (throwIO (userError "AIHC_TEST_ROOT is not set")) pure
-  plan <- runtimePlan Llvm RuntimeGcSemispace
   temporary <- getCanonicalTemporaryDirectory
   directory <- createTempDirectory temporary "aihc-gc-fuzz"
   let source = root </> "bin" </> "aihc" </> "compiler" </> "native" </> "test" </> "gc-fuzz" </> "aihc_gc_fuzz.c"
       executable = directory </> "aihc-gc-fuzz"
-      base =
-        ["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror"]
-          <> concatMap (\include -> ["-I", include]) (runtimeIncludeDirectories plan)
-          <> runtimeSources plan
-          <> [source, "-o", executable]
-      sanitized = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] <> base
-  (sanitizedExit, _, _) <- readProcessWithExitCode "cc" sanitized ""
-  when (sanitizedExit /= ExitSuccess) $ do
-    (plainExit, _, plainError) <- readProcessWithExitCode "cc" base ""
-    when (plainExit /= ExitSuccess) $ throwIO (userError ("cannot compile the collector fuzz driver:\n" <> plainError))
+      base = ["-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror"]
+      -- The instrumented and the plain runtime differ in their C arguments,
+      -- so each attempt gets its own cached archive.
+      buildAndLink extra = do
+        attempt <- tryIOError $ do
+          build <- cachedRuntimeArchive Llvm RuntimeGcSemispace (extra <> base)
+          -- Link with the driver that built the archive, so the sanitizer
+          -- runtime of the driver matches the instrumented runtime objects.
+          (compiler, _targetArguments) <- backendCompiler Llvm
+          let arguments =
+                extra
+                  <> base
+                  <> concatMap (\include -> ["-I", include]) (runtimeBuildIncludeDirectories build)
+                  <> [source, runtimeBuildArchive build, "-o", executable]
+          readProcessWithExitCode compiler arguments ""
+        pure $ case attempt of
+          Left err -> Left (show err)
+          Right (ExitSuccess, _, _) -> Right ()
+          Right (ExitFailure _, _, message) -> Left message
+  sanitized <- buildAndLink ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
+  case sanitized of
+    Right () -> pure ()
+    Left _ -> do
+      plain <- buildAndLink []
+      either (\message -> throwIO (userError ("cannot compile the collector fuzz driver:\n" <> message))) pure plain
   pure (directory, executable)
 
 newDriver :: IO (FilePath, FilePath) -> Config -> IO Driver

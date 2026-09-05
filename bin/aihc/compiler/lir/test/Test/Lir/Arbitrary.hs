@@ -122,6 +122,7 @@ genDataField =
       DataFloat <$> Gen.element [F32, F64] <*> genDouble,
       DataSymbol <$> genSymbol <*> genInteger,
       pure DataNull,
+      DataWord <$> genWordFieldValue,
       DataCode <$> Gen.maybe genSymbol,
       DataBytes . BS.pack <$> Gen.list (Range.linear 0 8) (Gen.word8 Range.constantBounded),
       DataZero <$> genNatural
@@ -155,6 +156,11 @@ genDouble =
 
 genInteger :: Gen Integer
 genInteger = Gen.integral (Range.linearFrom 0 (-(2 ^ (64 :: Int))) (2 ^ (64 :: Int)))
+
+-- | A @word@ field holds a value the linter accepts on every target, so the
+-- round-trip generator stays inside the 32-bit range.
+genWordFieldValue :: Gen Integer
+genWordFieldValue = Gen.integral (Range.linearFrom 0 (-(2 ^ (31 :: Int))) (2 ^ (32 :: Int) - 1))
 
 genNatural :: Gen Integer
 genNatural = Gen.integral (Range.linear 0 128)

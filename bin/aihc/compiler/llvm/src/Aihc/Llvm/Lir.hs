@@ -136,6 +136,7 @@ renderData dataItem =
         DataSymbol target 0 -> ("ptr", renderSymbol target)
         DataSymbol target addend -> ("ptr", "getelementptr (i8, ptr " <> renderSymbol target <> ", i64 " <> tshow addend <> ")")
         DataNull -> ("ptr", "null")
+        DataWord value -> ("i64", tshow value)
         DataCode Nothing -> ("ptr", "null")
         DataCode (Just target) -> ("ptr", renderSymbol target)
         DataBytes bytes -> ("[" <> tshow (BS.length bytes) <> " x i8]", "c\"" <> escapeBytes bytes <> "\"")

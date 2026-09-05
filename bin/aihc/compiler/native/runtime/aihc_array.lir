@@ -1,0 +1,126 @@
+; The boxed-array runtime, written in Lir. See docs/lir.md.
+;
+; An array object is a heap value whose header is @aihc_array_info, whose
+; first field is the length, and whose elements follow. Every slot is eight
+; bytes on every target, so the offsets below hold on a 64-bit and on a
+; 32-bit target alike, and a header pointer travels through ptr.to_int.
+;
+;   offset 0        header      = @aihc_array_info
+;   offset 8        fields[0]   = length
+;   offset 16 + 8i  elements[i]
+;
+; The collector keeps aihc_array_length and aihc_array_elements in C: it
+; walks arrays that the GC fuzz harness builds with info tables of its own,
+; so the object-kind check stays where the collector can share it.
+
+extern func @aihc_fail(ptr) cc c
+extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
+extern func @aihc_record_allocation(ptr) cc c
+extern func @aihc_array_length(ptr) -> i64 cc c
+
+; The info table of every array. AIHC_OBJECT_ARRAY is 6 and
+; AIHC_FRAME_NONE is 0. The collector reaches an array's elements from the
+; length rather than from field_is_pointer, which stays null as it does for
+; the C table this replaces.
+data @aihc_array_info align 8 = {
+  ptr null,   ; identity
+  code null,  ; entry
+  word 1,     ; field_count
+  word 0,     ; remaining_arity
+  ptr null,   ; field_is_pointer
+  ptr null,   ; next
+  code null,  ; backend_entry
+  word 0,     ; frame_kind
+  word 6,     ; object_kind = AIHC_OBJECT_ARRAY
+  ptr null    ; srt
+}
+
+data @aihc_array_size_message align 1 = {
+  bytes "boxed-array size is invalid", zero 1
+}
+
+data @aihc_array_bounds_message align 1 = {
+  bytes "boxed-array index is out of bounds", zero 1
+}
+
+; Allocate an array of %count elements, each holding %initial.
+;
+; aihc_gc_allocate rejects a word count the address space cannot hold, so
+; this checks only that %count is a plausible length. The upper bound is the
+; largest count whose slots fit a 64-bit address space.
+export func @aihc_array_new(%machine: ptr, %count: i64, %initial: i64) -> ptr cc c {
+entry:
+  %negative = lt.s i64 %count, 0
+  %huge = gt.u i64 %count, 2305843009213693949
+  %invalid = or i1 %negative, %huge
+  br %invalid, invalid_size, allocate
+
+invalid_size:
+  call @aihc_fail(@aihc_array_size_message)
+  trap "boxed-array size is invalid"
+
+allocate:
+  %words = add i64 %count, 2
+  %array = call @aihc_gc_allocate(%machine, %words)
+  call @aihc_record_allocation(%machine)
+  %header = ptr.to_int @aihc_array_info
+  store i64 %header, [%array] align 8
+  store i64 %count, [%array + 8] align 8
+  jump fill(0)
+
+fill(%index: i64):
+  %filled = ge.u i64 %index, %count
+  br %filled, done, fill_slot
+
+fill_slot:
+  %offset = mul i64 %index, 8
+  %slot = ptr.add %array, %offset
+  store i64 %initial, [%slot + 16] align 8
+  %next = add i64 %index, 1
+  jump fill(%next)
+
+done:
+  return %array
+}
+
+; The address of element %index, after the bounds check. aihc_array_length
+; rejects a value that is not an array before the comparison runs.
+func @aihc_array_element(%array: ptr, %index: i64) -> ptr cc c {
+entry:
+  %count = call @aihc_array_length(%array)
+  %negative = lt.s i64 %index, 0
+  %past_end = ge.u i64 %index, %count
+  %invalid = or i1 %negative, %past_end
+  br %invalid, out_of_bounds, element
+
+out_of_bounds:
+  call @aihc_fail(@aihc_array_bounds_message)
+  trap "boxed-array index is out of bounds"
+
+element:
+  %offset = mul i64 %index, 8
+  %slot = ptr.add %array, %offset
+  %address = ptr.add %slot, 16
+  return %address
+}
+
+export func @aihc_array_index(%array: ptr, %index: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_array_element(%array, %index)
+  %value = load i64 [%address] align 8
+  return %value
+}
+
+export func @aihc_array_write(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_array_element(%array, %index)
+  store i64 %value, [%address] align 8
+  return 0
+}
+
+export func @aihc_array_same(%left: ptr, %right: ptr) -> i64 cc c {
+entry:
+  %same = eq ptr %left, %right
+  %result = zext i1 %same to i64
+  return %result
+}

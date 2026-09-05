@@ -150,6 +150,7 @@ fieldSize field =
     DataFloat ty _ -> typeBytes ty
     DataSymbol _ _ -> 8
     DataNull -> 8
+    DataWord _ -> 8
     DataCode _ -> 8
     DataBytes bytes -> fromIntegral (BS.length bytes)
     DataZero count -> fromInteger count
@@ -168,6 +169,7 @@ writeData addresses memory (dataItem, address) = do
         DataFloat ty value -> pure (encodeValue ty (floatValue ty value))
         DataSymbol symbol addend -> symbolBytes symbol addend
         DataNull -> pure (replicate 8 0)
+        DataWord value -> pure (littleEndian 8 (fromInteger value))
         DataCode Nothing -> pure (replicate 8 0)
         DataCode (Just symbol) -> symbolBytes symbol 0
         DataBytes bytes -> pure (BS.unpack bytes)

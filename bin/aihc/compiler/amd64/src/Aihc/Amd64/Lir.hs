@@ -172,6 +172,7 @@ compileData dataItem =
         DataSymbol target 0 -> [amd64QuadSymbol (lirSymbol target)]
         DataSymbol target addend -> [amd64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
         DataNull -> [amd64Quad 0]
+        DataWord value -> [amd64Bytes (littleEndian 8 (fromInteger value))]
         DataCode Nothing -> [amd64Quad 0]
         DataCode (Just target) -> [amd64QuadSymbol (lirSymbol target)]
         DataBytes bytes -> [amd64Bytes bytes]

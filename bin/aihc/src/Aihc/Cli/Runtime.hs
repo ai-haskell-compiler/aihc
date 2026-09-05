@@ -3,7 +3,9 @@
 -- | Build support archives once, install them in the aihc store, and let
 -- ordinary program links consume those immutable artifacts.
 module Aihc.Cli.Runtime
-  ( prepareEntryArchive,
+  ( RuntimeBuild (..),
+    buildRuntimeArchive,
+    prepareEntryArchive,
     prepareRuntimeArchive,
     readWasmClangProcessWithExitCode,
     runPrepareRuntime,
@@ -17,6 +19,8 @@ import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeS
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Lir.Lower qualified as Lir
+import Aihc.Lir.Parser (parseModule, renderParseError)
+import Aihc.Lir.Syntax (Module)
 import Aihc.Native
   ( NativeTarget (..),
     RuntimeGarbageCollector (..),
@@ -49,14 +53,7 @@ prepareEntryArchive storeRoot target = do
     let object = directory </> "entry.o"
         archive = directory </> "entry.a"
     entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lir.lowerEntry (lowerTargetFor target))
-    output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir target entryModule)
-    case output of
-      BackendObject bytes -> BL.writeFile object bytes
-      BackendSource source -> do
-        let sourcePath = directory </> "entry" <> nativeSourceExtension target
-        TIO.writeFile sourcePath source
-        (compiler, arguments) <- backendCompiler target
-        runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
+    compileLirObject target "entry" entryModule directory object
     archiver <- backendArchiver target
     runTool archiver ["rcs", archive, object]
     renameFile archive destination
@@ -80,32 +77,91 @@ prepareRuntimeArchive storeRoot target garbageCollector = do
       destinationDirectory = takeDirectory destination
   createDirectoryIfMissing True destinationDirectory
   withTemporaryDirectory destinationDirectory "runtime-build" $ \directory -> do
-    objects <-
+    archive <-
       case target of
-        Wasm32Wasip3 -> buildWasip3RuntimeObjects garbageCollector directory
-        _ -> buildNativeRuntimeObjects target garbageCollector directory
-    let archive = directory </> "runtime.a"
-    archiver <- backendArchiver target
-    runTool archiver (["rcs", archive] <> objects)
+        Wasm32Wasip3 -> do
+          objects <- buildWasip3RuntimeObjects garbageCollector directory
+          archiveRuntimeObjects target directory objects
+        _ ->
+          runtimeBuildArchive
+            <$> buildRuntimeArchive target (runtimeGarbageCollector garbageCollector) defaultRuntimeCArguments directory
     renameFile archive destination
   pure destination
 
-buildNativeRuntimeObjects :: NativeTarget -> GarbageCollector -> FilePath -> IO [FilePath]
-buildNativeRuntimeObjects target garbageCollector directory = do
-  RuntimePlan {runtimeSources, runtimeIncludeDirectories} <- runtimePlan target (runtimeGarbageCollector garbageCollector)
+-- | One runtime archive outside the store, and the include directories a
+-- caller needs for the runtime headers.
+data RuntimeBuild = RuntimeBuild
+  { runtimeBuildArchive :: !FilePath,
+    runtimeBuildIncludeDirectories :: ![FilePath]
+  }
+  deriving (Eq, Show)
+
+-- | The C arguments an ordinary runtime build uses.
+defaultRuntimeCArguments :: [String]
+defaultRuntimeCArguments = ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+
+-- | Build one runtime archive in @directory@ and return it with the include
+-- directories of the runtime headers.
+--
+-- @extraCArguments@ joins the target arguments of every C source, so a caller
+-- can instrument the runtime or resize its semispace. The units written in Lir
+-- go through the Lir backend of the target and take no C arguments. A caller
+-- links the finished archive and stays independent of which units are C and
+-- which are Lir. Place the archive after the objects that reference it: a
+-- linker takes only the members that resolve a symbol it has already seen.
+buildRuntimeArchive :: NativeTarget -> RuntimeGarbageCollector -> [String] -> FilePath -> IO RuntimeBuild
+buildRuntimeArchive target garbageCollector extraCArguments directory = do
+  plan@RuntimePlan {runtimeSources, runtimeIncludeDirectories} <- runtimePlan target garbageCollector
   (compiler, targetArguments) <- backendCompiler target
   let commonArguments =
         targetArguments
-          <> ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+          <> extraCArguments
           <> ["-I" <> includeDirectory | includeDirectory <- runtimeIncludeDirectories]
-  forM (zip [0 :: Int ..] runtimeSources) $ \(index, source) -> do
+  cObjects <- forM (zip [0 :: Int ..] runtimeSources) $ \(index, source) -> do
     let object = directory </> "runtime-" <> show index <> ".o"
     runTool compiler (commonArguments <> ["-c", source, "-o", object])
     pure object
+  lirObjects <- buildLirRuntimeObjects target plan directory
+  archive <- archiveRuntimeObjects target directory (cObjects <> lirObjects)
+  pure RuntimeBuild {runtimeBuildArchive = archive, runtimeBuildIncludeDirectories = runtimeIncludeDirectories}
+
+archiveRuntimeObjects :: NativeTarget -> FilePath -> [FilePath] -> IO FilePath
+archiveRuntimeObjects target directory objects = do
+  let archive = directory </> "runtime.a"
+  archiver <- backendArchiver target
+  runTool archiver (["rcs", archive] <> objects)
+  pure archive
+
+-- | Compile the runtime units written in Lir with the Lir backend of the
+-- target. Their objects join the C objects in the runtime archive.
+buildLirRuntimeObjects :: NativeTarget -> RuntimePlan -> FilePath -> IO [FilePath]
+buildLirRuntimeObjects target plan directory =
+  forM (zip [0 :: Int ..] (runtimeLirSources plan)) $ \(index, source) -> do
+    let name = "runtime-lir-" <> show index
+        object = directory </> name <> ".o"
+    text <- TIO.readFile source
+    lirModule <-
+      either (ioError . userError . ((source <> ": Lir parse failed: ") <>) . renderParseError) pure (parseModule text)
+    compileLirObject target name lirModule directory object
+    pure object
+
+-- | Compile one Lir module to an object. An object target writes the object
+-- directly. A text target writes the backend source next to the object and
+-- lets the compiler driver of the target assemble it.
+compileLirObject :: NativeTarget -> String -> Module -> FilePath -> FilePath -> IO ()
+compileLirObject target name lirModule directory object = do
+  output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir target lirModule)
+  case output of
+    BackendObject bytes -> BL.writeFile object bytes
+    BackendSource source -> do
+      let sourcePath = directory </> name <> nativeSourceExtension target
+      TIO.writeFile sourcePath source
+      (compiler, arguments) <- backendCompiler target
+      runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
 
 buildWasip3RuntimeObjects :: GarbageCollector -> FilePath -> IO [FilePath]
 buildWasip3RuntimeObjects garbageCollector directory = do
-  RuntimePlan {runtimeSources, runtimeIncludeDirectories} <- runtimePlan Wasm32Wasip3 (runtimeGarbageCollector garbageCollector)
+  plan@RuntimePlan {runtimeSources, runtimeIncludeDirectories} <- runtimePlan Wasm32Wasip3 (runtimeGarbageCollector garbageCollector)
   wasmRuntimeSources <- Wasm.wasip3RuntimeSourcePaths
   driver <- Wasm.wasip3RuntimeSourcePath
   world <- Wasm.wasip3WorldPath
@@ -138,7 +194,8 @@ buildWasip3RuntimeObjects garbageCollector directory = do
       runWasmClangTool clang (clangTargetArguments <> cArguments <> ["-c", source, "-o", object])
       pure object
   runWasmClangTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
-  pure (runtimeObjects <> [bindingsObject, componentTypeObject])
+  lirObjects <- buildLirRuntimeObjects Wasm32Wasip3 plan directory
+  pure (runtimeObjects <> lirObjects <> [bindingsObject, componentTypeObject])
 
 runtimeGarbageCollector :: GarbageCollector -> RuntimeGarbageCollector
 runtimeGarbageCollector garbageCollector =

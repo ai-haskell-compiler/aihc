@@ -220,6 +220,7 @@ dataField =
   MP.choice
     [ DataBytes <$> (keyword "bytes" *> lexeme quotedBytes),
       DataZero <$> (keyword "zero" *> natural),
+      DataWord <$> (keyword "word" *> integer),
       keyword "ptr" *> (DataNull <$ keyword "null" <|> DataSymbol <$> symbolName <*> addend),
       keyword "code" *> (DataCode Nothing <$ keyword "null" <|> DataCode . Just <$> symbolName),
       typedField
