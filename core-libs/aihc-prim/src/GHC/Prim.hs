@@ -66,6 +66,7 @@ module GHC.Prim
     quotRemWord2#,
     quotWord#,
     raise#,
+    runRW#,
     readWordArray#,
     realWorld#,
     readMVar#,
@@ -357,6 +358,10 @@ foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
 infixr 0 `seq`
 
 foreign import prim realWorld# :: State# RealWorld
+
+-- | Apply a state transformer to the real world token. The result can have
+-- any runtime representation.
+foreign import prim runRW# :: forall (r :: RuntimeRep) (o :: TYPE r). (State# RealWorld -> o) -> o
 
 foreign import prim noDuplicate# :: State# d -> State# d
 
