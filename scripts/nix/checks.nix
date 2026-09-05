@@ -530,8 +530,15 @@
   # the core libraries are reused instead of installed again.
   mkHackageInstallTest = package: let
     src = hackage.fetchPackage pkgs package;
+    dependencies = package.dependencies or [];
     targets = package.targets or hackageInstallTargets;
     lintFlag = pkgs.lib.optionalString (package.lint or true) "--lint";
+    # The package and its Hackage dependencies sit next to each other in one
+    # workspace. The install finds a dependency as a sibling directory, so
+    # it does not download it.
+    linkWorkspaceEntry = entry: ''
+      ln -sfn ${hackage.fetchPackage pkgs entry} "$workspace/${entry.name}"
+    '';
   in
     pkgs.runCommand "aihc-hackage-install-${package.name}-${package.version}" {
       nativeBuildInputs = [
@@ -550,9 +557,13 @@
       export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
       store="$TMPDIR/store"
       cp -R --no-preserve=mode ${exampleToolchain} "$store"
+      workspace="$TMPDIR/workspace"
+      mkdir -p "$workspace"
+      ln -sfn ${src} "$workspace/${package.name}"
+      ${pkgs.lib.concatMapStrings linkWorkspaceEntry dependencies}
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install ${src} --store "$store" ${lintFlag} --target ${target}
+          ${aihcExe} install "$workspace/${package.name}" --store "$store" ${lintFlag} --target ${target}
         '')
         targets}
 

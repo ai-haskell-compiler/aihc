@@ -12,6 +12,11 @@
 #   lint     Optional. Pass `--lint` to `aihc install`. Defaults to true.
 #   targets  Optional list of targets. Defaults to the host targets that the
 #            example tests use.
+#   dependencies
+#            Optional list of Hackage packages that the package depends on,
+#            each with `name`, `version`, and `hash`. The test puts them next
+#            to the package source, so `aihc install` finds them without
+#            network access.
 let
   packages = [
     {
@@ -23,6 +28,18 @@ let
       name = "array";
       version = "0.5.8.0";
       hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+    }
+    {
+      name = "bytestring";
+      version = "0.12.2.0";
+      hash = "sha256-bBKEw1dWp24YUf+wrQYNqQ/eDqnM3m1ZtyFy6g1ZFq0=";
+      dependencies = [
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
+        }
+      ];
     }
   ];
 
