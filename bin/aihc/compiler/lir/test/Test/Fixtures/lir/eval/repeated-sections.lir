@@ -1,0 +1,37 @@
+; expect: 42
+; Keep all items when a section is selected again.
+
+data @first align 8 = { i64 10 }
+data mut @second align 8 = { i64 20 }
+data @third align 8 = { i64 12 }
+data mut @result align 8 = { i64 0 }
+
+func @readFirst() -> i64 {
+entry:
+  %value = load i64 [@first] align 8
+  return %value
+}
+
+func @readSecond() -> i64 {
+entry:
+  %value = load i64 [@second] align 8
+  return %value
+}
+
+func @readThird() -> i64 {
+entry:
+  %value = load i64 [@third] align 8
+  return %value
+}
+
+func @main() -> i64 {
+entry:
+  %first = call @readFirst()
+  %second = call @readSecond()
+  %third = call @readThird()
+  %partial = add i64 %first, %second
+  %total = add i64 %partial, %third
+  store i64 %total, [@result] align 8
+  %value = load i64 [@result] align 8
+  return %value
+}
