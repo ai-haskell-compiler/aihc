@@ -67,8 +67,10 @@ library compiler
   exposed-modules:
     Aihc.Amd64.Assemble
     Aihc.Amd64.Lir
+    Aihc.Amd64.Text
     Aihc.Arm64.Assemble
     Aihc.Arm64.Lir
+    Aihc.Arm64.Text
     Aihc.Cli
     Aihc.Cli.Backend
     Aihc.Cli.BuildExe
@@ -114,6 +116,7 @@ library compiler
     Aihc.Lir.Lower
     Aihc.Lir.Parser
     Aihc.Lir.Pretty
+    Aihc.Lir.RegAlloc
     Aihc.Lir.Syntax
     Aihc.Llvm.Lir
     Aihc.Native
@@ -292,8 +295,10 @@ test-suite spec
     Test.Grin.Spec
     Test.Grin.Srt
     Test.Lir.Arbitrary
+    Test.Lir.AsmSuite
     Test.Lir.NativeSuite
     Test.Lir.Observed
+    Test.Lir.RegAllocSpec
     Test.Lir.Spec
     Test.Llvm.Spec
     Test.Native.Compiler
