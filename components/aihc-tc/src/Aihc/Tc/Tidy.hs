@@ -140,7 +140,7 @@ tidyTypeWith env ty =
     TcFunTy argument result -> TcFunTy (tidyTypeWith env argument) (tidyTypeWith env result)
     TcForAllTy tv body -> TcForAllTy tv (tidyTypeWith env body)
     TcQualTy preds body -> TcQualTy (map (tidyPredWith env) preds) (tidyTypeWith env body)
-    TcAppTy function argument -> TcAppTy (tidyTypeWith env function) (tidyTypeWith env argument)
+    TcAppTy function argument -> mkAppTy (tidyTypeWith env function) (tidyTypeWith env argument)
 
 tidyPredWith :: TidyEnv -> Pred -> Pred
 tidyPredWith env predicate =

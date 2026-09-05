@@ -41,7 +41,7 @@ zonkType ty = case ty of
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
-  TcAppTy f a -> TcAppTy <$> zonkType f <*> zonkType a
+  TcAppTy f a -> mkAppTy <$> zonkType f <*> zonkType a
 
 -- | Zonk a predicate.
 zonkPred :: Pred -> TcM Pred
@@ -68,7 +68,7 @@ defaultTypeKinds ty =
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
-    TcAppTy function argument -> TcAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
+    TcAppTy function argument -> mkAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
 defaultTypeSchemeKinds (ForAll tyVars predicates body) =

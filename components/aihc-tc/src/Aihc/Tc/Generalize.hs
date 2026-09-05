@@ -209,7 +209,7 @@ substMetas subst = go
     go (TcFunTy a b) = TcFunTy (go a) (go b)
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
     go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)
-    go (TcAppTy f a) = TcAppTy (go f) (go a)
+    go (TcAppTy f a) = mkAppTy (go f) (go a)
 
 -- | Substitute meta-variables in a predicate.
 substMetasPred :: [(Unique, TcType)] -> Pred -> Pred
