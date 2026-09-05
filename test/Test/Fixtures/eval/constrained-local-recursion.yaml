@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE NoMonoLocalBinds #-}
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Step a where
+      step :: a -> a
+
+    instance Step Nat where
+      step = S
+
+    count :: [a] -> Nat
+    count = go Z
+      where
+        go n [] = n
+        go n (_ : rest) = go (step n) rest
+output: |
+  S (S (S Z))
+expression: |
+  count [Z, Z, Z]
+status: pass
+reason: a class-constrained local binding that calls itself generalizes, and its
+  recursive call passes the dictionary of the enclosing instantiation

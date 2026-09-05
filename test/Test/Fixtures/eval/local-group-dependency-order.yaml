@@ -1,0 +1,28 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE NoMonoLocalBinds #-}
+    module Test where
+
+    data Nat = Z | S Nat
+
+    data Box = Box
+
+    encode :: (Nat -> a) -> (Box -> a) -> a
+    encode f g = f (S Z)
+
+    useHelpers :: Nat
+    useHelpers = encode f1 f2
+      where
+        wrap x y = choose y x
+        f1 x1 = wrap x1 (S Z)
+        f2 x2 = wrap x2 Z
+        choose :: Nat -> b -> Nat
+        choose n _ = n
+output: |
+  S Z
+expression: |
+  useHelpers
+status: pass
+reason: a local helper that two bindings use at different types generalizes
+  before its uses

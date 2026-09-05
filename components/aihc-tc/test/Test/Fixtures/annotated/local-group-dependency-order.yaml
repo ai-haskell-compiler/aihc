@@ -1,0 +1,61 @@
+annotated:
+- |-
+  {-# LANGUAGE NoMonoLocalBinds #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  encode :: (Nat -> a) -> (Box -> a) -> a
+  encode f _ = f Z
+  │      │ └─ type: Box → a
+  │      └─ type: Nat → a
+  └─ type: ∀ a. (Nat → a) → (Box → a) → a
+  useHelpers :: Nat
+  useHelpers = encode f1 f2
+  └─ type: Nat │      │  └─ type: Box → Nat; type-args: Box
+               │      └─ type: Nat → Nat; type-args: Nat
+               └─ type: (Nat → Nat) → (Box → Nat) → Nat; type-args: Nat
+    where
+      wrap x y = choose y x
+      │    │ │   └─ type: Nat → a → Nat; type-args: a
+      │    │ └─ type: Nat
+      │    └─ type: a
+      └─ type: ∀ a. a → Nat → Nat
+      f1 x1 = wrap x1 Z
+      │  │    └─ type: a → Nat → Nat; type-args: a
+      │  └─ type: a
+      └─ type: ∀ a. a → Nat
+      f2 x2 = wrap x2 Z
+      │  │    └─ type: a → Nat → Nat; type-args: a
+      │  └─ type: a
+      └─ type: ∀ a. a → Nat
+      choose :: Nat -> b -> Nat
+      choose n _ = n
+      │      │ └─ type: b
+      │      └─ type: Nat
+      └─ type: ∀ b. Nat → b → Nat
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoMonoLocalBinds #-}
+  module Test where
+  data Nat = Z | S Nat
+  data Box = Box
+  encode :: (Nat -> a) -> (Box -> a) -> a
+  encode f _ = f Z
+  useHelpers :: Nat
+  useHelpers = encode f1 f2
+    where
+      wrap x y = choose y x
+      f1 x1 = wrap x1 Z
+      f2 x2 = wrap x2 Z
+      choose :: Nat -> b -> Nat
+      choose n _ = n
+reason: the bindings of a local group are generalized in dependency order, so
+  a helper that two other bindings use at different types is polymorphic at
+  each use
+status: pass
