@@ -552,7 +552,11 @@ inferApp sp = inferApplication sp EApp
 -- infix node.
 inferApplication :: SourceSpan -> (Expr -> Expr -> Expr) -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferApplication sp rebuild fun arg = do
-  (fun', funTy, funCts) <- inferExpr fun
+  (rawFun, rawFunTy, rawFunCts) <- inferExpr fun
+  -- A function with a polymorphic type, for example a record field with a
+  -- higher-rank type, is instantiated at its application.
+  (fun', funTy, instantiationCts) <- instantiateFunctionType sp rawFun rawFunTy
+  let funCts = rawFunCts <> instantiationCts
   zonkedFunTy <- zonkType funTy
   case zonkedFunTy of
     TcFunTy expectedArgTy resultTy
@@ -573,6 +577,21 @@ inferApplication sp rebuild fun arg = do
       ev <- freshEvVar
       let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
       pure (rebuild fun' arg', resTy, funCts <> argCts <> [eqCt])
+
+-- | Instantiate the leading quantifiers and context of a function type.
+-- The context becomes wanted constraints. The function expression gets an
+-- annotation with the type arguments and the evidence, so the desugarer
+-- applies them.
+instantiateFunctionType :: SourceSpan -> Expr -> TcType -> TcM (Expr, TcType, [Ct])
+instantiateFunctionType sp fun funTy = do
+  zonked <- zonkType funTy
+  if hasLeadingForAll zonked
+    then do
+      (instantiated, typeArgs, predicates) <- instantiateSigmaType zonked
+      cts <- mapM (predToCt sp "<application>") predicates
+      let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
+      pure (annotatePendingExprAt sp pending fun, instantiated, cts)
+    else pure (fun, funTy, [])
 
 -- | Whether an operator is the application operator of GHC.Base. GHC types
 -- @f $ x@ like the application @f x@, so a higher-rank or representation

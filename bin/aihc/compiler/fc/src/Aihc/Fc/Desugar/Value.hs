@@ -2027,6 +2027,16 @@ desugarAnnotatedExpr annotation inner = do
         Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
         Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
         Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
+        -- An application with a polymorphic type is instantiated where it
+        -- is applied. The annotation gives the type arguments and the
+        -- evidence.
+        _
+          | isApplicationExpression inner,
+            not (null (tcAnnTypeArgs annotation)) || not (null (tcAnnEvidenceTerms annotation)) -> do
+              inner' <- desugarExpr inner
+              types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+              evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+              pure (foldl ExApp (foldl ExTyApp inner' types) evidence)
         _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
@@ -3458,6 +3468,17 @@ freshUnique = do
 requiredBinderKey :: Syn.UnqualifiedName -> ValueM TcTermKey
 requiredBinderKey name =
   maybe (failValue ("missing resolved binder " <> T.unpack (Syn.unqualifiedNameText name))) pure (binderTermKey name)
+
+-- | Whether an expression is an application, whose type the type checker
+-- can instantiate at an enclosing application.
+isApplicationExpression :: Syn.Expr -> Bool
+isApplicationExpression expression =
+  case expression of
+    Syn.EAnn _ inner -> isApplicationExpression inner
+    Syn.EParen inner -> isApplicationExpression inner
+    Syn.EApp {} -> True
+    Syn.EInfix {} -> True
+    _ -> False
 
 -- | Whether an operator is the application operator of GHC.Base, which the
 -- type checker checks like an application.
