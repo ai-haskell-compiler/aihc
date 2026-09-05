@@ -9,13 +9,15 @@ where
 
 import Data.Kind (Type)
 
--- | The function arrow has no instance. The type checker does not unify
--- the arrow constructor with function types.
 class Category (cat :: Type -> Type -> Type) where
   id :: cat a a
   (.) :: cat b c -> cat a b -> cat a c
 
 infixr 9 .
+
+instance Category (->) where
+  id x = x
+  (f . g) x = f (g x)
 
 (<<<) :: (Category cat) => cat b c -> cat a b -> cat a c
 (<<<) = (.)

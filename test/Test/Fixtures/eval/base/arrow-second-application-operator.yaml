@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE NoMonoLocalBinds #-}
+    module Test where
+
+    import Control.Arrow (second)
+
+    data Stream a = Finished Int a | Yield Int (Stream a)
+
+    toPair :: (a -> (b, [Int])) -> Stream a -> (b, [Int])
+    toPair k = go
+      where
+        go (Finished n x) = second (n :) $ k x
+        go (Yield n rest) = second (n :) $ go rest
+
+    value :: (Bool, [Int])
+    value = toPair (\x -> (x, [])) (Yield 1 (Finished 2 True))
+output: |
+  (True,(: (I# 1) (: (I# 2) [])))
+expression: |
+  value
+status: pass
+reason: the head of an application-operator expression can be an arrow
+  method instantiated at the function arrow inside a generalized local
+  function
