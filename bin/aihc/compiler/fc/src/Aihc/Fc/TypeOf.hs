@@ -6,6 +6,7 @@ module Aihc.Fc.TypeOf
     typeEnvFromPrograms,
     unionTypeEnv,
     extendTypeEnvWithPrograms,
+    typeHead,
     typeOf,
     unfoldType,
     repOf,
