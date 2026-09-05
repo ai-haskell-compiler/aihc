@@ -2441,13 +2441,20 @@ convertTyConApplicationArguments tyCon arguments = do
 
 -- | Desugar a lambda-case into ordinary function equations.
 desugarLambdaCaseMatches :: [Syn.Match] -> ValueM Expr
-desugarLambdaCaseMatches matches =
+desugarLambdaCaseMatches matches = do
+  ty <- lambdaCaseType matches
+  desugarMatches ty matches
+
+-- | The type of a lambda-case: the pattern types of its first alternative
+-- to the type of its right-hand side.
+lambdaCaseType :: [Syn.Match] -> ValueM TcType
+lambdaCaseType matches =
   case matches of
     [] -> failValue "lambda-case has no alternative"
     first : _ -> do
       types <- mapM requiredPatternType (Syn.matchPats first)
       resultType <- requiredRhsType (Syn.matchRhs first)
-      desugarMatches (foldr TcFunTy resultType types) matches
+      pure (foldr TcFunTy resultType types)
 
 requiredRhsType :: Syn.Rhs Syn.Expr -> ValueM TcType
 requiredRhsType rhs =
@@ -3629,6 +3636,8 @@ inferExprType expression =
     Syn.EParen inner -> inferExprType inner
     Syn.ETypeSig inner _ -> inferExprType inner
     Syn.ETypeApp inner _ -> inferExprType inner
+    Syn.ELambdaCase alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCases alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
     unsupported -> failValue ("missing checked expression type: " <> take 80 (show unsupported))
 
 exprType :: Syn.Expr -> Maybe TcType
