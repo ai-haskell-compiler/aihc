@@ -278,9 +278,9 @@ applyStatement result statement = do
     Amd64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
     Amd64Global symbol -> pure (addGlobal symbol draft)
     Amd64Label symbol -> addItem (Label symbol) draft
-    Amd64Quad value -> addItem (Bytes (word64Bytes value)) draft
-    Amd64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 (BS.replicate 8 0))) draft
-    Amd64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol addend (BS.replicate 8 0))) draft
+    Amd64Quad value -> addItem (Word 8 value) draft
+    Amd64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 8 0)) draft
+    Amd64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol addend 8 0)) draft
     Amd64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
@@ -489,7 +489,7 @@ encodeLea destinationSource source =
     Amd64RipAddress target ->
       let prefix = rex True (registerNumber destination >= 8) False False
           modrm = ((registerNumber destination .&. 7) `shiftL` 3) .|. 5
-       in [Bytes (BS.pack [prefix, 0x8d, modrm]), Apply (Fixup X86Pc32 target (-4) (BS.replicate 4 0))]
+       in [Bytes (BS.pack [prefix, 0x8d, modrm]), Apply (Fixup X86Pc32 target (-4) 4 0)]
     Amd64MemoryAddress memory -> encodeRm True [0x8d] (registerNumber destination) (memoryOperand memory) False []
   where
     destination = registerInfo destinationSource
@@ -547,7 +547,7 @@ encodeRm width64 opcode regField operand forceByteRex suffix =
        in bytes ([rexByte | width64 || regField >= 8 || baseNumber >= 8] <> opcode <> [modrm] <> sib <> actualDisplacement <> suffix)
 
 relativeBranch :: [Word8] -> FixupKind -> Text -> [Item]
-relativeBranch opcode kind target = [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) (BS.replicate 4 0))]
+relativeBranch opcode kind target = [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) 4 0)]
 
 conditionCode :: Amd64Condition -> Word8
 conditionCode condition =
@@ -591,6 +591,3 @@ word32List value =
 
 word64List :: Word64 -> [Word8]
 word64List value = word32List (fromIntegral value) <> word32List (fromIntegral (value `shiftR` 32))
-
-word64Bytes :: Word64 -> ByteString
-word64Bytes = BS.pack . word64List

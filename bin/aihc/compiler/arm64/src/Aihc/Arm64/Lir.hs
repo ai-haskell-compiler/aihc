@@ -27,7 +27,6 @@ import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
-import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
@@ -36,7 +35,6 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
-import Data.Word (Word64)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
 
 data Arm64LirError
@@ -162,13 +160,13 @@ compileData dataItem =
     symbol = lirSymbol (dataName dataItem)
     field dataField =
       case dataField of
-        DataInt ty value -> [arm64Bytes (littleEndian (typeBytes ty) (fromInteger value))]
-        DataFloat F32 value -> [arm64Bytes (littleEndian 4 (fromIntegral (castFloatToWord32 (double2Float value))))]
-        DataFloat _ value -> [arm64Bytes (littleEndian 8 (castDoubleToWord64 value))]
+        DataInt ty value -> [arm64Word (typeBytes ty) (fromInteger value)]
+        DataFloat F32 value -> [arm64Word 4 (fromIntegral (castFloatToWord32 (double2Float value)))]
+        DataFloat _ value -> [arm64Word 8 (castDoubleToWord64 value)]
         DataSymbol target 0 -> [arm64QuadSymbol (lirSymbol target)]
         DataSymbol target addend -> [arm64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
         DataNull -> [arm64Quad 0]
-        DataWord value -> [arm64Bytes (littleEndian 8 (fromInteger value))]
+        DataWord value -> [arm64Word 8 (fromInteger value)]
         DataCode Nothing -> [arm64Quad 0]
         DataCode (Just target) -> [arm64QuadSymbol (lirSymbol target)]
         DataBytes bytes -> [arm64Bytes bytes]
@@ -188,9 +186,6 @@ log2 value = length (takeWhile (< value) (iterate (* 2) 1))
 
 typeBytes :: Type -> Int
 typeBytes ty = max 1 (typeBits ty `div` 8)
-
-littleEndian :: Int -> Word64 -> BS.ByteString
-littleEndian count value = BS.pack [fromIntegral (value `shiftR` (8 * index)) | index <- [0 .. count - 1]]
 
 -- Functions
 

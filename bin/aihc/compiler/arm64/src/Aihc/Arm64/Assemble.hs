@@ -16,6 +16,7 @@ module Aihc.Arm64.Assemble
     arm64Label,
     arm64Quad,
     arm64QuadSymbol,
+    arm64Word,
     arm64QuadSymbolAddend,
     arm64Section,
   )
@@ -37,6 +38,8 @@ data Arm64Statement
   | Arm64Global !Text
   | Arm64Label !Text
   | Arm64Quad !Word64
+  | -- | A little-endian value of the given byte width.
+    Arm64Word !Int !Word64
   | Arm64QuadSymbol !Text
   | -- | The address of a symbol plus a constant addend.
     Arm64QuadSymbolAddend !Text !Int64
@@ -252,6 +255,9 @@ arm64Label = Arm64Label
 arm64Quad :: Word64 -> Arm64Statement
 arm64Quad = Arm64Quad
 
+arm64Word :: Int -> Word64 -> Arm64Statement
+arm64Word = Arm64Word
+
 arm64QuadSymbol :: Text -> Arm64Statement
 arm64QuadSymbol = Arm64QuadSymbol
 
@@ -272,10 +278,11 @@ applyStatement result statement = do
     Arm64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
     Arm64Global symbol -> pure (addGlobal symbol draft)
     Arm64Label symbol -> addItem (Label symbol) draft
-    Arm64Quad value -> addItem (Bytes (word64Bytes value)) draft
-    Arm64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 (BS.replicate 8 0))) draft
+    Arm64Quad value -> addItem (Word 8 value) draft
+    Arm64Word width value -> addItem (Word width value) draft
+    Arm64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 8 0)) draft
     -- Mach-O keeps the addend of an absolute relocation in the section bytes.
-    Arm64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol 0 (word64Bytes (fromIntegral addend)))) draft
+    Arm64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol 0 8 (fromIntegral addend))) draft
     Arm64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
@@ -283,8 +290,15 @@ applyStatement result statement = do
 
 alignmentFill :: Draft -> ByteString
 alignmentFill draft
-  | draftCurrentSection draft == Just TextSection = word32Bytes 0xd503201f
-  | otherwise = BS.singleton 0
+  | draftCurrentSection draft == Just TextSection = nopBytes
+  | otherwise = zeroByte
+
+-- | The @nop@ that pads the text section, and the zero that pads the rest.
+nopBytes :: ByteString
+nopBytes = BS.pack [0x1f, 0x20, 0x03, 0xd5]
+
+zeroByte :: ByteString
+zeroByte = BS.singleton 0
 
 data Register = Register
   { registerNumber :: !Word32,
@@ -315,7 +329,7 @@ encodeInstruction instruction =
     ArmAdrp destination symbol -> fixupItem (0x90000000 .|. registerNumber (registerInfo destination)) Arm64Page21 symbol
     ArmMov destination source -> encodeMove (registerInfo destination) source
     ArmLdr destination address -> encodeLoadStore True destination address
-    ArmLdrImmediate destination value -> map (Bytes . word32Bytes) (loadImmediate (registerInfo destination) value)
+    ArmLdrImmediate destination value -> words32 (loadImmediate (registerInfo destination) value)
     ArmStr source address -> encodeLoadStore False source address
     ArmLdp first second address -> encodePair True first second address
     ArmStp first second address -> encodePair False first second address
@@ -440,7 +454,7 @@ xorWord32 left right = (left .|. right) .&. complement (left .&. right)
 encodeMove :: Register -> Arm64Value -> [Item]
 encodeMove destinationRegister source =
   case source of
-    Arm64ImmediateValue value -> map (Bytes . word32Bytes) (loadImmediate destinationRegister value)
+    Arm64ImmediateValue value -> words32 (loadImmediate destinationRegister value)
     Arm64RegisterValue sourceValue ->
       let sourceRegister = registerInfo sourceValue
        in if registerSp destinationRegister || registerSp sourceRegister
@@ -601,7 +615,7 @@ branchItem :: Word32 -> FixupKind -> Text -> [Item]
 branchItem = fixupItem
 
 fixupItem :: Word32 -> FixupKind -> Text -> [Item]
-fixupItem instruction kind target = [Apply (Fixup kind target 0 (word32Bytes instruction))]
+fixupItem instruction kind target = [Apply (Fixup kind target 0 4 (fromIntegral instruction))]
 
 conditionCode :: Arm64Condition -> Word32
 conditionCode condition =
@@ -637,16 +651,4 @@ encodeCsinv destination trueValue falseValue condition =
    in words32 [base .|. registerNumber rm `shiftL` 16 .|. conditionCode condition `shiftL` 12 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd]
 
 words32 :: [Word32] -> [Item]
-words32 = map (Bytes . word32Bytes)
-
-word32Bytes :: Word32 -> ByteString
-word32Bytes value =
-  BS.pack
-    [ fromIntegral value,
-      fromIntegral (value `shiftR` 8),
-      fromIntegral (value `shiftR` 16),
-      fromIntegral (value `shiftR` 24)
-    ]
-
-word64Bytes :: Word64 -> ByteString
-word64Bytes value = word32Bytes (fromIntegral value) <> word32Bytes (fromIntegral (value `shiftR` 32))
+words32 = map (Word 4 . fromIntegral)
