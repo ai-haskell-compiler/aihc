@@ -1,0 +1,43 @@
+expected: |-
+  scope 1 = "" Family
+
+  constructor 1.Z []
+
+  constructor 1.S [BoxedRep Lifted]
+
+  constructor 1.Box [BoxedRep Lifted]
+
+  global 1.Z = (C1.Z)
+
+  global 1.S = (C1.S/1)
+
+  global 1.Box = (C1.Box/1)
+  scope 1 = "" Family
+
+  scope 2 = "" Test
+
+  global 2.unbox = (P$unbox/1)
+
+  $unbox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+      data 1.Box (x%1 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) (x%1 :: BoxedRep Lifted)
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Family where
+  data Nat = Z | S Nat
+  data Box = Box Nat
+  type family Elem c
+  type instance Elem Box = Nat
+- |
+  module Test where
+  import Family (Box (..), Elem)
+  unbox :: Box -> Elem Box
+  unbox (Box x) = x
+reason: a use of an imported type family imports its equations, so the
+  System FC lint reduces the family application to the field type
+status: pass
