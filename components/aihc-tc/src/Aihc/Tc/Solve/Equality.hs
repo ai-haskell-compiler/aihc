@@ -12,7 +12,7 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
-import Aihc.Tc.Kind (tcTypeKind, unifyKinds)
+import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
@@ -127,7 +127,7 @@ solveMetaEq ct u ty
   | otherwise = do
       declaredKind <- readMetaTvKind u
       solvedKind <- tcTypeKind ty
-      unifyKinds declaredKind solvedKind
+      unifyKindsAt (ctLoc ct) declaredKind solvedKind
       writeMetaTv u ty
       bindEvidence (ctEvVar ct) (EvCoercion (Refl ty))
       pure EqSolved
