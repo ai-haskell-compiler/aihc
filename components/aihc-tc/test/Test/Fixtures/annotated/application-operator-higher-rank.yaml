@@ -1,0 +1,58 @@
+annotated:
+- |-
+  module GHC.Base where
+  ($) :: (a -> b) -> a -> b
+  ($) f x = f x
+  │   │ └─ type: a
+  │   └─ type: a → b
+  └─ type: ∀ a b. (a → b) → a → b
+  infixr 0 $
+- |-
+  module Test where
+  import GHC.Base (($))
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Box s = Box Nat
+          │       └─ type: ∀ s. Nat → Box s
+          └─ type: Type → Type
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  │      │ │      │     └─ type: Nat → Box (); type-args: ()
+  │      │ │      └─ type: Box () → Nat; type-args: ()
+  │      │ └─ type: ∀ s. Box s → Nat
+  │      └─ type: Nat
+  └─ type: Nat → (∀ s. Box s → Nat) → Nat
+  viaOperator :: Nat
+  viaOperator = create Z $ \(Box n) -> S n
+  └─ type: Nat             ││││   └─ type: Nat
+                           │││└─ type: Box s
+                           │└─ type: Box s
+                           └─ type: ∀ s. Box s → Nat
+                           └─ type: Box s → Nat
+  plain :: Nat
+  plain = S $ S Z
+  └─ type: Nat
+extensions:
+- RankNTypes
+modules:
+- |
+  module GHC.Base where
+  ($) :: (a -> b) -> a -> b
+  ($) f x = f x
+  infixr 0 $
+- |
+  module Test where
+  import GHC.Base (($))
+  data Nat = Z | S Nat
+  newtype Box s = Box Nat
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  viaOperator :: Nat
+  viaOperator = create Z $ \(Box n) -> S n
+  plain :: Nat
+  plain = S $ S Z
+reason: the application operator of GHC.Base types like an application, so a
+  higher-rank argument on its right checks against the polymorphic type
+status: pass
