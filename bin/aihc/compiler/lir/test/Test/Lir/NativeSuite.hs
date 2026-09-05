@@ -352,9 +352,10 @@ withProgramExecutable backend collector units action =
     unitPaths <- forM (zip [0 :: Int ..] units) $ \(index, unit) -> writeUnit backend directory ("program-" <> show index) unit
     let executablePath = directory </> "program"
     (clangExit, _, clangErr) <-
-      -- This link compiles no C, so it takes the archive without the include
-      -- directories of the runtime headers.
-      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", "-Wall", "-Wextra", "-Werror"] <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-o", executablePath]) ""
+      -- This step links the units against the runtime archive and compiles no
+      -- C, so it carries no C compile flags: a toolchain that injects its own
+      -- preprocessor flags would report every one of them as unused.
+      readProcessWithExitCode "clang" (backendClangArguments backend <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-o", executablePath]) ""
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 

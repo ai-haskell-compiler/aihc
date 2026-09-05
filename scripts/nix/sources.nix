@@ -141,6 +141,7 @@ in rec {
       ".yaml"
       ".yml"
       ".fc"
+      ".lir"
       "expected.txt"
     ];
 
