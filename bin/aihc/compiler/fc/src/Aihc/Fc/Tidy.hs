@@ -80,8 +80,6 @@ tidyDecl decl =
           { valType = tidyType emptyTidyEnv (valType declaration),
             valBody = tidyExpr emptyTidyEnv (valBody declaration)
           }
-    DeclForeignImport declaration ->
-      DeclForeignImport declaration {foreignImportType = tidyType emptyTidyEnv (foreignImportType declaration)}
 
 tidyConDecl :: ConDecl -> ConDecl
 tidyConDecl declaration =
@@ -116,6 +114,11 @@ tidyExpr env expr =
     ExLit literal -> ExLit (tidyLiteral env literal)
     ExApp function argument -> ExApp (tidyExpr env function) (tidyExpr env argument)
     ExTyApp function argument -> ExTyApp (tidyExpr env function) (tidyType env argument)
+    ExForeignCall call types arguments ->
+      ExForeignCall
+        call {foreignCallType = tidyType emptyTidyEnv (foreignCallType call)}
+        (map (tidyType env) types)
+        (map (tidyExpr env) arguments)
     ExLam binder body ->
       let (binder', bodyEnv) = tidyBinder env binder
        in ExLam binder' (tidyExpr bodyEnv body)
