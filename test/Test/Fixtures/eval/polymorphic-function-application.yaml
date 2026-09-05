@@ -1,0 +1,23 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    newtype Box s = Box Nat
+
+    data Runner = Runner { runIt :: forall s. Box s -> Nat }
+
+    succRunner :: Runner
+    succRunner = Runner (\(Box n) -> S n)
+
+    applyTwice :: Runner -> Nat
+    applyTwice runner = runIt runner (Box (runIt runner (Box Z)))
+output: |
+  S (S Z)
+expression: |
+  applyTwice succRunner
+status: pass
+reason: a record field with a higher-rank type is instantiated at its application
