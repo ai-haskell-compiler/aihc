@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Box = Box Bool Int
+
+    classify :: Box -> Int
+    classify box
+      | Box _ 0 <- box = 100
+      | Box True n <- box = n
+      | otherwise = 200
+output: |
+  ((I# 100),(I# 7),(I# 200))
+expression: |
+  (classify (Box False 0), classify (Box True 7), classify (Box False 7))
+status: pass
+reason: a literal pattern inside a constructor pattern of a pattern guard
+  compares the boxed field value
