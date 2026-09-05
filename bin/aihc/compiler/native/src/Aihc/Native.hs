@@ -28,15 +28,17 @@ module Aihc.Native
 where
 
 import Aihc.Grin.Syntax
+import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.Char (chr)
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as BL
+import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
-import Numeric (showHex)
 import Paths_aihc (getDataFileName)
 import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
@@ -95,21 +97,31 @@ parseNativeTarget value =
 -- are escaped.
 renderLinkedFunctionSymbol :: Text -> Text
 renderLinkedFunctionSymbol logicalName =
-  case T.splitOn "\0" logicalName of
-    [unstructured] -> "aihc_entry_" <> renderComponent unstructured
-    components -> T.intercalate "_" (map renderComponent components)
+  Text.decodeUtf8 (BL.toStrict (Builder.toLazyByteString rendered))
   where
-    renderComponent = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
+    rendered =
+      case BS.split 0 (Text.encodeUtf8 logicalName) of
+        [unstructured] -> Builder.string7 "aihc_entry_" <> renderComponent unstructured
+        components -> mconcat (intersperse (Builder.word8 underscore) (map renderComponent components))
+    -- Copy the run of bytes that stay intact, then escape the one that stops
+    -- it. Almost every name is one such run.
+    renderComponent bytes =
+      case BS.span asciiAlphaNumeric bytes of
+        (intact, rest) ->
+          Builder.byteString intact <> case BS.uncons rest of
+            Nothing -> mempty
+            Just (byte, remaining) -> renderByte byte <> renderComponent remaining
     renderByte byte
-      | asciiAlphaNumeric byte = T.singleton (chr (fromIntegral byte))
-      | byte == 95 = "__u"
-      | otherwise = "__x" <> T.pack (padByte (showHex byte ""))
+      | byte == underscore = Builder.string7 "__u"
+      | otherwise = Builder.string7 "__x" <> Builder.word8 (hexDigit (byte `shiftR` 4)) <> Builder.word8 (hexDigit (byte .&. 0x0f))
+    hexDigit nibble
+      | nibble < 10 = 48 + nibble
+      | otherwise = 87 + nibble
     asciiAlphaNumeric byte =
       (byte >= 48 && byte <= 57)
         || (byte >= 65 && byte <= 90)
         || (byte >= 97 && byte <= 122)
-    padByte [digit] = ['0', digit]
-    padByte digits = digits
+    underscore = 95
 
 -- | Render the object symbol for one static Haskell value.
 renderLinkedGlobalSymbol :: Text -> Text

@@ -28,6 +28,11 @@ tests =
       testCase "escapes unsafe symbol bytes without collisions" $ do
         assertEqual "underscore escape" "aihc_entry_foo__ubar" (renderLinkedFunctionSymbol "foo_bar")
         assertEqual "punctuation escape" "aihc_entry_foo__x2ebar" (renderLinkedFunctionSymbol "foo.bar")
+        assertEqual "low byte escape" "aihc_entry_a__x09b" (renderLinkedFunctionSymbol "a\tb")
+        assertEqual
+          "one escape per utf-8 byte"
+          "aihc_entry_caf__xc3__xa9"
+          (renderLinkedFunctionSymbol "caf\233")
         assertBool
           "component boundaries cannot imitate escapes"
           (renderLinkedFunctionSymbol (T.intercalate "\0" ["foo", "x2e", "bar"]) /= renderLinkedFunctionSymbol "foo.bar")
