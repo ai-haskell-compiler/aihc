@@ -127,7 +127,8 @@ selectSection role draft =
         if role `elem` draftSectionOrder draft
           then draftSectionOrder draft
           else draftSectionOrder draft <> [role],
-      draftSectionItems = Map.insertWith (flip (<>)) role [] (draftSectionItems draft)
+      -- Keep the existing list. An append would copy all previous items.
+      draftSectionItems = Map.insertWith (\_ items -> items) role [] (draftSectionItems draft)
     }
 
 addGlobal :: Text -> Draft -> Draft

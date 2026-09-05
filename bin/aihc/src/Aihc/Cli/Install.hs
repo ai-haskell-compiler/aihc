@@ -1399,7 +1399,7 @@ compileCheckedModules config writeFc verbose primIdentity interface outputPaths 
       lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) gcProgram)
       output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir selectedTarget lirModule)
       pure $ case output of
-        BackendObject object -> NativeModule name (Just (Lir.renderModule lirModule)) (Just object)
+        BackendObject object -> NativeModule name (if keepNative then Just (Lir.renderModule lirModule) else Nothing) (Just object)
         BackendSource source -> NativeModule name (Just source) Nothing
 
     writeNativeSourceFile nativeModule = do

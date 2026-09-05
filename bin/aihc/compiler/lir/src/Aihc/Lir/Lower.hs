@@ -310,7 +310,7 @@ lowerEnvironment options gcProgram =
     { envProgram = program,
       envOptions = options,
       envFunctionSymbols = functionSymbols,
-      envFunctionParameters = Map.fromList [(grinFunctionName function, map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) | function <- grinFunctions program],
+      envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
       envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
       envInfos = map snd (constructorEntries <> functionEntries),
@@ -323,6 +323,7 @@ lowerEnvironment options gcProgram =
     continuationFunctions = gcContinuationFunctions gcProgram
     continuationFrames = gcContinuationFrames gcProgram
     functionSymbols = Map.fromList [(grinFunctionName function, functionSymbol (grinFunctionName function)) | function <- grinFunctions program]
+    functionParameters = Map.fromList [(grinFunctionName function, map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) | function <- grinFunctions program]
     staticReferences = programStaticReferences program
     srtSymbols =
       Map.fromList
@@ -382,7 +383,7 @@ lowerEnvironment options gcProgram =
         Just name <- [runtimeInfoFunctionName key],
         Just target <- [Map.lookup name functionSymbols]
       ]
-    targetParameters name = [map (repType . grinVarRuntimeRep) (grinFunctionParameters function) | function <- grinFunctions program, grinFunctionName function == name]
+    targetParameters name = Map.findWithDefault [] name functionParameters
     runtimeEnter target name key =
       case key of
         ClosureRuntimeInfo _ fields [supplied] ->
@@ -391,7 +392,7 @@ lowerEnvironment options gcProgram =
               { enterTarget = target,
                 enterStored = map repType fields,
                 enterSupplied = map repType supplied,
-                enterTargetParameters = concat (targetParameters name),
+                enterTargetParameters = targetParameters name,
                 enterPassesContinuation = name `Set.notMember` continuationFunctions
               }
         ThunkRuntimeInfo _ fields ->
@@ -400,7 +401,7 @@ lowerEnvironment options gcProgram =
               { enterTarget = target,
                 enterStored = map repType fields,
                 enterSupplied = [],
-                enterTargetParameters = concat (targetParameters name),
+                enterTargetParameters = targetParameters name,
                 enterPassesContinuation = True
               }
         _ -> Nothing
