@@ -762,7 +762,7 @@ tcTypeKind ty =
           pure KType
 
 applyType :: TcType -> TcType -> TcType
-applyType (TcTyCon tc args) arg = TcTyCon tc (args ++ [arg])
+applyType (TcTyCon tc args) arg = mkTyConApp tc (args ++ [arg])
 applyType f arg = TcAppTy f arg
 
 listType :: TcType -> TcM TcType

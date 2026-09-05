@@ -1,0 +1,32 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Functor f where
+      fmap :: (a -> b) -> f a -> f b
+
+    instance Functor ((->) r) where
+      fmap f g = \x -> f (g x)
+
+    class Category cat where
+      identity :: cat a a
+      compose :: cat b c -> cat a b -> cat a c
+
+    instance Category (->) where
+      identity = \x -> x
+      compose f g = \x -> f (g x)
+
+    succTwice :: Nat -> Nat
+    succTwice = fmap S S
+
+    composed :: Nat -> Nat
+    composed = compose S identity
+output: |
+  S (S (S Z))
+expression: |
+  composed (succTwice Z)
+status: pass
+reason: instances for the function arrow apply to function types

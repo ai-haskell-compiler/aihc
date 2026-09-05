@@ -1,0 +1,65 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  class Functor f where
+  └─ class methods: fmap ∷ ∀ f a b. (Functor f) ⇒ (a → b) → f a → f b
+    fmap :: (a -> b) -> f a -> f b
+  instance Functor ((->) r) where
+  └─ $fFunctor(->)r ∷ ∀ r. () ⇒ Functor ((->) r)
+    fmap f g = \x -> f (g x)
+    │    │ │   │└─ type: r
+    │    │ │   └─ type: r → b
+    │    │ └─ type: r → a
+    │    └─ type: a → b
+    └─ fmap ∷ ∀ a b. (a → b) → (r → a) → r → b
+  class Category cat where
+  └─ class methods: identity ∷ ∀ cat a. (Category cat) ⇒ cat a a, compose ∷ ∀ cat b c a. (Category cat) ⇒ cat b c → cat a b → cat a c
+    identity :: cat a a
+    compose :: cat b c -> cat a b -> cat a c
+  instance Category (->) where
+  └─ $fCategory(->) ∷ () ⇒ Category (->)
+    identity = \x -> x
+    │          │└─ type: a
+    │          └─ type: a → a
+    └─ identity ∷ ∀ a. a → a
+    compose f g = \x -> f (g x)
+    │       │ │   │└─ type: a
+    │       │ │   └─ type: a → c
+    │       │ └─ type: a → b
+    │       └─ type: b → c
+    └─ compose ∷ ∀ b c a. (b → c) → (a → b) → a → c
+  succTwice :: Nat -> Nat
+  succTwice = fmap S S
+  │           └─ type: (Nat → Nat) → GHC.Types.(->) Nat Nat → GHC.Types.(->) Nat Nat; type-args: (->) Nat, Nat, Nat; evidence: $fFunctor(->)r @Nat
+  └─ type: Nat → Nat
+  composed :: Nat -> Nat
+  composed = compose S identity
+  │          │         └─ type: GHC.Types.(->) Nat Nat; type-args: (->), Nat; evidence: $fCategory(->)
+  │          └─ type: GHC.Types.(->) Nat Nat → GHC.Types.(->) Nat Nat → GHC.Types.(->) Nat Nat; type-args: (->), Nat, Nat, Nat; evidence: $fCategory(->)
+  └─ type: Nat → Nat
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+  instance Functor ((->) r) where
+    fmap f g = \x -> f (g x)
+  class Category cat where
+    identity :: cat a a
+    compose :: cat b c -> cat a b -> cat a c
+  instance Category (->) where
+    identity = \x -> x
+    compose f g = \x -> f (g x)
+  succTwice :: Nat -> Nat
+  succTwice = fmap S S
+  composed :: Nat -> Nat
+  composed = compose S identity
+reason: the function type is the saturated arrow constructor, so an instance
+  for the arrow or a partial arrow application unifies with function types
+status: pass

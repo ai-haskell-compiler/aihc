@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Equality solver.
 --
 -- Handles unification of meta-variables, decomposition of type
@@ -84,6 +86,14 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   -- Same function type shape: decompose.
   (TcFunTy a1 b1, TcFunTy a2 b2) ->
     solveDecomposed ct t1 [(a1, a2), (b1, b2)]
+  -- The function type is the saturated arrow constructor, so an applied
+  -- constructor variable can match it.
+  (TcAppTy f a, TcFunTy argument result) -> do
+    arrow <- arrowTyCon
+    solveDecomposed ct t1 [(f, TcTyCon arrow [argument]), (a, result)]
+  (TcFunTy argument result, TcAppTy f a) -> do
+    arrow <- arrowTyCon
+    solveDecomposed ct t1 [(TcTyCon arrow [argument], f), (result, a)]
   -- Applied type constructor variable against a saturated tycon.
   (TcAppTy f a, TcTyCon tc args)
     | not (null args) ->
@@ -105,6 +115,10 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
         solveDecomposed ct t1 [(b1, b2)]
   -- Incompatible types.
   _ -> pure (EqError ct)
+
+-- | The function arrow type constructor.
+arrowTyCon :: TcM TyCon
+arrowTyCon = mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
 
 -- | Solve a meta-variable equality by binding.
 solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult
