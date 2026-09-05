@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Ranged a where
+      range :: a -> (Nat, Nat)
+
+    instance Ranged Nat where
+      range n = (n, S n)
+
+    useRange :: Ranged a => a -> Nat
+    useRange f =
+      let (lo, hi) = range f
+          lo' = S lo
+       in add lo' hi
+
+    second :: [Nat] -> Nat
+    second xs = b
+      where
+        [_, b] = xs
+
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = S (add n m)
+output: |
+  S (S (S (S Z)))
+expression: |
+  add (useRange (S Z)) (second [Z, Z])
+status: pass
+reason: a tuple or list pattern in a local binding binds its variables

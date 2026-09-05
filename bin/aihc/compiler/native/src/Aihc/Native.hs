@@ -195,11 +195,14 @@ runtimePlan target garbageCollector = do
     getDataFileName $ case target of
       Wasm32Wasip3 -> "compiler/native/runtime/aihc_host_wasip3.c"
       _ -> "compiler/native/runtime/aihc_host_posix.c"
-  array <- getDataFileName "compiler/native/runtime/aihc_array.lir"
+  lirUnits <-
+    traverse
+      (getDataFileName . ("compiler/native/runtime/" <>))
+      ["aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_stable_name.lir"]
   pure
     RuntimePlan
       { runtimeSources = [core, runtimeOptions, collector, host],
-        runtimeLirSources = [array],
+        runtimeLirSources = lirUnits,
         runtimeIncludeDirectories = [takeDirectory core]
       }
 
@@ -349,7 +352,11 @@ supportedNativePrimitiveNames =
     "double2Int#",
     ">##",
     "<##",
-    "==##"
+    "==##",
+    -- The bit counts are Lir operations, so they need no runtime call.
+    "clz#",
+    "ctz#",
+    "popCnt#"
   ]
     <> map fst nativeCpsPrimitiveCalls
     <> map fst nativeRuntimePrimitiveCalls
@@ -439,9 +446,6 @@ nativeRuntimePrimitiveCalls =
     procedure "copyByteArrayToAddr#" "aihc_byte_array_copy_to_addr" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     procedure "copyMutableByteArrayToAddr#" "aihc_byte_array_copy_to_addr" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "compareByteArrays#" "aihc_byte_array_compare" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "clz#" "aihc_word_clz" [GrinForeignWord64] GrinForeignWord64,
-    call "ctz#" "aihc_word_ctz" [GrinForeignWord64] GrinForeignWord64,
-    call "popCnt#" "aihc_word_popcount" [GrinForeignWord64] GrinForeignWord64,
     call "expDouble#" "aihc_double_exp" [GrinForeignWord64] GrinForeignWord64,
     call "logDouble#" "aihc_double_log" [GrinForeignWord64] GrinForeignWord64,
     call "sinDouble#" "aihc_double_sin" [GrinForeignWord64] GrinForeignWord64,

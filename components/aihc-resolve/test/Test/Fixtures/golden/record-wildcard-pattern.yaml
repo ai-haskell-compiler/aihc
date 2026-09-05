@@ -1,0 +1,62 @@
+extensions:
+  - RecordWildCards
+modules:
+  - |
+    module Main where
+    data Nat = Z | S Nat
+    data Point = Point { px :: Nat, py :: Nat }
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = S (add n m)
+    sumPoint :: Point -> Nat
+    sumPoint Point{..} = add px py
+    firstOnly :: Point -> Nat
+    firstOnly Point{px = first, ..} = add first py
+annotated:
+  - |-
+    module Main where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Main
+         │     │   └─ v Main
+         │     └─ v Main
+         └─ t Main
+    data Point = Point { px :: Nat, py :: Nat }
+         │       └─ v Main     └─ t Main  └─ t Main
+         └─ t Main
+    add :: Nat -> Nat -> Nat
+    │      │      │      └─ t Main
+    │      │      └─ t Main
+    │      └─ t Main
+    └─ v Main
+    add Z m = m
+    │   │ │   └─ v 0
+    │   │ └─ v 0
+    │   └─ v Main
+    └─ v Main
+    add (S n) m = S (add n m)
+    │    │ │  │   │  │   │ └─ v 2
+    │    │ │  │   │  │   └─ v 1
+    │    │ │  │   │  └─ v Main
+    │    │ │  │   └─ v Main
+    │    │ │  └─ v 2
+    │    │ └─ v 1
+    │    └─ v Main
+    └─ v Main
+    sumPoint :: Point -> Nat
+    └─ v Main   │        └─ t Main
+                └─ t Main
+    sumPoint Point{..} = add px py
+    │        └─ v 3      │   │  └─ v 4
+    │        └─ v Main   │   └─ v 3
+    │        └─ v 4      └─ v Main
+    └─ v Main
+    firstOnly :: Point -> Nat
+    └─ v Main    │        └─ t Main
+                 └─ t Main
+    firstOnly Point{px = first, ..} = add first py
+    └─ v Main └─ v 6     └─ v 5       │   │     └─ v 6
+              └─ v Main               │   └─ v 5
+                                      └─ v Main
+status: pass
+reason: a record wildcard pattern binds each remaining field as a variable with
+  the field name, listed as a pun

@@ -121,7 +121,7 @@ import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -176,7 +176,10 @@ data UserSig = UserSig
 data CheckedSig = CheckedSig
   { checkedSigName :: !Text,
     checkedSigScheme :: !TypeScheme,
-    checkedSigSpan :: !SourceSpan
+    checkedSigSpan :: !SourceSpan,
+    -- | The names of the explicit @forall@ variables. They scope over the
+    -- binding.
+    checkedSigScopedNames :: ![Text]
   }
   deriving (Show)
 
@@ -1427,15 +1430,19 @@ tcClassDefaultValue valueDecl =
     Just (methodName, _) -> do
       binder <- lookupTerm (defaultMethodName methodName)
       case binder of
-        Just (TcIdBinder (ForAll _ givens methodTy) _) ->
+        Just (TcIdBinder (ForAll methodTyVars givens methodTy) _) ->
           case valueDecl of
             FunctionBind name matches -> do
               let (argumentTypes, resultType) = splitFunTy methodTy (matchArity matches)
-              results <- mapM (tcMatchEquation Nothing argumentTypes resultType) matches
+              results <-
+                withScopedTyVars (tyVarScope methodTyVars) $
+                  mapM (tcMatchEquation Nothing argumentTypes resultType) matches
               solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
               pure (FunctionBind name [match | (match, _, _) <- results])
             PatternBind annotations pattern' rhs -> do
-              results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
+              results <-
+                withScopedTyVars (tyVarScope methodTyVars) $
+                  mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
               solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
               case results of
                 [(match, _, _)] -> pure (PatternBind annotations pattern' (matchRhs match))
@@ -1450,7 +1457,9 @@ tcInstanceDeclBodies (DeclAnn ann inner)
           headTys = tcInstanceHeadTypes annotation
       givens <- mapM (constraintTypePred . tcDictBinderType) (tcInstanceContextDicts annotation)
       classInfo <- lookupClass (tcInstanceClassTyCon annotation) >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      items <- mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
+      items <-
+        withScopedTyVars (tyVarScope (tcInstanceTyVars annotation)) $
+          mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
       pure (DeclAnn ann (DeclInstance (instanceDecl {instanceDeclItems = items})))
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
@@ -1465,10 +1474,17 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       headTys <- mapM defaultTypeKinds rawHeadTys
       givens <- mapM defaultPredKinds rawGivens
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      items <- mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
+      items <-
+        withScopedTyVars tvEnv $
+          mapM (tcInstanceItemBody classInfo givens headTys) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies decl =
   pure decl
+
+-- | The scope of type variables that keep their source names, for an
+-- instance head or a class head.
+tyVarScope :: [TyVarId] -> Map Text (TyVarId, TcType)
+tyVarScope tyVars = Map.fromList [(tvName tyVar, (tyVar, tvKind tyVar)) | tyVar <- tyVars]
 
 tcInstanceItemBody :: ClassInfo -> [Pred] -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
 tcInstanceItemBody classInfo givens headTys item =
@@ -1750,7 +1766,8 @@ checkUserSig userSig = do
     CheckedSig
       { checkedSigName = userSigName userSig,
         checkedSigScheme = scheme,
-        checkedSigSpan = userSigSpan userSig
+        checkedSigSpan = userSigSpan userSig,
+        checkedSigScopedNames = explicitForallNames (userSigType userSig)
       }
 
 splitContext :: Type -> ([Type], Type)
@@ -1935,17 +1952,7 @@ replaceInstancePatternBindRhs rhs item =
     _ -> item
 
 patternBinders :: Pattern -> [Text]
-patternBinders pat =
-  case pat of
-    PVar name -> [unqualifiedNameText name]
-    PAnn _ inner -> patternBinders inner
-    PParen inner -> patternBinders inner
-    PAs name inner -> unqualifiedNameText name : patternBinders inner
-    PStrict inner -> patternBinders inner
-    PIrrefutable inner -> patternBinders inner
-    PCon _ _ pats -> concatMap patternBinders pats
-    PInfix lhs _ rhs -> patternBinders lhs ++ patternBinders rhs
-    _ -> []
+patternBinders = map unqualifiedNameText . patternBinderNames
 
 -- | Type-check a declaration group.
 tcDeclGroup :: Map TcTermKey CheckedSig -> (Int, DeclGroup) -> TcM TcDeclGroupResult
@@ -2027,7 +2034,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
         Just layout -> do
           let scheme = patSynLayoutScheme layout
           when (Map.notMember key sigs) $
-            registerCheckedSig key (CheckedSig name scheme nameSpan)
+            registerCheckedSig key (CheckedSig name scheme nameSpan [])
           matcherSig <- patSynMatcherSig matcherName nameSpan layout
           registerCheckedSig matcherKey matcherSig
           (maybeMatcherMatches, matcherResults) <- tcFunctionWithSig matcherName matcherName matcherSig [matcherMatch]
@@ -2035,7 +2042,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
           case maybeMatcherMatches of
             Just [matcherMatch'] -> do
               checkedPat <- maybe (abortTc ("pattern synonym " <> T.unpack name <> " lost its checked pattern")) pure (matcherPattern matcherMatch')
-              let builderSig = CheckedSig builderName scheme nameSpan
+              let builderSig = CheckedSig builderName scheme nameSpan []
               (direction, sourceBuilder) <-
                 case patSynDeclDir patSyn of
                   PatSynUnidirectional -> pure (PatSynUnidirectionalInfo, Just Nothing)
@@ -2236,7 +2243,7 @@ patSynMatcherSig matcherName sp layout = do
           provided -> TcQualTy provided continuationBody
       continuation = foldr TcForAllTy qualifiedContinuation (patSynLayoutExistentials layout)
       matcherTy = TcFunTy (patSynLayoutResultType layout) (TcFunTy continuation (TcFunTy resultTy resultTy))
-  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [result]) (patSynLayoutRequired layout) matcherTy) sp)
+  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [result]) (patSynLayoutRequired layout) matcherTy) sp [])
 
 -- | Give a checked matcher or builder the type of its checked body. The
 -- signature check closes the body over fresh skolems, and the desugarer
@@ -2283,7 +2290,7 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
       | otherwise = do
           let key = TcTermGlobal package moduleName' field
               scheme = ForAll (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
-              sig = CheckedSig field scheme nameSpan
+              sig = CheckedSig field scheme nameSpan []
           registerCheckedSig key sig
           (maybeMatches, results) <- tcFunctionWithSig field field sig [patSynSelectorMatch pat argBinder]
           commitCheckedHelper key field results
@@ -2464,8 +2471,11 @@ tcFunctionWithSig displayName name sig matches = do
             (m : _) -> length (matchPats m)
             [] -> 0
           (argTys, resTy) = splitFunTy sigTy nArgs
-      -- Check each equation against the signature types.
-      results <- mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
+      -- Check each equation against the signature types. The explicit
+      -- forall variables scope over the equations.
+      results <-
+        withScopedTyVars (scopedSigTyVars (checkedSigScopedNames sig) skolems) $
+          mapM (tcMatchEquation (Just (TypeSignatureOrigin (checkedSigName sig) (checkedSigSpan sig))) argTys resTy) matches
       let (_matches', ctsList, implsList) = unzip3 results
           allCts = concat ctsList
           allImpls = concat implsList

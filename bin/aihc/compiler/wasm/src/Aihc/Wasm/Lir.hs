@@ -364,6 +364,7 @@ resultTypes :: Ctx -> Instruction -> [(Var, Type)]
 resultTypes ctx (Instruction results operation) =
   zip results $ case operation of
     Binary _ ty _ _ -> [ty]
+    Unary _ ty _ -> [ty]
     Wide op ty _ _ -> if op `elem` [AddCarry, SubBorrow] then [ty, I1] else [ty, ty]
     Compare {} -> [I1]
     FloatBinary _ ty _ _ -> [ty]
@@ -624,6 +625,27 @@ compileInstruction fn (Instruction results operation) =
               setVar fn second'
             signOrZero extend = when (extend == "extend_i32_s") (signExtend ty)
         _ -> unsupported "wide operation result count"
+    -- WebAssembly counts the bits of the whole container. A narrow type
+    -- lives zero-extended in an i32, so a leading-zero count subtracts the
+    -- bits above the type, and a trailing-zero count sets the first bit above
+    -- it so that a zero operand counts the width of the type instead of 32.
+    Unary op ty value -> do
+      let bits = typeBits ty
+          narrowContainer = bits < 32
+      push fn ty value
+      case op of
+        Clz -> do
+          emit (prefix ty <> ".clz")
+          when narrowContainer $ do
+            emit ("i32.const\t" <> tshow (32 - bits))
+            emit "i32.sub"
+        Ctz -> do
+          when narrowContainer $ do
+            emit ("i32.const\t" <> tshow ((2 :: Integer) ^ bits))
+            emit "i32.or"
+          emit (prefix ty <> ".ctz")
+        Popcount -> emit (prefix ty <> ".popcnt")
+      single
     Compare op ty left right -> do
       let p = if isFloatType ty then wasmType ty else prefix ty
       if op `elem` [LtS, LeS, GtS, GeS] && not (isFloatType ty)

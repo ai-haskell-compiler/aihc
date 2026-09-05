@@ -14,6 +14,7 @@ module Aihc.Lir.Pretty
     renderDoc,
     reservedWords,
     binaryOpName,
+    unaryOpName,
     wideOpName,
     compareOpName,
     floatBinaryOpName,
@@ -158,6 +159,7 @@ prettyOperation :: Operation -> Doc ann
 prettyOperation operation =
   case operation of
     Binary op ty left right -> pretty (binaryOpName op) <+> prettyType ty <+> prettyOperands [left, right]
+    Unary op ty value -> pretty (unaryOpName op) <+> prettyType ty <+> prettyOperand value
     Wide op ty left right -> pretty (wideOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     Compare op ty left right -> pretty (compareOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     FloatBinary op ty left right -> pretty (floatBinaryOpName op) <+> prettyType ty <+> prettyOperands [left, right]
@@ -341,6 +343,13 @@ wideOpName op =
     MulWideU -> "mul.wide.u"
     AddCarry -> "add.carry"
     SubBorrow -> "sub.borrow"
+
+unaryOpName :: UnaryOp -> Text
+unaryOpName op =
+  case op of
+    Clz -> "clz"
+    Ctz -> "ctz"
+    Popcount -> "popcount"
 
 compareOpName :: CompareOp -> Text
 compareOpName op =

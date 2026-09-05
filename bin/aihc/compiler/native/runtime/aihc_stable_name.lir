@@ -1,0 +1,99 @@
+; The stable-name runtime, written in Lir. See docs/lir.md.
+;
+; A stable name is an auxiliary object outside the managed heap. It never
+; moves, so compiled code may hash it, and the machine holds every one of them
+; in a list that the collector walks to follow the referents. Its fields are
+; one eight-byte slot apart on every target, which is the layout the C runtime
+; asserts for AihcStableName:
+;
+;   offset 0    header  = @aihc_runtime_object_info
+;   offset 8    value   = the object the name stands for
+;   offset 16   hash
+;   offset 24   next
+;
+; The list head and the hash counter live in the machine, whose field offsets
+; follow the target word size, so those two accessors stay in C and this unit
+; holds the rest. A pointer field of a machine-owned record is a C pointer, so
+; it travels through @load ptr@ and @store ptr@ rather than through a slot.
+
+extern data @aihc_runtime_object_info
+extern func @aihc_fail(ptr) cc c
+extern func @aihc_allocate_auxiliary(ptr, i64) -> ptr cc c
+; The address of the machine's stable-name list head.
+extern func @aihc_stable_names(ptr) -> ptr cc c
+; The next hash, after which the machine's counter advances.
+extern func @aihc_stable_name_take_hash(ptr) -> i64 cc c
+
+data @aihc_stable_name_null_message align 1 = {
+  bytes "stable-name primitive received null", zero 1
+}
+
+data @aihc_stable_name_hash_null_message align 1 = {
+  bytes "stable-name hash received null", zero 1
+}
+
+; The stable name of %value, allocating one when the machine has none. Two
+; calls with the same object give the same name, which is what eqStableName#
+; and stableNameToInt# rest on.
+export func @aihc_stable_name_make(%machine: ptr, %value: ptr) -> ptr cc c {
+entry:
+  %missing = eq ptr %value, null
+  br %missing, invalid, search
+
+invalid:
+  call @aihc_fail(@aihc_stable_name_null_message)
+  trap "stable-name primitive received null"
+
+search:
+  %head = call @aihc_stable_names(%machine)
+  %first = load ptr [%head] align 8
+  jump visit(%first)
+
+visit(%name: ptr):
+  %exhausted = eq ptr %name, null
+  br %exhausted, allocate, compare
+
+compare:
+  %referent = load ptr [%name + 8] align 8
+  %found = eq ptr %referent, %value
+  br %found, known, advance
+
+advance:
+  %next = load ptr [%name + 24] align 8
+  jump visit(%next)
+
+known:
+  return %name
+
+allocate:
+  %fresh = call @aihc_allocate_auxiliary(%machine, 32)
+  %hash = call @aihc_stable_name_take_hash(%machine)
+  %info = ptr.to_int @aihc_runtime_object_info
+  store i64 %info, [%fresh] align 8
+  store ptr %value, [%fresh + 8] align 8
+  store i64 %hash, [%fresh + 16] align 8
+  store ptr %first, [%fresh + 24] align 8
+  store ptr %fresh, [%head] align 8
+  return %fresh
+}
+
+export func @aihc_stable_name_equal(%left: ptr, %right: ptr) -> i64 cc c {
+entry:
+  %same = eq ptr %left, %right
+  %result = zext i1 %same to i64
+  return %result
+}
+
+export func @aihc_stable_name_hash(%name: ptr) -> i64 cc c {
+entry:
+  %missing = eq ptr %name, null
+  br %missing, invalid, read
+
+invalid:
+  call @aihc_fail(@aihc_stable_name_hash_null_message)
+  trap "stable-name hash received null"
+
+read:
+  %hash = load i64 [%name + 16] align 8
+  return %hash
+}

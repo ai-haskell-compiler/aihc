@@ -1,0 +1,37 @@
+extensions: []
+modules:
+  - |
+    module Prelude where
+    data List a = [] | a : [a]
+    infixr 5 :
+  - |
+    module Main where
+    second (_ : m : _) = m
+    secondDef _ = case [] of
+      (_ : m : _) -> m
+annotated:
+  - |-
+    module Main where
+    second (_ : m : _) = m
+    └─ v Main │ │ │      └─ v 0
+              │ │ └─ v Prelude
+              │ └─ v 0
+              └─ v Prelude
+    secondDef _ = case [] of
+    └─ v Main          └─ v Builtin []
+      (_ : m : _) -> m
+         │ │ │       └─ v 1
+         │ │ └─ v Prelude
+         │ └─ v 1
+         └─ v Prelude
+  - |-
+    module Prelude where
+    data List a = [] | a : [a]
+         │        │      │ └─ t Builtin []
+         │        │      └─ v Prelude
+         │        └─ v Builtin []
+         └─ t Prelude
+    infixr 5 :
+status: pass
+reason: reassociates a nested infix pattern with the fixity of its operators,
+  so a cons chain nests to the right like an expression

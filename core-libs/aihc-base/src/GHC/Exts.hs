@@ -128,6 +128,3 @@ inline value = value
 -- | The function is returned unchanged. Arity hints do not apply.
 oneShot :: (a -> b) -> a -> b
 oneShot function = function
-
-runRW# :: (State# RealWorld -> o) -> o
-runRW# action = action realWorld#

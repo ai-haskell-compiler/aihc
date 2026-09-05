@@ -21,6 +21,6 @@ Type check failed:
   5 | value = () @()
     |         ^^^^^^
 
-<unknown location>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation
+<unknown location in Zulu>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation
 
-<unknown location>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation
+<unknown location in Alpha>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation

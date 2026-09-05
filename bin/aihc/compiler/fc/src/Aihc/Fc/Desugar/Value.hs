@@ -2800,10 +2800,17 @@ desugarPatternWithFailure resultType binder ty pattern' success failure =
       body <- desugarPatternWithFailure resultType viewBinder innerType inner success failure
       pure (ExLet (Bind viewBinder (ExApp function (ExVar (binderName binder)))) body)
     _ -> do
-      maybePatSyn <- patternPatSyn pattern'
+      -- The wrappers above are peeled off, so the pattern can have lost
+      -- its checked type. A list pattern needs it for its synthesized
+      -- tail.
+      let typed =
+            case patternType pattern' of
+              Just _ -> pattern'
+              Nothing -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) pattern'
+      maybePatSyn <- patternPatSyn typed
       case maybePatSyn of
-        Just (info, annotation) -> desugarPatSynWithFailure resultType binder pattern' info annotation success failure
-        Nothing -> desugarDoConstructorPattern resultType binder pattern' success failure
+        Just (info, annotation) -> desugarPatSynWithFailure resultType binder typed info annotation success failure
+        Nothing -> desugarDoConstructorPattern resultType binder typed success failure
 
 desugarDoConstructorPattern :: TcType -> Binder -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoConstructorPattern resultType binder pattern' success failure = do

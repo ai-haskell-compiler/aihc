@@ -85,6 +85,8 @@ module Aihc.Tc.Monad
     tcMonomorphismRestriction,
     localDefaultTypes,
     getDefaultTypes,
+    withScopedTyVars,
+    getScopedTyVars,
     getTcLevel,
     withTcLevel,
     addInstance,
@@ -185,7 +187,14 @@ data TcEnv = TcEnv
     -- 'Nothing' means the module has no @default@ declaration, so defaulting
     -- uses the Haskell 2010 standard list. @default ()@ gives @Just []@ and
     -- turns defaulting off.
-    tcEnvDefaultTypes :: !(Maybe [TcType])
+    tcEnvDefaultTypes :: !(Maybe [TcType]),
+    -- | Whether ScopedTypeVariables is on. Without it, no binding scopes
+    -- its type variables over its body.
+    tcEnvScopedTypeVariables :: !Bool,
+    -- | The lexically scoped type variables, by source name. A signature
+    -- with an explicit @forall@, an instance head, or a class head binds
+    -- them over the bodies it covers.
+    tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType))
   }
   deriving (Show)
 
@@ -267,7 +276,9 @@ emptyTcEnv config =
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
       tcEnvTcLevel = topTcLevel,
-      tcEnvDefaultTypes = Nothing
+      tcEnvDefaultTypes = Nothing,
+      tcEnvScopedTypeVariables = False,
+      tcEnvScopedTyVars = Map.empty
     }
 
 -- | The mutable state of the type checker.
@@ -777,6 +788,20 @@ localDefaultTypes types = local $ \env -> env {tcEnvDefaultTypes = types}
 -- | The candidate types of the module @default@ declaration, if it has one.
 getDefaultTypes :: TcM (Maybe [TcType])
 getDefaultTypes = asks tcEnvDefaultTypes
+
+-- | Run an action with more lexically scoped type variables. The new
+-- variables shadow outer variables with the same name. Without
+-- ScopedTypeVariables the action runs unchanged.
+withScopedTyVars :: Map Text (TyVarId, TcType) -> TcM a -> TcM a
+withScopedTyVars scoped action = do
+  enabled <- asks tcEnvScopedTypeVariables
+  if enabled && not (Map.null scoped)
+    then local (\env -> env {tcEnvScopedTyVars = scoped `Map.union` tcEnvScopedTyVars env}) action
+    else action
+
+-- | The lexically scoped type variables that are in scope.
+getScopedTyVars :: TcM (Map Text (TyVarId, TcType))
+getScopedTyVars = asks tcEnvScopedTyVars
 
 localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a
 localTcOptions monoLocal monomorphism =

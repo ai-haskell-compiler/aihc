@@ -1,0 +1,51 @@
+; The mutable-reference runtime, written in Lir. See docs/lir.md.
+;
+; A MutVar# is a boxed array of one element, so every operation here goes
+; through the array unit in aihc_array.lir and inherits its info table, its
+; bounds check, and its object-kind check.
+
+extern func @aihc_array_new(ptr, i64, i64) -> ptr cc c
+extern func @aihc_array_index(ptr, i64) -> i64 cc c
+extern func @aihc_array_write(ptr, i64, i64) -> i64 cc c
+extern func @aihc_array_same(ptr, ptr) -> i64 cc c
+
+export func @aihc_mutvar_new(%machine: ptr, %initial: i64) -> ptr cc c {
+entry:
+  %mutvar = call @aihc_array_new(%machine, 1, %initial)
+  return %mutvar
+}
+
+export func @aihc_mutvar_read(%mutvar: ptr) -> i64 cc c {
+entry:
+  %value = call @aihc_array_index(%mutvar, 0)
+  return %value
+}
+
+export func @aihc_mutvar_write(%mutvar: ptr, %value: i64) -> i64 cc c {
+entry:
+  %result = call @aihc_array_write(%mutvar, 0, %value)
+  return %result
+}
+
+; The failure flag of casMutVar#: zero when the swap happened, one when the
+; contents differed from %expected. The caller reads the final contents with
+; readMutVar# afterwards, so this returns no value of its own.
+export func @aihc_mutvar_compare_and_swap(%mutvar: ptr, %expected: i64, %replacement: i64) -> i64 cc c {
+entry:
+  %current = call @aihc_array_index(%mutvar, 0)
+  %matches = eq i64 %current, %expected
+  br %matches, swap, unchanged
+
+swap:
+  %ignored = call @aihc_array_write(%mutvar, 0, %replacement)
+  return 0
+
+unchanged:
+  return 1
+}
+
+export func @aihc_mutvar_same(%left: ptr, %right: ptr) -> i64 cc c {
+entry:
+  %same = call @aihc_array_same(%left, %right)
+  return %same
+}

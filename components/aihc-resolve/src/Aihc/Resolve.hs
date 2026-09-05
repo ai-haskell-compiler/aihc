@@ -603,6 +603,39 @@ instanceMethodDefinition headClass scope name =
         resolved@ResolvedTopLevel {} <- [lookupTerm rendered candidate]
       ]
 
+-- | The scope that resolves the family name of an associated type instance
+-- through the class of the instance head, like an instance method. The
+-- family name can be out of scope when only the class is in scope, for
+-- example through a qualified import.
+associatedTypeInstanceScope :: Maybe (Text, ResolvedName) -> Scope -> Type -> Scope
+associatedTypeInstanceScope headClass scope lhs =
+  case (headClass, typeHeadConstructorName lhs) of
+    (Just (className, resolvedClass), Just familyName)
+      | ResolvedError _ <- lookupType familyName scope,
+        found : _ <- associatedTypes className resolvedClass familyName ->
+          emptyScope {scopeTypes = Map.singleton familyName found}
+    _ -> emptyScope
+  where
+    associatedTypes className resolvedClass familyName =
+      [ resolved
+      | candidate <- scope : Map.elems (scopeQualifiedModules scope),
+        lookupType className candidate == resolvedClass,
+        familyName `elem` Map.findWithDefault [] className (scopeAssociatedTypes candidate),
+        resolved@ResolvedTopLevel {} <- [lookupType familyName candidate]
+      ]
+
+-- | The name of the type constructor at the head of a type application.
+typeHeadConstructorName :: Type -> Maybe Text
+typeHeadConstructorName ty =
+  case ty of
+    TAnn _ inner -> typeHeadConstructorName inner
+    TParen inner -> typeHeadConstructorName inner
+    TKindSig inner _ -> typeHeadConstructorName inner
+    TApp fun _ -> typeHeadConstructorName fun
+    TCon name Unpromoted -> Just (nameText name)
+    TInfix _ name Unpromoted _ -> Just (nameText name)
+    _ -> Nothing
+
 resolveInstanceDeclItem :: Maybe (Text, ResolvedName) -> InstanceDeclItem -> ResolveM InstanceDeclItem
 resolveInstanceDeclItem headClass instanceDeclItem =
   case instanceDeclItem of
@@ -612,7 +645,10 @@ resolveInstanceDeclItem headClass instanceDeclItem =
       InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
     InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
-    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> resolveTypeFamilyInst familyInst
+    InstanceItemTypeFamilyInst familyInst -> do
+      scope <- currentScope
+      let familyScope = associatedTypeInstanceScope headClass scope (typeFamilyInstLhs familyInst)
+      InstanceItemTypeFamilyInst <$> extendScope familyScope (resolveTypeFamilyInst familyInst)
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure instanceDeclItem
@@ -1222,11 +1258,13 @@ bindPattern pat =
       typeArgs' <- mapM resolveType typeArgs
       (scope, pats') <- bindPatterns pats
       pure (scope, PCon name' typeArgs' pats')
-    PInfix left name right -> do
-      name' <- resolveTermUseAtName name
-      (leftScope, left') <- bindPattern left
-      (rightScope, right') <- bindPattern right
-      pure (unionScope rightScope leftScope, PInfix left' name' right')
+    PInfix {} -> do
+      let (operands, names) = flattenInfixPattern pat
+      bound <- mapM bindPattern operands
+      names' <- mapM resolveTermUseAtName names
+      let scope = foldr (\(operandScope, _) acc -> unionScope acc operandScope) emptyScope bound
+      pat' <- reassociateResolvedInfixPattern (map snd bound) names'
+      pure (scope, pat')
     PView expr inner -> do
       expr' <- resolveExpr expr
       (scope, inner') <- bindPattern inner
@@ -1258,8 +1296,21 @@ bindPattern pat =
           )
           fields
       wildcardEntries <- bindRecordWildcardFields name fields wildcard
+      ambient <- currentSpan
+      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      -- A record wildcard binds each remaining field to a variable with the
+      -- field name. The pattern lists these fields as puns, so a later phase
+      -- sees an ordinary record pattern.
       let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
-      pure (foldr unionScope wildcardScope fieldScopes, PRecord name' fields' wildcard)
+          wildcardFields =
+            [ RecordField
+                { recordFieldName = Name Nothing NameVarId fieldName [],
+                  recordFieldValue = PVar (resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName ((mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = [mkAnnotation sp]})),
+                  recordFieldPun = True
+                }
+            | (fieldName, resolvedName) <- wildcardEntries
+            ]
+      pure (foldr unionScope wildcardScope fieldScopes, PRecord name' (fields' <> wildcardFields) False)
     PTypeSig inner ty -> do
       (scope, inner') <- bindPattern inner
       ty' <- resolveType ty
@@ -1306,8 +1357,11 @@ resolvePatternDefinition termDefinition pat =
       PList <$> mapM (resolvePatternDefinition termDefinition) pats
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
-    PInfix left name right ->
-      PInfix <$> resolvePatternDefinition termDefinition left <*> resolveTermUseAtName name <*> resolvePatternDefinition termDefinition right
+    PInfix {} -> do
+      let (operands, names) = flattenInfixPattern pat
+      operands' <- mapM (resolvePatternDefinition termDefinition) operands
+      names' <- mapM resolveTermUseAtName names
+      reassociateResolvedInfixPattern operands' names'
     PView expr inner ->
       PView <$> withResetLocalSupply (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
     PAs alias inner -> do
@@ -1836,13 +1890,50 @@ infixPrecedence :: ResolvedInfixOp -> Int
 infixPrecedence = operatorFixityPrecedence . resolvedInfixFixity
 
 rebuildInfixExpr :: [Expr] -> [ResolvedInfixOp] -> Expr
-rebuildInfixExpr (operand : operands) ops =
-  let (expr, _, _) = parseInfixExpr 0 operand operands ops
-   in expr
-rebuildInfixExpr [] _ = error "flattenInfixExpr returned no operands"
+rebuildInfixExpr = rebuildInfix EInfix
 
-parseInfixExpr :: Int -> Expr -> [Expr] -> [ResolvedInfixOp] -> (Expr, [Expr], [ResolvedInfixOp])
-parseInfixExpr minPrec lhs operands ops =
+-- | The operands and operators of a left-nested infix pattern chain, as
+-- the parser gives it.
+flattenInfixPattern :: Pattern -> ([Pattern], [Name])
+flattenInfixPattern pat =
+  case pat of
+    PInfix left op right ->
+      let (operands, ops) = flattenInfixPattern left
+       in (operands <> [right], ops <> [op])
+    _ -> ([pat], [])
+
+-- | Rebuild a resolved infix pattern chain with the fixities of its
+-- operators, like an infix expression. An ambiguous pair keeps the left
+-- nesting and marks the operator.
+reassociateResolvedInfixPattern :: [Pattern] -> [Name] -> ResolveM Pattern
+reassociateResolvedInfixPattern operands names = do
+  scope <- currentScope
+  sp <- currentSpan
+  let ops =
+        [ ResolvedInfixOp index name (resolveFixityName scope name)
+        | (index, name) <- zip [0 :: Int ..] names
+        ]
+  case ambiguousInfixOp ops of
+    Just op ->
+      pure (buildLeftInfixPattern operands (replaceAt (resolvedInfixIndex op) (ambiguousFixityName sp op) names))
+    Nothing ->
+      pure (rebuildInfix PInfix operands ops)
+
+buildLeftInfixPattern :: [Pattern] -> [Name] -> Pattern
+buildLeftInfixPattern [] _ = error "flattenInfixPattern returned no operands"
+buildLeftInfixPattern (operand : operands) ops =
+  List.foldl' (\left (op, right) -> PInfix left op right) operand (zip ops operands)
+
+-- | Rebuild an infix chain by operator precedence and associativity. The
+-- builder makes one infix node.
+rebuildInfix :: (a -> Name -> a -> a) -> [a] -> [ResolvedInfixOp] -> a
+rebuildInfix build (operand : operands) ops =
+  let (result, _, _) = parseInfix build 0 operand operands ops
+   in result
+rebuildInfix _ [] _ = error "an infix chain has no operands"
+
+parseInfix :: (a -> Name -> a -> a) -> Int -> a -> [a] -> [ResolvedInfixOp] -> (a, [a], [ResolvedInfixOp])
+parseInfix build minPrec lhs operands ops =
   case ops of
     op : restOps
       | infixPrecedence op >= minPrec,
@@ -1852,8 +1943,8 @@ parseInfixExpr minPrec lhs operands ops =
                   InfixR -> infixPrecedence op
                   Infix -> infixPrecedence op + 1
                   InfixL -> infixPrecedence op + 1
-              (rhs, operands', ops') = parseInfixExpr nextMinPrec rhsOperand restOperands restOps
-           in parseInfixExpr minPrec (EInfix lhs (resolvedInfixName op) rhs) operands' ops'
+              (rhs, operands', ops') = parseInfix build nextMinPrec rhsOperand restOperands restOps
+           in parseInfix build minPrec (build lhs (resolvedInfixName op) rhs) operands' ops'
     _ -> (lhs, operands, ops)
 
 resolveTypeConstructorUse :: TypePromotion -> Name -> ResolveM Name

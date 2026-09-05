@@ -1,0 +1,94 @@
+annotated:
+- |-
+  {-# LANGUAGE ScopedTypeVariables #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: Type → Type
+  class Sized a where
+  └─ class methods: sizeOf ∷ ∀ a. (Sized a) ⇒ Proxy a → Nat
+    sizeOf :: Proxy a -> Nat
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  instance Sized Box where
+  └─ $fSizedBox ∷ () ⇒ Sized Box
+    sizeOf _ = S Z
+    │      └─ type: Proxy Box
+    └─ sizeOf ∷ Proxy Box → Nat
+  instance Sized a => Sized [a] where
+  └─ $fSizedList ∷ ∀ a. (Sized a) ⇒ Sized [a]
+    sizeOf _ = S (sizeOf (Proxy :: Proxy a))
+    │      │      │       └─ type: Proxy a; type-args: a
+    │      │      └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+    │      └─ type: Proxy [a]
+    └─ sizeOf ∷ Proxy [a] → Nat
+  scoped :: forall a. Sized a => a -> Nat
+  scoped _ = sizeOf (Proxy :: Proxy a)
+  │      │   │       └─ type: Proxy a; type-args: a
+  │      │   └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+  │      └─ type: a
+  └─ type: ∀ a. (Sized a) ⇒ a → Nat
+  twice :: forall a. Sized a => a -> Nat
+  twice x = inner x
+  │     └─ type: a
+  └─ type: ∀ a. (Sized a) ⇒ a → Nat
+    where
+      inner :: a -> Nat
+      inner _ = sizeOf (Proxy :: Proxy a)
+      │     │   │       └─ type: Proxy a; type-args: a
+      │     │   └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+      │     └─ type: a
+      └─ type: a → Nat
+  local :: forall a. Sized a => a -> [a] -> Nat
+  local _ = go
+  │     │   └─ type: [a] → Nat; type-args: a
+  │     └─ type: a
+  └─ type: ∀ a. (Sized a) ⇒ a → [a] → Nat
+    where
+      go :: forall b. [b] -> Nat
+      go _ = sizeOf (Proxy :: Proxy a)
+      │  │   │       └─ type: Proxy a; type-args: a
+      │  │   └─ type: Proxy a → Nat; type-args: a; evidence: given Sized a
+      │  └─ type: [b]
+      └─ type: ∀ b. [b] → Nat
+  implicit :: Sized a => a -> Nat
+  implicit _ = sizeOf (Proxy :: Proxy a)
+               └─ error: unsolved constraint Sized t0
+extensions:
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables #-}
+  module Test where
+  data Nat = Z | S Nat
+  data Proxy a = Proxy
+  class Sized a where
+    sizeOf :: Proxy a -> Nat
+  data Box = Box
+  instance Sized Box where
+    sizeOf _ = S Z
+  instance Sized a => Sized [a] where
+    sizeOf _ = S (sizeOf (Proxy :: Proxy a))
+  scoped :: forall a. Sized a => a -> Nat
+  scoped _ = sizeOf (Proxy :: Proxy a)
+  twice :: forall a. Sized a => a -> Nat
+  twice x = inner x
+    where
+      inner :: a -> Nat
+      inner _ = sizeOf (Proxy :: Proxy a)
+  local :: forall a. Sized a => a -> [a] -> Nat
+  local _ = go
+    where
+      go :: forall b. [b] -> Nat
+      go _ = sizeOf (Proxy :: Proxy a)
+  implicit :: Sized a => a -> Nat
+  implicit _ = sizeOf (Proxy :: Proxy a)
+reason: an explicit forall in a signature or an instance head scopes its type
+  variables over the body, a local signature can use and rebind them, and a
+  signature without forall does not scope its variables
+status: pass

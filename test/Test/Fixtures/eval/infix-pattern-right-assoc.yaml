@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    second :: [Nat] -> Nat
+    second (_ : m : _) = m
+    second _ = Z
+output: |
+  S Z
+expression: |
+  second [Z, S Z, S (S Z)]
+status: pass
+reason: a nested infix pattern nests to the right with the fixity of its operator

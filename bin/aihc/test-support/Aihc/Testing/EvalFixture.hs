@@ -13,6 +13,7 @@ module Aihc.Testing.EvalFixture
     evalBindingNameInProgram,
     loadEvalCases,
     loadEvalEnvironment,
+    evalEnvironmentProgram,
     compileEvalCase,
     evaluateEvalCase,
   )
@@ -246,6 +247,7 @@ parseModules = withArray "modules" $ \arr ->
 -- | The shared compilation environment: every module of aihc-prim and
 -- aihc-base, resolved, typechecked and desugared once per test run.
 -- Fixtures compile only their own modules against it.
+-- Evaluators lower that core program one time.
 data EvalEnvironment = EvalEnvironment
   { envExports :: !ModuleExports,
     envBuiltinScope :: !Scope,
@@ -253,6 +255,10 @@ data EvalEnvironment = EvalEnvironment
     envBindings :: ![TcBindingResult],
     envProgram :: !Fc.Program
   }
+
+-- | The desugared System FC program of aihc-prim and aihc-base.
+evalEnvironmentProgram :: EvalEnvironment -> Fc.Program
+evalEnvironmentProgram = envProgram
 
 evaluateEvalCase :: EvalEnvironment -> ProgramEvaluator -> EvalCase -> IO (Outcome, String)
 evaluateEvalCase env evaluator tc =
@@ -280,7 +286,9 @@ compileEvalCase env tc = do
           results = map (Fc.desugarModuleFc evalDesugarConfig bindings interface) tcResults
       unless (all Fc.dsSuccess results) $
         Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
-      pure (concatPrograms (envProgram env : map Fc.dsProgram results))
+      -- This program contains only the fixture modules. The shared
+      -- environment already holds aihc-prim and aihc-base.
+      pure (concatPrograms (map Fc.dsProgram results))
     ResolveResult {resolveErrors} ->
       Left ("resolve error: " <> show resolveErrors)
 

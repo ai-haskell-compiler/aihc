@@ -7,7 +7,7 @@ module Aihc.Lir.Lint
   )
 where
 
-import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettySymbol, prettyType, prettyVar, renderDoc, wideOpName)
+import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, prettyLabel, prettyLiteral, prettySymbol, prettyType, prettyVar, renderDoc, unaryOpName, wideOpName)
 import Aihc.Lir.Syntax
 import Data.Bits (popCount)
 import Data.IntMap.Strict (IntMap)
@@ -197,6 +197,7 @@ operationResultTypes :: Symbols -> Operation -> Maybe [Type]
 operationResultTypes symbols operation =
   case operation of
     Binary _ ty _ _ -> Just [ty]
+    Unary _ ty _ -> Just [ty]
     Wide op ty _ _ -> Just (if op `elem` [MulWideS, MulWideU] then [ty, ty] else [ty, I1])
     Compare {} -> Just [I1]
     FloatBinary _ ty _ _ -> Just [ty]
@@ -289,6 +290,8 @@ lintInstruction env blockIndex position instruction =
         Binary op ty left right ->
           let accepted = isIntegerType ty || (ty == I1 && op `elem` [And, Or, Xor])
            in (if accepted then [] else rejects ty) <> check ty left <> check ty right
+        Unary _ ty value ->
+          (if isIntegerType ty then [] else rejects ty) <> check ty value
         Wide _ ty left right ->
           (if isIntegerType ty then [] else rejects ty) <> check ty left <> check ty right
         Compare op ty left right ->
@@ -481,6 +484,7 @@ operationKeyword :: Operation -> Text
 operationKeyword operation =
   case operation of
     Binary op _ _ _ -> binaryOpName op
+    Unary op _ _ -> unaryOpName op
     Wide op _ _ _ -> wideOpName op
     Compare op _ _ _ -> compareOpName op
     FloatBinary op _ _ _ -> floatBinaryOpName op

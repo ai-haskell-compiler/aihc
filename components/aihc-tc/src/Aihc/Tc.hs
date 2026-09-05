@@ -535,7 +535,8 @@ typecheckModuleSccWithState config st modules =
     tcEnv =
       (emptyTcEnv config)
         { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleExtensions) modules,
-          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleExtensions) modules
+          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleExtensions) modules,
+          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleExtensions) modules
         }
     moduleExtensions m =
       applyImpliedExtensions $
@@ -583,7 +584,8 @@ typecheckModuleWithState config st m =
     tcEnv =
       (emptyTcEnv config)
         { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
-          tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions
+          tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions,
+          tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions
         }
     enabledExtensions =
       applyImpliedExtensions $
