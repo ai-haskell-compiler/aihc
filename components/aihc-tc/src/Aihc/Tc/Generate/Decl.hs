@@ -1935,17 +1935,7 @@ replaceInstancePatternBindRhs rhs item =
     _ -> item
 
 patternBinders :: Pattern -> [Text]
-patternBinders pat =
-  case pat of
-    PVar name -> [unqualifiedNameText name]
-    PAnn _ inner -> patternBinders inner
-    PParen inner -> patternBinders inner
-    PAs name inner -> unqualifiedNameText name : patternBinders inner
-    PStrict inner -> patternBinders inner
-    PIrrefutable inner -> patternBinders inner
-    PCon _ _ pats -> concatMap patternBinders pats
-    PInfix lhs _ rhs -> patternBinders lhs ++ patternBinders rhs
-    _ -> []
+patternBinders = map unqualifiedNameText . patternBinderNames
 
 -- | Type-check a declaration group.
 tcDeclGroup :: Map TcTermKey CheckedSig -> (Int, DeclGroup) -> TcM TcDeclGroupResult

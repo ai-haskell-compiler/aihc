@@ -612,19 +612,6 @@ groupBinders group =
         DeclValue (PatternBind _ pat _) -> patternBinderNames pat
         _ -> []
 
-patternBinderNames :: Pattern -> [UnqualifiedName]
-patternBinderNames pat =
-  case pat of
-    PVar name -> [name]
-    PAnn _ inner -> patternBinderNames inner
-    PParen inner -> patternBinderNames inner
-    PAs name inner -> name : patternBinderNames inner
-    PStrict inner -> patternBinderNames inner
-    PIrrefutable inner -> patternBinderNames inner
-    PCon _ _ pats -> concatMap patternBinderNames pats
-    PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
-    _ -> []
-
 extractFunctionBind :: Decl -> Maybe (UnqualifiedName, [Match])
 extractFunctionBind decl =
   case peelDeclAnn decl of
@@ -923,19 +910,7 @@ patternBinderKeys pat =
     _ -> pure Set.empty
 
 patternBinderKeyList :: Pattern -> TcM [TcTermKey]
-patternBinderKeyList pat =
-  case pat of
-    PVar name -> (: []) <$> resolvedLocalTermKey name
-    PAnn _ inner -> patternBinderKeyList inner
-    PParen inner -> patternBinderKeyList inner
-    PAs name inner -> do
-      key <- resolvedLocalTermKey name
-      (key :) <$> patternBinderKeyList inner
-    PStrict inner -> patternBinderKeyList inner
-    PIrrefutable inner -> patternBinderKeyList inner
-    PCon _ _ pats -> concat <$> mapM patternBinderKeyList pats
-    PInfix lhs _ rhs -> (++) <$> patternBinderKeyList lhs <*> patternBinderKeyList rhs
-    _ -> pure []
+patternBinderKeyList = mapM resolvedLocalTermKey . patternBinderNames
 
 hasPartialTypeSig :: Decl -> Bool
 hasPartialTypeSig decl =

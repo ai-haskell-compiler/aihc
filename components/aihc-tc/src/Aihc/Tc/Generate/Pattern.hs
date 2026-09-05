@@ -11,6 +11,7 @@ module Aihc.Tc.Generate.Pattern
     checkFunctionPatterns,
     checkFunctionPatternsWithGivens,
     checkedPattern,
+    patternBinderNames,
     withPatternBindings,
   )
 where
@@ -52,6 +53,35 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | The variables that a pattern binds, in source order. Every pattern form
+-- that can hold a sub-pattern is walked, so a tuple, list, record, view,
+-- or signature pattern in a binding position lists the same binders as a
+-- constructor pattern.
+patternBinderNames :: Pattern -> [UnqualifiedName]
+patternBinderNames pat =
+  case pat of
+    PAnn _ inner -> patternBinderNames inner
+    PVar name -> [name]
+    PTypeBinder _ -> []
+    PTypeSyntax _ _ -> []
+    PWildcard -> []
+    PLit _ -> []
+    PQuasiQuote _ _ -> []
+    PTuple _ items -> concatMap patternBinderNames items
+    PUnboxedSum _ _ inner -> patternBinderNames inner
+    PList items -> concatMap patternBinderNames items
+    PCon _ _ pats -> concatMap patternBinderNames pats
+    PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
+    PView _ inner -> patternBinderNames inner
+    PAs name inner -> name : patternBinderNames inner
+    PStrict inner -> patternBinderNames inner
+    PIrrefutable inner -> patternBinderNames inner
+    PNegLit _ -> []
+    PParen inner -> patternBinderNames inner
+    PRecord _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
+    PTypeSig inner _ -> patternBinderNames inner
+    PSplice _ -> []
 
 data PatternCheck = PatternCheck
   { pcBindings :: ![(UnqualifiedName, TcType)],
