@@ -557,7 +557,12 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
-      typeDiagnostics = concatMap (filter ((== TcError) . diagSeverity) . typeUnitDiagnostics) typeResults
+      -- An unlocated diagnostic names the modules of its unit.
+      typeDiagnostics =
+        concat
+          [ [(unitLabel (runtimeUnit runtime), diagnostic) | diagnostic <- typeUnitDiagnostics result, diagSeverity diagnostic == TcError]
+          | (runtime, result) <- zip runtimes typeResults
+          ]
       frontendFailure = renderFrontendFailure parsed parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
   let localExports = Map.unions (map resolveUnitExports resolveResults)
@@ -866,7 +871,7 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-renderFrontendFailure :: [SourceModule] -> [Value] -> [ResolveError] -> [TcDiagnostic] -> String
+renderFrontendFailure :: [SourceModule] -> [Value] -> [ResolveError] -> [(Text, TcDiagnostic)] -> String
 renderFrontendFailure sources parseDiagnostics resolveDiagnostics typeDiagnostics =
   case sections of
     [] -> ""
@@ -883,16 +888,16 @@ renderParseDiagnostics :: [Value] -> String
 renderParseDiagnostics diagnostics =
   "Parse failed:\n" <> intercalate "\n" (map (renderHumanDiagnostic "parse") diagnostics)
 
-renderTypeErrors :: [SourceModule] -> [TcDiagnostic] -> String
+renderTypeErrors :: [SourceModule] -> [(Text, TcDiagnostic)] -> String
 renderTypeErrors sources diagnostics =
   "Type check failed:\n"
     <> intercalate "\n\n" (map renderTypeError diagnostics)
     <> "\n"
   where
     sourceLines = Map.unions (map sourceModuleSourceLines sources)
-    renderTypeError diagnostic =
+    renderTypeError (label, diagnostic) =
       case diagLoc diagnostic of
-        Nothing -> "<unknown location>: error: " <> renderTypeErrorKind (diagKind diagnostic)
+        Nothing -> "<unknown location in " <> T.unpack label <> ">: error: " <> renderTypeErrorKind (diagKind diagnostic)
         Just sourceSpan ->
           renderResolveLocation sourceSpan
             <> ": error: "
