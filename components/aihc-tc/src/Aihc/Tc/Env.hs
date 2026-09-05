@@ -22,6 +22,7 @@ module Aihc.Tc.Env
 
     -- * Class info
     ClassInfo (..),
+    AssociatedTypeInfo (..),
     classInfoKey,
 
     -- * Instance info
@@ -203,7 +204,22 @@ data ClassInfo = ClassInfo
     -- | Checked source-level default signatures. Unlike ordinary method
     -- signatures, their constraints become instance obligations when
     -- DeriveAnyClass selects the default implementation.
-    ciDefaultSignatures :: ![(Text, TypeScheme)]
+    ciDefaultSignatures :: ![(Text, TypeScheme)],
+    -- | Associated type families that the class declares.
+    ciAssociatedTypes :: ![AssociatedTypeInfo]
+  }
+  deriving (Eq, Show, Read)
+
+-- | An associated type family of a class.
+data AssociatedTypeInfo = AssociatedTypeInfo
+  { atiTyCon :: !TyCon,
+    -- | For each family parameter, the position of the class parameter
+    -- that it names. @Nothing@ marks a parameter that is not a class
+    -- parameter.
+    atiClassParams :: ![Maybe Int],
+    -- | The checked default equation, if the class declares one. Its
+    -- left-hand side applies the family to distinct type variables.
+    atiDefault :: !(Maybe TypeFamilyInstanceInfo)
   }
   deriving (Eq, Show, Read)
 

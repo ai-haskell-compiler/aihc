@@ -26,7 +26,7 @@ import Aihc.Tc.Annotations
     TcStockDerivingPlan (..),
     renderTcType,
   )
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
@@ -35,6 +35,7 @@ import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, patt
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
+import Data.Maybe (mapMaybe)
 
 -- | Convert every pending type-checker annotation in a module to a final
 -- annotation. The walk covers every syntax constructor, so a pending
@@ -227,6 +228,7 @@ firstMetaClassAnnotation classAnnotation =
     <|> firstJusts (map (firstMetaType . tcDictBinderType) (tcClassSuperClasses classAnnotation))
     <|> firstJusts (map firstMetaClassMethodAnnotation (tcClassMethods classAnnotation))
     <|> firstJusts (map (firstMetaType . snd) (tcClassDefaultSignatures classAnnotation))
+    <|> firstJusts (map firstMetaTypeFamilyInstance (mapMaybe atiDefault (tcClassAssociatedTypes classAnnotation)))
 
 firstMetaClassMethodAnnotation :: TcClassMethodAnnotation -> Maybe Unique
 firstMetaClassMethodAnnotation method =
@@ -275,6 +277,7 @@ firstMetaInstanceAnnotation ann =
         ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
            | (superClass, evidence) <- tcInstanceSuperClasses ann
            ]
+        ++ map firstMetaTypeFamilyInstance (tcInstanceAssociatedTypes ann)
     )
 
 firstMetaDictBinderAnnotation :: TcDictBinderAnnotation -> Maybe Unique
