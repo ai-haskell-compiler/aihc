@@ -1,0 +1,30 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    main :: IO ()
+    main = do
+      print (floor (logBase 10 5 * 1000 :: Double) :: Int)
+      print (round (7 / 2 :: Double) :: Int)
+      print (round (5 / 2 :: Double) :: Int)
+      print (ceiling (sqrt 10 :: Double) :: Int)
+      print (truncate (exp 1 * 1000000 :: Double) :: Int)
+      print (decodeFloat (1 :: Double))
+      print (floatDigits (1 :: Double), floatRange (1 :: Double))
+      print (truncate (fromRational (toRational (3 / 4 :: Double)) * 100 :: Double) :: Int)
+stdout: |
+  698
+  4
+  2
+  4
+  2718281
+  (4503599627370496,-52)
+  (53,(-1021,1024))
+  75
+output: |
+  ()
+expression: main
+status: pass
+reason: the numeric class instances of Double give logarithms, rounding, and
+  decomposition like GHC

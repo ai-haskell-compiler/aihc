@@ -1,0 +1,27 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Prim (Double#, Int#, double2Int#, int2Double#, sqrtDouble#, expDouble#, logDouble#, atanDouble#, sinDouble#, cosDouble#, (/##), (**##), (*##), (+##))
+    import GHC.Types (Int (..))
+
+    rounded :: Double# -> Int
+    rounded value = I# (double2Int# ((+##) value ((/##) (int2Double# 1#) (int2Double# 2#))))
+
+    results :: (Int, Int, Int, Int, Int, Int)
+    results =
+      ( rounded (sqrtDouble# (int2Double# 144#))
+      , rounded ((*##) ((/##) (int2Double# 10#) (int2Double# 4#)) (int2Double# 2#))
+      , rounded ((**##) (int2Double# 2#) (int2Double# 10#))
+      , rounded ((*##) (expDouble# (logDouble# (int2Double# 7#))) (int2Double# 100#))
+      , rounded ((*##) (atanDouble# (int2Double# 1#)) (int2Double# 4000000#))
+      , rounded ((+##) (sinDouble# (int2Double# 0#)) (cosDouble# (int2Double# 0#)))
+      )
+output: |
+  ((I# 12),(I# 5),(I# 1024),(I# 700),(I# 3141593),(I# 1))
+expression: |
+  results
+status: pass
+reason: the floating point division, power, square root, and transcendental
+  primops evaluate on doubles

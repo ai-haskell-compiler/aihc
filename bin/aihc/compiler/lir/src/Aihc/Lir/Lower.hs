@@ -1566,7 +1566,9 @@ floatBinaryPrimitives =
     ("timesFloat#", (FMul, F32)),
     ("+##", (FAdd, F64)),
     ("-##", (FSub, F64)),
-    ("*##", (FMul, F64))
+    ("*##", (FMul, F64)),
+    ("divideFloat#", (FDiv, F32)),
+    ("/##", (FDiv, F64))
   ]
 
 floatUnaryPrimitives :: [(Text, (FloatUnaryOp, Type))]
@@ -1574,7 +1576,9 @@ floatUnaryPrimitives =
   [ ("negateFloat#", (FNeg, F32)),
     ("fabsFloat#", (FAbs, F32)),
     ("negateDouble#", (FNeg, F64)),
-    ("fabsDouble#", (FAbs, F64))
+    ("fabsDouble#", (FAbs, F64)),
+    ("sqrtFloat#", (FSqrt, F32)),
+    ("sqrtDouble#", (FSqrt, F64))
   ]
 
 floatComparisonPrimitives :: [(Text, (CompareOp, Type))]

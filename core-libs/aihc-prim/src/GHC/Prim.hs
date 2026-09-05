@@ -228,6 +228,23 @@ module GHC.Prim
     plusFloat#,
     minusFloat#,
     timesFloat#,
+    sqrtFloat#,
+    expFloat#,
+    logFloat#,
+    sinFloat#,
+    cosFloat#,
+    tanFloat#,
+    asinFloat#,
+    acosFloat#,
+    atanFloat#,
+    sinhFloat#,
+    coshFloat#,
+    tanhFloat#,
+    asinhFloat#,
+    acoshFloat#,
+    atanhFloat#,
+    divideFloat#,
+    powerFloat#,
     negateFloat#,
     fabsFloat#,
     int2Float#,
@@ -238,6 +255,23 @@ module GHC.Prim
     (+##),
     (-##),
     (*##),
+    sqrtDouble#,
+    expDouble#,
+    logDouble#,
+    sinDouble#,
+    cosDouble#,
+    tanDouble#,
+    asinDouble#,
+    acosDouble#,
+    atanDouble#,
+    sinhDouble#,
+    coshDouble#,
+    tanhDouble#,
+    asinhDouble#,
+    acoshDouble#,
+    atanhDouble#,
+    (/##),
+    (**##),
     negateDouble#,
     fabsDouble#,
     int2Double#,
@@ -488,6 +522,40 @@ foreign import prim minusFloat# :: Float# -> Float# -> Float#
 
 foreign import prim timesFloat# :: Float# -> Float# -> Float#
 
+foreign import prim sqrtFloat# :: Float# -> Float#
+
+foreign import prim expFloat# :: Float# -> Float#
+
+foreign import prim logFloat# :: Float# -> Float#
+
+foreign import prim sinFloat# :: Float# -> Float#
+
+foreign import prim cosFloat# :: Float# -> Float#
+
+foreign import prim tanFloat# :: Float# -> Float#
+
+foreign import prim asinFloat# :: Float# -> Float#
+
+foreign import prim acosFloat# :: Float# -> Float#
+
+foreign import prim atanFloat# :: Float# -> Float#
+
+foreign import prim sinhFloat# :: Float# -> Float#
+
+foreign import prim coshFloat# :: Float# -> Float#
+
+foreign import prim tanhFloat# :: Float# -> Float#
+
+foreign import prim asinhFloat# :: Float# -> Float#
+
+foreign import prim acoshFloat# :: Float# -> Float#
+
+foreign import prim atanhFloat# :: Float# -> Float#
+
+foreign import prim divideFloat# :: Float# -> Float# -> Float#
+
+foreign import prim powerFloat# :: Float# -> Float# -> Float#
+
 foreign import prim negateFloat# :: Float# -> Float#
 
 foreign import prim fabsFloat# :: Float# -> Float#
@@ -521,6 +589,40 @@ foreign import prim (>##) :: Double# -> Double# -> Int#
 foreign import prim (<##) :: Double# -> Double# -> Int#
 
 foreign import prim (==##) :: Double# -> Double# -> Int#
+
+foreign import prim sqrtDouble# :: Double# -> Double#
+
+foreign import prim expDouble# :: Double# -> Double#
+
+foreign import prim logDouble# :: Double# -> Double#
+
+foreign import prim sinDouble# :: Double# -> Double#
+
+foreign import prim cosDouble# :: Double# -> Double#
+
+foreign import prim tanDouble# :: Double# -> Double#
+
+foreign import prim asinDouble# :: Double# -> Double#
+
+foreign import prim acosDouble# :: Double# -> Double#
+
+foreign import prim atanDouble# :: Double# -> Double#
+
+foreign import prim sinhDouble# :: Double# -> Double#
+
+foreign import prim coshDouble# :: Double# -> Double#
+
+foreign import prim tanhDouble# :: Double# -> Double#
+
+foreign import prim asinhDouble# :: Double# -> Double#
+
+foreign import prim acoshDouble# :: Double# -> Double#
+
+foreign import prim atanhDouble# :: Double# -> Double#
+
+foreign import prim (/##) :: Double# -> Double# -> Double#
+
+foreign import prim (**##) :: Double# -> Double# -> Double#
 
 foreign import prim ctz# :: Word# -> Word#
 
