@@ -1,0 +1,40 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Counter c where
+      next :: c -> c
+      start :: c
+
+    instance Counter Nat where
+      next = S
+      start = Z
+
+    isZ :: Nat -> Bool
+    isZ Z = True
+    isZ _ = False
+
+    decrement :: Nat -> Nat
+    decrement Z = Z
+    decrement (S n) = n
+
+    countDown :: Nat -> (Nat, Nat)
+    countDown n = (r, c)
+      where
+        (r, c) = go n start
+        go x count
+          | isZ x = (x, count)
+          | otherwise = go' (decrement x) (next count)
+        go' x count
+          | isZ x = (x, count)
+          | otherwise = go (decrement x) (next count)
+output: |
+  (Z,(S (S (S Z))))
+expression: |
+  countDown (S (S (S Z)))
+status: pass
+reason: two mutually recursive local functions that generalize over the same
+  constrained type variable share its quantification
