@@ -22,6 +22,7 @@ import Aihc.Parser.Syntax
     DoStmt (..),
     Expr (..),
     FloatType (..),
+    GuardedRhs (..),
     LambdaCaseAlt (..),
     Name (..),
     NumericType (..),
@@ -41,7 +42,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Generate.Bind (boolTyCon, inferLocalDecls, inferRhsWithLocals)
+import Aihc.Tc.Generate.Bind (boolTyCon, inferGuardedRhss, inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
@@ -130,6 +131,8 @@ inferExprAt ambient expr = case expr of
     inferSectionR (exprSpan expr `orSourceSpan` ambient) op inner
   EIf cond thenE elseE ->
     inferIf (exprSpan expr `orSourceSpan` ambient) cond thenE elseE
+  EMultiWayIf alternatives ->
+    inferMultiWayIf (exprSpan expr `orSourceSpan` ambient) alternatives
   ECase scrutinee alts ->
     inferCase (exprSpan expr `orSourceSpan` ambient) scrutinee alts
   ERecordCon name fields wildcard ->
@@ -791,6 +794,14 @@ inferIf sp cond thenE elseE = do
       elseCt = mkWantedCt (EqPred elseTy resultTy) elseEv (AppOrigin sp) sp
       pending = pendingAnnotation resultTy [] [] []
   pure (annotatePendingExprAt sp pending (EIf cond' thenE' elseE'), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
+
+-- | A multi-way if is a guarded right-hand side without a binding. Each
+-- alternative has the result type.
+inferMultiWayIf :: SourceSpan -> [GuardedRhs Expr] -> TcM (Expr, TcType, [Ct])
+inferMultiWayIf sp alternatives = do
+  (alternatives', resultTy, cts) <- inferGuardedRhss inferExpr alternatives
+  let pending = pendingAnnotation resultTy [] [] []
+  pure (annotatePendingExprAt sp pending (EMultiWayIf alternatives'), resultTy, cts)
 
 -- | RebindableSyntax gives an if expression the in-scope ifThenElse.
 --

@@ -1,0 +1,25 @@
+extensions:
+  - MultiWayIf
+modules:
+  - |
+    {-# LANGUAGE MultiWayIf #-}
+    module Test where
+
+    data Nat = Z | S Nat
+
+    isZero :: Nat -> Bool
+    isZero Z = True
+    isZero _ = False
+
+    classify :: Nat -> Nat -> Nat
+    classify n m =
+      if
+        | isZero n -> Z
+        | isZero m, S k <- n -> k
+        | otherwise -> S n
+output: |
+  (Z,(S Z),(S (S (S Z))))
+expression: |
+  (classify Z (S Z), classify (S (S Z)) Z, classify (S (S Z)) (S Z))
+status: pass
+reason: a multi-way if selects the first alternative whose guards hold
