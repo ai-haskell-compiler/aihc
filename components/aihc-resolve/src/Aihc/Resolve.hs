@@ -1258,11 +1258,13 @@ bindPattern pat =
       typeArgs' <- mapM resolveType typeArgs
       (scope, pats') <- bindPatterns pats
       pure (scope, PCon name' typeArgs' pats')
-    PInfix left name right -> do
-      name' <- resolveTermUseAtName name
-      (leftScope, left') <- bindPattern left
-      (rightScope, right') <- bindPattern right
-      pure (unionScope rightScope leftScope, PInfix left' name' right')
+    PInfix {} -> do
+      let (operands, names) = flattenInfixPattern pat
+      bound <- mapM bindPattern operands
+      names' <- mapM resolveTermUseAtName names
+      let scope = foldr (\(operandScope, _) acc -> unionScope acc operandScope) emptyScope bound
+      pat' <- reassociateResolvedInfixPattern (map snd bound) names'
+      pure (scope, pat')
     PView expr inner -> do
       expr' <- resolveExpr expr
       (scope, inner') <- bindPattern inner
@@ -1342,8 +1344,11 @@ resolvePatternDefinition termDefinition pat =
       PList <$> mapM (resolvePatternDefinition termDefinition) pats
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
-    PInfix left name right ->
-      PInfix <$> resolvePatternDefinition termDefinition left <*> resolveTermUseAtName name <*> resolvePatternDefinition termDefinition right
+    PInfix {} -> do
+      let (operands, names) = flattenInfixPattern pat
+      operands' <- mapM (resolvePatternDefinition termDefinition) operands
+      names' <- mapM resolveTermUseAtName names
+      reassociateResolvedInfixPattern operands' names'
     PView expr inner ->
       PView <$> withResetLocalSupply (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
     PAs alias inner -> do
@@ -1872,13 +1877,50 @@ infixPrecedence :: ResolvedInfixOp -> Int
 infixPrecedence = operatorFixityPrecedence . resolvedInfixFixity
 
 rebuildInfixExpr :: [Expr] -> [ResolvedInfixOp] -> Expr
-rebuildInfixExpr (operand : operands) ops =
-  let (expr, _, _) = parseInfixExpr 0 operand operands ops
-   in expr
-rebuildInfixExpr [] _ = error "flattenInfixExpr returned no operands"
+rebuildInfixExpr = rebuildInfix EInfix
 
-parseInfixExpr :: Int -> Expr -> [Expr] -> [ResolvedInfixOp] -> (Expr, [Expr], [ResolvedInfixOp])
-parseInfixExpr minPrec lhs operands ops =
+-- | The operands and operators of a left-nested infix pattern chain, as
+-- the parser gives it.
+flattenInfixPattern :: Pattern -> ([Pattern], [Name])
+flattenInfixPattern pat =
+  case pat of
+    PInfix left op right ->
+      let (operands, ops) = flattenInfixPattern left
+       in (operands <> [right], ops <> [op])
+    _ -> ([pat], [])
+
+-- | Rebuild a resolved infix pattern chain with the fixities of its
+-- operators, like an infix expression. An ambiguous pair keeps the left
+-- nesting and marks the operator.
+reassociateResolvedInfixPattern :: [Pattern] -> [Name] -> ResolveM Pattern
+reassociateResolvedInfixPattern operands names = do
+  scope <- currentScope
+  sp <- currentSpan
+  let ops =
+        [ ResolvedInfixOp index name (resolveFixityName scope name)
+        | (index, name) <- zip [0 :: Int ..] names
+        ]
+  case ambiguousInfixOp ops of
+    Just op ->
+      pure (buildLeftInfixPattern operands (replaceAt (resolvedInfixIndex op) (ambiguousFixityName sp op) names))
+    Nothing ->
+      pure (rebuildInfix PInfix operands ops)
+
+buildLeftInfixPattern :: [Pattern] -> [Name] -> Pattern
+buildLeftInfixPattern [] _ = error "flattenInfixPattern returned no operands"
+buildLeftInfixPattern (operand : operands) ops =
+  List.foldl' (\left (op, right) -> PInfix left op right) operand (zip ops operands)
+
+-- | Rebuild an infix chain by operator precedence and associativity. The
+-- builder makes one infix node.
+rebuildInfix :: (a -> Name -> a -> a) -> [a] -> [ResolvedInfixOp] -> a
+rebuildInfix build (operand : operands) ops =
+  let (result, _, _) = parseInfix build 0 operand operands ops
+   in result
+rebuildInfix _ [] _ = error "an infix chain has no operands"
+
+parseInfix :: (a -> Name -> a -> a) -> Int -> a -> [a] -> [ResolvedInfixOp] -> (a, [a], [ResolvedInfixOp])
+parseInfix build minPrec lhs operands ops =
   case ops of
     op : restOps
       | infixPrecedence op >= minPrec,
@@ -1888,8 +1930,8 @@ parseInfixExpr minPrec lhs operands ops =
                   InfixR -> infixPrecedence op
                   Infix -> infixPrecedence op + 1
                   InfixL -> infixPrecedence op + 1
-              (rhs, operands', ops') = parseInfixExpr nextMinPrec rhsOperand restOperands restOps
-           in parseInfixExpr minPrec (EInfix lhs (resolvedInfixName op) rhs) operands' ops'
+              (rhs, operands', ops') = parseInfix build nextMinPrec rhsOperand restOperands restOps
+           in parseInfix build minPrec (build lhs (resolvedInfixName op) rhs) operands' ops'
     _ -> (lhs, operands, ops)
 
 resolveTypeConstructorUse :: TypePromotion -> Name -> ResolveM Name
