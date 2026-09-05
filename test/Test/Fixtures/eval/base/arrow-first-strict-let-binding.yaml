@@ -1,0 +1,28 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    {-# LANGUAGE BangPatterns, NoMonoLocalBinds #-}
+    module Test where
+
+    import Control.Arrow (first)
+
+    class Mantissa a where
+      rounded :: Bool -> a -> a
+
+    instance Mantissa Int where
+      rounded b x = if b then x + 1 else x
+
+    compute :: Bool -> Int -> (Int, Int)
+    compute flag n =
+      let !(output, removed) =
+            let r = rounded flag
+             in first r $ if n > 0 then (n, 1) else (0 - n, 2)
+       in (output, removed)
+output: |
+  ((I# 4),(I# 1))
+expression: |
+  compute True 3
+status: pass
+reason: an arrow method applied with the application operator inside a
+  strict pattern binding gets its instantiated function type

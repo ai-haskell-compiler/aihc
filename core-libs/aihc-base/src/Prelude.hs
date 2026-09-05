@@ -862,6 +862,17 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+instance Functor ((->) r) where
+  fmap f g x = f (g x)
+
+instance Applicative ((->) r) where
+  pure x _ = x
+  (f <*> g) x = f x (g x)
+
+instance Monad ((->) r) where
+  return x _ = x
+  (f >>= k) x = k (f x) x
+  (_ >> g) x = g x
 
 instance Applicative List where
   pure x = [x]
