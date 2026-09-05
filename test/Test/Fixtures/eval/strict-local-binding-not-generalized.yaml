@@ -1,0 +1,32 @@
+extensions:
+  - BangPatterns
+modules:
+  - |
+    {-# LANGUAGE NoMonoLocalBinds #-}
+    module Test where
+
+    data Nat = Z | S Nat
+
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = S (add n m)
+
+    data Ptr a = Ptr Nat
+
+    plusPtr :: Ptr a -> Nat -> Ptr b
+    plusPtr (Ptr n) m = Ptr (add n m)
+
+    count :: Ptr Nat -> Nat
+    count (Ptr k) = k
+
+    offset :: Ptr Nat -> Nat -> Nat
+    offset base n = count ipe
+      where
+        !ipe = base `plusPtr` n
+output: |
+  S (S Z)
+expression: |
+  offset (Ptr (S Z)) (S Z)
+status: pass
+reason: a strict local binding is not generalized, so its type variable is
+  fixed by the use of the binding
