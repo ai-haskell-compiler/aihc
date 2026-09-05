@@ -24,13 +24,13 @@ import Data.Bool (Bool (..), (&&))
 import GHC.Base (Maybe (..), String, (++), (.))
 import GHC.Char (chr)
 import GHC.Err (errorWithoutStackTrace)
-import GHC.Int (Int (..))
+import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (Word#, chr#, eqWord#, int2Word#, minusWord#, quotRemWord#, word2Int#, word8ToWord#, (+#), (<#))
+import GHC.Prim (Word#, chr#, eqWord#, int16ToInt#, int2Word#, int32ToInt#, int64ToInt#, int8ToInt#, minusWord#, quotRemWord#, word16ToWord#, word2Int#, word32ToWord#, word64ToWord#, word8ToWord#, (+#), (<#))
 import GHC.Types (Char (..))
-import GHC.Word (Word (..), Word8 (..))
+import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
 type ShowS = String -> String
 
@@ -103,6 +103,28 @@ instance Show Word where
 
 instance Show Word8 where
   showsPrec _ (W8# value) = showsUnsignedInt (word8ToWord# value)
+
+instance Show Word16 where
+  showsPrec _ (W16# value) = showsUnsignedInt (word16ToWord# value)
+
+instance Show Word32 where
+  showsPrec _ (W32# value) = showsUnsignedInt (word32ToWord# value)
+
+instance Show Word64 where
+  showsPrec _ (W64# value) = showsUnsignedInt (word64ToWord# value)
+
+-- The sized signed types show like Int, because their values fit in Int.
+instance Show Int8 where
+  showsPrec precedence (I8# value) = showsPrec precedence (I# (int8ToInt# value))
+
+instance Show Int16 where
+  showsPrec precedence (I16# value) = showsPrec precedence (I# (int16ToInt# value))
+
+instance Show Int32 where
+  showsPrec precedence (I32# value) = showsPrec precedence (I# (int32ToInt# value))
+
+instance Show Int64 where
+  showsPrec precedence (I64# value) = showsPrec precedence (I# (int64ToInt# value))
 
 instance Show Integer where
   showsPrec = showsSignedInteger
