@@ -1,0 +1,44 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  range :: Nat -> (Nat, Nat)
+  range n = (n, S n)
+  │     │   └─ type: (Nat, Nat); type-args: Nat, Nat
+  │     └─ type: Nat
+  └─ type: Nat → (Nat, Nat)
+  low :: Nat
+  high :: Nat
+  (low, high) = range (S Z)
+  │││    └─ type: Nat
+  │└─ type: Nat
+  └─ type: (Nat, Nat)
+  └─ type: (Nat, Nat)
+  [first, second] = [S high, low]
+  │││      │         └─ type: [Nat]; type-args: Nat
+  │││      └─ type: Nat
+  │└─ type: Nat
+  └─ type: [Nat]
+  └─ type: [Nat]
+  use :: Nat
+  use = first
+  └─ type: Nat
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  range :: Nat -> (Nat, Nat)
+  range n = (n, S n)
+  low :: Nat
+  high :: Nat
+  (low, high) = range (S Z)
+  [first, second] = [S high, low]
+  use :: Nat
+  use = first
+reason: a tuple or list pattern at the top level binds its variables with
+  monomorphic types, with or without type signatures
+status: pass
