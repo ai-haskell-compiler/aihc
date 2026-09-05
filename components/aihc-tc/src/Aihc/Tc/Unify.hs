@@ -12,6 +12,7 @@ import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (zipWithM)
@@ -20,8 +21,8 @@ import Control.Monad (zipWithM)
 -- they are incompatible.
 unify :: SourceSpan -> CtOrigin -> TcType -> TcType -> TcM ()
 unify loc origin t1 t2 = do
-  t1' <- zonkType t1
-  t2' <- zonkType t2
+  t1' <- zonkType t1 >>= reduceTypeFamilies
+  t2' <- zonkType t2 >>= reduceTypeFamilies
   result <- unifyTypes t1' t2'
   case result of
     Right () -> pure ()

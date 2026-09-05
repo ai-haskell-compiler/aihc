@@ -38,6 +38,9 @@ data TypeEnv = TypeEnv
     teHeaders :: Map Name Type,
     teSynonyms :: Map Name Type,
     teAxioms :: Map Name AxiomDecl,
+    -- | The nominal axioms of each type family, by family name, in
+    -- declaration order. They reduce a family application.
+    teFamilyAxioms :: Map Name [AxiomDecl],
     teBinders :: Map Name Type
   }
   deriving (Eq, Show)
@@ -49,6 +52,7 @@ emptyTypeEnv primPackage =
       teHeaders = Map.empty,
       teSynonyms = Map.empty,
       teAxioms = Map.empty,
+      teFamilyAxioms = Map.empty,
       teBinders = Map.empty
     }
 
@@ -59,6 +63,7 @@ unionTypeEnv left right =
       teHeaders = teHeaders left `Map.union` teHeaders right,
       teSynonyms = teSynonyms left `Map.union` teSynonyms right,
       teAxioms = teAxioms left `Map.union` teAxioms right,
+      teFamilyAxioms = Map.unionWith (<>) (teFamilyAxioms left) (teFamilyAxioms right),
       teBinders = teBinders left `Map.union` teBinders right
     }
 
@@ -82,6 +87,7 @@ addImports env imports =
     { teHeaders = importHeaders imports `Map.union` teHeaders env,
       teSynonyms = importSynonyms imports `Map.union` teSynonyms env,
       teAxioms = importAxioms imports `Map.union` teAxioms env,
+      teFamilyAxioms = List.foldl' addFamilyAxiom (teFamilyAxioms env) (Map.elems (importAxioms imports)),
       teBinders = importBinders imports `Map.union` teBinders env
     }
 
@@ -97,7 +103,11 @@ addDecl env decl =
         { teHeaders = Map.insert (synName declaration) (headerType (synBinders declaration) (synResult declaration)) (teHeaders env),
           teSynonyms = Map.insert (synName declaration) (foldr TyForAll (synBody declaration) (synBinders declaration)) (teSynonyms env)
         }
-    DeclAxiom declaration -> env {teAxioms = Map.insert (axiomName declaration) declaration (teAxioms env)}
+    DeclAxiom declaration ->
+      env
+        { teAxioms = Map.insert (axiomName declaration) declaration (teAxioms env),
+          teFamilyAxioms = addFamilyAxiom (teFamilyAxioms env) declaration
+        }
     DeclVal declaration ->
       env {teHeaders = Map.insert (valName declaration) (valType declaration) (teHeaders env)}
     DeclForeignImport declaration ->
@@ -105,6 +115,26 @@ addDecl env decl =
 
 headerType :: [Binder] -> Type -> Type
 headerType binders result = foldr TyForAll result binders
+
+-- | Register a nominal axiom as an equation of the family at the head of
+-- its left-hand side. The equations keep their declaration order.
+addFamilyAxiom :: Map Name [AxiomDecl] -> AxiomDecl -> Map Name [AxiomDecl]
+addFamilyAxiom families declaration
+  | axiomRole declaration /= Nominal = families
+  | otherwise =
+      case typeHead (axiomLeft declaration) of
+        Just family
+          | declaration `elem` Map.findWithDefault [] family families -> families
+          | otherwise -> Map.insertWith (flip (<>)) family [declaration] families
+        Nothing -> families
+
+-- | The type constructor at the head of a type application.
+typeHead :: Type -> Maybe Name
+typeHead ty =
+  case ty of
+    TyCon name -> Just name
+    TyApp function _ -> typeHead function
+    _ -> Nothing
 
 lookupBinderType :: TypeEnv -> Name -> Maybe Type
 lookupBinderType env name = Map.lookup name (teBinders env)
@@ -225,24 +255,58 @@ freshTypeVariableName name used =
        in if candidate `elem` used then choose (unique + 1) else candidate
 
 -- | Unfold synonyms, then compare structure.
+-- | Unfold the synonyms of a type and reduce its type family applications.
 reduceType :: TypeEnv -> Type -> Type
-reduceType env ty =
+reduceType = reduceTypeWith True
+
+-- | Unfold the synonyms of a type. A type family application stays as it
+-- is, so the left-hand side of a family axiom keeps its shape.
+reduceSynonyms :: TypeEnv -> Type -> Type
+reduceSynonyms = reduceTypeWith False
+
+reduceTypeWith :: Bool -> TypeEnv -> Type -> Type
+reduceTypeWith families env ty =
   case ty of
     TyVar {} -> ty
     TyCon {} ->
       let unfolded = unfoldType env ty
-       in if unfolded == ty then ty else reduceType env unfolded
+       in if unfolded == ty then reduceFamily ty else reduceTypeWith families env unfolded
     TyApp function argument ->
-      case reduceType env function of
+      case reduceTypeWith families env function of
         TyForAll binder body ->
-          reduceType env (substType (binderName binder) argument body)
-        function' -> TyApp function' (reduceType env argument)
+          reduceTypeWith families env (substType (binderName binder) argument body)
+        function' -> reduceFamily (TyApp function' (reduceTypeWith families env argument))
     TyFun r1 r2 argument result ->
-      TyFun (reduceType env r1) (reduceType env r2) (reduceType env argument) (reduceType env result)
+      TyFun (reduceTypeWith families env r1) (reduceTypeWith families env r2) (reduceTypeWith families env argument) (reduceTypeWith families env result)
     TyForAll binder body ->
-      TyForAll binder {binderType = reduceType env (binderType binder)} (reduceType env body)
+      TyForAll binder {binderType = reduceTypeWith families env (binderType binder)} (reduceTypeWith families env body)
     TyEq left right ->
-      TyEq (reduceType env left) (reduceType env right)
+      TyEq (reduceTypeWith families env left) (reduceTypeWith families env right)
+  where
+    reduceFamily reduced
+      | families,
+        Just family <- typeHead reduced,
+        Just equations <- Map.lookup family (teFamilyAxioms env),
+        Just result <- firstJust (map (\equation -> applyNominalAxiom env equation reduced) equations) =
+          reduceTypeWith families env result
+      | otherwise = reduced
+
+firstJust :: [Maybe a] -> Maybe a
+firstJust values =
+  case values of
+    [] -> Nothing
+    Just value : _ -> Just value
+    Nothing : rest -> firstJust rest
+
+-- | Rewrite a type with a nominal family axiom whose left-hand side matches
+-- it. The arguments of the type are already reduced.
+applyNominalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe Type
+applyNominalAxiom env declaration source
+  | axiomRole declaration /= Nominal = Nothing
+  | otherwise = do
+      substitution <- matchAxiomTypes env (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceSynonyms env (axiomLeft declaration)) source
+      resolved <- sequenceA substitution
+      pure (substTypes resolved (axiomRight declaration))
 
 coercionEndpoints :: TypeEnv -> Coercion -> Maybe (Type, Type)
 coercionEndpoints env coercion =
@@ -274,12 +338,15 @@ applyRepresentationalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe Type
 applyRepresentationalAxiom env declaration source
   | axiomRole declaration /= Representational = Nothing
   | otherwise = do
-      substitution <- matchTypes (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) source'
+      substitution <- matchAxiomTypes env (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) (reduceType env source)
       resolved <- sequenceA substitution
       pure (substTypes resolved (axiomRight declaration))
-  where
-    source' = reduceType env source
 
+-- | Match an axiom left-hand side against a type. The substitution holds
+-- the axiom binders; a bound binder must match an equal type again.
+matchAxiomTypes :: TypeEnv -> Map Name (Maybe Type) -> Type -> Type -> Maybe (Map Name (Maybe Type))
+matchAxiomTypes env = matchTypes
+  where
     matchTypes substitution patternType actualType =
       case patternType of
         TyVar name

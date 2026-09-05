@@ -41,6 +41,7 @@ library
     Aihc.Tc.Solve.Defaulting
     Aihc.Tc.Solve.Dict
     Aihc.Tc.Solve.Equality
+    Aihc.Tc.Solve.Family
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy

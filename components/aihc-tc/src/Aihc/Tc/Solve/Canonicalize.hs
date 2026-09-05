@@ -23,23 +23,28 @@ data CanonResult
     CanonSolved
   deriving (Show)
 
--- | Canonicalize a constraint.
-canonicalize :: Ct -> CanonResult
-canonicalize ct = case ctPred ct of
-  EqPred t1 t2 -> canonEq ct t1 t2
+-- | Canonicalize a constraint. The predicate tells which type constructors
+-- are type families; an application of one is not decomposed, because a
+-- family is not injective.
+canonicalize :: (TyCon -> Bool) -> Ct -> CanonResult
+canonicalize isFamily ct = case ctPred ct of
+  EqPred t1 t2 -> canonEq isFamily ct t1 t2
   ClassPred {} -> CanonDict ct
   QuantifiedPred {} -> CanonDict ct
   IParamPred {} -> CanonDict ct
 
 -- | Canonicalize an equality constraint.
-canonEq :: Ct -> TcType -> TcType -> CanonResult
-canonEq ct t1 t2 = case (t1, t2) of
+canonEq :: (TyCon -> Bool) -> Ct -> TcType -> TcType -> CanonResult
+canonEq isFamily ct t1 t2 = case (t1, t2) of
   -- Reflexive: solved.
   _ | t1 == t2 -> CanonSolved
   -- Orient: meta on left.
   (TcMetaTv _, _) -> CanonEqs [ct]
   (_, TcMetaTv _) ->
     CanonEqs [ct {ctPred = EqPred t2 t1}]
+  -- A type family application waits for the equality solver.
+  (TcTyCon tc1 _, _) | isFamily tc1 -> CanonEqs [ct]
+  (_, TcTyCon tc2 _) | isFamily tc2 -> CanonEqs [ct]
   -- Decompose type constructor application.
   (TcTyCon tc1 args1, TcTyCon tc2 args2)
     | tc1 == tc2,
