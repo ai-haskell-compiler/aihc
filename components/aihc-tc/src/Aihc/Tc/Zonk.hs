@@ -37,7 +37,7 @@ zonkType ty = case ty of
         writeMetaTv u zonked
         pure zonked
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
-  TcTyCon tc args -> TcTyCon <$> configuredTyCon tc <*> mapM zonkType args
+  TcTyCon tc args -> mkTyConApp <$> configuredTyCon tc <*> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
