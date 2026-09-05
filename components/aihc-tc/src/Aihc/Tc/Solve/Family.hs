@@ -162,7 +162,7 @@ couldUnify patternType target =
     _ -> patternType == target
 
 applyType :: TcType -> TcType -> TcType
-applyType (TcTyCon tyCon arguments) argument = TcTyCon tyCon (arguments <> [argument])
+applyType (TcTyCon tyCon arguments) argument = mkTyConApp tyCon (arguments <> [argument])
 applyType function argument = TcAppTy function argument
 
 -- | Match pattern types against target types. The type variables of the

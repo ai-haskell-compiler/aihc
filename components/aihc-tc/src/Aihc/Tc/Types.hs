@@ -16,6 +16,8 @@ module Aihc.Tc.Types
     tyConKey,
     tyConPackageId,
     tyConModuleName,
+    isArrowTyCon,
+    mkTyConApp,
     tyConNamespace,
     mkTyConWithOrigin,
     mkTyConWithNamespace,
@@ -155,6 +157,20 @@ tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
+
+-- | Whether a type constructor is the function arrow @(->)@.
+isArrowTyCon :: TyCon -> Bool
+isArrowTyCon tyCon =
+  tyConName tyCon == "(->)" && tyConModuleName tyCon == "GHC.Types"
+
+-- | Apply a type constructor to arguments. A saturated function arrow is
+-- the function type, so the arrow constructor and the function type are
+-- one form.
+mkTyConApp :: TyCon -> [TcType] -> TcType
+mkTyConApp tyCon arguments =
+  case arguments of
+    [argument, result] | isArrowTyCon tyCon -> TcFunTy argument result
+    _ -> TcTyCon tyCon arguments
 
 tyConNamespace :: TyCon -> ResolutionNamespace
 tyConNamespace (TyConInternal _ _ namespace _ _) = namespace
@@ -452,7 +468,7 @@ applySubst substitution = go
         TcQualTy predicates body -> TcQualTy (map (applySubstPred substitution) predicates) (go body)
         TcAppTy function argument -> applyType (go function) (go argument)
 
-    applyType (TcTyCon tyCon arguments) argument = TcTyCon tyCon (arguments <> [argument])
+    applyType (TcTyCon tyCon arguments) argument = mkTyConApp tyCon (arguments <> [argument])
     applyType function argument = TcAppTy function argument
 
 -- | Apply a type-variable substitution to a predicate.

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Unification of types.
 --
 -- Handles meta-variable solving with occurs check.
@@ -60,6 +62,17 @@ unifyTypes (TcTyCon tc args) (TcAppTy f a)
 unifyTypes (TcAppTy f1 a1) (TcAppTy f2 a2) = do
   r1 <- unifyTypes f1 f2
   r2 <- unifyTypes a1 a2
+  pure $ r1 >> r2
+-- The function type is the saturated arrow constructor.
+unifyTypes (TcAppTy f a) (TcFunTy argument result) = do
+  arrow <- mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
+  r1 <- unifyTypes f (TcTyCon arrow [argument])
+  r2 <- unifyTypes a result
+  pure $ r1 >> r2
+unifyTypes (TcFunTy argument result) (TcAppTy f a) = do
+  arrow <- mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
+  r1 <- unifyTypes (TcTyCon arrow [argument]) f
+  r2 <- unifyTypes result a
   pure $ r1 >> r2
 unifyTypes t1 t2 =
   pure $ Left $ UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing
