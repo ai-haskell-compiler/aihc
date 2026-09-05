@@ -4,16 +4,17 @@ extensions:
 modules:
   - |
     module Test where
-    import GHC.Prim (catch#, raise#, realWorld#)
+    import GHC.Prim (State#, RealWorld, catch#, raise#, realWorld#)
 
-    foreign import prim (+#) :: Int# -> Int# -> Int#
+    throwing :: State# RealWorld -> (# State# RealWorld, Int #)
+    throwing _ = raise# (10 :: Int)
 
-    throwing _ = raise# 10#
-    handler e s = (# s, (+#) e 32# #)
+    handler :: Int -> State# RealWorld -> (# State# RealWorld, Int #)
+    handler e s = (# s, e + 32 #)
 output: |
-  42
+  I# 42
 expression: |
   case catch# throwing handler realWorld# of
     (# _, x #) -> x
-status: xfail
-reason: evaluates raise# and catch# imported from aihc-prim
+status: pass
+reason: catch# from aihc-prim passes a raised Int to the handler

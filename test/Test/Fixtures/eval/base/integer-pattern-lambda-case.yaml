@@ -12,5 +12,5 @@ output: |
   (True,False)
 expression: |
   (isOne 1, isOne 2)
-status: xfail
+status: pass
 reason: lambda-case alternatives share overloaded integer matching with ordinary cases
