@@ -23,11 +23,12 @@ import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..))
 import Aihc.Tc.Monad (TcM, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, mkKnownTyCon)
+import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM)
+import Control.Monad (foldM, (<=<))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
@@ -61,7 +62,7 @@ solveDictWithGivensVisited visited givens ct
   | otherwise =
       case ctPred ct of
         ClassPred className args -> do
-          args' <- mapM zonkType args
+          args' <- mapM (reduceTypeFamilies <=< zonkType) args
           givens' <- mapM zonkPred givens
           givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
           case givenEvidence of
@@ -412,28 +413,4 @@ matchTypeQuantified quantified substitution (TcAppTy function argument, TcAppTy 
     >>= \substitution' -> matchTypeQuantified quantified substitution' (argument, targetArgument)
 matchTypeQuantified _ substitution (patternType, targetType)
   | patternType == targetType = Just substitution
-  | otherwise = Nothing
-
-matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
-matchTypes patterns targets
-  | length patterns /= length targets = Nothing
-  | otherwise = foldM matchOne Map.empty (zip patterns targets)
-
-matchOne :: Map Unique TcType -> (TcType, TcType) -> Maybe (Map Unique TcType)
-matchOne subst (TcTyVar tv, target) =
-  case Map.lookup (tvUnique tv) subst of
-    Nothing -> Just (Map.insert (tvUnique tv) target subst)
-    Just existing
-      | existing == target -> Just subst
-      | otherwise -> Nothing
-matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
-  | tc == targetTc,
-    length args == length targetArgs =
-      foldM matchOne subst (zip args targetArgs)
-matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
-  matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
-matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
-  matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
-matchOne subst (patternTy, targetTy)
-  | patternTy == targetTy = Just subst
   | otherwise = Nothing

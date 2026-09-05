@@ -25,7 +25,8 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.InertSet (InertSet, addInertDict, emptyInertSet)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reducePredFamilies)
+import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -61,9 +62,18 @@ addWork ct = case ctPred ct of
 -- | Main solver loop.
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
 solveLoop wl inerts = case popWork wl of
-  Nothing ->
-    -- Done: all constraints processed.
-    pure SolveResult {srResidual = [], srInerts = inerts}
+  Nothing
+    | null (inertEqs inerts) ->
+        -- Done: all constraints processed.
+        pure SolveResult {srResidual = [], srInerts = inerts}
+    | otherwise -> do
+        -- An equality that waits on a type family application gets another
+        -- attempt when a solved meta variable changed it. Otherwise it is a
+        -- residual that the enclosing scope solves or reports.
+        (progressed, stuck) <- partitionProgress (inertEqs inerts)
+        if null progressed
+          then pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
+          else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
   Just (Left ct, wl') ->
     -- Process a flat constraint.
     processConstraint ct wl' inerts
@@ -74,16 +84,33 @@ solveLoop wl inerts = case popWork wl of
     deferred <- solveImplication impl
     solveLoop wl' (foldr addInertDict inerts deferred)
 
+-- | Split the stuck equalities into those that a solved meta variable
+-- changed since they got stuck, and those that are unchanged.
+partitionProgress :: [Ct] -> TcM ([Ct], [Ct])
+partitionProgress stuckCts = do
+  results <- mapM progress stuckCts
+  pure ([ct | (ct, True) <- results], [ct | (ct, False) <- results])
+  where
+    progress ct = do
+      predicate <- zonkPred (ctPred ct) >>= reducePredFamilies
+      pure (ct {ctPred = predicate}, predicate /= ctPred ct)
+
 -- | Process a single constraint from the worklist.
 processConstraint :: Ct -> WorkList -> InertSet -> TcM SolveResult
-processConstraint ct wl inerts = case canonicalize ct of
+processConstraint ct wl inerts = do
+  isFamily <- isTypeFamilyTyCon
+  predicate <- zonkPred (ctPred ct) >>= reducePredFamilies
+  processCanonical wl inerts (canonicalize isFamily (ct {ctPred = predicate}))
+
+processCanonical :: WorkList -> InertSet -> CanonResult -> TcM SolveResult
+processCanonical wl inerts result = case result of
   CanonSolved ->
     -- Trivially solved (e.g. reflexive equality).
     solveLoop wl inerts
   CanonEqs subCts -> do
     -- Try to solve each sub-constraint.
-    wl' <- foldM processEq wl subCts
-    solveLoop wl' inerts
+    (wl', inerts') <- foldM processEq (wl, inerts) subCts
+    solveLoop wl' inerts'
   CanonDict dictCt -> do
     -- Try to solve dictionary constraint.
     dictResult <- solveDict dictCt
@@ -94,14 +121,14 @@ processConstraint ct wl inerts = case canonicalize ct of
         solveLoop wl (addInertDict stuckCt inerts)
 
 -- | Process an equality constraint.
-processEq :: WorkList -> Ct -> TcM WorkList
-processEq wl ct = do
+processEq :: (WorkList, InertSet) -> Ct -> TcM (WorkList, InertSet)
+processEq (wl, inerts) ct = do
   result <- solveEquality ct
   case result of
-    EqSolved -> pure wl
-    EqStuck stuckCt -> do
-      -- Cannot solve yet, re-add to worklist.
-      pure (addEq stuckCt wl)
+    EqSolved -> pure (wl, inerts)
+    EqStuck stuckCt ->
+      -- Cannot solve yet. The loop retries it when the worklist is empty.
+      pure (wl, addInertEq stuckCt inerts)
     EqError errCt -> do
       -- Report the error.
       case ctPred errCt of
@@ -109,7 +136,7 @@ processEq wl ct = do
           emitError (ctLoc errCt) . UnificationError t1 t2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
         p ->
           emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
-      pure wl
+      pure (wl, inerts)
 
 -- | Solve an implication constraint.
 --
@@ -190,7 +217,7 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     result <- solveEquality (ct {ctPred = EqPred t1'' t2''})
     case result of
       EqSolved -> pure []
-      EqStuck _ -> pure []
+      EqStuck stuck -> deferOrReport skolems stuck
       EqError errCt -> do
         case ctPred errCt of
           EqPred et1 et2 ->
