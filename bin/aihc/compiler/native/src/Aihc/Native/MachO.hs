@@ -7,19 +7,18 @@ module Aihc.Native.MachO
 where
 
 import Aihc.Native.Object
-import Control.Monad (replicateM_)
+import Control.Monad (replicateM_, zipWithM_)
 import Data.Binary.Put
 import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
 import Data.List (mapAccumL, sortOn)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Ord (Down (..))
-import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word32, Word64)
 
@@ -33,12 +32,13 @@ writeArm64MachO image = do
       (contentEnd, placedSections) = mapAccumL placeSection (fromIntegral headerSize, 0) sectionDescriptions
       relocationStart = alignUp 8 (fst contentEnd)
   (relocationEnd, sectionsWithRelocations) <- placeRelocations relocationStart placedSections
-  let orderedSymbols = orderSymbols (imageSymbols image)
-      symbolIndexes = Map.fromList [(symbolName symbol, index) | (index, symbol) <- zip [0 :: Word32 ..] orderedSymbols]
+  let placedSymbols = orderSymbols (imageSymbols image)
+      orderedSymbols = map snd placedSymbols
+      symbolIndexes = IntMap.fromList [(source, index) | (index, (source, _)) <- zip [0 :: Word32 ..] placedSymbols]
       symbolOffset = alignUp 8 relocationEnd
-      stringEntries = buildStringTable orderedSymbols
+      (stringOffsets, stringTable) = buildStringTable orderedSymbols
       stringOffset = symbolOffset + fromIntegral (length orderedSymbols * 16)
-      stringSize = BS.length (snd stringEntries)
+      stringSize = BS.length stringTable
       locals = length (filter (not . symbolGlobal) orderedSymbols)
       definitions = length (filter isExternalDefinition orderedSymbols)
       undefinedCount = length orderedSymbols - locals - definitions
@@ -47,7 +47,6 @@ writeArm64MachO image = do
         section : _ -> placedFileOffset section
       segmentFileSize = fst contentEnd - segmentFileOffset
       segmentVmSize = snd contentEnd
-  mapM_ (validateRelocations symbolIndexes) sectionsWithRelocations
   pure . runPut $ do
     putHeader commandsSize
     putSegment segmentCommandSize segmentFileOffset segmentFileSize segmentVmSize sectionsWithRelocations
@@ -58,8 +57,8 @@ writeArm64MachO image = do
     putPadding (relocationStart - fst contentEnd)
     mapM_ (putSectionRelocations symbolIndexes) sectionsWithRelocations
     putPadding (symbolOffset - relocationEnd)
-    mapM_ (putSymbol placedSections (fst stringEntries)) orderedSymbols
-    putByteString (snd stringEntries)
+    zipWithM_ (putSymbol placedSections) stringOffsets orderedSymbols
+    putByteString stringTable
 
 data SectionDescription = SectionDescription
   { descriptionImageSection :: !ImageSection,
@@ -118,15 +117,6 @@ relocationRecordCount = fmap sum . mapM count
         Arm64Page21 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         Arm64PageOffset12 -> pure (if relocationAddend relocation == 0 then 1 else 2)
         kind -> Left (ObjectInvalidFixup kind)
-
-validateRelocations :: Map Text Word32 -> PlacedSection -> Either ObjectError ()
-validateRelocations indexes section =
-  mapM_ validate (imageSectionRelocations (placedImageSection section))
-  where
-    validate relocation =
-      case Map.lookup (relocationTarget relocation) indexes of
-        Nothing -> Left (ObjectMissingSymbol (relocationTarget relocation))
-        Just _ -> pure ()
 
 putHeader :: Int -> Put
 putHeader commandsSize = do
@@ -206,12 +196,12 @@ putDynamicSymbolCommand locals definitions undefinedCount = do
   putWord32le (fromIntegral undefinedCount)
   replicateM_ 12 (putWord32le 0)
 
-putSectionRelocations :: Map Text Word32 -> PlacedSection -> Put
+putSectionRelocations :: IntMap Word32 -> PlacedSection -> Put
 putSectionRelocations indexes section =
   mapM_ putRelocation (sortOn (Down . relocationOffset) (imageSectionRelocations (placedImageSection section)))
   where
     putRelocation relocation = do
-      let symbolIndex = indexes Map.! relocationTarget relocation
+      let symbolIndex = indexes IntMap.! relocationSymbol relocation
           addend = relocationAddend relocation
       case relocationKind relocation of
         Absolute64 -> putRecord relocation symbolIndex False 3 0
@@ -236,9 +226,9 @@ putSectionRelocations indexes section =
             .|. typeValue `shiftL` 28
         )
 
-putSymbol :: [PlacedSection] -> Map Text Word32 -> Symbol -> Put
-putSymbol sections stringIndexes symbol = do
-  putWord32le (stringIndexes Map.! symbolName symbol)
+putSymbol :: [PlacedSection] -> Word32 -> Symbol -> Put
+putSymbol sections stringOffset symbol = do
+  putWord32le stringOffset
   case symbolSection symbol of
     Nothing -> do
       putWord8 0x01
@@ -267,25 +257,29 @@ findSection role sections =
     value : _ -> Just value
     [] -> Nothing
 
-orderSymbols :: [Symbol] -> [Symbol]
+-- | Mach-O wants the local symbols, then the external definitions, then the
+-- undefined ones, each group in name order. 'imageSymbols' already ascends by
+-- name, so a partition keeps every group in order. Each symbol carries the
+-- position it had, which is what a relocation names.
+orderSymbols :: [Symbol] -> [(Int, Symbol)]
 orderSymbols symbols =
-  sortOn symbolName locals
-    <> sortOn symbolName definitions
-    <> sortOn symbolName undefinedSymbols
+  filter (not . symbolGlobal . snd) placed
+    <> filter (isExternalDefinition . snd) placed
+    <> filter ((== Nothing) . symbolSection . snd) placed
   where
-    locals = filter (not . symbolGlobal) symbols
-    definitions = filter isExternalDefinition symbols
-    undefinedSymbols = filter ((== Nothing) . symbolSection) symbols
+    placed = zip [0 ..] symbols
 
 isExternalDefinition :: Symbol -> Bool
 isExternalDefinition symbol = symbolGlobal symbol && isJust (symbolSection symbol)
 
-buildStringTable :: [Symbol] -> (Map Text Word32, ByteString)
+-- | The string table, and the offset of the name of each symbol in the order
+-- the symbols are written.
+buildStringTable :: [Symbol] -> ([Word32], ByteString)
 buildStringTable symbols =
   let (size, entries) = mapAccumL add 1 symbols
       table = BS.cons 0 (BS.concat [bytes <> BS.singleton 0 | (_, bytes) <- entries])
       paddedSize = fromIntegral (alignUp 4 (fromIntegral size))
-   in (Map.fromList [(symbolName symbol, offset) | (symbol, (offset, _)) <- zip symbols entries], table <> BS.replicate (paddedSize - BS.length table) 0)
+   in (map fst entries, table <> BS.replicate (paddedSize - BS.length table) 0)
   where
     add offset symbol =
       let bytes = Text.encodeUtf8 (symbolName symbol)

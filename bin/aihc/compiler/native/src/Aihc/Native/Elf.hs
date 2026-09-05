@@ -13,7 +13,9 @@ import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.List (mapAccumL, sortOn)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
+import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -24,8 +26,10 @@ writeAmd64Elf :: Image -> Either ObjectError BL.ByteString
 writeAmd64Elf image = do
   baseSections <- mapM describeSection (imageSections image)
   mapM_ validateSectionRelocations baseSections
-  let orderedSymbols = orderSymbols (imageSymbols image)
-      symbolIndexes = Map.fromList [(symbolName symbol, index) | (index, symbol) <- zip [1 :: Word32 ..] orderedSymbols]
+  let placedSymbols = orderSymbols (imageSymbols image)
+      orderedSymbols = map snd placedSymbols
+      -- Index zero is the null symbol, so the table starts at one.
+      symbolIndexes = IntMap.fromList [(source, index) | (index, (source, _)) <- zip [1 :: Word32 ..] placedSymbols]
       symbolStrings = buildStringTable (map symbolName orderedSymbols)
       relocationSections =
         [ RelocationDescription
@@ -160,7 +164,7 @@ putBaseContents offset sections =
       putLazyByteString bytes
       putBaseContents next rest
 
-putRelocationContents :: Map Text Word32 -> Word64 -> [PlacedRelocationSection] -> PutM Word64
+putRelocationContents :: IntMap Word32 -> Word64 -> [PlacedRelocationSection] -> PutM Word64
 putRelocationContents indexes offset sections =
   case sections of
     [] -> pure offset
@@ -170,9 +174,9 @@ putRelocationContents indexes offset sections =
       let next = placedRelocationOffset section + fromIntegral (length (relocationValues (placedRelocationDescription section)) * 24)
       putRelocationContents indexes next rest
 
-putRelocation :: Map Text Word32 -> Relocation -> Put
+putRelocation :: IntMap Word32 -> Relocation -> Put
 putRelocation indexes relocation = do
-  let symbolIndex = indexes Map.! relocationTarget relocation
+  let symbolIndex = indexes IntMap.! relocationSymbol relocation
       relocationType =
         case relocationKind relocation of
           Absolute64 -> 1
@@ -251,11 +255,14 @@ putTableSectionHeader name sectionType offset size link info alignment entrySize
   putWord64le alignment
   putWord64le entrySize
 
-orderSymbols :: [Symbol] -> [Symbol]
-orderSymbols symbols = sortOn symbolName locals <> sortOn symbolName globals
+-- | ELF wants the local symbols before the global ones, each group in name
+-- order. 'imageSymbols' already ascends by name, so a partition keeps every
+-- group in order. Each symbol carries the position it had, which is what a
+-- relocation names.
+orderSymbols :: [Symbol] -> [(Int, Symbol)]
+orderSymbols symbols = filter (not . symbolGlobal . snd) placed <> filter (symbolGlobal . snd) placed
   where
-    locals = filter (not . symbolGlobal) symbols
-    globals = filter symbolGlobal symbols
+    placed = zip [0 ..] symbols
 
 buildStringTable :: [Text] -> (Map Text Word32, ByteString)
 buildStringTable names =
