@@ -885,6 +885,9 @@ instance Functor (Either e) where
       Left e -> Left e
       Right x -> Right (f x)
 
+instance Functor ((,) a) where
+  fmap f (first, second) = (first, f second)
+
 instance Applicative List where
   pure x = [x]
 
