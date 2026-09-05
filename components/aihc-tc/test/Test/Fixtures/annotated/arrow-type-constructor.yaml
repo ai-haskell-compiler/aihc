@@ -34,12 +34,12 @@ annotated:
     └─ compose ∷ ∀ b c a. (b → c) → (a → b) → a → c
   succTwice :: Nat -> Nat
   succTwice = fmap S S
-  │           └─ type: (Nat → Nat) → GHC.Types.(->) Nat Nat → GHC.Types.(->) Nat Nat; type-args: (->) Nat, Nat, Nat; evidence: $fFunctor(->)r @Nat
+  │           └─ type: (Nat → Nat) → (Nat → Nat) → Nat → Nat; type-args: (->) Nat, Nat, Nat; evidence: $fFunctor(->)r @Nat
   └─ type: Nat → Nat
   composed :: Nat -> Nat
   composed = compose S identity
-  │          │         └─ type: GHC.Types.(->) Nat Nat; type-args: (->), Nat; evidence: $fCategory(->)
-  │          └─ type: GHC.Types.(->) Nat Nat → GHC.Types.(->) Nat Nat → GHC.Types.(->) Nat Nat; type-args: (->), Nat, Nat, Nat; evidence: $fCategory(->)
+  │          │         └─ type: Nat → Nat; type-args: (->), Nat; evidence: $fCategory(->)
+  │          └─ type: (Nat → Nat) → (Nat → Nat) → Nat → Nat; type-args: (->), Nat, Nat, Nat; evidence: $fCategory(->)
   └─ type: Nat → Nat
 extensions: []
 modules:
