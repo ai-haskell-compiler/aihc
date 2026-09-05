@@ -1,0 +1,42 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Box s = Box Nat
+          │       └─ type: ∀ s. Nat → Box s
+          └─ type: Type → Type
+  data Runner = Runner { runIt :: forall s. Box s -> Nat }
+       │        └─ type: (∀ s. Box s → Nat) → Runner
+       └─ type: Type
+  apply :: Runner -> Nat
+  apply runner = runIt runner (Box Z)
+  │     │        │             └─ type: Nat → Box (); type-args: ()
+  │     │        └─ type: Box () → Nat; type-args: ()
+  │     └─ type: Runner
+  └─ type: Runner → Nat
+  applyTwice :: Runner -> Nat
+  applyTwice runner = runIt runner (Box (runIt runner (Box (S Z))))
+  │          │        │             │    │             └─ type: Nat → Box (); type-args: ()
+  │          │        │             │    └─ type: Box () → Nat; type-args: ()
+  │          │        │             └─ type: Nat → Box (); type-args: ()
+  │          │        └─ type: Box () → Nat; type-args: ()
+  │          └─ type: Runner
+  └─ type: Runner → Nat
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  newtype Box s = Box Nat
+  data Runner = Runner { runIt :: forall s. Box s -> Nat }
+  apply :: Runner -> Nat
+  apply runner = runIt runner (Box Z)
+  applyTwice :: Runner -> Nat
+  applyTwice runner = runIt runner (Box (runIt runner (Box (S Z))))
+reason: a function with a polymorphic type, such as a record field with a
+  higher-rank type, is instantiated at its application
+status: pass
