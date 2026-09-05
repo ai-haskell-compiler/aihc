@@ -1,0 +1,35 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveAnyClass, KindSignatures, PolyKinds, MagicHash #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE)
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  class Lift (t :: TYPE r) where
+  └─ class methods: lift ∷ ∀ t. (Lift t) ⇒ t → Nat
+    lift :: t -> Nat
+  data Box = Box Nat
+  │    │     └─ type: Nat → Box
+  │    └─ type: Type
+  └─ deriving plans: anyclass Lift Box [context: ()] [methods: lift]
+    deriving anyclass Lift
+extensions:
+- DeriveAnyClass
+- KindSignatures
+- PolyKinds
+- MagicHash
+modules:
+- |
+  {-# LANGUAGE DeriveAnyClass, KindSignatures, PolyKinds, MagicHash #-}
+  module Test where
+  import GHC.Types (RuntimeRep, TYPE)
+  data Nat = Z | S Nat
+  class Lift (t :: TYPE r) where
+    lift :: t -> Nat
+  data Box = Box Nat
+    deriving anyclass Lift
+reason: a class whose parameter has a variable runtime representation accepts
+  a lifted deriving target
+status: pass
