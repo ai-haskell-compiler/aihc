@@ -1258,8 +1258,21 @@ bindPattern pat =
           )
           fields
       wildcardEntries <- bindRecordWildcardFields name fields wildcard
+      ambient <- currentSpan
+      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      -- A record wildcard binds each remaining field to a variable with the
+      -- field name. The pattern lists these fields as puns, so a later phase
+      -- sees an ordinary record pattern.
       let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
-      pure (foldr unionScope wildcardScope fieldScopes, PRecord name' fields' wildcard)
+          wildcardFields =
+            [ RecordField
+                { recordFieldName = Name Nothing NameVarId fieldName [],
+                  recordFieldValue = PVar (resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName ((mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = [mkAnnotation sp]})),
+                  recordFieldPun = True
+                }
+            | (fieldName, resolvedName) <- wildcardEntries
+            ]
+      pure (foldr unionScope wildcardScope fieldScopes, PRecord name' (fields' <> wildcardFields) False)
     PTypeSig inner ty -> do
       (scope, inner') <- bindPattern inner
       ty' <- resolveType ty
