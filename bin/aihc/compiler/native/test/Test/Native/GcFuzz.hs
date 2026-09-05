@@ -1000,7 +1000,7 @@ data Process = Process
   }
 
 -- | Compile the driver against the semispace runtime. Sanitizers are used
--- when the C compiler supports them.
+-- when the C compiler supports them and the sanitized driver runs here.
 compileDriver :: IO (FilePath, FilePath)
 compileDriver = do
   root <- lookupEnv "AIHC_TEST_ROOT" >>= maybe (throwIO (userError "AIHC_TEST_ROOT is not set")) pure
@@ -1015,11 +1015,33 @@ compileDriver = do
           <> runtimeSources plan
           <> [source, "-o", executable]
       sanitized = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] <> base
+      compilePlain = do
+        (plainExit, _, plainError) <- readProcessWithExitCode "cc" base ""
+        when (plainExit /= ExitSuccess) $ throwIO (userError ("cannot compile the collector fuzz driver:\n" <> plainError))
   (sanitizedExit, _, _) <- readProcessWithExitCode "cc" sanitized ""
-  when (sanitizedExit /= ExitSuccess) $ do
-    (plainExit, _, plainError) <- readProcessWithExitCode "cc" base ""
-    when (plainExit /= ExitSuccess) $ throwIO (userError ("cannot compile the collector fuzz driver:\n" <> plainError))
+  if sanitizedExit /= ExitSuccess
+    then compilePlain
+    else do
+      usable <- driverAnswers executable
+      unless usable compilePlain
   pure (directory, executable)
+
+-- | Whether a freshly compiled driver starts and answers a trivial script.
+--
+-- Compiling with the sanitizers is not enough to know that they work here.
+-- Inside the Nix sandbox on macOS the AddressSanitizer runtime never
+-- finishes reserving its shadow memory: it stops in
+-- @FindDynamicShadowStart@, so every sanitized binary hangs before @main@,
+-- down to a hello world. Without this check the driver answers nothing and
+-- each script waits out the time limit in 'runScript' instead. Ask the
+-- driver a question it can answer immediately, and fall back to the plain
+-- build when it cannot.
+driverAnswers :: FilePath -> IO Bool
+driverAnswers executable = do
+  outcome <- timeout (10 * 1000000) (try (readProcessWithExitCode executable [] "end\n"))
+  pure $ case outcome :: Maybe (Either SomeException (ExitCode, String, String)) of
+    Just (Right (ExitSuccess, output, _)) -> "done" `elem` lines output
+    _ -> False
 
 newDriver :: IO (FilePath, FilePath) -> Config -> IO Driver
 newDriver getBuild config = do
