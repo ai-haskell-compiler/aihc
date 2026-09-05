@@ -28,7 +28,7 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique, mkAppTy)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 
 -- | Result of solving constraints.
@@ -200,7 +200,7 @@ applyGivenSubst givens ty = foldr applyOne ty givens
           case t of
             TcTyCon tc args -> TcTyCon tc (map (applyOne (lhs, rhs)) args)
             TcFunTy a b -> TcFunTy (applyOne (lhs, rhs) a) (applyOne (lhs, rhs) b)
-            TcAppTy f a -> TcAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
+            TcAppTy f a -> mkAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
             TcForAllTy tv body -> TcForAllTy tv (applyOne (lhs, rhs) body)
             _ -> t
 

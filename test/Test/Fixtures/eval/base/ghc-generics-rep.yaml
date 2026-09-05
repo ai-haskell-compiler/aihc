@@ -63,5 +63,5 @@ modules:
 output: |
   True
 expression: result
-status: xfail
+status: pass
 reason: GHC.Generics exports the representation types used by deepseq generic NFData instances
