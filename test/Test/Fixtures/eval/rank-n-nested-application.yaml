@@ -1,0 +1,35 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    newtype Box s = Box Nat
+
+    newtype Builder = Builder (forall s. Box s -> Nat)
+
+    create :: Nat -> (forall s. Box s -> Nat) -> Nat
+    create n fill = fill (Box n)
+
+    useCreate :: Nat
+    useCreate = create Z (\(Box n) -> S n)
+
+    builder :: (forall s. Box s -> Nat) -> Builder
+    builder = Builder
+
+    runBuilder :: Builder -> Nat
+    runBuilder (Builder f) = f (Box Z)
+
+    total :: Nat
+    total = case useCreate of
+      S _ -> runBuilder (builder (\(Box n) -> S (S n)))
+      Z -> Z
+output: |
+  S (S Z)
+expression: |
+  total
+status: pass
+reason: a higher-rank argument of a nested application and a polymorphic
+  argument type compare with a signature
