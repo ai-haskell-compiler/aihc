@@ -1414,6 +1414,31 @@ static double aihc_double_split(double value, int *power) {
   return aihc_double_from_bits(bits);
 }
 
+/* The square root of a non-negative value. Newton iteration from an
+ * estimate that halves the exponent. The C runtime is freestanding, so it
+ * cannot call sqrt from libm; the sqrt builtin still calls it on some
+ * targets. */
+static double aihc_math_sqrt_value(double value) {
+  if (aihc_double_is_nan(value) || value < 0.0) {
+    return 0.0 / 0.0;
+  }
+  if (value == 0.0 || aihc_double_is_infinite(value)) {
+    return value;
+  }
+  /* The estimate needs a normal value. A subnormal value is scaled by an
+   * even power of two, and the result is scaled back. */
+  if (value < 2.2250738585072014e-308) {
+    return aihc_math_sqrt_value(value * 0x1p108) * 0x1p-54;
+  }
+  uint64_t bits = aihc_double_to_bits(value);
+  uint64_t half_bias = (uint64_t)1023 << 51;
+  double guess = aihc_double_from_bits((bits >> 1) + half_bias);
+  for (int i = 0; i < 8; i++) {
+    guess = 0.5 * (guess + value / guess);
+  }
+  return guess;
+}
+
 /* The largest integer value that is not above the value. */
 static double aihc_math_floor_value(double value) {
   if (aihc_double_is_nan(value) || aihc_double_is_infinite(value)) {
@@ -1619,7 +1644,7 @@ static double aihc_math_asin(double x) {
   if (x == 1.0 || x == -1.0) {
     return x * AIHC_PI * 0.5;
   }
-  return aihc_math_atan(x / __builtin_sqrt(1.0 - x * x));
+  return aihc_math_atan(x / aihc_math_sqrt_value(1.0 - x * x));
 }
 
 static double aihc_math_acos(double x) {
@@ -1647,8 +1672,8 @@ static double aihc_math_tanh(double x) {
 
 static double aihc_math_asinh(double x) {
   double magnitude = x < 0.0 ? -x : x;
-  double result =
-      aihc_math_log(magnitude + __builtin_sqrt(magnitude * magnitude + 1.0));
+  double result = aihc_math_log(
+      magnitude + aihc_math_sqrt_value(magnitude * magnitude + 1.0));
   return x < 0.0 ? -result : result;
 }
 
@@ -1656,7 +1681,7 @@ static double aihc_math_acosh(double x) {
   if (aihc_double_is_nan(x) || x < 1.0) {
     return aihc_double_nan();
   }
-  return aihc_math_log(x + __builtin_sqrt(x * x - 1.0));
+  return aihc_math_log(x + aihc_math_sqrt_value(x * x - 1.0));
 }
 
 static double aihc_math_atanh(double x) {
