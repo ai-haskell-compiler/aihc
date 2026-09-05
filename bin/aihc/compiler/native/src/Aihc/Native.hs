@@ -62,6 +62,9 @@ data RuntimeGarbageCollector
 
 data RuntimePlan = RuntimePlan
   { runtimeSources :: ![FilePath],
+    -- | Runtime units written in Lir. Every target compiles them with its own
+    -- Lir backend instead of a C compiler. See @docs/lir.md@.
+    runtimeLirSources :: ![FilePath],
     runtimeIncludeDirectories :: ![FilePath]
   }
   deriving (Eq, Show)
@@ -192,9 +195,11 @@ runtimePlan target garbageCollector = do
     getDataFileName $ case target of
       Wasm32Wasip3 -> "compiler/native/runtime/aihc_host_wasip3.c"
       _ -> "compiler/native/runtime/aihc_host_posix.c"
+  array <- getDataFileName "compiler/native/runtime/aihc_array.lir"
   pure
     RuntimePlan
       { runtimeSources = [core, runtimeOptions, collector, host],
+        runtimeLirSources = [array],
         runtimeIncludeDirectories = [takeDirectory core]
       }
 

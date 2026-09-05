@@ -1,5 +1,8 @@
 ; error: @t: data field type i1 is not an integer type
 ; error: @u: unknown symbol @missing
+; error: @v: data field word 4294967296 does not fit a 32-bit word
+; error: @v: data field word -2147483649 does not fit a 32-bit word
 
 data @t align 8 = { i1 1, f64 1.5, i64 2 }
 data @u align 8 = { ptr @missing }
+data @v align 8 = { word 4294967296, word 1, word -1, word -2147483649 }

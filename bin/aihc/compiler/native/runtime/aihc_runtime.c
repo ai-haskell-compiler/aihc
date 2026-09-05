@@ -70,11 +70,6 @@ static const AihcInfo aihc_thread_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_THREAD,
 };
-static const AihcInfo aihc_array_info = {
-    .field_count = 1,
-    .frame_kind = AIHC_FRAME_NONE,
-    .object_kind = AIHC_OBJECT_ARRAY,
-};
 const AihcInfo aihc_runtime_object_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_RUNTIME,
@@ -149,43 +144,11 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
   return array->fields + 1;
 }
 
-static uint64_t aihc_array_checked_index(AihcValue *array, int64_t index) {
-  uint64_t count = aihc_array_length(array);
-  if (index < 0 || (uint64_t)index >= count) {
-    aihc_fail("boxed-array index is out of bounds");
-  }
-  return (uint64_t)index;
-}
-
-AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
-                          AihcSlot initial) {
-  if (count < 0 || (uint64_t)count > SIZE_MAX / sizeof(AihcSlot) - 2) {
-    aihc_fail("boxed-array size is invalid");
-  }
-  uint64_t length = (uint64_t)count;
-  AihcValue *array = aihc_gc_allocate(machine, length + 2);
-  aihc_record_allocation(machine);
-  array->header = (AihcSlot)(uintptr_t)&aihc_array_info;
-  array->fields[0] = length;
-  AihcSlot *elements = aihc_array_elements(array);
-  for (uint64_t index = 0; index < length; ++index) {
-    elements[index] = initial;
-  }
-  return array;
-}
-
-AihcSlot aihc_array_index(AihcValue *array, int64_t index) {
-  return aihc_array_elements(array)[aihc_array_checked_index(array, index)];
-}
-
-AihcSlot aihc_array_write(AihcValue *array, int64_t index, AihcSlot value) {
-  aihc_array_elements(array)[aihc_array_checked_index(array, index)] = value;
-  return 0;
-}
-
-uint64_t aihc_array_same(AihcValue *left, AihcValue *right) {
-  return left == right;
-}
+/* aihc_array_new, aihc_array_index, aihc_array_write, aihc_array_same, and
+   the info table they share live in compiler/native/runtime/aihc_array.lir.
+   aihc_array_length and aihc_array_elements stay here: the collector walks
+   arrays through them, including the ones the GC fuzz harness builds with
+   info tables of its own. */
 
 AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial) {
   return aihc_array_new(machine, 1, initial);

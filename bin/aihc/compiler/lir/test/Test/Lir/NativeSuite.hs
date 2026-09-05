@@ -11,6 +11,7 @@ module Test.Lir.NativeSuite
 where
 
 import Aihc.Cli.Backend (BackendOutput (..))
+import Aihc.Cli.Runtime (RuntimeBuild (..))
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
@@ -18,11 +19,10 @@ import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native
   ( NativeTarget,
     RuntimeGarbageCollector (..),
-    RuntimePlan (..),
     executableEntryName,
-    runtimePlan,
   )
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
+import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
@@ -265,7 +265,7 @@ snapshotTest backend directory name = testCase name $ do
 runObservedUnit :: NativeBackend -> BackendOutput -> Text -> IO (Either Text Text)
 runObservedUnit backend output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments backend RuntimeGcSemispace
+    runtimeBuild <- nativeRuntimeBuild backend RuntimeGcSemispace
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
@@ -276,8 +276,8 @@ runObservedUnit backend output metadata =
         "clang"
         ( backendClangArguments backend
             <> ["-std=c11", "-Wall", "-Wextra", "-Werror", "-I", takeDirectory snapshotRuntime]
-            <> runtimeArguments
-            <> [snapshotRuntime, metadataPath, unit, "-o", executablePath]
+            <> runtimeIncludeArguments runtimeBuild
+            <> [snapshotRuntime, metadataPath, unit, runtimeBuildArchive runtimeBuild, "-o", executablePath]
         )
         ""
     assertEqual ("clang failed to link the observed program:\n" <> clangErr) ExitSuccess clangExit
@@ -348,18 +348,28 @@ stdioTest backend collector = do
 withProgramExecutable :: NativeBackend -> RuntimeGarbageCollector -> [BackendOutput] -> (FilePath -> IO ()) -> IO ()
 withProgramExecutable backend collector units action =
   withTempDirectory "aihc-lir-program" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments backend collector
+    runtimeBuild <- nativeRuntimeBuild backend collector
     unitPaths <- forM (zip [0 :: Int ..] units) $ \(index, unit) -> writeUnit backend directory ("program-" <> show index) unit
     let executablePath = directory </> "program"
     (clangExit, _, clangErr) <-
-      readProcessWithExitCode "clang" (backendClangArguments backend <> ["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> unitPaths <> ["-o", executablePath]) ""
+      -- This step links the units against the runtime archive and compiles no
+      -- C, so it carries no C compile flags: a toolchain that injects its own
+      -- preprocessor flags would report every one of them as unused.
+      readProcessWithExitCode "clang" (backendClangArguments backend <> unitPaths <> [runtimeBuildArchive runtimeBuild, "-o", executablePath]) ""
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 
-nativeRuntimeArguments :: NativeBackend -> RuntimeGarbageCollector -> IO [String]
-nativeRuntimeArguments backend garbageCollector = do
-  plan <- runtimePlan (backendTarget backend) garbageCollector
-  pure (["-I" <> directory | directory <- runtimeIncludeDirectories plan] <> runtimeSources plan)
+-- | The runtime archive of one link. Every link with the same target and
+-- collector shares one archive, and takes the include directories first and
+-- the archive last, so the test stays independent of how the runtime is put
+-- together.
+nativeRuntimeBuild :: NativeBackend -> RuntimeGarbageCollector -> IO RuntimeBuild
+nativeRuntimeBuild backend garbageCollector =
+  cachedRuntimeArchive (backendTarget backend) garbageCollector ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+
+runtimeIncludeArguments :: RuntimeBuild -> [String]
+runtimeIncludeArguments build =
+  ["-I" <> include | include <- runtimeBuildIncludeDirectories build]
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
 withTempDirectory template = bracket acquire removeDirectoryRecursive

@@ -168,6 +168,7 @@ compileData dataItem =
         DataSymbol target 0 -> [arm64QuadSymbol (lirSymbol target)]
         DataSymbol target addend -> [arm64QuadSymbolAddend (lirSymbol target) (fromInteger addend)]
         DataNull -> [arm64Quad 0]
+        DataWord value -> [arm64Bytes (littleEndian 8 (fromInteger value))]
         DataCode Nothing -> [arm64Quad 0]
         DataCode (Just target) -> [arm64QuadSymbol (lirSymbol target)]
         DataBytes bytes -> [arm64Bytes bytes]

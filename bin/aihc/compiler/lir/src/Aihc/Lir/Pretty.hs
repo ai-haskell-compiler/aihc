@@ -124,6 +124,7 @@ prettyDataField field =
     DataFloat ty value -> prettyType ty <+> prettyFloat value
     DataSymbol symbol addend -> "ptr" <+> prettySymbol symbol <> prettyAddend addend
     DataNull -> "ptr null"
+    DataWord value -> "word" <+> pretty value
     DataCode symbol -> "code" <+> maybe "null" prettySymbol symbol
     DataBytes bytes -> "bytes" <+> prettyBytes bytes
     DataZero count -> "zero" <+> pretty count
