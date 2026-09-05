@@ -121,7 +121,7 @@ import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -131,7 +131,7 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
+import Control.Monad (foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
@@ -449,17 +449,7 @@ valueDeclBindingNames valueDecl =
     PatternBind _ pat _ -> patternBindingNames pat
 
 patternBindingNames :: Pattern -> [(Text, Text)]
-patternBindingNames pat =
-  case pat of
-    PVar name -> [binderBindingName name]
-    PAnn _ inner -> patternBindingNames inner
-    PParen inner -> patternBindingNames inner
-    PAs name inner -> binderBindingName name : patternBindingNames inner
-    PStrict inner -> patternBindingNames inner
-    PIrrefutable inner -> patternBindingNames inner
-    PInfix lhs _ rhs -> patternBindingNames lhs <> patternBindingNames rhs
-    PCon _ _ pats -> concatMap patternBindingNames pats
-    _ -> []
+patternBindingNames = map binderBindingName . patternBinderNames
 
 dataConBindingNames :: DataConDecl -> [(Text, Text)]
 dataConBindingNames dataConDecl =
@@ -1307,7 +1297,7 @@ annotateValueDeclTc checkedValueTypes valueDecl =
           bindingTy <- checkedBindingType name
           pure (bindingTy, PatternBind anns pat rhs)
         Nothing -> do
-          ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
+          ty <- checkedBindingType (patternBindingResultName pat)
           pure (ty, valueDecl)
   where
     checkedBindingType name =
@@ -1997,18 +1987,83 @@ tcSingleDeclGroup sigs groupId d =
                 tcFunctionInfer key displayName name [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
           pure (TcDeclGroupResult groupId bindings annotatedDecls)
-        Nothing -> do
-          ((rhs', ty), failed) <- withErrorTracking (tcRhs rhs)
-          if failed
-            then pure (TcDeclGroupResult groupId [] Nothing)
-            else do
-              zonkedTy <- zonkType ty
-              let decl' = replacePatternBindRhs rhs' d
-              pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy] (Just [decl']))
+        Nothing -> tcTopLevelPatternBind sigs groupId d pat rhs
     DeclPatSyn patSyn -> tcPatSynDecl sigs groupId d patSyn
     _ -> do
       bindings <- tcDecl d
       pure (TcDeclGroupResult groupId bindings Nothing)
+
+-- | Type-check a top-level pattern binding that binds several variables,
+-- such as @(low, high) = range x@. The monomorphism restriction applies:
+-- the binders get the monomorphic types that the pattern gives them, and a
+-- signature must be a monomorphic type.
+tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
+tcTopLevelPatternBind sigs groupId d pat rhs = do
+  let sp = patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d
+      binders = patternBinderNames pat
+  -- A binder with a signature is already in the environment. The others
+  -- get a placeholder that the checked pattern fills in.
+  placeholders <- forM binders $ \binder -> do
+    key <- resolvedUnqualifiedTermKey binder
+    let name = unqualifiedNameText binder
+    case Map.lookup key sigs of
+      Just sig -> do
+        ty <- monomorphicSigType sig
+        pure (binder, key, ty, True)
+      Nothing -> do
+        ty <- freshMetaTv
+        extendTermEnvPermanent name (TcMonoIdBinder ty)
+        extendTermKeyEnvPermanent key (TcMonoIdBinder ty)
+        pure (binder, key, ty, False)
+  ((rhs', rhsTy, pat'), failed) <-
+    withErrorTracking $ do
+      (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
+      patCheck <- checkPattern sp pat rhsTy
+      tieCts <- forM (pcBindings patCheck) $ \(name, ty) ->
+        case [placeholderTy | (binder, _, placeholderTy, _) <- placeholders, binder == name] of
+          placeholderTy : _ -> do
+            ev <- freshEvVar
+            pure [mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin sp) sp]
+          [] -> pure []
+      solveResult <- solveWithImpls (rhsCts <> pcWantedCts patCheck <> concat tieCts) []
+      residualPreds <- generalizableResidualPreds rhsTy solveResult
+      -- The monomorphism restriction leaves a pattern binding without
+      -- quantified constraints.
+      forM_ residualPreds $ \predicate ->
+        emitError sp (UnsolvedWanted predicate (LetOrigin sp))
+      pure (rhs', rhsTy, annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck))
+  if failed
+    then pure (TcDeclGroupResult groupId [] Nothing)
+    else do
+      results <- forM placeholders $ \(binder, key, ty, hasSig) -> do
+        zonkedTy <- zonkType ty
+        let name = unqualifiedNameText binder
+        unless hasSig $
+          finalizeInferredTermEnvPermanent name key ty (ForAll [] [] zonkedTy)
+        pure (TcBindingResult name (renderBinderName binder) zonkedTy)
+      zonkedRhsTy <- zonkType rhsTy
+      let decl' = replacePatternBind pat' rhs' d
+          patternResult = TcBindingResult (patternBindingResultName pat) "<pattern>" zonkedRhsTy
+      pure (TcDeclGroupResult groupId (patternResult : results) (Just [decl']))
+  where
+    monomorphicSigType sig =
+      case checkedSigScheme sig of
+        ForAll [] [] ty -> pure ty
+        scheme -> do
+          emitError (checkedSigSpan sig) (OtherError ("the signature of a pattern binding must be a monomorphic type: " <> T.unpack (checkedSigName sig)))
+          pure (typeSchemeBody scheme)
+
+-- | The binding-result name that carries the type of the right-hand side
+-- of a top-level pattern binding with several binders.
+patternBindingResultName :: Pattern -> Text
+patternBindingResultName pat = "<pattern " <> T.unwords (patternBinders pat) <> ">"
+
+replacePatternBind :: Pattern -> Rhs Expr -> Decl -> Decl
+replacePatternBind pat rhs decl =
+  case decl of
+    DeclAnn ann inner -> DeclAnn ann (replacePatternBind pat rhs inner)
+    DeclValue (PatternBind mult _ _) -> DeclValue (PatternBind mult pat rhs)
+    _ -> decl
 
 -- | Type-check a pattern synonym declaration.
 --
@@ -3702,7 +3757,7 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
           (_, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
-          unifyKinds resultKind bodyKind
+          unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 checkTypeSynonymBody _ = pure ()
 

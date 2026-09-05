@@ -5,6 +5,7 @@ module Aihc.Fc.Wired
   ( wiredGhcTypes,
     typeSynonym,
     typeConstructor,
+    functionArrowConstructor,
     runtimeRepConstructor,
     levityConstructor,
     constraintName,
@@ -35,6 +36,12 @@ typeSynonym package =
 typeConstructor :: PackageId -> Name
 typeConstructor package =
   wiredGhcTypes package "TYPE" SortTypeConstructor
+
+-- | The function arrow as a type constructor. A saturated application of
+-- it is the function type.
+functionArrowConstructor :: PackageId -> Name
+functionArrowConstructor package =
+  wiredGhcTypes package "(->)" SortTypeConstructor
 
 runtimeRepConstructor :: PackageId -> Name
 runtimeRepConstructor package =

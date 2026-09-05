@@ -1,0 +1,26 @@
+extensions:
+  - LambdaCase
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = S (add n m)
+
+    total :: [Nat] -> Nat
+    total = \case
+      [] -> zero
+      [x] -> x
+      (x : rest) -> add x (total rest)
+      where
+        zero = Z
+output: |
+  S (S (S (S Z)))
+expression: |
+  total [S Z, S (S Z), S Z]
+status: pass
+reason: a lambda-case expression with constructor patterns has a checked
+  type, also when a where clause needs the type of the function body

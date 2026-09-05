@@ -22,6 +22,8 @@ module Aihc.Tc.Kind
     tyConKindFromParamsWith,
     tcTypeKind,
     unifyKinds,
+    unifyKindsAt,
+    surfaceTypeSpan,
     zonkKind,
   )
 where
@@ -160,8 +162,26 @@ convertSurfaceType tvMap ty = do
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
 checkSurfaceType tvEnv ty expected = do
   (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
-  unifyKinds expected actual
+  unifyKindsAt (surfaceTypeSpan ty) expected actual
   pure tcTy
+
+-- | The first source span that a list of surface types gives.
+surfaceTypeSpans :: [Type] -> SourceSpan
+surfaceTypeSpans tys =
+  case filter (/= NoSourceSpan) (map surfaceTypeSpan tys) of
+    sp : _ -> sp
+    [] -> NoSourceSpan
+
+-- | The source span of a surface type, when its annotations give one.
+surfaceTypeSpan :: Type -> SourceSpan
+surfaceTypeSpan ty =
+  case ty of
+    TAnn ann inner ->
+      case fromAnnotation ann of
+        Just sp -> sp
+        Nothing -> surfaceTypeSpan inner
+    TParen inner -> surfaceTypeSpan inner
+    _ -> NoSourceSpan
 
 -- | Check that a surface type is a value-bearing type of kind @TYPE rep@.
 -- Unconstrained kind metas default to lifted representation; explicitly
@@ -172,8 +192,8 @@ checkRuntimeType tvEnv ty = do
   actual' <- zonkKind actual
   case actual' of
     KTYPE {} -> pure tcTy
-    KMeta unique -> bindKindMeta unique KType >> pure tcTy
-    _ -> emitError NoSourceSpan (KindMismatch KType actual') >> pure tcTy
+    KMeta unique -> bindKindMetaAt (surfaceTypeSpan ty) unique KType >> pure tcTy
+    _ -> emitError (surfaceTypeSpan ty) (KindMismatch KType actual') >> pure tcTy
 
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertSurfaceTypeWithKinds tvEnv ty =
@@ -209,14 +229,14 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
       (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
       resultKind <- freshKindMeta
-      unifyKinds fKind (KFun aKind resultKind)
+      unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (applyType fTy aTy, resultKind')
     TTypeApp f a -> do
       (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
       (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
       resultKind <- freshKindMeta
-      unifyKinds fKind (KFun aKind resultKind)
+      unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (applyType fTy aTy, resultKind')
     TInfix lhs name _ rhs -> do
@@ -326,7 +346,7 @@ applySurfaceTypeArguments tvEnv = foldM applyArgument
     applyArgument (functionType, functionKind) argument = do
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
-      unifyKinds functionKind (KFun argumentKind resultKind)
+      unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (applyType functionType argumentType, resultKind')
 
@@ -370,7 +390,7 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments =
     applyRemainingArguments (functionType, functionKind) (argument : rest) = do
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
-      unifyKinds functionKind (KFun argumentKind resultKind)
+      unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
       zonkedResultKind <- zonkKind resultKind
       applyRemainingArguments (applyType functionType argumentType, zonkedResultKind) rest
 
@@ -530,16 +550,20 @@ kindFromSurfaceType tvEnv ty =
     TStar {} -> pure KType
     other -> do
       (tcType, kind) <- convertSurfaceTypeWithKinds tvEnv other
-      unifyKinds kind KType
+      unifyKindsAt (surfaceTypeSpan ty) kind KType
       pure tcType
 
 unifyKinds :: TcType -> TcType -> TcM ()
-unifyKinds expected actual = do
+unifyKinds = unifyKindsAt NoSourceSpan
+
+-- | Unify two kinds and report a mismatch at the given span.
+unifyKindsAt :: SourceSpan -> TcType -> TcType -> TcM ()
+unifyKindsAt sp expected actual = do
   expected' <- zonkKind expected
   actual' <- zonkKind actual
   case (expected', actual') of
-    (TcMetaTv unique, kind) -> bindKindMeta unique kind
-    (kind, TcMetaTv unique) -> bindKindMeta unique kind
+    (TcMetaTv unique, kind) -> bindKindMetaAt sp unique kind
+    (kind, TcMetaTv unique) -> bindKindMetaAt sp unique kind
     (TcTyVar left, TcTyVar right)
       | left == right -> pure ()
     (TcTyVar {}, kind)
@@ -549,16 +573,16 @@ unifyKinds expected actual = do
     (TcTyCon left leftArguments, TcTyCon right rightArguments)
       | left == right,
         length leftArguments == length rightArguments ->
-          zipWithM_ unifyKinds leftArguments rightArguments
+          zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
     (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
-      unifyKinds leftArgument rightArgument >> unifyKinds leftResult rightResult
+      unifyKindsAt sp leftArgument rightArgument >> unifyKindsAt sp leftResult rightResult
     (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
-      unifyKinds leftFunction rightFunction >> unifyKinds leftArgument rightArgument
+      unifyKindsAt sp leftFunction rightFunction >> unifyKindsAt sp leftArgument rightArgument
     (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody)
-      | leftVar == rightVar -> unifyKinds leftBody rightBody
+      | leftVar == rightVar -> unifyKindsAt sp leftBody rightBody
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
-      | leftPredicates == rightPredicates -> unifyKinds leftBody rightBody
-    _ -> emitError NoSourceSpan (KindMismatch expected' actual')
+      | leftPredicates == rightPredicates -> unifyKindsAt sp leftBody rightBody
+    _ -> emitError sp (KindMismatch expected' actual')
 
 isConcreteRuntimeRep :: TcType -> Bool
 isConcreteRuntimeRep ty =
@@ -569,10 +593,10 @@ isConcreteRuntimeRep ty =
         && "Rep" `T.isSuffixOf` tyConName tyCon
     _ -> False
 
-bindKindMeta :: Unique -> TcType -> TcM ()
-bindKindMeta u kind
+bindKindMetaAt :: SourceSpan -> Unique -> TcType -> TcM ()
+bindKindMetaAt sp u kind
   | kind == TcMetaTv u = pure ()
-  | occursInKind u kind = emitError NoSourceSpan (KindMismatch (KMeta u) kind)
+  | occursInKind u kind = emitError sp (KindMismatch (KMeta u) kind)
   | otherwise = writeMetaTv u kind
 
 zonkKind :: TcType -> TcM TcType

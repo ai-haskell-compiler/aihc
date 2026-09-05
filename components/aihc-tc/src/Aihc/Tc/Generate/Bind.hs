@@ -49,7 +49,7 @@ import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generalize (environmentMetaVars, generalizeAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Kind (explicitForallNames, scopedSigTyVars, sigToScheme)
@@ -216,7 +216,7 @@ inferLocalDeclGroup inferExpr decls body = do
       then do
         solveResult <- solveConstraints bindingCts
         residuals <- partitionLocalResiduals binderSet placeholderMap groups binders solveResult
-        polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap residuals) binders
+        polyBinders <- generalizedBinders sigs binderSet placeholderMap residuals binders
         decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
@@ -441,26 +441,37 @@ withReboundLocalBinders ((name, binder) : rest) action = do
   key <- resolvedLocalTermKey name
   rebindTermEnv key binder (withReboundLocalBinders rest action)
 
-generalizedBinder :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> LocalResiduals -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
-generalizedBinder sigs ignored placeholders residuals name =
-  do
-    key <- resolvedLocalTermKey name
-    case Map.lookup key sigs of
-      Just scheme ->
-        pure (name, TcIdBinder scheme Closed)
-      Nothing ->
-        case Map.lookup key placeholders of
-          Nothing -> do
-            ty <- freshMetaTv
-            pure (name, TcMonoIdBinder ty)
-          Just ty
-            | key `Set.member` localResidualMonomorphic residuals -> do
-                ty' <- zonkType ty
-                pure (name, TcMonoIdBinder ty')
-            | otherwise -> do
-                let preds = Map.findWithDefault [] key (localResidualPreds residuals)
-                scheme <- generalizeAndCommitIgnoring ignored ty preds
-                pure (name, TcIdBinder scheme Closed)
+-- | The binders of a generalized local group. The bindings without a
+-- signature that the monomorphism restriction does not restrict are
+-- generalized together, over one shared set of type variables.
+generalizedBinders :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> LocalResiduals -> [UnqualifiedName] -> TcM [(UnqualifiedName, TcBinder)]
+generalizedBinders sigs ignored placeholders residuals binders = do
+  classified <- traverse classify binders
+  schemes <- generalizeGroupAndCommitIgnoring ignored [(ty, preds) | Right (_, ty, preds) <- classified]
+  pure (assemble classified schemes)
+  where
+    classify name = do
+      key <- resolvedLocalTermKey name
+      case Map.lookup key sigs of
+        Just scheme ->
+          pure (Left (name, TcIdBinder scheme Closed))
+        Nothing ->
+          case Map.lookup key placeholders of
+            Nothing -> do
+              ty <- freshMetaTv
+              pure (Left (name, TcMonoIdBinder ty))
+            Just ty
+              | key `Set.member` localResidualMonomorphic residuals -> do
+                  ty' <- zonkType ty
+                  pure (Left (name, TcMonoIdBinder ty'))
+              | otherwise ->
+                  pure (Right (name, ty, Map.findWithDefault [] key (localResidualPreds residuals)))
+    assemble classified schemes =
+      case (classified, schemes) of
+        ([], _) -> []
+        (Left fixed : rest, _) -> fixed : assemble rest schemes
+        (Right (name, _, _) : rest, scheme : moreSchemes) -> (name, TcIdBinder scheme Closed) : assemble rest moreSchemes
+        (Right (name, ty, _) : rest, []) -> (name, TcMonoIdBinder ty) : assemble rest []
 
 -- | Residual constraints of a local binding group after the group solve.
 data LocalResiduals = LocalResiduals
@@ -704,12 +715,31 @@ orSourceSpan sourceSpan _ = sourceSpan
 shouldGeneralizeLocal :: Set.Set TcTermKey -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
   monoLocal <- tcMonoLocalBinds
-  if not monoLocal || any hasPartialTypeSig decls
-    then pure True
-    else do
-      freeVars <- freeVarsDecls decls
-      let externalVars = Set.toList (Set.difference freeVars binderSet)
-      allM isClosedVar externalVars
+  -- A strict binding is evaluated once, before the body, so it cannot be
+  -- polymorphic. GHC does not generalize a group with a strict binding.
+  if any isStrictPatternBind decls
+    then pure False
+    else
+      if not monoLocal || any hasPartialTypeSig decls
+        then pure True
+        else do
+          freeVars <- freeVarsDecls decls
+          let externalVars = Set.toList (Set.difference freeVars binderSet)
+          allM isClosedVar externalVars
+
+-- | Whether a declaration is a pattern binding with a bang on its pattern.
+isStrictPatternBind :: Decl -> Bool
+isStrictPatternBind decl =
+  case peelDeclAnn decl of
+    DeclValue (PatternBind _ pat _) -> patternIsStrict pat
+    _ -> False
+  where
+    patternIsStrict pat =
+      case pat of
+        PAnn _ inner -> patternIsStrict inner
+        PParen inner -> patternIsStrict inner
+        PStrict _ -> True
+        _ -> False
 
 isClosedVar :: TcTermKey -> TcM Bool
 isClosedVar key = do

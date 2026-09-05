@@ -1,0 +1,73 @@
+annotated:
+- |-
+  {-# LANGUAGE BangPatterns, NoMonoLocalBinds, MagicHash, UnboxedTuples #-}
+  module Test where
+  import GHC.Prim (State#, RealWorld, Addr#, Word#, plusAddr#)
+  import GHC.Types (Bool (..))
+  class Mantissa a where
+  └─ class methods: quotRem100 ∷ ∀ a. (Mantissa a) ⇒ a → (a, a), unsafeRaw ∷ ∀ a. (Mantissa a) ⇒ a → Word#, ten ∷ ∀ a. (Mantissa a) ⇒ a → Bool
+    quotRem100 :: a -> (a, a)
+    unsafeRaw :: a -> Word#
+    ten :: a -> Bool
+  copyWord16 :: Word# -> Addr# -> State# RealWorld -> State# RealWorld
+  copyWord16 _ _ s = s
+  │          │ │ └─ type: GHC.Prim.State# GHC.Prim.RealWorld
+  │          │ └─ type: GHC.Prim.Addr#
+  │          └─ type: GHC.Prim.Word#
+  └─ type: GHC.Prim.Word# → GHC.Prim.Addr# → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
+  writeDigits :: forall a. (Mantissa a) => Addr# -> a -> State# RealWorld -> State# RealWorld
+  writeDigits ptr = go ptr
+  │           │     └─ type: GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld; type-args: a; evidence: given Mantissa a, given Mantissa a, given Mantissa a
+  │           └─ type: GHC.Prim.Addr#
+  └─ type: ∀ a. (Mantissa a) ⇒ GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
+    where
+      go p mantissa s1
+      │  │ │        └─ type: GHC.Prim.State# GHC.Prim.RealWorld
+      │  │ └─ type: a
+      │  └─ type: GHC.Prim.Addr#
+      └─ type: ∀ a. (Mantissa a, Mantissa a, Mantissa a) ⇒ GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
+        | ten mantissa =
+          └─ type: a → GHC.Types.Bool; type-args: a; evidence: given Mantissa a
+            let !(m', c) = quotRem100 mantissa
+                │││   │    └─ type: a → (a, a); type-args: a; evidence: given Mantissa a
+                │││   └─ type: a
+                ││└─ type: a
+                │└─ type: (a, a)
+                └─ type: a
+                s2 = copyWord16 (unsafeRaw c) (p `plusAddr#` (-1#)) s1
+                │                │                            └─ type: GHC.Prim.Int#
+                │                └─ type: a → GHC.Prim.Word#; type-args: a; evidence: given Mantissa a
+                └─ type: GHC.Prim.State# GHC.Prim.RealWorld
+             in go (p `plusAddr#` (-2#)) m' s2
+                │                  └─ type: GHC.Prim.Int#
+                └─ type: GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld; type-args: a; evidence: given Mantissa a, given Mantissa a, given Mantissa a
+        | True = s1
+extensions:
+- MagicHash
+- UnboxedTuples
+- BangPatterns
+modules:
+- |
+  {-# LANGUAGE BangPatterns, NoMonoLocalBinds, MagicHash, UnboxedTuples #-}
+  module Test where
+  import GHC.Prim (State#, RealWorld, Addr#, Word#, plusAddr#)
+  import GHC.Types (Bool (..))
+  class Mantissa a where
+    quotRem100 :: a -> (a, a)
+    unsafeRaw :: a -> Word#
+    ten :: a -> Bool
+  copyWord16 :: Word# -> Addr# -> State# RealWorld -> State# RealWorld
+  copyWord16 _ _ s = s
+  writeDigits :: forall a. (Mantissa a) => Addr# -> a -> State# RealWorld -> State# RealWorld
+  writeDigits ptr = go ptr
+    where
+      go p mantissa s1
+        | ten mantissa =
+            let !(m', c) = quotRem100 mantissa
+                s2 = copyWord16 (unsafeRaw c) (p `plusAddr#` (-1#)) s1
+             in go (p `plusAddr#` (-2#)) m' s2
+        | True = s1
+reason: the generalization of a local binding group fixes the kinds of the
+  variables it quantifies only, so a lambda-bound variable of the enclosing
+  function still gets an unlifted type from a later use
+status: pass

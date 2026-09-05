@@ -824,7 +824,8 @@ foreign import prim (/=#) :: Int# -> Int# -> Int#
 
 -- | Keep a value alive until this point. The runtime does not move or free
 -- byte arrays that are still referenced, so the primitive has no effect.
-foreign import prim touch# :: a -> State# d -> State# d
+-- The value can have any runtime representation, as in GHC.
+foreign import prim touch# :: forall (r :: RuntimeRep) (a :: TYPE r) d. a -> State# d -> State# d
 
 foreign import prim setByteArray# :: MutableByteArray# d -> Int# -> Int# -> Int# -> State# d -> State# d
 

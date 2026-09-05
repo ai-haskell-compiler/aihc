@@ -12,7 +12,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (tcTypeKind, unifyKinds)
+import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
@@ -25,7 +25,7 @@ unify :: SourceSpan -> CtOrigin -> TcType -> TcType -> TcM ()
 unify loc origin t1 t2 = do
   t1' <- zonkType t1 >>= reduceTypeFamilies
   t2' <- zonkType t2 >>= reduceTypeFamilies
-  result <- unifyTypes t1' t2'
+  result <- unifyTypesAt loc t1' t2'
   case result of
     Right () -> pure ()
     Left (UnificationError left right _ provenance) ->
@@ -34,52 +34,56 @@ unify loc origin t1 t2 = do
 
 -- | Attempt to unify two types, returning an error kind on failure.
 unifyTypes :: TcType -> TcType -> TcM (Either TcErrorKind ())
-unifyTypes (TcMetaTv u1) (TcMetaTv u2)
+unifyTypes = unifyTypesAt NoSourceSpan
+
+-- | Attempt to unify two types. A kind mismatch is reported at the span.
+unifyTypesAt :: SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind ())
+unifyTypesAt _ (TcMetaTv u1) (TcMetaTv u2)
   | u1 == u2 = pure (Right ())
-unifyTypes (TcMetaTv u) ty = unifyMetaTv u ty
-unifyTypes ty (TcMetaTv u) = unifyMetaTv u ty
-unifyTypes (TcTyVar v1) (TcTyVar v2)
+unifyTypesAt loc (TcMetaTv u) ty = unifyMetaTv loc u ty
+unifyTypesAt loc ty (TcMetaTv u) = unifyMetaTv loc u ty
+unifyTypesAt _ (TcTyVar v1) (TcTyVar v2)
   | v1 == v2 = pure (Right ())
-unifyTypes (TcTyCon tc1 args1) (TcTyCon tc2 args2)
+unifyTypesAt loc (TcTyCon tc1 args1) (TcTyCon tc2 args2)
   | tc1 == tc2,
     length args1 == length args2 = do
-      results <- zipWithM unifyTypes args1 args2
+      results <- zipWithM (unifyTypesAt loc) args1 args2
       pure $ sequence_ results
-unifyTypes (TcFunTy a1 b1) (TcFunTy a2 b2) = do
-  r1 <- unifyTypes a1 a2
-  r2 <- unifyTypes b1 b2
+unifyTypesAt loc (TcFunTy a1 b1) (TcFunTy a2 b2) = do
+  r1 <- unifyTypesAt loc a1 a2
+  r2 <- unifyTypesAt loc b1 b2
   pure $ r1 >> r2
-unifyTypes (TcAppTy f a) (TcTyCon tc args)
+unifyTypesAt loc (TcAppTy f a) (TcTyCon tc args)
   | not (null args) = do
-      r1 <- unifyTypes f (TcTyCon tc (init args))
-      r2 <- unifyTypes a (last args)
+      r1 <- unifyTypesAt loc f (TcTyCon tc (init args))
+      r2 <- unifyTypesAt loc a (last args)
       pure $ r1 >> r2
-unifyTypes (TcTyCon tc args) (TcAppTy f a)
+unifyTypesAt loc (TcTyCon tc args) (TcAppTy f a)
   | not (null args) = do
-      r1 <- unifyTypes (TcTyCon tc (init args)) f
-      r2 <- unifyTypes (last args) a
+      r1 <- unifyTypesAt loc (TcTyCon tc (init args)) f
+      r2 <- unifyTypesAt loc (last args) a
       pure $ r1 >> r2
-unifyTypes (TcAppTy f1 a1) (TcAppTy f2 a2) = do
-  r1 <- unifyTypes f1 f2
-  r2 <- unifyTypes a1 a2
+unifyTypesAt loc (TcAppTy f1 a1) (TcAppTy f2 a2) = do
+  r1 <- unifyTypesAt loc f1 f2
+  r2 <- unifyTypesAt loc a1 a2
   pure $ r1 >> r2
 -- The function type is the saturated arrow constructor.
-unifyTypes (TcAppTy f a) (TcFunTy argument result) = do
+unifyTypesAt loc (TcAppTy f a) (TcFunTy argument result) = do
   arrow <- mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
-  r1 <- unifyTypes f (TcTyCon arrow [argument])
-  r2 <- unifyTypes a result
+  r1 <- unifyTypesAt loc f (TcTyCon arrow [argument])
+  r2 <- unifyTypesAt loc a result
   pure $ r1 >> r2
-unifyTypes (TcFunTy argument result) (TcAppTy f a) = do
+unifyTypesAt loc (TcFunTy argument result) (TcAppTy f a) = do
   arrow <- mkKnownTyCon "GHC.Types" "(->)" 2 (KFun KType (KFun KType KType))
-  r1 <- unifyTypes (TcTyCon arrow [argument]) f
-  r2 <- unifyTypes result a
+  r1 <- unifyTypesAt loc (TcTyCon arrow [argument]) f
+  r2 <- unifyTypesAt loc result a
   pure $ r1 >> r2
-unifyTypes t1 t2 =
+unifyTypesAt _ t1 t2 =
   pure $ Left $ UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing
 
 -- | Unify a meta-variable with a type, performing the occurs check.
-unifyMetaTv :: Unique -> TcType -> TcM (Either TcErrorKind ())
-unifyMetaTv u ty = do
+unifyMetaTv :: SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())
+unifyMetaTv loc u ty = do
   ty' <- zonkType ty
   case ty' of
     TcMetaTv u' | u == u' -> pure (Right ())
@@ -89,7 +93,7 @@ unifyMetaTv u ty = do
         else do
           declaredKind <- readMetaTvKind u
           solvedKind <- tcTypeKind ty'
-          unifyKinds declaredKind solvedKind
+          unifyKindsAt loc declaredKind solvedKind
           writeMetaTv u ty'
           pure (Right ())
 

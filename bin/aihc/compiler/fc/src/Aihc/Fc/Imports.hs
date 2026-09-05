@@ -12,6 +12,7 @@ import Aihc.Fc.TypeOf
   ( TypeEnv (..),
     emptyTypeEnv,
     typeEnvFromProgram,
+    typeHead,
     unionTypeEnv,
   )
 import Aihc.Resolve (PackageId)
@@ -80,6 +81,18 @@ referencesForName available name =
     <> foldMap typeReferences (Map.lookup name (teSynonyms available))
     <> foldMap axiomReferences (Map.lookup name (teAxioms available))
     <> foldMap typeReferences (Map.lookup name (teBinders available))
+    <> familyEquationNames available name
+
+-- | The equations of a type family. A use of the family imports them, so
+-- the applications of the family reduce.
+familyEquationNames :: TypeEnv -> Name -> References
+familyEquationNames available family =
+  Set.fromList
+    [ axiomName axiom
+    | axiom <- Map.elems (teAxioms available),
+      axiomRole axiom == Nominal,
+      typeHead (axiomLeft axiom) == Just family
+    ]
 
 importsForNames :: TypeEnv -> Set Name -> Imports
 importsForNames available names =
@@ -107,7 +120,17 @@ unusedImports program =
     imports = programImports program
     directReferences = foldMap declReferences (programDecls program)
     importReferences = referencesFromImports imports
-    usedNames = directReferences <> importReferences
+    referencedNames = directReferences <> importReferences
+    usedNames = referencedNames <> familyEquations
+    -- An equation of a referenced family is in use through the family.
+    familyEquations =
+      Set.fromList
+        [ name
+        | (name, axiom) <- Map.toList (importAxioms imports),
+          axiomRole axiom == Nominal,
+          Just family <- [typeHead (axiomLeft axiom)],
+          Set.member family referencedNames
+        ]
     importNames =
       Map.keys (importHeaders imports)
         <> Map.keys (importSynonyms imports)

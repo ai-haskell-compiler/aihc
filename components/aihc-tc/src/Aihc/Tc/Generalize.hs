@@ -8,6 +8,7 @@ module Aihc.Tc.Generalize
     generalizeIgnoring,
     generalizeAndCommit,
     generalizeAndCommitIgnoring,
+    generalizeGroupAndCommitIgnoring,
     environmentMetaVars,
     collectMetaVars,
     predMetaVars,
@@ -56,6 +57,33 @@ generalizeAndCommitIgnoring ignoredKeys ty preds = do
   forM_ subst (uncurry writeMetaTv)
   pure scheme
 
+-- | Generalize the bindings of one recursive group over one shared set of
+-- type variables, then write the substitution back to the meta store.
+--
+-- The bindings of a group share meta-variables. A separate generalization
+-- of each binding would turn a shared meta-variable into a type variable
+-- of the first binding, and the later bindings would then mention a type
+-- variable that they do not quantify. Each scheme quantifies the shared
+-- type variables that its own type or predicates mention.
+generalizeGroupAndCommitIgnoring :: Set.Set TcTermKey -> [(TcType, [Pred])] -> TcM [TypeScheme]
+generalizeGroupAndCommitIgnoring ignoredKeys bindings = do
+  envMetaVars <- environmentMetaVars ignoredKeys
+  zonked <- mapM zonkBinding bindings
+  forM_ zonked (uncurry (defaultRuntimeRepMetas envMetaVars))
+  zonked' <- mapM zonkBinding zonked
+  let bindingMetaVars = [nubOrd (collectMetaVars ty ++ concatMap predMetaVars preds) | (ty, preds) <- zonked']
+      uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat bindingMetaVars))
+  mapM_ defaultMetaKind uniqueMetaVars
+  tvs <- metaVarsToTyVars uniqueMetaVars
+  let subst = zip uniqueMetaVars (map TcTyVar tvs)
+  forM_ subst (uncurry writeMetaTv)
+  pure
+    [ ForAll [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] (map (substMetasPred subst) preds) (substMetas subst ty)
+    | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars
+    ]
+  where
+    zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
+
 generalizeIgnoringWithSubst :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
 generalizeIgnoringWithSubst ignoredKeys ty preds = do
   envMetaVars <- environmentMetaVars ignoredKeys
@@ -66,8 +94,11 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   preds'' <- mapM zonkPred preds'
   let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds''
       uniqueFreeMetaVars = nubOrd freeMetaVars
-  mapM_ defaultMetaKind (envMetaVars <> uniqueFreeMetaVars)
-  let uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
+      uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
+  -- Only a quantified meta-variable needs a fixed kind now. A meta-variable
+  -- of the environment, such as the type of a lambda-bound variable, keeps
+  -- its open kind until a use fixes it; an unlifted use is still possible.
+  mapM_ defaultMetaKind uniqueMetaVars
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars uniqueMetaVars
@@ -178,7 +209,7 @@ substMetas subst = go
     go (TcFunTy a b) = TcFunTy (go a) (go b)
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
     go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)
-    go (TcAppTy f a) = TcAppTy (go f) (go a)
+    go (TcAppTy f a) = mkAppTy (go f) (go a)
 
 -- | Substitute meta-variables in a predicate.
 substMetasPred :: [(Unique, TcType)] -> Pred -> Pred

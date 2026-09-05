@@ -1,0 +1,26 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (ByteArray#, Int#, RealWorld, State#, newByteArray#, runRW#, sizeofByteArray#, touch#, unsafeFreezeByteArray#)
+
+    data Box = Box Int#
+
+    action :: State# RealWorld -> (# State# RealWorld, Int# #)
+    action s0 = case newByteArray# 42# s0 of
+      (# s1, marr #) -> case unsafeFreezeByteArray# marr s1 of
+        (# s2, arr #) -> case touch# arr s2 of
+          s3 -> (# s3, sizeofByteArray# arr #)
+
+    boxed = case runRW# action of
+      (# _, x #) -> Box x
+output: |
+  42
+expression: |
+  case boxed of
+    Box x -> x
+status: pass
+reason: touch# accepts a value of any runtime representation, so an unlifted
+  byte array can be kept alive

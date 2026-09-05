@@ -112,6 +112,9 @@ data HeaderSource
   | HeaderInstance !InstanceInfo
   | HeaderDefaultMethod !Name !TypeScheme
   | HeaderFamilyEquation !TypeFamilyInstanceInfo
+  | -- | A type family with its known equations. The equations come with
+    -- the family, so a use of the family can reduce its applications.
+    HeaderFamily !TyConInfo ![TypeFamilyInstanceInfo]
   | HeaderDataFamily !DataFamilyInstanceInfo
 
 withConversionContext :: String -> Either String a -> Either String a
@@ -232,9 +235,18 @@ headerIndex convertEnv interface =
           constructorName <- dfiiConstructorNames info
         ]
     tyConFacts =
-      [ (tyConNameFc convertEnv (tciTyCon info), HeaderTyCon info)
+      [ (tyConNameFc convertEnv (tciTyCon info), tyConHeader info)
       | info <- tcInterfaceTyCons interface,
         tciFlavor info `notElem` [SynonymTyCon, ClassTyCon]
+      ]
+    tyConHeader info
+      | tciFlavor info == TypeFamilyTyCon = HeaderFamily info (familyEquations (tciTyCon info))
+      | otherwise = HeaderTyCon info
+    familyEquations tyCon =
+      [ info
+      | info <- tcInterfaceTypeFamilyInstances interface,
+        TcTyCon family _ <- [tfiiLeft info],
+        family == tyCon
       ]
     dataTypeFacts =
       [ (tyConNameFc convertEnv (dtiTyCon info), HeaderDataType info)
@@ -338,6 +350,11 @@ convertHeader convertEnv bindings source =
       Right (headerOnly (cePrimPackage convertEnv) headerName converted)
     HeaderFamilyEquation info ->
       declsEnv convertEnv . (: []) =<< convertTypeFamilyEquation convertEnv info
+    HeaderFamily info equations -> do
+      (headerName, headerType') <- convertTyConHeader convertEnv info
+      equationDecls <- mapM (convertTypeFamilyEquation convertEnv) equations
+      equationEnv <- declsEnv convertEnv equationDecls
+      Right (TypeOf.unionTypeEnv (headerOnly (cePrimPackage convertEnv) headerName headerType') equationEnv)
     HeaderDataFamily info ->
       let tyCon = dfiiRepresentationTyCon info
        in declsEnv convertEnv =<< convertDataFamilyInst convertEnv (tyConPackageId tyCon) (tyConModuleName tyCon) bindings info
