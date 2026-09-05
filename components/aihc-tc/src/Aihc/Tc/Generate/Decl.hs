@@ -121,7 +121,7 @@ import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -3702,7 +3702,7 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
           (_, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
-          unifyKinds resultKind bodyKind
+          unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 checkTypeSynonymBody _ = pure ()
 

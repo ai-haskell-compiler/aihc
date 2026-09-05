@@ -8,18 +8,17 @@ modules:
     data BadApplication (a :: Color Type)
     data BadField (r :: RuntimeRep) = BadField r
 annotated:
-  - |-
-    module Test where
-    └─ error: kind mismatch: expected Type, got RuntimeRep
-    └─ error: kind mismatch: expected Type, got Type → Type
-    └─ error: kind mismatch: expected Type, got Type → Type
-    data Color = Red
-         │       └─ type: Color
-         └─ type: Type
-    data BadApplication (a :: Color Type)
-         └─ type: Color Type → Type
-    data BadField (r :: RuntimeRep) = BadField r
-         │                            └─ type: ∀ r. r → BadField r
-         └─ type: GHC.Types.RuntimeRep → Type
+- |-
+  module Test where
+  └─ error: kind mismatch: expected Type, got RuntimeRep
+  data Color = Red
+       │       └─ type: Color
+       └─ type: Type
+  data BadApplication (a :: Color Type)
+       └─ type: Color Type → Type └─ error: kind mismatch: expected Type, got Type → Type
+                                  └─ error: kind mismatch: expected Type, got Type → Type
+  data BadField (r :: RuntimeRep) = BadField r
+       │                            └─ type: ∀ r. r → BadField r
+       └─ type: GHC.Types.RuntimeRep → Type
 status: pass
 reason: rejects invalid kind applications and fields whose types have no runtime representation
