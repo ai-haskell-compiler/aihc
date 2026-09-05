@@ -1,0 +1,57 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  newtype Box s = Box Nat
+          │       └─ type: ∀ s. Nat → Box s
+          └─ type: Type → Type
+  newtype Builder = Builder (forall s. Box s -> Nat)
+          │         └─ type: (∀ s. Box s → Nat) → Builder
+          └─ type: Type
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  │      │ │      │     └─ type: Nat → Box (); type-args: ()
+  │      │ │      └─ type: Box () → Nat; type-args: ()
+  │      │ └─ type: ∀ s. Box s → Nat
+  │      └─ type: Nat
+  └─ type: Nat → (∀ s. Box s → Nat) → Nat
+  useCreate :: Nat
+  useCreate = create Z (\(Box n) -> S n)
+  └─ type: Nat│         │││   └─ type: Nat
+              │         ││└─ type: Box s
+              │         │└─ type: Box s
+              │         └─ type: Box s → Nat
+              └─ type: ∀ s. Box s → Nat
+  builder :: (forall s. Box s -> Nat) -> Builder
+  builder = Builder
+  └─ type: (∀ s. Box s → Nat) → Builder
+  runBuilder :: Builder -> Nat
+  runBuilder (Builder f) = f (Box Z)
+  │           │       │    │  └─ type: Nat → Box (); type-args: ()
+  │           │       │    └─ type: Box () → Nat; type-args: ()
+  │           │       └─ type: ∀ s. Box s → Nat
+  │           └─ type: Builder
+  └─ type: Builder → Nat
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  newtype Box s = Box Nat
+  newtype Builder = Builder (forall s. Box s -> Nat)
+  create :: Nat -> (forall s. Box s -> Nat) -> Nat
+  create n fill = fill (Box n)
+  useCreate :: Nat
+  useCreate = create Z (\(Box n) -> S n)
+  builder :: (forall s. Box s -> Nat) -> Builder
+  builder = Builder
+  runBuilder :: Builder -> Nat
+  runBuilder (Builder f) = f (Box Z)
+reason: a higher-rank argument of a nested application is checked against its
+  polymorphic type, and two polymorphic types are equal up to the names of
+  their bound variables
+status: pass
