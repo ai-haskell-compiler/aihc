@@ -1,6 +1,6 @@
 -- | Assemble the compiler ARM64 vocabulary without an external assembler.
 module Aihc.Arm64.Assemble
-  ( Arm64Statement,
+  ( Arm64Statement (..),
     Arm64Instruction (..),
     Arm64Register (..),
     Arm64Address (..),
@@ -44,7 +44,8 @@ data Arm64Statement
   | -- | The address of a symbol plus a constant addend.
     Arm64QuadSymbolAddend !Text !Int64
   | Arm64Bytes !ByteString
-  | Arm64Instruction ![Item]
+  | Arm64Code !Arm64Instruction
+  deriving (Eq, Show)
 
 data Arm64Register
   = X0
@@ -236,6 +237,7 @@ data Arm64Instruction
   | -- | Float to signed and unsigned 64-bit integer, rounding toward zero.
     ArmFcvtzs !Bool !Arm64Register !Int
   | ArmFcvtzu !Bool !Arm64Register !Int
+  deriving (Eq, Show)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
 assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
@@ -268,7 +270,7 @@ arm64Bytes :: ByteString -> Arm64Statement
 arm64Bytes = Arm64Bytes
 
 arm64Instruction :: Arm64Instruction -> Arm64Statement
-arm64Instruction = Arm64Instruction . encodeInstruction
+arm64Instruction = Arm64Code
 
 applyStatement :: Either ObjectError Draft -> Arm64Statement -> Either ObjectError Draft
 applyStatement result statement = do
@@ -286,7 +288,7 @@ applyStatement result statement = do
     Arm64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
-    Arm64Instruction items -> foldl' (>>=) (pure draft) [addItem item | item <- items]
+    Arm64Code instruction -> foldl' (>>=) (pure draft) [addItem item | item <- encodeInstruction instruction]
 
 alignmentFill :: Draft -> ByteString
 alignmentFill draft

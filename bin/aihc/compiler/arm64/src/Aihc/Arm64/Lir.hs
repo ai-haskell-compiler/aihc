@@ -16,6 +16,7 @@ module Aihc.Arm64.Lir
   ( Arm64LirError (..),
     compileLirObject,
     compileLirStatements,
+    elideSlotReloads,
     lirSymbol,
   )
 where
@@ -30,6 +31,8 @@ import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -243,11 +246,151 @@ compileFunction signatures index function = do
     ( [arm64Section TextSection, arm64Align 2]
         <> [arm64Global symbol | functionLinkage function == Export]
         <> [arm64Label symbol]
-        <> prologue
-        <> body
+        <> elideSlotReloads (prologue <> body)
     )
   where
     symbol = lirSymbol (functionName function)
+
+-- | Drop the load of a frame slot that the destination register already
+-- holds. Every value lives in a frame slot, so a slot is normally read back
+-- several times in a row while the register that read it first is still
+-- untouched.
+--
+-- The pass tracks, for each general register, the stack pointer offset it was
+-- last known to hold. A load whose register already holds its offset is
+-- dropped. Anything that moves the stack pointer, calls, or reaches a label
+-- forgets every register. This is sound because the only frame addresses that
+-- escape into a register come from @stack.alloc@, which 'functionLayout'
+-- places above every value slot, so a store through a register base never
+-- writes a tracked slot.
+elideSlotReloads :: [Arm64Statement] -> [Arm64Statement]
+elideSlotReloads = go IntMap.empty
+  where
+    go :: IntMap Int64 -> [Arm64Statement] -> [Arm64Statement]
+    go held statements =
+      case statements of
+        [] -> []
+        statement : rest ->
+          case statement of
+            Arm64Code instruction ->
+              case instructionEffect instruction of
+                LoadsSlot register offset
+                  | IntMap.lookup register held == Just offset -> go held rest
+                  | otherwise -> statement : go (IntMap.insert register offset held) rest
+                -- The stored register holds the slot, and any register that
+                -- held the previous contents of the slot is stale.
+                StoresSlot register offset ->
+                  statement : go (IntMap.insert register offset (IntMap.filter (/= offset) held)) rest
+                Writes registers -> statement : go (foldr IntMap.delete held registers) rest
+                Forgets -> statement : go IntMap.empty rest
+            _ -> statement : go IntMap.empty rest
+
+-- | What one instruction does to the registers and frame slots the reload
+-- pass tracks.
+data SlotEffect
+  = -- | Overwrites these general registers and nothing else the pass tracks.
+    Writes ![Int]
+  | -- | Reads a general register from a literal stack pointer offset.
+    LoadsSlot !Int !Int64
+  | -- | Writes a general register to a literal stack pointer offset.
+    StoresSlot !Int !Int64
+  | -- | Everything the pass knows becomes stale.
+    Forgets
+
+instructionEffect :: Arm64Instruction -> SlotEffect
+instructionEffect instruction =
+  case instruction of
+    ArmRet -> Forgets
+    ArmBrk _ -> Forgets
+    ArmBr _ -> Forgets
+    ArmB _ -> Forgets
+    ArmBl _ -> Forgets
+    ArmBlr _ -> Forgets
+    -- A conditional branch changes nothing, and its target begins with a
+    -- label, which forgets every register in its own right.
+    ArmBCond _ _ -> Writes []
+    ArmCbz _ _ -> Writes []
+    ArmCbnz _ _ -> Writes []
+    ArmCmp _ _ -> Writes []
+    ArmFcmp {} -> Writes []
+    ArmAdr destination _ -> writes [destination]
+    ArmAdrp destination _ -> writes [destination]
+    ArmMov destination _ -> writes [destination]
+    ArmLdrImmediate destination _ -> writes [destination]
+    ArmAddPageOffset destination _ _ -> writes [destination]
+    ArmAdd destination _ _ -> writes [destination]
+    ArmAdds destination _ _ -> writes [destination]
+    ArmSub destination _ _ -> writes [destination]
+    ArmSubs destination _ _ -> writes [destination]
+    ArmAnd destination _ _ -> writes [destination]
+    ArmOrr destination _ _ -> writes [destination]
+    ArmEor destination _ _ -> writes [destination]
+    ArmMvn destination _ -> writes [destination]
+    ArmMul destination _ _ -> writes [destination]
+    ArmUmulh destination _ _ -> writes [destination]
+    ArmSmulh destination _ _ -> writes [destination]
+    ArmUdiv destination _ _ -> writes [destination]
+    ArmSdiv destination _ _ -> writes [destination]
+    ArmMsub destination _ _ _ -> writes [destination]
+    ArmLsl destination _ _ -> writes [destination]
+    ArmLsr destination _ _ -> writes [destination]
+    ArmAsr destination _ _ -> writes [destination]
+    ArmCset destination _ -> writes [destination]
+    ArmCsinv destination _ _ _ -> writes [destination]
+    ArmCsel destination _ _ _ -> writes [destination]
+    ArmSxtw destination _ -> writes [destination]
+    ArmSxtb destination _ -> writes [destination]
+    ArmSxth destination _ -> writes [destination]
+    ArmClz destination _ -> writes [destination]
+    ArmRbit destination _ -> writes [destination]
+    -- The vector registers are outside the model, and no general register
+    -- changes.
+    ArmCnt {} -> Writes []
+    ArmAddv {} -> Writes []
+    ArmAndMask destination _ _ -> writes [destination]
+    ArmFmovFromFloat _ destination _ -> writes [destination]
+    ArmFcvtzs _ destination _ -> writes [destination]
+    ArmFcvtzu _ destination _ -> writes [destination]
+    -- The float registers are outside the model, and no general register
+    -- changes.
+    ArmFmovToFloat {} -> Writes []
+    ArmFloat {} -> Writes []
+    ArmFcvt {} -> Writes []
+    ArmScvtf {} -> Writes []
+    ArmUcvtf {} -> Writes []
+    ArmLdr destination target ->
+      case target of
+        Arm64Offset SP offset -> LoadsSlot (generalRegister destination) offset
+        Arm64Offset _ _ -> writes [destination]
+        _ -> Forgets
+    ArmStr source target ->
+      case target of
+        Arm64Offset SP offset -> StoresSlot (generalRegister source) offset
+        Arm64Offset _ _ -> Writes []
+        _ -> Forgets
+    ArmLdrb destination base _ -> narrowAccess base (writes [destination])
+    ArmLdrh destination base _ -> narrowAccess base (writes [destination])
+    ArmStrb _ base _ -> narrowAccess base (Writes [])
+    ArmStrh _ base _ -> narrowAccess base (Writes [])
+    -- The pair instructions only ever address the stack pointer, and both
+    -- forms in this backend move it.
+    ArmLdp {} -> Forgets
+    ArmStp {} -> Forgets
+  where
+    writes registers
+      | SP `elem` registers = Forgets
+      | otherwise = Writes (map generalRegister registers)
+    narrowAccess base effect
+      | base == SP = Forgets
+      | otherwise = effect
+
+-- | The key of the 64-bit register a name refers to. Writing @wN@ clears the
+-- top half of @xN@, so both names have to invalidate the same entry.
+generalRegister :: Arm64Register -> Int
+generalRegister register
+  | register >= W0 && register <= W30 = fromEnum register - fromEnum W0
+  | register == WZR = fromEnum XZR
+  | otherwise = fromEnum register
 
 functionLayout :: Function -> M Layout
 functionLayout function = do
