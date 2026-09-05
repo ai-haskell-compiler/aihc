@@ -21,6 +21,7 @@ module Aihc.Arm64.Lir
 where
 
 import Aihc.Arm64.Assemble
+import Aihc.Lir.BitCount (expandBitCounts)
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
@@ -57,11 +58,14 @@ compileLirObject lirModule = do
   either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
-compileLirStatements lirModule@(Module items) =
-  case lintModule lirModule of
+compileLirStatements original =
+  case lintModule original of
     [] -> evalStateT compileItems initialState
     errors -> Left (Arm64LirLintErrors errors)
   where
+    -- This backend has no bit-count instruction, so the module it assembles
+    -- is the linted one with those operations expanded into arithmetic.
+    Module items = expandBitCounts original
     initialState = ObjectState {objectTraps = Map.empty, objectNextLabel = 0}
     signatures =
       Map.fromList
@@ -564,6 +568,9 @@ compileInstruction ctx (Instruction results operation) =
     Binary op ty left right -> do
       body <- binary op ty
       single (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> body)
+    -- 'expandBitCounts' rewrites these into arithmetic before this
+    -- backend sees the module.
+    Unary op _ _ -> unsupported ("bit count " <> T.pack (show op) <> " reached instruction selection")
     Wide op ty left right -> do
       body <- wide op ty
       pair (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> body)

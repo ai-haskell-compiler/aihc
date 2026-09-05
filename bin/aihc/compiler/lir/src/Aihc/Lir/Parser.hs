@@ -6,7 +6,7 @@ module Aihc.Lir.Parser
   )
 where
 
-import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, wideOpName)
+import Aihc.Lir.Pretty (binaryOpName, compareOpName, convertOpName, floatBinaryOpName, floatUnaryOpName, unaryOpName, wideOpName)
 import Aihc.Lir.Syntax
 import Control.Applicative (empty, optional, (<|>))
 import Control.Monad (void)
@@ -316,6 +316,7 @@ operations :: Map Text (Parser Operation)
 operations =
   Map.fromList
     ( [(binaryOpName op, binary (Binary op)) | op <- [minBound .. maxBound]]
+        <> [(unaryOpName op, Unary op <$> typeParser <*> operand) | op <- [minBound .. maxBound]]
         <> [(wideOpName op, binary (Wide op)) | op <- [minBound .. maxBound]]
         <> [(compareOpName op, binary (Compare op)) | op <- [minBound .. maxBound]]
         <> [(floatBinaryOpName op, binary (FloatBinary op)) | op <- [minBound .. maxBound]]

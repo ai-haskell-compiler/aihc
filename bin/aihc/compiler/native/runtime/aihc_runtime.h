@@ -210,7 +210,11 @@ int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_replace(const void *buffer, int64_t length);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
 /* Boxed arrays are contiguous managed objects. GrinEnsureHeap reserves their
-   length-dependent storage before this initializer advances the heap. */
+   length-dependent storage before this initializer advances the heap.
+
+   The boxed arrays, the mutable references, the stable names, and the byte
+   arrays below are defined by the Lir runtime units in
+   compiler/native/runtime. See the "Runtime units" section of docs/lir.md. */
 AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
                           AihcSlot initial);
 AihcSlot aihc_array_index(AihcValue *array, int64_t index);
@@ -285,9 +289,6 @@ uint64_t aihc_byte_array_write_word(void *array, int64_t index, uint64_t value);
 uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
                               void *destination, int64_t destination_offset,
                               int64_t length);
-uint64_t aihc_word_clz(uint64_t value);
-uint64_t aihc_word_ctz(uint64_t value);
-uint64_t aihc_word_popcount(uint64_t value);
 uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset);
 uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset);
 uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset);

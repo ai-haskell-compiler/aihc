@@ -82,6 +82,13 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           bitPatternCastNames,
+      testCase "gives the bit counts the Lir operations of the backend" $
+        mapM_
+          ( \primitive -> do
+              assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive)
+              assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames)
+          )
+          ["clz#", "ctz#", "popCnt#"],
       testCase "gives timesInt2# the wide multiplication of the backend" $ do
         assertEqual
           "runtime call for timesInt2#"

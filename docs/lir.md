@@ -260,6 +260,9 @@ condition never traps.
 | `shl iN %a, %b` | `iN` | Shift left. The count is `%b` modulo `N`. |
 | `shr.s iN %a, %b` | `iN` | Arithmetic shift right. The count is `%b` modulo `N`. |
 | `shr.u iN %a, %b` | `iN` | Logical shift right. The count is `%b` modulo `N`. |
+| `clz iN %a` | `iN` | The number of leading zero bits. `N` when `%a` is zero. |
+| `ctz iN %a` | `iN` | The number of trailing zero bits. `N` when `%a` is zero. |
+| `popcount iN %a` | `iN` | The number of one bits. |
 | `mul.wide.s iN %a, %b` | `iN, iN` | Signed full multiplication. The results are the low and the high half. |
 | `mul.wide.u iN %a, %b` | `iN, iN` | Unsigned full multiplication. The results are the low and the high half. |
 | `add.carry iN %a, %b` | `iN, i1` | Wrapping addition and the unsigned carry. |
@@ -492,11 +495,30 @@ instead of naming the runtime sources. Moving a unit from C to Lir then
 changes no test. A link places the archive after the objects that reference
 it.
 
-`bin/aihc/compiler/native/runtime/aihc_array.lir` is the first unit. It holds
-the info table of a boxed array and the functions `aihc_array_new`,
-`aihc_array_index`, `aihc_array_write`, and `aihc_array_same`. The collector
-keeps `aihc_array_length` and `aihc_array_elements` in C, and the unit calls
-`aihc_array_length` for the object-kind check.
+The units are:
+
+- `aihc_array.lir` holds the info table of a boxed array and the functions
+  `aihc_array_new`, `aihc_array_index`, `aihc_array_write`, and
+  `aihc_array_same`. The collector keeps `aihc_array_length` and
+  `aihc_array_elements` in C, and the unit calls `aihc_array_length` for the
+  object-kind check.
+- `aihc_mutvar.lir` holds the `MutVar#` primitives. A mutable reference is a
+  boxed array of one element, so every one of them calls the array unit.
+- `aihc_stable_name.lir` holds the stable-name table: the lookup, the
+  allocation, and the layout of one entry. The list head and the hash counter
+  are machine fields whose offsets follow the target word size, so C keeps
+  `aihc_stable_names` and `aihc_stable_name_take_hash` as accessors and the
+  collector still walks the list itself.
+- `aihc_byte_array.lir` holds the byte arrays. The collector never traces one,
+  so this unit owns the whole layout and the C runtime keeps no description of
+  it. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which are
+  `memcpy` and `memmove` behind a signature that states its length as an
+  `i64`.
+
+A unit reaches the C runtime only through functions, never through the fields
+of a C structure, unless those fields sit one eight-byte slot apart on every
+target and `aihc_runtime.c` asserts it. `AihcStableName` is the one record
+with that shape today.
 
 A unit is one file for every target, so it states no word size of its own. A
 heap slot is eight bytes everywhere, so a header pointer travels through
@@ -505,9 +527,15 @@ word-shaped record uses `word` fields, which follow the target word size.
 
 ## Backends
 
-Every backend lints the module first. No backend checks the alignment of a
-memory access, a store to read-only data, or the signature of an indirect
-call. A misaligned access gives the result of the hardware, and a store to
+Every backend lints the module first. The AArch64 and the AMD64 backends then
+run `Aihc.Lir.BitCount`, which rewrites `clz`, `ctz`, and `popcount` into
+ordinary arithmetic: neither `popcnt` on AMD64 nor a general-register bit
+count on AArch64 is part of the architecture baseline, and the expansion is
+straight-line, so it changes no control-flow graph. LLVM and WebAssembly have
+the operations and emit them directly.
+
+No backend checks the alignment of a memory access, a store to read-only
+data, or the signature of an indirect call. A misaligned access gives the result of the hardware, and a store to
 read-only data is a memory fault. Every backend checks an indirect call of
 `null`.
 

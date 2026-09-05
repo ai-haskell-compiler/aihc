@@ -11,7 +11,7 @@ import Data.Text.IO qualified as TIO
 import System.Directory (listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (takeExtension, (</>))
-import Test.Lir.Arbitrary (prop_lirPrettyRoundTrip)
+import Test.Lir.Arbitrary (prop_bitCountExpansion, prop_lirPrettyRoundTrip)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
@@ -25,6 +25,7 @@ tests = do
     ( testGroup
         "aihc-lir"
         [ testProperty "generated Lir pretty-printer round-trip" prop_lirPrettyRoundTrip,
+          testProperty "bit-count expansion matches the interpreter" prop_bitCountExpansion,
           testGroup "evaluation fixtures" (map evalTest evalCases),
           testGroup "lint error fixtures" (map lintTest lintCases)
         ]

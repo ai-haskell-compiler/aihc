@@ -15,7 +15,7 @@ import Aihc.Lir.Syntax
 import Control.Monad (foldM, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, gets, modify', put)
-import Data.Bits (shiftL, shiftR, xor, (.&.), (.|.))
+import Data.Bits (popCount, shiftL, shiftR, testBit, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -386,6 +386,9 @@ execOperation program locals operation =
       a <- intOperand ty left
       b <- intOperand ty right
       (: []) . VInt <$> binary op ty a b
+    Unary op ty value -> do
+      a <- intOperand ty value
+      pure [VInt (unary op ty a)]
     Wide op ty left right -> do
       a <- intOperand ty left
       b <- intOperand ty right
@@ -515,6 +518,17 @@ binary op ty a b =
     ShrU -> pure (a `shiftR` count)
   where
     count = fromIntegral (b `mod` fromIntegral (typeBits ty))
+
+-- | The bit-count operations. A narrow value is canonical in its low bits,
+-- so counting leading zeros starts at the width of the type.
+unary :: UnaryOp -> Type -> Word64 -> Word64
+unary op ty a =
+  case op of
+    Clz -> fromIntegral (length (takeWhile not [testBit a index | index <- [bits - 1, bits - 2 .. 0]]))
+    Ctz -> fromIntegral (length (takeWhile not [testBit a index | index <- [0 .. bits - 1]]))
+    Popcount -> fromIntegral (popCount (mask ty a))
+  where
+    bits = typeBits ty
 
 wide :: WideOp -> Type -> Word64 -> Word64 -> [Value]
 wide op ty a b =

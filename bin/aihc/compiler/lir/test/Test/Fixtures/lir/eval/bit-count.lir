@@ -1,0 +1,16 @@
+; expect: 60, 2, 3, 8, 8, 8, 0, 64
+; The bit counts. A zero operand gives the width of the type, so clz and ctz
+; have no undefined case.
+
+func @main() -> (i64, i64, i64, i8, i8, i8, i16, i64) {
+entry:
+  %leading = clz i64 12
+  %trailing = ctz i64 12
+  %ones = popcount i64 11
+  %leading_zero = clz i8 0
+  %trailing_zero = ctz i8 0
+  %narrow_ones = popcount i8 255
+  %no_leading = clz i16 -1
+  %all_ones = popcount i64 -1
+  return %leading, %trailing, %ones, %leading_zero, %trailing_zero, %narrow_ones, %no_leading, %all_ones
+}

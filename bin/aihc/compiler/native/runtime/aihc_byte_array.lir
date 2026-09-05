@@ -1,0 +1,442 @@
+; The byte-array runtime, written in Lir. See docs/lir.md.
+;
+; A byte array is an auxiliary object outside the managed heap: it never moves
+; and it holds no managed pointers, so the collector never traces one and this
+; unit owns its whole layout. Every field is one eight-byte slot, so the same
+; offsets hold on a 64-bit and on a 32-bit target:
+;
+;   offset 0    header    = @aihc_runtime_object_info
+;   offset 8    size
+;   offset 16   contents
+;   offset 24   pinned
+;   offset 32   alignment
+;
+; The contents are a separate allocation, so a resize keeps the header and an
+; unpinned array is still free to hold pinned contents. Bulk moves call the
+; memory helpers of the C runtime rather than looping here, so a copy stays as
+; fast as the platform memcpy.
+
+extern data @aihc_runtime_object_info
+extern func @aihc_fail(ptr) cc c
+extern func @aihc_allocate_zeroed(i64) -> ptr cc c
+extern func @aihc_memory_copy(ptr, ptr, i64) cc c
+extern func @aihc_memory_move(ptr, ptr, i64) cc c
+
+data @aihc_byte_array_size_message align 1 = {
+  bytes "invalid byte array size", zero 1
+}
+
+data @aihc_byte_array_alignment_message align 1 = {
+  bytes "invalid byte array alignment", zero 1
+}
+
+data @aihc_byte_array_too_large_message align 1 = {
+  bytes "byte array allocation is too large", zero 1
+}
+
+data @aihc_byte_array_null_message align 1 = {
+  bytes "attempted to inspect a null byte array", zero 1
+}
+
+data @aihc_byte_array_resize_message align 1 = {
+  bytes "attempted to resize a null byte array", zero 1
+}
+
+data @aihc_byte_array_shrink_message align 1 = {
+  bytes "invalid byte array shrink", zero 1
+}
+
+data @aihc_byte_array_copy_message align 1 = {
+  bytes "invalid byte array copy", zero 1
+}
+
+data @aihc_byte_array_compare_message align 1 = {
+  bytes "invalid byte array comparison", zero 1
+}
+
+data @aihc_byte_array_word_index_message align 1 = {
+  bytes "invalid byte array word index", zero 1
+}
+
+data @aihc_byte_array_word_bounds_message align 1 = {
+  bytes "byte array word index out of bounds", zero 1
+}
+
+data @aihc_byte_array_byte_offset_message align 1 = {
+  bytes "invalid byte array byte offset", zero 1
+}
+
+data @aihc_byte_array_byte_bounds_message align 1 = {
+  bytes "byte array byte offset out of bounds", zero 1
+}
+
+; A count the caller gave: a size, an offset, or a length. Every one of them
+; is non-negative, so this rejects the rest before any arithmetic on it.
+func @aihc_byte_array_count(%value: i64) -> i64 cc c {
+entry:
+  %negative = lt.s i64 %value, 0
+  br %negative, invalid, valid
+
+invalid:
+  call @aihc_fail(@aihc_byte_array_size_message)
+  trap "invalid byte array size"
+
+valid:
+  return %value
+}
+
+; The size of %array, or a failure with %message when %array is null.
+func @aihc_byte_array_size_or_fail(%array: ptr, %message: ptr) -> i64 cc c {
+entry:
+  %missing = eq ptr %array, null
+  br %missing, invalid, size
+
+invalid:
+  call @aihc_fail(%message)
+  trap "byte array primitive received null"
+
+size:
+  %value = load i64 [%array + 8] align 8
+  return %value
+}
+
+; Fail with %message unless the %length bytes at %offset lie inside an array
+; of %size bytes. Both counts have passed @aihc_byte_array_count, so the
+; comparisons are unsigned and no sum overflows.
+func @aihc_byte_array_range(%size: i64, %offset: i64, %length: i64, %message: ptr) cc c {
+entry:
+  %past_end = gt.u i64 %offset, %size
+  %remaining = sub i64 %size, %offset
+  %too_long = gt.u i64 %length, %remaining
+  %invalid = or i1 %past_end, %too_long
+  br %invalid, fail, inside
+
+fail:
+  call @aihc_fail(%message)
+  trap "byte array access is out of bounds"
+
+inside:
+  return
+}
+
+; The address of byte %offset of %array.
+func @aihc_byte_array_address(%array: ptr, %offset: i64) -> ptr cc c {
+entry:
+  %contents = load ptr [%array + 16] align 8
+  %address = ptr.add %contents, %offset
+  return %address
+}
+
+; Allocate a byte array of %size bytes whose contents start at a multiple of
+; %alignment. The contents are over-allocated by one less than the alignment
+; and the start is rounded up inside that block.
+func @aihc_byte_array_allocate(%size: i64, %pinned: i64, %alignment: i64) -> ptr cc c {
+entry:
+  %checked = call @aihc_byte_array_count(%size)
+  %not_positive = le.s i64 %alignment, 0
+  %slack = sub i64 %alignment, 1
+  %low_bits = and i64 %alignment, %slack
+  %not_power_of_two = ne i64 %low_bits, 0
+  %invalid_alignment = or i1 %not_positive, %not_power_of_two
+  br %invalid_alignment, invalid, allocate
+
+invalid:
+  call @aihc_fail(@aihc_byte_array_alignment_message)
+  trap "invalid byte array alignment"
+
+allocate:
+  ; An empty array still gets one byte, so its contents have an address that
+  ; no other array shares.
+  %empty = eq i64 %checked, 0
+  %occupied = select i64 %empty, 1, %checked
+  %raw_size = add i64 %occupied, %slack
+  %overflowed = lt.u i64 %raw_size, %occupied
+  br %overflowed, too_large, contents
+
+too_large:
+  call @aihc_fail(@aihc_byte_array_too_large_message)
+  trap "byte array allocation is too large"
+
+contents:
+  %array = call @aihc_allocate_zeroed(40)
+  %raw = call @aihc_allocate_zeroed(%raw_size)
+  %raw_address = ptr.to_int %raw
+  %biased = add i64 %raw_address, %slack
+  %mask = xor i64 %slack, -1
+  %aligned_address = and i64 %biased, %mask
+  %aligned = ptr.from_int %aligned_address
+  %info = ptr.to_int @aihc_runtime_object_info
+  store i64 %info, [%array] align 8
+  store i64 %checked, [%array + 8] align 8
+  store ptr %aligned, [%array + 16] align 8
+  store i64 %pinned, [%array + 24] align 8
+  store i64 %alignment, [%array + 32] align 8
+  return %array
+}
+
+export func @aihc_byte_array_new(%size: i64) -> ptr cc c {
+entry:
+  %array = call @aihc_byte_array_allocate(%size, 0, 8)
+  return %array
+}
+
+export func @aihc_byte_array_new_pinned(%size: i64) -> ptr cc c {
+entry:
+  %array = call @aihc_byte_array_allocate(%size, 1, 8)
+  return %array
+}
+
+export func @aihc_byte_array_new_aligned_pinned(%size: i64, %alignment: i64) -> ptr cc c {
+entry:
+  %array = call @aihc_byte_array_allocate(%size, 1, %alignment)
+  return %array
+}
+
+export func @aihc_byte_array_is_pinned(%array: ptr) -> i64 cc c {
+entry:
+  %ignored = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_null_message)
+  %pinned = load i64 [%array + 24] align 8
+  return %pinned
+}
+
+export func @aihc_byte_array_contents(%array: ptr) -> ptr cc c {
+entry:
+  %ignored = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_null_message)
+  %contents = load ptr [%array + 16] align 8
+  return %contents
+}
+
+export func @aihc_byte_array_get_size(%array: ptr) -> i64 cc c {
+entry:
+  %size = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_null_message)
+  return %size
+}
+
+; Shrink an array in place. Only the recorded size changes; the contents keep
+; their allocation, so the bytes beyond the new size are simply unreachable.
+export func @aihc_byte_array_shrink(%array: ptr, %size: i64) -> i64 cc c {
+entry:
+  %checked = call @aihc_byte_array_count(%size)
+  %current = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_shrink_message)
+  %grows = gt.u i64 %checked, %current
+  br %grows, invalid, shrink
+
+invalid:
+  call @aihc_fail(@aihc_byte_array_shrink_message)
+  trap "invalid byte array shrink"
+
+shrink:
+  store i64 %checked, [%array + 8] align 8
+  return 0
+}
+
+; Resize an array by copying it. The result keeps the pinning and the
+; alignment of the original, and the shorter of the two sizes is copied over.
+export func @aihc_byte_array_resize(%array: ptr, %size: i64) -> ptr cc c {
+entry:
+  %current = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_resize_message)
+  %pinned = load i64 [%array + 24] align 8
+  %alignment = load i64 [%array + 32] align 8
+  %resized = call @aihc_byte_array_allocate(%size, %pinned, %alignment)
+  %new_size = load i64 [%resized + 8] align 8
+  %shrinks = lt.u i64 %current, %new_size
+  %copied = select i64 %shrinks, %current, %new_size
+  %source = call @aihc_byte_array_address(%array, 0)
+  %destination = call @aihc_byte_array_address(%resized, 0)
+  call @aihc_memory_copy(%destination, %source, %copied)
+  return %resized
+}
+
+export func @aihc_byte_array_copy_from_addr(%source: ptr, %array: ptr, %offset: i64, %length: i64) -> i64 cc c {
+entry:
+  %checked_offset = call @aihc_byte_array_count(%offset)
+  %checked_length = call @aihc_byte_array_count(%length)
+  %size = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_copy_message)
+  call @aihc_byte_array_range(%size, %checked_offset, %checked_length, @aihc_byte_array_copy_message)
+  %missing = eq ptr %source, null
+  %nonempty = ne i64 %checked_length, 0
+  %invalid = and i1 %missing, %nonempty
+  br %invalid, fail, copy
+
+fail:
+  call @aihc_fail(@aihc_byte_array_copy_message)
+  trap "invalid byte array copy"
+
+copy:
+  %destination = call @aihc_byte_array_address(%array, %checked_offset)
+  call @aihc_memory_copy(%destination, %source, %checked_length)
+  return 0
+}
+
+export func @aihc_byte_array_copy_to_addr(%array: ptr, %offset: i64, %destination: ptr, %length: i64) -> i64 cc c {
+entry:
+  %checked_offset = call @aihc_byte_array_count(%offset)
+  %checked_length = call @aihc_byte_array_count(%length)
+  %size = call @aihc_byte_array_size_or_fail(%array, @aihc_byte_array_copy_message)
+  call @aihc_byte_array_range(%size, %checked_offset, %checked_length, @aihc_byte_array_copy_message)
+  %missing = eq ptr %destination, null
+  %nonempty = ne i64 %checked_length, 0
+  %invalid = and i1 %missing, %nonempty
+  br %invalid, fail, copy
+
+fail:
+  call @aihc_fail(@aihc_byte_array_copy_message)
+  trap "invalid byte array copy"
+
+copy:
+  %source = call @aihc_byte_array_address(%array, %checked_offset)
+  call @aihc_memory_copy(%destination, %source, %checked_length)
+  return 0
+}
+
+; Copy between two byte arrays. The ranges may overlap, so this moves rather
+; than copies.
+export func @aihc_byte_array_copy(%source: ptr, %source_offset: i64, %destination: ptr, %destination_offset: i64, %length: i64) -> i64 cc c {
+entry:
+  %checked_source_offset = call @aihc_byte_array_count(%source_offset)
+  %checked_destination_offset = call @aihc_byte_array_count(%destination_offset)
+  %checked_length = call @aihc_byte_array_count(%length)
+  %source_size = call @aihc_byte_array_size_or_fail(%source, @aihc_byte_array_copy_message)
+  %destination_size = call @aihc_byte_array_size_or_fail(%destination, @aihc_byte_array_copy_message)
+  call @aihc_byte_array_range(%source_size, %checked_source_offset, %checked_length, @aihc_byte_array_copy_message)
+  call @aihc_byte_array_range(%destination_size, %checked_destination_offset, %checked_length, @aihc_byte_array_copy_message)
+  %from = call @aihc_byte_array_address(%source, %checked_source_offset)
+  %to = call @aihc_byte_array_address(%destination, %checked_destination_offset)
+  call @aihc_memory_move(%to, %from, %checked_length)
+  return 0
+}
+
+; Compare two ranges byte by byte. The result is minus one, zero, or one, in
+; the order of the first byte that differs.
+export func @aihc_byte_array_compare(%left: ptr, %left_offset: i64, %right: ptr, %right_offset: i64, %length: i64) -> i64 cc c {
+entry:
+  %checked_left_offset = call @aihc_byte_array_count(%left_offset)
+  %checked_right_offset = call @aihc_byte_array_count(%right_offset)
+  %checked_length = call @aihc_byte_array_count(%length)
+  %left_size = call @aihc_byte_array_size_or_fail(%left, @aihc_byte_array_compare_message)
+  %right_size = call @aihc_byte_array_size_or_fail(%right, @aihc_byte_array_compare_message)
+  call @aihc_byte_array_range(%left_size, %checked_left_offset, %checked_length, @aihc_byte_array_compare_message)
+  call @aihc_byte_array_range(%right_size, %checked_right_offset, %checked_length, @aihc_byte_array_compare_message)
+  %left_bytes = call @aihc_byte_array_address(%left, %checked_left_offset)
+  %right_bytes = call @aihc_byte_array_address(%right, %checked_right_offset)
+  jump step(0)
+
+step(%index: i64):
+  %done = ge.u i64 %index, %checked_length
+  br %done, equal, examine
+
+examine:
+  %left_byte_address = ptr.add %left_bytes, %index
+  %right_byte_address = ptr.add %right_bytes, %index
+  %left_byte = load i8 [%left_byte_address] align 1
+  %right_byte = load i8 [%right_byte_address] align 1
+  %same = eq i8 %left_byte, %right_byte
+  br %same, advance, differs
+
+advance:
+  %next = add i64 %index, 1
+  jump step(%next)
+
+differs:
+  %below = lt.u i8 %left_byte, %right_byte
+  %result = select i64 %below, -1, 1
+  return %result
+
+equal:
+  return 0
+}
+
+; The byte offset of word %index, after the bounds check.
+func @aihc_byte_array_word_address(%array: ptr, %index: i64) -> ptr cc c {
+entry:
+  %negative = lt.s i64 %index, 0
+  %huge = gt.u i64 %index, 2305843009213693951
+  %invalid = or i1 %negative, %huge
+  br %invalid, bad_index, bounds
+
+bad_index:
+  call @aihc_fail(@aihc_byte_array_word_index_message)
+  trap "invalid byte array word index"
+
+bounds:
+  %missing = eq ptr %array, null
+  br %missing, bad_index, offset
+
+offset:
+  %byte_offset = mul i64 %index, 8
+  %size = load i64 [%array + 8] align 8
+  call @aihc_byte_array_range(%size, %byte_offset, 8, @aihc_byte_array_word_bounds_message)
+  %address = call @aihc_byte_array_address(%array, %byte_offset)
+  return %address
+}
+
+export func @aihc_byte_array_index_word(%array: ptr, %index: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_byte_array_word_address(%array, %index)
+  %value = load i64 [%address] align 1
+  return %value
+}
+
+export func @aihc_byte_array_read_word(%array: ptr, %index: i64) -> i64 cc c {
+entry:
+  %value = call @aihc_byte_array_index_word(%array, %index)
+  return %value
+}
+
+export func @aihc_byte_array_write_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_byte_array_word_address(%array, %index)
+  store i64 %value, [%address] align 1
+  return 0
+}
+
+; The address of an element of %width bytes at byte offset %offset. The
+; source may give any offset, so every access below uses alignment one.
+func @aihc_byte_array_element(%array: ptr, %offset: i64, %width: i64) -> ptr cc c {
+entry:
+  %negative = lt.s i64 %offset, 0
+  %missing = eq ptr %array, null
+  %invalid = or i1 %negative, %missing
+  br %invalid, bad_offset, bounds
+
+bad_offset:
+  call @aihc_fail(@aihc_byte_array_byte_offset_message)
+  trap "invalid byte array byte offset"
+
+bounds:
+  %size = load i64 [%array + 8] align 8
+  call @aihc_byte_array_range(%size, %offset, %width, @aihc_byte_array_byte_bounds_message)
+  %address = call @aihc_byte_array_address(%array, %offset)
+  return %address
+}
+
+export func @aihc_byte_array_index_byte_word8(%array: ptr, %offset: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_byte_array_element(%array, %offset, 1)
+  %value = load i8 [%address] align 1
+  %result = zext i8 %value to i64
+  return %result
+}
+
+export func @aihc_byte_array_index_byte_word16(%array: ptr, %offset: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_byte_array_element(%array, %offset, 2)
+  %value = load i16 [%address] align 1
+  %result = zext i16 %value to i64
+  return %result
+}
+
+export func @aihc_byte_array_index_byte_word32(%array: ptr, %offset: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_byte_array_element(%array, %offset, 4)
+  %value = load i32 [%address] align 1
+  %result = zext i32 %value to i64
+  return %result
+}
+
+export func @aihc_byte_array_index_byte_word64(%array: ptr, %offset: i64) -> i64 cc c {
+entry:
+  %address = call @aihc_byte_array_element(%array, %offset, 8)
+  %value = load i64 [%address] align 1
+  return %value
+}
