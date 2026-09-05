@@ -3636,6 +3636,9 @@ inferExprType expression =
     Syn.EParen inner -> inferExprType inner
     Syn.ETypeSig inner _ -> inferExprType inner
     Syn.ETypeApp inner _ -> inferExprType inner
+    -- A let expression and an if expression have the type of their body.
+    Syn.ELetDecls _ body -> inferExprType body
+    Syn.EIf _ thenExpression _ -> inferExprType thenExpression
     Syn.ELambdaCase alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
     Syn.ELambdaCases alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
     unsupported -> failValue ("missing checked expression type: " <> take 80 (show unsupported))
@@ -3648,6 +3651,8 @@ exprType expression =
     Syn.EInfix function operator _
       | isApplicationOperator operator -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
+    Syn.ELetDecls _ body -> exprType body
+    Syn.EIf _ thenExpression _ -> exprType thenExpression
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing
