@@ -1003,8 +1003,9 @@ data Process = Process
   }
 
 -- | Compile the driver against the semispace runtime. Sanitizers are used
--- when the C compiler supports them, so the runtime archive is instrumented
--- for this test rather than taken from the store.
+-- when the C compiler supports them and the sanitized driver runs here, so
+-- the runtime archive is instrumented for this test rather than taken from
+-- the store.
 compileDriver :: IO (FilePath, FilePath)
 compileDriver = do
   root <- lookupEnv "AIHC_TEST_ROOT" >>= maybe (throwIO (userError "AIHC_TEST_ROOT is not set")) pure
@@ -1031,13 +1032,33 @@ compileDriver = do
           Left err -> Left (show err)
           Right (ExitSuccess, _, _) -> Right ()
           Right (ExitFailure _, _, message) -> Left message
+      compilePlain =
+        buildAndLink []
+          >>= either (\message -> throwIO (userError ("cannot compile the collector fuzz driver:\n" <> message))) pure
   sanitized <- buildAndLink ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
   case sanitized of
-    Right () -> pure ()
-    Left _ -> do
-      plain <- buildAndLink []
-      either (\message -> throwIO (userError ("cannot compile the collector fuzz driver:\n" <> message))) pure plain
+    Left _ -> compilePlain
+    Right () -> do
+      usable <- driverAnswers executable
+      unless usable compilePlain
   pure (directory, executable)
+
+-- | Whether a freshly compiled driver starts and answers a trivial script.
+--
+-- Compiling with the sanitizers is not enough to know that they work here.
+-- Inside the Nix sandbox on macOS the AddressSanitizer runtime never
+-- finishes reserving its shadow memory: it stops in
+-- @FindDynamicShadowStart@, so every sanitized binary hangs before @main@,
+-- down to a hello world. Without this check the driver answers nothing and
+-- each script waits out the time limit in 'runScript' instead. Ask the
+-- driver a question it can answer immediately, and fall back to the plain
+-- build when it cannot.
+driverAnswers :: FilePath -> IO Bool
+driverAnswers executable = do
+  outcome <- timeout (10 * 1000000) (try (readProcessWithExitCode executable [] "end\n"))
+  pure $ case outcome :: Maybe (Either SomeException (ExitCode, String, String)) of
+    Just (Right (ExitSuccess, output, _)) -> "done" `elem` lines output
+    _ -> False
 
 newDriver :: IO (FilePath, FilePath) -> Config -> IO Driver
 newDriver getBuild config = do

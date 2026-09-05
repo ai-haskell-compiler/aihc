@@ -74,7 +74,8 @@ import Aihc.Resolve
     unionScope,
   )
 import Aihc.Tc
-  ( ClassInfo (..),
+  ( AssociatedTypeInfo (..),
+    ClassInfo (..),
     DataConFieldInfo (..),
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
@@ -1632,6 +1633,8 @@ classInfoTyCons info =
       <> concatMap typeTyCons (ciSuperClassTypes info)
       <> concatMap (typeSchemeTyCons . snd) (ciMethods info)
       <> concatMap (typeSchemeTyCons . snd) (ciDefaultSignatures info)
+      <> map atiTyCon (ciAssociatedTypes info)
+      <> concatMap typeFamilyInstanceInfoTyCons (mapMaybe atiDefault (ciAssociatedTypes info))
 
 instanceInfoTyCons :: InstanceInfo -> [TyCon]
 instanceInfoTyCons info =

@@ -1,0 +1,84 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Container (..), Bag (..), Nat (..)) where
+    data Nat = Z | S Nat
+    data Bag = Bag Nat
+    class Container c where
+      type Elem c
+      type Elem c = Nat
+      elems :: c -> [Elem c]
+    instance Container Bag where
+      type Elem Bag = Nat
+      elems (Bag n) = [n]
+  - |
+    module Consumer where
+    import Provider (Container (Elem, elems), Bag (..), Nat (..))
+    firstElem :: Bag -> Elem Bag
+    firstElem bag = case elems bag of
+      x : _ -> x
+      [] -> Z
+  - |
+    module Wildcard where
+    import Provider (Container (..))
+    type Alias c = Elem c
+annotated:
+  - |-
+    module Consumer where
+    import Provider (Container (Elem, elems), Bag (..), Nat (..))
+    firstElem :: Bag -> Elem Bag
+    └─ v Consumer│      │    └─ t Provider
+                 │      └─ t Provider
+                 └─ t Provider
+    firstElem bag = case elems bag of
+    │         └─ v 1     │     └─ v 1
+    └─ v Consumer        └─ v Provider
+      x : _ -> x
+      │ │      └─ v 2
+      │ └─ v aihc-prim:GHC.Types
+      └─ v 2
+      [] -> Z
+            └─ v Provider
+  - |-
+    module Provider (Container (..), Bag (..), Nat (..)) where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Provider
+         │     │   └─ v Provider
+         │     └─ v Provider
+         └─ t Provider
+    data Bag = Bag Nat
+         │     │   └─ t Provider
+         │     └─ v Provider
+         └─ t Provider
+    class Container c where
+          └─ t Provider
+      type Elem c
+           └─ t Provider
+      type Elem c = Nat
+           │        └─ t Provider
+           └─ t Provider
+      elems :: c -> [Elem c]
+      └─ v Provider │└─ t Provider
+                    └─ t Builtin []
+    instance Container Bag where
+             │         └─ t Provider
+             └─ t Provider
+      type Elem Bag = Nat
+           │    │     └─ t Provider
+           │    └─ t Provider
+           └─ t Provider
+      elems (Bag n) = [n]
+      │      │   │    │└─ v 0
+      │      │   │    └─ v Builtin []
+      │      │   └─ v 0
+      │      └─ v Provider
+      └─ v Provider
+  - |-
+    module Wildcard where
+    import Provider (Container (..))
+    type Alias c = Elem c
+         │         └─ t Provider
+         └─ t Wildcard
+status: pass
+reason: associated type families resolve like top-level families, and a class item bundles them in import and export lists

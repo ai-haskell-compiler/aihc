@@ -1,0 +1,68 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Bag = Bag Nat
+       │     └─ type: Nat → Bag
+       └─ type: Type
+  newtype Box = Box Nat
+          │     └─ type: Nat → Box
+          └─ type: Type
+  class Container c where
+  └─ class methods: size ∷ ∀ c. (Container c) ⇒ c → Nat
+    type Elem c
+         └─ type: Type → Type
+    type Elem c = Nat
+    size :: c -> Nat
+  instance Container Bag where
+  └─ $fContainerBag ∷ () ⇒ Container Bag [associated types: Elem Bag = Bag]
+    type Elem Bag = Bag
+    size (Bag n) = n
+    │     │   └─ type: Nat
+    │     └─ type: Bag
+    └─ size ∷ Bag → Nat
+  instance Container Box where
+  └─ $fContainerBox ∷ () ⇒ Container Box [associated types: Elem Box = Nat]
+    size (Box n) = n
+    │     │   └─ type: Nat
+    │     └─ type: Box
+    └─ size ∷ Box → Nat
+  instance Container [a] where
+  └─ $fContainerList ∷ ∀ a. () ⇒ Container [a] [associated types: Elem [a] = a]
+    type Elem [a] = a
+    size _ = Z
+    │    └─ type: [a]
+    └─ size ∷ [a] → Nat
+  noElems :: Container c => c -> [Elem c]
+  noElems _ = []
+  │       │   └─ type: [Elem c]; type-args: Elem c
+  │       └─ type: c
+  └─ type: ∀ c. (Container c) ⇒ c → [Elem c]
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data Bag = Bag Nat
+  newtype Box = Box Nat
+  class Container c where
+    type Elem c
+    type Elem c = Nat
+    size :: c -> Nat
+  instance Container Bag where
+    type Elem Bag = Bag
+    size (Bag n) = n
+  instance Container Box where
+    size (Box n) = n
+  instance Container [a] where
+    type Elem [a] = a
+    size _ = Z
+  noElems :: Container c => c -> [Elem c]
+  noElems _ = []
+reason: an associated type family registers with its class, an instance equation and
+  an instantiated class default both become checked equations of the instance
+status: pass

@@ -24,11 +24,12 @@ import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..)
 import Aihc.Tc (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), renderTcType, tvKind)
 import Aihc.Tc.Types (setTyVarKind)
 import Control.Monad (when)
-import Data.Aeson ((.:), (.=))
+import Data.Aeson ((.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as AesonTypes
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Read (readMaybe)
@@ -77,7 +78,9 @@ data PackageInterfaceModule = PackageInterfaceModule
     packageInterfaceModuleTypes :: ![Text],
     packageInterfaceModuleConstructors :: !(Map.Map Text [Text]),
     packageInterfaceModuleRecordFields :: !(Map.Map Text [Text]),
-    packageInterfaceModuleMethods :: !(Map.Map Text [Text])
+    packageInterfaceModuleMethods :: !(Map.Map Text [Text]),
+    -- | Associated type families by class name.
+    packageInterfaceModuleAssociatedTypes :: !(Map.Map Text [Text])
   }
   deriving (Eq, Show)
 
@@ -204,7 +207,8 @@ instance Aeson.ToJSON PackageInterfaceModule where
         "types" .= packageInterfaceModuleTypes modu,
         "constructors" .= packageInterfaceModuleConstructors modu,
         "recordFields" .= packageInterfaceModuleRecordFields modu,
-        "methods" .= packageInterfaceModuleMethods modu
+        "methods" .= packageInterfaceModuleMethods modu,
+        "associatedTypes" .= packageInterfaceModuleAssociatedTypes modu
       ]
 
 instance Aeson.FromJSON PackageInterfaceModule where
@@ -217,6 +221,7 @@ instance Aeson.FromJSON PackageInterfaceModule where
         <*> obj .: "constructors"
         <*> obj .: "recordFields"
         <*> obj .: "methods"
+        <*> (fromMaybe Map.empty <$> obj .:? "associatedTypes")
 
 instance Aeson.ToJSON PackageInterfaceDiagnostics where
   toJSON diagnostics =
@@ -299,7 +304,8 @@ packageInterfaceModulesFromExports exports =
         packageInterfaceModuleTypes = Map.keys (scopeTypes scope),
         packageInterfaceModuleConstructors = scopeConstructors scope,
         packageInterfaceModuleRecordFields = scopeRecordFields scope,
-        packageInterfaceModuleMethods = scopeMethods scope
+        packageInterfaceModuleMethods = scopeMethods scope,
+        packageInterfaceModuleAssociatedTypes = scopeAssociatedTypes scope
       }
   | (moduleKey, scope) <- Map.toAscList exports
   ]
@@ -329,6 +335,7 @@ packageInterfaceModuleScope package modu =
       scopeConstructors = packageInterfaceModuleConstructors modu,
       scopeRecordFields = packageInterfaceModuleRecordFields modu,
       scopeMethods = packageInterfaceModuleMethods modu,
+      scopeAssociatedTypes = packageInterfaceModuleAssociatedTypes modu,
       scopeFixities = Map.empty,
       scopeQualifiedModules = Map.empty
     }

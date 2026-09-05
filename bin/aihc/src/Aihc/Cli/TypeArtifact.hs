@@ -9,7 +9,8 @@ where
 
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
-  ( ClassInfo (..),
+  ( AssociatedTypeInfo (..),
+    ClassInfo (..),
     DataConFieldInfo (..),
     DataConFieldUnpack (..),
     DataConInfo (..),
@@ -52,6 +53,7 @@ import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
@@ -392,7 +394,7 @@ getDataConFieldInfo table = do
 
 putClassInfo :: Map TyCon Word64 -> ClassInfo -> Builder.Builder
 putClassInfo table info =
-  cborArray 9
+  cborArray 10
     <> cborText (ciName info)
     <> putTyCon table (ciTyCon info)
     <> putMaybe putTextOrigin (ciOrigin info)
@@ -402,10 +404,26 @@ putClassInfo table info =
     <> encodeList (putNamedScheme table) (ciMethods info)
     <> encodeList cborText (ciDefaultMethods info)
     <> encodeList (putNamedScheme table) (ciDefaultSignatures info)
+    <> encodeList (putAssociatedTypeInfo table) (ciAssociatedTypes info)
+
+putAssociatedTypeInfo :: Map TyCon Word64 -> AssociatedTypeInfo -> Builder.Builder
+putAssociatedTypeInfo table info =
+  cborArray 3
+    <> putTyCon table (atiTyCon info)
+    <> encodeList (putMaybe cborInt) (atiClassParams info)
+    <> putMaybe (putTypeFamilyInstanceInfo table) (atiDefault info)
+
+getAssociatedTypeInfo :: TyConTable -> Get.Get AssociatedTypeInfo
+getAssociatedTypeInfo table = do
+  expectArray 3
+  atiTyCon <- getTyCon table
+  atiClassParams <- getList (getMaybe getInt)
+  atiDefault <- getMaybe (getTypeFamilyInstanceInfo table)
+  pure AssociatedTypeInfo {atiTyCon, atiClassParams, atiDefault}
 
 getClassInfo :: TyConTable -> Get.Get ClassInfo
 getClassInfo table = do
-  expectArray 9
+  expectArray 10
   ciName <- getText
   ciTyCon <- getTyCon table
   ciOrigin <- getMaybe getTextOrigin
@@ -415,7 +433,8 @@ getClassInfo table = do
   ciMethods <- getList (getNamedScheme table)
   ciDefaultMethods <- getList getText
   ciDefaultSignatures <- getList (getNamedScheme table)
-  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures}
+  ciAssociatedTypes <- getList (getAssociatedTypeInfo table)
+  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures, ciAssociatedTypes}
 
 putInstanceInfo :: Map TyCon Word64 -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =
@@ -547,6 +566,8 @@ classInfoTyCons info =
     Set.unions (map tyVarTyCons (ciKindTyVars info <> ciTyVars info))
       <> Set.unions (map typeTyCons (ciSuperClassTypes info))
       <> Set.unions (map (typeSchemeTyCons . snd) (ciMethods info <> ciDefaultSignatures info))
+      <> Set.fromList (map atiTyCon (ciAssociatedTypes info))
+      <> Set.unions (map typeFamilyInstanceInfoTyCons (mapMaybe atiDefault (ciAssociatedTypes info)))
 
 instanceInfoTyCons :: InstanceInfo -> Set.Set TyCon
 instanceInfoTyCons info =

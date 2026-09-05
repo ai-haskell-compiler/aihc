@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc (TypeFamilyInstanceInfo (..), renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -114,6 +114,13 @@ renderInstanceAnnotation ann =
     <> case tcInstanceSuperClasses ann of
       [] -> ""
       superClasses -> " [superclasses: " <> intercalate ", " (map (renderEvTerm . snd) superClasses) <> "]"
+    <> case tcInstanceAssociatedTypes ann of
+      [] -> ""
+      equations -> " [associated types: " <> intercalate ", " (map renderTypeFamilyEquation equations) <> "]"
+
+renderTypeFamilyEquation :: TypeFamilyInstanceInfo -> String
+renderTypeFamilyEquation equation =
+  renderTcType (tfiiLeft equation) <> " = " <> renderTcType (tfiiRight equation)
 
 renderInstanceMethodAnnotation :: TcInstanceMethodAnnotation -> String
 renderInstanceMethodAnnotation ann =

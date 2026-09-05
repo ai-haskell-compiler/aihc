@@ -8,7 +8,7 @@ where
 
 import Aihc.Parser.Syntax (FixityAssoc (..), Name (..), NameType (..), renderUnqualifiedName)
 import Aihc.Resolve (OperatorFixity (..), PackageId (..), ResolvedName (..), Scope (..))
-import Control.Monad (replicateM, unless)
+import Control.Monad (replicateM, unless, when)
 import Data.Binary.Get qualified as Get
 import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
@@ -73,24 +73,28 @@ getHashes = do
 
 encodeScope :: Scope -> Builder.Builder
 encodeScope scope =
-  cborArray 6
+  cborArray 7
     <> encodeResolvedMap (scopeTerms scope)
     <> encodeResolvedMap (scopeTypes scope)
     <> encodeTextListMap (scopeConstructors scope)
     <> encodeTextListMap (scopeRecordFields scope)
     <> encodeTextListMap (scopeMethods scope)
     <> encodeFixities (scopeFixities scope)
+    <> encodeTextListMap (scopeAssociatedTypes scope)
 
 getScope :: Get.Get Scope
 getScope = do
-  6 <- getArrayLength
+  length' <- getArrayLength
+  when (length' < 6 || length' > 7) $ fail "unsupported resolve scope layout"
   scopeTerms <- getResolvedMap
   scopeTypes <- getResolvedMap
   scopeConstructors <- getTextListMap
   scopeRecordFields <- getTextListMap
   scopeMethods <- getTextListMap
   scopeFixities <- getFixities
-  pure Scope {scopeTerms, scopeTypes, scopeConstructors, scopeRecordFields, scopeMethods, scopeFixities, scopeQualifiedModules = Map.empty}
+  -- Artifacts written before associated type families have six entries.
+  scopeAssociatedTypes <- if length' >= 7 then getTextListMap else pure Map.empty
+  pure Scope {scopeTerms, scopeTypes, scopeConstructors, scopeRecordFields, scopeMethods, scopeAssociatedTypes, scopeFixities, scopeQualifiedModules = Map.empty}
 
 encodeResolvedMap :: Map.Map Text ResolvedName -> Builder.Builder
 encodeResolvedMap entries = cborArray (Map.size entries) <> foldMap encodeEntry (Map.toAscList entries)
