@@ -603,6 +603,39 @@ instanceMethodDefinition headClass scope name =
         resolved@ResolvedTopLevel {} <- [lookupTerm rendered candidate]
       ]
 
+-- | The scope that resolves the family name of an associated type instance
+-- through the class of the instance head, like an instance method. The
+-- family name can be out of scope when only the class is in scope, for
+-- example through a qualified import.
+associatedTypeInstanceScope :: Maybe (Text, ResolvedName) -> Scope -> Type -> Scope
+associatedTypeInstanceScope headClass scope lhs =
+  case (headClass, typeHeadConstructorName lhs) of
+    (Just (className, resolvedClass), Just familyName)
+      | ResolvedError _ <- lookupType familyName scope,
+        found : _ <- associatedTypes className resolvedClass familyName ->
+          emptyScope {scopeTypes = Map.singleton familyName found}
+    _ -> emptyScope
+  where
+    associatedTypes className resolvedClass familyName =
+      [ resolved
+      | candidate <- scope : Map.elems (scopeQualifiedModules scope),
+        lookupType className candidate == resolvedClass,
+        familyName `elem` Map.findWithDefault [] className (scopeAssociatedTypes candidate),
+        resolved@ResolvedTopLevel {} <- [lookupType familyName candidate]
+      ]
+
+-- | The name of the type constructor at the head of a type application.
+typeHeadConstructorName :: Type -> Maybe Text
+typeHeadConstructorName ty =
+  case ty of
+    TAnn _ inner -> typeHeadConstructorName inner
+    TParen inner -> typeHeadConstructorName inner
+    TKindSig inner _ -> typeHeadConstructorName inner
+    TApp fun _ -> typeHeadConstructorName fun
+    TCon name Unpromoted -> Just (nameText name)
+    TInfix _ name Unpromoted _ -> Just (nameText name)
+    _ -> Nothing
+
 resolveInstanceDeclItem :: Maybe (Text, ResolvedName) -> InstanceDeclItem -> ResolveM InstanceDeclItem
 resolveInstanceDeclItem headClass instanceDeclItem =
   case instanceDeclItem of
@@ -612,7 +645,10 @@ resolveInstanceDeclItem headClass instanceDeclItem =
       InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
     InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
-    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> resolveTypeFamilyInst familyInst
+    InstanceItemTypeFamilyInst familyInst -> do
+      scope <- currentScope
+      let familyScope = associatedTypeInstanceScope headClass scope (typeFamilyInstLhs familyInst)
+      InstanceItemTypeFamilyInst <$> extendScope familyScope (resolveTypeFamilyInst familyInst)
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure instanceDeclItem
