@@ -108,6 +108,7 @@
                   export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
                   export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
                   export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
+                  export AIHC_PREBUILT_STORE=${specSeedStore}
                 '';
             }
         )
@@ -137,6 +138,16 @@
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   exampleToolchainTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend ++ ["wasm32-wasip3"];
+  # Test.Aihc.SeedStore installs aihc-prim for apple-arm64 and llvm always, and
+  # for linux-amd64 and wasm32-wasip3 when the toolchain supports them, which it
+  # does inside the sandbox. aihc-base is only needed for the target build-exe
+  # compiles for, which is the host backend.
+  specSeedPrimTargets =
+    pkgs.lib.unique (["apple-arm64" "llvm" "linux-amd64" "wasm32-wasip3"] ++ [specSeedBaseTarget]);
+  specSeedBaseTarget =
+    if nativeBackend == null
+    then "llvm"
+    else nativeBackend;
   compilationMatrix = builtins.concatLists (
     map (
       backend:
@@ -417,6 +428,46 @@
       test -s "$archive"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
+    '';
+
+  # The store the aihc test suite works against. Installing anything into an
+  # empty store compiles aihc-prim first, and the build-exe tests additionally
+  # need aihc-base; the suite used to pay that per test, which was most of what
+  # it allocated. Building the store here instead hands the tests a warm one
+  # through AIHC_PREBUILT_STORE and keeps the result in the Nix cache across
+  # runs. Outside CI the suite installs the same libraries itself, once, from a
+  # tasty resource. The target list must cover everything Test.Aihc.SeedStore
+  # asks for; a superset is harmless, a missing target only makes the tests
+  # install it again.
+  specSeedStore =
+    pkgs.runCommand "aihc-spec-seed-store" {
+      src = sources.coreLibrariesSrc pkgs;
+      nativeBuildInputs = [
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+        pkgs.llvmPackages.clang-unwrapped
+        pkgs.wasm-tools
+        pkgs.wit-bindgen
+        wasmLd
+      ];
+    } ''
+      cd "$src"
+      export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      mkdir -p "$out/prim"
+
+      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --target ${target}
+        '')
+        specSeedPrimTargets}
+
+      # The install tests want aihc-prim on its own and build-exe wants
+      # aihc-base as well. Keeping them apart matches what the suite builds for
+      # itself outside CI, so a test sees the same store either way.
+      cp -R --no-preserve=mode "$out/prim" "$out/core"
+      ${aihcExe} install core-libs/aihc-base --store "$out/core" --target ${specSeedBaseTarget}
     '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives
