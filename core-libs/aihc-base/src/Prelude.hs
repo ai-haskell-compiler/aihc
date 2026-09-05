@@ -45,7 +45,7 @@ module Prelude
     (*>),
     (.),
     (++),
-    foldr,
+    Foldable (elem, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
     map,
     mapM,
     sequence,
@@ -54,8 +54,6 @@ module Prelude
     and,
     all,
     any,
-    null,
-    elem,
     concat,
     concatMap,
     filter,
@@ -63,9 +61,7 @@ module Prelude
     tail,
     last,
     init,
-    length,
     reverse,
-    foldl,
     lookup,
     zipWith,
     unzip,
@@ -140,8 +136,6 @@ module Prelude
     until,
     asTypeOf,
     subtract,
-    foldr1,
-    foldl1,
     splitAt,
     lines,
     unlines,
@@ -154,10 +148,6 @@ module Prelude
     scanl1,
     scanr,
     scanr1,
-    sum,
-    product,
-    maximum,
-    minimum,
     notElem,
     or,
     (!!),
@@ -171,7 +161,7 @@ import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..))
 import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, foldr, id, ($), (++), (.))
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, ($), (++), (.))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
@@ -183,6 +173,7 @@ import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
+import GHC.Internal.Foldable (Foldable (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
@@ -234,14 +225,6 @@ map :: (a -> b) -> [a] -> [b]
 map _ [] = []
 map function (value : values) = function value : map function values
 
-null :: [a] -> Bool
-null [] = True
-null (_ : _) = False
-
-elem :: (Eq a) => a -> [a] -> Bool
-elem _ [] = False
-elem expected (value : values) = expected == value || elem expected values
-
 concat :: [[a]] -> [a]
 concat = foldr (++) []
 
@@ -276,19 +259,11 @@ init [] = error "Prelude.init: empty list"
 init [_] = []
 init (value : values) = value : init values
 
-length :: [a] -> Int
-length [] = 0
-length (_ : values) = 1 + length values
-
 reverse :: [a] -> [a]
 reverse = reverseOnto []
 
 reverseOnto :: [a] -> [a] -> [a]
 reverseOnto = foldl (flip (:))
-
-foldl :: (b -> a -> b) -> b -> [a] -> b
-foldl _ initial [] = initial
-foldl function initial (value : values) = foldl function (function initial value) values
 
 lookup :: (Eq a) => a -> [(a, b)] -> Maybe b
 lookup _ [] = Nothing
@@ -982,15 +957,6 @@ asTypeOf = const
 subtract :: (Num a) => a -> a -> a
 subtract left right = right - left
 
-foldr1 :: (a -> a -> a) -> [a] -> a
-foldr1 _ [] = errorWithoutStackTrace "Prelude.foldr1: empty list"
-foldr1 _ [value] = value
-foldr1 combine (value : values) = combine value (foldr1 combine values)
-
-foldl1 :: (a -> a -> a) -> [a] -> a
-foldl1 _ [] = errorWithoutStackTrace "Prelude.foldl1: empty list"
-foldl1 combine (value : values) = foldl combine value values
-
 splitAt :: Int -> [a] -> ([a], [a])
 splitAt count values = (take count values, drop count values)
 
@@ -1074,20 +1040,6 @@ scanr1 combine (value : values) =
   case scanr1 combine values of
     results@(result : _) -> combine value result : results
     [] -> [value]
-
-sum :: (Num a) => [a] -> a
-sum = foldl (+) 0
-
-product :: (Num a) => [a] -> a
-product = foldl (*) 1
-
-maximum :: (Ord a) => [a] -> a
-maximum [] = errorWithoutStackTrace "Prelude.maximum: empty list"
-maximum (value : values) = foldl max value values
-
-minimum :: (Ord a) => [a] -> a
-minimum [] = errorWithoutStackTrace "Prelude.minimum: empty list"
-minimum (value : values) = foldl min value values
 
 notElem :: (Eq a) => a -> [a] -> Bool
 notElem value values = not (value `elem` values)
