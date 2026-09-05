@@ -161,6 +161,11 @@ data DataField
     DataSymbol !Symbol !Integer
   | -- | @ptr null@: one word of zero bytes.
     DataNull
+  | -- | @word n@: an integer stored little-endian in the target word width.
+    -- Info-table counts and kinds use it, so one hand-written module suits
+    -- both a 64-bit and a 32-bit target. The value fits 32 bits, so no
+    -- target truncates it.
+    DataWord !Integer
   | -- | @code \@symbol@ or @code null@: the address of a function, or one
     -- word of zero bytes.
     DataCode !(Maybe Symbol)

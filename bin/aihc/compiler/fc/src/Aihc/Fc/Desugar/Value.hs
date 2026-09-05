@@ -1297,7 +1297,8 @@ desugarOverloadedIntegerMatch resultType arguments argumentTypes (match, locals)
           resultType' <- convertCheckedType resultType
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
-          success <- compile current rest
+          extra <- patternMatchBindings pattern' argument ty
+          success <- compile (current <> extra) rest
           pure
             ( ExCase
                 test
@@ -1941,6 +1942,8 @@ desugarExpr expression =
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
     Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
+    Syn.ELambdaCase alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCases alternatives -> desugarLambdaCaseMatches (map lambdaCaseAltMatch alternatives)
     Syn.EIf condition thenExpression elseExpression -> do
       resultType <- requiredExprType thenExpression
       desugarIf resultType condition thenExpression elseExpression
@@ -2013,6 +2016,8 @@ desugarAnnotatedExpr annotation inner = do
             [evidence] -> desugarEvidence evidence
             _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
         Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
+        Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
+        Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
         _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
@@ -2365,6 +2370,25 @@ convertTyConApplicationArguments tyCon arguments = do
   invisibleArguments <- liftEither (invisibleKindArgs env tyCon arguments Nothing)
   visibleArguments <- mapM convertCheckedType arguments
   pure (invisibleArguments <> visibleArguments)
+
+-- | Desugar a lambda-case into ordinary function equations.
+desugarLambdaCaseMatches :: [Syn.Match] -> ValueM Expr
+desugarLambdaCaseMatches matches =
+  case matches of
+    [] -> failValue "lambda-case has no alternative"
+    first : _ -> do
+      types <- mapM requiredPatternType (Syn.matchPats first)
+      resultType <- requiredRhsType (Syn.matchRhs first)
+      desugarMatches (foldr TcFunTy resultType types) matches
+
+requiredRhsType :: Syn.Rhs Syn.Expr -> ValueM TcType
+requiredRhsType rhs =
+  case rhs of
+    Syn.UnguardedRhs _ expression _ -> requiredExprType expression
+    Syn.GuardedRhss _ alternatives _ ->
+      case alternatives of
+        alternative : _ -> requiredExprType (Syn.guardedRhsBody alternative)
+        [] -> failValue "lambda-case has no guarded right-hand side"
 
 -- | Desugar a lambda. Variable, wildcard, and as-patterns bind their
 -- argument directly. Any other pattern turns the lambda into a single
@@ -2909,6 +2933,13 @@ caseAlternativeMatch alternative =
         { Syn.matchAnns = annotations,
           Syn.matchPats = [pattern']
         }
+
+lambdaCaseAltMatch :: Syn.LambdaCaseAlt -> Syn.Match
+lambdaCaseAltMatch alternative =
+  (emptyMatch (Syn.lambdaCaseAltRhs alternative))
+    { Syn.matchAnns = Syn.lambdaCaseAltAnns alternative,
+      Syn.matchPats = Syn.lambdaCaseAltPats alternative
+    }
 
 desugarLocalDecls :: [Syn.Decl] -> ValueM TcType -> ValueM Expr -> ValueM Expr
 desugarLocalDecls declarations bodyType body = do

@@ -6,13 +6,13 @@ data @bitmap align 1 = { bytes "\x01\x00" }
 data @info align 8 = {
   ptr null,
   code @entry,
-  i64 2,
-  i64 0,
+  word 2,
+  word 0,
   ptr @bitmap,
   ptr null,
   code null,
-  i64 0,
-  i64 3,
+  word 0,
+  word 3,
   ptr null
 }
 data mut @result align 8 = { i64 0 }

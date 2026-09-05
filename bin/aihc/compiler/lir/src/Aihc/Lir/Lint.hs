@@ -97,6 +97,10 @@ lintData symbols dataItem =
           | otherwise -> ["data field type " <> renderType ty <> " is not a float type"]
         DataSymbol symbol _ -> dataSymbolErrors symbols symbol
         DataNull -> []
+        DataWord value ->
+          [ "data field word " <> tshow value <> " does not fit a 32-bit word"
+          | not (literalFits I32 value)
+          ]
         DataCode Nothing -> []
         DataCode (Just symbol) -> functionSymbolErrors symbols symbol
         DataBytes _ -> []

@@ -1,27 +1,18 @@
 extensions:
-  - EmptyDataDecls
   - MagicHash
   - UnboxedTuples
 modules:
   - |
     module Test where
-    data State# s
-    data RealWorld
+    import GHC.Prim (State#, RealWorld, catch#, raise#, realWorld#)
 
-    foreign import prim raise# :: a -> b
-    foreign import prim catch# ::
-      (State# RealWorld -> (# State# RealWorld, a #)) ->
-      (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
-      State# RealWorld ->
-      (# State# RealWorld, a #)
-    foreign import prim realWorld# :: State# RealWorld
+    successful :: State# RealWorld -> (# State# RealWorld, Int #)
+    successful s = (# s, 42 #)
 
-    successful :: State# RealWorld -> (# State# RealWorld, Int# #)
-    successful s = (# s, 42# #)
-    failingHandler :: Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
-    failingHandler = raise# 99#
+    failingHandler :: Bool -> State# RealWorld -> (# State# RealWorld, Int #)
+    failingHandler = raise# True
 output: |
-  42
+  I# 42
 expression: |
   case catch# successful failingHandler realWorld# of
     (# _, x #) -> x

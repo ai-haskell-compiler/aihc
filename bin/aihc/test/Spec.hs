@@ -1,5 +1,7 @@
 module Main (main) where
 
+import Aihc.Testing.RuntimeArchive (releaseCachedRuntimeArchives)
+import Control.Exception (finally)
 import System.Directory (doesFileExist, getCurrentDirectory)
 import System.Environment (lookupEnv, setEnv)
 import System.FilePath (takeDirectory, (</>))
@@ -24,6 +26,8 @@ main = do
   arm64 <- Arm64.tests
   llvm <- Llvm.tests
   wasm <- Wasm.tests
+  -- The runtime archives that links share outlive every individual test, so
+  -- they are removed once the whole suite is done.
   defaultMain
     ( testGroup
         "aihc"
@@ -38,6 +42,7 @@ main = do
           testGroup "wasm-spec" [wasm]
         ]
     )
+    `finally` releaseCachedRuntimeArchives
 
 configureTestRoot :: IO ()
 configureTestRoot = do

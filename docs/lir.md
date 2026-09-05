@@ -8,8 +8,9 @@ Haskell -> System FC -> GRIN -> CPS-GRIN -> GC-GRIN -> Lir -> AMD64 / ARM64 / We
 ```
 
 Lir has one purpose. It gives every backend the same simple input. The runtime
-system will also move to Lir. After that move, the optimizer sees one program
-without a boundary between user code and runtime code.
+system is moving to Lir a unit at a time; the section "Runtime units" lists the
+units that have moved. After the move, the optimizer sees one program without a
+boundary between user code and runtime code.
 
 This document is the specification. The implementation lives in
 `bin/aihc/compiler/lir`. The specification and the implementation change
@@ -150,6 +151,7 @@ are pinned globals.
 data ::= "export"? "data" "mut"? symbol "align" integer "=" "{" field ("," field)* "}"
 field ::= int-type integer
         | float-type float
+        | "word" integer
         | "ptr" symbol (("+" | "-") integer)?
         | "ptr" "null"
         | "code" symbol
@@ -165,7 +167,10 @@ Integers and floats are little-endian. A `ptr` field stores the address of a
 data object plus an addend. The addend gives tagged headers a direct encoding.
 A `code` field stores the address of a function. The fields `ptr null` and
 `code null` store a word of zero bytes; unlike `zero`, their size follows the
-target word size. A `bytes` field stores the UTF-8 encoding of the string. A
+target word size. A `word` field stores an integer in the target word size, so
+one hand-written module describes a word-shaped record on a 64-bit and on a
+32-bit target alike. Its value fits 32 bits, signed or unsigned, so no target
+truncates it. A `bytes` field stores the UTF-8 encoding of the string. A
 `zero` field stores the given number of zero bytes.
 
 A data object without `mut` is read-only. A store to a read-only data object
@@ -180,9 +185,11 @@ it as bytes. No backend computes an info table of its own.
 
 Every field of an info table is one word wide. A pointer field is `ptr`, a
 code field is `code`, and a count or a kind is an integer of the word width:
-`i64` on a 64-bit target and `i32` on a 32-bit target. Field `k` starts at
-offset `k` words, and the table is aligned to the word size. A field without a
-value is `ptr null`, `code null`, or `0`. The fields are, in order:
+`i64` on a 64-bit target and `i32` on a 32-bit target. The lowering knows its
+target and emits that type; a hand-written module writes `word` instead and
+suits every target. Field `k` starts at offset `k` words, and the table is
+aligned to the word size. A field without a value is `ptr null`, `code null`,
+or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -469,6 +476,32 @@ static reference tables, and the address literals as data objects. Static
 objects are exported and mutable. Info tables are read-only. The collector
 finds static objects by address, so a Lir module needs no root section and
 both collectors work with this pipeline.
+
+## Runtime units
+
+A runtime unit is a `.lir` file in `bin/aihc/compiler/native/runtime` that
+`aihc prepare-runtime` parses, lints, and compiles with the backend of the
+target. Its object joins the C objects in the runtime archive, so a runtime
+function written in Lir and one written in C call each other through the same
+`c` convention and the same symbol names.
+
+The archive is what a program links. `Aihc.Cli.Runtime.buildRuntimeArchive`
+builds one, and a test harness that needs its own runtime — an instrumented
+one, or one with a smaller semispace — calls it with the extra C arguments
+instead of naming the runtime sources. Moving a unit from C to Lir then
+changes no test. A link places the archive after the objects that reference
+it.
+
+`bin/aihc/compiler/native/runtime/aihc_array.lir` is the first unit. It holds
+the info table of a boxed array and the functions `aihc_array_new`,
+`aihc_array_index`, `aihc_array_write`, and `aihc_array_same`. The collector
+keeps `aihc_array_length` and `aihc_array_elements` in C, and the unit calls
+`aihc_array_length` for the object-kind check.
+
+A unit is one file for every target, so it states no word size of its own. A
+heap slot is eight bytes everywhere, so a header pointer travels through
+`ptr.to_int` and `ptr.from_int` and a payload offset is a constant. A
+word-shaped record uses `word` fields, which follow the target word size.
 
 ## Backends
 

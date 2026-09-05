@@ -3,7 +3,9 @@ module Test.Native.Runtime
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), RuntimePlan (..), runtimePlan)
+import Aihc.Cli.Runtime (RuntimeBuild (..))
+import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), backendCompiler)
+import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -36,14 +38,21 @@ runtimeProgramTest :: String -> RuntimeGarbageCollector -> [String] -> String ->
 runtimeProgramTest name collector programArguments source =
   testCase name $
     withSystemTempDirectory "aihc-runtime" $ \directory -> do
-      plan <- runtimePlan Llvm collector
+      -- The tiny semispace forces a collection in every one of these
+      -- programs, so the runtime archive is built for this test rather than
+      -- taken from the store. Every test here shares that one archive.
+      build <- cachedRuntimeArchive Llvm collector ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_SEMISPACE_BYTES=64"]
       let executable = directory </> "program"
           arguments =
-            ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_SEMISPACE_BYTES=64"]
-              <> concatMap (\include -> ["-I", include]) (runtimeIncludeDirectories plan)
-              <> runtimeSources plan
-              <> ["-x", "c", "-", "-o", executable]
-      (compilerExit, _compilerOut, compilerErr) <- readProcessWithExitCode "cc" arguments source
+            ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+              <> concatMap (\include -> ["-I", include]) (runtimeBuildIncludeDirectories build)
+              -- "-x c" reads the program from stdin; "-x none" ends it so the
+              -- archive is a linker input rather than another C source.
+              <> ["-x", "c", "-", "-x", "none", runtimeBuildArchive build, "-o", executable]
+      -- Link with the driver that built the archive, so a host whose "cc" is
+      -- not Clang cannot mix two toolchains in one program.
+      (compiler, _targetArguments) <- backendCompiler Llvm
+      (compilerExit, _compilerOut, compilerErr) <- readProcessWithExitCode compiler arguments source
       assertEqual ("C compiler diagnostics:\n" <> compilerErr) ExitSuccess compilerExit
       (programExit, _programOut, programErr) <- readProcessWithExitCode executable programArguments ""
       assertEqual ("runtime diagnostics:\n" <> programErr) ExitSuccess programExit

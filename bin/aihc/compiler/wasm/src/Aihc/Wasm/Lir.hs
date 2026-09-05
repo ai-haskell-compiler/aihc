@@ -191,6 +191,7 @@ renderData ctx dataItem =
         DataSymbol target 0 -> (["\t.int32\t" <> symbolText ctx target], 4)
         DataSymbol target addend -> (["\t.int32\t" <> symbolText ctx target <> (if addend < 0 then "-" <> tshow (negate addend) else "+" <> tshow addend)], 4)
         DataNull -> (["\t.int32\t0"], 4)
+        DataWord value -> (["\t.int32\t" <> renderInteger 4 value], 4)
         DataCode Nothing -> (["\t.int32\t0"], 4)
         DataCode (Just target) -> (["\t.int32\t" <> symbolText ctx target], 4)
         DataBytes bytes -> (["\t.ascii\t\"" <> escapeBytes bytes <> "\"" | not (BS.null bytes)], BS.length bytes)
