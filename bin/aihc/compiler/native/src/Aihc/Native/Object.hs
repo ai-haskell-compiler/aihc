@@ -105,10 +105,12 @@ data Symbol = Symbol
   }
   deriving (Eq, Show)
 
+-- | A place whose bytes the linker fills in. The symbol is a position in
+-- 'imageSymbols', so an object writer never looks a name up again.
 data Relocation = Relocation
   { relocationOffset :: !Word64,
     relocationKind :: !FixupKind,
-    relocationTarget :: !Text,
+    relocationSymbol :: !Int,
     relocationAddend :: !Int64
   }
   deriving (Eq, Show)
@@ -121,6 +123,8 @@ data ImageSection = ImageSection
   }
   deriving (Eq, Show)
 
+-- | The symbols are in ascending name order, and every 'relocationSymbol' is
+-- a position in that list.
 data Image = Image
   { imageSections :: ![ImageSection],
     imageSymbols :: ![Symbol]
@@ -224,7 +228,10 @@ layoutDraft draft = do
       names = Set.toAscList (Map.keysSet definitions <> referenced <> draftGlobals draft)
       symbols = map (makeSymbol definitions) names
       globals = draftGlobals draft
-  sections <- mapM (resolveSection globals definitions) firstPass
+      -- One table answers both questions a fixup asks: which symbol it names
+      -- and where that symbol sits, if this object defines it.
+      table = Map.fromDistinctAscList [(name, (index, Map.lookup name definitions)) | (index, name) <- zip [0 ..] names]
+  sections <- mapM (resolveSection globals table) firstPass
   pure Image {imageSections = sections, imageSymbols = symbols}
   where
     layoutSection role =
@@ -261,8 +268,8 @@ collectDefinitions = foldl' addSection (Right Map.empty)
         then Left (ObjectDuplicateSymbol name)
         else pure (Map.insert name (role, offset) definitions)
 
-resolveSection :: Set Text -> Map Text (SectionRole, Word64) -> LaidSection -> Either ObjectError ImageSection
-resolveSection globals definitions section = do
+resolveSection :: Set Text -> Map Text (Int, Maybe (SectionRole, Word64)) -> LaidSection -> Either ObjectError ImageSection
+resolveSection globals table section = do
   (patches, relocations) <- foldl' resolve (Right ([], [])) (laidFixups section)
   bytes <- applyPatches (laidBytes section) (reverse patches)
   pure
@@ -275,18 +282,21 @@ resolveSection globals definitions section = do
   where
     resolve result (offset, fixup) = do
       (patches, relocations) <- result
-      case Map.lookup (fixupTarget fixup) definitions of
-        Just (targetRole, targetOffset)
-          | canResolve (fixupKind fixup)
-              && targetRole == laidRole section
-              && fixupTarget fixup `Set.notMember` globals -> do
-              patched <- patchLocal offset targetOffset fixup
-              pure ((offset, patched) : patches, relocations)
-        _ ->
-          pure
-            ( patches,
-              Relocation offset (fixupKind fixup) (fixupTarget fixup) (fixupAddend fixup) : relocations
-            )
+      case Map.lookup (fixupTarget fixup) table of
+        Nothing -> Left (ObjectMissingSymbol (fixupTarget fixup))
+        Just (index, definition) ->
+          case definition of
+            Just (targetRole, targetOffset)
+              | canResolve (fixupKind fixup)
+                  && targetRole == laidRole section
+                  && fixupTarget fixup `Set.notMember` globals -> do
+                  patched <- patchLocal offset targetOffset fixup
+                  pure ((offset, patched) : patches, relocations)
+            _ ->
+              pure
+                ( patches,
+                  Relocation offset (fixupKind fixup) index (fixupAddend fixup) : relocations
+                )
 
 canResolve :: FixupKind -> Bool
 canResolve kind =
