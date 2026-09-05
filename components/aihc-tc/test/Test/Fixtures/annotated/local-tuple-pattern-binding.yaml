@@ -1,0 +1,80 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Box a = Box { unBox :: a }
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  class Ranged a where
+  └─ class methods: range ∷ ∀ a. (Ranged a) ⇒ a → (Nat, Nat)
+    range :: a -> (Nat, Nat)
+  useRange :: Ranged a => a -> Nat
+  useRange f =
+  │        └─ type: a
+  └─ type: ∀ a. (Ranged a) ⇒ a → Nat
+    let (lo, hi) = range f
+        │││   │     └─ type: a → (Nat, Nat); type-args: a; evidence: given Ranged a
+        │││   └─ type: Nat
+        │└─ type: Nat
+        └─ type: Nat
+        └─ type: (Nat, Nat)
+        lo' = S lo
+        └─ type: Nat
+        hi' = S hi
+        └─ type: Nat
+     in lo' `also` hi'
+             └─ type: Nat → Nat → Nat; type-args: Nat, Nat
+  fromList :: [Nat] -> Nat
+  fromList xs = a `also` b
+  │        │       └─ type: Nat → Nat → Nat; type-args: Nat, Nat
+  │        └─ type: [Nat]
+  └─ type: [Nat] → Nat
+    where
+      [a, b] = xs
+      │││  └─ type: Nat
+      │└─ type: Nat
+      └─ type: Nat
+      └─ type: [Nat]
+  fromBox :: Box Nat -> Nat
+  fromBox box = inner
+  │       └─ type: Box Nat
+  └─ type: Box Nat → Nat
+    where
+      Box { unBox = inner } = box
+      └─ type: Nat  └─ type: Nat
+      └─ type: Box Nat
+  also :: a -> b -> b
+  also _ b = b
+  │    │ └─ type: b
+  │    └─ type: a
+  └─ type: ∀ a b. a → b → b
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data Box a = Box { unBox :: a }
+  class Ranged a where
+    range :: a -> (Nat, Nat)
+  useRange :: Ranged a => a -> Nat
+  useRange f =
+    let (lo, hi) = range f
+        lo' = S lo
+        hi' = S hi
+     in lo' `also` hi'
+  fromList :: [Nat] -> Nat
+  fromList xs = a `also` b
+    where
+      [a, b] = xs
+  fromBox :: Box Nat -> Nat
+  fromBox box = inner
+    where
+      Box { unBox = inner } = box
+  also :: a -> b -> b
+  also _ b = b
+reason: a tuple, list, or record pattern in a local binding brings its variables
+  into scope like a constructor pattern
+status: pass
