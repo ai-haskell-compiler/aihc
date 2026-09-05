@@ -274,6 +274,7 @@ test-suite spec
     Aihc.Testing.SchedulerProgram
     FcGolden
     GrinGolden
+    Test.Aihc.SeedStore
     Test.Aihc.Spec
     Test.Amd64.Spec
     Test.Arm64.Spec
