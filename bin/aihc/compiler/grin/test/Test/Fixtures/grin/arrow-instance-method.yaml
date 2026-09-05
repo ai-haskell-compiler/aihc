@@ -1,0 +1,69 @@
+expected: |-
+  scope 1 = "" Test
+
+  constructor 1.Z []
+
+  constructor 1.S [BoxedRep Lifted]
+
+  constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  constructor 1.$Dict$Arrow [BoxedRep Lifted]
+
+  global 1.Z = (C1.Z)
+
+  global 1.S = (C1.S/1)
+
+  global 1.Pair = (C1.Pair/2)
+
+  global 1.$Dict$Arrow = (C1.$Dict$Arrow/1)
+
+  global 1.second = (P$second/1)
+
+  global 1."$fArrow(->)" = (F"$$fArrow(->)_thunk")
+
+  global 1.apply = (P$apply/1)
+
+  $second ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data 1.$Dict$Arrow ($method0 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+
+  "$$fArrow(->)_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  "$$fArrow(->)_closure" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as _scrut :: BoxedRep Lifted of
+      data 1.Pair (d :: BoxedRep Lifted) (b :: BoxedRep Lifted) ->
+        argument :: BoxedRep Lifted <-
+          store (F"$$fArrow(->)_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted))
+        store (C1.Pair (d :: BoxedRep Lifted) (argument :: BoxedRep Lifted))
+
+  "$$fArrow(->)_thunk" -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (P"$$fArrow(->)_closure"/2)
+    store (C1.$Dict$Arrow (argument :: BoxedRep Lifted))
+
+  $apply (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_application :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $second global-ref 1."$fArrow(->)"
+    apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+extensions: []
+reason: a method of an instance for the function arrow has the function type,
+  so the System FC lint accepts its application to a function
+source: |
+  module Test where
+  data Nat = Z | S Nat
+  data Pair a b = Pair a b
+  class Arrow a where
+    second :: a b c -> a (Pair d b) (Pair d c)
+  instance Arrow (->) where
+    second f (Pair d b) = Pair d (f b)
+  apply :: (Nat -> Nat) -> Pair Nat Nat -> Pair Nat Nat
+  apply f = second f
+status: pass
