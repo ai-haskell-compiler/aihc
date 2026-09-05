@@ -1,0 +1,25 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (Int#, RealWorld, State#, runRW#)
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+    data Box = Box Int#
+
+    action :: State# RealWorld -> (# State# RealWorld, Int# #)
+    action s = (# s, 40# #)
+
+    boxed = case runRW# action of
+      (# _, x #) -> Box ((+#) x 2#)
+output: |
+  42
+expression: |
+  case boxed of
+    Box x -> x
+status: pass
+reason: runRW# applies a state transformer to the real world token and gives
+  its unboxed tuple result

@@ -904,6 +904,8 @@ evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
 evalPrimitive "catch#" [action, handler] =
   applyValue action [] `catchE` handleRaised handler []
+evalPrimitive "runRW#" [action] =
+  applyValue action []
 evalPrimitive "newMutVar#" [initialValue] = do
   mutVar <- GrinMutVar <$> liftEvalIO (newIORef initialValue)
   pure [RuntimeMutVar mutVar]

@@ -253,7 +253,7 @@ foreignConstructorNames declaration =
   [name | Fc.ForeignConstructor name <- Fc.foreignImportDependencies declaration]
 
 compilerPrimitives :: [Text]
-compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#"]
+compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#"]
 
 lowerPrimitiveBody :: GrinRep -> Text -> [[GrinValue]] -> LowerM GrinExpr
 lowerPrimitiveBody resultRep name valueGroups =
@@ -263,7 +263,20 @@ lowerPrimitiveBody resultRep name valueGroups =
     ("raise#", (exception : _) : _) -> pure (GrinThrow exception)
     ("catch#", (action : _) : (handler : _) : state) ->
       lowerCatch resultRep action handler (concat state)
+    ("runRW#", (action : _) : _) -> lowerRunRW resultRep action
     _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
+
+-- | Apply a state transformer to the real world token. The token has no
+-- runtime value, so the transformer gets no argument.
+lowerRunRW :: GrinRep -> GrinValue -> LowerM GrinExpr
+lowerRunRW resultRep action = do
+  evaluatedAction <- freshVar "run_rw_action" liftedGrinRep
+  pure
+    ( GrinBind
+        [evaluatedAction]
+        (GrinEval liftedGrinRep action)
+        (GrinApply resultRep (GrinVarValue evaluatedAction) [])
+    )
 
 -- | Lower a foreign call body. The result also lists the primitives that
 -- the argument adapters use, so the module declares them.
@@ -588,7 +601,7 @@ lowerArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments continuation)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3)]
+specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("runRW#", 1)]
 
 lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
@@ -604,6 +617,8 @@ lowerSpecialApplication env resultRep name arguments =
       lowerLazy env "action" action $ \actionValue ->
         lowerLazy env "handler" handler $ \handlerValue ->
           lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
+    ("runRW#", action : _) ->
+      lowerLazy env "action" action (lowerRunRW resultRep)
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
 
 lowerCatch :: GrinRep -> GrinValue -> GrinValue -> [GrinValue] -> LowerM GrinExpr
