@@ -730,8 +730,10 @@ parseSource root fileInfo = do
   ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root fileInfo
   -- The type checker reads the language pragmas of the module. Give it the
   -- effective extensions, which include the cabal default extensions and
-  -- the language edition.
-  let modu' = modu {Syntax.moduleLanguagePragmas = map Syntax.EnableExtension extensions <> Syntax.moduleLanguagePragmas modu}
+  -- the language edition. The type checker turns MonoLocalBinds on by
+  -- default, so turn it off when the effective extensions do not have it.
+  let monoLocalBinds = [Syntax.DisableExtension Syntax.MonoLocalBinds | Syntax.MonoLocalBinds `notElem` extensions]
+      modu' = modu {Syntax.moduleLanguagePragmas = monoLocalBinds <> map Syntax.EnableExtension extensions <> Syntax.moduleLanguagePragmas modu}
   pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu' extensions sourceLines parseDiagnostics)
 
 loadSourceModules :: Int -> FilePath -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
