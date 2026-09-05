@@ -1935,9 +1935,14 @@ desugarExpr expression =
       | otherwise -> desugarExpr inner
     Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
-    Syn.EInfix left operator right -> do
-      operator' <- desugarInfixOperator operator
-      (ExApp . ExApp operator' <$> desugarExpr left) <*> desugarExpr right
+    Syn.EInfix left operator right
+      | isApplicationOperator operator ->
+          -- The type checker gives f $ x the type of the application f x,
+          -- so the operator node has no type arguments.
+          ExApp <$> desugarExpr left <*> desugarExpr right
+      | otherwise -> do
+          operator' <- desugarInfixOperator operator
+          (ExApp . ExApp operator' <$> desugarExpr left) <*> desugarExpr right
     Syn.EParen inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
@@ -3428,6 +3433,15 @@ requiredBinderKey :: Syn.UnqualifiedName -> ValueM TcTermKey
 requiredBinderKey name =
   maybe (failValue ("missing resolved binder " <> T.unpack (Syn.unqualifiedNameText name))) pure (binderTermKey name)
 
+-- | Whether an operator is the application operator of GHC.Base, which the
+-- type checker checks like an application.
+isApplicationOperator :: Syn.Name -> Bool
+isApplicationOperator operator =
+  Syn.nameText operator == "$"
+    && case nameTermKey operator of
+      Just (TcTermGlobal _ moduleName' "$") -> moduleName' == "GHC.Base"
+      _ -> False
+
 requiredNameTermKey :: Syn.Name -> ValueM TcTermKey
 requiredNameTermKey sourceName =
   maybe (failValue ("missing resolved term " <> T.unpack (Syn.nameText sourceName))) pure (nameTermKey sourceName)
@@ -3501,6 +3515,12 @@ inferExprType expression =
       case applicationResultType functionType of
         Just result -> pure result
         Nothing -> failValue ("application head is not a checked function: " <> show functionType)
+    Syn.EInfix left operator _
+      | isApplicationOperator operator -> do
+          functionType <- inferExprType left
+          case applicationResultType functionType of
+            Just result -> pure result
+            Nothing -> failValue ("application operator head is not a checked function: " <> show functionType)
     Syn.EInfix _ operator _ -> do
       operatorType <-
         maybe
@@ -3520,6 +3540,8 @@ exprType expression =
   case expression of
     Syn.EAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> exprType inner
     Syn.EApp function _ -> exprType function >>= applicationResultType
+    Syn.EInfix function operator _
+      | isApplicationOperator operator -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner

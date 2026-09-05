@@ -1,0 +1,21 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    newtype Box s = Box Nat
+
+    create :: Nat -> (forall s. Box s -> Nat) -> Nat
+    create n fill = fill (Box n)
+
+    viaOperator :: Nat
+    viaOperator = S $ create Z $ \(Box n) -> S n
+output: |
+  S (S Z)
+expression: |
+  viaOperator
+status: pass
+reason: the application operator of GHC.Base types and desugars like an application

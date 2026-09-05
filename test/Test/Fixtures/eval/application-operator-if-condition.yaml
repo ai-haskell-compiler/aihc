@@ -1,0 +1,23 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    assert :: Bool -> a -> a
+    assert _ x = x
+
+    isZ :: Nat -> Bool
+    isZ Z = True
+    isZ _ = False
+
+    pick :: Nat -> Nat -> Nat
+    pick a b = if assert True $ isZ a then b else a
+output: |
+  S Z
+expression: |
+  pick Z (S Z)
+status: pass
+reason: the condition of an if expression can be an application with the
+  application operator whose head has a polymorphic result type
