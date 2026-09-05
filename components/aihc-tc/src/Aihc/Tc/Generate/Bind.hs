@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
     GuardQualifier (..),
     GuardedRhs (..),
     Match (..),
+    Name (..),
     NameType (..),
     PatSynDecl (..),
     PatSynDir (..),
@@ -43,6 +44,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve.Generic (everything, everywhereM)
 import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
@@ -57,12 +59,15 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (foldM, forM_)
+import Data.Data (Data)
+import Data.Graph qualified as Graph
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Typeable (cast)
 
 type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
 
@@ -71,6 +76,130 @@ inferLocalDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], 
 inferLocalDecls inferExpr decls body
   | not (null decls) && all isImplicitParamDecl decls = inferImplicitParamDecls inferExpr decls body
 inferLocalDecls inferExpr decls body = do
+  components <- localDeclComponents decls
+  case components of
+    [_] -> inferLocalDeclGroup inferExpr decls body
+    _ -> do
+      (annotated, result, ty, cts) <- inferComponents components
+      pure (Map.elems (Map.fromList annotated), result, ty, cts)
+  where
+    -- A component sees the generalized binders of the components it
+    -- depends on, like a nested let.
+    inferComponents [] = do
+      (result, ty, cts) <- body
+      pure ([], result, ty, cts)
+    inferComponents ((indices, componentDecls) : rest) = do
+      (componentDecls', (restAnnotated, result), ty, cts) <-
+        inferLocalDeclGroup inferExpr componentDecls $ do
+          (restAnnotated, result, restTy, restCts) <- inferComponents rest
+          pure ((restAnnotated, result), restTy, restCts)
+      pure (zip indices componentDecls' <> restAnnotated, result, ty, cts)
+
+-- | Split the declarations of a local group into its strongly connected
+-- components, in dependency order. A binding is generalized before the
+-- bindings that use it, so a use gets a fresh instance. The equations of
+-- one binder stay together. A signature joins the component of each binder
+-- it names, so the result lists it more than once.
+localDeclComponents :: [Decl] -> TcM [([Int], [Decl])]
+localDeclComponents decls = do
+  let indexed = zip [0 :: Int ..] decls
+  infos <- mapM (\(index, decl) -> (index,decl,,) <$> declaredBinderKeys decl <*> declTermReferences decl) indexed
+  let owners = Map.fromListWith min [(key, index) | (index, _, keys, _) <- infos, key <- keys]
+      nodeOf (index, _, keys, _) = maybe index (\key -> Map.findWithDefault index key owners) (listToMaybe keys)
+      valueNodes = Map.fromListWith (flip (<>)) [(nodeOf info, [index]) | info@(index, _, keys, _) <- infos, not (null keys)]
+      nodeDeps = Map.fromListWith (<>) [(nodeOf info, mapMaybe (`Map.lookup` owners) (Set.toList deps)) | info@(_, _, keys, deps) <- infos, not (null keys)]
+  signatureNodes <- concat <$> mapM signatureOwners infos
+  let attached = Map.fromListWith (<>) [(node, [index]) | (index, key) <- signatureNodes, Just node <- [Map.lookup key owners]]
+      graph = [(node, node, Set.toList (Set.fromList (Map.findWithDefault [] node nodeDeps))) | node <- Map.keys valueNodes]
+      componentIndices component =
+        let nodes = Graph.flattenSCC component
+            indices = Set.toList (Set.fromList (concat [Map.findWithDefault [] node valueNodes <> Map.findWithDefault [] node attached | node <- nodes]))
+         in (indices, map (decls !!) indices)
+      attachedIndices = Set.fromList (concat (Map.elems attached))
+      -- A declaration without binders that no component holds, such as a
+      -- signature for a binder outside the group, goes last.
+      loose = [index | (index, _, keys, _) <- infos, null keys, not (Set.member index attachedIndices)]
+      components = map componentIndices (Graph.stronglyConnComp graph)
+  pure (if null loose then components else components <> [(loose, map (decls !!) loose)])
+  where
+    signatureOwners (index, decl, _, _) =
+      case peelDeclAnn decl of
+        DeclTypeSig names _ -> do
+          keys <- mapM resolvedUnqualifiedTermKey names
+          pure [(index, key) | key <- keys]
+        _ -> pure []
+
+-- | Annotate each occurrence of a generalized binder inside its own group
+-- with the type arguments and the given evidence of its scheme. Inside the
+-- group the binder was a monomorphic placeholder, so the occurrence has no
+-- instantiation. The desugarer then applies the quantified variables and
+-- the dictionary parameters, like a top-level recursive function does.
+annotateRecursiveOccurrences :: [(UnqualifiedName, TcBinder)] -> [Decl] -> TcM [Decl]
+annotateRecursiveOccurrences binders decls = do
+  schemes <- Map.fromList . catMaybes <$> mapM schemeEntry binders
+  if Map.null schemes
+    then pure decls
+    else mapM (everywhereM (annotateOccurrence schemes)) decls
+  where
+    schemeEntry (name, binder) =
+      case binder of
+        TcIdBinder scheme@(ForAll tyVars predicates _) _
+          | not (null tyVars) || not (null predicates) -> do
+              key <- resolvedLocalTermKey name
+              pure (Just (key, scheme))
+        _ -> pure Nothing
+
+    annotateOccurrence :: (Data b) => Map TcTermKey TypeScheme -> b -> TcM b
+    annotateOccurrence schemes value =
+      case cast value of
+        Just (EVar name)
+          | Just resolution <- listToMaybe (mapMaybe fromAnnotation (nameAnns name)),
+            resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm -> do
+              key <- resolvedTermKey name
+              case Map.lookup key schemes of
+                Just (ForAll tyVars predicates body) -> do
+                  evidenceVars <- mapM givenEvidence predicates
+                  let pending = pendingAnnotation body (map TcTyVar tyVars) evidenceVars []
+                      annotated = case mapMaybe fromAnnotation (nameAnns name) of
+                        sp : _ -> EAnn (mkAnnotation (sp :: SourceSpan)) (EAnn (mkAnnotation pending) (EVar name))
+                        [] -> EAnn (mkAnnotation pending) (EVar name)
+                  pure (fromMaybe value (cast annotated))
+                Nothing -> pure value
+        _ -> pure value
+
+    givenEvidence predicate = do
+      evidence <- freshEvVar
+      bindEvidence evidence (EvGiven predicate)
+      pure evidence
+
+-- | Every term that a declaration refers to, by resolved key. The walk
+-- covers every syntax form, and it does not remove the binders of the
+-- declaration, so the result is a superset of the free variables. The
+-- dependency analysis only looks up the binders of the group in it.
+declTermReferences :: Decl -> TcM (Set.Set TcTermKey)
+declTermReferences decl =
+  Set.fromList <$> mapM resolvedTermKey [name | name <- everything collectName decl, hasTermResolution name]
+  where
+    collectName :: (Data b) => b -> [Name]
+    collectName value = maybeToList (cast value)
+    hasTermResolution name =
+      case mapMaybe fromAnnotation (nameAnns name) of
+        resolution : _ -> resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm
+        [] -> False
+
+-- | The binders that a declaration defines.
+declaredBinderKeys :: Decl -> TcM [TcTermKey]
+declaredBinderKeys decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind name _) -> (: []) <$> resolvedUnqualifiedTermKey name
+    DeclValue (PatternBind _ pat _) -> Set.toList <$> patternBinderKeys pat
+    DeclPatSyn patSyn -> (: []) <$> resolvedUnqualifiedTermKey (patSynDeclName patSyn)
+    _ -> pure []
+
+-- | Infer one dependency component of local declarations, then infer a body
+-- under the resulting binders.
+inferLocalDeclGroup :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+inferLocalDeclGroup inferExpr decls body = do
   let groups = groupValueDecls decls
   binders <- distinctLocalBinders (concatMap groupBinders groups)
   rawSigs <- collectRawSigs decls
@@ -88,7 +217,7 @@ inferLocalDecls inferExpr decls body = do
         solveResult <- solveConstraints bindingCts
         residuals <- partitionLocalResiduals binderSet placeholderMap groups binders solveResult
         polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap residuals) binders
-        decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
+        decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults) >>= annotateRecursiveOccurrences polyBinders
         withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
           pure (decls', bodyResult, bodyTy, localResidualOuterCts residuals ++ bodyCts)
@@ -907,22 +1036,7 @@ declBinderKeySet decl =
     _ -> pure Set.empty
 
 patternBinderKeys :: Pattern -> TcM (Set.Set TcTermKey)
-patternBinderKeys pat =
-  case pat of
-    PVar name -> Set.singleton <$> resolvedUnqualifiedTermKey name
-    PAnn _ inner -> patternBinderKeys inner
-    PParen inner -> patternBinderKeys inner
-    PAs name inner -> do
-      key <- resolvedUnqualifiedTermKey name
-      Set.insert key <$> patternBinderKeys inner
-    PStrict inner -> patternBinderKeys inner
-    PIrrefutable inner -> patternBinderKeys inner
-    PCon _ _ pats -> Set.unions <$> mapM patternBinderKeys pats
-    PInfix lhs _ rhs -> do
-      lhsKeys <- patternBinderKeys lhs
-      rhsKeys <- patternBinderKeys rhs
-      pure (lhsKeys <> rhsKeys)
-    _ -> pure Set.empty
+patternBinderKeys pat = Set.fromList <$> mapM resolvedUnqualifiedTermKey (patternBinderNames pat)
 
 patternBinderKeyList :: Pattern -> TcM [TcTermKey]
 patternBinderKeyList = mapM resolvedLocalTermKey . patternBinderNames
