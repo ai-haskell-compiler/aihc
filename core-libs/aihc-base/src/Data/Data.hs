@@ -19,8 +19,12 @@ where
 
 import Data.Typeable (Typeable)
 import GHC.Base (String)
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int)
 import GHC.Num ((+))
+import GHC.Show (Show (..))
+import GHC.Types (Bool (..), Char)
+import GHC.Word (Word, Word8)
 
 -- | Generic operations on a data type.
 class (Typeable a) => Data a where
@@ -29,6 +33,7 @@ class (Typeable a) => Data a where
     (forall g. g -> c g) ->
     a ->
     c a
+  gfoldl _ z = z
   gunfold ::
     (forall b r. (Data b) => c (b -> r) -> c r) ->
     (forall r. r -> c r) ->
@@ -89,3 +94,75 @@ constrFixity (Constr _ _ fixity _) = fixity
 -- | Give the index of a constructor in its data type.
 constrIndex :: Constr -> Int
 constrIndex (Constr _ _ _ index) = index
+
+instance (Data a) => Data [a] where
+  gfoldl _ z [] = z []
+  gfoldl f z (x : xs) = z (:) `f` x `f` xs
+  toConstr [] = nilConstr
+  toConstr (_ : _) = consConstr
+  gunfold k z c = case constrIndex c of
+    1 -> z []
+    2 -> k (k (z (:)))
+    _ -> errorWithoutStackTrace "Data.Data.gunfold(List)"
+  dataTypeOf _ = listDataType
+
+nilConstr :: Constr
+nilConstr = mkConstr listDataType "[]" [] Prefix
+
+consConstr :: Constr
+consConstr = mkConstr (DataType "Prelude.[]" [nilConstr]) "(:)" [] Infix
+
+listDataType :: DataType
+listDataType = mkDataType "Prelude.[]" [nilConstr, consConstr]
+
+instance Data Bool where
+  toConstr False = falseConstr
+  toConstr True = trueConstr
+  gunfold _ z c = case constrIndex c of
+    1 -> z False
+    2 -> z True
+    _ -> errorWithoutStackTrace "Data.Data.gunfold(Bool)"
+  dataTypeOf _ = boolDataType
+
+falseConstr :: Constr
+falseConstr = mkConstr boolDataType "False" [] Prefix
+
+trueConstr :: Constr
+trueConstr = mkConstr (DataType "Prelude.Bool" [falseConstr]) "True" [] Prefix
+
+boolDataType :: DataType
+boolDataType = mkDataType "Prelude.Bool" [falseConstr, trueConstr]
+
+-- The primitive types show their value as the constructor name. The
+-- standin cannot rebuild a value from a constructor, so gunfold fails.
+instance Data Char where
+  toConstr x = mkConstr charType ['\'', x, '\''] [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Char)"
+  dataTypeOf _ = charType
+
+charType :: DataType
+charType = mkNoRepType "Prelude.Char"
+
+instance Data Int where
+  toConstr x = mkConstr intType (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Int)"
+  dataTypeOf _ = intType
+
+intType :: DataType
+intType = mkNoRepType "Prelude.Int"
+
+instance Data Word where
+  toConstr x = mkConstr wordType (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word)"
+  dataTypeOf _ = wordType
+
+wordType :: DataType
+wordType = mkNoRepType "Prelude.Word"
+
+instance Data Word8 where
+  toConstr x = mkConstr word8Type (show x) [] Prefix
+  gunfold _ _ _ = errorWithoutStackTrace "Data.Data.gunfold(Word8)"
+  dataTypeOf _ = word8Type
+
+word8Type :: DataType
+word8Type = mkNoRepType "Data.Word.Word8"
