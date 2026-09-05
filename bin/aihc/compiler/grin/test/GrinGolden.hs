@@ -48,6 +48,7 @@ import Data.Yaml qualified as Y
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Environment (lookupEnv)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -133,20 +134,32 @@ primitiveSupport = unsafePerformIO $ do
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
   sourceRoot <- findPrimitiveSourceRoot
-  traverse (loadOne sourceRoot) ["GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  traverse (loadOne sourceRoot) primitiveModulePaths
   where
     loadOne sourceRoot relativePath = do
       let path = sourceRoot </> relativePath
       source <- TIO.readFile path
       pure (path, source)
 
+-- | Prefer the configured source root over walking up from the working
+-- directory, the way FcGolden does: tests that compile a program change the
+-- process working directory while other tests are running, so the walk finds
+-- nothing if it happens to run then.
 findPrimitiveSourceRoot :: IO FilePath
-findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+findPrimitiveSourceRoot = do
+  configuredRoot <- lookupEnv "AIHC_PRIM_SRC"
+  case configuredRoot of
+    Just root -> requireModules (root </> "src")
+    Nothing -> getCurrentDirectory >>= findUp
   where
+    requireModules candidate = do
+      exists <- and <$> traverse (doesFileExist . (candidate </>)) primitiveModulePaths
+      if exists
+        then pure candidate
+        else fail "Cannot find the aihc-prim source modules."
     findUp directory = do
       let candidate = directory </> "core-libs" </> "aihc-prim" </> "src"
-          files = [candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
-      exists <- and <$> traverse doesFileExist files
+      exists <- and <$> traverse (doesFileExist . (candidate </>)) primitiveModulePaths
       if exists
         then pure candidate
         else do
@@ -154,6 +167,9 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
           if parent == directory
             then fail "Cannot find the aihc-prim source modules."
             else findUp parent
+
+primitiveModulePaths :: [FilePath]
+primitiveModulePaths = ["GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport sources = do
