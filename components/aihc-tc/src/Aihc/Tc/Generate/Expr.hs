@@ -545,14 +545,20 @@ inferRhs :: Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferRhs = inferRhsWithLocals inferExpr
 
 inferApp :: SourceSpan -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
-inferApp sp fun arg = do
+inferApp sp = inferApplication sp EApp
+
+-- | Infer an application. The rebuild function makes the checked node from
+-- the checked function and argument, so an application operator keeps its
+-- infix node.
+inferApplication :: SourceSpan -> (Expr -> Expr -> Expr) -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
+inferApplication sp rebuild fun arg = do
   (fun', funTy, funCts) <- inferExpr fun
   zonkedFunTy <- zonkType funTy
   case zonkedFunTy of
     TcFunTy expectedArgTy resultTy
       | hasLeadingForAll expectedArgTy -> do
           (arg', argCts) <- checkHigherRankArgument sp expectedArgTy arg
-          pure (EApp fun' arg', resultTy, funCts <> argCts)
+          pure (rebuild fun' arg', resultTy, funCts <> argCts)
       | otherwise -> do
           -- The function type is known, so the result type is known too.
           -- An enclosing application then sees a function type, which lets
@@ -560,13 +566,25 @@ inferApp sp fun arg = do
           (arg', argTy, argCts) <- inferExpr arg
           ev <- freshEvVar
           let eqCt = mkWantedCt (EqPred expectedArgTy argTy) ev (AppOrigin sp) sp
-          pure (EApp fun' arg', resultTy, funCts <> argCts <> [eqCt])
+          pure (rebuild fun' arg', resultTy, funCts <> argCts <> [eqCt])
     _ -> do
       (arg', argTy, argCts) <- inferExpr arg
       resTy <- freshMetaTv
       ev <- freshEvVar
       let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
-      pure (EApp fun' arg', resTy, funCts <> argCts <> [eqCt])
+      pure (rebuild fun' arg', resTy, funCts <> argCts <> [eqCt])
+
+-- | Whether an operator is the application operator of GHC.Base. GHC types
+-- @f $ x@ like the application @f x@, so a higher-rank or representation
+-- polymorphic argument works without impredicative instantiation.
+isApplicationOperator :: Name -> TcM Bool
+isApplicationOperator op
+  | nameText op /= "$" = pure False
+  | otherwise = do
+      key <- resolvedTermKey op
+      pure $ case key of
+        TcTermGlobal _ moduleName' "$" -> moduleName' == "GHC.Base"
+        _ -> False
 
 checkHigherRankArgument :: SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct])
 checkHigherRankArgument sp expectedTy arg = do
@@ -742,6 +760,15 @@ pendingTypeArgs expr =
 
 inferInfix :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferInfix sp lhs op rhs = do
+  isApplication <- isApplicationOperator op
+  if isApplication
+    then -- The operator node keeps no type arguments. The desugarer reads the
+    -- result type from the left operand.
+      inferApplication sp (`EInfix` op) lhs rhs
+    else inferInfixOperator sp lhs op rhs
+
+inferInfixOperator :: SourceSpan -> Expr -> Name -> Expr -> TcM (Expr, TcType, [Ct])
+inferInfixOperator sp lhs op rhs = do
   -- Generate the same constraints as desugared binary application while
   -- keeping the operator occurrence on the surface operator node.
   (op', opTy, opCts) <- inferOperator sp op
