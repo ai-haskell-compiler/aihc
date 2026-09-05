@@ -11,8 +11,6 @@ where
 import Control.Category (Category (..), (<<<), (>>>))
 import Data.Kind (Type)
 
--- | The function arrow has no instance. The type checker does not unify
--- the arrow constructor with function types.
 class (Category a) => Arrow (a :: Type -> Type -> Type) where
   arr :: (b -> c) -> a b c
   first :: a b c -> a (b, d) (c, d)
@@ -23,6 +21,13 @@ class (Category a) => Arrow (a :: Type -> Type -> Type) where
 infixr 3 ***
 
 infixr 3 &&&
+
+instance Arrow (->) where
+  arr f = f
+  first f (b, d) = (f b, d)
+  second f (d, b) = (d, f b)
+  (f *** g) (b, b') = (f b, g b')
+  (f &&& g) b = (f b, g b)
 
 returnA :: (Arrow a) => a b b
 returnA = id
