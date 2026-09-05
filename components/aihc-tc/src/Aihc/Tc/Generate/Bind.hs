@@ -7,6 +7,7 @@ module Aihc.Tc.Generate.Bind
     freeVarsMatch,
     inferLocalDecls,
     inferRhsWithLocals,
+    inferGuardedRhss,
     boolTyCon,
     collectRawSigs,
     sigToScheme,

@@ -1,0 +1,53 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiWayIf #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  isZero :: Nat -> Bool
+  isZero Z = True
+  │      └─ type: Nat
+  └─ type: Nat → GHC.Types.Bool
+  isZero _ = False
+  │      └─ type: Nat
+  └─ type: Nat → GHC.Types.Bool
+  classify :: Nat -> Nat -> Nat
+  classify n m =
+  │        │ └─ type: Nat
+  │        └─ type: Nat
+  └─ type: Nat → Nat → Nat
+    if
+      | isZero n -> Z
+      └─ type: Nat
+      | isZero m, S k <- n -> k
+                  │ └─ type: Nat
+                  └─ type: Nat
+      | otherwise -> S n
+  otherwise :: Bool
+  otherwise = True
+  └─ type: GHC.Types.Bool
+extensions:
+- MultiWayIf
+modules:
+- |
+  {-# LANGUAGE MultiWayIf #-}
+  module Test where
+  import GHC.Types (Bool (..))
+  data Nat = Z | S Nat
+  isZero :: Nat -> Bool
+  isZero Z = True
+  isZero _ = False
+  classify :: Nat -> Nat -> Nat
+  classify n m =
+    if
+      | isZero n -> Z
+      | isZero m, S k <- n -> k
+      | otherwise -> S n
+  otherwise :: Bool
+  otherwise = True
+reason: a multi-way if is a guarded right-hand side with boolean and pattern
+  guards, and every alternative has the result type
+status: pass
