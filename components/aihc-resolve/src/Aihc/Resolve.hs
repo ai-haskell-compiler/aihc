@@ -264,6 +264,7 @@ missingImportMemberAnnotation originScope item members =
           let parentName = renderUnqualifiedName itemName
            in Map.findWithDefault [] parentName (scopeConstructors originScope)
                 <> Map.findWithDefault [] parentName (scopeMethods originScope)
+                <> Map.findWithDefault [] parentName (scopeAssociatedTypes originScope)
     missingMemberAnnotation member =
       let memberName = nameText (ieBundledMemberName member)
        in ResolutionAnnotation
@@ -546,9 +547,9 @@ resolveClassDeclItem classDeclItem =
     ClassItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure classDeclItem
       | otherwise -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemTypeFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> resolveTypeFamilyDecl familyDecl
     ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
-    ClassItemDefaultTypeInst {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> resolveTypeFamilyInst familyInst
 
 resolveInstanceDecl :: InstanceDecl -> ResolveM InstanceDecl
 resolveInstanceDecl instanceDecl = do
@@ -611,7 +612,7 @@ resolveInstanceDeclItem headClass instanceDeclItem =
       InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
     InstanceItemTypeSig names ty -> InstanceItemTypeSig names <$> resolveType ty
     InstanceItemFixity {} -> pure instanceDeclItem
-    InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> resolveTypeFamilyInst familyInst
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure instanceDeclItem
@@ -1198,7 +1199,7 @@ bindPattern pat =
       let binderName = mkUnqualifiedName NameVarId (tyVarBinderName binder)
       resolvedName <- freshLocal binderName
       binder' <- traverseTyVarBinderKind binder
-      let binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty
+      let binderScope = Scope Map.empty (Map.singleton (tyVarBinderName binder) resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
       pure (binderScope, PTypeBinder binder')
     PTypeSyntax form ty -> do
       ty' <- resolveType ty
@@ -1257,7 +1258,7 @@ bindPattern pat =
           )
           fields
       wildcardEntries <- bindRecordWildcardFields name fields wildcard
-      let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+      let wildcardScope = Scope (Map.fromList wildcardEntries) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
       pure (foldr unionScope wildcardScope fieldScopes, PRecord name' fields' wildcard)
     PTypeSig inner ty -> do
       (scope, inner') <- bindPattern inner
@@ -1279,7 +1280,7 @@ bindPattern pat =
 
 termScope :: Text -> ResolvedName -> Scope
 termScope key resolvedName =
-  Scope (Map.singleton key resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+  Scope (Map.singleton key resolvedName) Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 resolvePatternDefinition :: TermDefinition -> Pattern -> ResolveM Pattern
 resolvePatternDefinition termDefinition pat =
