@@ -7,6 +7,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A new push to a branch cancels the runs of the same workflow that are
+# still queued or in progress for that branch. The runs on main always
+# complete: each commit on main gets its own group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
