@@ -8,6 +8,7 @@ module Aihc.Tc.Generalize
     generalizeIgnoring,
     generalizeAndCommit,
     generalizeAndCommitIgnoring,
+    generalizeGroupAndCommitIgnoring,
     environmentMetaVars,
     collectMetaVars,
     predMetaVars,
@@ -55,6 +56,33 @@ generalizeAndCommitIgnoring ignoredKeys ty preds = do
   (scheme, subst) <- generalizeIgnoringWithSubst ignoredKeys ty preds
   forM_ subst (uncurry writeMetaTv)
   pure scheme
+
+-- | Generalize the bindings of one recursive group over one shared set of
+-- type variables, then write the substitution back to the meta store.
+--
+-- The bindings of a group share meta-variables. A separate generalization
+-- of each binding would turn a shared meta-variable into a type variable
+-- of the first binding, and the later bindings would then mention a type
+-- variable that they do not quantify. Each scheme quantifies the shared
+-- type variables that its own type or predicates mention.
+generalizeGroupAndCommitIgnoring :: Set.Set TcTermKey -> [(TcType, [Pred])] -> TcM [TypeScheme]
+generalizeGroupAndCommitIgnoring ignoredKeys bindings = do
+  envMetaVars <- environmentMetaVars ignoredKeys
+  zonked <- mapM zonkBinding bindings
+  forM_ zonked (uncurry (defaultRuntimeRepMetas envMetaVars))
+  zonked' <- mapM zonkBinding zonked
+  let bindingMetaVars = [nubOrd (collectMetaVars ty ++ concatMap predMetaVars preds) | (ty, preds) <- zonked']
+      uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat bindingMetaVars))
+  mapM_ defaultMetaKind uniqueMetaVars
+  tvs <- metaVarsToTyVars uniqueMetaVars
+  let subst = zip uniqueMetaVars (map TcTyVar tvs)
+  forM_ subst (uncurry writeMetaTv)
+  pure
+    [ ForAll [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] (map (substMetasPred subst) preds) (substMetas subst ty)
+    | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars
+    ]
+  where
+    zonkBinding (ty, preds) = (,) <$> zonkType ty <*> mapM zonkPred preds
 
 generalizeIgnoringWithSubst :: Set.Set TcTermKey -> TcType -> [Pred] -> TcM (TypeScheme, [(Unique, TcType)])
 generalizeIgnoringWithSubst ignoredKeys ty preds = do
