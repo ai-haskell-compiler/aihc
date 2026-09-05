@@ -1,0 +1,41 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  class Def a where
+  └─ class methods: def ∷ ∀ a. (Def a) ⇒ a
+    def :: a
+  instance Def Nat where
+  └─ $fDefNat ∷ () ⇒ Def Nat
+    def = Z
+    └─ def ∷ Nat
+  useDef :: Nat -> Nat
+  useDef n = S local
+  │      └─ type: Nat
+  └─ type: Nat → Nat
+    where
+      local :: Nat
+      local = def
+      │       └─ type: Nat; type-args: Nat; evidence: $fDefNat
+      └─ type: Nat
+extensions: []
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  class Def a where
+    def :: a
+  instance Def Nat where
+    def = Z
+  useDef :: Nat -> Nat
+  useDef n = S local
+    where
+      local :: Nat
+      local = def
+reason: a local binding without arguments checks its right-hand side against
+  its signature, so a constraint of the right-hand side is solved at the
+  signature type
+status: pass

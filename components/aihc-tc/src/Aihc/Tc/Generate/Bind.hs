@@ -482,11 +482,16 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       inferRhsWithLocals inferExpr rhs
-  ty <-
+  (ty, sigCts) <-
     case Map.lookup key sigs of
-      Just scheme -> maybe (skolemize scheme) pure (Map.lookup key placeholders)
-      Nothing -> pure rhsTy
-  cts <- tiePlaceholder placeholders key ty rhsCts
+      Just scheme -> do
+        sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
+        -- The right-hand side must have the signature type.
+        ev <- freshEvVar
+        let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin NoSourceSpan) NoSourceSpan
+        pure (sigTy, [sigCt])
+      Nothing -> pure (rhsTy, [])
+  cts <- tiePlaceholder placeholders key ty (rhsCts <> sigCts)
   pure (rhs', ty, cts)
 
 tiePlaceholder :: Map TcTermKey TcType -> TcTermKey -> TcType -> [Ct] -> TcM [Ct]
