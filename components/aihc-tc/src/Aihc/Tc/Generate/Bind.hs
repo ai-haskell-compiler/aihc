@@ -49,7 +49,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (environmentMetaVars, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (sigToScheme)
+import Aihc.Tc.Kind (explicitForallNames, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
@@ -74,12 +74,13 @@ inferLocalDecls inferExpr decls body = do
   binders <- distinctLocalBinders (concatMap groupBinders groups)
   rawSigs <- collectRawSigs decls
   sigs <- traverse sigToScheme rawSigs
+  let scopedSigs = Map.intersectionWith (\rawSig (ForAll tyVars _ _) -> scopedSigTyVars (explicitForallNames rawSig) tyVars) rawSigs sigs
   placeholders <- traverse (placeholderFor sigs) binders
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
   withLocalPlaceholders sigs placeholders $ do
-    groupResults <- mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
+    groupResults <- mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups
     let bindingCts = concatMap snd groupResults
     if shouldGen
       then do
@@ -411,28 +412,32 @@ typeMetaVars ty =
     TcQualTy ps body -> concatMap predMetaVars ps ++ typeMetaVars body
     TcAppTy f a -> typeMetaVars f ++ typeMetaVars a
 
-inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
-inferLocalGroup inferExpr sigs placeholders group =
+-- | The type variables that the signatures of a local group scope over
+-- their bindings, by binder.
+type ScopedSigs = Map TcTermKey (Map Text (TyVarId, TcType))
+
+inferLocalGroup :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> DeclGroup -> TcM (DeclGroup, [Ct])
+inferLocalGroup inferExpr sigs scopedSigs placeholders group =
   case group of
     MergedFunctionBind name decls matches -> do
-      (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
+      (matches', _ty, cts) <- inferLocalFunction inferExpr sigs scopedSigs placeholders name matches
       pure (MergedFunctionBind name (replaceFunctionDeclMatches matches' decls) matches', cts)
     SingleDecl decl -> do
-      (decl', cts) <- inferLocalSingleDecl inferExpr sigs placeholders decl
+      (decl', cts) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl
       pure (SingleDecl decl', cts)
 
-inferLocalSingleDecl :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> Decl -> TcM (Decl, [Ct])
-inferLocalSingleDecl inferExpr sigs placeholders decl =
+inferLocalSingleDecl :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> Decl -> TcM (Decl, [Ct])
+inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
   case decl of
     DeclAnn ann inner -> do
-      (inner', cts) <- inferLocalSingleDecl inferExpr sigs placeholders inner
+      (inner', cts) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
       pure (DeclAnn ann inner', cts)
     DeclValue valueDecl ->
       case valueDecl of
         PatternBind mult pat rhs ->
           case patternBinderName pat of
             Just name -> do
-              (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs placeholders name rhs
+              (rhs', _ty, cts) <- inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
               (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
@@ -443,12 +448,12 @@ inferLocalSingleDecl inferExpr sigs placeholders decl =
               let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
               pure (DeclValue (PatternBind mult pat' rhs'), cts)
         FunctionBind name matches -> do
-          (matches', _ty, cts) <- inferLocalFunction inferExpr sigs placeholders name matches
+          (matches', _ty, cts) <- inferLocalFunction inferExpr sigs scopedSigs placeholders name matches
           pure (DeclValue (FunctionBind name matches'), cts)
     _ -> pure (decl, [])
 
-inferLocalFunction :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> UnqualifiedName -> [Match] -> TcM ([Match], TcType, [Ct])
-inferLocalFunction inferExpr sigs placeholders name matches = do
+inferLocalFunction :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> [Match] -> TcM ([Match], TcType, [Ct])
+inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
   key <- resolvedLocalTermKey name
   (matches', ty, cts) <-
     case Map.lookup key sigs of
@@ -459,7 +464,9 @@ inferLocalFunction inferExpr sigs placeholders name matches = do
                 m : _ -> length (matchPats m)
                 [] -> 0
             (argTys, resTy) = splitFunTy sigTy nArgs
-        results <- mapM (tcMatchEquation inferExpr argTys resTy) matches
+        results <-
+          withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
+            mapM (tcMatchEquation inferExpr argTys resTy) matches
         let matches' = map fst results
             matchCts = concatMap snd results
         pure (matches', sigTy, matchCts)
@@ -468,10 +475,12 @@ inferLocalFunction inferExpr sigs placeholders name matches = do
   cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
 
-inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
-inferLocalPatternBind inferExpr sigs placeholders name rhs = do
+inferLocalPatternBind :: InferExpr -> Map TcTermKey TypeScheme -> ScopedSigs -> Map TcTermKey TcType -> UnqualifiedName -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
+inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   key <- resolvedLocalTermKey name
-  (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
+  (rhs', rhsTy, rhsCts) <-
+    withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
+      inferRhsWithLocals inferExpr rhs
   ty <-
     case Map.lookup key sigs of
       Just scheme -> maybe (skolemize scheme) pure (Map.lookup key placeholders)

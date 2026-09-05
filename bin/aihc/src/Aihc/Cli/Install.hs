@@ -728,7 +728,11 @@ parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
   ParsedInterfaceFile path modu sourceLines parseDiagnostics _ extensions <- parseInterfaceFile root fileInfo
-  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu extensions sourceLines parseDiagnostics)
+  -- The type checker reads the language pragmas of the module. Give it the
+  -- effective extensions, which include the cabal default extensions and
+  -- the language edition.
+  let modu' = modu {Syntax.moduleLanguagePragmas = map Syntax.EnableExtension extensions <> Syntax.moduleLanguagePragmas modu}
+  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu' extensions sourceLines parseDiagnostics)
 
 loadSourceModules :: Int -> FilePath -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
 loadSourceModules workers root files = do

@@ -259,7 +259,8 @@ occurrenceAnnotation ty typeArgs evidenceVars
 inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do
   (inner', innerTy, cts) <- inferExprAt sp inner
-  sigTy <- checkSurfaceType Map.empty tyAnn KType
+  scoped <- getScopedTyVars
+  sigTy <- checkSurfaceType scoped tyAnn KType
   ev <- freshEvVar
   let sigCt =
         mkWantedEqCt
@@ -683,7 +684,8 @@ predicateMentionsTyVar target predicate =
 inferTypeApp :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeApp sp fun tyArg = do
   (fun', funTy, funCts) <- inferExpr fun
-  explicitTy <- checkSurfaceType Map.empty tyArg KType
+  scoped <- getScopedTyVars
+  explicitTy <- checkSurfaceType scoped tyArg KType
   case drop (visibleTypeApplicationCount fun) (pendingTypeArgs fun') of
     inferredTy : _ -> do
       ev <- freshEvVar

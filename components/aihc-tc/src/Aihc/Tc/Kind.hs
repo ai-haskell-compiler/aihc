@@ -14,6 +14,8 @@ module Aihc.Tc.Kind
     makeParamEnv,
     makeParamEnvWith,
     sigToScheme,
+    explicitForallNames,
+    scopedSigTyVars,
     standaloneKindSigToScheme,
     surfacePredToPred,
     tyConKindFromParams,
@@ -66,15 +68,19 @@ data ParamInfo = ParamInfo
   }
   deriving (Show)
 
+-- | Convert a signature to a type scheme. A free type variable that is a
+-- lexically scoped type variable refers to that variable and is not
+-- quantified again.
 sigToScheme :: Type -> TcM TypeScheme
 sigToScheme ty = do
+  scoped <- getScopedTyVars
   let (explicitBinders, qualifiedBody) = splitForalls ty
       (context, body) = splitContext qualifiedBody
-      freeVars = freeTypeVars ty
+      freeVars = filter (`Map.notMember` scoped) (freeTypeVars ty)
   rawTvs <- mapM freshSkolemTv freeVars
   kinds <- mapM (const freshKindMeta) freeVars
   let implicitTvs = zipWith setTyVarKind kinds rawTvs
-  let implicitEnv = Map.fromList (zip freeVars (zip implicitTvs kinds))
+  let implicitEnv = scoped <> Map.fromList (zip freeVars (zip implicitTvs kinds))
   explicitParams <- makeParamEnvWith implicitEnv explicitBinders
   let explicitTvs = map paramTyVar explicitParams
       tvEnv =
@@ -86,6 +92,23 @@ sigToScheme ty = do
   tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
   pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
+
+-- | The names of the variables of the explicit outer @forall@ of a
+-- signature.
+explicitForallNames :: Type -> [Text]
+explicitForallNames ty = map tyVarBinderName (fst (splitForalls ty))
+
+-- | The type variables that a signature scopes over its binding. Only the
+-- variables of an explicit outer @forall@ scope, as in GHC. The given
+-- variables are the opened variables of the checked scheme; they keep the
+-- source names.
+scopedSigTyVars :: [Text] -> [TyVarId] -> Map Text (TyVarId, TcType)
+scopedSigTyVars explicitNames tyVars =
+  Map.fromList
+    [ (tvName tyVar, (tyVar, tvKind tyVar))
+    | tyVar <- tyVars,
+      tvName tyVar `elem` explicitNames
+    ]
 
 -- | The empty context @() =>@. A pattern synonym signature uses it for an
 -- empty required context before a provided context.

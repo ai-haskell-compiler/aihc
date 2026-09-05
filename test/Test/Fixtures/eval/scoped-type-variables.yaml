@@ -1,0 +1,31 @@
+extensions:
+  - ScopedTypeVariables
+modules:
+  - |
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    data Nat = Z | S Nat
+
+    data Proxy a = Proxy
+
+    class Sized a where
+      sizeOf :: Proxy a -> Nat
+
+    data Box = Box
+
+    instance Sized Box where
+      sizeOf _ = S Z
+
+    instance Sized a => Sized [a] where
+      sizeOf _ = S (sizeOf (Proxy :: Proxy a))
+
+    sizeOfValue :: forall a. Sized a => a -> Nat
+    sizeOfValue _ = sizeOf (Proxy :: Proxy a)
+output: |
+  S (S Z)
+expression: |
+  sizeOfValue [Box]
+status: pass
+reason: the explicit forall of a signature and an instance head scope their type
+  variables over the body
