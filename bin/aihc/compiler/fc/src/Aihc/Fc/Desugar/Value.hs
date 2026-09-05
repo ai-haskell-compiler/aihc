@@ -2010,6 +2010,10 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EDo statements _ -> desugarDo statements
         Syn.EIf condition thenExpression elseExpression ->
           desugarIf (tcAnnType annotation) condition thenExpression elseExpression
+        -- A multi-way if is a guarded right-hand side. A failed last guard
+        -- ends in an empty case on its own test value.
+        Syn.EMultiWayIf alternatives ->
+          desugarGuardedRhss (tcAnnType annotation) Nothing alternatives
         Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
         Syn.EImplicitParam name ->
           case tcAnnEvidenceTerms annotation of
