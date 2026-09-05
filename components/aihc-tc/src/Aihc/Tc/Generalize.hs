@@ -66,8 +66,11 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   preds'' <- mapM zonkPred preds'
   let freeMetaVars = collectMetaVars ty'' ++ concatMap predMetaVars preds''
       uniqueFreeMetaVars = nubOrd freeMetaVars
-  mapM_ defaultMetaKind (envMetaVars <> uniqueFreeMetaVars)
-  let uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
+      uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
+  -- Only a quantified meta-variable needs a fixed kind now. A meta-variable
+  -- of the environment, such as the type of a lambda-bound variable, keeps
+  -- its open kind until a use fixes it; an unlifted use is still possible.
+  mapM_ defaultMetaKind uniqueMetaVars
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars uniqueMetaVars
