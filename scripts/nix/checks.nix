@@ -137,7 +137,6 @@
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
-  exampleToolchainTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend ++ ["wasm32-wasip3"];
   # Test.Aihc.SeedStore installs aihc-prim for apple-arm64 and llvm always, and
   # for linux-amd64 and wasm32-wasip3 when the toolchain supports them, which it
   # does inside the sandbox. aihc-base is only needed for the target build-exe
@@ -267,7 +266,7 @@
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
-      --store ${exampleToolchain} \
+      --store ${wasip3Toolchain} \
       --build-root "$TMPDIR/.aihc-cache" \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
@@ -473,8 +472,13 @@
   # The compiler owns preparation of the installed toolchain. Runtime archives
   # are built once per backend/GC pair, and ordinary package installation emits
   # the reusable library interfaces and target-specific archives.
-  exampleToolchain =
-    pkgs.runCommand "aihc-example-toolchain" {
+  #
+  # One derivation per target, rather than one that loops over them: installing
+  # aihc-base takes minutes and runs single-threaded, so a combined derivation
+  # serialised work that has no dependency between targets. Everything a target
+  # writes is under a path named after it, so the outputs never overlap.
+  exampleToolchainFor = target:
+    pkgs.runCommand "aihc-example-toolchain-${target}" {
       src = sources.coreLibrariesSrc pkgs;
       nativeBuildInputs = [
         pkgs.llvmPackages.bintools
@@ -492,21 +496,32 @@
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       mkdir -p "$out"
 
-      ${aihcExe} prepare-runtime --target llvm --gc semispace --store "$out"
-      ${pkgs.lib.optionalString (nativeBackend != null) ''
-        ${aihcExe} prepare-runtime --target ${nativeBackend} --gc semispace --store "$out"
-      ''}
-      ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc semispace --store "$out"
-
-      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}
-        '')
-        exampleToolchainTargets}
+      ${aihcExe} prepare-runtime --target ${target} --gc semispace --store "$out"
+      ${aihcExe} install core-libs/aihc-base --store "$out" --lint --target ${target}
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
       test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
     '';
+
+  # Merge per-target toolchains into the single store the tests pass to
+  # --store. The copy is real rather than a symlink forest because consumers
+  # copy the store and install into the copy, which a tree of links into the
+  # read-only Nix store would not survive.
+  mkExampleToolchain = name: targets:
+    pkgs.runCommand name {} ''
+      mkdir -p "$out"
+      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+          cp -R --no-preserve=mode ${exampleToolchainFor target}/. "$out/"
+        '')
+        targets}
+    '';
+
+  # The example and Hackage-install tests compile for the ordinary backends;
+  # only the wasip3 suite needs the wasm toolchain, and giving it one of its own
+  # keeps it from waiting on the slower native target.
+  exampleToolchain = mkExampleToolchain "aihc-example-toolchain" backends;
+  wasip3Toolchain = exampleToolchainFor "wasm32-wasip3";
 
   hackage = import ./hackage-packages.nix;
   hackageInstallTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
