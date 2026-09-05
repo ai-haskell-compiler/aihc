@@ -7,6 +7,7 @@ import Aihc.Fc.TypeOf qualified as FcType
 import Aihc.Grin (GrinProgram (..), InterpretError (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
+import Control.Exception (evaluate)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -18,6 +19,11 @@ import Test.Grin.Srt qualified as Srt
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
+
+data GrinEvalEnvironment = GrinEvalEnvironment
+  { grinEvalFrontend :: !EvalFixture.EvalEnvironment,
+    grinEvalCore :: !GrinProgram
+  }
 
 tests :: IO TestTree
 tests = do
@@ -31,10 +37,29 @@ tests = do
           Lint.tests,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
-          withResource EvalFixture.loadEvalEnvironment (const (pure ())) $ \getEnvironment ->
+          withResource loadGrinEvalEnvironment (const (pure ())) $ \getEnvironment ->
             testGroup "shared evaluation fixtures via GRIN" (map (evalFixtureTest getEnvironment) evalFixtures)
         ]
     )
+
+-- | Lower aihc-prim and aihc-base to GRIN one time.
+loadGrinEvalEnvironment :: IO GrinEvalEnvironment
+loadGrinEvalEnvironment = do
+  frontend <- EvalFixture.loadEvalEnvironment
+  case lowerProgram (EvalFixture.evalEnvironmentProgram frontend) of
+    Left problem -> fail ("core library GRIN lower error: " <> problem)
+    Right grinProgram ->
+      case lintProgram grinProgram of
+        [] -> do
+          -- Force the core GRIN program one time.
+          _ <- evaluate (length (grinFunctions grinProgram))
+          _ <- evaluate (length (grinGlobals grinProgram))
+          pure
+            GrinEvalEnvironment
+              { grinEvalFrontend = frontend,
+                grinEvalCore = grinProgram
+              }
+        problems -> fail ("core library GRIN lint error: " <> show problems)
 
 fixtureTest :: GrinGolden.GrinCase -> TestTree
 fixtureTest fixture = testCase (GrinGolden.caseId fixture) $
@@ -44,18 +69,22 @@ fixtureTest fixture = testCase (GrinGolden.caseId fixture) $
     (GrinGolden.OutcomeXPass, details) -> assertFailure ("unexpected pass: " <> details)
     (GrinGolden.OutcomeFail, details) -> assertFailure details
 
-evalFixtureTest :: IO EvalFixture.EvalEnvironment -> EvalFixture.EvalCase -> TestTree
+evalFixtureTest :: IO GrinEvalEnvironment -> EvalFixture.EvalCase -> TestTree
 evalFixtureTest getEnvironment fixture = testCase (EvalFixture.evalCaseId fixture) $ do
   environment <- getEnvironment
-  (outcome, details) <- EvalFixture.evaluateEvalCase environment evaluateGrin fixture
+  (outcome, details) <-
+    EvalFixture.evaluateEvalCase
+      (grinEvalFrontend environment)
+      (evaluateGrin (grinEvalCore environment))
+      fixture
   case outcome of
     EvalFixture.OutcomePass -> pure ()
     EvalFixture.OutcomeXFail -> pure ()
     EvalFixture.OutcomeXPass -> assertFailure ("unexpected pass: " <> details)
     EvalFixture.OutcomeFail -> assertFailure details
 
-evaluateGrin :: EvalFixture.ProgramEvaluator
-evaluateGrin name program =
+evaluateGrin :: GrinProgram -> EvalFixture.ProgramEvaluator
+evaluateGrin coreProgram name program =
   case prepareEvalProgram name program of
     Left problem -> pure (Left (EvalFixture.EvaluationError problem))
     Right (prepared, unwrapResult) -> evaluatePrepared prepared unwrapResult
@@ -63,13 +92,27 @@ evaluateGrin name program =
     evaluatePrepared prepared unwrapResult =
       case lowerProgram prepared of
         Left problem -> pure (Left (EvalFixture.EvaluationError problem))
-        Right grinProgram ->
-          case lintProgram grinProgram of
-            [] -> fmap unwrapResult . classifyResult <$> interpreter (bindingName name grinProgram) grinProgram
+        Right fixtureProgram ->
+          case lintProgram fixtureProgram of
+            [] ->
+              fmap unwrapResult . classifyResult
+                <$> interpreter (bindingName name fixtureProgram) (appendGrinProgram coreProgram fixtureProgram)
             problems -> pure (Left (EvalFixture.EvaluationError ("GRIN lint error: " <> show problems)))
     interpreter
       | evalBindingIsIo name program = interpretProgramIoBinding
       | otherwise = interpretProgramBinding
+
+-- | Put the fixture GRIN after the core GRIN.
+-- The fixture has a different package name and a different module name.
+appendGrinProgram :: GrinProgram -> GrinProgram -> GrinProgram
+appendGrinProgram core fixture =
+  GrinProgram
+    { grinConstructors = grinConstructors core <> grinConstructors fixture,
+      grinPrimitives = grinPrimitives core <> grinPrimitives fixture,
+      grinForeignCalls = grinForeignCalls core <> grinForeignCalls fixture,
+      grinGlobals = grinGlobals core <> grinGlobals fixture,
+      grinFunctions = grinFunctions core <> grinFunctions fixture
+    }
 
 prepareEvalProgram :: Text -> Fc.Program -> Either String (Fc.Program, Text -> Text)
 prepareEvalProgram sourceName program =
