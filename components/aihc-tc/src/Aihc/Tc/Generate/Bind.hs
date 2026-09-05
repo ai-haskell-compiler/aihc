@@ -715,12 +715,31 @@ orSourceSpan sourceSpan _ = sourceSpan
 shouldGeneralizeLocal :: Set.Set TcTermKey -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
   monoLocal <- tcMonoLocalBinds
-  if not monoLocal || any hasPartialTypeSig decls
-    then pure True
-    else do
-      freeVars <- freeVarsDecls decls
-      let externalVars = Set.toList (Set.difference freeVars binderSet)
-      allM isClosedVar externalVars
+  -- A strict binding is evaluated once, before the body, so it cannot be
+  -- polymorphic. GHC does not generalize a group with a strict binding.
+  if any isStrictPatternBind decls
+    then pure False
+    else
+      if not monoLocal || any hasPartialTypeSig decls
+        then pure True
+        else do
+          freeVars <- freeVarsDecls decls
+          let externalVars = Set.toList (Set.difference freeVars binderSet)
+          allM isClosedVar externalVars
+
+-- | Whether a declaration is a pattern binding with a bang on its pattern.
+isStrictPatternBind :: Decl -> Bool
+isStrictPatternBind decl =
+  case peelDeclAnn decl of
+    DeclValue (PatternBind _ pat _) -> patternIsStrict pat
+    _ -> False
+  where
+    patternIsStrict pat =
+      case pat of
+        PAnn _ inner -> patternIsStrict inner
+        PParen inner -> patternIsStrict inner
+        PStrict _ -> True
+        _ -> False
 
 isClosedVar :: TcTermKey -> TcM Bool
 isClosedVar key = do
