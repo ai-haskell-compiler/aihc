@@ -43,13 +43,16 @@ extra-source-files:
 
 data-files:
   compiler/native/runtime/aihc_array.lir
+  compiler/native/runtime/aihc_byte_array.lir
   compiler/native/runtime/aihc_gc_semispace.c
   compiler/native/runtime/aihc_host_posix.c
   compiler/native/runtime/aihc_host_wasip3.c
+  compiler/native/runtime/aihc_mutvar.lir
   compiler/native/runtime/aihc_runtime.c
   compiler/native/runtime/aihc_runtime.h
   compiler/native/runtime/aihc_runtime_internal.h
   compiler/native/runtime/aihc_runtime_options.c
+  compiler/native/runtime/aihc_stable_name.lir
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_internal.h
   compiler/wasm/runtime/aihc_wasm_libc.c

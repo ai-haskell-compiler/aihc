@@ -30,6 +30,10 @@ _Static_assert(offsetof(AihcResume, continuation) == 16,
                "resume continuation ABI");
 _Static_assert(offsetof(AihcResume, value) == 24, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 32, "resume count ABI");
+_Static_assert(offsetof(AihcStableName, value) == 8, "stable-name value ABI");
+_Static_assert(offsetof(AihcStableName, hash) == 16, "stable-name hash ABI");
+_Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
+_Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #elif UINTPTR_MAX == UINT32_MAX
 _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
 _Static_assert(offsetof(AihcInfo, remaining_arity) == 12,
@@ -51,6 +55,10 @@ _Static_assert(offsetof(AihcResume, continuation) == 12,
                "resume continuation ABI");
 _Static_assert(offsetof(AihcResume, value) == 16, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 24, "resume count ABI");
+_Static_assert(offsetof(AihcStableName, value) == 8, "stable-name value ABI");
+_Static_assert(offsetof(AihcStableName, hash) == 16, "stable-name hash ABI");
+_Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
+_Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #endif
 
 const AihcSrt *aihc_current_srt = NULL;
@@ -86,15 +94,21 @@ void aihc_record_allocation(AihcMachine *machine) {
   ++machine->allocation_count;
 }
 
-void *aihc_allocate_zeroed(size_t bytes) {
-  void *pointer = calloc(1, bytes);
+/* The byte count is a uint64_t rather than a size_t so that the runtime units
+   written in Lir can call this with an i64 on a 32-bit target as well. A
+   request the address space cannot hold fails here rather than wrapping. */
+void *aihc_allocate_zeroed(uint64_t bytes) {
+  if (bytes > (uint64_t)SIZE_MAX) {
+    aihc_fail("allocation is too large");
+  }
+  void *pointer = calloc(1, (size_t)bytes);
   if (pointer == NULL) {
     aihc_fail("out of memory");
   }
   return pointer;
 }
 
-void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes) {
+void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes) {
   void *pointer = aihc_allocate_zeroed(bytes);
   aihc_record_allocation(machine);
   return pointer;
@@ -150,64 +164,29 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */
 
-AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial) {
-  return aihc_array_new(machine, 1, initial);
+/* aihc_mutvar_*, aihc_stable_name_*, and the byte-array primitives live in
+   compiler/native/runtime/aihc_mutvar.lir, aihc_stable_name.lir, and
+   aihc_byte_array.lir. The two accessors below stay here: the offsets of the
+   machine fields they reach follow the target word size, and a Lir unit is
+   one file for every target. */
+
+AihcStableName **aihc_stable_names(AihcMachine *machine) {
+  return &machine->stable_names;
 }
 
-AihcSlot aihc_mutvar_read(AihcValue *mutvar) {
-  return aihc_array_index(mutvar, 0);
-}
-
-AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value) {
-  return aihc_array_write(mutvar, 0, value);
-}
-
-uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
-                                      AihcSlot replacement) {
-  AihcSlot *current = &aihc_array_elements(mutvar)[0];
-  if (*current != expected) {
-    return 1;
-  }
-  *current = replacement;
-  return 0;
-}
-
-uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right) {
-  return aihc_array_same(left, right);
-}
-
-void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value) {
-  if (value == NULL) {
-    aihc_fail("stable-name primitive received null");
-  }
-  for (AihcStableName *name = machine->stable_names; name != NULL;
-       name = name->next) {
-    if (name->value == value) {
-      return name;
-    }
-  }
+uint64_t aihc_stable_name_take_hash(AihcMachine *machine) {
   if (machine->next_stable_name > (uint64_t)INT64_MAX) {
     aihc_fail("stable-name counter overflow");
   }
-  AihcStableName *name = aihc_allocate_auxiliary(machine, sizeof(*name));
-  name->header = (AihcSlot)(uintptr_t)&aihc_runtime_object_info;
-  name->value = value;
-  name->hash = machine->next_stable_name++;
-  name->next = machine->stable_names;
-  machine->stable_names = name;
-  return name;
+  return machine->next_stable_name++;
 }
 
-uint64_t aihc_stable_name_equal(const void *left, const void *right) {
-  return left == right;
+void aihc_memory_copy(void *destination, const void *source, uint64_t length) {
+  memcpy(destination, source, (size_t)length);
 }
 
-int64_t aihc_stable_name_hash(const void *opaque_name) {
-  if (opaque_name == NULL) {
-    aihc_fail("stable-name hash received null");
-  }
-  const AihcStableName *name = opaque_name;
-  return (int64_t)name->hash;
+void aihc_memory_move(void *destination, const void *source, uint64_t length) {
+  memmove(destination, source, (size_t)length);
 }
 
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
@@ -681,268 +660,6 @@ int64_t aihc_memory_read_byte(const void *opaque_buffer, int64_t offset) {
   }
   const uint8_t *buffer = opaque_buffer;
   return buffer[offset];
-}
-
-static size_t aihc_byte_array_size(int64_t requested_size) {
-  if (requested_size < 0 || (uint64_t)requested_size > SIZE_MAX) {
-    aihc_fail("invalid byte array size");
-  }
-  return (size_t)requested_size;
-}
-
-static size_t aihc_byte_array_alignment(int64_t requested_alignment) {
-  if (requested_alignment <= 0 || (uint64_t)requested_alignment > SIZE_MAX ||
-      ((uint64_t)requested_alignment &
-       ((uint64_t)requested_alignment - UINT64_C(1))) != 0) {
-    aihc_fail("invalid byte array alignment");
-  }
-  return (size_t)requested_alignment;
-}
-
-static AihcByteArray *aihc_byte_array_allocate(int64_t requested_size,
-                                               uint8_t pinned,
-                                               int64_t requested_alignment) {
-  size_t size = aihc_byte_array_size(requested_size);
-  size_t alignment = aihc_byte_array_alignment(requested_alignment);
-  size_t allocation_size = size == 0 ? 1 : size;
-  if (allocation_size > SIZE_MAX - (alignment - 1)) {
-    aihc_fail("byte array allocation is too large");
-  }
-  AihcByteArray *array = aihc_allocate_zeroed(sizeof(*array));
-  array->header = (AihcSlot)(uintptr_t)&aihc_runtime_object_info;
-  uint8_t *raw = aihc_allocate_zeroed(allocation_size + alignment - 1);
-  uintptr_t aligned = ((uintptr_t)raw + alignment - 1) & ~(alignment - 1);
-  array->size = size;
-  array->contents = (uint8_t *)aligned;
-  array->pinned = pinned;
-  array->alignment = alignment;
-  return array;
-}
-
-void *aihc_byte_array_new(int64_t size) {
-  return aihc_byte_array_allocate(size, 0, (int64_t)sizeof(uintptr_t));
-}
-
-void *aihc_byte_array_new_pinned(int64_t size) {
-  return aihc_byte_array_allocate(size, 1, (int64_t)sizeof(uintptr_t));
-}
-
-void *aihc_byte_array_new_aligned_pinned(int64_t size, int64_t alignment) {
-  return aihc_byte_array_allocate(size, 1, alignment);
-}
-
-uint64_t aihc_byte_array_is_pinned(void *opaque_array) {
-  AihcByteArray *array = opaque_array;
-  if (array == NULL) {
-    aihc_fail("attempted to inspect a null byte array");
-  }
-  return array->pinned;
-}
-
-void *aihc_byte_array_contents(void *opaque_array) {
-  AihcByteArray *array = opaque_array;
-  if (array == NULL) {
-    aihc_fail("attempted to inspect a null byte array");
-  }
-  return array->contents;
-}
-
-uint64_t aihc_byte_array_shrink(void *opaque_array, int64_t requested_size) {
-  AihcByteArray *array = opaque_array;
-  size_t size = aihc_byte_array_size(requested_size);
-  if (array == NULL || size > array->size) {
-    aihc_fail("invalid byte array shrink");
-  }
-  array->size = size;
-  return 0;
-}
-
-void *aihc_byte_array_resize(void *opaque_array, int64_t requested_size) {
-  AihcByteArray *array = opaque_array;
-  if (array == NULL) {
-    aihc_fail("attempted to resize a null byte array");
-  }
-  AihcByteArray *resized = aihc_byte_array_allocate(
-      requested_size, array->pinned, (int64_t)array->alignment);
-  size_t copy_size = array->size < resized->size ? array->size : resized->size;
-  memcpy(resized->contents, array->contents, copy_size);
-  return resized;
-}
-
-uint64_t aihc_byte_array_get_size(void *opaque_array) {
-  AihcByteArray *array = opaque_array;
-  if (array == NULL) {
-    aihc_fail("attempted to inspect a null byte array");
-  }
-  return (uint64_t)array->size;
-}
-
-uint64_t aihc_byte_array_copy_from_addr(void *source, void *opaque_array,
-                                        int64_t requested_offset,
-                                        int64_t requested_length) {
-  AihcByteArray *array = opaque_array;
-  size_t offset = aihc_byte_array_size(requested_offset);
-  size_t length = aihc_byte_array_size(requested_length);
-  if (array == NULL || offset > array->size || length > array->size - offset ||
-      (source == NULL && length != 0)) {
-    aihc_fail("invalid byte array copy");
-  }
-  if (length != 0) {
-    memcpy(array->contents + offset, source, length);
-  }
-  return 0;
-}
-
-uint64_t aihc_byte_array_copy_to_addr(void *opaque_array,
-                                      int64_t requested_offset,
-                                      void *destination,
-                                      int64_t requested_length) {
-  AihcByteArray *array = opaque_array;
-  size_t offset = aihc_byte_array_size(requested_offset);
-  size_t length = aihc_byte_array_size(requested_length);
-  if (array == NULL || offset > array->size || length > array->size - offset ||
-      (destination == NULL && length != 0)) {
-    aihc_fail("invalid byte array copy");
-  }
-  if (length != 0) {
-    memcpy(destination, array->contents + offset, length);
-  }
-  return 0;
-}
-
-uint64_t aihc_byte_array_compare(void *opaque_left, int64_t left_requested,
-                                 void *opaque_right, int64_t right_requested,
-                                 int64_t requested_length) {
-  AihcByteArray *left = opaque_left;
-  AihcByteArray *right = opaque_right;
-  size_t left_offset = aihc_byte_array_size(left_requested);
-  size_t right_offset = aihc_byte_array_size(right_requested);
-  size_t length = aihc_byte_array_size(requested_length);
-  if (left == NULL || right == NULL || left_offset > left->size ||
-      length > left->size - left_offset || right_offset > right->size ||
-      length > right->size - right_offset) {
-    aihc_fail("invalid byte array comparison");
-  }
-  const uint8_t *left_bytes = left->contents + left_offset;
-  const uint8_t *right_bytes = right->contents + right_offset;
-  for (size_t index = 0; index < length; index += 1) {
-    if (left_bytes[index] != right_bytes[index]) {
-      return left_bytes[index] < right_bytes[index] ? (uint64_t)-1 : 1;
-    }
-  }
-  return 0;
-}
-
-static size_t aihc_byte_array_word_offset(AihcByteArray *array,
-                                          int64_t requested_index) {
-  if (array == NULL || requested_index < 0 ||
-      (uint64_t)requested_index > SIZE_MAX / sizeof(uint64_t)) {
-    aihc_fail("invalid byte array word index");
-  }
-  size_t offset = (size_t)requested_index * sizeof(uint64_t);
-  if (offset > array->size || sizeof(uint64_t) > array->size - offset) {
-    aihc_fail("byte array word index out of bounds");
-  }
-  return offset;
-}
-
-uint64_t aihc_byte_array_index_word(void *opaque_array, int64_t index) {
-  AihcByteArray *array = opaque_array;
-  size_t offset = aihc_byte_array_word_offset(array, index);
-  uint64_t value;
-  memcpy(&value, array->contents + offset, sizeof(value));
-  return value;
-}
-
-uint64_t aihc_byte_array_read_word(void *opaque_array, int64_t index) {
-  return aihc_byte_array_index_word(opaque_array, index);
-}
-
-static size_t aihc_byte_array_byte_offset(AihcByteArray *array,
-                                          int64_t requested_offset,
-                                          size_t element_size) {
-  if (array == NULL || requested_offset < 0) {
-    aihc_fail("invalid byte array byte offset");
-  }
-  size_t offset = (size_t)requested_offset;
-  if (offset > array->size || element_size > array->size - offset) {
-    aihc_fail("byte array byte offset out of bounds");
-  }
-  return offset;
-}
-
-uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset) {
-  AihcByteArray *array = opaque_array;
-  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint8_t));
-  uint8_t value;
-  memcpy(&value, array->contents + start, sizeof(value));
-  return value;
-}
-
-uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset) {
-  AihcByteArray *array = opaque_array;
-  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint16_t));
-  uint16_t value;
-  memcpy(&value, array->contents + start, sizeof(value));
-  return value;
-}
-
-uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset) {
-  AihcByteArray *array = opaque_array;
-  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint32_t));
-  uint32_t value;
-  memcpy(&value, array->contents + start, sizeof(value));
-  return value;
-}
-
-uint64_t aihc_byte_array_index_byte_word64(void *opaque_array, int64_t offset) {
-  AihcByteArray *array = opaque_array;
-  size_t start = aihc_byte_array_byte_offset(array, offset, sizeof(uint64_t));
-  uint64_t value;
-  memcpy(&value, array->contents + start, sizeof(value));
-  return value;
-}
-
-uint64_t aihc_byte_array_write_word(void *opaque_array, int64_t index,
-                                    uint64_t value) {
-  AihcByteArray *array = opaque_array;
-  size_t offset = aihc_byte_array_word_offset(array, index);
-  memcpy(array->contents + offset, &value, sizeof(value));
-  return 0;
-}
-
-uint64_t aihc_byte_array_copy(void *opaque_source,
-                              int64_t requested_source_offset,
-                              void *opaque_destination,
-                              int64_t requested_destination_offset,
-                              int64_t requested_length) {
-  AihcByteArray *source = opaque_source;
-  AihcByteArray *destination = opaque_destination;
-  size_t source_offset = aihc_byte_array_size(requested_source_offset);
-  size_t destination_offset =
-      aihc_byte_array_size(requested_destination_offset);
-  size_t length = aihc_byte_array_size(requested_length);
-  if (source == NULL || destination == NULL || source_offset > source->size ||
-      length > source->size - source_offset ||
-      destination_offset > destination->size ||
-      length > destination->size - destination_offset) {
-    aihc_fail("invalid byte array copy");
-  }
-  memmove(destination->contents + destination_offset,
-          source->contents + source_offset, length);
-  return 0;
-}
-
-uint64_t aihc_word_clz(uint64_t value) {
-  return value == 0 ? 64 : (uint64_t)__builtin_clzll(value);
-}
-
-uint64_t aihc_word_ctz(uint64_t value) {
-  return value == 0 ? 64 : (uint64_t)__builtin_ctzll(value);
-}
-
-uint64_t aihc_word_popcount(uint64_t value) {
-  return (uint64_t)__builtin_popcountll(value);
 }
 
 void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,

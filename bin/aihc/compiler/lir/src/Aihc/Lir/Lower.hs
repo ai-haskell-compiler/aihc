@@ -1342,6 +1342,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           operand <- word value
           result <- byteSwap shift operand
           bind [result]
+      | Just op <- lookup name bitCountPrimitives -> do
+          operand <- word value
+          result <- emitValue "count" I64 (Unary op I64 operand)
+          bind [result]
       | Just (op, ty) <- lookup name floatUnaryPrimitives -> do
           operand <- floatOperand ty value
           result <- emitValue "result" ty (FloatUnary op ty operand)
@@ -1551,6 +1555,15 @@ narrowPrimitives =
 
 -- | Byte swaps. The value moves left by the given number of bits first, thus
 -- one 64-bit swap gives the result of every width.
+-- | The bit counts of a @Word#@. Lir has one operation for each, so no
+-- target calls the runtime for them.
+bitCountPrimitives :: [(Text, UnaryOp)]
+bitCountPrimitives =
+  [ ("clz#", Clz),
+    ("ctz#", Ctz),
+    ("popCnt#", Popcount)
+  ]
+
 byteSwapPrimitives :: [(Text, Integer)]
 byteSwapPrimitives =
   [ ("byteSwap16#", 48),

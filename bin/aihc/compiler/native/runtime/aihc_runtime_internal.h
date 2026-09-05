@@ -84,6 +84,9 @@ struct AihcMVar {
   AihcMVar *next;
 };
 
+/* aihc_stable_name.lir allocates and links these, so every field starts one
+   eight-byte slot after the last on every target. The static assertions in
+   aihc_runtime.c hold the two descriptions together. */
 struct AihcStableName {
   AihcSlot header;
   AihcValue *value;
@@ -98,14 +101,6 @@ struct AihcIoHandle {
   uint8_t append;
   uint8_t closed;
 };
-
-typedef struct {
-  AihcSlot header;
-  size_t size;
-  uint8_t *contents;
-  uint8_t pinned;
-  size_t alignment;
-} AihcByteArray;
 
 struct AihcIoRequest {
   AihcIoKind kind;
@@ -142,8 +137,15 @@ typedef struct {
 
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcMachine *machine);
-void *aihc_allocate_zeroed(size_t bytes);
-void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes);
+void *aihc_allocate_zeroed(uint64_t bytes);
+void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes);
+void aihc_memory_copy(void *destination, const void *source, uint64_t length);
+void aihc_memory_move(void *destination, const void *source, uint64_t length);
+/* The machine fields that aihc_stable_name.lir needs. Their offsets in
+   AihcMachine follow the target word size, so a Lir unit reaches them through
+   these accessors instead of by offset. */
+AihcStableName **aihc_stable_names(AihcMachine *machine);
+uint64_t aihc_stable_name_take_hash(AihcMachine *machine);
 const AihcRtsConfig *aihc_rts_config(void);
 uint64_t aihc_object_words(const AihcInfo *info);
 uint64_t aihc_value_words(const AihcValue *value);

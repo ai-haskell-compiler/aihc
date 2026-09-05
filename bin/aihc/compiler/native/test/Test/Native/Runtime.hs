@@ -18,6 +18,8 @@ tests =
   testGroup
     "native runtime"
     [ runtimeProgramTest "stable names survive collections" RuntimeGcSemispace [] stableNameSource,
+      runtimeProgramTest "Lir runtime units implement mutable references" RuntimeGcSemispace [] mutVarSource,
+      runtimeProgramTest "Lir runtime units implement byte arrays" RuntimeGcSemispace [] byteArraySource,
       runtimeProgramTest "semispace grows when live data exceeds the initial space" RuntimeGcSemispace [] growthSource,
       runtimeProgramTest "semispace stops at the heap limit" RuntimeGcSemispace ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
@@ -79,6 +81,79 @@ stableNameSource =
       "  second = (AihcValue *)machine->globals[1];",
       "  if (aihc_stable_name_make(machine, first) != first_name) return 4;",
       "  if (aihc_stable_name_make(machine, second) != second_name) return 5;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | Mutable references are boxed arrays of one element, and both live in
+-- aihc_mutvar.lir and aihc_array.lir. See the "Runtime units" section of
+-- docs/lir.md.
+mutVarSource :: String
+mutVarSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "int main(void) {",
+      "  AihcMachine *machine = aihc_machine_new(0);",
+      "  AihcValue *mutvar = aihc_mutvar_new(machine, 7);",
+      "  if (aihc_mutvar_read(mutvar) != 7) return 1;",
+      "  aihc_mutvar_write(mutvar, 9);",
+      "  if (aihc_mutvar_read(mutvar) != 9) return 2;",
+      "  if (aihc_mutvar_compare_and_swap(mutvar, 8, 10) != 1) return 3;",
+      "  if (aihc_mutvar_read(mutvar) != 9) return 4;",
+      "  if (aihc_mutvar_compare_and_swap(mutvar, 9, 10) != 0) return 5;",
+      "  if (aihc_mutvar_read(mutvar) != 10) return 6;",
+      "  if (!aihc_mutvar_same(mutvar, mutvar)) return 7;",
+      "  if (aihc_mutvar_same(mutvar, aihc_mutvar_new(machine, 0))) return 8;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | Byte arrays live entirely in aihc_byte_array.lir: the C runtime keeps no
+-- description of their layout, so this exercises the whole unit through the
+-- header it exports.
+byteArraySource :: String
+byteArraySource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include <string.h>",
+      "int main(void) {",
+      "  void *bytes = aihc_byte_array_new(16);",
+      "  if (aihc_byte_array_get_size(bytes) != 16) return 1;",
+      "  if (aihc_byte_array_is_pinned(bytes)) return 2;",
+      "  if (!aihc_byte_array_is_pinned(aihc_byte_array_new_pinned(8))) return 3;",
+      "  void *aligned = aihc_byte_array_new_aligned_pinned(8, 64);",
+      "  if ((uintptr_t)aihc_byte_array_contents(aligned) % 64 != 0) return 4;",
+      "  aihc_byte_array_write_word(bytes, 0, 0x0102030405060708ULL);",
+      "  aihc_byte_array_write_word(bytes, 1, UINT64_MAX);",
+      "  if (aihc_byte_array_index_word(bytes, 0) != 0x0102030405060708ULL) return 5;",
+      "  if (aihc_byte_array_read_word(bytes, 1) != UINT64_MAX) return 6;",
+      "  if (aihc_byte_array_index_byte_word8(bytes, 0) != 0x08) return 7;",
+      "  if (aihc_byte_array_index_byte_word16(bytes, 0) != 0x0708) return 8;",
+      "  if (aihc_byte_array_index_byte_word32(bytes, 1) != 0x04050607) return 9;",
+      "  if (aihc_byte_array_index_byte_word64(bytes, 8) != UINT64_MAX) return 10;",
+      "  const char *source = \"hello world!!!!!\";",
+      "  char out[17] = {0};",
+      "  aihc_byte_array_copy_from_addr((void *)source, bytes, 0, 16);",
+      "  aihc_byte_array_copy_to_addr(bytes, 0, out, 16);",
+      "  if (memcmp(out, source, 16) != 0) return 11;",
+      "  void *other = aihc_byte_array_new(16);",
+      "  aihc_byte_array_copy(bytes, 0, other, 0, 16);",
+      "  if (aihc_byte_array_compare(bytes, 0, other, 0, 16) != 0) return 12;",
+      "  aihc_byte_array_write_word(other, 0, 0);",
+      "  if ((int64_t)aihc_byte_array_compare(bytes, 0, other, 0, 16) != 1) return 13;",
+      "  if ((int64_t)aihc_byte_array_compare(other, 0, bytes, 0, 16) != -1) return 14;",
+      "  /* Ranges of one array may overlap, so a copy has to move. */",
+      "  aihc_byte_array_copy(bytes, 0, bytes, 4, 12);",
+      "  aihc_byte_array_copy_to_addr(bytes, 0, out, 16);",
+      "  if (memcmp(out, \"hellhello world!\", 16) != 0) return 15;",
+      "  void *grown = aihc_byte_array_resize(bytes, 32);",
+      "  if (aihc_byte_array_get_size(grown) != 32) return 16;",
+      "  if (aihc_byte_array_compare(grown, 0, bytes, 0, 16) != 0) return 17;",
+      "  aihc_byte_array_shrink(grown, 4);",
+      "  if (aihc_byte_array_get_size(grown) != 4) return 18;",
+      "  void *empty = aihc_byte_array_new(0);",
+      "  if (aihc_byte_array_get_size(empty) != 0) return 19;",
+      "  aihc_byte_array_copy_from_addr(NULL, empty, 0, 0);",
       "  return 0;",
       "}"
     ]

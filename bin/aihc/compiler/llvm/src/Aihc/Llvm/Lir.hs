@@ -88,7 +88,12 @@ preamble =
   ]
     <> concat
       [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
-          "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")"
+          "declare {" <> ty <> ", i1} @llvm.usub.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
+          -- The second argument states whether a zero operand is undefined.
+          -- Lir defines it as the width, so it is always false.
+          "declare " <> ty <> " @llvm.ctlz." <> ty <> "(" <> ty <> ", i1)",
+          "declare " <> ty <> " @llvm.cttz." <> ty <> "(" <> ty <> ", i1)",
+          "declare " <> ty <> " @llvm.ctpop." <> ty <> "(" <> ty <> ")"
         ]
       | ty <- ["i8", "i16", "i32", "i64"]
       ]
@@ -511,6 +516,11 @@ compileInstruction ctx (Instruction results operation) =
         RemU -> do
           divisionChecks ty a b
           single ("urem " <> llvmType <> " " <> a <> ", " <> b)
+    Unary op ty value ->
+      case op of
+        Clz -> single ("call " <> renderType ty <> " @llvm.ctlz." <> renderType ty <> "(" <> typed ty value <> ", i1 false)")
+        Ctz -> single ("call " <> renderType ty <> " @llvm.cttz." <> renderType ty <> "(" <> typed ty value <> ", i1 false)")
+        Popcount -> single ("call " <> renderType ty <> " @llvm.ctpop." <> renderType ty <> "(" <> typed ty value <> ")")
     Wide op ty left right -> do
       let a = renderOperand ty left
           b = renderOperand ty right

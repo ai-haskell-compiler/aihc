@@ -207,6 +207,16 @@ data Arm64Instruction
   | ArmStrh !Arm64Register !Arm64Register !Int64
   | ArmSxtb !Arm64Register !Arm64Register
   | ArmSxth !Arm64Register !Arm64Register
+  | -- | @clz xd, xn@ and @rbit xd, xn@: the leading-zero count and the bit
+    -- reversal, both of the base architecture.
+    ArmClz !Arm64Register !Arm64Register
+  | ArmRbit !Arm64Register !Arm64Register
+  | -- | @cnt vd.8b, vn.8b@: the population count of every byte of a vector.
+    -- AArch64 has no population count of a general register, so a word count
+    -- goes through the vector unit, which the base architecture requires.
+    ArmCnt !Int !Int
+  | -- | @addv bd, vn.8b@: the sum of the bytes of a vector.
+    ArmAddv !Int !Int
   | -- | @fmov dN, xn@ or @fmov sN, wn@.
     ArmFmovToFloat !Bool !Int !Arm64Register
   | -- | @fmov xd, dN@ or @fmov wd, sN@.
@@ -354,6 +364,10 @@ encodeInstruction instruction =
     ArmStrh value base offset -> encodeNarrowLoadStore 0x79000000 2 value base offset
     ArmSxtb destination source -> encodeTwoRegister 0x93401c00 destination source
     ArmSxth destination source -> encodeTwoRegister 0x93403c00 destination source
+    ArmClz destination source -> encodeTwoRegister 0xdac01000 destination source
+    ArmRbit destination source -> encodeTwoRegister 0xdac00000 destination source
+    ArmCnt destination source -> words32 [0x0e205800 .|. fromIntegral source `shiftL` 5 .|. fromIntegral destination]
+    ArmAddv destination source -> words32 [0x0e31b800 .|. fromIntegral source `shiftL` 5 .|. fromIntegral destination]
     ArmFmovToFloat double float general ->
       words32 [(if double then 0x9e670000 else 0x1e270000) .|. registerNumber (registerInfo general) `shiftL` 5 .|. fromIntegral float]
     ArmFmovFromFloat double general float ->

@@ -2,6 +2,7 @@
 module Aihc.Amd64.Assemble
   ( Amd64Statement,
     Amd64Instruction (..),
+    Amd64BitCountOp (..),
     Amd64Register (..),
     Amd64Memory (..),
     Amd64Address (..),
@@ -163,6 +164,9 @@ data Amd64SseOp
     SseConvertWidth
   deriving (Eq, Ord, Show)
 
+data Amd64BitCountOp = AmdPopcnt | AmdLzcnt | AmdTzcnt
+  deriving (Eq, Show)
+
 data Amd64Instruction
   = AmdRet
   | AmdUd2
@@ -231,6 +235,10 @@ data Amd64Instruction
     AmdCvtsi2s !Bool !Int !Amd64Register
   | -- | @cvttsd2si r64, xmm@ or @cvttss2si r64, xmm@.
     AmdCvtts2si !Bool !Amd64Register !Int
+  | -- | @popcnt@, @lzcnt@, or @tzcnt@ on 64-bit registers. They need SSE4.2,
+    -- LZCNT, and BMI1; the AMD64 target is modern hardware, and a host
+    -- without them uses the LLVM backend.
+    AmdBitCount !Amd64BitCountOp !Amd64Register !Amd64Rm
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
 assembleElf statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeAmd64Elf
@@ -414,9 +422,17 @@ encodeInstruction instruction =
     AmdUcomis double left right -> bytes [0x66 | double] <> encodeRm False [0x0f, 0x2e] (fromIntegral left) (RegisterOperand (xmmRegister right)) False []
     AmdCvtsi2s double xmm source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2a] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
     AmdCvtts2si double destination xmm -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2c] (registerNumber (registerInfo destination)) (RegisterOperand (xmmRegister xmm)) False []
+    AmdBitCount op destination source -> bytes [0xf3] <> encodeRegisterSource True [0x0f, bitCountOpcode op] destination source
 
 xmmRegister :: Int -> Register
 xmmRegister number = Register (fromIntegral number) 128
+
+bitCountOpcode :: Amd64BitCountOp -> Word8
+bitCountOpcode op =
+  case op of
+    AmdPopcnt -> 0xb8
+    AmdLzcnt -> 0xbd
+    AmdTzcnt -> 0xbc
 
 sseOpcode :: Amd64SseOp -> Word8
 sseOpcode op =

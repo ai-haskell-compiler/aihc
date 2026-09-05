@@ -27,6 +27,7 @@ module Aihc.Lir.Syntax
     Instruction (..),
     Operation (..),
     BinaryOp (..),
+    UnaryOp (..),
     WideOp (..),
     CompareOp (..),
     FloatBinaryOp (..),
@@ -189,6 +190,8 @@ data Instruction = Instruction
 
 data Operation
   = Binary !BinaryOp !Type !Operand !Operand
+  | -- | A bit-count operation on an integer type.
+    Unary !UnaryOp !Type !Operand
   | -- | An operation with two results.
     Wide !WideOp !Type !Operand !Operand
   | Compare !CompareOp !Type !Operand !Operand
@@ -223,6 +226,12 @@ data BinaryOp
   | Shl
   | ShrS
   | ShrU
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | The bit-count operations. Each counts bits of an @iN@ value and gives an
+-- @iN@ result. @Clz@ and @Ctz@ give @N@ for a zero operand, so none of them
+-- has an undefined case.
+data UnaryOp = Clz | Ctz | Popcount
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 data WideOp = MulWideS | MulWideU | AddCarry | SubBorrow

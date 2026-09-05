@@ -1,0 +1,17 @@
+; expect: 24, 31, 32, 15, 15, 16, 7, 7
+; The bit counts of the narrow types. A backend keeps a narrow value
+; zero-extended in a wider register, so every one of these needs the count
+; corrected to the width of the type.
+
+func @main() -> (i32, i32, i32, i16, i16, i16, i8, i8) {
+entry:
+  %word_leading = clz i32 255
+  %word_trailing = ctz i32 -2147483648
+  %word_ones = popcount i32 -1
+  %half_leading = clz i16 1
+  %half_trailing = ctz i16 -32768
+  %half_ones = popcount i16 -1
+  %byte_leading = clz i8 1
+  %byte_trailing = ctz i8 -128
+  return %word_leading, %word_trailing, %word_ones, %half_leading, %half_trailing, %half_ones, %byte_leading, %byte_trailing
+}

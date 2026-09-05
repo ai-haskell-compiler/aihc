@@ -1,11 +1,13 @@
 ; error: @main/entry: add does not accept f64
 ; error: @main/entry: lt.s does not accept ptr
+; error: @main/entry: popcount does not accept i1
 ; error: @main/entry: switch does not accept f64
 
 func @main() -> f64 {
 entry:
   %x = add f64 1.0, 2.0
   %c = lt.s ptr null, null
+  %n = popcount i1 1
   switch f64 %x {
     default -> done
   }

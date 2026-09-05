@@ -589,6 +589,7 @@ compileInstruction ctx (Instruction results operation) =
     Binary op ty left right -> do
       body <- binary op ty
       single (loadTyped ctx 0 ty RAX left <> loadTyped ctx 0 ty R10 right <> body)
+    Unary op ty value -> single (loadTyped ctx 0 ty RAX value <> bitCount op ty)
     Wide op ty left right -> do
       body <- wide op ty
       pair (loadTyped ctx 0 ty RAX left <> loadTyped ctx 0 ty R10 right <> body)
@@ -641,6 +642,26 @@ compileInstruction ctx (Instruction results operation) =
       case results of
         [first, second] -> pure (body <> [storeSlot ctx 0 RAX first, storeSlot ctx 0 R10 second])
         _ -> unsupported "instruction result count"
+
+    -- A narrow value is zero-extended in its slot, so a leading-zero count
+    -- includes the bits above the type and a trailing-zero count of zero
+    -- would reach the top of the register. Setting the first bit above the
+    -- type keeps the trailing count at the width of the type.
+    bitCount op ty =
+      let bits = typeBits ty
+       in case op of
+            Popcount -> [amd64Instruction (AmdBitCount AmdPopcnt RAX (Amd64RmRegister RAX))]
+            Clz ->
+              [amd64Instruction (AmdBitCount AmdLzcnt RAX (Amd64RmRegister RAX))]
+                <> [amd64Instruction (AmdSub (Amd64RmRegister RAX) (Amd64BinaryImmediate (toInteger (64 - bits)))) | bits < 64]
+            Ctz ->
+              concat
+                [ [ amd64Instruction (AmdMov R10 (Amd64MoveImmediate (2 ^ bits))),
+                    amd64Instruction (AmdOr (Amd64RmRegister RAX) (Amd64BinaryRegister R10))
+                  ]
+                | bits < 64
+                ]
+                <> [amd64Instruction (AmdBitCount AmdTzcnt RAX (Amd64RmRegister RAX))]
 
     binary op ty =
       case op of
