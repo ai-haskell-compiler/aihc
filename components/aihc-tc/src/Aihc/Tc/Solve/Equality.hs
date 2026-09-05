@@ -15,6 +15,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Map.Strict qualified as Map
 
 -- | Result of attempting to solve an equality constraint.
 data EqResult
@@ -95,6 +96,13 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   -- decompose the application for us.
   (TcAppTy f1 a1, TcAppTy f2 a2) ->
     solveDecomposed ct t1 [(f1, f2), (a1, a2)]
+  -- Two polymorphic types are equal up to the names of their bound
+  -- variables.
+  (TcForAllTy v1 b1, TcForAllTy v2 b2) ->
+    solveDecomposed ct t1 [(b1, applySubst (Map.singleton (tvUnique v2) (TcTyVar v1)) b2)]
+  (TcQualTy p1 b1, TcQualTy p2 b2)
+    | p1 == p2 ->
+        solveDecomposed ct t1 [(b1, b2)]
   -- Incompatible types.
   _ -> pure (EqError ct)
 

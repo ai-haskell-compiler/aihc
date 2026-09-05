@@ -550,6 +550,14 @@ inferApp sp fun arg = do
       | hasLeadingForAll expectedArgTy -> do
           (arg', argCts) <- checkHigherRankArgument sp expectedArgTy arg
           pure (EApp fun' arg', resultTy, funCts <> argCts)
+      | otherwise -> do
+          -- The function type is known, so the result type is known too.
+          -- An enclosing application then sees a function type, which lets
+          -- it check a higher-rank argument.
+          (arg', argTy, argCts) <- inferExpr arg
+          ev <- freshEvVar
+          let eqCt = mkWantedCt (EqPred expectedArgTy argTy) ev (AppOrigin sp) sp
+          pure (EApp fun' arg', resultTy, funCts <> argCts <> [eqCt])
     _ -> do
       (arg', argTy, argCts) <- inferExpr arg
       resTy <- freshMetaTv
