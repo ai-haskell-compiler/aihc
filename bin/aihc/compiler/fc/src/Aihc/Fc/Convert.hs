@@ -205,6 +205,8 @@ convertType env = convertTypeWithExpectedKind env Nothing
 convertTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either String Type
 convertTypeWithExpectedKind env expectedKind ty =
   case ty of
+    -- A saturated application of the arrow constructor is the function type.
+    _ | Just (argument, result) <- saturatedArrowApplication ty -> convertTypeWithExpectedKind env expectedKind (TcFunTy argument result)
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
     -- The constraint type of an implicit parameter is the type of its value.
@@ -250,6 +252,19 @@ convertPred env predicate =
       convertedAntecedents <- mapM (convertPred quantifiedEnv) antecedents
       convertedConsequent <- convertPred quantifiedEnv consequent
       pure (foldr TyForAll (foldr (funType quantifiedEnv) convertedConsequent convertedAntecedents) binders)
+
+-- | The argument and result of a saturated application of the arrow
+-- constructor, in any of its forms.
+saturatedArrowApplication :: TcType -> Maybe (TcType, TcType)
+saturatedArrowApplication ty =
+  case ty of
+    TcAppTy (TcAppTy (TcTyCon tyCon []) argument) result
+      | Tc.isArrowTyCon tyCon -> Just (argument, result)
+    TcAppTy (TcTyCon tyCon [argument]) result
+      | Tc.isArrowTyCon tyCon -> Just (argument, result)
+    TcTyCon tyCon [argument, result]
+      | Tc.isArrowTyCon tyCon -> Just (argument, result)
+    _ -> Nothing
 
 typeRep :: ConvertEnv -> TcType -> Either String Type
 typeRep env ty = do

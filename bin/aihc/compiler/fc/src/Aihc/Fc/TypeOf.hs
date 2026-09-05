@@ -276,7 +276,13 @@ reduceTypeWith families env ty =
       case reduceTypeWith families env function of
         TyForAll binder body ->
           reduceTypeWith families env (substType (binderName binder) argument body)
-        function' -> reduceFamily (TyApp function' (reduceTypeWith families env argument))
+        function' ->
+          case saturatedArrow env (TyApp function' (reduceTypeWith families env argument)) of
+            -- The representations come from the kinds of the argument and
+            -- the result, so they still need reduction.
+            TyFun r1 r2 argument' result ->
+              TyFun (reduceTypeWith families env r1) (reduceTypeWith families env r2) argument' result
+            other -> reduceFamily other
     TyFun r1 r2 argument result ->
       TyFun (reduceTypeWith families env r1) (reduceTypeWith families env r2) (reduceTypeWith families env argument) (reduceTypeWith families env result)
     TyForAll binder body ->
@@ -291,6 +297,19 @@ reduceTypeWith families env ty =
         Just result <- firstJust (map (\equation -> applyNominalAxiom env equation reduced) equations) =
           reduceTypeWith families env result
       | otherwise = reduced
+
+-- | The function type of a saturated application of the arrow constructor.
+-- The instantiation of a type variable with @(->)@ makes such an
+-- application, and it is the same type as the function type.
+saturatedArrow :: TypeEnv -> Type -> Type
+saturatedArrow env ty =
+  case ty of
+    TyApp (TyApp (TyCon name) argument) result
+      | name == functionArrowConstructor (tePrimPackage env),
+        Just r1 <- repOf env argument,
+        Just r2 <- repOf env result ->
+          TyFun r1 r2 argument result
+    _ -> ty
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust values =
@@ -393,12 +412,20 @@ typesEqual :: TypeEnv -> Type -> Type -> Bool
 typesEqual env left right =
   eq (reduceType env left) (reduceType env right)
   where
+    arrow = functionArrowConstructor (tePrimPackage env)
     eq (TyVar a) (TyVar b) = a == b
     eq (TyCon a) (TyCon b) = a == b
     eq (TyApp function1 argument1) (TyApp function2 argument2) =
       eq function1 function2 && eq argument1 argument2
     eq (TyFun r1a r2a a1 b1) (TyFun r1b r2b a2 b2) =
       eq r1a r1b && eq r2a r2b && eq a1 a2 && eq b1 b2
+    -- A saturated arrow application is the function type. Its
+    -- representations follow from the argument and the result, so the
+    -- comparison does not need them.
+    eq (TyFun _ _ a1 b1) (TyApp (TyApp (TyCon name) a2) b2)
+      | name == arrow = eq a1 a2 && eq b1 b2
+    eq (TyApp (TyApp (TyCon name) a1) b1) (TyFun _ _ a2 b2)
+      | name == arrow = eq a1 a2 && eq b1 b2
     eq (TyForAll binder1 body1) (TyForAll binder2 body2) =
       eq (binderType binder1) (binderType binder2)
         && typesEqual env body1 (substType (binderName binder2) (TyVar (binderName binder1)) body2)

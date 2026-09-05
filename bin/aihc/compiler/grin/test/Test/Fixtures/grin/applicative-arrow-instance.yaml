@@ -1,0 +1,139 @@
+expected: |-
+  scope 1 = "" Test
+
+  constructor 1.$Dict$Fun [BoxedRep Lifted]
+
+  constructor 1.$Dict$Ap [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  global 1.$Dict$Fun = (C1.$Dict$Fun/1)
+
+  global 1.$Dict$Ap = (C1.$Dict$Ap/4)
+
+  global 1.fmap' = (P$fmap'/1)
+
+  global 1.unit = (P$unit/1)
+
+  global 1.ap = (P$ap/1)
+
+  global 1.lift2 = (P$lift2/1)
+
+  global 1.$dmlift2 = (P$$dmlift2/4)
+
+  global 1."$fFun(->)r" = (F"$$fFun(->)r_thunk")
+
+  global 1."$fAp(->)r" = (F"$$fAp(->)r_thunk")
+
+  $fmap' ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data 1.$Dict$Fun ($method0 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
+
+  $unit ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data 1.$Dict$Ap ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ($method2 :: BoxedRep Lifted) ($method3 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method1 :: BoxedRep Lifted)
+
+  $ap ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data 1.$Dict$Ap ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ($method2 :: BoxedRep Lifted) ($method3 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method2 :: BoxedRep Lifted)
+
+  $lift2 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
+      data 1.$Dict$Ap ($method0 :: BoxedRep Lifted) ($method1 :: BoxedRep Lifted) ($method2 :: BoxedRep Lifted) ($method3 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($method3 :: BoxedRep Lifted)
+
+  $$dmlift2_argument_thunk_2 ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
+    case (case_value :: BoxedRep Lifted) as $super_source :: BoxedRep Lifted of
+      data 1.$Dict$Ap ($super_field0 :: BoxedRep Lifted) ($super_field1 :: BoxedRep Lifted) ($super_field2 :: BoxedRep Lifted) ($super_field3 :: BoxedRep Lifted) ->
+        eval @(BoxedRep Lifted) ($super_field0 :: BoxedRep Lifted)
+
+  $$dmlift2_argument_thunk ($d0 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (F$$dmlift2_argument_thunk_2 ($d0 :: BoxedRep Lifted))
+    function_application :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $fmap' (argument :: BoxedRep Lifted)
+    function_application%1 :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (x :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_application%1 :: BoxedRep Lifted) (y :: BoxedRep Lifted)
+
+  $$dmlift2 ($d0 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_application :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $ap ($d0 :: BoxedRep Lifted)
+    argument :: BoxedRep Lifted <-
+      store (F$$dmlift2_argument_thunk ($d0 :: BoxedRep Lifted) (x :: BoxedRep Lifted) (y :: BoxedRep Lifted))
+    function_application%1 :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_application%1 :: BoxedRep Lifted) (z :: BoxedRep Lifted)
+
+  "$$fFun(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
+
+  "$$fFun(->)r_closure" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (F"$$fFun(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
+
+  "$$fFun(->)r_thunk" -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (P"$$fFun(->)r_closure"/3)
+    store (C1.$Dict$Fun (argument :: BoxedRep Lifted))
+
+  "$$fAp(->)r_closure" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+
+  "$$fAp(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
+
+  "$$fAp(->)r_closure_2" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (F"$$fAp(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
+    function_whnf :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    function_whnf%1 :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
+
+  "$$fAp(->)r_thunk" -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (P"$$fAp(->)r_closure"/2)
+    argument%1 :: BoxedRep Lifted <-
+      store (P"$$fAp(->)r_closure_2"/3)
+    argument%2 :: BoxedRep Lifted <-
+      store (P$$dmlift2/3 global-ref 1."$fAp(->)r")
+    store (C1.$Dict$Ap global-ref 1."$fFun(->)r" (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted))
+extensions: []
+reason: an instance for the partially applied function arrow gives its
+  methods function types, and the lint equates them with the class method
+  types instantiated at the arrow, also for a default method
+source: |
+  module Test where
+  class Fun f where
+    fmap' :: (a -> b) -> f a -> f b
+  class (Fun f) => Ap f where
+    unit :: a -> f a
+    ap :: f (a -> b) -> f a -> f b
+    lift2 :: (a -> b -> c) -> f a -> f b -> f c
+    lift2 f x y = ap (fmap' f x) y
+  instance Fun ((->) r) where
+    fmap' f g x = f (g x)
+  instance Ap ((->) r) where
+    unit x _ = x
+    ap f g x = f x (g x)
+status: pass
