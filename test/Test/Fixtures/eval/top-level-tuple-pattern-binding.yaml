@@ -1,0 +1,29 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Ranged a where
+      range :: a -> (Nat, Nat)
+
+    instance Ranged Nat where
+      range n = (n, S n)
+
+    low :: Nat
+    high :: Nat
+    (low, high) = range (S Z)
+
+    [first, second] = [S high, low]
+
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = S (add n m)
+output: |
+  S (S (S (S (S (S (S Z))))))
+expression: |
+  add (add low high) (add first second)
+status: pass
+reason: a tuple or list pattern at the top level binds its variables, with or
+  without type signatures
