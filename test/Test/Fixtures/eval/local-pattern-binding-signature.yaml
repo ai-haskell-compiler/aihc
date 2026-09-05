@@ -1,0 +1,24 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    class Def a where
+      def :: a
+
+    instance Def Nat where
+      def = S Z
+
+    useDef :: Nat -> Nat
+    useDef n = S local
+      where
+        local :: Nat
+        local = def
+output: |
+  S (S Z)
+expression: |
+  useDef Z
+status: pass
+reason: a local binding without arguments takes the type of its signature
