@@ -5,15 +5,17 @@ modules:
   - |
     module Test where
 
-    import GHC.Prim (catch#, raise#, realWorld#)
+    import GHC.Prim (State#, RealWorld, catch#, raise#, realWorld#, seq)
 
     error :: [Char] -> ()
     error message = raise# message
 
+    throwing :: State# RealWorld -> (# State# RealWorld, Bool #)
     throwing state =
       case seq (error "urk") () of
         () -> (# state, False #)
 
+    handler :: [Char] -> State# RealWorld -> (# State# RealWorld, Bool #)
     handler exception state =
       case exception of
         ['u', 'r', 'k'] -> (# state, True #)
@@ -23,5 +25,5 @@ output: |
 expression: |
   case catch# throwing handler realWorld# of
     (# _, result #) -> result
-status: xfail
+status: pass
 reason: seq evaluates its first argument and propagates the exact error payload to the exception handler
