@@ -1,0 +1,54 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Container (..), Nat (..)) where
+    data Nat = Z | S Nat
+    class Container c where
+      type Elem c
+      elems :: c -> [Elem c]
+  - |
+    module Consumer where
+    import qualified Provider as P
+    data Bag = Bag P.Nat
+    instance P.Container Bag where
+      type Elem Bag = P.Nat
+      elems (Bag n) = [n]
+annotated:
+  - |-
+    module Consumer where
+    import qualified Provider as P
+    data Bag = Bag P.Nat
+         │     │   └─ t Provider
+         │     └─ v Consumer
+         └─ t Consumer
+    instance P.Container Bag where
+             │           └─ t Consumer
+             └─ t Provider
+      type Elem Bag = P.Nat
+           │    │     └─ t Provider
+           │    └─ t Consumer
+           └─ t Provider
+      elems (Bag n) = [n]
+      │      │   │    │└─ v 0
+      │      │   │    └─ v Builtin []
+      │      │   └─ v 0
+      │      └─ v Consumer
+      └─ v Provider
+  - |-
+    module Provider (Container (..), Nat (..)) where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Provider
+         │     │   └─ v Provider
+         │     └─ v Provider
+         └─ t Provider
+    class Container c where
+          └─ t Provider
+      type Elem c
+           └─ t Provider
+      elems :: c -> [Elem c]
+      └─ v Provider │└─ t Provider
+                    └─ t Builtin []
+status: pass
+reason: an associated type instance names its family through the class of the
+  instance head, even when the class is only in scope qualified

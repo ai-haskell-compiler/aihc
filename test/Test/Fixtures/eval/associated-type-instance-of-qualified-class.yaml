@@ -1,0 +1,30 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Container (..), Nat (..)) where
+
+    data Nat = Z | S Nat
+
+    class Container c where
+      type Elem c
+      size :: c -> Nat
+  - |
+    module Test where
+
+    import qualified Provider as P
+
+    data Bag = Bag P.Nat
+
+    instance P.Container Bag where
+      type Elem Bag = P.Nat
+      size (Bag n) = n
+
+    total :: P.Nat
+    total = P.size (Bag (P.S P.Z))
+output: |
+  S Z
+expression: |
+  total
+status: pass
+reason: an associated type instance names its family through a qualified class
