@@ -2,14 +2,10 @@
 
 module Test.Lir.Arbitrary
   ( prop_lirPrettyRoundTrip,
-    prop_bitCountExpansion,
     genModule,
   )
 where
 
-import Aihc.Lir.BitCount (expandBitCounts)
-import Aihc.Lir.Interpret (renderValues, runFunction)
-import Aihc.Lir.Lint (lintModule, renderLintError)
 import Aihc.Lir.Parser (parseModule, renderParseError)
 import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Syntax
@@ -35,42 +31,6 @@ prop_lirPrettyRoundTrip = property $ do
       annotate ("rendered Lir:\n" <> T.unpack rendered)
       -- Float literals may be NaN, so compare the rendering of the structure.
       show reparsed === show lirModule
-
--- | The arithmetic that 'expandBitCounts' substitutes for a bit count gives
--- the result the interpreter defines, for every integer width and every
--- operand. The expansion is what the AArch64 and the AMD64 backends assemble.
-prop_bitCountExpansion :: Property
-prop_bitCountExpansion = property $ do
-  op <- forAll (Gen.enumBounded :: Gen UnaryOp)
-  ty <- forAll (Gen.element [I8, I16, I32, I64])
-  value <- forAll (Gen.integral (Range.constantFrom 0 0 (2 ^ typeBits ty - 1)))
-  let lirModule = bitCountModule op ty value
-      expanded = expandBitCounts lirModule
-  annotate ("expanded Lir:\n" <> T.unpack (renderModule expanded))
-  map renderLintError (lintModule expanded) === []
-  fmap (renderValues [ty]) (runFunction expanded (Symbol "main") [])
-    === fmap (renderValues [ty]) (runFunction lirModule (Symbol "main") [])
-
-bitCountModule :: UnaryOp -> Type -> Integer -> Module
-bitCountModule op ty value =
-  Module
-    [ ItemFunction
-        Function
-          { functionName = Symbol "main",
-            functionLinkage = Internal,
-            functionParameters = [],
-            functionResults = [ty],
-            functionConvention = AihcConvention,
-            functionBlocks =
-              [ Block
-                  { blockLabel = Label "entry",
-                    blockParameters = [],
-                    blockInstructions = [Instruction [Var "count"] (Unary op ty (OperandLiteral (LitInt value)))],
-                    blockTerminator = Return [OperandVar (Var "count")]
-                  }
-              ]
-          }
-    ]
 
 genModule :: Gen Module
 genModule = Module <$> Gen.list (Range.linear 0 4) genItem

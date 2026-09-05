@@ -21,7 +21,6 @@ module Aihc.Arm64.Lir
 where
 
 import Aihc.Arm64.Assemble
-import Aihc.Lir.BitCount (expandBitCounts)
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
@@ -58,14 +57,11 @@ compileLirObject lirModule = do
   either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
-compileLirStatements original =
-  case lintModule original of
+compileLirStatements lirModule@(Module items) =
+  case lintModule lirModule of
     [] -> evalStateT compileItems initialState
     errors -> Left (Arm64LirLintErrors errors)
   where
-    -- This backend has no bit-count instruction, so the module it assembles
-    -- is the linted one with those operations expanded into arithmetic.
-    Module items = expandBitCounts original
     initialState = ObjectState {objectTraps = Map.empty, objectNextLabel = 0}
     signatures =
       Map.fromList
@@ -568,9 +564,7 @@ compileInstruction ctx (Instruction results operation) =
     Binary op ty left right -> do
       body <- binary op ty
       single (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> body)
-    -- 'expandBitCounts' rewrites these into arithmetic before this
-    -- backend sees the module.
-    Unary op _ _ -> unsupported ("bit count " <> T.pack (show op) <> " reached instruction selection")
+    Unary op ty value -> single (loadTyped ctx 0 ty X9 value <> bitCount op ty)
     Wide op ty left right -> do
       body <- wide op ty
       pair (loadTyped ctx 0 ty X9 left <> loadTyped ctx 0 ty X10 right <> body)
@@ -640,6 +634,26 @@ compileInstruction ctx (Instruction results operation) =
     effectiveAddress base offset ty
       | fitsScaled offset ty = pure (loadOperand ctx 0 X10 base)
       | otherwise = pure (loadOperand ctx 0 X10 base <> [immediate X11 offset, arm64Instruction (ArmAdd X10 X10 (Arm64RegisterValue X11))])
+
+    -- A narrow value is zero-extended in its slot, so a leading-zero count
+    -- includes the bits above the type and a trailing-zero count of zero
+    -- would reach the top of the register. Setting the first bit above the
+    -- type keeps the trailing count at the width of the type.
+    bitCount op ty =
+      let bits = typeBits ty
+       in case op of
+            Popcount ->
+              [ toFloat F64 16 X9,
+                arm64Instruction (ArmCnt 16 16),
+                arm64Instruction (ArmAddv 16 16),
+                fromFloat F64 X9 16
+              ]
+            Clz ->
+              arm64Instruction (ArmClz X9 X9)
+                : [arm64Instruction (ArmSub X9 X9 (Arm64ImmediateValue (toInteger (64 - bits)))) | bits < 64]
+            Ctz ->
+              concat [[immediate X10 (2 ^ bits :: Integer), arm64Instruction (ArmOrr X9 X9 (Arm64RegisterValue X10))] | bits < 64]
+                <> [arm64Instruction (ArmRbit X9 X9), arm64Instruction (ArmClz X9 X9)]
 
     binary op ty =
       case op of

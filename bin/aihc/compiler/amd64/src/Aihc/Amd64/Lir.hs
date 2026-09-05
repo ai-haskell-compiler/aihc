@@ -24,7 +24,6 @@ module Aihc.Amd64.Lir
 where
 
 import Aihc.Amd64.Assemble
-import Aihc.Lir.BitCount (expandBitCounts)
 import Aihc.Lir.Lint (LintError, lintModule)
 import Aihc.Lir.Syntax
 import Aihc.Native.Object (SectionRole (..))
@@ -61,14 +60,11 @@ compileLirObject lirModule = do
   either (Left . Amd64LirObjectError . T.pack . show) pure (assembleElf statements)
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
-compileLirStatements original =
-  case lintModule original of
+compileLirStatements lirModule@(Module items) =
+  case lintModule lirModule of
     [] -> evalStateT compileItems initialState
     errors -> Left (Amd64LirLintErrors errors)
   where
-    -- This backend has no bit-count instruction, so the module it assembles
-    -- is the linted one with those operations expanded into arithmetic.
-    Module items = expandBitCounts original
     initialState = ObjectState {objectTraps = Map.empty, objectNextLabel = 0}
     signatures =
       Map.fromList
@@ -593,9 +589,7 @@ compileInstruction ctx (Instruction results operation) =
     Binary op ty left right -> do
       body <- binary op ty
       single (loadTyped ctx 0 ty RAX left <> loadTyped ctx 0 ty R10 right <> body)
-    -- 'expandBitCounts' rewrites these into arithmetic before this
-    -- backend sees the module.
-    Unary op _ _ -> unsupported ("bit count " <> T.pack (show op) <> " reached instruction selection")
+    Unary op ty value -> single (loadTyped ctx 0 ty RAX value <> bitCount op ty)
     Wide op ty left right -> do
       body <- wide op ty
       pair (loadTyped ctx 0 ty RAX left <> loadTyped ctx 0 ty R10 right <> body)
@@ -648,6 +642,26 @@ compileInstruction ctx (Instruction results operation) =
       case results of
         [first, second] -> pure (body <> [storeSlot ctx 0 RAX first, storeSlot ctx 0 R10 second])
         _ -> unsupported "instruction result count"
+
+    -- A narrow value is zero-extended in its slot, so a leading-zero count
+    -- includes the bits above the type and a trailing-zero count of zero
+    -- would reach the top of the register. Setting the first bit above the
+    -- type keeps the trailing count at the width of the type.
+    bitCount op ty =
+      let bits = typeBits ty
+       in case op of
+            Popcount -> [amd64Instruction (AmdBitCount AmdPopcnt RAX (Amd64RmRegister RAX))]
+            Clz ->
+              [amd64Instruction (AmdBitCount AmdLzcnt RAX (Amd64RmRegister RAX))]
+                <> [amd64Instruction (AmdSub (Amd64RmRegister RAX) (Amd64BinaryImmediate (toInteger (64 - bits)))) | bits < 64]
+            Ctz ->
+              concat
+                [ [ amd64Instruction (AmdMov R10 (Amd64MoveImmediate (2 ^ bits))),
+                    amd64Instruction (AmdOr (Amd64RmRegister RAX) (Amd64BinaryRegister R10))
+                  ]
+                | bits < 64
+                ]
+                <> [amd64Instruction (AmdBitCount AmdTzcnt RAX (Amd64RmRegister RAX))]
 
     binary op ty =
       case op of

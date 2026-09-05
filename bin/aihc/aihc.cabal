@@ -109,7 +109,6 @@ library compiler
     Aihc.Grin.Syntax
     Aihc.Grin.Tidy
     Aihc.Lir
-    Aihc.Lir.BitCount
     Aihc.Lir.Interpret
     Aihc.Lir.Lint
     Aihc.Lir.Lower

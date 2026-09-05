@@ -527,14 +527,7 @@ word-shaped record uses `word` fields, which follow the target word size.
 
 ## Backends
 
-Every backend lints the module first. The AArch64 and the AMD64 backends then
-run `Aihc.Lir.BitCount`, which rewrites `clz`, `ctz`, and `popcount` into
-ordinary arithmetic: neither `popcnt` on AMD64 nor a general-register bit
-count on AArch64 is part of the architecture baseline, and the expansion is
-straight-line, so it changes no control-flow graph. LLVM and WebAssembly have
-the operations and emit them directly.
-
-No backend checks the alignment of a memory access, a store to read-only
+Every backend lints the module first. No backend checks the alignment of a memory access, a store to read-only
 data, or the signature of an indirect call. A misaligned access gives the result of the hardware, and a store to
 read-only data is a memory fault. Every backend checks an indirect call of
 `null`.
@@ -554,6 +547,9 @@ read-only data is a memory fault. Every backend checks an indirect call of
   or float arguments and one result.
 - A narrow integer is canonical: an `iN` value is zero-extended to 64 bits.
   Signed operations sign-extend the operands first.
+- `clz` and `ctz` are `clz` and `rbit` followed by `clz`. AArch64 has no
+  population count of a general register, so `popcount` goes through the
+  vector unit with `cnt` and `addv`, which the base architecture requires.
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
 
@@ -571,6 +567,9 @@ frame-slot design of the AArch64 backend:
 - The `c` convention is the System V convention with at most six integer and
   eight float arguments and one result. A float travels as its bit pattern
   in the frame and moves through `xmm0` at the boundary.
+- `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`. This
+  backend targets modern hardware and assumes SSE4.2, LZCNT, and BMI1; a host
+  without them uses the LLVM backend.
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
 
