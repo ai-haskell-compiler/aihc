@@ -12,6 +12,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 
@@ -29,14 +30,39 @@ data EqResult
 solveEquality :: Ct -> TcM EqResult
 solveEquality ct = case ctPred ct of
   EqPred t1 t2 -> do
-    t1' <- zonkType t1
-    t2' <- zonkType t2
+    t1' <- zonkType t1 >>= reduceTypeFamilies
+    t2' <- zonkType t2 >>= reduceTypeFamilies
     solveEq (ct {ctPred = EqPred t1' t2'}) t1' t2'
   _ -> pure (EqStuck ct)
 
--- | Solve an equality between two zonked types.
+-- | Solve an equality between two zonked and reduced types.
 solveEq :: Ct -> TcType -> TcType -> TcM EqResult
-solveEq ct t1 t2 = case (t1, t2) of
+solveEq ct rawLeft rawRight = do
+  -- The extra arguments of a family application decompose like an
+  -- application spine.
+  t1 <- unsaturateFamilyApplication rawLeft
+  t2 <- unsaturateFamilyApplication rawRight
+  leftIsFamily <- isTypeFamilyApplication t1
+  rightIsFamily <- isTypeFamilyApplication t2
+  if (leftIsFamily || rightIsFamily) && not (isMetaTv t1) && not (isMetaTv t2)
+    then
+      if t1 == t2
+        then do
+          bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
+          pure EqSolved
+        else -- A type family application that no equation reduces waits for
+        -- its arguments to become known.
+          pure (EqStuck ct)
+    else solveEqShapes ct t1 t2
+
+isMetaTv :: TcType -> Bool
+isMetaTv ty =
+  case ty of
+    TcMetaTv _ -> True
+    _ -> False
+
+solveEqShapes :: Ct -> TcType -> TcType -> TcM EqResult
+solveEqShapes ct t1 t2 = case (t1, t2) of
   -- Same meta: trivially solved.
   (TcMetaTv u1, TcMetaTv u2) | u1 == u2 -> do
     bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))

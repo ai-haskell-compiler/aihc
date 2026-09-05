@@ -1,0 +1,107 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Bag = Bag Nat
+       │     └─ type: Nat → Bag
+       └─ type: Type
+  class Container c where
+  └─ class methods: fromElems ∷ ∀ c. (Container c) ⇒ [Elem c] → c, firstElem ∷ ∀ c. (Container c) ⇒ c → Elem c
+    type Elem c
+         └─ type: Type → Type
+    fromElems :: [Elem c] -> c
+    firstElem :: c -> Elem c
+  instance Container Bag where
+  └─ $fContainerBag ∷ () ⇒ Container Bag [associated types: Elem Bag = Nat]
+    type Elem Bag = Nat
+    fromElems xs = Bag (count xs)
+    │         │         └─ type: [Nat] → Nat; type-args: Nat
+    │         └─ type: [Elem Bag]
+    └─ fromElems ∷ [Elem Bag] → Bag
+    firstElem (Bag n) = n
+    │          │   └─ type: Nat
+    │          └─ type: Bag
+    └─ firstElem ∷ Bag → Elem Bag
+  instance Container [a] where
+  └─ $fContainerList ∷ ∀ a. () ⇒ Container [a] [associated types: Elem [a] = a]
+    type Elem [a] = a
+    fromElems xs = xs
+    │         └─ type: [Elem [a]]
+    └─ fromElems ∷ [Elem [a]] → [a]
+    firstElem (x : _) = x
+    │          │ │ └─ type: [a]
+    │          │ └─ type: [a]
+    │          └─ type: a
+    └─ firstElem ∷ [a] → Elem [a]
+    firstElem [] = firstElem []
+    │         │    │         └─ type: [a]; type-args: a
+    │         │    └─ type: [a] → Elem [a]; type-args: [a]; evidence: $fContainerList @a
+    │         └─ type: [a]
+    └─ firstElem ∷ [a] → Elem [a]
+  count :: [a] -> Nat
+  count [] = Z
+  │     └─ type: [a]
+  └─ type: ∀ a. [a] → Nat
+  count (_ : rest) = S (count rest)
+  │      │ │ │          └─ type: [a] → Nat; type-args: a
+  │      │ │ └─ type: [a]
+  │      │ └─ type: [a]
+  │      └─ type: a
+  └─ type: ∀ a. [a] → Nat
+  type family Twice a where
+              └─ type: Type → Type
+    Twice Nat = [Nat]
+    Twice a = a
+  twiceNat :: Twice Nat
+  twiceNat = [Z]
+  │          └─ type: [Nat]; type-args: Nat
+  └─ type: Twice Nat
+  twiceBag :: Twice Bag -> Nat
+  twiceBag (Bag n) = n
+  │         │   └─ type: Nat
+  │         └─ type: Twice Bag
+  └─ type: Twice Bag → Nat
+  bagFirst :: Nat
+  bagFirst = S (firstElem (fromElems [Z] :: Bag))
+  └─ type: Nat  │          │         └─ type: [Nat]; type-args: Nat
+                │          └─ type: [Elem Bag] → Bag; type-args: Bag; evidence: $fContainerBag
+                └─ type: Bag → Elem Bag; type-args: Bag; evidence: $fContainerBag
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data Bag = Bag Nat
+  class Container c where
+    type Elem c
+    fromElems :: [Elem c] -> c
+    firstElem :: c -> Elem c
+  instance Container Bag where
+    type Elem Bag = Nat
+    fromElems xs = Bag (count xs)
+    firstElem (Bag n) = n
+  instance Container [a] where
+    type Elem [a] = a
+    fromElems xs = xs
+    firstElem (x : _) = x
+    firstElem [] = firstElem []
+  count :: [a] -> Nat
+  count [] = Z
+  count (_ : rest) = S (count rest)
+  type family Twice a where
+    Twice Nat = [Nat]
+    Twice a = a
+  twiceNat :: Twice Nat
+  twiceNat = [Z]
+  twiceBag :: Twice Bag -> Nat
+  twiceBag (Bag n) = n
+  bagFirst :: Nat
+  bagFirst = S (firstElem (fromElems [Z] :: Bag))
+reason: a saturated type family application reduces with its equation, so an
+  instance method and an open or closed family application unify with the
+  right-hand side
+status: pass

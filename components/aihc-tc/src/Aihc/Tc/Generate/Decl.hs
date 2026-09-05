@@ -126,6 +126,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
@@ -1549,14 +1550,16 @@ solveBodyConstraintsWithGivens givens cts impls = do
   -- The inert set holds the stuck flat wanteds, which are in @cts@, and
   -- the wanteds that the implications deferred, which are not.
   let deferred = filter (\ct -> ctEvVar ct `notElem` map ctEvVar cts) (inertDicts (srInerts solveResult))
-  stuck <- concat <$> mapM attemptClassCt (cts <> deferred)
+  -- The residual holds the equalities that wait on a type family
+  -- application.
+  stuck <- (srResidual solveResult <>) . concat <$> mapM attemptClassCt (cts <> deferred)
   -- The signature makes every type variable of the binding rigid, so a
   -- meta-variable that survives the solve is ambiguous. Defaulting may make
   -- it concrete, which lets a second attempt discharge the constraint.
   defaulted <- defaultAmbiguousMetas [] stuck
   remaining <-
     if defaulted
-      then concat <$> mapM attemptClassCt stuck
+      then concat <$> mapM attemptStuckCt stuck
       else pure stuck
   mapM_ reportUnsolvedDict remaining
   where
@@ -1576,6 +1579,22 @@ solveBodyConstraintsWithGivens givens cts impls = do
             DictSolved -> pure []
             DictStuck stuck -> pure [stuck]
       | otherwise = pure []
+    -- An equality that waits on a type family application gets another
+    -- attempt after defaulting.
+    attemptStuckCt ct
+      | EqPred {} <- ctPred ct = do
+          result <- solveEquality ct
+          case result of
+            EqSolved -> pure []
+            EqStuck stuck -> pure [stuck]
+            EqError errCt -> do
+              case ctPred errCt of
+                EqPred left right ->
+                  emitError (ctLoc errCt) (UnificationError left right (ctOrigin errCt) (ctEqProvenance errCt))
+                predicate ->
+                  emitError (ctLoc errCt) (UnsolvedWanted predicate (ctOrigin errCt))
+              pure []
+      | otherwise = attemptClassCt ct
     isDictionaryPred predicate =
       case predicate of
         ClassPred {} -> True
@@ -2561,6 +2580,9 @@ predicateCanGeneralize predicate =
   case predicate of
     -- A caller always supplies an implicit parameter, even at a concrete type.
     IParamPred {} -> True
+    -- An equality that waits on a type family application is not a
+    -- dictionary a caller can supply.
+    EqPred {} -> False
     _ -> not (null (predMetaVars predicate))
 
 rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()
