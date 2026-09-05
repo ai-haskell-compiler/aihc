@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  {-# LANGUAGE NoMonoLocalBinds #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Box = Box
+       │     └─ type: Box
+       └─ type: Type
+  twice :: Nat -> (Nat, Box)
+  twice n = (dup n, dup Box)
+  │     │   ││      └─ type: Box → Box; type-args: Box
+  │     │   │└─ type: Nat → Nat; type-args: Nat
+  │     │   └─ type: (Nat, Box); type-args: Nat, Box
+  │     └─ type: Nat
+  └─ type: Nat → (Nat, Box)
+    where
+      dup x = choose n x
+      │   │   └─ type: Nat → a → a; type-args: a
+      │   └─ type: a
+      └─ type: ∀ a. a → a
+  choose :: Nat -> a -> a
+  choose _ x = x
+  │      │ └─ type: a
+  │      └─ type: Nat
+  └─ type: ∀ a. Nat → a → a
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  {-# LANGUAGE NoMonoLocalBinds #-}
+  module Test where
+  data Nat = Z | S Nat
+  data Box = Box
+  twice :: Nat -> (Nat, Box)
+  twice n = (dup n, dup Box)
+    where
+      dup x = choose n x
+  choose :: Nat -> a -> a
+  choose _ x = x
+reason: a later NoMonoLocalBinds pragma turns off the MonoLocalBinds that an
+  earlier TypeFamilies pragma implied, so a local binding that mentions a
+  lambda-bound variable still generalizes
+status: pass
