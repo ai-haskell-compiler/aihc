@@ -1,0 +1,75 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Nat = Z | S Nat
+    data Bag = Bag Nat
+    class Container c where
+      type Elem c
+      type Elem c = Nat
+      size :: c -> Nat
+    instance Container Bag where
+      type Elem Bag = Bag
+      size (Bag n) = n
+    instance Container [a] where
+      size _ = Z
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tNat :: 2.tType {
+      pub 1.vZ :: 1.tNat;
+      pub 1.vS :: 1.tNat 2.→ 1.tNat
+  }
+
+  pub type 1.tBag :: 2.tType {
+      pub 1.vBag :: 1.tNat 2.→ 1.tBag
+  }
+
+  pub type 1.t$Dict$Container (c : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Container :: ∀(c : 2.tType). (c 2.→ 1.tNat) 2.→ 1.t$Dict$Container c
+  }
+
+  pub type 1.tElem (c : 2.tType) :: 2.tType @N {}
+
+  axiom 1.$ax$Elem$Bag : 1.tElem 1.tBag ~N 1.tBag
+
+  axiom 1.$ax$Elem$List (a : 2.tType) : 1.tElem (2.t[] a) ~N 1.tNat
+
+  pub val 1.vsize :: ∀(c : 2.tType). 1.t$Dict$Container c 2.→ c 2.→ 1.tNat
+   = Λ(c : 2.tType).
+    λ($d0 : 1.t$Dict$Container c).
+      case $d0 as ($dict : 1.t$Dict$Container c) return (c 2.→ 1.tNat) of {
+          1.v$Dict$Container ($method0 : c 2.→ 1.tNat) →
+              $method0
+      }
+
+  pub val 1.v$fContainerBag :: 1.t$Dict$Container 1.tBag
+   = 1.v$Dict$Container @1.tBag (λ(x : 1.tBag).
+    case x as (_scrut : 1.tBag) return (1.tNat) of {
+        1.vBag (n : 1.tNat) →
+            n
+    })
+
+  pub val 1.v$fContainerList :: ∀(a : 2.tType). 1.t$Dict$Container (2.t[] a)
+   = Λ(a : 2.tType).
+    1.v$Dict$Container @(2.t[] a) (λ(x : 2.t[] a).
+      1.vZ)
+status: pass
+reason: An associated type family becomes an empty family type next to the class dictionary,
+  and the explicit and defaulted instance equations become axioms.

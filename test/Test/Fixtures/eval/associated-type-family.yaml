@@ -1,0 +1,43 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    data Bag = Bag Nat
+
+    newtype Box = Box Nat
+
+    class Container c where
+      type Elem c
+      type Elem c = Nat
+      size :: c -> Nat
+
+    instance Container Bag where
+      type Elem Bag = Bag
+      size (Bag n) = n
+
+    instance Container Box where
+      size (Box n) = n
+
+    instance Container [a] where
+      type Elem [a] = a
+      size [] = Z
+      size (_ : rest) = S (size rest)
+
+    noElems :: Container c => c -> [Elem c]
+    noElems _ = []
+
+    total :: Nat
+    total = S (size (Bag (S Z)))
+output: |
+  S (S Z)
+expression: |
+  case noElems (Box Z) of
+    [] -> total
+    _ -> Z
+status: pass
+reason: an associated type family becomes an empty family type, and the explicit and
+  defaulted instance equations become axioms that System FC accepts
