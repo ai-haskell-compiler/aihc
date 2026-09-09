@@ -86,6 +86,7 @@ import Aihc.Tc.Types
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
     tvKind,
+    tvName,
     tvUnique,
     tyConModuleName,
     tyConName,
@@ -1044,7 +1045,47 @@ desugarInstanceMethod annotation dictionaries methods methodName =
     Just (methodType, matches) -> withDictionaries dictionaries (desugarMatches methodType matches)
     Nothing
       | methodName `elem` tcInstanceDefaultMethods annotation -> desugarDefaultMethod annotation dictionaries methodName
-      | otherwise -> failValue ("missing method " <> T.unpack methodName <> " in instance dictionary")
+      | otherwise -> desugarMissingMethod annotation methodName
+
+-- | A method the instance leaves out and the class gives no default for.
+-- GHC warns and fills the slot with a body that raises when it is forced,
+-- so a program that never calls the method still compiles and runs.
+desugarMissingMethod :: TcInstanceAnnotation -> Text -> ValueM Expr
+desugarMissingMethod annotation methodName = do
+  method <-
+    case [candidate | candidate <- tcInstanceClassMethods annotation, tcClassMethodName candidate == methodName] of
+      candidate : _ -> pure candidate
+      [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
+  let classTyCon = tcInstanceClassTyCon annotation
+      classTyVars = tcInstanceClassTyVars annotation
+      extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+      substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+      (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
+      (methodPredicates, methodBody) = peelConstraints methodAfterForAlls
+      extraPredicates = map (applySubstPred substitution) (dropClassPredicate classTyCon methodPredicates)
+      resultType = applySubst substitution methodBody
+      instanceHead = T.unwords (tyConName classTyCon : map describeInstanceHeadType (tcInstanceHeadTypes annotation))
+  extraTypeBinders <- convertTypeBinders extraTyVars
+  extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
+  (_, moduleName') <- gets vsModuleOrigin
+  body <-
+    raiseErrorValue
+      resultType
+      (moduleName' <> ": no implementation of " <> methodName <> " in instance " <> instanceHead)
+  pure (foldr ExTyLam (foldr ExLam body extraDictionaries) extraTypeBinders)
+
+-- | Name an instance head type for a run-time error message.
+describeInstanceHeadType :: TcType -> Text
+describeInstanceHeadType ty =
+  case ty of
+    TcTyVar tyVar -> tvName tyVar
+    TcTyCon tyCon [] -> tyConName tyCon
+    TcTyCon tyCon arguments -> parenthesize (tyConName tyCon : map describeInstanceHeadType arguments)
+    TcFunTy argument result -> parenthesize [describeInstanceHeadType argument, "->", describeInstanceHeadType result]
+    TcAppTy function argument -> parenthesize [describeInstanceHeadType function, describeInstanceHeadType argument]
+    _ -> "_"
+  where
+    parenthesize parts = "(" <> T.unwords parts <> ")"
 
 desugarDefaultMethod :: TcInstanceAnnotation -> [Dictionary] -> Text -> ValueM Expr
 desugarDefaultMethod annotation dictionaries methodName = do
@@ -3089,17 +3130,21 @@ isTemplateHaskellQuote expression =
 -- @raise#@ with a message, so code that only defines quotes still
 -- compiles.
 desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
-desugarTemplateHaskellQuote annotation = do
-  let resultType = tcAnnType annotation
+desugarTemplateHaskellQuote annotation = raiseErrorValue (tcAnnType annotation) "TH is unsupported"
+
+-- | @raise# \@rep \@String \@ty message@: a value of any type that throws
+-- when it is forced.
+raiseErrorValue :: TcType -> Text -> ValueM Expr
+raiseErrorValue resultType message = do
   convertedResult <- convertCheckedType resultType
   representation <- checkedRuntimeRep resultType
   raiseName <- primitiveName "GHC.Prim" "raise#" SortValue
   listName <- primitiveName "GHC.Types" "[]" SortTypeConstructor
   charName <- primitiveName "GHC.Types" "Char" SortTypeConstructor
-  message <- desugarStringValue "TH is unsupported"
+  messageValue <- desugarStringValue message
   let stringType = TyApp (TyCon listName) (TyCon charName)
       raise = foldl ExTyApp (ExVar raiseName) [representation, stringType, convertedResult]
-  pure (ExApp raise message)
+  pure (ExApp raise messageValue)
 
 desugarString :: TcAnnotation -> Text -> ValueM Expr
 desugarString annotation value = do

@@ -28,6 +28,7 @@ module Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
+    TcDerivedInstance (..),
     TcNewtypeDeriving (..),
     TcNewtypeInstance (..),
     TcNewtypeMethod (..),
@@ -284,6 +285,11 @@ data TcPatSynAnnotation = TcPatSynAnnotation
 
 -- | A generated instance retains its source derivation plan.
 newtype TcNewtypeDeriving = TcNewtypeDeriving TcDerivingPlan
+  deriving (Eq, Show)
+
+-- | An instance that @deriving@ generated rather than the source. Such an
+-- instance may leave methods to the desugarer without a warning.
+data TcDerivedInstance = TcDerivedInstance
   deriving (Eq, Show)
 
 -- | Checked evidence and casts for a newtype instance.

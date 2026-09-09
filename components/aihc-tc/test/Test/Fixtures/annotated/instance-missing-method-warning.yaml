@@ -1,0 +1,28 @@
+annotated:
+- |-
+  module Main where
+  data Thing = Thing
+       │       └─ type: Thing
+       └─ type: Type
+  class Describe a where
+  └─ class methods: describe ∷ ∀ a. (Describe a) ⇒ a → Thing, ignored ∷ ∀ a. (Describe a) ⇒ a → Thing
+    describe :: a -> Thing
+    ignored :: a -> Thing
+  instance Describe Thing where
+  │        └─ warning: no implementation of ignored, and class Describe gives no default; calling it raises at run time
+  └─ $fDescribeThing ∷ () ⇒ Describe Thing
+    describe _ = Thing
+    │        └─ type: Thing
+    └─ describe ∷ Thing → Thing
+extensions: []
+modules:
+- |-
+  module Main where
+  data Thing = Thing
+  class Describe a where
+    describe :: a -> Thing
+    ignored :: a -> Thing
+  instance Describe Thing where
+    describe _ = Thing
+reason: an instance that omits a method with no class default warns, as GHC does
+status: pass
