@@ -210,49 +210,16 @@ applyKind env function functionKind argument argumentKind =
         Just (_, _, expected, result) -> do
           unless (kindsCompatible env function expected argumentKind) (Left (KindMismatch "type application argument" expected argumentKind))
           Right result
-        Nothing -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
+        Nothing
+          | refined /= functionKind -> applyKind env function refined argument argumentKind
+          | otherwise -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
+  where
+    refined = refineKind env functionKind
 
 kindsCompatible :: TypeEnv -> Type -> Type -> Type -> Bool
 kindsCompatible env function expected actual =
-  typesEqual env expected actual
-    || kindFunctionsEqual env expected actual
+  kindsEqual env expected actual
     || (isTYPEName env function && isTypeKind env expected && isRuntimeRepKind env actual)
-
--- | Kind equality for the arguments of a coercion. A type constructor's
--- header binds every parameter with a forall, so a partial application such
--- as @Sum f g@ has the kind @forall (p : Type). Type@ while a binder
--- annotated @Type -> Type@ has a FUN kind; the two describe the same
--- non-dependent kind function.
-kindsEqual :: TypeEnv -> Type -> Type -> Bool
-kindsEqual env expected actual = typesEqual env expected actual || kindFunctionsEqual env expected actual
-
-kindFunctionsEqual :: TypeEnv -> Type -> Type -> Bool
-kindFunctionsEqual env left right =
-  compareKinds (reduceType env left) (reduceType env right)
-  where
-    compareKinds first second
-      | typesEqual env first second = True
-    compareKinds (TyFun _ _ argument result) (TyForAll binder body) =
-      not (typeUsesName (binderName binder) body)
-        && typesEqual env argument (binderType binder)
-        && compareKinds result body
-    compareKinds (TyForAll binder body) (TyFun _ _ argument result) =
-      not (typeUsesName (binderName binder) body)
-        && typesEqual env (binderType binder) argument
-        && compareKinds body result
-    compareKinds _ _ = False
-
-typeUsesName :: Name -> Type -> Bool
-typeUsesName target ty =
-  case ty of
-    TyVar name -> name == target
-    TyCon {} -> False
-    TyApp function argument -> typeUsesName target function || typeUsesName target argument
-    TyFun r1 r2 argument result -> any (typeUsesName target) [r1, r2, argument, result]
-    TyForAll binder body
-      | binderName binder == target -> typeUsesName target (binderType binder)
-      | otherwise -> typeUsesName target (binderType binder) || typeUsesName target body
-    TyEq left right -> typeUsesName target left || typeUsesName target right
 
 isTYPEName :: TypeEnv -> Type -> Bool
 isTYPEName env ty =

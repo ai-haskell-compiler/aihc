@@ -19,6 +19,9 @@ module Aihc.Fc.TypeOf
     substTypes,
     reduceType,
     typesEqual,
+    kindsEqual,
+    refineKind,
+    typeUsesName,
     coercionEndpoints,
     projectNominalArgument,
     applyRepresentationalAxiom,
@@ -450,6 +453,22 @@ typesEqual env left right =
     arrow = functionArrowConstructor (tePrimPackage env)
     eq first second
       | runtimeRepresentationsEqual env first second = True
+    -- The kind arguments of a type constructor are erased like every
+    -- other kind, so local nominal evidence may equate them. Its value
+    -- type arguments still require a cast.
+    eq first second
+      | (TyCon headName, arguments1) <- spine [] first,
+        (TyCon headName2, arguments2) <- spine [] second,
+        headName == headName2,
+        length arguments1 == length arguments2,
+        Just header <- lookupHeaderType env headName,
+        let dependent = dependentArgumentPositions header (length arguments1),
+        or dependent =
+          and (zipWith3 argumentEqual dependent arguments1 arguments2)
+      where
+        argumentEqual isKind a b = eq a b || (isKind && kindsEqual env a b)
+        spine args (TyApp function argument) = spine (argument : args) function
+        spine args headType = (headType, args)
     eq (TyVar a) (TyVar b) = a == b
     eq (TyCon a) (TyCon b) = a == b
     eq (TyApp function1 argument1) (TyApp function2 argument2) =
@@ -496,3 +515,89 @@ runtimeRepresentationsEqual env left right =
             | (first, second) <- equalities,
               next <- [second | current == first] <> [first | current == second]
             ]
+
+-- | Which of the first @count@ parameters of a type constructor header
+-- are dependent: a later binder's kind or the result kind mentions them.
+-- Those positions take kinds, the others take types.
+dependentArgumentPositions :: Type -> Int -> [Bool]
+dependentArgumentPositions = go
+  where
+    go _ 0 = []
+    go (TyForAll binder body) remaining = typeUsesName (binderName binder) body : go body (remaining - 1)
+    go (TyFun _ _ _ result) remaining = False : go result (remaining - 1)
+    go _ remaining = replicate remaining False
+
+-- | Equality between kinds. Two shapes count as the same kind beyond
+-- structural equality:
+--
+-- * A type constructor's header binds every parameter with a forall, so a
+--   partial application such as @Sum f g@ has the kind
+--   @forall (p : Type). Type@ while a binder annotated @Type -> Type@ has a
+--   FUN kind; the two describe the same non-dependent kind function.
+--
+-- * Kinds are erased, so local nominal evidence such as the
+--   @k ~ (Type -> Type)@ a GADT match binds may equate them without a cast,
+--   as it already does for runtime representations. Equality between the
+--   types of values still requires a cast.
+kindsEqual :: TypeEnv -> Type -> Type -> Bool
+kindsEqual env expected actual =
+  same expected actual || same (refineKind env expected) (refineKind env actual)
+  where
+    same first second = typesEqual env first second || kindFunctionsEqual env first second
+
+-- | Rewrite the type variables of a kind with the local nominal evidence
+-- that equates them to another type.
+refineKind :: TypeEnv -> Type -> Type
+refineKind env ty
+  | Map.null substitution = ty
+  | otherwise = go (Map.size substitution + 1) ty
+  where
+    substitution =
+      Map.fromListWith
+        preferConstructor
+        [ (name, other)
+        | binderType <- Map.elems (teBinders env),
+          TyEq left right <- [reduceType env binderType],
+          (name, other) <- orient left right <> orient right left,
+          not (typeUsesName name other)
+        ]
+    orient (TyVar name) other = [(name, other)]
+    orient _ _ = []
+    preferConstructor first second =
+      case first of
+        TyVar {} -> second
+        _ -> first
+    go :: Int -> Type -> Type
+    go fuel current
+      | fuel <= 0 = current
+      | otherwise =
+          let next = substTypes substitution current
+           in if next == current then current else go (fuel - 1) next
+
+kindFunctionsEqual :: TypeEnv -> Type -> Type -> Bool
+kindFunctionsEqual env left right =
+  compareKinds (reduceType env left) (reduceType env right)
+  where
+    compareKinds first second
+      | typesEqual env first second = True
+    compareKinds (TyFun _ _ argument result) (TyForAll binder body) =
+      not (typeUsesName (binderName binder) body)
+        && typesEqual env argument (binderType binder)
+        && compareKinds result body
+    compareKinds (TyForAll binder body) (TyFun _ _ argument result) =
+      not (typeUsesName (binderName binder) body)
+        && typesEqual env (binderType binder) argument
+        && compareKinds body result
+    compareKinds _ _ = False
+
+typeUsesName :: Name -> Type -> Bool
+typeUsesName target ty =
+  case ty of
+    TyVar name -> name == target
+    TyCon {} -> False
+    TyApp function argument -> typeUsesName target function || typeUsesName target argument
+    TyFun r1 r2 argument result -> any (typeUsesName target) [r1, r2, argument, result]
+    TyForAll binder body
+      | binderName binder == target -> typeUsesName target (binderType binder)
+      | otherwise -> typeUsesName target (binderType binder) || typeUsesName target body
+    TyEq left right -> typeUsesName target left || typeUsesName target right

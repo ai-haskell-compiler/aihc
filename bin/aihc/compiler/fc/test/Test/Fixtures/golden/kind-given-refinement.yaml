@@ -78,5 +78,3 @@ expected: |-
                       1.vapply @(1.tProxy (2.tTYPE (2.vBoxedRep 2.vLifted)) (f x)) @1.tSome (1.vSome @(2.tTYPE (2.vBoxedRep 2.vLifted)) @(f x)) (1.vmkApp @(2.tTYPE (2.vBoxedRep 2.vLifted)) @(2.tTYPE (2.vBoxedRep 2.vLifted)) @f @x y z)
               }
 status: pass
-lint: xfail
-reason: The branch applies f at a kind that only the given k ~ (Type -> Type) provides, and FC types have no cast, so the lint rejects the well-typed-modulo-evidence Core.
