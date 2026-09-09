@@ -27,7 +27,9 @@ annotated:
   │       └─ type: Type → Type
   └─ deriving plans: via Wrapper a Eq (V a) [context: Eq Wrapper a] [methods: ==, /=]
     deriving Eq via Wrapper a
-             └─ warning: deriving via is not supported yet; no instance is generated for Eq
+             └─ $fEqVa ∷ ∀ a. (Eq (Wrapper a)) ⇒ Eq (V a)
+             └─ error: deriving via cannot prove a safe coercion for method ==
+             └─ error: deriving via cannot prove a safe coercion for method /=
 extensions:
 - DerivingStrategies
 - DerivingVia

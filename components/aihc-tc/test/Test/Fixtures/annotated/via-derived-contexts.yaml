@@ -17,7 +17,7 @@ annotated:
   │    └─ type: Type → Type
   └─ deriving plans: via App Pair a Semigroup (Pair a) [context: Semigroup a] [methods: append]
     deriving Semigroup via (App Pair a)
-             └─ warning: deriving via is not supported yet; no instance is generated for Semigroup
+             └─ $fSemigroupPaira ∷ ∀ a. (Semigroup a) ⇒ Semigroup (Pair a)
   instance Semigroup a => Semigroup (App Pair a)
   └─ $fSemigroupAppPaira ∷ ∀ a. (Semigroup a) ⇒ Semigroup (App Pair a)
   class Semigroup a => Monoid a where
@@ -28,12 +28,12 @@ annotated:
     └─ empty ∷ ∀ a. (Monoid a) ⇒ a
   instance Monoid a => Monoid (App Pair a)
   └─ $fMonoidAppPaira ∷ ∀ a. (Monoid a) ⇒ Monoid (App Pair a) [superclasses: $fSemigroupAppPaira @a (super[0](given Monoid a))]
-  data Both a = Both a
-  │    │        └─ type: ∀ a. a → Both a
-  │    └─ type: Type → Type
+  newtype Both a = Both (Pair a)
+  │       │        └─ type: ∀ a. Pair a → Both a
+  │       └─ type: Type → Type
   └─ deriving plans: via App Pair a Monoid (Both a) [context: Monoid a] [methods: empty]
     deriving Monoid via (App Pair a)
-             └─ warning: deriving via is not supported yet; no instance is generated for Monoid
+             └─ $fMonoidBotha ∷ ∀ a. (Monoid a) ⇒ Monoid (Both a) [superclasses: $fSemigroupBotha @a]
   instance Semigroup (Both a)
   └─ $fSemigroupBotha ∷ ∀ a. () ⇒ Semigroup (Both a)
   data Missing = Missing
@@ -42,7 +42,6 @@ annotated:
   └─ deriving plans: via App Pair Missing Semigroup Missing [context: infer] [methods: append]
     deriving Semigroup via (App Pair Missing)
              └─ error: unsolved constraint Semigroup App Pair Missing
-             └─ warning: deriving via is not supported yet; no instance is generated for Semigroup
 extensions:
 - DerivingStrategies
 - DerivingVia
@@ -61,12 +60,13 @@ modules:
     empty :: a
     empty = empty
   instance Monoid a => Monoid (App Pair a)
-  data Both a = Both a
+  newtype Both a = Both (Pair a)
     deriving Monoid via (App Pair a)
   instance Semigroup (Both a)
   data Missing = Missing
     deriving Semigroup via (App Pair Missing)
-reason: A via context asks the class of the via type and the superclasses at the
+reason: A via instance coerces the methods of the via type's instance, in both
+  directions through the newtypes involved. The context asks the class of the via type and the superclasses at the
   derived head, simplifies them through the instances in scope, and rejects a via
   type that stands on the instance being derived
 status: pass

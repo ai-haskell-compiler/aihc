@@ -1,0 +1,39 @@
+extensions:
+- DerivingStrategies
+- DerivingVia
+- StandaloneDeriving
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+  module Test where
+
+  data Results = Results Bool Bool
+
+  newtype Hex = Hex Int
+
+  instance Show Hex where
+    show (Hex n) = "0x" ++ show n
+
+  newtype Unicode = U Int
+
+  deriving via Hex instance Show Unicode
+
+  newtype Wrap a = Wrap a
+
+  instance Show a => Show (Wrap a) where
+    show (Wrap x) = "[" ++ show x ++ "]"
+
+  newtype Boxed a = Boxed a
+
+  deriving via (Wrap a) instance Show a => Show (Boxed a)
+
+  result :: Results
+  result =
+    Results
+      (show (U 32) == "0x32")
+      (show (Boxed True) == "[True]")
+expression: result
+output: Results True True
+status: pass
+reason: a standalone deriving via declaration swaps the order of the via type and
+  the instance head, and derives through the context the declaration writes

@@ -153,6 +153,9 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
           | length suppliedArguments /= length prefixClassVars -> do
               emitError classSpan (derivingArityError className (length prefixClassVars) (length suppliedArguments))
               pure Nothing
+          | not (null (unboundViaTyVars tvEnv strategy)) -> do
+              mapM_ (emitError classSpan . OtherError . unboundViaTyVarError) (unboundViaTyVars tvEnv strategy)
+              pure Nothing
           | otherwise -> do
               checkedArguments <- zipWithM (checkSurfaceType tvEnv) suppliedArguments (map tvKind prefixClassVars)
               targetKind <- defaultKindMetas (tvKind targetClassVar)
@@ -165,6 +168,23 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
                   quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
               pure (Just ((mkDerivingPlan kinds classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
+
+-- | The variables a via type mentions that the datatype head does not bind.
+-- A standalone declaration binds its own, but an attached clause has only
+-- the parameters of the declaration it hangs off, and kind-checking the via
+-- type against anything else leaves a meta-variable that no later pass can
+-- solve.
+unboundViaTyVars :: TvKindEnv -> Maybe DerivingStrategy -> [Text]
+unboundViaTyVars tvEnv strategy =
+  case strategy of
+    Just (DerivingVia viaType) -> nub (freeTypeVars viaType) \\ Map.keys tvEnv
+    _ -> []
+
+unboundViaTyVarError :: Text -> String
+unboundViaTyVarError name =
+  "the via type mentions "
+    <> T.unpack name
+    <> ", which the datatype head does not bind"
 
 attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> TcType -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
