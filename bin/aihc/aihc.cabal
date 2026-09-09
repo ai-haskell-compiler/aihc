@@ -163,6 +163,7 @@ library
     Aihc.Grin.Analysis
     Aihc.Lir.Convert
     Aihc.Native.Elf
+    Aihc.Native.Lir
     Aihc.Native.MachO
     Aihc.Native.Move
     Aihc.Native.Object
