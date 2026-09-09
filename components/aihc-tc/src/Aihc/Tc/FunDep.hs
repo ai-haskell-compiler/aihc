@@ -13,6 +13,7 @@
 --     substitution that unifies the determining ones.
 module Aihc.Tc.FunDep
   ( checkInstanceFunDeps,
+    atPositions,
   )
 where
 

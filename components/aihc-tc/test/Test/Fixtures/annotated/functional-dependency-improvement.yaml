@@ -1,0 +1,62 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z
+       │     └─ type: Nat
+       └─ type: Type
+  data Bag = Bag Nat
+       │     └─ type: Nat → Bag
+       └─ type: Type
+  class Collection c e | c -> e where
+  └─ class methods: insert ∷ ∀ c e. (Collection c e) ⇒ e → c → c, first ∷ ∀ c e. (Collection c e) ⇒ c → e; fundeps: c → e
+    insert :: e -> c -> c
+    first :: c -> e
+  instance Collection Bag Nat where
+  └─ $fCollectionBagNat ∷ () ⇒ Collection Bag Nat
+    insert _ bag = bag
+    │      │ └─ type: Bag
+    │      └─ type: Nat
+    └─ insert ∷ Nat → Bag → Bag
+    first (Bag n) = n
+    │      │   └─ type: Nat
+    │      └─ type: Bag
+    └─ first ∷ Bag → Nat
+  reinsert :: Bag -> Bag
+  reinsert bag = insert (first bag) bag
+  │        │     │       └─ type: Bag → Nat; type-args: Bag, Nat; evidence: $fCollectionBagNat
+  │        │     └─ type: Nat → Bag → Bag; type-args: Bag, Nat; evidence: $fCollectionBagNat
+  │        └─ type: Bag
+  └─ type: Bag → Bag
+  copy :: Collection c e => c -> c
+  copy collection = insert (first collection) collection
+  │    └─ type: c   │       └─ type: c → e; type-args: c, e; evidence: given Collection c e
+  │                 └─ type: e → c → c; type-args: c, e; evidence: given Collection c e
+  └─ type: ∀ c e. (Collection c e) ⇒ c → c
+  mix collection = insert Z (insert (first collection) collection)
+  │   └─ type: a   │         │       └─ type: a → Nat; type-args: a, Nat; evidence: given Collection a Nat
+  │                │         └─ type: Nat → a → a; type-args: a, Nat; evidence: given Collection a Nat
+  │                └─ type: Nat → a → a; type-args: a, Nat; evidence: given Collection a Nat
+  └─ type: ∀ a. (Collection a Nat) ⇒ a → a
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+modules:
+- |
+  module Test where
+  data Nat = Z
+  data Bag = Bag Nat
+  class Collection c e | c -> e where
+    insert :: e -> c -> c
+    first :: c -> e
+  instance Collection Bag Nat where
+    insert _ bag = bag
+    first (Bag n) = n
+  reinsert :: Bag -> Bag
+  reinsert bag = insert (first bag) bag
+  copy :: Collection c e => c -> c
+  copy collection = insert (first collection) collection
+  mix collection = insert Z (insert (first collection) collection)
+reason: a functional dependency determines the parameter that no argument mentions,
+  from a matching instance head, from a given under a signature, and from another
+  wanted whose class parameter is not yet known
+status: pass
