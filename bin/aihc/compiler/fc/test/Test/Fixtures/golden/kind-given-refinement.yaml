@@ -1,0 +1,82 @@
+extensions:
+- GADTs
+- PolyKinds
+- RankNTypes
+- ScopedTypeVariables
+modules:
+- |
+  module Test where
+  import GHC.Types (Type)
+  data Proxy (a :: k) = Proxy
+  data Some where
+    Some :: forall k (a :: k). Proxy a -> Some
+  data IsFun k where
+    IsFun :: IsFun (Type -> Type)
+  apply :: forall a b. (a -> b) -> a -> b
+  apply f x = f x
+  mkApp :: forall k1 k2 (f :: k1 -> k2) (x :: k1). Proxy f -> Proxy x -> Proxy (f x)
+  mkApp _ _ = Proxy
+  rebuild :: forall k (f :: k) (x :: Type). IsFun k -> Proxy f -> Proxy x -> Some
+  rebuild IsFun pf px = apply Some (mkApp pf px)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity;
+    2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+    2.v[] :: ∀(a : 2.tType). 2.t[] a
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.tProxy (k : 2.tType) (a : k) :: 2.tType {
+      pub 1.vProxy :: ∀(k : 2.tType) (a : k). 1.tProxy k a
+  }
+
+  pub type 1.tSome :: 2.tType {
+      pub 1.vSome :: ∀(k : 2.tType) (a : k). 1.tProxy k a 2.→ 1.tSome
+  }
+
+  pub type 1.tIsFun (k : 2.tType) :: 2.tType {
+      pub 1.vIsFun :: ∀(k : 2.tType). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (k ~ (2.tTYPE (2.vBoxedRep 2.vLifted) 2.→ 2.tTYPE (2.vBoxedRep 2.vLifted))) (1.tIsFun k)
+  }
+
+  pub val 1.vapply :: ∀(a : 2.tType) (b : 2.tType). (a 2.→ b) 2.→ a 2.→ b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(x : a 2.→ b).
+        λ(y : a).
+          x y
+
+  pub val 1.vmkApp :: ∀(k1 : 2.tType) (k2 : 2.tType) (f : k1 2.→ k2) (x : k1). 1.tProxy (k1 2.→ k2) f 2.→ 1.tProxy k1 x 2.→ 1.tProxy k2 (f x)
+   = Λ(k1 : 2.tType).
+    Λ(k2 : 2.tType).
+      Λ(f : k1 2.→ k2).
+        Λ(x : k1).
+          λ(x{1} : 1.tProxy (k1 2.→ k2) f).
+            λ(y : 1.tProxy k1 x).
+              1.vProxy @k2 @(f x)
+
+  pub val 1.vrebuild :: ∀(k : 2.tType) (f : k) (x : 2.tType). 1.tIsFun k 2.→ 1.tProxy k f 2.→ 1.tProxy (2.tTYPE (2.vBoxedRep 2.vLifted)) x 2.→ 1.tSome
+   = Λ(k : 2.tType).
+    Λ(f : k).
+      Λ(x : 2.tType).
+        λ(x{1} : 1.tIsFun k).
+          λ(y : 1.tProxy k f).
+            λ(z : 1.tProxy (2.tTYPE (2.vBoxedRep 2.vLifted)) x).
+              case x{1} as (_scrut : 1.tIsFun k) return (1.tSome) of {
+                  1.vIsFun ($pattern_d0 : k ~ (2.tTYPE (2.vBoxedRep 2.vLifted) 2.→ 2.tTYPE (2.vBoxedRep 2.vLifted))) →
+                      1.vapply @(1.tProxy (2.tTYPE (2.vBoxedRep 2.vLifted)) (f x)) @1.tSome (1.vSome @(2.tTYPE (2.vBoxedRep 2.vLifted)) @(f x)) (1.vmkApp @(2.tTYPE (2.vBoxedRep 2.vLifted)) @(2.tTYPE (2.vBoxedRep 2.vLifted)) @f @x y z)
+              }
+status: pass
+lint: xfail
+reason: The branch applies f at a kind that only the given k ~ (Type -> Type) provides, and FC types have no cast, so the lint rejects the well-typed-modulo-evidence Core.

@@ -3,6 +3,7 @@
 -- | Golden tests for System FC desugaring.
 module FcGolden
   ( ExpectedStatus (..),
+    LintExpectation (..),
     Outcome (..),
     FcCase (..),
     fixtureRoot,
@@ -38,6 +39,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
+import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -51,6 +53,19 @@ import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory,
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO.Unsafe (unsafePerformIO)
+
+-- | Whether a fixture's Core is expected to pass the System FC lint.
+--
+-- 'LintXFail' is for a program the lint rejects for a reason the compiler
+-- cannot fix yet, where the desugared Core is still worth pinning: the
+-- fixture asserts its rendered output and the named lint failure is
+-- tolerated. It is a tripwire, not a mute button -- once the lint accepts
+-- the program the fixture fails and asks for the key to be dropped -- and
+-- it needs a @reason@ saying which defect it stands for.
+data LintExpectation
+  = LintPass
+  | LintXFail
+  deriving (Eq, Show)
 
 data ExpectedStatus
   = StatusPass
@@ -73,6 +88,7 @@ data FcCase = FcCase
     caseModules :: ![Text],
     caseExpected :: !(Maybe String),
     caseStatus :: !ExpectedStatus,
+    caseLint :: !LintExpectation,
     caseReason :: !String
   }
   deriving (Eq, Show)
@@ -146,22 +162,26 @@ loadFcCase path = do
 
 parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
 parseFcFixture path value = do
-  (extNames, modules, expectedText, statusText, reasonText) <-
+  (extNames, modules, expectedText, statusText, lintText, reasonText) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
           expected <- obj .:? "expected" >>= traverse parseExpectedValue
           status <- obj .: "status"
+          lint <- obj .:? "lint" .!= "pass"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, mods, expected, status, reason)
+          pure (exts, mods, expected, status, lint, reason)
       )
       value
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
+  lint <- parseLintExpectation path lintText
   let relPath = dropRootPrefix path
       expected = trim . T.unpack <$> expectedText
       reason = trim (T.unpack reasonText)
+  -- A tolerated lint failure has to name the defect it stands for.
+  when (lint == LintXFail && null reason) (Left ("lint: xfail needs a reason in " <> path))
   pure
     FcCase
       { caseId = relPath,
@@ -170,6 +190,7 @@ parseFcFixture path value = do
         caseModules = modules,
         caseExpected = expected,
         caseStatus = status,
+        caseLint = lint,
         caseReason = reason
       }
 
@@ -228,14 +249,24 @@ renderFcCase tc =
       case renderResults fixtureResults of
         Left renderError -> Left renderError
         Right rendered ->
-          case concatMap (lintProgram . dsProgram) fixtureResults of
-            [] -> Right rendered
-            lintErrors ->
+          case (caseLint tc, concatMap (lintProgram . dsProgram) fixtureResults) of
+            (LintPass, []) -> Right rendered
+            (LintPass, lintErrors) -> Left (lintReport lintErrors rendered)
+            -- The Core is pinned even though the lint rejects it. When the
+            -- lint stops rejecting it the fixture has to say so, so this
+            -- reports rather than quietly passing.
+            (LintXFail, []) ->
               Left
-                ( unlines ["System FC lint error: " <> show lintError | lintError <- lintErrors]
+                ( "System FC lint now accepts this program; drop the lint: xfail key.\nreason was: "
+                    <> caseReason tc
                     <> "\nSystem FC output:\n"
                     <> rendered
                 )
+            (LintXFail, _) -> Right rendered
+    lintReport lintErrors rendered =
+      unlines ["System FC lint error: " <> show lintError | lintError <- lintErrors]
+        <> "\nSystem FC output:\n"
+        <> rendered
     renderResults results =
       unlines <$> traverse renderResult results
     renderResult result =
@@ -393,6 +424,13 @@ validateExtensions path = traverse parseOne
       case parseExtensionName raw of
         Just ext -> Right ext
         Nothing -> Left ("Unknown extension " <> show raw <> " in " <> path)
+
+parseLintExpectation :: FilePath -> Text -> Either String LintExpectation
+parseLintExpectation path raw =
+  case map toLower (trim (T.unpack raw)) of
+    "pass" -> Right LintPass
+    "xfail" -> Right LintXFail
+    _ -> Left ("Invalid lint expectation in " <> path <> ": " <> T.unpack raw)
 
 parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =

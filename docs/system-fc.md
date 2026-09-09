@@ -230,6 +230,14 @@ Do not add a `testCase` that builds `Expr`.
 
 Hedgehog checks `parseProgram . renderProgram = id` on self-contained programs.
 
+A golden fixture passes Fc lint by default. A fixture may set `lint: xfail`
+to pin the Core of a program the lint rejects for a defect the compiler
+cannot fix yet, such as a kind that only scoped equality evidence refines:
+Fc types have no cast, so the coercion cannot be written. Such a fixture
+needs a `reason` naming the defect, and it still compares `expected`, so
+the Core is checked exactly. Once the lint accepts the program the fixture
+fails and asks for the key to be dropped.
+
 ## install
 
 `install` writes the Core program of each module when `--keep-core` is
