@@ -2,7 +2,7 @@
 
 -- | Check the method casts of a derived instance that coerces the methods
 -- of another type's instance, before FC conversion.
-module Aihc.Tc.Deriving.Newtype (checkNewtypeInstance) where
+module Aihc.Tc.Deriving.Cast (checkCoercedInstance) where
 
 import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Coerce (coercionBetween)
@@ -20,8 +20,8 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-checkNewtypeInstance :: (Text, Text) -> (Text -> [Pred] -> Pred -> TcM EvTerm) -> (ClassInfo -> [TcType] -> Text -> TcM TypeScheme) -> TcDerivingPlan -> ClassInfo -> [Pred] -> TcInstanceAnnotation -> TcM TcInstanceAnnotation
-checkNewtypeInstance origin solve methodScheme original info context annotation = do
+checkCoercedInstance :: (Text, Text) -> (Text -> [Pred] -> Pred -> TcM EvTerm) -> (ClassInfo -> [TcType] -> Text -> TcM TypeScheme) -> TcDerivingPlan -> ClassInfo -> [Pred] -> TcInstanceAnnotation -> TcM TcInstanceAnnotation
+checkCoercedInstance origin solve methodScheme original info context annotation = do
   let substitution = Map.fromList [(tvUnique old, TcTyVar new) | old <- tcDerivingTyVars original, new <- tcInstanceTyVars annotation, tvName old == tvName new]
       plan = original {tcDerivingHeadTypes = tcInstanceHeadTypes annotation}
   case coercedSource plan of
@@ -45,7 +45,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
           proof <- coercionBetween (tcInstanceAssociatedTypes annotation) sourceType (last (tcInstanceHeadTypes annotation))
           pure (TyConAppCo (ciTyCon info) headTypes . (map Refl (init headTypes) <>) . (: []) <$> proof)
         _ -> pure Nothing
-      pure annotation {tcInstanceNewtype = Just (TcNewtypeInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
+      pure annotation {tcInstanceCoerced = Just (TcCoercedInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
   where
     reject = emitError (tcDerivingSourceSpan original) . OtherError
     mechanism =
@@ -65,7 +65,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
           else pure Nothing
       case proof of
         Nothing -> reject (mechanism <> " cannot prove a safe coercion for method " <> T.unpack name) >> pure Nothing
-        Just coercion -> pure (Just (TcNewtypeMethod name index variables targetPredicates coercion))
+        Just coercion -> pure (Just (TcCoercedMethod name index variables targetPredicates coercion))
     mentionsSelf term = case term of
       EvDict dictionaryOrigin name _ arguments -> (dictionaryOrigin == origin && name == tcInstanceDictName annotation) || any mentionsSelf arguments
       EvSuperClass inner _ _ _ _ -> mentionsSelf inner

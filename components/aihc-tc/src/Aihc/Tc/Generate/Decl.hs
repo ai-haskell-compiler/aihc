@@ -100,6 +100,7 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcCoercedDeriving (..),
     TcDerivedInstance (..),
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
@@ -112,7 +113,6 @@ import Aihc.Tc.Annotations
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
-    TcNewtypeDeriving (..),
     TcPatSynAnnotation (..),
     annotateDecl,
     annotateRhsCast,
@@ -120,9 +120,9 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
+import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Deriving.Newtype (checkNewtypeInstance)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -959,9 +959,9 @@ annotateInstanceHeaderTc :: (Text, Text) -> Bool -> Decl -> TcM Decl
 annotateInstanceHeaderTc origin derived decl =
   case decl of
     DeclAnn ann inner
-      | Just (TcNewtypeDeriving plan) <- fromAnnotation ann,
+      | Just (TcCoercedDeriving plan) <- fromAnnotation ann,
         DeclInstance instanceDecl <- peelDeclAnn inner ->
-          DeclAnn (mkAnnotation (tcDerivingSourceSpan plan)) <$> annotateInstanceDeclWithNewtype origin True (Just plan) instanceDecl
+          DeclAnn (mkAnnotation (tcDerivingSourceSpan plan)) <$> annotateInstanceDeclWithPlan origin True (Just plan) instanceDecl
     DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin (derived || isDerivedInstanceAnn ann) inner
     DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
     _ -> pure decl
@@ -1472,10 +1472,10 @@ annotateValueDeclTc checkedValueTypes valueDecl =
       maybe (bindingType name) pure (Map.lookup name checkedValueTypes)
 
 annotateInstanceDeclTc :: (Text, Text) -> Bool -> InstanceDecl -> TcM Decl
-annotateInstanceDeclTc origin derived = annotateInstanceDeclWithNewtype origin derived Nothing
+annotateInstanceDeclTc origin derived = annotateInstanceDeclWithPlan origin derived Nothing
 
-annotateInstanceDeclWithNewtype :: (Text, Text) -> Bool -> Maybe TcDerivingPlan -> InstanceDecl -> TcM Decl
-annotateInstanceDeclWithNewtype origin derived newtypePlan instanceDecl =
+annotateInstanceDeclWithPlan :: (Text, Text) -> Bool -> Maybe TcDerivingPlan -> InstanceDecl -> TcM Decl
+annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
@@ -1520,7 +1520,7 @@ annotateInstanceDeclWithNewtype origin derived newtypePlan instanceDecl =
               (methodName,) <$> mapM (solveInstanceSuperClass classNameText (context <> methodPredicates)) predicates
           | methodName <- defaults,
             methodName `notElem` definedMethods,
-            isNothing newtypePlan,
+            isNothing coercedPlan,
             Just (ForAll _ signaturePredicates signatureBody) <- [lookup methodName (ciDefaultSignatures info)]
           ]
       -- GHC warns when an instance leaves out a method with no default and
@@ -1590,11 +1590,11 @@ annotateInstanceDeclWithNewtype origin derived newtypePlan instanceDecl =
                 tcInstanceDefaultMethods = defaults,
                 tcInstanceDefaultMethodEvidence = defaultMethodEvidence,
                 tcInstanceAssociatedTypes = associatedEquations,
-                tcInstanceNewtype = Nothing
+                tcInstanceCoerced = Nothing
               }
-      checkedAnn <- case newtypePlan of
+      checkedAnn <- case coercedPlan of
         Nothing -> pure instAnn
-        Just plan -> checkNewtypeInstance origin solveInstanceSuperClass methodExpectedScheme plan info context instAnn
+        Just plan -> checkCoercedInstance origin solveInstanceSuperClass methodExpectedScheme plan info context instAnn
       pure (DeclAnn (mkAnnotation checkedAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
 
 classMethodFromInfo :: ClassInfo -> Int -> (Text, TypeScheme) -> TcClassMethodAnnotation
