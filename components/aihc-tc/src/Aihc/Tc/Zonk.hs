@@ -116,6 +116,11 @@ zonkErrorKind kind =
       TopLevelUnliftedBinding name <$> zonkType ty
     RepresentationPolymorphicFunctionArgument name ty ->
       RepresentationPolymorphicFunctionArgument name <$> zonkType ty
+    InstanceFunDepCoverage predicate determiners determined ->
+      InstanceFunDepCoverage <$> zonkPred predicate <*> pure determiners <*> pure determined
+    InstanceFunDepConflict predicate other determiners determined ->
+      InstanceFunDepConflict <$> zonkPred predicate <*> zonkPred other <*> pure determiners <*> pure determined
+    FunDepUnknownTyVar {} -> pure kind
     UnboundVariable {} -> pure kind
     OtherError {} -> pure kind
 

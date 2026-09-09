@@ -40,6 +40,7 @@ import Aihc.Parser.Syntax
     ForeignDirection (..),
     ForeignEntitySpec (..),
     ForeignSafety (..),
+    FunctionalDependency (..),
     GadtBody (..),
     IEBundledMember (..),
     InstanceDecl (..),
@@ -122,10 +123,11 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Deriving.Newtype (checkNewtypeInstance)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
@@ -272,7 +274,8 @@ annotationClasses ann decl =
               [ (methodName, typeToScheme signature)
               | (methodName, signature) <- tcClassDefaultSignatures classAnn
               ],
-            ciAssociatedTypes = tcClassAssociatedTypes classAnn
+            ciAssociatedTypes = tcClassAssociatedTypes classAnn,
+            ciFunDeps = tcClassFunDeps classAnn
           }
       ]
     _ -> []
@@ -999,7 +1002,8 @@ annotateClassDeclTc classDecl = do
                     tcClassDefaultMethods = ciDefaultMethods info,
                     tcClassDefaultSignatures =
                       [(methodName, schemeToType signature) | (methodName, signature) <- ciDefaultSignatures info],
-                    tcClassAssociatedTypes = ciAssociatedTypes info
+                    tcClassAssociatedTypes = ciAssociatedTypes info,
+                    tcClassFunDeps = ciFunDeps info
                   }
             )
             (DeclClass (classDecl {classDeclItems = items}))
@@ -3131,6 +3135,30 @@ isForeignImport :: ForeignDecl -> Bool
 isForeignImport foreignDecl =
   foreignDirection foreignDecl == ForeignImport
 
+-- | Convert one source functional dependency into class parameter
+-- positions, reporting every name that no class parameter binds. Such a
+-- dependency has no positions to name, so it takes no part in solving.
+checkClassFunDep :: Text -> [Text] -> FunctionalDependency -> TcM (Maybe FunDep)
+checkClassFunDep className paramNames dependency = do
+  forM_ unknown (emitError loc . FunDepUnknownTyVar className)
+  pure (classFunDep paramNames dependency)
+  where
+    loc = sourceSpanFromAnns (functionalDependencyAnns dependency)
+    unknown =
+      filter
+        (`notElem` paramNames)
+        (functionalDependencyDeterminers dependency <> functionalDependencyDetermined dependency)
+
+-- | The class parameter positions that one source functional dependency
+-- names.
+classFunDep :: [Text] -> FunctionalDependency -> Maybe FunDep
+classFunDep paramNames dependency =
+  FunDep
+    <$> traverse position (functionalDependencyDeterminers dependency)
+    <*> traverse position (functionalDependencyDetermined dependency)
+  where
+    position name = elemIndex name paramNames
+
 registerClassDecl :: (Text, Text) -> ClassDecl -> TcM [TcBindingResult]
 registerClassDecl origin classDecl = do
   let classBinder = binderHeadName (classDeclHead classDecl)
@@ -3171,6 +3199,7 @@ registerClassDecl origin classDecl = do
       <$> mapM
         (registerAssociatedTypeFamily origin (map tyVarBinderName params) (classDeclTypeFamilyDefaults classDecl))
         (classDeclTypeFamilies classDecl)
+  funDeps <- catMaybes <$> mapM (checkClassFunDep className (map tyVarBinderName params)) (classDeclFundeps classDecl)
   addClass
     ClassInfo
       { ciName = className,
@@ -3182,7 +3211,8 @@ registerClassDecl origin classDecl = do
         ciMethods = methods,
         ciDefaultMethods = defaults,
         ciDefaultSignatures = defaultSignatures,
-        ciAssociatedTypes = associatedTypes
+        ciAssociatedTypes = associatedTypes,
+        ciFunDeps = funDeps
       }
   pure (methodResults <> catMaybes defaultResults)
   where
@@ -3410,6 +3440,7 @@ registerInstanceDecl origin instanceDecl =
       tvIds <- orderTyVarsByKind <$> mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) rawTvIds
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
+      checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo

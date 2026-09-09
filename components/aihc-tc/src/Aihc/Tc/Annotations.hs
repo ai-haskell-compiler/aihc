@@ -48,6 +48,7 @@ module Aihc.Tc.Annotations
     pendingTypeLambdaAnnotation,
 
     -- * Pretty-printing
+    renderFunDepNames,
     renderPred,
     renderTcType,
     renderTcTypeInModule,
@@ -67,7 +68,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionNamespace (..))
-import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, TypeFamilyInstanceInfo)
+import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
 import Data.Text (Text)
@@ -221,7 +222,8 @@ data TcClassAnnotation = TcClassAnnotation
     tcClassMethods :: ![TcClassMethodAnnotation],
     tcClassDefaultMethods :: ![Text],
     tcClassDefaultSignatures :: ![(Text, TcType)],
-    tcClassAssociatedTypes :: ![AssociatedTypeInfo]
+    tcClassAssociatedTypes :: ![AssociatedTypeInfo],
+    tcClassFunDeps :: ![FunDep]
   }
   deriving (Eq, Show)
 
@@ -379,6 +381,11 @@ pendingTypeLambdaAnnotation ty binders evidenceBinders =
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String
 renderTcSignature name ty = T.unpack name ++ " ∷ " ++ renderTcType ty
+
+-- | Render the two sides of a functional dependency as source-like text.
+renderFunDepNames :: [Text] -> [Text] -> String
+renderFunDepNames determiners determined =
+  unwords (map T.unpack determiners) ++ " → " ++ unwords (map T.unpack determined)
 
 -- | Render a class or equality predicate as source-like text.
 renderPred :: Pred -> String

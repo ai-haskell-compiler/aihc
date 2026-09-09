@@ -45,6 +45,16 @@ data TcErrorKind
     TopLevelUnliftedBinding !Text !TcType
   | -- | A source function argument has no fixed runtime representation.
     RepresentationPolymorphicFunctionArgument !Text !TcType
+  | -- | A functional dependency names something that is not a parameter of
+    -- the class. The class name comes first.
+    FunDepUnknownTyVar !Text !Text
+  | -- | An instance head leaves the parameters that a functional dependency
+    -- determines undetermined. The lists name the class parameters on each
+    -- side of the dependency.
+    InstanceFunDepCoverage !Pred ![Text] ![Text]
+  | -- | Two instances of a class disagree about the parameters that a
+    -- functional dependency determines.
+    InstanceFunDepConflict !Pred !Pred ![Text] ![Text]
   | -- | Other error with a message.
     OtherError !String
   deriving (Show)

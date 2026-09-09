@@ -27,10 +27,12 @@ import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, mkAppTy)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Control.Monad (when)
 
 -- | Result of solving constraints.
 data SolveResult = SolveResult
@@ -63,18 +65,15 @@ addWork ct = case ctPred ct of
 -- | Main solver loop.
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
 solveLoop wl inerts = case popWork wl of
-  Nothing
-    | null (inertEqs inerts) ->
-        -- Done: all constraints processed.
-        pure SolveResult {srResidual = [], srInerts = inerts}
-    | otherwise -> do
-        -- An equality that waits on a type family application gets another
-        -- attempt when a solved meta variable changed it. Otherwise it is a
-        -- residual that the enclosing scope solves or reports.
-        (progressed, stuck) <- partitionProgress (inertEqs inerts)
-        if null progressed
-          then pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
-          else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
+  Nothing -> do
+    -- A functional dependency can solve a meta variable of a dictionary
+    -- that no instance or given matched on its own. Improvement only
+    -- solves meta variables, so a pass that solves none ends the loop.
+    givens <- getGivenPredicates
+    improved <- improveFunDeps givens (inertDicts inerts)
+    if improved
+      then solveLoop (foldr addDict emptyWorkList (inertDicts inerts)) inerts {inertDicts = []}
+      else drained inerts
   Just (Left ct, wl') ->
     -- Process a flat constraint.
     processConstraint ct wl' inerts
@@ -84,6 +83,18 @@ solveLoop wl inerts = case popWork wl of
     -- in the inert set for the enclosing solve.
     deferred <- solveImplication impl
     solveLoop wl' (foldr addInertDict inerts deferred)
+
+-- | No work is left. An equality that waits on a type family application
+-- gets another attempt when a solved meta variable changed it. Otherwise it
+-- is a residual that the enclosing scope solves or reports.
+drained :: InertSet -> TcM SolveResult
+drained inerts
+  | null (inertEqs inerts) = pure SolveResult {srResidual = [], srInerts = inerts}
+  | otherwise = do
+      (progressed, stuck) <- partitionProgress (inertEqs inerts)
+      if null progressed
+        then pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
+        else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
 
 -- | Split the stuck equalities into those that a solved meta variable
 -- changed since they got stuck, and those that are unchanged.
@@ -163,9 +174,17 @@ solveImplication impl = do
   -- the main worklist's equality-before-dictionary ordering inside branches.
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
       skolems = implSkols impl
+  improveImplicationWanteds givenPredicates dictionaryWanteds
   deferredEqualities <- solveImplicationEqualities skolems givenPredicates givenEqs equalityWanteds
   deferredDictionaries <- concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqs) dictionaryWanteds
   pure (deferredEqualities <> deferredDictionaries)
+
+-- | Improve the dictionary wanteds of a branch from the givens of the
+-- branch until improvement solves no further meta variable.
+improveImplicationWanteds :: [Pred] -> [Ct] -> TcM ()
+improveImplicationWanteds givenPredicates constraints = do
+  improved <- improveFunDeps givenPredicates constraints
+  when improved (improveImplicationWanteds givenPredicates constraints)
 
 -- | Retry equalities after argument constraints solve meta variables.
 -- The result holds the equality wanteds that the enclosing scope must solve.

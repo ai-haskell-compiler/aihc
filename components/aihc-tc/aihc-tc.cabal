@@ -30,6 +30,7 @@ library
     Aihc.Tc.Error
     Aihc.Tc.Evidence
     Aihc.Tc.Finalize
+    Aihc.Tc.FunDep
     Aihc.Tc.Generalize
     Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl
@@ -50,6 +51,7 @@ library
     Aihc.Tc.Solve.Dict
     Aihc.Tc.Solve.Equality
     Aihc.Tc.Solve.Family
+    Aihc.Tc.Solve.FunDep
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy

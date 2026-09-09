@@ -1,0 +1,29 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies, MultiParamTypeClasses #-}
+    module Test where
+
+    data BoolBox = BoolBox Bool
+
+    class Container c e | c -> e where
+      wrap :: e -> c
+      unwrap :: c -> e
+
+    instance Container BoolBox Bool where
+      wrap = BoolBox
+      unwrap (BoolBox value) = value
+
+    -- The element type appears nowhere in the signature, so only the
+    -- functional dependency of the class can determine it.
+    roundTrip :: BoolBox -> BoolBox
+    roundTrip box = wrap (unwrap box)
+
+    result :: Bool
+    result = unwrap (roundTrip (BoolBox True))
+expression: result
+output: "True"
+status: pass
+reason: a functional dependency determines the element type of a class method whose signature does not mention it, and the improved constraint selects the instance dictionary that runs
