@@ -4,17 +4,16 @@
 module Aihc.Tc.Deriving.Newtype (checkNewtypeInstance) where
 
 import Aihc.Tc.Annotations
-import Aihc.Tc.Deriving.Context (newtypeRepresentation, typeTyVars)
+import Aihc.Tc.Deriving.Coerce (coercionBetween)
+import Aihc.Tc.Deriving.Context (newtypeRepresentation)
 import Aihc.Tc.Env
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Coercible (isRepresentationParameter)
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
-import Data.List (nub)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
@@ -41,8 +40,8 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
         Just term | mentionsSelf term -> reject "newtype deriving requires non-circular representation evidence"
         _ -> pure ()
       dictionaryCast <- case (tcDerivingDataType plan, tcInstanceSuperClasses annotation, evidence) of
-        (Just dataType, [], Just _) | null (ciKindTyVars info) -> do
-          proof <- newtypeCoercion (tcInstanceAssociatedTypes annotation) dataType representation (last (tcInstanceHeadTypes annotation))
+        (Just _, [], Just _) | null (ciKindTyVars info) -> do
+          proof <- coercionBetween (tcInstanceAssociatedTypes annotation) representation (last (tcInstanceHeadTypes annotation))
           pure (TyConAppCo (ciTyCon info) headTypes . (map Refl (init headTypes) <>) . (: []) <$> proof)
         _ -> pure Nothing
       pure annotation {tcInstanceNewtype = Just (TcNewtypeInstance headTypes evidence fieldTypes dictionaryCast (catMaybes methods))}
@@ -54,7 +53,7 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
       ForAll variables sourcePredicates source <- methodScheme info headTypes name
       ForAll _ targetPredicates target <- methodScheme info (tcInstanceHeadTypes annotation) name
       proof <- case tcDerivingDataType plan of
-        Just dataType | sourcePredicates == targetPredicates -> newtypeCoercion (tcInstanceAssociatedTypes annotation) dataType source target
+        Just _ | sourcePredicates == targetPredicates -> coercionBetween (tcInstanceAssociatedTypes annotation) source target
         _ -> pure Nothing
       case proof of
         Nothing -> reject ("newtype deriving cannot prove a safe coercion for method " <> T.unpack name) >> pure Nothing
@@ -68,59 +67,3 @@ checkNewtypeInstance origin solve methodScheme original info context annotation 
       EvTypeApp inner _ -> mentionsSelf inner
       EvDictApp function argument -> mentionsSelf function || mentionsSelf argument
       _ -> False
-
--- | Coercions lift through representation parameters, as roles permit.
-newtypeCoercion :: [TypeFamilyInstanceInfo] -> DataTypeInfo -> TcType -> TcType -> TcM (Maybe Coercion)
-newtypeCoercion equations dataType rawSource rawTarget = go (normalize rawSource) (normalize rawTarget)
-  where
-    go source target
-      | source == target = pure (Just (Refl source))
-      | TcTyCon constructor arguments <- target,
-        constructor == dtiTyCon dataType,
-        length arguments == length (dtiTyVars dataType),
-        [con] <- dtiConstructors dataType,
-        [field] <- dciFields con,
-        let substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments),
-        normalize (applySubst substitution (dcfiType field)) == source = do
-          argumentKinds <- mapM tcTypeKind arguments
-          let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) argumentKinds)
-              kindVariables = filter (`notElem` dtiTyVars dataType) (nub (concatMap (typeTyVars . tvKind) (dtiTyVars dataType)))
-              kindArguments = map (applySubst kindSubstitution . TcTyVar) kindVariables
-              key = TcAxiomKey (tyConPackageId constructor) (tyConModuleName constructor) ("$ax$" <> dtiName dataType)
-          pure (Just (Sym (AxiomInstCo key (kindArguments <> arguments))))
-      | TcFunTy sourceArgument sourceResult <- source,
-        TcFunTy targetArgument targetResult <- target = do
-          argument <- go sourceArgument targetArgument
-          result <- go sourceResult targetResult
-          pure (FunCo <$> argument <*> result)
-      | TcTyCon sourceConstructor sourceArguments <- source,
-        TcTyCon targetConstructor targetArguments <- target,
-        sourceConstructor == targetConstructor,
-        length sourceArguments == length targetArguments = do
-          proofs <- sequence <$> zipWithM (argumentProof sourceConstructor) [0 ..] (zip sourceArguments targetArguments)
-          case proofs of
-            Just coercions -> pure (Just (TyConAppCo sourceConstructor sourceArguments coercions))
-            Nothing -> pure (familyProof source target)
-      | otherwise = pure (familyProof source target)
-    familyProof source target = case [ Sym (AxiomInstCo (typeFamilyAxiomKey equation) arguments)
-                                     | equation <- equations,
-                                       Just substitution <- [matchTypes [tfiiLeft equation] [target]],
-                                       normalize (applySubst substitution (tfiiRight equation)) == source,
-                                       let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
-                                     ] of
-      proof : _ -> Just proof
-      [] -> Nothing
-    -- A representation parameter carries an argument coercion. A nominal one
-    -- admits only the argument it already has.
-    argumentProof constructor index (sourceArgument, targetArgument) = do
-      representational <- isRepresentationParameter constructor index
-      if representational
-        then go sourceArgument targetArgument
-        else pure (if sourceArgument == targetArgument then Just (Refl sourceArgument) else Nothing)
-    normalize ty = case ty of
-      TcAppTy function argument -> case normalize function of
-        TcTyCon constructor arguments -> TcTyCon constructor (arguments <> [normalize argument])
-        other -> TcAppTy other (normalize argument)
-      TcTyCon constructor arguments -> TcTyCon constructor (map normalize arguments)
-      TcFunTy argument result -> TcFunTy (normalize argument) (normalize result)
-      _ -> ty
