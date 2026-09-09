@@ -41,6 +41,7 @@ where
 
 import Control.Applicative (Alternative (..))
 import Control.Monad.Fail (MonadFail (..))
+import Data.Functor (void)
 import Prelude
   ( Applicative (..),
     Bool (..),
@@ -50,7 +51,6 @@ import Prelude
     Monad (..),
     Num (..),
     Ord (..),
-    const,
     flip,
     foldr,
     id,
@@ -152,9 +152,6 @@ foldM_ combine initial values = void (foldM combine initial values)
 
 forever :: (Monad m) => m a -> m b
 forever action = action >> forever action
-
-void :: (Functor f) => f a -> f ()
-void = fmap (const ())
 
 join :: (Monad m) => m (m a) -> m a
 join action = action >>= id
