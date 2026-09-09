@@ -1474,7 +1474,7 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
       let classNameText = nameText className
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
-      tvIds <- mapM defaultTyVarKinds rawTvIds
+      tvIds <- orderTyVarsByKind <$> mapM defaultTyVarKinds rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
       kinds <- getKinds
@@ -2044,6 +2044,19 @@ splitContext :: Type -> ([Type], Type)
 splitContext (TAnn _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
 splitContext ty = ([], ty)
+
+-- | Order type variables so that a variable comes after every variable its
+-- kind mentions: @instance C (TypeRep (a :: k))@ quantifies @k@ before
+-- @a@. The order is otherwise stable.
+orderTyVarsByKind :: [TyVarId] -> [TyVarId]
+orderTyVarsByKind = go []
+  where
+    go emitted pending =
+      case partition (ready emitted pending) pending of
+        ([], _) -> reverse emitted <> pending
+        (next, rest) -> go (reverse next <> emitted) rest
+    ready emitted pending tyVar =
+      not (any (\other -> other /= tyVar && other `notElem` emitted && kindMentionsUnique (tvUnique other) (tvKind tyVar)) pending)
 
 makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TyVarId], TvKindEnv)
 makeInstanceTyVarEnv instanceDecl headArgTypes = do
@@ -3362,11 +3375,15 @@ registerInstanceDecl origin instanceDecl =
     Nothing -> pure []
     Just className -> do
       let headArgs = instanceHeadTypes (instanceDeclHead instanceDecl)
-      (tvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgs
+      (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgs
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes className tvEnv headArgs
       dictName <- allocateInstanceDictName origin classNameText headTys
       context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      -- The head check fixed the kinds; the same order as the annotation
+      -- pass keeps the dictionary's type arguments aligned with its
+      -- type lambdas.
+      tvIds <- orderTyVarsByKind <$> mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) rawTvIds
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
@@ -4119,18 +4136,46 @@ rejigGadtResult declaredResTy writtenResTy =
 -- no earlier index has claimed becomes the universal variable for that
 -- position. Every other index becomes a fresh universal variable and an
 -- equality with the written index.
+--
+-- The fresh variable takes the kind the data type declares for the
+-- position, with the type's kind parameters read off the claimed positions.
+-- @HRefl :: forall k (a :: k). a :~~: a@ over @data (a :: k1) :~~: (b :: k2)@
+-- therefore gets @b :: k2@ rather than @b :: k@, and the kind equality
+-- @k2 ~ k@ joins the index equality @b ~ a@, so a match at two different
+-- kinds still instantiates the constructor.
 rejigIndices :: [TyVarId] -> [(TyVarId, TcType)] -> TcM ([TyVarId], [Pred])
-rejigIndices _ [] = pure ([], [])
-rejigIndices claimed ((param, writtenArg) : rest) = do
-  (universal, predicates) <- case writtenArg of
-    TcTyVar tyVar
-      | tvUnique tyVar `notElem` map tvUnique claimed -> pure (tyVar, [])
-    _ -> do
-      kind <- tcTypeKind writtenArg >>= zonkKind
-      fresh <- setTyVarKind kind <$> freshSkolemTv (tvName param)
-      pure (fresh, [EqPred (TcTyVar fresh) writtenArg])
-  (universals, restPredicates) <- rejigIndices (universal : claimed) rest
-  pure (universal : universals, predicates <> restPredicates)
+rejigIndices = go Map.empty
+  where
+    go _ _ [] = pure ([], [])
+    go kindParams claimed ((param, writtenArg) : rest) = do
+      (universal, predicates, kindParams') <- case writtenArg of
+        TcTyVar tyVar
+          | tvUnique tyVar `notElem` map tvUnique claimed ->
+              pure (tyVar, [], claimKindParams kindParams (tvKind param) (tvKind tyVar))
+        _ -> do
+          writtenKind <- tcTypeKind writtenArg >>= zonkKind
+          declaredKind <- zonkKind (substituteKindParams kindParams (tvKind param))
+          fresh <- setTyVarKind declaredKind <$> freshSkolemTv (tvName param)
+          let kindPredicates = [EqPred declaredKind writtenKind | declaredKind /= writtenKind]
+          pure (fresh, kindPredicates <> [EqPred (TcTyVar fresh) writtenArg], kindParams)
+      (universals, restPredicates) <- go kindParams' (universal : claimed) rest
+      pure (universal : universals, predicates <> restPredicates)
+
+    -- A claimed index whose declared kind is a kind parameter of the data
+    -- type fixes that parameter to the kind of the written variable.
+    claimKindParams kindParams declaredKind writtenKind =
+      case declaredKind of
+        TcTyVar kindParam
+          | tvUnique kindParam `Map.notMember` kindParams -> Map.insert (tvUnique kindParam) writtenKind kindParams
+        _ -> kindParams
+
+    substituteKindParams kindParams kind =
+      case kind of
+        TcTyVar tyVar -> fromMaybe kind (Map.lookup (tvUnique tyVar) kindParams)
+        TcTyCon tyCon arguments -> TcTyCon tyCon (map (substituteKindParams kindParams) arguments)
+        TcFunTy argument result -> TcFunTy (substituteKindParams kindParams argument) (substituteKindParams kindParams result)
+        TcAppTy function argument -> TcAppTy (substituteKindParams kindParams function) (substituteKindParams kindParams argument)
+        _ -> kind
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
