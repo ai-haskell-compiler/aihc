@@ -864,8 +864,12 @@ desugarClassSelectors classDecl classAnnotation = do
   mapM (desugarSelector (tcClassTyCon classAnnotation) classTyVars fieldTypes superClassCount) (tcClassMethods classAnnotation)
 
 desugarClassDefaults :: Syn.ClassDecl -> ValueM [Decl]
-desugarClassDefaults classDecl =
-  concat <$> mapM (defaultItem Nothing) (Syn.classDeclItems classDecl)
+desugarClassDefaults classDecl = do
+  equations <- concat <$> mapM (defaultItem Nothing) (Syn.classDeclItems classDecl)
+  -- A default method with several equations parses as one item per equation,
+  -- so the equations are collected before the worker is emitted: one worker
+  -- per method, not one per equation.
+  mapM (uncurry desugarDefaultWorker) (groupDefaultEquations equations)
   where
     defaultItem maybeAnnotation item =
       case item of
@@ -875,18 +879,31 @@ desugarClassDefaults classDecl =
             inner
         Syn.ClassItemDefault valueDecl ->
           case maybeAnnotation of
-            Just annotation -> (: []) <$> desugarDefaultWorker annotation valueDecl
+            Just annotation -> pure [(annotation, valueDeclMatches valueDecl)]
             Nothing -> failValue "class default method does not have a checked annotation"
         _ -> pure []
 
-desugarDefaultWorker :: TcInstanceMethodAnnotation -> Syn.ValueDecl -> ValueM Decl
-desugarDefaultWorker annotation valueDecl = do
+-- | Merge the equations of each default method, keeping both the methods and
+-- their equations in source order.
+groupDefaultEquations :: [(TcInstanceMethodAnnotation, [Syn.Match])] -> [(TcInstanceMethodAnnotation, [Syn.Match])]
+groupDefaultEquations equations =
+  [ (annotation, concat [matches | (candidate, matches) <- equations, sameMethod candidate annotation])
+  | (seen, (annotation, _)) <- zip (List.inits equations) equations,
+    not (any (\(candidate, _) -> sameMethod candidate annotation) seen)
+  ]
+  where
+    sameMethod left right = tcInstanceMethodName left == tcInstanceMethodName right
+
+valueDeclMatches :: Syn.ValueDecl -> [Syn.Match]
+valueDeclMatches valueDecl =
+  case valueDecl of
+    Syn.FunctionBind _ sourceMatches -> sourceMatches
+    Syn.PatternBind _ _ rhs -> [emptyMatch rhs]
+
+desugarDefaultWorker :: TcInstanceMethodAnnotation -> [Syn.Match] -> ValueM Decl
+desugarDefaultWorker annotation matches = do
   let workerType = tcInstanceMethodType annotation
       methodName = tcInstanceMethodName annotation
-      matches =
-        case valueDecl of
-          Syn.FunctionBind _ sourceMatches -> sourceMatches
-          Syn.PatternBind _ _ rhs -> [emptyMatch rhs]
   body <- desugarMatches workerType matches
   convertedType <- convertCheckedType workerType
   moduleOrigin <- gets vsModuleOrigin

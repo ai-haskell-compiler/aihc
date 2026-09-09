@@ -1,0 +1,26 @@
+modules:
+  - |
+    module Test where
+
+    data Unit = Unit
+
+    class Sized a where
+      size :: a -> Int
+
+      -- The equations of a default method parse as one class item each; they
+      -- still make a single default worker.
+      measure :: a -> [Int] -> Int
+      measure _ [] = 0
+      measure x (n : rest) = n * size x + measure x rest
+
+    instance Sized Unit where
+      size _ = 2
+
+    total :: Int
+    total = measure Unit [1, 2, 3]
+output: |
+  I# 12
+expression: |
+  total
+status: pass
+reason: a default method with several equations makes one worker, not one per equation
