@@ -125,7 +125,7 @@ generatePlan kinds references origin sourceDecl plan =
               items <- generateItems gen
               pure $
                 items <&> \generated ->
-                  markNewtype $
+                  markCoerced $
                     DeclAnn (mkAnnotation TcDerivedInstance) $
                       DeclAnn (mkAnnotation (genSpan gen)) $
                         DeclInstance
@@ -138,10 +138,15 @@ generatePlan kinds references origin sourceDecl plan =
                               instanceDeclItems = generated
                             }
   where
-    markNewtype declaration =
+    -- Both strategies that coerce another instance need the plan again when
+    -- the generated header is checked, to prove the casts of its methods.
+    markCoerced declaration =
       case tcDerivingStrategy plan of
-        TcDerivingNewtype -> DeclAnn (mkAnnotation (TcNewtypeDeriving plan)) declaration
+        TcDerivingNewtype -> tagged
+        TcDerivingVia {} -> tagged
         _ -> declaration
+      where
+        tagged = DeclAnn (mkAnnotation (TcNewtypeDeriving plan)) declaration
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
@@ -170,7 +175,7 @@ generatePlan kinds references origin sourceDecl plan =
               Left ("stock deriving of " <> className <> " is not available for a class outside the core libraries")
           | isSupportedStockClass (tcDerivingClassName plan) -> Right ()
           | otherwise -> Left ("stock deriving of " <> className <> " is not supported yet; no instance is generated")
-        TcDerivingVia {} -> Left ("deriving via is not supported yet; no instance is generated for " <> className)
+        TcDerivingVia {} -> Right ()
     -- A standalone declaration keeps the syntax the user wrote. An attached
     -- clause renders its checked head and inferred context.
     instanceHeader context =
@@ -205,7 +210,7 @@ generateItems gen =
                 "Bounded" -> boundedItems gen constructors
                 other -> failWith ("stock deriving of " <> T.unpack other <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
-    TcDerivingVia {} -> pure Nothing
+    TcDerivingVia viaType -> associatedItems gen viaType
   where
     plan = genPlan gen
     failWith message = do

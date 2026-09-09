@@ -1,0 +1,58 @@
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+  module Main where
+  class Show a where
+  └─ class methods: show ∷ ∀ a. (Show a) ⇒ a → a
+    show :: a -> a
+    show x = x
+    │    └─ type: a
+    └─ show ∷ ∀ a. (Show a) ⇒ a → a
+  newtype Wrap a = Wrap a
+  │       │        └─ type: ∀ a. a → Wrap a
+  │       └─ type: Type → Type
+  └─ deriving plans: via a Show (Wrap a) [context: Show a] [methods: show]
+    deriving Show via a
+             └─ $fShowWrapa ∷ ∀ a. (Show a) ⇒ Show (Wrap a)
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  newtype Bar = Bar Unit
+          │     └─ type: () → Bar
+          └─ type: Type
+    deriving Show via (Wrap a)
+             └─ error: the via type mentions a, which the datatype head does not bind
+  newtype Loop = Loop Loop
+          │      └─ type: Loop → Loop
+          └─ type: Type
+  instance Show Loop
+  └─ $fShowLoop ∷ () ⇒ Show Loop
+  newtype Other = Other Unit
+  │       │       └─ type: () → Other
+  │       └─ type: Type
+  └─ deriving plans: via Loop Show Other [context: ()] [methods: show]
+    deriving Show via Loop
+             └─ $fShowOther ∷ () ⇒ Show Other
+             └─ error: deriving via cannot prove a safe coercion for method show
+extensions:
+- DerivingStrategies
+- DerivingVia
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+  module Main where
+  class Show a where
+    show :: a -> a
+    show x = x
+  newtype Wrap a = Wrap a
+    deriving Show via a
+  data Unit = Unit
+  newtype Bar = Bar Unit
+    deriving Show via (Wrap a)
+  newtype Loop = Loop Loop
+  instance Show Loop
+  newtype Other = Other Unit
+    deriving Show via Loop
+reason: A via type must be bound by the datatype head and coercible to it. A newtype
+  that unwraps to itself ends the two-sided coercion search instead of looping.
+status: pass

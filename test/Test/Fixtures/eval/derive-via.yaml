@@ -1,0 +1,46 @@
+extensions:
+- DerivingStrategies
+- DerivingVia
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+  module Test where
+
+  data Results = Results Bool Bool Bool
+
+  newtype Hex = Hex Int
+
+  instance Show Hex where
+    show (Hex n) = "0x" ++ show n
+
+  newtype Unicode = U Int
+    deriving Show
+      via Hex
+
+  newtype Meters = Meters Int
+    deriving (Eq, Num)
+      via Int
+
+  class Describe a where
+    describe :: a -> String
+
+  newtype Tagged a = Tagged a
+
+  instance Show a => Describe (Tagged a) where
+    describe (Tagged x) = "<" ++ show x ++ ">"
+
+  newtype Label = Label Int
+    deriving Describe
+      via (Tagged Int)
+
+  result :: Results
+  result =
+    Results
+      (show (U 32) == "0x32")
+      (Meters 3 + Meters 4 == Meters 7)
+      (describe (Label 7) == "<7>")
+expression: result
+output: Results True True True
+status: pass
+reason: deriving via coerces each method through the via type, unwrapping newtypes
+  on both sides of the coercion

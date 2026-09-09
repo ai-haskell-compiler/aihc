@@ -31,6 +31,14 @@ data Prec
   | PrecForAll
   deriving (Eq, Ord)
 
+-- | Reverse lookup from a scope's identity to its printed scope id, built
+-- once per program instead of re-scanning the scope table for every name.
+type ScopeIndex = Map.Map (PackageId, Text) Int
+
+scopeIndexFromTable :: ScopeTable -> ScopeIndex
+scopeIndexFromTable table =
+  Map.fromList [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries table]
+
 renderProgram :: Program -> Text
 renderProgram = renderStrict . layoutPretty defaultLayoutOptions . prettyProgram
 
@@ -39,14 +47,15 @@ prettyProgram program =
   vsep (punctuate hardline documents)
   where
     scopes = programScopes program
+    scopeIndex = scopeIndexFromTable scopes
     scopeDocuments =
       case scopeEntries scopes of
         [] -> []
         entries -> [prettyScopes entries]
-    importDocuments = prettyImports scopes (programImports program)
-    documents = scopeDocuments <> importDocuments <> map (prettyDecl scopes) (programDecls program)
+    importDocuments = prettyImports scopeIndex (programImports program)
+    documents = scopeDocuments <> importDocuments <> map (prettyDecl scopeIndex) (programDecls program)
 
-prettyImports :: ScopeTable -> Imports -> [Doc ann]
+prettyImports :: ScopeIndex -> Imports -> [Doc ann]
 prettyImports scopes imports =
   prettyImportGroup "headers" headerEntries
     <> prettyImportGroup "synonyms" synonymEntries
@@ -77,7 +86,7 @@ prettyScopeEntry :: (Int, PackageId, Text) -> Doc ann
 prettyScopeEntry (scopeId, package, moduleName) =
   "scope" <+> pretty scopeId <+> "=" <+> pretty (show (T.unpack (packageIdText package))) <+> pretty moduleName
 
-prettyDecl :: ScopeTable -> Decl -> Doc ann
+prettyDecl :: ScopeIndex -> Decl -> Doc ann
 prettyDecl scopes decl =
   case decl of
     DeclType declaration -> prettyTypeDecl scopes declaration
@@ -89,7 +98,7 @@ prettyVis :: Vis -> Doc ann
 prettyVis Pub = "pub "
 prettyVis Private = mempty
 
-prettyTypeDecl :: ScopeTable -> TypeDecl -> Doc ann
+prettyTypeDecl :: ScopeIndex -> TypeDecl -> Doc ann
 prettyTypeDecl scopes declaration =
   prettyVis (typeVis declaration)
     <> "type "
@@ -100,11 +109,11 @@ prettyTypeDecl scopes declaration =
     <> prettyRoleList (typeRoles declaration)
     <> prettyConstructors scopes (typeCons declaration)
 
-prettyHeaderBinders :: ScopeTable -> [Binder] -> Doc ann
+prettyHeaderBinders :: ScopeIndex -> [Binder] -> Doc ann
 prettyHeaderBinders scopes =
   foldMap ((space <>) . prettyPiBinder scopes)
 
-prettyConstructors :: ScopeTable -> [ConDecl] -> Doc ann
+prettyConstructors :: ScopeIndex -> [ConDecl] -> Doc ann
 prettyConstructors _ [] = " {}"
 prettyConstructors scopes constructors =
   " {"
@@ -113,14 +122,14 @@ prettyConstructors scopes constructors =
     <> hardline
     <> "}"
 
-prettyConDecl :: ScopeTable -> ConDecl -> Doc ann
+prettyConDecl :: ScopeIndex -> ConDecl -> Doc ann
 prettyConDecl scopes declaration =
   prettyVis (conVis declaration)
     <> prettyTopName scopes (conName declaration)
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (conType declaration)
 
-prettySynonymDecl :: ScopeTable -> SynonymDecl -> Doc ann
+prettySynonymDecl :: ScopeIndex -> SynonymDecl -> Doc ann
 prettySynonymDecl scopes declaration =
   prettyVis (synVis declaration)
     <> "type "
@@ -132,7 +141,7 @@ prettySynonymDecl scopes declaration =
     <> hardline
     <> indent 1 (prettyTypeWith scopes PrecForAll (synBody declaration))
 
-prettyAxiomDecl :: ScopeTable -> AxiomDecl -> Doc ann
+prettyAxiomDecl :: ScopeIndex -> AxiomDecl -> Doc ann
 prettyAxiomDecl scopes declaration =
   prettyVis (axiomVis declaration)
     <> "axiom "
@@ -143,7 +152,7 @@ prettyAxiomDecl scopes declaration =
     <+> prettyAxiomRole (axiomRole declaration)
     <+> prettyTypeWith scopes PrecForAll (axiomRight declaration)
 
-prettyForAllBinders :: ScopeTable -> [Binder] -> Doc ann
+prettyForAllBinders :: ScopeIndex -> [Binder] -> Doc ann
 prettyForAllBinders _ [] = mempty
 prettyForAllBinders scopes binders =
   space <> hsep (map (prettyPiBinder scopes) binders)
@@ -163,7 +172,7 @@ prettyRoleTag Nominal = "N"
 prettyRoleTag Representational = "R"
 prettyRoleTag Phantom = "P"
 
-prettyValDecl :: ScopeTable -> ValDecl -> Doc ann
+prettyValDecl :: ScopeIndex -> ValDecl -> Doc ann
 prettyValDecl scopes declaration =
   prettyVis (valVis declaration)
     <> "val "
@@ -175,7 +184,7 @@ prettyValDecl scopes declaration =
     <> prettyExprWith scopes (valBody declaration)
 
 -- | The head of a foreign call: @foreign {prim 1.vf :: type}@.
-prettyForeignCall :: ScopeTable -> ForeignCall -> Doc ann
+prettyForeignCall :: ScopeIndex -> ForeignCall -> Doc ann
 prettyForeignCall scopes call =
   "foreign {"
     <> prettyCallingConvention (foreignCallConvention call)
@@ -185,7 +194,7 @@ prettyForeignCall scopes call =
     <> prettyTypeWith scopes PrecForAll (foreignCallType call)
     <> "}"
 
-prettyForeignImportDependencies :: ScopeTable -> [ForeignImportDependency] -> Doc ann
+prettyForeignImportDependencies :: ScopeIndex -> [ForeignImportDependency] -> Doc ann
 prettyForeignImportDependencies _ [] = mempty
 prettyForeignImportDependencies scopes dependencies =
   "using ["
@@ -253,9 +262,9 @@ prettyForeignEffect effect =
 
 renderType :: Program -> Type -> String
 renderType program =
-  renderDocument . prettyTypeWith (programScopes program) PrecForAll
+  renderDocument . prettyTypeWith (scopeIndexFromTable (programScopes program)) PrecForAll
 
-prettyTypeWith :: ScopeTable -> Prec -> Type -> Doc ann
+prettyTypeWith :: ScopeIndex -> Prec -> Type -> Doc ann
 prettyTypeWith scopes prec ty =
   case ty of
     TyVar name -> prettyName scopes name
@@ -289,7 +298,7 @@ prettyTypeWith scopes prec ty =
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith scopes PrecApp left <+> "~" <+> prettyTypeWith scopes PrecApp right)
 
-liftedArrowScope :: ScopeTable -> Type -> Type -> Maybe Int
+liftedArrowScope :: ScopeIndex -> Type -> Type -> Maybe Int
 liftedArrowScope scopes left right =
   case (left, right) of
     (TyCon leftName, TyCon rightName)
@@ -299,14 +308,14 @@ liftedArrowScope scopes left right =
           lookupScopeId scopes package moduleName
     _ -> Nothing
 
-prettyForallTail :: ScopeTable -> Type -> Doc ann
+prettyForallTail :: ScopeIndex -> Type -> Doc ann
 prettyForallTail scopes ty =
   case ty of
     TyForAll binder body ->
       space <> prettyPiBinder scopes binder <> prettyForallTail scopes body
     _ -> ". " <> prettyTypeWith scopes PrecForAll ty
 
-prettyPiBinder :: ScopeTable -> Binder -> Doc ann
+prettyPiBinder :: ScopeIndex -> Binder -> Doc ann
 prettyPiBinder scopes binder =
   parens
     ( (pretty (nameText (binderName binder)) <> prettyUniqueSuffix (binderName binder))
@@ -316,9 +325,9 @@ prettyPiBinder scopes binder =
 
 renderExpr :: Program -> Expr -> String
 renderExpr program =
-  renderDocument . prettyExprWith (programScopes program)
+  renderDocument . prettyExprWith (scopeIndexFromTable (programScopes program))
 
-prettyExprWith :: ScopeTable -> Expr -> Doc ann
+prettyExprWith :: ScopeIndex -> Expr -> Doc ann
 prettyExprWith scopes expr =
   case expr of
     ExVar name -> prettyName scopes name
@@ -369,21 +378,21 @@ prettyExprWith scopes expr =
               <> map (prettyExprAtom scopes) arguments
         )
 
-prettyApp :: ScopeTable -> Expr -> Doc ann
+prettyApp :: ScopeIndex -> Expr -> Doc ann
 prettyApp scopes expr =
   case expr of
     ExApp {} -> prettyExprWith scopes expr
     ExTyApp {} -> prettyExprWith scopes expr
     _ -> prettyExprAtom scopes expr
 
-prettyExprAtom :: ScopeTable -> Expr -> Doc ann
+prettyExprAtom :: ScopeIndex -> Expr -> Doc ann
 prettyExprAtom scopes expr =
   case expr of
     ExVar {} -> prettyExprWith scopes expr
     ExLit {} -> prettyExprWith scopes expr
     _ -> parens (prettyExprWith scopes expr)
 
-prettyBind :: ScopeTable -> Bind -> Doc ann
+prettyBind :: ScopeIndex -> Bind -> Doc ann
 prettyBind scopes bind =
   (pretty (nameText (binderName (bindBinder bind))) <> prettyUniqueSuffix (binderName (bindBinder bind)))
     <> " : "
@@ -392,14 +401,14 @@ prettyBind scopes bind =
     <> hardline
     <> indent 4 (prettyExprWith scopes (bindRhs bind))
 
-prettyAlt :: ScopeTable -> Alt -> Doc ann
+prettyAlt :: ScopeIndex -> Alt -> Doc ann
 prettyAlt scopes alternative =
   prettyAltHead scopes alternative
     <> " →"
     <> hardline
     <> indent 4 (prettyExprWith scopes (altRhs alternative))
 
-prettyAltHead :: ScopeTable -> Alt -> Doc ann
+prettyAltHead :: ScopeIndex -> Alt -> Doc ann
 prettyAltHead scopes alternative =
   case altCon alternative of
     AltDefault -> "_"
@@ -426,7 +435,7 @@ prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
 prettyIndentedItems _ [] = mempty
 prettyIndentedItems amount documents = indent amount (vsep (punctuate ";" documents))
 
-prettyCoercion :: ScopeTable -> Coercion -> Doc ann
+prettyCoercion :: ScopeIndex -> Coercion -> Doc ann
 prettyCoercion scopes coercion =
   case coercion of
     CoVar name -> prettyName scopes name
@@ -441,7 +450,7 @@ prettyCoercion scopes coercion =
     CoAxiom name arguments ->
       hsep ("axiom-co" : prettyName scopes name : map (("@" <>) . prettyTypeWith scopes PrecAtom) arguments)
 
-prettyLiteral :: ScopeTable -> Literal -> Doc ann
+prettyLiteral :: ScopeIndex -> Literal -> Doc ann
 prettyLiteral scopes literal =
   case literal of
     LitInt representation value -> pretty value <> "#" <> prettyName scopes (repName representation)
@@ -473,13 +482,13 @@ repName ty =
     TyVar name -> name
     _ -> Name "AddrRep" SortDataConstructor (OriginLocal (Unique 0))
 
-prettyName :: ScopeTable -> Name -> Doc ann
+prettyName :: ScopeIndex -> Name -> Doc ann
 prettyName scopes name =
   case nameOrigin name of
     OriginLocal {} -> pretty (nameText name) <> prettyUniqueSuffix name
     OriginTop {} -> prettyTopName scopes name
 
-prettyTopName :: ScopeTable -> Name -> Doc ann
+prettyTopName :: ScopeIndex -> Name -> Doc ann
 prettyTopName scopes name =
   case nameOrigin name of
     OriginTop package moduleName ->
@@ -487,15 +496,14 @@ prettyTopName scopes name =
     OriginLocal {} ->
       prettyPrintedName name
 
-prettyScopePrefix :: ScopeTable -> PackageId -> Text -> Doc ann
+prettyScopePrefix :: ScopeIndex -> PackageId -> Text -> Doc ann
 prettyScopePrefix scopes package moduleName =
   case lookupScopeId scopes package moduleName of
     Just scopeId -> pretty scopeId <> "."
     Nothing -> error ("missing System FC scope for " <> show (packageIdText package, moduleName))
 
-lookupScopeId :: ScopeTable -> PackageId -> Text -> Maybe Int
-lookupScopeId table package moduleName =
-  lookup (package, moduleName) [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries table]
+lookupScopeId :: ScopeIndex -> PackageId -> Text -> Maybe Int
+lookupScopeId index package moduleName = Map.lookup (package, moduleName) index
 
 prettyPrintedName :: Name -> Doc ann
 prettyPrintedName name =

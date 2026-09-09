@@ -22,7 +22,7 @@ annotated:
     deriving anyclass HK
                       └─ $fHKT ∷ () ⇒ HK T
     deriving D via Wrapper a
-             └─ warning: deriving via is not supported yet; no instance is generated for D
+             └─ $fDTa ∷ ∀ a. () ⇒ D (T a)
   newtype N a = N a
   │       │     └─ type: ∀ a. a → N a
   │       └─ type: Type → Type
