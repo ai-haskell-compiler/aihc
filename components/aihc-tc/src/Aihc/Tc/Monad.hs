@@ -98,6 +98,7 @@ module Aihc.Tc.Monad
     tcMonomorphismRestriction,
     localDefaultTypes,
     getDefaultTypes,
+    getUndecidableInstances,
     withScopedTyVars,
     getScopedTyVars,
     withGivenPredicates,
@@ -205,6 +206,9 @@ data TcEnv = TcEnv
     -- | Whether ScopedTypeVariables is on. Without it, no binding scopes
     -- its type variables over its body.
     tcEnvScopedTypeVariables :: !Bool,
+    -- | Whether UndecidableInstances is on. It relaxes the coverage
+    -- condition that a functional dependency puts on an instance.
+    tcEnvUndecidableInstances :: !Bool,
     -- | The lexically scoped type variables, by source name. A signature
     -- with an explicit @forall@, an instance head, or a class head binds
     -- them over the bodies it covers.
@@ -364,6 +368,7 @@ emptyTcEnv config =
       tcEnvMonomorphismRestriction = True,
       tcEnvDefaultTypes = Nothing,
       tcEnvScopedTypeVariables = False,
+      tcEnvUndecidableInstances = False,
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
       tcEnvVisibleTerms = Set.empty
@@ -887,6 +892,10 @@ localDefaultTypes types = local $ \env -> env {tcEnvDefaultTypes = types}
 -- | The candidate types of the module @default@ declaration, if it has one.
 getDefaultTypes :: TcM (Maybe [TcType])
 getDefaultTypes = asks tcEnvDefaultTypes
+
+-- | Whether UndecidableInstances is on.
+getUndecidableInstances :: TcM Bool
+getUndecidableInstances = asks tcEnvUndecidableInstances
 
 -- | Run an action with more lexically scoped type variables. The new
 -- variables shadow outer variables with the same name. Without
