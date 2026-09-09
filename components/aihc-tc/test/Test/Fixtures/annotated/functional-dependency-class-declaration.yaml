@@ -1,0 +1,35 @@
+annotated:
+- |-
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data Bag = Bag Nat
+       │     └─ type: Nat → Bag
+       └─ type: Type
+  class Collection c e | c -> e where
+  └─ class methods: insert ∷ ∀ c e. (Collection c e) ⇒ e → c → c; fundeps: c → e
+    insert :: e -> c -> c
+  instance Collection Bag Nat where
+  └─ $fCollectionBagNat ∷ () ⇒ Collection Bag Nat
+    insert n (Bag m) = Bag (S m)
+    │      │  │   └─ type: Nat
+    │      │  └─ type: Bag
+    │      └─ type: Nat
+    └─ insert ∷ Nat → Bag → Bag
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+modules:
+- |
+  module Test where
+  data Nat = Z | S Nat
+  data Bag = Bag Nat
+  class Collection c e | c -> e where
+    insert :: e -> c -> c
+  instance Collection Bag Nat where
+    insert n (Bag m) = Bag (S m)
+reason: a class declaration records its functional dependencies as the positions of
+  the class parameters they name
+status: pass

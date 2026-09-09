@@ -66,7 +66,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionNamespace (..))
-import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, TypeFamilyInstanceInfo)
+import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
 import Data.Text (Text)
@@ -220,7 +220,8 @@ data TcClassAnnotation = TcClassAnnotation
     tcClassMethods :: ![TcClassMethodAnnotation],
     tcClassDefaultMethods :: ![Text],
     tcClassDefaultSignatures :: ![(Text, TcType)],
-    tcClassAssociatedTypes :: ![AssociatedTypeInfo]
+    tcClassAssociatedTypes :: ![AssociatedTypeInfo],
+    tcClassFunDeps :: ![FunDep]
   }
   deriving (Eq, Show)
 

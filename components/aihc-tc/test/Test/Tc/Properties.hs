@@ -18,6 +18,7 @@ import Aihc.Tc
   ( ClassInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    FunDep (..),
     InstanceInfo (..),
     TcInterface (..),
     TcTermKey (..),
@@ -67,7 +68,7 @@ genInterface = do
   let tcInterfaceTerms = firstTerm <> secondTerm
   tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] testTypeKind) DataTyCon Nothing)
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [])
-  tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [])
+  tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [] [FunDep [0] [1]])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])
   tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] False)
   tcInterfaceTypeFamilyInstances <- optionalEntry (TypeFamilyInstanceInfo "F" "$axF" (packageId, moduleName) [] ty ty False)

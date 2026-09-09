@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TypeFamilyInstanceInfo (..), renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc (FunDep (..), TypeFamilyInstanceInfo (..), renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -69,9 +69,24 @@ renderTypeAnnotation currentModule ann =
 
 renderClassAnnotation :: TcClassAnnotation -> String
 renderClassAnnotation classAnnotation =
-  "class methods:" <> case tcClassMethods classAnnotation of
-    [] -> ""
-    methods -> " " <> intercalate ", " (map renderClassMethod methods)
+  intercalate "; " (renderedMethods : renderedFunDeps)
+  where
+    renderedMethods =
+      "class methods:" <> case tcClassMethods classAnnotation of
+        [] -> ""
+        methods -> " " <> intercalate ", " (map renderClassMethod methods)
+    renderedFunDeps =
+      case tcClassFunDeps classAnnotation of
+        [] -> []
+        dependencies -> ["fundeps: " <> intercalate ", " (map renderFunDep dependencies)]
+    renderFunDep dependency =
+      unwords (map classParamName (fdDeterminers dependency))
+        <> " → "
+        <> unwords (map classParamName (fdDetermined dependency))
+    classParamName index =
+      case drop index (tcClassTyVars classAnnotation) of
+        variable : _ -> T.unpack (tvName variable)
+        [] -> "?"
 
 renderClassMethod :: TcClassMethodAnnotation -> String
 renderClassMethod method =

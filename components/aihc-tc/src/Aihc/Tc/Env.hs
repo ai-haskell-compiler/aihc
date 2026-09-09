@@ -23,6 +23,7 @@ module Aihc.Tc.Env
     -- * Class info
     ClassInfo (..),
     AssociatedTypeInfo (..),
+    FunDep (..),
     classInfoKey,
 
     -- * Instance info
@@ -212,7 +213,18 @@ data ClassInfo = ClassInfo
     -- DeriveAnyClass selects the default implementation.
     ciDefaultSignatures :: ![(Text, TypeScheme)],
     -- | Associated type families that the class declares.
-    ciAssociatedTypes :: ![AssociatedTypeInfo]
+    ciAssociatedTypes :: ![AssociatedTypeInfo],
+    -- | Functional dependencies that the class declares.
+    ciFunDeps :: ![FunDep]
+  }
+  deriving (Eq, Show, Read)
+
+-- | A functional dependency of a class. Both sides are positions into
+-- 'ciTyVars', so the dependency survives the renaming that an interface
+-- round trip performs. @class C a b | a -> b@ declares @FunDep [0] [1]@.
+data FunDep = FunDep
+  { fdDeterminers :: ![Int],
+    fdDetermined :: ![Int]
   }
   deriving (Eq, Show, Read)
 

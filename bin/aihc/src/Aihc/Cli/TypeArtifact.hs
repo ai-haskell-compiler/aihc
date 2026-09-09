@@ -19,6 +19,7 @@ import Aihc.Tc
     DataConSourceForm (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    FunDep (..),
     InstanceInfo (..),
     Pred (..),
     TcInterface (..),
@@ -554,7 +555,7 @@ getDataConFieldInfo table = do
 
 putClassInfo :: Map TyCon Word64 -> ClassInfo -> Builder.Builder
 putClassInfo table info =
-  cborArray 10
+  cborArray 11
     <> cborText (ciName info)
     <> putTyCon table (ciTyCon info)
     <> putMaybe putTextOrigin (ciOrigin info)
@@ -565,6 +566,20 @@ putClassInfo table info =
     <> encodeList cborText (ciDefaultMethods info)
     <> encodeList (putNamedScheme table) (ciDefaultSignatures info)
     <> encodeList (putAssociatedTypeInfo table) (ciAssociatedTypes info)
+    <> encodeList putFunDep (ciFunDeps info)
+
+putFunDep :: FunDep -> Builder.Builder
+putFunDep dependency =
+  cborArray 2
+    <> encodeList cborInt (fdDeterminers dependency)
+    <> encodeList cborInt (fdDetermined dependency)
+
+getFunDep :: Get.Get FunDep
+getFunDep = do
+  expectArray 2
+  fdDeterminers <- getList getInt
+  fdDetermined <- getList getInt
+  pure FunDep {fdDeterminers, fdDetermined}
 
 putAssociatedTypeInfo :: Map TyCon Word64 -> AssociatedTypeInfo -> Builder.Builder
 putAssociatedTypeInfo table info =
@@ -583,7 +598,7 @@ getAssociatedTypeInfo table = do
 
 getClassInfo :: TyConTable -> Get.Get ClassInfo
 getClassInfo table = do
-  expectArray 10
+  expectArray 11
   ciName <- getText
   ciTyCon <- getTyCon table
   ciOrigin <- getMaybe getTextOrigin
@@ -594,7 +609,8 @@ getClassInfo table = do
   ciDefaultMethods <- getList getText
   ciDefaultSignatures <- getList (getNamedScheme table)
   ciAssociatedTypes <- getList (getAssociatedTypeInfo table)
-  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures, ciAssociatedTypes}
+  ciFunDeps <- getList getFunDep
+  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures, ciAssociatedTypes, ciFunDeps}
 
 putInstanceInfo :: Map TyCon Word64 -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =

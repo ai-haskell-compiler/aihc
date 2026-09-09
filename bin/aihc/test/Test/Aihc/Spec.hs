@@ -15,7 +15,7 @@ import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
-import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
+import Aihc.Tc (ClassInfo (..), FunDep (..), TyConInfo (..), tcInterfaceClasses, tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tvName, tyConName)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, void)
@@ -95,6 +95,7 @@ tests =
             testCase "accepts type-check warnings" (test_installTypeWarning primStore),
             testCase "loads the implicit Prelude type interface" (test_installImplicitPrelude primStore),
             testCase "duplicates re-exported term signatures in type interfaces" (test_installTypeReexports primStore),
+            testCase "keeps class functional dependencies in type interfaces" (test_installClassFunDeps primStore),
             testCase "limits instances to the transitive import graph" (test_installInstanceVisibility primStore),
             testCase "installs direct local dependencies" (test_installLocalDependencies primStore),
             testCase "prints timings independently from verbose output" (test_installTimingOutput primStore),
@@ -1020,6 +1021,38 @@ test_installTypeReexports getStore =
     artifact <- either (assertFailure . ("invalid type artifact: " <>)) pure (decodeTypeArtifact bytes)
     let termNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms (typeArtifactInterface artifact))
     assertBool "re-exported signature" ("fn" `elem` termNames)
+
+-- | A class interface must carry the functional dependencies of the class
+-- through the store, as the positions of the class parameters they name.
+test_installClassFunDeps :: IO SeedStore -> Assertion
+test_installClassFunDeps getStore =
+  withSandbox getStore "aihc-install-class-fundeps" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  default-language: Haskell2010"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      "{-# LANGUAGE MultiParamTypeClasses #-}\n{-# LANGUAGE FunctionalDependencies #-}\nmodule Demo where\nclass Collection c e | c -> e where\n  insert :: e -> c -> c\n"
+    result <- install options
+    bytes <- BL.readFile (installStorePath result </> "Demo" </> "type.cbor")
+    artifact <- either (assertFailure . ("invalid type artifact: " <>)) pure (decodeTypeArtifact bytes)
+    let classes = tcInterfaceClasses (typeArtifactInterface artifact)
+    assertEqual "class dependencies" [[FunDep [0] [1]]] (map ciFunDeps classes)
+    assertEqual "class parameters" [["c", "e"]] (map (map tvName . ciTyVars) classes)
 
 test_installLocalDependencies :: IO SeedStore -> Assertion
 test_installLocalDependencies getStore = do
