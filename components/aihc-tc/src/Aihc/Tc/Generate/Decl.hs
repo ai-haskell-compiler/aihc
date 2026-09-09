@@ -1953,8 +1953,10 @@ classItemMethodNames item =
     ClassItemTypeSig names _ -> map unqualifiedNameText names
     _ -> []
 
+-- | A default method with several equations parses as one item per equation,
+-- so the names are deduplicated: the class has one default per method.
 classDeclDefaultMethodNames :: ClassDecl -> [Text]
-classDeclDefaultMethodNames classDecl = mapMaybe classItemDefaultMethodName (classDeclItems classDecl)
+classDeclDefaultMethodNames classDecl = nub (mapMaybe classItemDefaultMethodName (classDeclItems classDecl))
 
 classItemDefaultMethodName :: ClassDeclItem -> Maybe Text
 classItemDefaultMethodName item =
