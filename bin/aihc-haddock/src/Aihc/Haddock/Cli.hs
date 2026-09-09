@@ -121,8 +121,8 @@ runBuild options = do
   storeRoot' <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let store = Store storeRoot'
       say message = when (buildVerbose options) (hPutStrLn stderr message)
-      resolver = localDependencyResolverWithFallback networkResolver root
   spec <- packageSpecFromSource root
+  let resolver = localDependencyResolverWithFallback networkResolver root spec
   plan <- buildPackagePlanWithResolver resolver spec
   package <- documentPlan store (buildUseCache options) (buildDependencies options) say plan
   forM_ (buildJsonOutput options) $ \path -> BL.writeFile path (encodePackageDoc package)

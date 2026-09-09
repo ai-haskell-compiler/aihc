@@ -395,8 +395,8 @@ installWith output options = do
   let verbose message = when (installVerbose options) (hPutStrLn output message)
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
   (root, origin) <- resolveInstallTarget (installPackageTarget options)
-  let resolver = localDependencyResolverWithFallback networkDependencyResolver root
   spec <- packageSpecFromSource root
+  let resolver = localDependencyResolverWithFallback networkDependencyResolver root spec
   plan <- buildPackagePlanWithResolver resolver spec
   buildRoot <- maybe (pure (defaultBuildRoot root)) pure (installBuildRoot options)
   buildIdentity <- buildEnvironmentIdentity target

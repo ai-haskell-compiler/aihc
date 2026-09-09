@@ -86,18 +86,19 @@ data CoreProvider = CoreProvider
   }
 
 -- | Prefer the package being installed and its siblings in the directory
--- above it over the fallback resolver.
-localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> DependencyResolver
-localDependencyResolverWithFallback fallback rootSource =
-  localPackagesResolver fallback (Just rootSource) (takeDirectory (normalise rootSource))
+-- above it over the fallback resolver. The caller passes the spec of the
+-- root package so the resolver does not parse that Cabal file again.
+localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> PackageSpec -> DependencyResolver
+localDependencyResolverWithFallback fallback rootSource rootSpec =
+  localPackagesResolver fallback (Just (rootSpec, rootSource)) (takeDirectory (normalise rootSource))
 
 -- | Prefer the packages that are directories of the workspace over the
 -- fallback resolver.
 workspaceDependencyResolver :: DependencyResolver -> FilePath -> DependencyResolver
 workspaceDependencyResolver fallback = localPackagesResolver fallback Nothing
 
-localPackagesResolver :: DependencyResolver -> Maybe FilePath -> FilePath -> DependencyResolver
-localPackagesResolver fallback rootSource workspace =
+localPackagesResolver :: DependencyResolver -> Maybe (PackageSpec, FilePath) -> FilePath -> DependencyResolver
+localPackagesResolver fallback rootPackage workspace =
   DependencyResolver
     { resolverResolveVersion = \name -> do
         local <- localPackage name
@@ -110,15 +111,12 @@ localPackagesResolver fallback rootSource workspace =
           _ -> resolverSourcePath fallback spec
     }
   where
-    localPackage name = do
-      root <- case rootSource of
-        Nothing -> pure Nothing
-        Just source -> do
-          rootSpec <- packageSpecFromSource source
-          pure (if pkgName rootSpec == name then Just (rootSpec, source) else Nothing)
-      case root of
-        Just found -> pure (Just found)
-        Nothing -> do
+    localPackage name =
+      case rootPackage of
+        Just (rootSpec, source)
+          | pkgName rootSpec == name ->
+              pure (Just (rootSpec, source))
+        _ -> do
           let candidate = workspace </> name
           exists <- doesDirectoryExist candidate
           if exists
@@ -127,24 +125,30 @@ localPackagesResolver fallback rootSource workspace =
               pure (Just (spec, candidate))
             else pure Nothing
 
+-- | Read the package name and version from the Cabal file of a source tree.
 packageSpecFromSource :: FilePath -> IO PackageSpec
-packageSpecFromSource sourcePath = do
+packageSpecFromSource sourcePath =
+  packageSpecFromDescription <$> parseSourcePackageDescription sourcePath
+
+packageSpecFromDescription :: GenericPackageDescription -> PackageSpec
+packageSpecFromDescription gpd =
+  let packageId = package (packageDescription gpd)
+   in PackageSpec
+        { pkgName = CabalPackage.unPackageName (CabalPackage.packageName packageId),
+          pkgVersion = prettyShow (CabalPackage.packageVersion packageId)
+        }
+
+parseSourcePackageDescription :: FilePath -> IO GenericPackageDescription
+parseSourcePackageDescription sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
     case cabalFiles of
       [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
       files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
   cabalBytes <- BS.readFile cabalFile
-  gpd <-
-    case runParseResult (parseGenericPackageDescription cabalBytes) of
-      (_, Right parsed) -> pure parsed
-      (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
-  let packageId = package (packageDescription gpd)
-  pure
-    PackageSpec
-      { pkgName = CabalPackage.unPackageName (CabalPackage.packageName packageId),
-        pkgVersion = prettyShow (CabalPackage.packageVersion packageId)
-      }
+  case runParseResult (parseGenericPackageDescription cabalBytes) of
+    (_, Right parsed) -> pure parsed
+    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
 
 buildPackagePlanWithResolver :: DependencyResolver -> PackageSpec -> IO PackagePlan
 buildPackagePlanWithResolver resolver = buildPackagePlanRecursive resolver []
@@ -155,7 +159,8 @@ buildPackagePlanRecursive resolver stack rawSpec
       ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = do
       ResolvedSource sourcePath origin <- sourcePathForSpec resolver spec
-      dependencyNames <- packageDependencyNamesFromSource sourcePath
+      gpd <- parseSourcePackageDescription sourcePath
+      let dependencyNames = packageDependencyNames gpd
       dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec dependencyNames)
       dependencyPlans <- mapM (buildPackagePlanRecursive resolver (spec : stack)) dependencySpecs
       pure
@@ -188,18 +193,6 @@ sourcePathForSpec resolver spec =
   case lookupCoreProvider (pkgName spec) of
     Just provider -> (`ResolvedSource` PlanCore) <$> coreProviderSourcePath provider
     Nothing -> resolverSourcePath resolver spec
-
-packageDependencyNamesFromSource :: FilePath -> IO [String]
-packageDependencyNamesFromSource sourcePath = do
-  cabalFiles <- HackageUtil.findCabalFiles sourcePath
-  cabalFile <-
-    case cabalFiles of
-      [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
-      files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
-  cabalBytes <- BS.readFile cabalFile
-  case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right gpd) -> pure (packageDependencyNames gpd)
-    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
 
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
