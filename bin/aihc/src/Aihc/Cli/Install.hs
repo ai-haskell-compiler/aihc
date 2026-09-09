@@ -85,6 +85,7 @@ import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
+    ModuleUnit,
     Package (..),
     PackageId (..),
     ResolutionNamespace (..),
@@ -1088,13 +1089,11 @@ parseSource root versions fileInfo = do
   mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
   unless (null cppErrors) $
     ioError (userError ("Preprocess failed:\n" <> concatMap (renderHumanDiagnostic "cpp") cppErrors))
-  -- The type checker reads the language pragmas of the module. Give it the
-  -- effective extensions, which include the cabal default extensions and
-  -- the language edition. The type checker turns MonoLocalBinds on by
-  -- default, so turn it off when the effective extensions do not have it.
-  let monoLocalBinds = [Syntax.DisableExtension Syntax.MonoLocalBinds | Syntax.MonoLocalBinds `notElem` extensions]
-      modu' = modu {Syntax.moduleLanguagePragmas = monoLocalBinds <> map Syntax.EnableExtension extensions <> Syntax.moduleLanguagePragmas modu}
-  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes, BS8.pack (show modu'), BS8.pack (show extensions)])) modu' extensions sourceLines parseDiagnostics)
+  -- The effective extensions of the module: the cabal default extensions,
+  -- the language edition and the module's own pragmas folded into one set.
+  -- Name resolution and the type checker take that set as data, so neither
+  -- reads the pragmas again.
+  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes, BS8.pack (show modu), BS8.pack (show extensions)])) modu extensions sourceLines parseDiagnostics)
 
 isCppWarning :: Value -> Bool
 isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
@@ -1388,6 +1387,12 @@ unitLabel = T.intercalate "+" . map sourceName . sourceUnitSources
 sourceName :: SourceModule -> Text
 sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
+-- | The loaded modules of one package as the later phases take them: each
+-- with the extension set that reading its source decided.
+packageModuleUnits :: Package -> [SourceModule] -> [ModuleUnit]
+packageModuleUnits package sources =
+  modulesInPackage package [(sourceModuleAst source, sourceModuleExtensions source) | source <- sources]
+
 sourceDependencyNames :: SourceModule -> [Text]
 sourceDependencyNames source =
   map importDeclModule (Syntax.moduleImports modu)
@@ -1416,7 +1421,7 @@ runResolveUnit context runtimes runtime = do
       dependencyScopeHashes = taskDependencyScopeHashes context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
-      packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
+      packageModules = packageModuleUnits resolvePackage sources
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
@@ -1576,14 +1581,14 @@ runTypeUnit context runtimes runtime = do
           case resolveUnitResolved resolvedOutput of
             Just result -> pure result
             Nothing ->
-              let packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
+              let packageModules = packageModuleUnits resolvePackage sources
                   builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
                in pure (resolveWithDeps builtinScope availableExports packageModules)
         let checked =
               typecheckModuleSccWithInterface
                 (primTcConfig primIdentity)
                 importedTypes
-                (map snd (resolvedModules resolved))
+                (resolvedModules resolved)
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)
         _ <- evaluate (length checkedDiagnostics)
         pure (checked, checkedDiagnostics)
@@ -1828,7 +1833,7 @@ wiredDerivingModules = ["GHC.Prim.Read"]
 wiredInterfaceModules :: [Text]
 wiredInterfaceModules = wiredTypeModules <> wiredDerivingModules
 
-builtinFunctionScope :: Package -> ModuleExports -> [(Package, Module)] -> Scope
+builtinFunctionScope :: Package -> ModuleExports -> [ModuleUnit] -> Scope
 builtinFunctionScope currentPackage dependencyExports packageModules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where

@@ -15,7 +15,7 @@ import Aihc.Grin (lintProgram, lowerProgram, prettyProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
-    LanguageEdition (Haskell98Edition),
+    LanguageEdition (Haskell2010Edition, Haskell98Edition),
     Module,
     effectiveExtensions,
     headerExtensionSettings,
@@ -26,7 +26,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
+import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcInterface,
     TcKinds,
@@ -38,6 +38,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
+import Aihc.Testing.Extensions (fixtureExtensions)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -97,12 +98,12 @@ renderCase fixture = do
 buildFcPrograms :: [Extension] -> [Text] -> Either String [Fc.Program]
 buildFcPrograms extensions sources = do
   modules <- traverse (parseFixtureModule extensions) sources
-  let fixtureModules = modulesInPackage fixturePackage modules
+  let fixtureModules = modulesInPackage fixturePackage (map withPragmaExtensions modules)
   resolved <-
     case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) fixtureModules of
       result@ResolveResult {resolveErrors = []} -> Right result
       ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
-  let fixtureAsts = map snd (resolvedModules resolved)
+  let fixtureAsts = resolvedModules resolved
       (fixtureTcResults, tcInterface) =
         typecheckModulesWithInterface
           (primTcConfig (PackageId "aihc-prim"))
@@ -182,14 +183,14 @@ primitiveModulePaths = ["GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs", "GHC/CStr
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport sources = do
   modules <- traverse (uncurry parsePrimitiveModule) sources
-  let packageModules = modulesInPackage primitivePackage modules
+  let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
       exports = collectModuleExportsWithDeps mempty packageModules
       builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
   resolved <-
     case resolveWithDeps builtinScope mempty packageModules of
       result@ResolveResult {resolveErrors = []} -> Right result
       ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
-  let primitiveAsts = map snd (resolvedModules resolved)
+  let primitiveAsts = resolvedModules resolved
       (primitiveTcResults, tcInterface) =
         typecheckModuleSccWithInterface
           (primTcConfig (PackageId "aihc-prim"))
@@ -201,7 +202,7 @@ preparePrimitiveSupport sources = do
         ( "typecheck error: "
             <> unlines
               [ show (moduleName ast) <> ": " <> show diagnostic
-              | (ast, result) <- zip primitiveAsts primitiveTcResults,
+              | (ast, result) <- zip (map moduleUnitAst primitiveAsts) primitiveTcResults,
                 diagnostic <- tcModuleDiagnostics result
               ]
         )
@@ -220,6 +221,16 @@ preparePrimitiveSupport sources = do
               }
         else Left (unlines (concatMap dsErrors primitiveResults))
 
+-- | A fixture module as the pipeline takes it: a fixture has no cabal file,
+-- so its own pragmas decide its extensions.
+withPragmaExtensions :: Module -> (Module, [Extension])
+withPragmaExtensions modu = (modu, fixtureExtensions fixtureLanguageEdition modu)
+
+-- | Fixtures have no cabal file. They compile under one language edition,
+-- with whatever their own pragmas add to it.
+fixtureLanguageEdition :: LanguageEdition
+fixtureLanguageEdition = Haskell2010Edition
+
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 
@@ -231,7 +242,7 @@ fixtureBuiltinScope modules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
     dependencyExports = supportScopes primitiveSupport
-    packageModules = modulesInPackage fixturePackage modules
+    packageModules = modulesInPackage fixturePackage (map withPragmaExtensions modules)
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum"]

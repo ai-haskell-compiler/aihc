@@ -95,7 +95,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -479,27 +479,29 @@ dataConBindingName name =
 -- | Type-check a module, returning the same syntax tree annotated with the
 -- inferred interface. Call 'moduleBindings' when a flat compatibility view is
 -- needed by older callers.
-tcModule :: Module -> TcM Module
-tcModule m = do
-  modules <- tcModuleScc [m]
+tcModule :: ModuleUnit -> TcM Module
+tcModule unit = do
+  modules <- tcModuleScc [unit]
   case modules of
     [result] -> pure result
-    _ -> pure m
+    _ -> pure (moduleUnitAst unit)
 
 -- | Type-check one strongly connected module component. Data declarations and
 -- explicit signatures are registered for the whole component before any
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
-tcModuleScc :: [Module] -> TcM [Module]
-tcModuleScc modules = do
+tcModuleScc :: [ModuleUnit] -> TcM [Module]
+tcModuleScc units = do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
   -- bodies, then register value-level declarations against those expanded
   -- types. This permits forward references from synonyms to data types while
   -- making aliases available in constructor fields and class methods.
-  let declarations = concatMap moduleDecls modules
+  let modules = map moduleUnitAst units
+      moduleExtensions = map moduleUnitExtensions units
+      declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
-      polyKindOrigins = [resolvedModuleOrigin modu | modu <- modules, PolyKinds `elem` moduleEnabledExtensions modu]
+      polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
   mapM_ predeclareTypeConstructor declarations
   mapM_ predeclareTypeLevelDataConstructors declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
@@ -522,12 +524,12 @@ tcModuleScc modules = do
   -- are mutually visible and ordinary values can use them.
   defaultGlobalKindMetas initialKeys
   structuralKeys <- globalStateKeys <$> lift get
-  derivingAnnotated <- mapM annotateModuleDerivingTc modules
+  derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
   derivingInferred <- inferDerivingContexts derivingAnnotated
   derivingFinalized <- mapM registerDerivedInstances derivingInferred
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
-  schemes <- zipWithM checkModuleSignatures derivingFinalized rawSigs
+  schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
   pending <- zipWithM tcModuleBody schemes derivingFinalized
   mapM_ checkBundledPatSyns derivingFinalized
@@ -553,10 +555,10 @@ registerNominalRoles declaration = case peelDeclAnn declaration of
       Nothing -> pure ()
   _ -> pure ()
 
-checkModuleSignatures :: Module -> Map TcTermKey UserSig -> TcM (Map TcTermKey CheckedSig)
-checkModuleSignatures modu signatures = do
+checkModuleSignatures :: [Extension] -> Map TcTermKey UserSig -> TcM (Map TcTermKey CheckedSig)
+checkModuleSignatures extensions signatures = do
   checked <- traverse checkUserSig signatures
-  if PolyKinds `elem` moduleEnabledExtensions modu
+  if PolyKinds `elem` extensions
     then traverse generalizeSignatureKinds checked
     else traverse (\signature -> do scheme <- defaultTypeSchemeKinds (checkedSigScheme signature); pure signature {checkedSigScheme = scheme}) checked
 
@@ -893,12 +895,10 @@ annotateModuleTc checkedValueTypes m = do
   decls <- mapM (annotateDeclTc (resolvedModuleOrigin m) classMethods checkedValueTypes False) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
-annotateModuleDerivingTc :: Module -> TcM Module
-annotateModuleDerivingTc modu = do
+annotateModuleDerivingTc :: [Extension] -> Module -> TcM Module
+annotateModuleDerivingTc extensions modu = do
   declarations <- mapM (annotateDeclDerivingTc extensions) (moduleDecls modu)
   pure modu {moduleDecls = declarations}
-  where
-    extensions = moduleEnabledExtensions modu
 
 -- | Append the instance declarations that the deriving plans of a module
 -- generate, registered like source instances so that the signatures and
@@ -921,10 +921,6 @@ annotateDeclDerivingTc extensions decl =
       annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
     DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
     _ -> pure decl
-
-moduleEnabledExtensions :: Module -> [Extension]
-moduleEnabledExtensions modu =
-  effectiveModuleExtensions (moduleLanguagePragmas modu)
 
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Bool -> Decl -> TcM Decl
 annotateDeclTc origin classMethods checkedValueTypes derived decl =

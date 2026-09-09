@@ -15,6 +15,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Aihc.Testing.AnnotatedModule
+    Aihc.Testing.Extensions
     Aihc.Testing.FixtureIndex
 
   build-depends:
