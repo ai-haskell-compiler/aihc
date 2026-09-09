@@ -811,9 +811,9 @@ addInstance instanceInfo = do
 getInstances :: TcM [InstanceInfo]
 getInstances = lift $ gets (instanceEnvList . tcsInstances)
 
--- | The instances of a class by source name, most recent first.
-getClassInstances :: Text -> TcM [InstanceInfo]
-getClassInstances className = lift $ gets (instanceEnvForClass className . tcsInstances)
+-- | The instances of the exact class, most recent first.
+getClassInstances :: TyCon -> TcM [InstanceInfo]
+getClassInstances classTyCon = lift $ gets (instanceEnvForClass classTyCon . tcsInstances)
 
 addDataFamilyInstance :: DataFamilyInstanceInfo -> TcM ()
 addDataFamilyInstance instanceInfo = do
