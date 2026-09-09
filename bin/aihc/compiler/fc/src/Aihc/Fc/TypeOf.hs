@@ -9,7 +9,12 @@ module Aihc.Fc.TypeOf
     typeHead,
     typeOf,
     unfoldType,
+    representationFromKind,
     repOf,
+    viewForAll,
+    viewFun,
+    foreignTypeBody,
+    foreignArgumentTypes,
     headerType,
     applyType,
     lookupBinderType,
@@ -180,13 +185,18 @@ unfoldType env ty =
       | otherwise -> ty
     _ -> ty
 
-repOf :: TypeEnv -> Type -> Maybe Type
-repOf env ty = do
-  kind <- typeOf env ty
-  case unfoldType env kind of
+-- | The TYPE argument of a kind, after synonym and family reduction.
+representationFromKind :: TypeEnv -> Type -> Maybe Type
+representationFromKind env kind =
+  case reduceType env kind of
     TyApp (TyCon name) representation
       | name == typeConstructor (tePrimPackage env) -> Just representation
     _ -> Nothing
+
+repOf :: TypeEnv -> Type -> Maybe Type
+repOf env ty = do
+  kind <- typeOf env ty
+  representationFromKind env kind
 
 extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =
@@ -259,6 +269,32 @@ freshTypeVariableName name used =
 -- | Unfold the synonyms of a type and reduce its type family applications.
 reduceType :: TypeEnv -> Type -> Type
 reduceType = reduceTypeWith True
+
+viewForAll :: TypeEnv -> Type -> Maybe (Binder, Type)
+viewForAll env ty =
+  case reduceType env ty of
+    TyForAll binder body -> Just (binder, body)
+    _ -> Nothing
+
+viewFun :: TypeEnv -> Type -> Maybe (Type, Type, Type, Type)
+viewFun env ty =
+  case reduceType env ty of
+    TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
+    _ -> Nothing
+
+-- | The type after the leading binders of a foreign type.
+foreignTypeBody :: TypeEnv -> Type -> Type
+foreignTypeBody env ty =
+  case viewForAll env ty of
+    Just (_, body) -> foreignTypeBody env body
+    Nothing -> ty
+
+-- | The argument types of a foreign type after its binders, one for each arrow.
+foreignArgumentTypes :: TypeEnv -> Type -> [Type]
+foreignArgumentTypes env ty =
+  case viewFun env ty of
+    Just (_, _, argument, result) -> argument : foreignArgumentTypes env result
+    Nothing -> []
 
 -- | Unfold the synonyms of a type. A type family application stays as it
 -- is, so the left-hand side of a family axiom keeps its shape.

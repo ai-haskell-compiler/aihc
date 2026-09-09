@@ -9,7 +9,6 @@ module Aihc.Fmt
   )
 where
 
-import Aihc.Fmt.Comment (CommentScanError, formatCommentScanError)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -46,7 +45,6 @@ data FormatError
   = OriginalParseFailure !FilePath !Text
   | FormattedParseFailure !FilePath !Text
   | SemanticMismatch !FilePath !String
-  | CommentScanFailure !FilePath !CommentScanError
   | TokenStreamMismatch !FilePath
   | IdempotenceFailure !FilePath !Text !Text
   deriving (Eq, Show)
@@ -254,8 +252,6 @@ formatErrorMessage err =
       T.pack sourceName <> ": formatted output did not parse\n" <> msg
     SemanticMismatch sourceName msg ->
       T.pack sourceName <> ": semantic sanity check failed: " <> T.pack msg
-    CommentScanFailure sourceName scanErr ->
-      T.pack sourceName <> ": comment scan failed: " <> T.pack (formatCommentScanError scanErr)
     TokenStreamMismatch sourceName ->
       T.pack sourceName <> ": token stream sanity check failed"
     IdempotenceFailure sourceName _ _ ->

@@ -63,7 +63,7 @@ indirect:
 	test r10, r10
 	je .Llir_trap_0
 	mov r11d, 0x40600000
-	movq xmm0, r11
+	movd xmm0, r11d
 	mov edi, 0x13
 	mov eax, 0x1
 	jmp r10
@@ -82,7 +82,7 @@ main:
 	lea r10, [rip + table]
 	mov rdi, [r10]
 	mov r11d, 0x3f800000
-	movq xmm0, r11
+	movd xmm0, r11d
 	mov esi, 0x8
 	mov eax, 0x1
 	call indirect

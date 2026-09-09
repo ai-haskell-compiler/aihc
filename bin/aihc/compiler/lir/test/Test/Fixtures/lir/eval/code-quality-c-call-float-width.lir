@@ -1,0 +1,13 @@
+; expect: 3.5
+; A C f32 argument uses a 32-bit move on amd64.
+
+func @ident(%value: f32) -> f32 cc c {
+entry:
+  return %value
+}
+
+func @main() -> f32 {
+entry:
+  %result = call @ident(3.5)
+  return %result
+}

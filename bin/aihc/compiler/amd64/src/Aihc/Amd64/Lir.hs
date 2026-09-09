@@ -1235,7 +1235,7 @@ cArgumentMoves ctx parameterTypes arguments = do
   -- Move float arguments first. Integer moves can overwrite their source registers.
   pure
     ( concat
-        [ loads <> [amd64Instruction (AmdMovqToXmm xmm register)]
+        [ loads <> [toFloat ty xmm register]
         | ((index, ty), xmm) <- zip floats [0 ..],
           let (loads, register) = operandIn ctx 0 ty scratchLeft (arguments !! index)
         ]
