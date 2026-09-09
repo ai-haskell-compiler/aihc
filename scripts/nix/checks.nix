@@ -460,7 +460,7 @@
       ];
     } ''
       cd "$src"
-      export GHCRTS=-N1
+      export GHCRTS=-N
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -519,22 +519,22 @@
     } ''
       cd "$src"
       # Installing aihc-base parallelises well -- it is many independent
-      # modules rather than a few large ones -- and this install gates the
-      # whole chain for its target, so it is worth threads: 14.3s at -N1, 5.1s
-      # at -N4, 3.8s at -N8. Only the three toolchains and two core-library
-      # derivations run in this window, so four stays within the machine. The
-      # install fan-out later on is a different case and keeps -N1: there Nix
-      # already has a dozen jobs in flight, and per-process threads on top of
-      # that would oversubscribe the runner.
+      # modules rather than a few large ones -- and this install gates the whole
+      # chain for its target, so it is worth every core the machine has: 14.3s
+      # at -N1, 5.1s at -N4, 3.8s at -N8. Only the three toolchains and the two
+      # core-library derivations run in this window.
       #
-      # Capabilities cost little memory here -- peak RSS is 0.47 GB at -N1 and
-      # 0.53 GB at -N4, against the 2 GB cap every aihc process already carries
-      # -- so the ceiling stays what it always was, jobs times that cap. The
-      # count still never exceeds what Nix allotted the build, which matters
-      # only when --cores is set: unset, it is every core on the machine.
-      cores=''${NIX_BUILD_CORES:-0}
-      if [ "$cores" -lt 1 ] || [ "$cores" -gt 4 ]; then cores=4; fi
-      export GHCRTS=-N"$cores"
+      # What bounds memory is not the capability count but the -M2G that
+      # aihc-with-memory-limit puts on every invocation. Measured, this install
+      # peaks at 0.47 GB resident at -N1 against 0.53 GB at -N4, so the ceiling
+      # is jobs times that 2 GB cap, and a runaway becomes a heap-overflow
+      # failure rather than work for the OOM killer.
+      #
+      # Every other derivation that runs aihc uses -N too, for one rule rather
+      # than a per-site judgement. Note that packages do not all scale the way
+      # aihc-base does: containers measures 9.6s at -N4 against 14.7s with
+      # every core, where the parallel collector costs more than it returns.
+      export GHCRTS=-N
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -608,7 +608,7 @@
       ];
     } ''
       set -euo pipefail
-      export GHCRTS=-N1
+      export GHCRTS=-N
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -721,7 +721,7 @@
   mkExampleTest = exampleName: target:
     mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
-      export GHCRTS=-N1
+      export GHCRTS=-N
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       ${exportCoreLibsRoot}
@@ -878,7 +878,7 @@
   mkWasip3ExampleTest = exampleName:
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
-      export GHCRTS=-N1
+      export GHCRTS=-N
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
@@ -966,7 +966,7 @@
       nativeBuildInputs = exampleTestInputs;
     } ''
       cd "$src"
-      export GHCRTS=-N1
+      export GHCRTS=-N
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       ${crossSetupFor target}
