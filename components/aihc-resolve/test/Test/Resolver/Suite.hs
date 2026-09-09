@@ -6,9 +6,10 @@ module Test.Resolver.Suite
   )
 where
 
-import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser (defaultConfig, parseModule)
+import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition))
 import Aihc.Resolve (ModuleUnit (..), ResolveResult (..), emptyScope, extractInterface, lookupImportedModule, resolveWithDeps, unnamedPackage)
+import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
 import Data.Text (Text)
 import qualified ResolverGolden as RG
@@ -39,7 +40,7 @@ testDependencyBackedGhcNum =
     (Left errors, _) -> assertFailure errors
     (_, Left errors) -> assertFailure errors
   where
-    unit modu = ModuleUnit unnamedPackage (modulePragmaExtensions modu) modu
+    unit modu = ModuleUnit unnamedPackage (fixtureExtensions Haskell2010Edition modu) modu
     parse sourceName source =
       case parseModule defaultConfig source of
         ([], modu) -> Right modu

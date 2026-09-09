@@ -20,7 +20,6 @@ module Aihc.Testing.EvalFixture
 where
 
 import Aihc.Fc qualified as Fc
-import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -33,6 +32,7 @@ import Aihc.Parser.Syntax
     Expr,
     Extension,
     ImportDecl (..),
+    LanguageEdition (Haskell2010Edition),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -59,6 +59,7 @@ import Aihc.Resolve
     unnamedPackage,
   )
 import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, diagKind, emptyTcInterface, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -274,7 +275,7 @@ evaluateEvalCase env evaluator tc =
 compileEvalCase :: EvalEnvironment -> EvalCase -> Either String Fc.Program
 compileEvalCase env tc = do
   (modules, expr) <- parseInputs tc
-  let packageModules = [ModuleUnit unnamedPackage (modulePragmaExtensions modu) modu | modu <- combineModules modules expr]
+  let packageModules = [ModuleUnit unnamedPackage (fixtureExtensions fixtureLanguageEdition modu) modu | modu <- combineModules modules expr]
   case resolveWithDeps (envBuiltinScope env) (envExports env) packageModules of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
       let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) resolvedModules
@@ -319,6 +320,11 @@ moduleKeyOf = fromMaybe "Main" . Surface.moduleName
 evalDesugarConfig :: Map.Map Text Fc.DesugarConfig -> Surface.Module -> Fc.DesugarConfig
 evalDesugarConfig configs modu =
   Map.findWithDefault (Fc.allPublicDesugarConfig evalKinds primPackageId) (moduleKeyOf modu) configs
+
+-- | Fixtures have no cabal file. They compile under one language edition,
+-- with whatever their own pragmas add to it.
+fixtureLanguageEdition :: LanguageEdition
+fixtureLanguageEdition = Haskell2010Edition
 
 primPackageId :: PackageId
 primPackageId = PackageId "aihc-prim"
@@ -557,7 +563,7 @@ loadPackageModules package root = do
     source <- TIO.readFile path
     case parseOneModule path [] source of
       Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
-      Right modu -> pure (ModuleUnit package (modulePragmaExtensions modu) modu)
+      Right modu -> pure (ModuleUnit package (fixtureExtensions fixtureLanguageEdition modu) modu)
 
 listSourceFiles :: FilePath -> IO [FilePath]
 listSourceFiles dir = do

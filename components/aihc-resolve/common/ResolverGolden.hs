@@ -14,7 +14,6 @@ module ResolverGolden
   )
 where
 
-import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -24,6 +23,7 @@ import Aihc.Parser
 import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
+    LanguageEdition (Haskell2010Edition),
     Module,
     Name (..),
     fromAnnotation,
@@ -49,6 +49,7 @@ import Aihc.Resolve
     unnamedPackage,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
+import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Applicative ((<|>))
 import Data.Aeson ((.!=), (.:), (.:?))
 import qualified Data.Aeson.Key as Key
@@ -184,7 +185,7 @@ evaluateResolverCase meta =
    in case sequence parsedModules of
         Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
         Right parsed ->
-          let modules = [ModuleUnit package (modulePragmaExtensions ast) ast | (package, ast) <- parsed]
+          let modules = [ModuleUnit package (fixtureExtensions fixtureLanguageEdition ast) ast | (package, ast) <- parsed]
               exports = collectModuleExports modules
               lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name exports
               builtinScope =
@@ -221,6 +222,11 @@ evaluateResolverCase meta =
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showAnnotated = renderAnnotatedResolveResult (map snd (caseModules meta))
+
+-- | Fixtures have no cabal file. They compile under one language edition,
+-- with whatever their own pragmas add to it.
+fixtureLanguageEdition :: LanguageEdition
+fixtureLanguageEdition = Haskell2010Edition
 
 builtinModuleNames :: [Text]
 builtinModuleNames = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real"]

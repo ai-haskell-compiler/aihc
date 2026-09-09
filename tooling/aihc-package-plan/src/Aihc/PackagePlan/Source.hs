@@ -23,9 +23,11 @@ import Aihc.Parser.Syntax
     ExtensionSetting (..),
     LanguageEdition (..),
     Module (..),
-    effectiveExtensions,
+    applyExtensionSetting,
+    applyImpliedExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
+    languageEditionExtensions,
     parseExtensionSettingName,
     parseLanguageEdition,
   )
@@ -69,7 +71,7 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
       language =
         headerLanguageEdition headerPragmas
           `orElse` (HackageCabal.fileInfoLanguage fileInfo >>= parseLanguageEdition . T.pack)
-      extensions = effectiveExtensions (fromMaybe Haskell98Edition language) allExtSettings
+      extensions = sourceOrderExtensions (fromMaybe Haskell98Edition language) allExtSettings
       cfg = defaultConfig {parserSourceName = path, parserExtensions = extensions}
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
@@ -85,6 +87,23 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
       case setting of
         EnableExtension CPP -> True
         _ -> False
+
+-- | The extensions one module compiles under: a language edition with the
+-- cabal file's default extensions and the module's own pragmas applied to it.
+--
+-- The settings apply in source order, so a later setting wins, and an enabled
+-- extension brings its implied extensions with it at once. A later
+-- @NoMonoLocalBinds@ then turns off the @MonoLocalBinds@ that an earlier
+-- @TypeFamilies@ implied, like in GHC. This is the only place a package build
+-- reads @LANGUAGE@ pragmas: every later phase takes the resulting set as data.
+sourceOrderExtensions :: LanguageEdition -> [ExtensionSetting] -> [Extension]
+sourceOrderExtensions edition =
+  foldl applyOne (languageEditionExtensions edition)
+  where
+    applyOne extensions setting =
+      case setting of
+        EnableExtension _ -> applyImpliedExtensions (applyExtensionSetting setting extensions)
+        DisableExtension _ -> applyExtensionSetting setting extensions
 
 preprocessInterfaceSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value])
 preprocessInterfaceSource packageRoot versions fileInfo source = do

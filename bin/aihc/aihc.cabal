@@ -361,6 +361,7 @@ test-suite spec
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    aihc-testing,
     base >=4.16 && <5,
     bytestring,
     containers,

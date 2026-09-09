@@ -12,11 +12,10 @@ where
 import Aihc.Fc (DesugarConfig, FcDesugarResult (..), desugarModuleFc, moduleDesugarConfig)
 import Aihc.Fc qualified as Fc
 import Aihc.Grin (lintProgram, lowerProgram, prettyProgram)
-import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
-    LanguageEdition (Haskell98Edition),
+    LanguageEdition (Haskell2010Edition, Haskell98Edition),
     Module,
     effectiveExtensions,
     headerExtensionSettings,
@@ -39,6 +38,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
+import Aihc.Testing.Extensions (fixtureExtensions)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -224,7 +224,12 @@ preparePrimitiveSupport sources = do
 -- | A fixture module as the pipeline takes it: a fixture has no cabal file,
 -- so its own pragmas decide its extensions.
 withPragmaExtensions :: Module -> (Module, [Extension])
-withPragmaExtensions modu = (modu, modulePragmaExtensions modu)
+withPragmaExtensions modu = (modu, fixtureExtensions fixtureLanguageEdition modu)
+
+-- | Fixtures have no cabal file. They compile under one language edition,
+-- with whatever their own pragmas add to it.
+fixtureLanguageEdition :: LanguageEdition
+fixtureLanguageEdition = Haskell2010Edition
 
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")

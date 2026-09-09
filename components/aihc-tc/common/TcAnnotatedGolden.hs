@@ -17,7 +17,6 @@ module TcAnnotatedGolden
   )
 where
 
-import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -26,7 +25,7 @@ import Aihc.Parser
 import Aihc.Parser.Syntax
   ( Decl (..),
     Extension (ImplicitPrelude),
-    LanguageEdition (Haskell98Edition),
+    LanguageEdition (Haskell2010Edition, Haskell98Edition),
     Module,
     ValueDecl (..),
     effectiveExtensions,
@@ -56,6 +55,7 @@ import Aihc.Tc
 import Aihc.Tc.Generate.Bind (freeVarsDecl)
 import Aihc.Tc.Generate.Pattern (patternBinderNames)
 import Aihc.Tc.Monad (TcConfig (tcConfigWiring), TcTermKey (..), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
+import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (ErrorCall, displayException, evaluate, try)
 import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -396,7 +396,12 @@ fixtureUnits :: [Module] -> [ModuleUnit]
 fixtureUnits = modulesInPackage fixturePackage . map withPragmaExtensions
 
 withPragmaExtensions :: Module -> (Module, [Extension])
-withPragmaExtensions modu = (modu, modulePragmaExtensions modu)
+withPragmaExtensions modu = (modu, fixtureExtensions fixtureLanguageEdition modu)
+
+-- | Fixtures have no cabal file. They compile under one language edition,
+-- with whatever their own pragmas add to it.
+fixtureLanguageEdition :: LanguageEdition
+fixtureLanguageEdition = Haskell2010Edition
 
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
