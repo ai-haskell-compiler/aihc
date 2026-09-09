@@ -558,10 +558,17 @@ refineKind env ty
         [ (name, other)
         | binderType <- Map.elems (teBinders env),
           TyEq left right <- [reduceType env binderType],
-          (name, other) <- orient left right <> orient right left,
+          (name, other) <- orient left right,
           not (typeUsesName name other)
         ]
+    -- Two variables rewrite the greater name to the smaller one, so both
+    -- sides of a comparison reach the same representative.
+    orient (TyVar left) (TyVar right)
+      | left == right = []
+      | left > right = [(left, TyVar right)]
+      | otherwise = [(right, TyVar left)]
     orient (TyVar name) other = [(name, other)]
+    orient other (TyVar name) = [(name, other)]
     orient _ _ = []
     preferConstructor first second =
       case first of
