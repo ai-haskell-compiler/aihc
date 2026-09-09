@@ -742,11 +742,11 @@
       ],
       "exposed": true,
       "extensions": [
+        "PatternSynonyms",
         "ExplicitNamespaces",
         "KindSignatures",
         "MonoLocalBinds",
         "TypeFamilies",
-        "PatternSynonyms",
         "CUSKs",
         "DeepSubsumption",
         "DatatypeContexts",
