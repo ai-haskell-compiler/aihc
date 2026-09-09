@@ -1,4 +1,0 @@
-status: pass
-reason: An interface must retain the functional dependencies of a class.
-expect-class-fundeps:
-  - [Demo, ["Collection: c -> e"]]

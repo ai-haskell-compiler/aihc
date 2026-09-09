@@ -15,7 +15,7 @@ import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
-import Aihc.Tc (ClassInfo (..), FunDep (..), TcInterface, TyConInfo (..), tcInterfaceClasses, tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tvName, tyConName)
+import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM, forM_, void)
@@ -149,23 +149,17 @@ test_resolveArtifactRoundTrip = do
   assertEqual "qualified module types" (Map.map scopeTypes (scopeQualifiedModules scope)) (Map.map scopeTypes (scopeQualifiedModules decodedScope))
   assertBool "resolve artifact round trip" (artifact == decoded)
 
--- | Each package fixture specifies its expected error, stored constructors,
--- or stored class functional dependencies.
+-- | Each package fixture specifies its expected error or stored constructors.
 data InstallFixture = InstallFixture
   { installFixtureError :: Maybe String,
-    installFixtureTyCons :: [(String, [String])],
-    installFixtureFunDeps :: [(String, [String])]
+    installFixtureTyCons :: [(String, [String])]
   }
 
 instance FromJSON InstallFixture where
   parseJSON = withObject "install fixture" $ \obj -> do
     status <- obj .: "status"
     if status == ("pass" :: String)
-      then
-        InstallFixture
-          <$> obj .:? "expect-error"
-          <*> obj .:? "expect-type-constructors" .!= []
-          <*> obj .:? "expect-class-fundeps" .!= []
+      then InstallFixture <$> obj .:? "expect-error" <*> obj .:? "expect-type-constructors" .!= []
       else fail "install fixtures require pass status"
 
 testInstallFixtures :: IO SeedStore -> Assertion
@@ -185,35 +179,12 @@ testInstallFixtures getStore = do
         Right result ->
           case installFixtureError fixture of
             Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
-            Nothing -> do
-              forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
-                interface <- readModuleInterface name result moduleName
-                let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons interface)
-                forM_ expected $ \constructor ->
-                  assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
-              forM_ (installFixtureFunDeps fixture) $ \(moduleName, expected) -> do
-                interface <- readModuleInterface name result moduleName
-                let actual = concatMap classFunDepNames (tcInterfaceClasses interface)
-                forM_ expected $ \dependency ->
-                  assertBool (name <> ": missing functional dependency " <> dependency <> " in " <> moduleName) (dependency `elem` actual)
-
--- | The type interface that an install wrote for one module.
-readModuleInterface :: String -> InstallResult -> String -> IO TcInterface
-readModuleInterface name result moduleName = do
-  bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
-  artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
-  pure (typeArtifactInterface artifact)
-
--- | Render the functional dependencies of a class with the source names of
--- the class parameters, as @Collection: c -> e@.
-classFunDepNames :: ClassInfo -> [String]
-classFunDepNames info =
-  [ T.unpack (ciName info) <> ": " <> names (fdDeterminers dependency) <> " -> " <> names (fdDetermined dependency)
-  | dependency <- ciFunDeps info
-  ]
-  where
-    names positions =
-      unwords [T.unpack (tvName tyVar) | position <- positions, tyVar <- take 1 (drop position (ciTyVars info))]
+            Nothing -> forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
+              bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
+              artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
+              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
+              forM_ expected $ \constructor ->
+                assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
 
 test_parsePackageTarget :: Assertion
 test_parsePackageTarget = do

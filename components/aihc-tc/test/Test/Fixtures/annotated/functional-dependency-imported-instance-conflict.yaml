@@ -1,0 +1,52 @@
+annotated:
+- |-
+  module Collections where
+  data Bag = Bag
+       │     └─ type: Bag
+       └─ type: Type
+  data Nat = Z
+       │     └─ type: Nat
+       └─ type: Type
+  class Collection c e | c -> e where
+  └─ class methods: insert ∷ ∀ c e. (Collection c e) ⇒ e → c → c; fundeps: c → e
+    insert :: e -> c -> c
+  instance Collection Bag Nat where
+  └─ $fCollectionBagNat ∷ () ⇒ Collection Bag Nat
+    insert _ bag = bag
+    │      │ └─ type: Bag
+    │      └─ type: Nat
+    └─ insert ∷ Nat → Bag → Bag
+- |-
+  module Test where
+  import Collections (Bag (..), Collection (..))
+  data Flag = Flag
+       │      └─ type: Flag
+       └─ type: Type
+  instance Collection Bag Flag where
+  │        └─ error: instance Collection Bag Flag conflicts with instance Collection Bag Nat under the functional dependency c → e
+  └─ $fCollectionBagFlag ∷ () ⇒ Collection Bag Flag
+    insert _ bag = bag
+    │      │ └─ type: Collections.Bag
+    │      └─ type: Flag
+    └─ insert ∷ Flag → Bag → Bag
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+modules:
+- |
+  module Collections where
+  data Bag = Bag
+  data Nat = Z
+  class Collection c e | c -> e where
+    insert :: e -> c -> c
+  instance Collection Bag Nat where
+    insert _ bag = bag
+- |
+  module Test where
+  import Collections (Bag (..), Collection (..))
+  data Flag = Flag
+  instance Collection Bag Flag where
+    insert _ bag = bag
+reason: an instance conflicts with one that another module declares, so the functional
+  dependencies of an imported class reach the consistency check
+status: pass
