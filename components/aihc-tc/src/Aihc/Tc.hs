@@ -550,7 +550,8 @@ typecheckModuleSccWithState config st modules =
       (emptyTcEnv config)
         { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleExtensions) modules,
           tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleExtensions) modules,
-          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleExtensions) modules
+          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleExtensions) modules,
+          tcEnvUndecidableInstances = any (elem UndecidableInstances . moduleExtensions) modules
         }
     moduleExtensions m = effectiveModuleExtensions (moduleLanguagePragmas m)
 
