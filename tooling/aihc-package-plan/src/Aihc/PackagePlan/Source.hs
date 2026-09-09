@@ -96,6 +96,12 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
 -- @NoMonoLocalBinds@ then turns off the @MonoLocalBinds@ that an earlier
 -- @TypeFamilies@ implied, like in GHC. This is the only place a package build
 -- reads @LANGUAGE@ pragmas: every later phase takes the resulting set as data.
+--
+-- The parser's own 'Aihc.Parser.Syntax.effectiveExtensions' folds the other
+-- way and applies implied extensions once at the end, so it lets the first
+-- setting win and lets an implication resurrect an explicit @No...@:
+-- <https://github.com/ai-haskell-compiler/aihc-parser/issues/29>. Drop this
+-- function once that is fixed and the pin moves.
 sourceOrderExtensions :: LanguageEdition -> [ExtensionSetting] -> [Extension]
 sourceOrderExtensions edition =
   foldl applyOne (languageEditionExtensions edition)

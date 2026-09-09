@@ -31,7 +31,10 @@ import Aihc.Parser.Syntax
 -- extension brings its implied extensions with it at once. A later
 -- @NoMonoLocalBinds@ then turns off the @MonoLocalBinds@ that an earlier
 -- @TypeFamilies@ implied, like in GHC. 'Aihc.PackagePlan.Source' folds a
--- package's pragmas the same way.
+-- package's pragmas the same way, for the same reason: the parser's own
+-- 'Aihc.Parser.Syntax.effectiveExtensions' folds the other way and applies
+-- implied extensions once at the end,
+-- <https://github.com/ai-haskell-compiler/aihc-parser/issues/29>.
 fixtureExtensions :: LanguageEdition -> Module -> [Extension]
 fixtureExtensions edition =
   foldl applyOne (languageEditionExtensions edition) . moduleLanguagePragmas
