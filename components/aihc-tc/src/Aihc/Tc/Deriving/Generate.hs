@@ -49,12 +49,12 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations
-  ( TcDerivedInstance (..),
+  ( TcCoercedDeriving (..),
+    TcDerivedInstance (..),
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
-    TcNewtypeDeriving (..),
   )
 import Aihc.Tc.Deriving.Context (isSupportedStockClass, newtypeRepresentation, stockFieldTypes)
 import Aihc.Tc.Deriving.References
@@ -146,7 +146,7 @@ generatePlan kinds references origin sourceDecl plan =
         TcDerivingVia {} -> tagged
         _ -> declaration
       where
-        tagged = DeclAnn (mkAnnotation (TcNewtypeDeriving plan)) declaration
+        tagged = DeclAnn (mkAnnotation (TcCoercedDeriving plan)) declaration
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,

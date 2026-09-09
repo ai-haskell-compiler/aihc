@@ -17,6 +17,8 @@ import Aihc.Tc.Annotations
     TcCastAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcCoercedInstance (..),
+    TcCoercedMethod (..),
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
@@ -24,8 +26,6 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
-    TcNewtypeInstance (..),
-    TcNewtypeMethod (..),
     TcPatSynAnnotation (..),
     renderTcType,
   )
@@ -307,19 +307,19 @@ firstMetaInstanceAnnotation ann =
            ]
         ++ concatMap (map firstMetaEvTerm . snd) (tcInstanceDefaultMethodEvidence ann)
         ++ map firstMetaTypeFamilyInstance (tcInstanceAssociatedTypes ann)
-        ++ [firstMetaNewtype body | Just body <- [tcInstanceNewtype ann]]
+        ++ [firstMetaCoerced body | Just body <- [tcInstanceCoerced ann]]
     )
 
-firstMetaNewtype :: TcNewtypeInstance -> Maybe Unique
-firstMetaNewtype body =
+firstMetaCoerced :: TcCoercedInstance -> Maybe Unique
+firstMetaCoerced body =
   firstJusts
-    ( map firstMetaType (tcNewtypeHeadTypes body <> tcNewtypeFieldTypes body)
-        ++ [firstMetaEvTerm evidence | Just evidence <- [tcNewtypeEvidence body]]
-        ++ [firstMetaCoercion proof | Just proof <- [tcNewtypeDictionaryCast body]]
-        ++ [ firstMetaCoercion (tcNewtypeMethodCoercion method)
-               <|> firstJusts (map (firstMetaType . tvKind) (tcNewtypeMethodTyVars method))
-               <|> firstJusts (map firstMetaPred (tcNewtypeMethodPredicates method))
-           | method <- tcNewtypeMethods body
+    ( map firstMetaType (tcCoercedHeadTypes body <> tcCoercedFieldTypes body)
+        ++ [firstMetaEvTerm evidence | Just evidence <- [tcCoercedEvidence body]]
+        ++ [firstMetaCoercion proof | Just proof <- [tcCoercedDictionaryCast body]]
+        ++ [ firstMetaCoercion (tcCoercedMethodCoercion method)
+               <|> firstJusts (map (firstMetaType . tvKind) (tcCoercedMethodTyVars method))
+               <|> firstJusts (map firstMetaPred (tcCoercedMethodPredicates method))
+           | method <- tcCoercedMethods body
            ]
     )
 

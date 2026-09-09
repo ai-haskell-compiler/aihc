@@ -29,9 +29,9 @@ module Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcDerivedInstance (..),
-    TcNewtypeDeriving (..),
-    TcNewtypeInstance (..),
-    TcNewtypeMethod (..),
+    TcCoercedDeriving (..),
+    TcCoercedInstance (..),
+    TcCoercedMethod (..),
     TcPatSynAnnotation (..),
     TcInstanceMethodAnnotation (..),
 
@@ -286,7 +286,7 @@ data TcPatSynAnnotation = TcPatSynAnnotation
   deriving (Eq, Show)
 
 -- | A generated instance retains its source derivation plan.
-newtype TcNewtypeDeriving = TcNewtypeDeriving TcDerivingPlan
+newtype TcCoercedDeriving = TcCoercedDeriving TcDerivingPlan
   deriving (Eq, Show)
 
 -- | An instance that @deriving@ generated rather than the source. Such an
@@ -294,23 +294,25 @@ newtype TcNewtypeDeriving = TcNewtypeDeriving TcDerivingPlan
 data TcDerivedInstance = TcDerivedInstance
   deriving (Eq, Show)
 
--- | Checked evidence and casts for a newtype instance.
-data TcNewtypeInstance = TcNewtypeInstance
-  { tcNewtypeHeadTypes :: ![TcType],
-    tcNewtypeEvidence :: !(Maybe EvTerm),
-    tcNewtypeFieldTypes :: ![TcType],
-    tcNewtypeDictionaryCast :: !(Maybe Coercion),
-    tcNewtypeMethods :: ![TcNewtypeMethod]
+-- | Checked evidence and casts for a derived instance that reuses another
+-- type's instance and coerces its methods: newtype deriving, which coerces
+-- from the representation, and deriving via, from the via type.
+data TcCoercedInstance = TcCoercedInstance
+  { tcCoercedHeadTypes :: ![TcType],
+    tcCoercedEvidence :: !(Maybe EvTerm),
+    tcCoercedFieldTypes :: ![TcType],
+    tcCoercedDictionaryCast :: !(Maybe Coercion),
+    tcCoercedMethods :: ![TcCoercedMethod]
   }
   deriving (Eq, Show)
 
 -- | A method cast applies after its type and dictionary arguments.
-data TcNewtypeMethod = TcNewtypeMethod
-  { tcNewtypeMethodName :: !Text,
-    tcNewtypeMethodIndex :: !Int,
-    tcNewtypeMethodTyVars :: ![TyVarId],
-    tcNewtypeMethodPredicates :: ![Pred],
-    tcNewtypeMethodCoercion :: !Coercion
+data TcCoercedMethod = TcCoercedMethod
+  { tcCoercedMethodName :: !Text,
+    tcCoercedMethodIndex :: !Int,
+    tcCoercedMethodTyVars :: ![TyVarId],
+    tcCoercedMethodPredicates :: ![Pred],
+    tcCoercedMethodCoercion :: !Coercion
   }
   deriving (Eq, Show)
 
@@ -336,7 +338,9 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     -- | The checked associated type family equations of the instance,
     -- explicit ones and instantiated class defaults.
     tcInstanceAssociatedTypes :: ![TypeFamilyInstanceInfo],
-    tcInstanceNewtype :: !(Maybe TcNewtypeInstance)
+    -- | Present when the instance was derived by coercing another
+    -- instance's methods rather than by generating its own.
+    tcInstanceCoerced :: !(Maybe TcCoercedInstance)
   }
   deriving (Eq, Show)
 
