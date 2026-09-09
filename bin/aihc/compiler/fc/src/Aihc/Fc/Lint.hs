@@ -218,6 +218,14 @@ kindsCompatible env function expected actual =
     || kindFunctionsEqual env expected actual
     || (isTYPEName env function && isTypeKind env expected && isRuntimeRepKind env actual)
 
+-- | Kind equality for the arguments of a coercion. A type constructor's
+-- header binds every parameter with a forall, so a partial application such
+-- as @Sum f g@ has the kind @forall (p : Type). Type@ while a binder
+-- annotated @Type -> Type@ has a FUN kind; the two describe the same
+-- non-dependent kind function.
+kindsEqual :: TypeEnv -> Type -> Type -> Bool
+kindsEqual env expected actual = typesEqual env expected actual || kindFunctionsEqual env expected actual
+
 kindFunctionsEqual :: TypeEnv -> Type -> Type -> Bool
 kindFunctionsEqual env left right =
   compareKinds (reduceType env left) (reduceType env right)
@@ -679,7 +687,7 @@ coercionEndpoints env coercion =
           mapM_
             ( \(binder, argument) -> do
                 argumentKind <- lintType env argument
-                unless (typesEqual env (substTypes subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
+                unless (kindsEqual env (substTypes subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
             )
             (zip (axiomBinders declaration) arguments)
           Right (substTypes subst (axiomLeft declaration), substTypes subst (axiomRight declaration))
@@ -710,8 +718,8 @@ checkCoercionArgumentKind :: TypeEnv -> Type -> Type -> Type -> Either LintError
 checkCoercionArgumentKind env expected left right = do
   leftKind <- lintType env left
   rightKind <- lintType env right
-  unless (typesEqual env expected leftKind) (Left (KindMismatch "type constructor coercion argument" expected leftKind))
-  unless (typesEqual env expected rightKind) (Left (KindMismatch "type constructor coercion argument" expected rightKind))
+  unless (kindsEqual env expected leftKind) (Left (KindMismatch "type constructor coercion argument" expected leftKind))
+  unless (kindsEqual env expected rightKind) (Left (KindMismatch "type constructor coercion argument" expected rightKind))
 
 representationOf :: TypeEnv -> Type -> Either LintError Type
 representationOf env ty = do
