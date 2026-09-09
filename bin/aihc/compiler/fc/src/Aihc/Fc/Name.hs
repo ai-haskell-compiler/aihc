@@ -5,7 +5,6 @@ module Aihc.Fc.Name
     nameClass,
     Origin (..),
     Name (..),
-    nameEquals,
     ScopeTable (..),
     emptyScopeTable,
     lookupScope,
