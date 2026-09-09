@@ -127,7 +127,6 @@ data ValueState = ValueState
     -- | The evidence that the current binding shares, when it has a place to
     -- put the bindings. 'Nothing' turns sharing off.
     vsEvidenceScope :: !(Maybe EvidenceScope),
-    vsConstructors :: !(Map Text [Name]),
     vsConstructorInfos :: !(Map Text [DataConInfo]),
     vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
@@ -139,7 +138,6 @@ data ValueState = ValueState
 
 data PreparedValueInterface = PreparedValueInterface
   { preparedTypes :: !(Map TcTermKey TcType),
-    preparedConstructors :: !(Map Text [Name]),
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
     preparedNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     preparedFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
@@ -227,7 +225,6 @@ emptyPreparedValueInterface :: PreparedValueInterface
 emptyPreparedValueInterface =
   PreparedValueInterface
     { preparedTypes = Map.empty,
-      preparedConstructors = Map.empty,
       preparedConstructorInfos = Map.empty,
       preparedNewtypeConstructors = Map.empty,
       preparedFamilyConstructors = Map.empty,
@@ -240,7 +237,6 @@ prepareValueInterface :: TcInterface -> PreparedValueInterface
 prepareValueInterface interface =
   PreparedValueInterface
     { preparedTypes = termTypes,
-      preparedConstructors = constructors,
       preparedConstructorInfos = constructorInfos,
       preparedNewtypeConstructors = newtypes,
       preparedFamilyConstructors = familyConstructors,
@@ -259,14 +255,6 @@ prepareValueInterface interface =
                  let (package, moduleName') = iiDictOrigin info
                ]
         )
-    constructors =
-      Map.fromListWith
-        (<>)
-        [ (dciName constructor, [Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')])
-        | dataType <- tcInterfaceDataTypes interface,
-          constructor <- dtiConstructors dataType,
-          let (package, moduleName') = dciOrigin constructor
-        ]
     schemeType (ForAll [] [] ty) = ty
     schemeType (ForAll variables [] ty) = foldr TcForAllTy ty variables
     schemeType (ForAll [] predicates ty) = TcQualTy predicates ty
@@ -309,7 +297,6 @@ mergePreparedValueInterfaces :: [PreparedValueInterface] -> PreparedValueInterfa
 mergePreparedValueInterfaces interfaces =
   PreparedValueInterface
     { preparedTypes = Map.unions (map preparedTypes interfaces),
-      preparedConstructors = Map.unionsWith mergeCandidates (map preparedConstructors interfaces),
       preparedConstructorInfos = Map.unionsWith mergeCandidates (map preparedConstructorInfos interfaces),
       preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces),
       preparedFamilyConstructors = Map.unions (map preparedFamilyConstructors interfaces),
@@ -337,7 +324,6 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
             vsEvidenceScope = Nothing,
-            vsConstructors = preparedConstructors interface,
             vsConstructorInfos = preparedConstructorInfos interface,
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
             vsFamilyConstructors = preparedFamilyConstructors interface,

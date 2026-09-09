@@ -33,8 +33,6 @@ import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
     LanguageEdition (Haskell98Edition),
-    Module,
-    SourceSpan,
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
@@ -89,8 +87,7 @@ data PackageConstraint = PackageConstraint
 data SourceModule = SourceModule
   { sourcePath :: !FilePath,
     sourceModuleName :: !Text,
-    sourceDependencies :: ![SourceDependency],
-    sourceParseResult :: ([(SourceSpan, Text)], Module)
+    sourceDependencies :: ![SourceDependency]
   }
 
 data SourceDependency = SourceDependency
@@ -483,8 +480,7 @@ parseSource path = TIO.readFile path >>= parseSourceText path
 parseSourceText :: FilePath -> Text -> IO SourceModule
 parseSourceText path source = do
   let extensions = sourceExtensions source
-      parsed = parseModule (parserConfig path source) source
-      modu = snd parsed
+      modu = snd (parseModule (parserConfig path source) source)
       name = fromMaybe "Main" (moduleName modu)
       dependencies =
         nub
@@ -495,8 +491,7 @@ parseSourceText path source = do
     SourceModule
       { sourcePath = path,
         sourceModuleName = name,
-        sourceDependencies = dependencies,
-        sourceParseResult = parsed
+        sourceDependencies = dependencies
       }
 
 importDependency :: ImportDecl -> SourceDependency
