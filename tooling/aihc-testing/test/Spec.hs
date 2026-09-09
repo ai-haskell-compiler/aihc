@@ -5,6 +5,7 @@ import Aihc.Parser.Syntax
   ( Annotation,
     Decl (..),
     Expr (..),
+    Extension,
     Module (..),
     ModuleHead (..),
     Name (..),
@@ -14,16 +15,25 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
+    parseExtensionName,
     stripAnnotations,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModule)
 import Aihc.Testing.AnnotatedModule qualified as AnnotatedModule
+import Aihc.Testing.EvalFixtureIndex
+  ( EvalFixtureEntry (..),
+    FixtureStatus (..),
+    parseEvalFixtureEntry,
+  )
 import Control.Exception (SomeException, evaluate, try)
+import Data.ByteString.Char8 qualified as BS8
+import Data.Either (isLeft)
 import Data.Text qualified as Text
+import Data.Yaml qualified as Yaml
 import Hedgehog (property, success)
 import Prettyprinter (Doc, hardline, pretty)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
 
 newtype TestAnnotation = TestAnnotation String
@@ -45,6 +55,10 @@ main =
         testCase "throws on renderable annotation without span" testMissingSpan,
         testCase "renders source text without pretty-printing" testSourceTextRendering,
         testCase "throws on source/module count mismatch" testSourceModuleCountMismatch,
+        testCase "reads eval fixture extensions and status" testEvalFixtureEntry,
+        testCase "defaults eval fixture extensions to none" testEvalFixtureEntryNoExtensions,
+        testCase "rejects an unknown eval fixture extension" testEvalFixtureUnknownExtension,
+        testCase "rejects an unknown eval fixture status" testEvalFixtureUnknownStatus,
         testProperty "accepts repository Hedgehog options" (property success)
       ]
 
@@ -129,6 +143,52 @@ testSourceModuleCountMismatch = do
   let modu = parseModuleOrFail "x = 1"
   result <- throws (show (AnnotatedModule.renderAnnotatedModuleSources testAnnotationDoc [] [modu]))
   assertBool "expected count mismatch exception" result
+
+testEvalFixtureEntry :: IO ()
+testEvalFixtureEntry = do
+  entry <- decodeFixtureOrFail "extensions:\n  - MagicHash\n  - UnboxedTuples\nstatus: XFail\n"
+  assertEqual "path" "demo.yaml" (entryPath entry)
+  assertEqual
+    "extensions"
+    (map parseExtensionOrFail ["MagicHash", "UnboxedTuples"])
+    (entryExtensions entry)
+  assertEqual "status" StatusXFail (entryStatus entry)
+
+testEvalFixtureEntryNoExtensions :: IO ()
+testEvalFixtureEntryNoExtensions = do
+  entry <- decodeFixtureOrFail "status: fail\n"
+  assertEqual "extensions" [] (entryExtensions entry)
+  assertEqual "status" StatusFail (entryStatus entry)
+
+testEvalFixtureUnknownExtension :: IO ()
+testEvalFixtureUnknownExtension =
+  assertBool
+    "expected unknown extension rejection"
+    (isLeft (decodeFixture "extensions:\n  - NoSuchExtension\nstatus: pass\n"))
+
+testEvalFixtureUnknownStatus :: IO ()
+testEvalFixtureUnknownStatus =
+  assertBool
+    "expected unknown status rejection"
+    (isLeft (decodeFixture "status: maybe\n"))
+
+decodeFixture :: String -> Either String EvalFixtureEntry
+decodeFixture source =
+  case Yaml.decodeEither' (BS8.pack source) of
+    Left err -> Left (show err)
+    Right value -> parseEvalFixtureEntry "demo.yaml" value
+
+decodeFixtureOrFail :: String -> IO EvalFixtureEntry
+decodeFixtureOrFail source =
+  case decodeFixture source of
+    Left err -> assertFailure err
+    Right entry -> pure entry
+
+parseExtensionOrFail :: Text.Text -> Extension
+parseExtensionOrFail name =
+  case parseExtensionName name of
+    Just ext -> ext
+    Nothing -> error ("parseExtensionOrFail: " <> Text.unpack name)
 
 testConfig :: ParserConfig
 testConfig = defaultConfig {parserSourceName = "<test>"}

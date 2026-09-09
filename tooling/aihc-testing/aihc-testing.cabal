@@ -15,13 +15,31 @@ library
   hs-source-dirs: src
   exposed-modules:
     Aihc.Testing.AnnotatedModule
+    Aihc.Testing.EvalFixtureIndex
 
   build-depends:
+    aeson,
     aihc-parser,
     base >=4.16 && <5,
     containers,
+    directory,
+    filepath,
     prettyprinter,
     text >=1.2,
+    yaml,
+
+  ghc-options: -Wall
+  default-language: GHC2021
+
+executable eval-extension-progress
+  main-is: Main.hs
+  hs-source-dirs: app/eval-extension-progress
+  build-depends:
+    aihc-parser,
+    aihc-testing,
+    base >=4.16 && <5,
+    containers,
+    text,
 
   ghc-options: -Wall
   default-language: GHC2021
@@ -34,12 +52,14 @@ test-suite spec
     aihc-parser,
     aihc-testing,
     base >=4.16 && <5,
+    bytestring,
     hedgehog,
     prettyprinter,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
     text,
+    yaml,
 
   ghc-options:
     -Wall
