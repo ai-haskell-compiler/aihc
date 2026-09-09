@@ -1,5 +1,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE TupleSections #-}
 
 {-# HLINT ignore "Use sequence_" #-}
 
@@ -714,6 +715,18 @@ instance Functor (Either e) where
 
 instance Functor ((,) a) where
   fmap f (first, second) = (first, f second)
+
+instance (Monoid a) => Applicative ((,) a) where
+  pure value = (mempty, value)
+  (leftLog, function) <*> (rightLog, value) = (leftLog <> rightLog, function value)
+
+instance (Monoid a) => Monad ((,) a) where
+  (leftLog, value) >>= next =
+    case next value of
+      (rightLog, result) -> (leftLog <> rightLog, result)
+
+instance Traversable ((,) a) where
+  traverse f (first, second) = fmap (first,) (f second)
 
 instance Traversable List where
   traverse _ [] = pure []

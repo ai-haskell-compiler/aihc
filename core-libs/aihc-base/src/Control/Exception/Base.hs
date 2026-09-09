@@ -3,6 +3,18 @@ module Control.Exception.Base
     SomeException (..),
     ArithException (..),
     IOException,
+    IOError,
+    ioError,
+    ArrayException (..),
+    AssertionFailed (..),
+    AsyncException (..),
+    SomeAsyncException (..),
+    asyncExceptionToException,
+    asyncExceptionFromException,
+    BlockedIndefinitelyOnMVar (..),
+    BlockedIndefinitelyOnSTM (..),
+    Deadlock (..),
+    AllocationLimitExceeded (..),
     catch,
     catchJust,
     evaluate,
@@ -30,7 +42,21 @@ where
 
 import GHC.Exception (ArithException (..), Exception (..), SomeException (..), throw)
 import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
-import GHC.IO.Exception (IOException)
+import GHC.IO.Exception
+  ( AllocationLimitExceeded (..),
+    ArrayException (..),
+    AssertionFailed (..),
+    AsyncException (..),
+    BlockedIndefinitelyOnMVar (..),
+    BlockedIndefinitelyOnSTM (..),
+    Deadlock (..),
+    IOError,
+    IOException,
+    SomeAsyncException (..),
+    asyncExceptionFromException,
+    asyncExceptionToException,
+    ioError,
+  )
 import Prelude (Bool, Either (..), IO, Maybe (..), const, pure, (.), (>>=))
 
 handle :: (Exception e) => (e -> IO a) -> IO a -> IO a
