@@ -5,8 +5,9 @@
 --
 -- An anyclass context comes from the instantiated superclasses and default
 -- signatures of the class. A stock context asks the class of every
--- constructor field, and a newtype context asks the class of the
--- representation type. The whole batch is visible while simplifying those
+-- constructor field, and the contexts that coerce another instance ask the
+-- class of the type they coerce from: the representation for a newtype and
+-- the via type for a via. The whole batch is visible while simplifying those
 -- predicates, so recursive and mutually recursive derived instances are
 -- independent of source order.
 module Aihc.Tc.Deriving.Context
@@ -94,10 +95,10 @@ derivingEnv kinds existingInstances plans =
 
     inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds plan]]
 
-    -- Reject cycles for anyclass and newtype plans.
+    -- Reject cycles for the plans that reuse an instance.
     -- Stock plans can use recursive structural instances.
     initialContext (plan, _)
-      | tcDerivingStrategy plan `elem` [TcDerivingAnyclass, TcDerivingNewtype] = (planKey plan, Left (planPredicate plan))
+      | reusesInstance (tcDerivingStrategy plan) = (planKey plan, Left (planPredicate plan))
       | otherwise = (planKey plan, Right [])
 
     -- Contexts are inferred simultaneously, so a plan can refer to a plan
@@ -136,13 +137,32 @@ derivingObligations kinds plan =
           Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan)
       | otherwise -> Nothing
     TcDerivingNewtype ->
-      Just $ do
-        representation <- newtypeRepresentation plan
-        let substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
-            supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
-            methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [representation]) | not (null (tcDerivingClassMethods plan))]
-        pure (supers <> methods)
-    TcDerivingVia {} -> Nothing
+      Just (coercedObligations kinds plan <$> newtypeRepresentation plan)
+    TcDerivingVia viaType -> Just (Right (coercedObligations kinds plan viaType))
+
+-- | Whether a strategy reuses the instance of another type instead of
+-- generating a structural one. A structural instance can be recursive, so a
+-- context that refers to the plan itself is admissible there; a reused one
+-- would stand on itself.
+reusesInstance :: TcDerivingStrategy -> Bool
+reusesInstance strategy =
+  case strategy of
+    TcDerivingAnyclass -> True
+    TcDerivingNewtype -> True
+    TcDerivingVia {} -> True
+    TcDerivingStock -> False
+
+-- | The obligations of a plan that coerces the methods of another type's
+-- instance: the superclasses at the derived head, which the generated
+-- dictionary carries itself, and the class at the type the methods come
+-- from. Newtype deriving coerces from the representation, deriving via from
+-- the via type.
+coercedObligations :: TcKinds -> TcDerivingPlan -> TcType -> [Pred]
+coercedObligations kinds plan source = supers <> methods
+  where
+    substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
+    supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
+    methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [source]) | not (null (tcDerivingClassMethods plan))]
 
 -- | The stock classes that the generator can write an instance for.
 isSupportedStockClass :: Text -> Bool

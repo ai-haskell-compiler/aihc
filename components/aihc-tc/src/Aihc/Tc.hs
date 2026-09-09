@@ -553,7 +553,8 @@ typecheckModuleSccWithState config st units =
       (emptyTcEnv config)
         { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleUnitExtensions) units,
           tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleUnitExtensions) units,
-          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleUnitExtensions) units
+          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleUnitExtensions) units,
+          tcEnvUndecidableInstances = any (elem UndecidableInstances . moduleUnitExtensions) units
         }
 
 attachSccDiagnostics :: [TcDiagnostic] -> [Module] -> [Module]

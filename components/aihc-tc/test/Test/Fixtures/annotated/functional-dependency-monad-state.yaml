@@ -1,0 +1,89 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Type)
+  data Nat = Z
+       │     └─ type: Nat
+       └─ type: Type
+  newtype State s a = State (s -> (a, s))
+          │           └─ type: ∀ s a. (s → (a, s)) → State s a
+          └─ type: Type → Type → Type
+  newtype ReaderT r m a = ReaderT (r -> m a)
+          │               └─ type: ∀ r m a. (r → m a) → ReaderT r m a
+          └─ type: Type → (Type → Type) → Type → Type
+  class MonadState s (m :: Type -> Type) | m -> s where
+  └─ class methods: get ∷ ∀ s m. (MonadState s m) ⇒ m s, put ∷ ∀ s m. (MonadState s m) ⇒ s → m (); fundeps: m → s
+    get :: m s
+    put :: s -> m ()
+  instance MonadState s (State s) where
+  └─ $fMonadStatesStates ∷ ∀ s. () ⇒ MonadState s (State s)
+    get = State (\s -> (s, s))
+    │     │      ││    └─ type: (s, s); type-args: s, s
+    │     │      │└─ type: s
+    │     │      └─ type: s → (s, s)
+    │     └─ type: (s → (s, s)) → State s s; type-args: s, s
+    └─ get ∷ State s s
+    put value = State (\_ -> ((), value))
+    │   │       │      │││    │└─ type: ()
+    │   │       │      │││    └─ type: ((), s); type-args: (), s
+    │   │       │      │└─ type: s
+    │   │       │      │└─ type: s
+    │   │       │      └─ type: s → ((), s)
+    │   │       └─ type: (s → ((), s)) → State s (); type-args: s, ()
+    │   └─ type: s
+    └─ put ∷ s → State s ()
+  instance MonadState s m => MonadState s (ReaderT r m) where
+  └─ $fMonadStatesReaderTrm ∷ ∀ s m r. (MonadState s m) ⇒ MonadState s (ReaderT r m)
+    get = ReaderT (\_ -> get)
+    │     │        │││    └─ type: m s; type-args: s, m; evidence: given MonadState s m
+    │     │        │└─ type: r
+    │     │        │└─ type: r
+    │     │        └─ type: r → m s
+    │     └─ type: (r → m s) → ReaderT r m s; type-args: r, m, s
+    └─ get ∷ ReaderT r m s
+    put value = ReaderT (\_ -> put value)
+    │   │       │        │││    └─ type: s → m (); type-args: s, m; evidence: given MonadState s m
+    │   │       │        │└─ type: r
+    │   │       │        │└─ type: r
+    │   │       │        └─ type: r → m ()
+    │   │       └─ type: (r → m ()) → ReaderT r m (); type-args: r, m, ()
+    │   └─ type: s
+    └─ put ∷ s → ReaderT r m ()
+  reset :: State Nat ()
+  reset = put Z
+  │       └─ type: Nat → State Nat (); type-args: Nat, State Nat; evidence: $fMonadStatesStates @Nat
+  └─ type: State Nat ()
+  lifted :: MonadState Nat m => ReaderT r m ()
+  lifted = put Z
+  │        └─ type: Nat → ReaderT r m (); type-args: Nat, ReaderT r m; evidence: $fMonadStatesReaderTrm @Nat @m @r (given MonadState Nat m)
+  └─ type: ∀ m r. (MonadState Nat m) ⇒ ReaderT r m ()
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+- KindSignatures
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE KindSignatures, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Type)
+  data Nat = Z
+  newtype State s a = State (s -> (a, s))
+  newtype ReaderT r m a = ReaderT (r -> m a)
+  class MonadState s (m :: Type -> Type) | m -> s where
+    get :: m s
+    put :: s -> m ()
+  instance MonadState s (State s) where
+    get = State (\s -> (s, s))
+    put value = State (\_ -> ((), value))
+  instance MonadState s m => MonadState s (ReaderT r m) where
+    get = ReaderT (\_ -> get)
+    put value = ReaderT (\_ -> put value)
+  reset :: State Nat ()
+  reset = put Z
+  lifted :: MonadState Nat m => ReaderT r m ()
+  lifted = put Z
+status: pass
+reason: the lifting instance of a transformer takes the state type from its context,
+  which only the liberal coverage condition of UndecidableInstances accepts

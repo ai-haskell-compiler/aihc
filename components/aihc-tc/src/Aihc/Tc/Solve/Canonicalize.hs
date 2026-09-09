@@ -1,7 +1,6 @@
 -- | Classify constraints without a change to their evidence variables.
 module Aihc.Tc.Solve.Canonicalize
-  ( canonicalize,
-    classifyCt,
+  ( classifyConstraint,
     CanonResult (..),
   )
 where
@@ -19,18 +18,10 @@ data CanonResult
     CanonSolved
   deriving (Show)
 
--- | Keep equality evidence intact for the equality solver.
-canonicalize :: Ct -> CanonResult
-canonicalize ct = case ctPred ct of
+-- | Classify a constraint as equality or dictionary.
+classifyConstraint :: Ct -> CanonResult
+classifyConstraint ct = case ctPred ct of
   EqPred {} -> CanonEqs [ct]
   ClassPred {} -> CanonDict ct
   QuantifiedPred {} -> CanonDict ct
   IParamPred {} -> CanonDict ct
-
--- | Classify a constraint as equality or dictionary.
-classifyCt :: Ct -> Either Ct Ct
-classifyCt ct = case ctPred ct of
-  EqPred {} -> Left ct
-  ClassPred {} -> Right ct
-  QuantifiedPred {} -> Right ct
-  IParamPred {} -> Right ct

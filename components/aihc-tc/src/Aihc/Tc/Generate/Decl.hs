@@ -3436,7 +3436,7 @@ registerInstanceDecl origin instanceDecl =
       tvIds <- orderTyVarsByKind <$> mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) rawTvIds
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
-      checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys
+      checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys context
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo
