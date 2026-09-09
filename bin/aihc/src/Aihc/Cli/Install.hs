@@ -114,6 +114,7 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     mergeTcInterfaces,
     mkTcKinds,
+    renderFunDepNames,
     renderPred,
     renderTcType,
     tcInterfaceDataFamilyInstances,
@@ -1290,6 +1291,12 @@ renderTypeErrorKind kind =
       "top-level binding " <> T.unpack name <> " has unlifted type " <> renderTcType ty
     RepresentationPolymorphicFunctionArgument name ty ->
       "function argument " <> T.unpack name <> " has type " <> renderTcType ty <> " without a fixed runtime representation"
+    FunDepUnknownTyVar className name ->
+      "the functional dependency of class " <> T.unpack className <> " names " <> T.unpack name <> ", which is not a parameter of the class"
+    InstanceFunDepCoverage predicate determiners determined ->
+      "instance " <> renderPred predicate <> " does not determine " <> unwords (map T.unpack determined) <> " from " <> unwords (map T.unpack determiners)
+    InstanceFunDepConflict predicate other determiners determined ->
+      "instance " <> renderPred predicate <> " conflicts with instance " <> renderPred other <> " under the functional dependency " <> renderFunDepNames determiners determined
     OtherError message ->
       message
 

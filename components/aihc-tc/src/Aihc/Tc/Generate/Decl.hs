@@ -126,6 +126,7 @@ import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
@@ -3098,8 +3099,21 @@ isForeignImport foreignDecl =
   foreignDirection foreignDecl == ForeignImport
 
 -- | Convert one source functional dependency into class parameter
--- positions. Only names that a class parameter binds take part, so a
--- dependency that names something else drops out here.
+-- positions, reporting every name that no class parameter binds. Such a
+-- dependency has no positions to name, so it takes no part in solving.
+checkClassFunDep :: Text -> [Text] -> FunctionalDependency -> TcM (Maybe FunDep)
+checkClassFunDep className paramNames dependency = do
+  forM_ unknown (emitError loc . FunDepUnknownTyVar className)
+  pure (classFunDep paramNames dependency)
+  where
+    loc = sourceSpanFromAnns (functionalDependencyAnns dependency)
+    unknown =
+      filter
+        (`notElem` paramNames)
+        (functionalDependencyDeterminers dependency <> functionalDependencyDetermined dependency)
+
+-- | The class parameter positions that one source functional dependency
+-- names.
 classFunDep :: [Text] -> FunctionalDependency -> Maybe FunDep
 classFunDep paramNames dependency =
   FunDep
@@ -3148,7 +3162,7 @@ registerClassDecl origin classDecl = do
       <$> mapM
         (registerAssociatedTypeFamily origin (map tyVarBinderName params) (classDeclTypeFamilyDefaults classDecl))
         (classDeclTypeFamilies classDecl)
-  let funDeps = mapMaybe (classFunDep (map tyVarBinderName params)) (classDeclFundeps classDecl)
+  funDeps <- catMaybes <$> mapM (checkClassFunDep className (map tyVarBinderName params)) (classDeclFundeps classDecl)
   addClass
     ClassInfo
       { ciName = className,
@@ -3385,6 +3399,7 @@ registerInstanceDecl origin instanceDecl =
       context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
+      checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo

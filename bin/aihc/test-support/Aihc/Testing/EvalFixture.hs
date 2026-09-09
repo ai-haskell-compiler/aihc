@@ -56,7 +56,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, diagKind, emptyTcInterface, mkTcKinds, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, diagKind, emptyTcInterface, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -435,6 +435,12 @@ renderTcErrorKind errorKind =
       "top-level binding " <> T.unpack name <> " has unlifted type " <> renderTcType ty
     RepresentationPolymorphicFunctionArgument name ty ->
       "function argument " <> T.unpack name <> " has type " <> renderTcType ty <> " without a fixed runtime representation"
+    FunDepUnknownTyVar className name ->
+      "the functional dependency of class " <> T.unpack className <> " names " <> T.unpack name <> ", which is not a parameter of the class"
+    InstanceFunDepCoverage predicate determiners determined ->
+      "instance " <> renderPred predicate <> " does not determine " <> unwords (map T.unpack determined) <> " from " <> unwords (map T.unpack determiners)
+    InstanceFunDepConflict predicate other determiners determined ->
+      "instance " <> renderPred predicate <> " conflicts with instance " <> renderPred other <> " under the functional dependency " <> renderFunDepNames determiners determined
     OtherError message -> message
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]

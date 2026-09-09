@@ -1,0 +1,18 @@
+annotated:
+- |-
+  module Test where
+  class Collection c e | c -> element where
+  │                      └─ error: the functional dependency of class Collection names element, which is not a parameter of the class
+  └─ class methods: insert ∷ ∀ c e. (Collection c e) ⇒ e → c → c
+    insert :: e -> c -> c
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+modules:
+- |
+  module Test where
+  class Collection c e | c -> element where
+    insert :: e -> c -> c
+reason: a functional dependency that names something other than a class parameter is
+  rejected
+status: pass

@@ -47,6 +47,7 @@ module Aihc.Tc.Annotations
     pendingTypeLambdaAnnotation,
 
     -- * Pretty-printing
+    renderFunDepNames,
     renderPred,
     renderTcType,
     renderTcTypeInModule,
@@ -374,6 +375,11 @@ pendingTypeLambdaAnnotation ty binders evidenceBinders =
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String
 renderTcSignature name ty = T.unpack name ++ " ∷ " ++ renderTcType ty
+
+-- | Render the two sides of a functional dependency as source-like text.
+renderFunDepNames :: [Text] -> [Text] -> String
+renderFunDepNames determiners determined =
+  unwords (map T.unpack determiners) ++ " → " ++ unwords (map T.unpack determined)
 
 -- | Render a class or equality predicate as source-like text.
 renderPred :: Pred -> String

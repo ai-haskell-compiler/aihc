@@ -1,0 +1,30 @@
+annotated:
+- |-
+  module Test where
+  data Bag = Bag
+       │     └─ type: Bag
+       └─ type: Type
+  class Collection c e | c -> e where
+  └─ class methods: insert ∷ ∀ c e. (Collection c e) ⇒ e → c → c; fundeps: c → e
+    insert :: e -> c -> c
+  instance Collection Bag e where
+  │        └─ error: instance Collection Bag e does not determine e from c
+  └─ $fCollectionBage ∷ ∀ e. () ⇒ Collection Bag e
+    insert _ bag = bag
+    │      │ └─ type: Bag
+    │      └─ type: e
+    └─ insert ∷ e → Bag → Bag
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+modules:
+- |
+  module Test where
+  data Bag = Bag
+  class Collection c e | c -> e where
+    insert :: e -> c -> c
+  instance Collection Bag e where
+    insert _ bag = bag
+reason: an instance whose dependent parameter is a free type variable fails the coverage
+  condition
+status: pass

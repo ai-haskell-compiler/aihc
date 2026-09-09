@@ -29,6 +29,7 @@ library
     Aihc.Tc.Error
     Aihc.Tc.Evidence
     Aihc.Tc.Finalize
+    Aihc.Tc.FunDep
     Aihc.Tc.Generalize
     Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl

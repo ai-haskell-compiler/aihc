@@ -50,6 +50,13 @@ tidyErrorKind kinds kind =
       TopLevelUnliftedBinding name (tidyType kinds ty)
     RepresentationPolymorphicFunctionArgument name ty ->
       RepresentationPolymorphicFunctionArgument name (tidyType kinds ty)
+    InstanceFunDepCoverage predicate determiners determined ->
+      let env = mkTidyEnv kinds [] [predicate]
+       in InstanceFunDepCoverage (tidyPredWith env predicate) determiners determined
+    InstanceFunDepConflict predicate other determiners determined ->
+      let env = mkTidyEnv kinds [] [predicate, other]
+       in InstanceFunDepConflict (tidyPredWith env predicate) (tidyPredWith env other) determiners determined
+    FunDepUnknownTyVar {} -> kind
     UnboundVariable {} -> kind
     OtherError {} -> kind
 
