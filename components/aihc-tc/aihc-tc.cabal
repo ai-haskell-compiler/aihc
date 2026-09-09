@@ -20,6 +20,7 @@ library
     Aihc.Tc.Annotations
     Aihc.Tc.Constraint
     Aihc.Tc.Deriving
+    Aihc.Tc.Deriving.Coerce
     Aihc.Tc.Deriving.Context
     Aihc.Tc.Deriving.Generate
     Aihc.Tc.Deriving.Newtype
