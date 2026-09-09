@@ -144,8 +144,7 @@ data ExternFunction = ExternFunction
 -- | One mutable cell without an address.
 data Global = Global
   { globalName :: !Symbol,
-    globalType :: !Type,
-    globalPinned :: !Bool
+    globalType :: !Type
   }
   deriving (Eq, Show)
 

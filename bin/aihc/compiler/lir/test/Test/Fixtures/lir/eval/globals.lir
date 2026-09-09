@@ -1,6 +1,6 @@
 ; expect: 10
 
-global @counter: i64 pinned
+global @counter: i64
 
 func @main() -> i64 {
 entry:

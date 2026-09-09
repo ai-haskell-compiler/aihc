@@ -40,7 +40,7 @@ genItem =
   Gen.frequency
     [ (4, ItemFunction <$> genFunction),
       (1, ItemExternFunction <$> (ExternFunction <$> genSymbol <*> genSignature)),
-      (1, ItemGlobal <$> (Global <$> genSymbol <*> genType <*> Gen.bool)),
+      (1, ItemGlobal <$> (Global <$> genSymbol <*> genType)),
       (2, ItemData <$> genData),
       (1, ItemExternData <$> genSymbol),
       (1, ItemConstant <$> (Constant <$> genSymbol <*> genInteger)),

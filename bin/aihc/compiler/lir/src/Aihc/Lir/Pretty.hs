@@ -55,7 +55,6 @@ prettyItem item =
         <+> prettySymbol (globalName global)
         <> ":"
         <+> prettyType (globalType global)
-        <> (if globalPinned global then " pinned" else mempty)
     ItemData dataItem -> prettyData dataItem
     ItemExternData symbol -> "extern data" <+> prettySymbol symbol
     ItemConstant constant -> "const" <+> prettySymbol (constantName constant) <+> "=" <+> pretty (constantValue constant)
@@ -314,7 +313,7 @@ prettyBytes bytes = pretty ("\"" <> T.concat (map escapeByte (BS.unpack bytes)) 
 -- these names is quoted.
 reservedWords :: [Text]
 reservedWords =
-  ["default", "func", "export", "extern", "global", "data", "mut", "align", "cc", "to", "null", "inf", "nan", "pinned", "bytes", "zero"]
+  ["default", "func", "export", "extern", "global", "data", "mut", "align", "cc", "to", "null", "inf", "nan", "bytes", "zero"]
     <> ["jump", "br", "switch", "return", "tailcall", "tailcall.indirect", "trap"]
     <> map binaryOpName [minBound .. maxBound]
     <> map wideOpName [minBound .. maxBound]

@@ -211,8 +211,7 @@ globalItem = do
   name <- symbolName
   token ":"
   ty <- typeParser
-  pinned <- isJust <$> optional (keyword "pinned")
-  pure Global {globalName = name, globalType = ty, globalPinned = pinned}
+  pure Global {globalName = name, globalType = ty}
 
 constantItem :: Parser Constant
 constantItem = do
