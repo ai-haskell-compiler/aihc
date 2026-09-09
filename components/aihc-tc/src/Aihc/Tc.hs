@@ -2,9 +2,12 @@
 
 -- | Entry point for the aihc type checker.
 --
--- The type checker consumes a parsed and name-resolved AST
--- and produces the same AST annotated with typing information. It does
--- not transform the tree structure.
+-- The type checker consumes a parsed and name-resolved AST, together with
+-- the language extensions in force for it, and produces the same AST
+-- annotated with typing information. It does not transform the tree
+-- structure, and it does not read the module's language pragmas: whoever
+-- read the source folded the language edition, the package's default
+-- extensions and the pragmas into the extension set of each 'ModuleUnit'.
 --
 -- The implementation follows the OutsideIn(X) algorithm:
 --
@@ -138,7 +141,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (ModuleUnit (..), PackageId (..))
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
@@ -432,11 +435,11 @@ tcModuleSuccess =
 
 -- | Type-check dependency-ordered modules with an imported semantic interface.
 -- Return only facts that the specified modules define.
-typecheckModulesWithInterface :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
-typecheckModulesWithInterface config imported modules =
+typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
+typecheckModulesWithInterface config imported units =
   let initialState = initialTcState imported
       persistentUnqualifiedTerms = Map.keys (Map.filterWithKey (\key _ -> isUnqualifiedTermKey key) (tcsGlobalTerms initialState))
-      (checkedModules, finalState) = go persistentUnqualifiedTerms initialState modules
+      (checkedModules, finalState) = go persistentUnqualifiedTerms initialState units
    in (checkedModules, tcInterfaceDifference initialState finalState)
   where
     go _ st [] = ([], st)
@@ -463,10 +466,10 @@ isUnqualifiedTermKey key =
 
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
-typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
-typecheckModuleSccWithInterface config imported modules =
+typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
+typecheckModuleSccWithInterface config imported units =
   let initialState = initialTcState imported
-      (checkedModules, finalState) = typecheckModuleSccWithState config initialState modules
+      (checkedModules, finalState) = typecheckModuleSccWithState config initialState units
    in (checkedModules, tcInterfaceDifference initialState finalState)
 
 initialTcState :: TcInterface -> TcState
@@ -525,11 +528,11 @@ exportedGlobalTerms globalTerms =
           | isUnqualifiedTermKey key -> identifier `Set.member` qualifiedIdentifiers
         _ -> False
 
-typecheckModuleSccWithState :: TcConfig -> TcState -> [Module] -> ([Module], TcState)
-typecheckModuleSccWithState config st modules =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc modules <* finalizeDiagnostics) of
+typecheckModuleSccWithState :: TcConfig -> TcState -> [ModuleUnit] -> ([Module], TcState)
+typecheckModuleSccWithState config st units =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc units <* finalizeDiagnostics) of
     Left abort ->
-      ( case modules of
+      ( case map moduleUnitAst units of
           [] -> []
           first : rest -> annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] first : rest,
         st
@@ -548,11 +551,10 @@ typecheckModuleSccWithState config st modules =
   where
     tcEnv =
       (emptyTcEnv config)
-        { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleExtensions) modules,
-          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleExtensions) modules,
-          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleExtensions) modules
+        { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleUnitExtensions) units,
+          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleUnitExtensions) units,
+          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleUnitExtensions) units
         }
-    moduleExtensions m = effectiveModuleExtensions (moduleLanguagePragmas m)
 
 attachSccDiagnostics :: [TcDiagnostic] -> [Module] -> [Module]
 attachSccDiagnostics diagnostics modules = foldl attachOne modules diagnostics
@@ -574,11 +576,11 @@ moduleSourceNames modu =
     SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
     NoSourceSpan -> []
 
-typecheckModuleWithState :: TcConfig -> TcState -> Module -> (Module, TcState)
-typecheckModuleWithState config st m =
-  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m <* finalizeDiagnostics) of
+typecheckModuleWithState :: TcConfig -> TcState -> ModuleUnit -> (Module, TcState)
+typecheckModuleWithState config st unit =
+  case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule unit <* finalizeDiagnostics) of
     Left abort ->
-      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] m,
+      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (moduleUnitAst unit),
         st
       )
     Right (annotatedModule, st') ->
@@ -599,12 +601,8 @@ typecheckModuleWithState config st m =
           tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions,
           tcEnvScopedTypeVariables = ScopedTypeVariables `elem` enabledExtensions
         }
-    enabledExtensions = effectiveModuleExtensions (moduleLanguagePragmas m)
+    enabledExtensions = moduleUnitExtensions unit
 
--- | The extensions of a module. The pragmas apply in source order, so a
--- later pragma wins, and an enabled extension brings its implied
--- extensions with it at once. A later NoMonoLocalBinds then turns off the
--- MonoLocalBinds that an earlier TypeFamilies implied, like in GHC.
 annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
 annotateModuleDiagnostics diagnostics m =
   let (located, unlocated) = partitionDiagnostics diagnostics

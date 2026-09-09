@@ -18,6 +18,7 @@ module Aihc.Resolve
     PackageId (..),
     Package (..),
     unnamedPackage,
+    ModuleUnit (..),
     modulesInPackage,
     collectModuleExports,
     collectModuleExportsWithDeps,
@@ -100,8 +101,6 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
@@ -147,19 +146,18 @@ annotationResolveError resolution =
     ResolvedSyntax -> Nothing
     _ -> Nothing
 
-resolveWithDeps :: Scope -> ModuleExports -> [(Package, Module)] -> ResolveResult
+resolveWithDeps :: Scope -> ModuleExports -> [ModuleUnit] -> ResolveResult
 resolveWithDeps builtinScope depExports packageModules =
   ResolveResult
     { resolvedModules = packageModules',
       resolveErrors = collectResolveErrors modules'
     }
   where
-    step currentNextLocal (package, modu) =
-      let (nextLocal', modu') = resolveModule builtinScope package exports currentNextLocal modu
-       in (nextLocal', modu')
+    step currentNextLocal unit =
+      resolveModule builtinScope (moduleUnitPackage unit) exports (moduleUnitExtensions unit) currentNextLocal (moduleUnitAst unit)
     (_, resolved) = mapAccumL step 0 packageModules
     modules' = resolved
-    packageModules' = zip (map fst packageModules) modules'
+    packageModules' = zipWith (\unit modu -> unit {moduleUnitAst = modu}) packageModules modules'
     ownExports = collectModuleExportsWithDeps depExports packageModules
     exports = ownExports `Map.union` depExports
 
@@ -169,15 +167,15 @@ extractInterface = collectModuleExports . resolvedModules
 extractInterfaceWithDeps :: ModuleExports -> ResolveResult -> ModuleExports
 extractInterfaceWithDeps depExports = collectModuleExportsWithDeps depExports . resolvedModules
 
-resolveModule :: Scope -> Package -> ModuleExports -> Int -> Module -> (Int, Module)
-resolveModule builtinScope package exports nextLocal modu =
+resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, Module)
+resolveModule builtinScope package exports extensions nextLocal modu =
   let imports' = resolveModuleImports package exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
-      scope = moduleScope package exports modu'
+      scope = moduleScope package exports extensions modu'
       (nextLocal', decls') =
         runResolveM
           scope
-          (moduleInfo builtinScope modu')
+          (moduleInfo builtinScope extensions modu')
           nextLocal
           (resolveBindingGroup (topLevelTermDefinition scope) Map.empty (moduleDecls modu))
       visibleTerms =
@@ -188,12 +186,13 @@ resolveModule builtinScope package exports nextLocal modu =
           ]
    in (nextLocal', modu' {moduleDecls = decls', moduleAnns = mkAnnotation visibleTerms : moduleAnns modu'})
 
-moduleInfo :: Scope -> Module -> ModuleInfo
-moduleInfo builtinScope modu =
+-- | What the resolver needs to know about the module it is resolving. The
+-- extensions come from the driver, which folded the language edition, the
+-- package's default extensions and the module's pragmas into them.
+moduleInfo :: Scope -> [Extension] -> Module -> ModuleInfo
+moduleInfo builtinScope extensions modu =
   ModuleInfo
-    { moduleInfoExtensions =
-        applyImpliedExtensions $
-          foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
+    { moduleInfoExtensions = extensions,
       moduleInfoExplicitPreludeImport =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
       moduleInfoBuiltinScope = builtinScope

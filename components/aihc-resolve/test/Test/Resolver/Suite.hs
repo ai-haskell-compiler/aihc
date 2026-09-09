@@ -6,8 +6,9 @@ module Test.Resolver.Suite
   )
 where
 
+import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser (defaultConfig, parseModule)
-import Aihc.Resolve (ResolveResult (..), emptyScope, extractInterface, lookupImportedModule, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleUnit (..), ResolveResult (..), emptyScope, extractInterface, lookupImportedModule, resolveWithDeps, unnamedPackage)
 import Control.Monad (when)
 import Data.Text (Text)
 import qualified ResolverGolden as RG
@@ -25,10 +26,10 @@ testDependencyBackedGhcNum :: Assertion
 testDependencyBackedGhcNum =
   case (parse "GHC.Num" numSource, parse "Prelude" preludeSource) of
     (Right numModule, Right preludeModule) -> do
-      let dependencyResult = resolveWithDeps emptyScope mempty [(unnamedPackage, numModule)]
+      let dependencyResult = resolveWithDeps emptyScope mempty [unit numModule]
           dependencyExports = extractInterface dependencyResult
           builtinScope = lookupImportedModule unnamedPackage Nothing "GHC.Num" dependencyExports
-          result = resolveWithDeps builtinScope dependencyExports [(unnamedPackage, preludeModule)]
+          result = resolveWithDeps builtinScope dependencyExports [unit preludeModule]
       case resolveErrors dependencyResult of
         [] ->
           case resolveErrors result of
@@ -38,6 +39,7 @@ testDependencyBackedGhcNum =
     (Left errors, _) -> assertFailure errors
     (_, Left errors) -> assertFailure errors
   where
+    unit modu = ModuleUnit unnamedPackage (modulePragmaExtensions modu) modu
     parse sourceName source =
       case parseModule defaultConfig source of
         ([], modu) -> Right modu

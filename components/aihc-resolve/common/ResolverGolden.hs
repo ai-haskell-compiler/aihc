@@ -14,6 +14,7 @@ module ResolverGolden
   )
 where
 
+import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -32,6 +33,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve
   ( Identifier,
+    ModuleUnit (..),
     Package (..),
     PackageId (..),
     ResolutionAnnotation (..),
@@ -181,8 +183,9 @@ evaluateResolverCase meta =
       parsedModules = map (traverse parseOne) (supportModules <> caseModules meta)
    in case sequence parsedModules of
         Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
-        Right modules ->
-          let exports = collectModuleExports modules
+        Right parsed ->
+          let modules = [ModuleUnit package (modulePragmaExtensions ast) ast | (package, ast) <- parsed]
+              exports = collectModuleExports modules
               lookupBuiltin name = lookupImportedModule unnamedPackage Nothing name exports
               builtinScope =
                 foldr
@@ -249,7 +252,7 @@ renderAnnotatedResolveResult sources result =
       let moduleSources = sortOn (moduleDisplayName . fst) (zip modules sources)
        in renderAnnotatedModuleSources resolutionAnnotationDoc (map snd moduleSources) (map fst moduleSources)
   where
-    modules = map snd (resolvedModules result)
+    modules = map moduleUnitAst (resolvedModules result)
 
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
 resolutionAnnotationDoc annotation = do

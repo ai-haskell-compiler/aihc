@@ -20,6 +20,7 @@ module Aihc.Testing.EvalFixture
 where
 
 import Aihc.Fc qualified as Fc
+import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -45,6 +46,7 @@ import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
+    ModuleUnit (..),
     Package (..),
     PackageId (..),
     ResolveResult (..),
@@ -272,10 +274,10 @@ evaluateEvalCase env evaluator tc =
 compileEvalCase :: EvalEnvironment -> EvalCase -> Either String Fc.Program
 compileEvalCase env tc = do
   (modules, expr) <- parseInputs tc
-  let packageModules = [(unnamedPackage, modu) | modu <- combineModules modules expr]
+  let packageModules = [ModuleUnit unnamedPackage (modulePragmaExtensions modu) modu | modu <- combineModules modules expr]
   case resolveWithDeps (envBuiltinScope env) (envExports env) packageModules of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
-      let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) (map snd resolvedModules)
+      let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) resolvedModules
       unless (all tcModuleSuccess tcResults) $
         Left ("typecheck error: " <> renderTcErrors tcResults)
       let interface = envInterface env <> localInterface
@@ -303,12 +305,12 @@ evalKinds = mkTcKinds (primTcWiring primPackageId)
 -- Two packages could in principle bring the same module name; the desugared
 -- module carries no package, so such a pair falls back to keeping every name
 -- public rather than picking one package's export list for the other.
-desugarConfigsByModule :: ModuleExports -> [(Package, Surface.Module)] -> Map.Map Text Fc.DesugarConfig
+desugarConfigsByModule :: ModuleExports -> [ModuleUnit] -> Map.Map Text Fc.DesugarConfig
 desugarConfigsByModule exports packageModules =
   Map.fromListWith
     (\_ _ -> Fc.allPublicDesugarConfig evalKinds primPackageId)
     [ (moduleKeyOf modu, Fc.moduleDesugarConfig evalKinds primPackageId package (moduleKeyOf modu) exports)
-    | (package, modu) <- packageModules
+    | ModuleUnit {moduleUnitPackage = package, moduleUnitAst = modu} <- packageModules
     ]
 
 moduleKeyOf :: Surface.Module -> Text
@@ -449,22 +451,23 @@ moduleGroupBindings =
 
 -- | Typecheck the core library modules, which must arrive in dependency
 -- order. The wired-in modules are checked first as one group.
-typecheckCoreModules :: [Module] -> ([Module], TcInterface)
-typecheckCoreModules modules =
+typecheckCoreModules :: [ModuleUnit] -> ([Module], TcInterface)
+typecheckCoreModules units =
   let (checkedPrim, primInterface) =
         typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)
       (checkedOther, localInterface) =
         typecheckModulesWithInterface evalTcConfig primInterface orderedOtherModules
    in (checkedPrim <> checkedOther, primInterface <> localInterface)
   where
-    primModules = filter ((`elem` wiredTypeModules) . moduleKey) modules
-    orderedOtherModules = filter ((`notElem` wiredTypeModules) . moduleKey) modules
-    moduleOrder modu =
-      case moduleKey modu of
-        "GHC.Types" -> (0 :: Int, moduleKey modu)
-        "GHC.Prim" -> (1, moduleKey modu)
-        "GHC.Tuple" -> (2, moduleKey modu)
-        _ -> (3, moduleKey modu)
+    primModules = filter (isWired . moduleUnitAst) units
+    orderedOtherModules = filter (not . isWired . moduleUnitAst) units
+    isWired = (`elem` wiredTypeModules) . moduleKey
+    moduleOrder unit =
+      case moduleKey (moduleUnitAst unit) of
+        "GHC.Types" -> (0 :: Int, "GHC.Types")
+        "GHC.Prim" -> (1, "GHC.Prim")
+        "GHC.Tuple" -> (2, "GHC.Tuple")
+        key -> (3, key)
 
 moduleKey :: Module -> Text
 moduleKey = fromMaybe "Main" . Surface.moduleName
@@ -506,7 +509,7 @@ loadEvalEnvironment = do
       builtinScope = evalBuiltinScope exports
   case resolveWithDeps builtinScope mempty packageModules of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
-      let (tcResults, interface) = typecheckCoreModules (map snd resolvedModules)
+      let (tcResults, interface) = typecheckCoreModules resolvedModules
       unless (all tcModuleSuccess tcResults) $
         fail ("core library typecheck error: " <> renderTcErrors tcResults)
       let bindings = moduleGroupBindings tcResults
@@ -547,14 +550,14 @@ packageSourceRoot variable packageName = do
             else findUp parent
 
 -- | Parse every Haskell source file below the package's @src@ directory.
-loadPackageModules :: Package -> FilePath -> IO [(Package, Module)]
+loadPackageModules :: Package -> FilePath -> IO [ModuleUnit]
 loadPackageModules package root = do
   paths <- listSourceFiles (root </> "src")
   forM (sort paths) $ \path -> do
     source <- TIO.readFile path
     case parseOneModule path [] source of
       Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
-      Right modu -> pure (package, modu)
+      Right modu -> pure (ModuleUnit package (modulePragmaExtensions modu) modu)
 
 listSourceFiles :: FilePath -> IO [FilePath]
 listSourceFiles dir = do
@@ -574,15 +577,16 @@ listSourceFiles dir = do
 -- follows everything it imports unless the import is part of a cycle. The
 -- core libraries contain import cycles through Prelude, and the sequential
 -- typechecker accepts this order for them.
-orderPackageModules :: [(Package, Module)] -> [(Package, Module)]
+orderPackageModules :: [ModuleUnit] -> [ModuleUnit]
 orderPackageModules packageModules =
   reverse (snd (foldl visit (Set.empty, []) ("Prelude" : Map.keys byName)))
   where
-    byName = Map.fromList [(name, entry) | entry@(_, modu) <- packageModules, Just name <- [Surface.moduleName modu]]
+    byName = Map.fromList [(name, entry) | entry <- packageModules, Just name <- [Surface.moduleName (moduleUnitAst entry)]]
     visit (seen, ordered) name
       | name `Set.member` seen = (seen, ordered)
-      | Just entry@(_, modu) <- Map.lookup name byName =
-          let imports = sort (nub (map importDeclModule (moduleImports modu)))
+      | Just entry <- Map.lookup name byName =
+          let modu = moduleUnitAst entry
+              imports = sort (nub (map importDeclModule (moduleImports modu)))
               (seen', ordered') = foldl visit (Set.insert name seen, ordered) imports
            in (seen', entry : ordered')
       | otherwise = (seen, ordered)

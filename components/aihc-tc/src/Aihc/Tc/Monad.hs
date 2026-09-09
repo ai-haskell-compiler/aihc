@@ -84,7 +84,6 @@ module Aihc.Tc.Monad
     extendTyConEnvPermanent,
     replaceTyConEnvPermanent,
     getTyConEnv,
-    effectiveModuleExtensions,
     addDataType,
     addPatSyn,
     getPatSyns,
@@ -133,7 +132,7 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Extension (..), ExtensionSetting (..), Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), applyExtensionSetting, applyImpliedExtensions, fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
@@ -998,11 +997,3 @@ markGadtCon key = lift $ modify' $ \s ->
 isGadtCon :: TcTermKey -> TcM Bool
 isGadtCon key = lift $ gets $ \s ->
   Set.member key (tcsGadtCons s)
-
-effectiveModuleExtensions :: [ExtensionSetting] -> [Extension]
-effectiveModuleExtensions = foldl step [MonoLocalBinds, MonomorphismRestriction]
-  where
-    step extensions setting =
-      case setting of
-        EnableExtension _ -> applyImpliedExtensions (applyExtensionSetting setting extensions)
-        DisableExtension _ -> applyExtensionSetting setting extensions

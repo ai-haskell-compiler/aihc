@@ -65,8 +65,6 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
     binderHeadName,
     mkUnqualifiedName,
     moduleExports,
@@ -114,26 +112,29 @@ data ModuleKey = ModuleKey
 
 type ModuleExports = Map.Map ModuleKey Scope
 
-collectModuleExports :: [(Package, Module)] -> ModuleExports
+collectModuleExports :: [ModuleUnit] -> ModuleExports
 collectModuleExports = collectModuleExportsWithDeps Map.empty
 
 -- | Extract interfaces for a compilation unit while allowing its explicit
 -- export lists to re-export names supplied by predecessor units.
-collectModuleExportsWithDeps :: ModuleExports -> [(Package, Module)] -> ModuleExports
+collectModuleExportsWithDeps :: ModuleExports -> [ModuleUnit] -> ModuleExports
 collectModuleExportsWithDeps depExports packageModules = Map.restrictKeys (closeExports initialExports) moduleKeys
   where
     moduleKeys = Map.keysSet localExports
     localExports =
       Map.fromList
         [ (exportKey package modu, emptyScope)
-        | (package, modu) <- packageModules
+        | ModuleUnit {moduleUnitPackage = package, moduleUnitAst = modu} <- packageModules
         ]
     initialExports =
       localExports `Map.union` depExports
 
     closeExports exports =
       let exports' =
-            Map.fromList [(exportKey package modu, exportedScope package exports modu) | (package, modu) <- packageModules]
+            Map.fromList
+              [ (exportKey package modu, exportedScope package exports extensions modu)
+              | ModuleUnit {moduleUnitPackage = package, moduleUnitExtensions = extensions, moduleUnitAst = modu} <- packageModules
+              ]
               `Map.union` depExports
        in if exports' == exports then exports else closeExports exports'
     exportKey package modu = ModuleKey package (moduleKey modu)
@@ -170,13 +171,13 @@ exportedLocalNames package name exports =
           fromMaybe name (nameQualifier resolved) == name
         ]
 
-exportedScope :: Package -> ModuleExports -> Module -> Scope
-exportedScope package exports modu =
+exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
+exportedScope package exports extensions modu =
   case moduleExports modu of
     Nothing -> ownScope
     Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
-    ownScope = topLevelScope (importedRecordFields package exports modu) package modu
+    ownScope = topLevelScope (importedRecordFields package exports extensions modu) package modu
     availableScope = ownScope `unionScope` importedScope package exports modu
 
     exportSpecScope spec =
@@ -485,8 +486,11 @@ dataConDeclRecordFields dataConDecl =
           _ -> []
    in go dataConDecl
 
-moduleScope :: Package -> ModuleExports -> Module -> Scope
-moduleScope packageId exports modu =
+-- | The names in scope inside one module. The extensions are the ones the
+-- driver decided for the module; 'moduleImportsImplicitPrelude' reads them
+-- rather than the module's pragmas.
+moduleScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
+moduleScope packageId exports extensions modu =
   ownScope
     `unionScope` importedScope packageId exports modu
     `unionScope` implicitPrelude
@@ -497,11 +501,11 @@ moduleScope packageId exports modu =
     -- A module's own top-level names are also in scope qualified by the
     -- module name, so @M.x@ inside module @M@ names the local @x@.
     ownScope = insertQualifiedModule (moduleKey modu) unqualifiedOwnScope unqualifiedOwnScope
-    unqualifiedOwnScope = topLevelScope (importedRecordFields packageId exports modu) packageId modu
+    unqualifiedOwnScope = topLevelScope (importedRecordFields packageId exports extensions modu) packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude
-      | moduleImportsImplicitPrelude modu = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+      | moduleImportsImplicitPrelude extensions modu = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
       | otherwise = emptyScope
     -- The list constructor @:@ is an ordinary infix constructor of
     -- @GHC.Types@ that the syntax reaches without an import. The empty
@@ -513,12 +517,12 @@ moduleScope packageId exports modu =
 
 -- | The record fields of each constructor that a module gets from another
 -- module. A record wildcard in a top-level pattern binding needs them.
-importedRecordFields :: Package -> ModuleExports -> Module -> Map.Map Text [Text]
-importedRecordFields packageId exports modu =
+importedRecordFields :: Package -> ModuleExports -> [Extension] -> Module -> Map.Map Text [Text]
+importedRecordFields packageId exports extensions modu =
   scopeRecordFields (importedScope packageId exports modu) `Map.union` preludeFields
   where
     preludeFields
-      | moduleImportsImplicitPrelude modu =
+      | moduleImportsImplicitPrelude extensions modu =
           scopeRecordFields (lookupImportedModule packageId Nothing "Prelude" exports)
       | otherwise = Map.empty
 
@@ -527,12 +531,10 @@ importedRecordFields packageId exports modu =
 -- NoImplicitPrelude removes the implicit import.
 -- RebindableSyntax implies NoImplicitPrelude.
 -- An explicit Prelude import replaces the implicit import.
-moduleImportsImplicitPrelude :: Module -> Bool
-moduleImportsImplicitPrelude modu =
+moduleImportsImplicitPrelude :: [Extension] -> Module -> Bool
+moduleImportsImplicitPrelude extensions modu =
   ImplicitPrelude `elem` extensions && not explicitPreludeImport
   where
-    extensions =
-      applyImpliedExtensions (foldr applyExtensionSetting [ImplicitPrelude] (moduleLanguagePragmas modu))
     explicitPreludeImport = any ((== "Prelude") . importDeclModule) (moduleImports modu)
 
 importedScope :: Package -> ModuleExports -> Module -> Scope

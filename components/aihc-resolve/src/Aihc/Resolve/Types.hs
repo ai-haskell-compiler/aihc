@@ -14,6 +14,7 @@ module Aihc.Resolve.Types
     PackageId (..),
     Package (..),
     unnamedPackage,
+    ModuleUnit (..),
     modulesInPackage,
     ResolvedName (..),
     ResolutionAnnotation (..),
@@ -27,6 +28,7 @@ where
 import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
+    Extension,
     ImportDecl (..),
     Module (..),
     Name (..),
@@ -59,10 +61,25 @@ data Package = Package
 unnamedPackage :: Package
 unnamedPackage = Package "" (PackageId "main")
 
-modulesInPackage :: Package -> [Module] -> [(Package, Module)]
-modulesInPackage package = map pairWithPackage
+-- | One module as every phase after parsing sees it: the package it belongs
+-- to, the language extensions in force for it, and its syntax tree.
+--
+-- Language pragmas are a source-level notion. Whoever reads the source folds
+-- the language edition, the package's default extensions and the module's own
+-- @LANGUAGE@ pragmas into one extension set and hands that set on. No later
+-- phase reads 'moduleLanguagePragmas' again.
+data ModuleUnit = ModuleUnit
+  { moduleUnitPackage :: !Package,
+    moduleUnitExtensions :: ![Extension],
+    moduleUnitAst :: !Module
+  }
+  deriving (Show)
+
+-- | Attach one package to modules that already know their extensions.
+modulesInPackage :: Package -> [(Module, [Extension])] -> [ModuleUnit]
+modulesInPackage package = map unitInPackage
   where
-    pairWithPackage modu = (package, modu)
+    unitInPackage (modu, extensions) = ModuleUnit package extensions modu
 
 -- | Global term identities visible in one module, including qualified imports.
 newtype VisibleTermIdentities = VisibleTermIdentities [(PackageId, Text, Text)]
@@ -118,13 +135,13 @@ data ResolveError
   deriving (Eq, Show)
 
 data ResolveResult = ResolveResult
-  { resolvedModules :: [(Package, Module)],
+  { resolvedModules :: [ModuleUnit],
     resolveErrors :: [ResolveError]
   }
   deriving (Show)
 
 resolvedModuleAsts :: ResolveResult -> [Module]
-resolvedModuleAsts = map snd . resolvedModules
+resolvedModuleAsts = map moduleUnitAst . resolvedModules
 
 pattern DeclResolution :: ResolutionAnnotation -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _

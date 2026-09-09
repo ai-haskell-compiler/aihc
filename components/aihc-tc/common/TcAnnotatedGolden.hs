@@ -17,6 +17,7 @@ module TcAnnotatedGolden
   )
 where
 
+import Aihc.Language.Extensions (modulePragmaExtensions)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -42,7 +43,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig)
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
+import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
   ( TcConfig,
     TcInterface,
@@ -292,9 +293,9 @@ checkTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
+          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (fixtureUnits modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) (map snd resolvedModules)
+              typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) resolvedModules
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where
@@ -315,15 +316,16 @@ fixtureTcConfig tc = testTcConfig {tcConfigWiring = wiring}
 
 data ModuleNode = ModuleNode
   { nodeIndex :: !Int,
-    nodeModule :: !Module,
+    nodeModule :: !ModuleUnit,
     nodeDependencies :: ![Int]
   }
 
-typecheckModuleGraph :: TcConfig -> TcInterface -> [Module] -> Either String [Module]
-typecheckModuleGraph config baseInterface modules = do
+typecheckModuleGraph :: TcConfig -> TcInterface -> [ModuleUnit] -> Either String [Module]
+typecheckModuleGraph config baseInterface units = do
   (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
-  traverse (lookupCheckedModule checkedModules) [0 .. length modules - 1]
+  traverse (lookupCheckedModule checkedModules) [0 .. length units - 1]
   where
+    modules = map moduleUnitAst units
     moduleIndices =
       Map.fromList
         [ (name, index)
@@ -331,9 +333,9 @@ typecheckModuleGraph config baseInterface modules = do
           Just name <- [moduleName modu]
         ]
     nodes =
-      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . importDeclModule) (moduleImports modu)
-         in (ModuleNode index modu dependencies, index, dependencies)
-      | (index, modu) <- zip [0 ..] modules
+      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . importDeclModule) (moduleImports (moduleUnitAst unit))
+         in (ModuleNode index unit dependencies, index, dependencies)
+      | (index, unit) <- zip [0 ..] units
       ]
     components = stronglyConnComp nodes
     checkComponent stateResult component = do
@@ -372,13 +374,12 @@ preparePrimitiveSupport primitiveModules =
   case mapM (uncurry parsePrimitiveModule) primitiveModules of
     Left errMsg -> Left ("parse error: " <> errMsg)
     Right modules ->
-      let packageModules = modulesInPackage primitivePackage modules
+      let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
           exports = collectModuleExportsWithDeps mempty packageModules
           builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
        in case resolveWithDeps builtinScope mempty packageModules of
             resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
-              let primitiveAsts = map snd resolvedModules
-                  (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface primitiveAsts
+              let (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface resolvedModules
                in if all tcModuleSuccess primitiveTcResults
                     then
                       Right
@@ -388,6 +389,14 @@ preparePrimitiveSupport primitiveModules =
                           }
                     else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+
+-- | The fixture modules as the pipeline takes them: each with the extension
+-- set its own pragmas ask for, since a fixture has no cabal file to fold in.
+fixtureUnits :: [Module] -> [ModuleUnit]
+fixtureUnits = modulesInPackage fixturePackage . map withPragmaExtensions
+
+withPragmaExtensions :: Module -> (Module, [Extension])
+withPragmaExtensions modu = (modu, modulePragmaExtensions modu)
 
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
@@ -400,7 +409,7 @@ fixtureBuiltinScope modules =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
     dependencyExports = supportScopes primitiveSupport
-    packageModules = modulesInPackage fixturePackage modules
+    packageModules = fixtureUnits modules
     allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
     lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real"]
