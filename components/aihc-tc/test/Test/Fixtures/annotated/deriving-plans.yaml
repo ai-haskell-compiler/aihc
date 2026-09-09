@@ -16,7 +16,7 @@ annotated:
   data T a = T a
   │    │     └─ type: ∀ a. a → T a
   │    └─ type: Type → Type
-  └─ deriving plans: anyclass C (T a) [context: ()] [methods: c], anyclass HK T [context: ()], via Wrapper a D (T a) [context: infer]
+  └─ deriving plans: anyclass C (T a) [context: ()] [methods: c], anyclass HK T [context: ()], via Wrapper a D (T a) [context: ()]
     deriving anyclass C
                       └─ $fCTa ∷ ∀ a. () ⇒ C (T a)
     deriving anyclass HK
