@@ -11,8 +11,6 @@ module Aihc.Tc.Generate.Bind
     checkGuardedRhss,
     collectRawSigs,
     sigToScheme,
-    skolemize,
-    schemeToType,
     renderBinderName,
   )
 where
@@ -57,6 +55,7 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (foldM, forM_)
@@ -420,7 +419,7 @@ inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
 placeholderFor :: Map TcTermKey TypeScheme -> UnqualifiedName -> TcM (UnqualifiedName, TcTermKey, TcType)
 placeholderFor sigs name = do
   key <- resolvedLocalTermKey name
-  ty <- maybe freshMetaTv skolemize (Map.lookup key sigs)
+  ty <- maybe freshMetaTv (pure . typeSchemeBody) (Map.lookup key sigs)
   pure (name, key, ty)
 
 withLocalPlaceholders :: Map TcTermKey TypeScheme -> [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
@@ -606,8 +605,8 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
   (matches', ty, cts) <-
     case Map.lookup key sigs of
       Just scheme -> do
-        sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
-        let nArgs =
+        let sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
+            nArgs =
               case matches of
                 m : _ -> length (matchPats m)
                 [] -> 0
@@ -666,7 +665,7 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (ty, bindCts) <-
     case Map.lookup key sigs of
       Just scheme -> do
-        sigTy <- maybe (skolemize scheme) pure (Map.lookup key placeholders)
+        let sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
         -- The right-hand side must have the signature type.
         ev <- freshEvVar
         let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin NoSourceSpan) NoSourceSpan
@@ -870,21 +869,12 @@ collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
     extractSig (DeclAnn _ inner) = extractSig inner
     extractSig _ = pure []
 
-skolemize :: TypeScheme -> TcM TcType
-skolemize (ForAll _ _ body) = pure body
-
 splitFunTy :: TcType -> Int -> ([TcType], TcType)
 splitFunTy ty 0 = ([], ty)
 splitFunTy (TcFunTy a rest) n =
   let (args, res) = splitFunTy rest (n - 1)
    in (a : args, res)
 splitFunTy ty _ = ([], ty)
-
-schemeToType :: TypeScheme -> TcType
-schemeToType (ForAll [] [] ty) = ty
-schemeToType (ForAll tvs [] ty) = foldr TcForAllTy ty tvs
-schemeToType (ForAll [] preds ty) = TcQualTy preds ty
-schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs
 
 patternBinderName :: Pattern -> Maybe UnqualifiedName
 patternBinderName (PVar n) = Just n

@@ -6,6 +6,7 @@
 module Aihc.Tc.TypeScheme
   ( parseTypeScheme,
     typeSchemeFromType,
+    schemeToType,
     equivalentTypeSchemes,
     typeSchemeArity,
   )
@@ -50,6 +51,14 @@ typeSchemeFromType = go [] []
         TcForAllTy tyVar body -> go (tyVars <> [tyVar]) predicates body
         TcQualTy morePredicates body -> go tyVars (predicates <> morePredicates) body
         _ -> ForAll tyVars predicates ty
+
+-- | Wrap the binders and predicates of a scheme as a type.
+-- This is the reverse of 'typeSchemeFromType'.
+schemeToType :: TypeScheme -> TcType
+schemeToType (ForAll [] [] ty) = ty
+schemeToType (ForAll tvs [] ty) = foldr TcForAllTy ty tvs
+schemeToType (ForAll [] preds ty) = TcQualTy preds ty
+schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs
 
 -- | Compare two schemes by rigid unification: quantified variables may be
 -- alpha-renamed, but their order, dependency, kinds, predicates, and body must

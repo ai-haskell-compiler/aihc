@@ -138,7 +138,7 @@ import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
-import Aihc.Tc.TypeScheme (equivalentTypeSchemes, typeSchemeFromType)
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
@@ -4345,13 +4345,6 @@ exprSpan expr =
     EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner
     _ -> NoSourceSpan
-
--- | Convert a type scheme to a displayable type.
-schemeToType :: TypeScheme -> TcType
-schemeToType (ForAll [] [] ty) = ty
-schemeToType (ForAll tvs [] ty) = foldr TcForAllTy ty tvs
-schemeToType (ForAll [] preds ty) = TcQualTy preds ty
-schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs
 
 -- | Type-check a list of matches (equations for a function binding).
 --

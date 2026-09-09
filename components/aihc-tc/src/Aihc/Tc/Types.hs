@@ -207,6 +207,7 @@ isPolyType TcForAllTy {} = True
 isPolyType TcQualTy {} = True
 isPolyType _ = False
 
+-- | The body of a type scheme. This helper does not allocate skolem variables.
 typeSchemeBody :: TypeScheme -> TcType
 typeSchemeBody (ForAll _ _ body) = body
 

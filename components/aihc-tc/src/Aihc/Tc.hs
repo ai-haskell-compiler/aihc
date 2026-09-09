@@ -147,6 +147,7 @@ import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBin
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
+import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
@@ -352,11 +353,11 @@ tcInterfaceBindings interface =
     <> map instanceBinding (tcInterfaceInstances interface)
     <> concatMap classBindings (tcInterfaceClasses interface)
   where
-    termBinding (TcTermGlobal _ _ identifier, scheme) = Just (TcBindingResult identifier identifier (interfaceSchemeType scheme))
+    termBinding (TcTermGlobal _ _ identifier, scheme) = Just (TcBindingResult identifier identifier (schemeToType scheme))
     termBinding (TcTermLocal {}, _) = Nothing
     instanceBinding info = TcBindingResult (iiDictName info) (iiDictName info) (iiDictType info)
     classBindings info =
-      [ TcBindingResult workerName workerName (interfaceSchemeType workerScheme)
+      [ TcBindingResult workerName workerName (schemeToType workerScheme)
       | methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = defaultMethodName methodName
@@ -366,12 +367,6 @@ tcInterfaceBindings interface =
       case ordinaryScheme of
         ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
         _ -> ForAll variables predicates body
-
-interfaceSchemeType :: TypeScheme -> TcType
-interfaceSchemeType (ForAll [] [] ty) = ty
-interfaceSchemeType (ForAll variables [] ty) = foldr TcForAllTy ty variables
-interfaceSchemeType (ForAll [] predicates ty) = TcQualTy predicates ty
-interfaceSchemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualTy predicates ty) variables
 
 -- | Type-check a single expression in an empty environment.
 --

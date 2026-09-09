@@ -48,6 +48,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
+import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
 import Control.Monad (filterM, zipWithM, zipWithM_)
@@ -327,12 +328,6 @@ constraintTypeDictBinder kinds ty =
   case constraintTypeToPred kinds ty of
     Just (ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
-
-schemeToType :: TypeScheme -> TcType
-schemeToType (ForAll [] [] ty) = ty
-schemeToType (ForAll tyVars [] ty) = foldr TcForAllTy ty tyVars
-schemeToType (ForAll [] predicates ty) = TcQualTy predicates ty
-schemeToType (ForAll tyVars predicates ty) = foldr TcForAllTy (TcQualTy predicates ty) tyVars
 
 peelForAlls :: TcType -> ([TyVarId], TcType)
 peelForAlls (TcForAllTy tyVar body) =
