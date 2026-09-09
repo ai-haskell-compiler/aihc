@@ -180,6 +180,8 @@ prepareEvalProgram sourceName program =
     isEvalDeclaration (Fc.DeclVal declaration) = Fc.nameText (Fc.valName declaration) == sourceName
     isEvalDeclaration _ = False
     isLiftedRepresentation (Fc.TyCon name) = Fc.nameText name == "LiftedRep"
+    isLiftedRepresentation (Fc.TyApp (Fc.TyCon boxed) (Fc.TyCon levity)) =
+      Fc.nameText boxed == "BoxedRep" && Fc.nameText levity == "Lifted"
     isLiftedRepresentation _ = False
     wrapDeclaration before declaration after representation =
       let valueName = Fc.valName declaration

@@ -258,18 +258,6 @@ isTypeKind env = typesEqual env (typeKindType env)
 isRuntimeRepKind :: TypeEnv -> Type -> Bool
 isRuntimeRepKind env = typesEqual env (runtimeRepKind env)
 
-viewForAll :: TypeEnv -> Type -> Maybe (Binder, Type)
-viewForAll env ty =
-  case reduceType env ty of
-    TyForAll binder body -> Just (binder, body)
-    _ -> Nothing
-
-viewFun :: TypeEnv -> Type -> Maybe (Type, Type, Type, Type)
-viewFun env ty =
-  case reduceType env ty of
-    TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
-    _ -> Nothing
-
 typeKindType :: TypeEnv -> Type
 typeKindType env = typeSynonym (tePrimPackage env)
 
@@ -435,7 +423,7 @@ lintForeignCall env call types arguments = do
   when (isJust (viewForAll env instantiated)) (Left (LintFailure ("foreign call has too few type arguments: " <> show (foreignCallName call))))
   -- The declared type gives the arity. A type argument can be a function
   -- type, and the call does not take the arguments of that function.
-  let arity = foreignCallArity env (foreignTypeBody env (foreignCallType call))
+  let arity = length (foreignArgumentTypes env (foreignTypeBody env (foreignCallType call)))
   unless (length arguments == arity) (Left (LintFailure ("foreign call has " <> show (length arguments) <> " arguments for an arity of " <> show arity <> ": " <> show (foreignCallName call))))
   foldM applyValueArgument instantiated arguments
   where
@@ -452,20 +440,6 @@ lintForeignCall env call types arguments = do
           checkExpr env "foreign call argument" expected argument
           Right result
         Nothing -> Left (LintFailure ("foreign call has too many arguments: " <> show (foreignCallName call)))
-
--- | The type after the leading binders of a foreign type.
-foreignTypeBody :: TypeEnv -> Type -> Type
-foreignTypeBody env ty =
-  case viewForAll env ty of
-    Just (_, body) -> foreignTypeBody env body
-    Nothing -> ty
-
--- | The number of arrows of a foreign type after its binders.
-foreignCallArity :: TypeEnv -> Type -> Int
-foreignCallArity env ty =
-  case viewFun env ty of
-    Just (_, _, _, result) -> 1 + foreignCallArity env result
-    Nothing -> 0
 
 lookupTerm :: TypeEnv -> Name -> Either LintError Type
 lookupTerm env name =
@@ -716,10 +690,9 @@ checkCoercionArgumentKind env expected left right = do
 representationOf :: TypeEnv -> Type -> Either LintError Type
 representationOf env ty = do
   kind <- lintType env ty
-  case reduceType env kind of
-    TyApp (TyCon name) representation
-      | name == typeConstructor (tePrimPackage env) -> Right representation
-    other -> Left (LintFailure ("term type does not have a TYPE representation: " <> show other))
+  case representationFromKind env kind of
+    Just representation -> Right representation
+    Nothing -> Left (LintFailure ("term type does not have a TYPE representation: " <> show (reduceType env kind)))
 
 eitherToList :: Either LintError a -> [LintError]
 eitherToList = either pure (const [])

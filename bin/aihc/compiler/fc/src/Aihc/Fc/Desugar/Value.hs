@@ -127,6 +127,7 @@ data ValueState = ValueState
     -- | The evidence that the current binding shares, when it has a place to
     -- put the bindings. 'Nothing' turns sharing off.
     vsEvidenceScope :: !(Maybe EvidenceScope),
+    vsTypeEnv :: !TypeOf.TypeEnv,
     vsConstructorInfos :: !(Map Text [DataConInfo]),
     vsNewtypeConstructors :: !(Map TcTermKey DataTypeInfo),
     vsFamilyConstructors :: !(Map TcTermKey DataFamilyInstanceInfo),
@@ -307,8 +308,8 @@ mergePreparedValueInterfaces interfaces =
   where
     mergeCandidates left right = List.nub (left <> right)
 
-desugarValues :: ConvertEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
-desugarValues convertEnv bindings interface moduleOrigin checked = do
+desugarValues :: ConvertEnv -> TypeOf.TypeEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
+desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
   let (package, moduleName') = moduleOrigin
       localTypes =
         Map.fromList
@@ -324,6 +325,7 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
             vsEvidenceScope = Nothing,
+            vsTypeEnv = typeEnv,
             vsConstructorInfos = preparedConstructorInfos interface,
             vsNewtypeConstructors = preparedNewtypeConstructors interface,
             vsFamilyConstructors = preparedFamilyConstructors interface,
@@ -720,8 +722,9 @@ desugarForeignReference variable key info types evidence = do
   instantiated <- instantiateForeignType variable foreignType types
   -- The declared type gives the arity. A type argument can be a function
   -- type, and the call must not take the arguments of that function.
-  let arity = length (foreignArgumentTypes (foreignTypeBody foreignType))
-  binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (foreignArgumentTypes instantiated))
+  env <- gets vsTypeEnv
+  let arity = length (TypeOf.foreignArgumentTypes env (TypeOf.foreignTypeBody env foreignType))
+  binders <- mapM (freshBinderFromType "_foreign_argument") (take arity (TypeOf.foreignArgumentTypes env instantiated))
   pure (foldr ExLam (ExForeignCall call types (map (ExVar . binderName) binders)) binders)
 
 -- | Substitute the type arguments of a use for the leading binders of the
@@ -734,20 +737,6 @@ instantiateForeignType variable = go
       case ty of
         TyForAll binder body -> go (TypeOf.substType (binderName binder) argument body) rest
         _ -> failValue ("foreign import " <> T.unpack (nameText variable) <> " has too many type arguments")
-
--- | The type after the leading binders of a foreign type.
-foreignTypeBody :: Type -> Type
-foreignTypeBody ty =
-  case ty of
-    TyForAll _ body -> foreignTypeBody body
-    _ -> ty
-
--- | The argument types of an instantiated foreign type, one for each arrow.
-foreignArgumentTypes :: Type -> [Type]
-foreignArgumentTypes ty =
-  case ty of
-    TyFun _ _ argument result -> argument : foreignArgumentTypes result
-    _ -> []
 
 convertForeignSafetyMark :: TcForeignSafety -> ValueM ForeignSafety
 convertForeignSafetyMark safety =

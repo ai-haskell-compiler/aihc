@@ -245,7 +245,8 @@ desugarFromInterface config moduleBindings interface checked = do
       <$> mapM
         (dsDecl convertEnv packageId currentModule dataTypes tyCons classes typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  valueDecls <- desugarValues convertEnv moduleBindings (prepareValueInterface interface) moduleOrigin checked
+  let typeEnv = TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyScopeTable emptyImports typeDecls)
+  valueDecls <- desugarValues convertEnv typeEnv moduleBindings (prepareValueInterface interface) moduleOrigin checked
   let decls = typeDecls <> valueDecls
       baseProgram = Program emptyScopeTable emptyImports decls
   imports <-
