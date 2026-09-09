@@ -141,14 +141,12 @@ An extern function is defined in another module or in the host.
 ### Globals
 
 ```text
-global ::= "global" symbol ":" type "pinned"?
+global ::= "global" symbol ":" type
 ```
 
 A global is one mutable cell of the given type. `global.get` and `global.set`
 are the only operations that access it. A global has no address. The initial
-value of a global is zero. A `pinned` global tells the backend to keep the cell
-in a register when the target permits it. The heap pointer and the heap limit
-are pinned globals.
+value of a global is zero.
 
 ### Data
 
