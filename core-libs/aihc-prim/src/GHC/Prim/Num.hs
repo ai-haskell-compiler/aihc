@@ -12,7 +12,7 @@ where
 
 import GHC.Prim ((*#), (+#), (-#), (<#))
 import GHC.Prim.Integer
-  ( Integer,
+  ( Integer (..),
     integerAbs,
     integerAdd,
     integerFromTwoWords#,
@@ -33,6 +33,13 @@ class Num a where
   abs :: a -> a
   signum :: a -> a
   fromInteger :: Integer -> a
+
+  -- The defaults are mutually recursive, as they are in GHC: an
+  -- instance must define at least one of @(-)@ and 'negate'. The zero
+  -- is spelled out because a literal in this module would need the
+  -- 'fromInteger' that the class is still declaring.
+  left - right = left + negate right
+  negate value = fromInteger (IS 0#) - value
 
 infixl 6 +, -
 

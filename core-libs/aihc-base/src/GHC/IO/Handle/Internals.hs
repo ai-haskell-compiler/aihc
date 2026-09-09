@@ -39,6 +39,7 @@ module GHC.IO.Handle.Internals
     ioe_bufsiz,
     hClose_help,
     hLookAhead_,
+    readTextDevice,
     HandleFinalizer,
     handleFinalizer,
     debugIO,
@@ -46,7 +47,7 @@ module GHC.IO.Handle.Internals
   )
 where
 
-import Data.Bool (Bool (..), not)
+import Data.Bool (Bool (..), not, (||))
 import Data.Maybe (Maybe (..), isJust)
 import Data.Typeable (Typeable)
 import GHC.Base (Monad (..), String, ($), (++))
@@ -58,9 +59,11 @@ import GHC.IO.Buffer
     CharBuffer,
     bufferElems,
     isEmptyBuffer,
+    isFullCharBuffer,
     isWriteBuffer,
     newByteBuffer,
     newCharBuffer,
+    writeCharBuf,
   )
 import GHC.IO.Encoding.Types (TextEncoding)
 import GHC.IO.IOMode (IOMode (..))
@@ -485,3 +488,29 @@ hLookAhead_ handle_@Handle__ {haByteBuffer} = do
         Just character -> do
           writeIORef haByteBuffer buffer
           return character
+
+-- | Decode characters from the byte buffer of a readable handle into the
+-- character buffer, and give the character buffer back. The call reads
+-- from the device until at least one character arrives, then takes every
+-- further character that is already buffered. It raises the end-of-file
+-- error when the device has nothing left.
+readTextDevice :: Handle__ -> CharBuffer -> IO CharBuffer
+readTextDevice handle_@Handle__ {haByteBuffer} buffer = do
+  character <- readUtf8Char handle_
+  case character of
+    Nothing -> ioe_EOF
+    Just first -> do
+      index <- writeCharBuf (bufRaw buffer) (bufR buffer) first
+      takeBuffered buffer {bufR = index}
+  where
+    takeBuffered filled = do
+      bytes <- readIORef haByteBuffer
+      case isEmptyBuffer bytes || isFullCharBuffer filled of
+        True -> return filled
+        False -> do
+          character <- readUtf8Char handle_
+          case character of
+            Nothing -> return filled
+            Just next -> do
+              index <- writeCharBuf (bufRaw filled) (bufR filled) next
+              takeBuffered filled {bufR = index}

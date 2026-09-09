@@ -3,6 +3,7 @@ module Foreign.C.Types.Repr
     CLongRep,
     CPtrdiffRep,
     CSizeRep,
+    CSsizeRep,
     CUIntPtrRep,
     CULongRep,
   )
@@ -17,6 +18,8 @@ type CIntPtrRep = Int32
 type CLongRep = Int32
 
 type CPtrdiffRep = Int32
+
+type CSsizeRep = Int32
 
 type CSizeRep = Word32
 
