@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+
+    class Describe a where
+      describe :: a -> Int
+      -- No default, and the instance below leaves it out.
+      ignored :: a -> Int
+
+    data Thing = Thing
+
+    instance Describe Thing where
+      describe _ = 7
+output: |
+  I# 7
+expression: |
+  describe Thing
+status: pass
+reason: an instance may omit a method the class gives no default for

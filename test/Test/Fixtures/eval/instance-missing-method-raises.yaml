@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+
+    class Describe a where
+      describe :: a -> Int
+      ignored :: a -> Int
+
+    data Thing = Thing
+
+    -- 'ignored' has no default and no implementation here.
+    instance Describe Thing where
+      describe _ = 7
+output: ""
+exception: ": 'T' (: 'e' (: 's' (: 't' (: ':' (: ' ' (: 'n' (: 'o' (: ' ' (: 'i' (: 'm' (: 'p' (: 'l' (: 'e' (: 'm' (: 'e' (: 'n' (: 't' (: 'a' (: 't' (: 'i' (: 'o' (: 'n' (: ' ' (: 'o' (: 'f' (: ' ' (: 'i' (: 'g' (: 'n' (: 'o' (: 'r' (: 'e' (: 'd' (: ' ' (: 'i' (: 'n' (: ' ' (: 'i' (: 'n' (: 's' (: 't' (: 'a' (: 'n' (: 'c' (: 'e' (: ' ' (: 'D' (: 'e' (: 's' (: 'c' (: 'r' (: 'i' (: 'b' (: 'e' (: ' ' (: 'T' (: 'h' (: 'i' (: 'n' (: 'g' []))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))"
+expression: |
+  ignored Thing
+status: pass
+reason: calling an omitted class method raises a message naming it and the instance

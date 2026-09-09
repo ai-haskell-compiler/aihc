@@ -49,7 +49,8 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations
-  ( TcDerivingAnnotation (..),
+  ( TcDerivedInstance (..),
+    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -125,16 +126,17 @@ generatePlan kinds references origin sourceDecl plan =
               pure $
                 items <&> \generated ->
                   markNewtype $
-                    DeclAnn (mkAnnotation (genSpan gen)) $
-                      DeclInstance
-                        InstanceDecl
-                          { instanceDeclPragmas = [],
-                            instanceDeclWarning = Nothing,
-                            instanceDeclForall = forallBinders,
-                            instanceDeclContext = surfaceContext,
-                            instanceDeclHead = surfaceHead,
-                            instanceDeclItems = generated
-                          }
+                    DeclAnn (mkAnnotation TcDerivedInstance) $
+                      DeclAnn (mkAnnotation (genSpan gen)) $
+                        DeclInstance
+                          InstanceDecl
+                            { instanceDeclPragmas = [],
+                              instanceDeclWarning = Nothing,
+                              instanceDeclForall = forallBinders,
+                              instanceDeclContext = surfaceContext,
+                              instanceDeclHead = surfaceHead,
+                              instanceDeclItems = generated
+                            }
   where
     markNewtype declaration =
       case tcDerivingStrategy plan of

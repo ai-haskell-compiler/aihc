@@ -99,6 +99,7 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcDerivedInstance (..),
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
@@ -640,7 +641,7 @@ tcModuleBodyWithDefaults schemes m = do
   -- value bindings, but their occurrences still need the same instantiation
   -- and evidence records as ordinary expressions.
   classDecls <- mapM tcClassDeclBodies (moduleDecls valueAnnotatedModule)
-  instanceHeaders <- mapM (annotateInstanceHeaderTc (resolvedModuleOrigin m)) classDecls
+  instanceHeaders <- mapM (annotateInstanceHeaderTc (resolvedModuleOrigin m) False) classDecls
   instanceDecls <- mapM tcInstanceDeclBodies instanceHeaders
   let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
   -- Phase 5: reject source top-level values whose finalized types are
@@ -886,7 +887,7 @@ renderCheckedGroup checkedGroups (groupId, group) =
 annotateModuleTc :: Map Text TcType -> Module -> TcM Module
 annotateModuleTc checkedValueTypes m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc (resolvedModuleOrigin m) classMethods checkedValueTypes) (moduleDecls m)
+  decls <- mapM (annotateDeclTc (resolvedModuleOrigin m) classMethods checkedValueTypes False) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
 annotateModuleDerivingTc :: Module -> TcM Module
@@ -922,12 +923,13 @@ moduleEnabledExtensions :: Module -> [Extension]
 moduleEnabledExtensions modu =
   effectiveModuleExtensions (moduleLanguagePragmas modu)
 
-annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
-annotateDeclTc origin classMethods checkedValueTypes decl =
+annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Bool -> Decl -> TcM Decl
+annotateDeclTc origin classMethods checkedValueTypes derived decl =
   case decl of
     DeclAnn ann _
       | Just _ <- fromAnnotation @TcInstanceAnnotation ann -> pure decl
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc origin classMethods checkedValueTypes inner
+    DeclAnn ann inner ->
+      DeclAnn ann <$> annotateDeclTc origin classMethods checkedValueTypes (derived || isDerivedInstanceAnn ann) inner
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueTypes valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc checkedValueTypes valueDecl
@@ -943,23 +945,27 @@ annotateDeclTc origin classMethods checkedValueTypes decl =
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
-    DeclInstance instanceDecl -> annotateInstanceDeclTc origin instanceDecl
+    DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
     DeclStandaloneDeriving {} -> pure decl
     DeclPatSyn patSynDecl
       | Just ty <- Map.lookup (unqualifiedNameText (patSynDeclName patSynDecl)) checkedValueTypes ->
           pure (annotateDeclAt (patSynBinderSpan (patSynDeclName patSynDecl)) (TcAnnotation ty [] [] [] [] []) decl)
     _ -> pure decl
 
-annotateInstanceHeaderTc :: (Text, Text) -> Decl -> TcM Decl
-annotateInstanceHeaderTc origin decl =
+annotateInstanceHeaderTc :: (Text, Text) -> Bool -> Decl -> TcM Decl
+annotateInstanceHeaderTc origin derived decl =
   case decl of
     DeclAnn ann inner
       | Just (TcNewtypeDeriving plan) <- fromAnnotation ann,
         DeclInstance instanceDecl <- peelDeclAnn inner ->
-          DeclAnn (mkAnnotation (tcDerivingSourceSpan plan)) <$> annotateInstanceDeclWithNewtype origin (Just plan) instanceDecl
-    DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin inner
-    DeclInstance instanceDecl -> annotateInstanceDeclTc origin instanceDecl
+          DeclAnn (mkAnnotation (tcDerivingSourceSpan plan)) <$> annotateInstanceDeclWithNewtype origin True (Just plan) instanceDecl
+    DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin (derived || isDerivedInstanceAnn ann) inner
+    DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
     _ -> pure decl
+
+-- | Whether an annotation marks a @deriving@-generated instance.
+isDerivedInstanceAnn :: Annotation -> Bool
+isDerivedInstanceAnn ann = isJust (fromAnnotation @TcDerivedInstance ann)
 
 valueDeclWasChecked :: Map Text TcType -> ValueDecl -> Bool
 valueDeclWasChecked checkedValueTypes valueDecl =
@@ -1461,11 +1467,11 @@ annotateValueDeclTc checkedValueTypes valueDecl =
     checkedBindingType name =
       maybe (bindingType name) pure (Map.lookup name checkedValueTypes)
 
-annotateInstanceDeclTc :: (Text, Text) -> InstanceDecl -> TcM Decl
-annotateInstanceDeclTc origin = annotateInstanceDeclWithNewtype origin Nothing
+annotateInstanceDeclTc :: (Text, Text) -> Bool -> InstanceDecl -> TcM Decl
+annotateInstanceDeclTc origin derived = annotateInstanceDeclWithNewtype origin derived Nothing
 
-annotateInstanceDeclWithNewtype :: (Text, Text) -> Maybe TcDerivingPlan -> InstanceDecl -> TcM Decl
-annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
+annotateInstanceDeclWithNewtype :: (Text, Text) -> Bool -> Maybe TcDerivingPlan -> InstanceDecl -> TcM Decl
+annotateInstanceDeclWithNewtype origin derived newtypePlan instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
@@ -1513,6 +1519,22 @@ annotateInstanceDeclWithNewtype origin newtypePlan instanceDecl =
             isNothing newtypePlan,
             Just (ForAll _ signaturePredicates signatureBody) <- [lookup methodName (ciDefaultSignatures info)]
           ]
+      -- GHC warns when an instance leaves out a method with no default and
+      -- fills the slot with a body that raises; the desugarer does the same.
+      let missingMethods =
+            [ methodName
+            | not derived,
+              (methodName, _) <- ciMethods info,
+              methodName `notElem` definedMethods,
+              methodName `notElem` defaults
+            ]
+      mapM_
+        ( \methodName ->
+            emitWarning
+              (sourceSpanFromAnns (nameAnns className))
+              (OtherError ("no implementation of " <> T.unpack methodName <> ", and class " <> T.unpack classNameText <> " gives no default; calling it raises at run time"))
+        )
+        missingMethods
       contextDicts <- mapM predDictBinder context
       superClassBinders <- mapM predDictBinder superClasses
       familyInstances <- getTypeFamilyInstances
