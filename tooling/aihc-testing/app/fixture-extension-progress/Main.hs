@@ -1,18 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Extension coverage reporting for the shared evaluation fixtures.
+-- | Extension coverage reporting for the shared compiler test fixtures.
 --
--- Groups the eval fixtures by language extension and produces a markdown report
--- shaped like the resolver and type checker extension support reports. Nothing
--- is compiled or evaluated: the counts come from the status each fixture
--- declares for itself.
+-- Groups the evaluation and System FC golden fixtures by language extension and
+-- produces a markdown report shaped like the resolver and type checker extension
+-- support reports. Nothing is compiled or evaluated: the counts come from the
+-- status each fixture declares for itself.
 module Main (main) where
 
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Testing.EvalFixtureIndex
-  ( EvalFixtureEntry (..),
+import Aihc.Testing.FixtureIndex
+  ( FixtureEntry (..),
     FixtureStatus (..),
-    loadEvalFixtureIndex,
+    FixtureSuite,
+    allFixtureSuites,
+    loadFixtureIndex,
+    suiteName,
   )
 import Data.List (sortOn)
 import Data.Map.Strict qualified as M
@@ -29,18 +32,18 @@ data ExtensionResult = ExtensionResult
 
 main :: IO ()
 main = do
-  entries <- loadEvalFixtureIndex
+  entries <- loadFixtureIndex
   let grouped = groupByExtension entries
       results = map mkExtensionResult (sortOn fst (M.toList grouped))
-  putStr (renderMarkdown results)
+  putStr (renderMarkdown entries results)
 
-groupByExtension :: [EvalFixtureEntry] -> M.Map Syntax.Extension [EvalFixtureEntry]
-groupByExtension = foldl' insertEntry M.empty
+groupByExtension :: [FixtureEntry] -> M.Map Syntax.Extension [FixtureEntry]
+groupByExtension = foldr insertEntry M.empty
   where
-    insertEntry acc entry =
-      foldl' (\m ext -> M.insertWith (++) ext [entry] m) acc (entryExtensions entry)
+    insertEntry entry acc =
+      foldr (\ext m -> M.insertWith (++) ext [entry] m) acc (entryExtensions entry)
 
-mkExtensionResult :: (Syntax.Extension, [EvalFixtureEntry]) -> ExtensionResult
+mkExtensionResult :: (Syntax.Extension, [FixtureEntry]) -> ExtensionResult
 mkExtensionResult (name, entries) =
   ExtensionResult
     { erName = T.unpack (Syntax.extensionName name),
@@ -49,27 +52,32 @@ mkExtensionResult (name, entries) =
       erTotalN = totalN
     }
   where
-    -- A fixture with status 'fail' asserts an expected error, so it counts as
-    -- working. Only the known-bug markers 'xfail' and 'xpass' do not.
-    workingN = length [() | entry <- entries, entryStatus entry `elem` [StatusPass, StatusFail]]
+    workingN = length (filter (isWorking . entryStatus) entries)
     totalN = length entries
 
-renderMarkdown :: [ExtensionResult] -> String
-renderMarkdown results =
+-- | A fixture with status @fail@ asserts an expected error, so it counts as
+-- working. Only the known-bug markers @xfail@ and @xpass@ do not.
+isWorking :: FixtureStatus -> Bool
+isWorking status = status == StatusPass || status == StatusFail
+
+renderMarkdown :: [FixtureEntry] -> [ExtensionResult] -> String
+renderMarkdown entries results =
   unlines
-    ( [ "# Eval Test Extension Support Status",
+    ( [ "# Test Fixture Extension Support Status",
         "",
         "## Summary",
         "",
         "- Total Extensions: " <> show totalN,
         "- Supported: " <> show supportedN,
-        "- In Progress: " <> show inProgressN,
-        "",
-        "## Extension Status",
-        "",
-        renderTableHeader col1W col2W col3W,
-        renderTableSep col1W col2W col3W
+        "- In Progress: " <> show inProgressN
       ]
+        <> map suiteSummaryLine allFixtureSuites
+        <> [ "",
+             "## Extension Status",
+             "",
+             renderTableHeader col1W col2W col3W,
+             renderTableSep col1W col2W col3W
+           ]
         <> map (renderResultRow col1W col2W col3W) results
     )
   where
@@ -79,6 +87,11 @@ renderMarkdown results =
     col1W = maximum $ length ("Extension" :: String) : map (length . erName) results
     col2W = maximum $ length ("Status" :: String) : map (length . statusEmoji) results
     col3W = maximum $ length ("Tests Passing" :: String) : map (length . testsPassingStr) results
+    suiteSummaryLine suite =
+      "- Fixtures (" <> suiteName suite <> "): " <> show (suiteFixtureCount entries suite)
+
+suiteFixtureCount :: [FixtureEntry] -> FixtureSuite -> Int
+suiteFixtureCount entries suite = length (filter ((== suite) . entrySuite) entries)
 
 testsPassingStr :: ExtensionResult -> String
 testsPassingStr result = show (erWorkingN result) <> "/" <> show (erTotalN result)

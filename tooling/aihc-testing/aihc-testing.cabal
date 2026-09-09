@@ -15,7 +15,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Aihc.Testing.AnnotatedModule
-    Aihc.Testing.EvalFixtureIndex
+    Aihc.Testing.FixtureIndex
 
   build-depends:
     aeson,
@@ -31,9 +31,9 @@ library
   ghc-options: -Wall
   default-language: GHC2021
 
-executable eval-extension-progress
+executable fixture-extension-progress
   main-is: Main.hs
-  hs-source-dirs: app/eval-extension-progress
+  hs-source-dirs: app/fixture-extension-progress
   build-depends:
     aihc-parser,
     aihc-testing,

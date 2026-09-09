@@ -39,7 +39,7 @@ run_cmd() {
 
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
-eval_extension_markdown_cmd="${EVAL_EXTENSION_PROGRESS_CMD:-nix run .#eval-extension-progress}"
+fixture_extension_markdown_cmd="${FIXTURE_EXTENSION_PROGRESS_CMD:-nix run .#fixture-extension-progress}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
 
@@ -51,13 +51,13 @@ trap cleanup EXIT
 
 resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
-eval_extension_out="$tmpdir/eval-extension-progress.md"
+fixture_extension_out="$tmpdir/fixture-extension-progress.md"
 tc_out="$tmpdir/tc-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
-run_cmd "$eval_extension_markdown_cmd" | sed -n '/^# Eval Test Extension Support Status/,$p' >"$eval_extension_out"
+run_cmd "$fixture_extension_markdown_cmd" | sed -n '/^# Test Fixture Extension Support Status/,$p' >"$fixture_extension_out"
 run_cmd "$tc_cmd" >"$tc_out"
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 
@@ -250,10 +250,10 @@ else
 fi
 
 if [ "$mode" = "--update" ]; then
-	cp "$eval_extension_out" docs/aihc-eval-supported-extensions.md
+	cp "$fixture_extension_out" docs/aihc-fixture-supported-extensions.md
 else
-	if ! cmp -s docs/aihc-eval-supported-extensions.md "$eval_extension_out"; then
-		echo "Generated file out of date: docs/aihc-eval-supported-extensions.md" >&2
+	if ! cmp -s docs/aihc-fixture-supported-extensions.md "$fixture_extension_out"; then
+		echo "Generated file out of date: docs/aihc-fixture-supported-extensions.md" >&2
 		stale=1
 	fi
 fi
