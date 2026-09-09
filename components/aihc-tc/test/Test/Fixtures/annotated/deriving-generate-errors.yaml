@@ -25,7 +25,7 @@ annotated:
   newtype V a = V a
   │       │     └─ type: ∀ a. a → V a
   │       └─ type: Type → Type
-  └─ deriving plans: via Wrapper a Eq (V a) [context: infer] [methods: ==, /=]
+  └─ deriving plans: via Wrapper a Eq (V a) [context: Eq Wrapper a] [methods: ==, /=]
     deriving Eq via Wrapper a
              └─ warning: deriving via is not supported yet; no instance is generated for Eq
 extensions:
