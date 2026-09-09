@@ -291,11 +291,11 @@ instanceIsForClass classTyCon instanceInfo =
 -- | The class instances in scope.
 --
 -- Instance search looks only at the instances of one class, so the
--- instances are also grouped by class source name. Both views list the most
--- recent instance first.
+-- instances are also grouped by the exact class type constructor. Both
+-- views list the most recent instance first.
 data InstanceEnv = InstanceEnv
   { instanceEnvAll :: ![InstanceInfo],
-    instanceEnvByClass :: !(Map Text [InstanceInfo])
+    instanceEnvByClass :: !(Map TcTypeKey [InstanceInfo])
   }
   deriving (Show)
 
@@ -310,18 +310,18 @@ addInstanceEnv :: InstanceInfo -> InstanceEnv -> InstanceEnv
 addInstanceEnv instanceInfo env =
   InstanceEnv
     { instanceEnvAll = instanceInfo : instanceEnvAll env,
-      instanceEnvByClass = Map.insertWith (<>) (iiClassName instanceInfo) [instanceInfo] (instanceEnvByClass env)
+      instanceEnvByClass = case instanceClassTyCon instanceInfo of
+        Nothing -> instanceEnvByClass env
+        Just classTyCon -> Map.insertWith (<>) (tyConKey classTyCon) [instanceInfo] (instanceEnvByClass env)
     }
 
 -- | Every instance, most recent first.
 instanceEnvList :: InstanceEnv -> [InstanceInfo]
 instanceEnvList = instanceEnvAll
 
--- | The instances of a class, most recent first. The class is given by its
--- source name, so the result can hold instances of another class with the
--- same name. Use 'instanceIsForClass' to select the exact class.
-instanceEnvForClass :: Text -> InstanceEnv -> [InstanceInfo]
-instanceEnvForClass className = Map.findWithDefault [] className . instanceEnvByClass
+-- | The instances of the exact class, most recent first.
+instanceEnvForClass :: TyCon -> InstanceEnv -> [InstanceInfo]
+instanceEnvForClass classTyCon = Map.findWithDefault [] (tyConKey classTyCon) . instanceEnvByClass
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first

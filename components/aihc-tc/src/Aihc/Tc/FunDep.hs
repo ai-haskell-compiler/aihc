@@ -18,7 +18,7 @@ module Aihc.Tc.FunDep
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
-import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..), instanceIsForClass)
+import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad (TcM, emitError, freshUnique, getClassInstances, getUndecidableInstances, lookupClass)
 import Aihc.Tc.Types
@@ -39,7 +39,7 @@ checkInstanceFunDeps loc classInfo tyVars headTypes context =
     headTypes' <- mapM zonkType headTypes
     contextDependencies <- predicateFunDeps tyVars context
     forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo tyVars headTypes' contextDependencies)
-    others <- filter (instanceIsForClass (ciTyCon classInfo)) <$> getClassInstances (ciName classInfo)
+    others <- getClassInstances (ciTyCon classInfo)
     forM_ others $ \other -> do
       otherHead <- freshenTypes (iiTyVars other) (iiHead other)
       forM_ (ciFunDeps classInfo) (checkConsistency loc classInfo headTypes' otherHead)

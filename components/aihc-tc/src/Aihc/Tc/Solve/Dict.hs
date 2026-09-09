@@ -20,7 +20,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), instanceIsForClass)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
@@ -94,7 +94,7 @@ solveDictWithGivensVisited visited givens ct
                     else pure (DictStuck ct)
                 ("Typeable", [ty]) -> tryTypeable className ty
                 _ -> do
-                  instances <- getClassInstances (tyConName className)
+                  instances <- getClassInstances className
                   tryInstances (ctPred ct : visited) className args' instances
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
@@ -153,24 +153,21 @@ solveDictWithGivensVisited visited givens ct
             Nothing -> searchSuperClasses classVisited solveVisited sourceEvidence sourceOrigin sourcePredicate fieldTypes target (index + 1) rest
 
     tryInstances _ _ _ [] = pure (DictStuck ct)
-    tryInstances visited' className args (instanceInfo : rest)
-      | not (instanceIsForClass className instanceInfo) =
-          tryInstances visited' className args rest
-      | otherwise = do
-          matched <- case matchTypes (iiHead instanceInfo) args of
-            Nothing -> pure Nothing
-            Just substitution -> matchInstanceKinds (iiTyVars instanceInfo) substitution
-          case matched of
+    tryInstances visited' className args (instanceInfo : rest) = do
+      matched <- case matchTypes (iiHead instanceInfo) args of
+        Nothing -> pure Nothing
+        Just substitution -> matchInstanceKinds (iiTyVars instanceInfo) substitution
+      case matched of
+        Nothing -> tryInstances visited' className args rest
+        Just subst -> do
+          let context = map (applySubstPred subst) (iiContext instanceInfo)
+              typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
+          contextEvidence <- mapM (solveSubPred visited') context
+          case sequence contextEvidence of
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) (EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence)
+              pure DictSolved
             Nothing -> tryInstances visited' className args rest
-            Just subst -> do
-              let context = map (applySubstPred subst) (iiContext instanceInfo)
-                  typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
-              contextEvidence <- mapM (solveSubPred visited') context
-              case sequence contextEvidence of
-                Just evidence -> do
-                  bindEvidence (ctEvVar ct) (EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence)
-                  pure DictSolved
-                Nothing -> tryInstances visited' className args rest
 
     solveSubPred visited' pred' = do
       ev <- freshEvVar

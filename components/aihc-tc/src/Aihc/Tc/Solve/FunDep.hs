@@ -16,7 +16,7 @@ module Aihc.Tc.Solve.FunDep
 where
 
 import Aihc.Tc.Constraint (Ct (..))
-import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..), instanceIsForClass)
+import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions)
 import Aihc.Tc.Monad (TcM, getClassInstances, lookupClass)
 import Aihc.Tc.Solve.Family (matchTypes)
@@ -101,7 +101,7 @@ improveFromPredicate className dependency constraint other =
 -- instance is selected.
 improveFromInstances :: TyCon -> FunDep -> Ct -> TcM ()
 improveFromInstances className dependency constraint = do
-  instances <- filter (instanceIsForClass className) <$> getClassInstances (tyConName className)
+  instances <- getClassInstances className
   forM_ instances $ \instanceInfo -> do
     predicate <- zonkPred (ctPred constraint)
     case predicate of
