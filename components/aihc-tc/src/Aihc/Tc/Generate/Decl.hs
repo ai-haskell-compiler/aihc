@@ -4049,9 +4049,9 @@ registerDataConWithResult paramInfos resTy con = case con of
         gadtScheme = ForAll quantifiedTyVars predicates conTy
     mapM_
       ( \n -> do
-          let nm = unqualifiedNameText n
+          constructorKey <- resolvedUnqualifiedTermKey n
           extendResolvedTermEnvPermanent n (TcIdBinder gadtScheme Closed)
-          markGadtCon nm
+          markGadtCon constructorKey
       )
       names
     case names of

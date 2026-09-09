@@ -1,0 +1,53 @@
+annotated:
+- |-
+  module A where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  not True = False
+  │   └─ type: Bool
+  └─ type: Bool → Bool
+  not False = True
+  │   └─ type: Bool
+  └─ type: Bool → Bool
+  data T a where
+       └─ type: Type → Type
+    Con :: T Bool
+    └─ type: ∀ a. (a ~ Bool) ⇒ T a
+  useGadt :: a -> T a -> a
+  useGadt x Con = not x
+  │       │ └─ type: T a; type-args: a; evidence: given a ~ Bool
+  │       └─ type: a
+  └─ type: ∀ a. a → T a → a
+- |-
+  module B where
+  data Box a = Con a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  useBox :: Box a -> a
+  useBox (Con x) = x
+  │       │   └─ type: a
+  │       └─ type: Box a
+  └─ type: ∀ a. Box a → a
+extensions:
+- GADTs
+modules:
+- |
+  module A where
+  data Bool = True | False
+  not True = False
+  not False = True
+  data T a where
+    Con :: T Bool
+  useGadt :: a -> T a -> a
+  useGadt x Con = not x
+- |
+  module B where
+  data Box a = Con a
+  useBox :: Box a -> a
+  useBox (Con x) = x
+reason: GADT constructor identity is the resolved term key. A Haskell 98
+  constructor with the same source name in another module does not share that
+  flag.
+status: pass

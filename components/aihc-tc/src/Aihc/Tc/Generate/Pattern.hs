@@ -383,7 +383,7 @@ checkListPattern gadtHandling sp items scrutTy =
     [] -> do
       scheme <- listConstructorScheme tcWiringNilDataCon
       (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
-      scrutCts <- constructorScrutineeCt gadtHandling sp "[]" scrutTy nilTy
+      scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey "[]") scrutTy nilTy
       predicateGivens <- mapM (constructorGiven sp "[]") predicates
       pure
         mempty
@@ -398,7 +398,7 @@ checkListPattern gadtHandling sp items scrutTy =
       (argumentTypes, resultTy) <- splitConTy 2 consTy
       case argumentTypes of
         [itemTy, tailTy] -> do
-          scrutCts <- constructorScrutineeCt gadtHandling sp ":" scrutTy resultTy
+          scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey ":") scrutTy resultTy
           itemCheck <- checkPatternWith gadtHandling sp item itemTy
           tailCheck <- checkListPattern gadtHandling sp rest tailTy
           predicateGivens <- mapM (constructorGiven sp ":") predicates
@@ -717,16 +717,17 @@ checkConPattern :: GadtHandling -> SourceSpan -> Pattern -> Name -> [Pattern] ->
 checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
   let conName = patternNameText conSyntax
   target <- resolvedTermTarget conSyntax
+  constructorKey <- resolvedTargetTermKey conName target
   mBinder <- lookupResolvedTerm conName target
   mPatSyn <- lookupPatSynTarget target
   case mBinder of
     Just (TcIdBinder scheme _)
       | Just info <- mPatSyn ->
-          checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy
+          checkPatSynPattern gadtHandling sp originalPat conName constructorKey info scheme subPats scrutTy
     Just (TcIdBinder scheme _) -> do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
-      scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
+      scrutCt <- constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy
       subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
       predicateGivens <- mapM (constructorGiven sp conName) predicates
       let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
@@ -758,14 +759,14 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
 -- records the type arguments, the required evidence and then the provided
 -- evidence, and the existential skolems. The desugarer calls the matcher
 -- with them.
-checkPatSynPattern :: GadtHandling -> SourceSpan -> Pattern -> Text -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
-checkPatSynPattern gadtHandling sp originalPat conName info scheme subPats scrutTy = do
+checkPatSynPattern :: GadtHandling -> SourceSpan -> Pattern -> Text -> TcTermKey -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
+checkPatSynPattern gadtHandling sp originalPat conName constructorKey info scheme subPats scrutTy = do
   when (length subPats /= psiArity info) $
     emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
   (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
   let (requiredPreds, providedPreds) = splitAt (length (psiReqTheta info)) predicates
   (argTys, conResTy) <- splitConTy (length subPats) conTy
-  scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
+  scrutCt <- constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy
   subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
   requiredCts <- mapM (predToCt sp conName) requiredPreds
   providedGivens <- mapM (constructorGiven sp conName) providedPreds
@@ -891,10 +892,10 @@ replaceConstructorSubpatterns pat subPats =
         _ -> pat
     _ -> pat
 
-constructorScrutineeCt :: GadtHandling -> SourceSpan -> Text -> TcType -> TcType -> TcM ([Ct], [Ct])
-constructorScrutineeCt gadtHandling sp conName scrutTy conResTy = do
+constructorScrutineeCt :: GadtHandling -> SourceSpan -> TcTermKey -> TcType -> TcType -> TcM ([Ct], [Ct])
+constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy = do
   ev <- freshEvVar
-  gadtCon <- isGadtCon conName
+  gadtCon <- isGadtCon constructorKey
   if gadtHandling == GadtAsGiven && gadtCon
     then
       pure
