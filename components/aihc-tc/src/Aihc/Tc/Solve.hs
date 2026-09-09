@@ -116,7 +116,7 @@ processConstraint ct wl inerts = do
     EqPred {} -> do
       (wl', inerts') <- processEq (wl, inerts) (ct {ctPred = predicate})
       solveLoop wl' inerts'
-    _ -> processCanonical wl inerts (canonicalize (ct {ctPred = predicate}))
+    _ -> processCanonical wl inerts (classifyConstraint (ct {ctPred = predicate}))
 
 processCanonical :: WorkList -> InertSet -> CanonResult -> TcM SolveResult
 processCanonical wl inerts result = case result of

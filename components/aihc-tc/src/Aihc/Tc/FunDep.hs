@@ -20,7 +20,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Monad (TcM, emitError, freshUnique, getClassInstances)
+import Aihc.Tc.Monad (TcM, emitError, freshUnique, getClassInstances, getUndecidableInstances, lookupClass)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, unless)
@@ -33,30 +33,78 @@ import Data.Text (Text)
 --
 -- The instance is not yet registered, so it cannot be checked against
 -- itself.
-checkInstanceFunDeps :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> TcM ()
-checkInstanceFunDeps loc classInfo tyVars headTypes =
+checkInstanceFunDeps :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [Pred] -> TcM ()
+checkInstanceFunDeps loc classInfo tyVars headTypes context =
   unless (null (ciFunDeps classInfo)) $ do
     headTypes' <- mapM zonkType headTypes
-    forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo tyVars headTypes')
+    contextDependencies <- predicateFunDeps tyVars context
+    forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo tyVars headTypes' contextDependencies)
     others <- getClassInstances (ciTyCon classInfo)
     forM_ others $ \other -> do
       otherHead <- freshenTypes (iiTyVars other) (iiHead other)
       forM_ (ciFunDeps classInfo) (checkConsistency loc classInfo headTypes' otherHead)
 
 -- | An instance whose dependent parameters mention a type variable that its
--- determining parameters do not is not determined by the dependency.
-checkCoverage :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> FunDep -> TcM ()
-checkCoverage loc classInfo tyVars headTypes dependency = do
+-- determining parameters do not determine is not itself determined by the
+-- dependency.
+--
+-- Which variables the determining parameters determine depends on the
+-- extension in force. The strict condition of Haskell counts only the
+-- variables they mention. @UndecidableInstances@ asks for the liberal
+-- condition, which also counts the variables that the functional
+-- dependencies of the instance context reach from those: the standard
+-- lifting instance of a monad transformer needs it, since it takes the
+-- state type of the class from its context rather than from its head.
+checkCoverage :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [([TyVarId], [TyVarId])] -> FunDep -> TcM ()
+checkCoverage loc classInfo tyVars headTypes contextDependencies dependency = do
+  liberal <- getUndecidableInstances
   let determiners = atPositions (fdDeterminers dependency) headTypes
       determined = atPositions (fdDetermined dependency) headTypes
-      escaping =
-        [ tyVar
-        | tyVar <- tyVars,
-          any (typeMentionsTyVar tyVar) determined,
-          not (any (typeMentionsTyVar tyVar) determiners)
-        ]
+      mentioned types = [tyVar | tyVar <- tyVars, any (typeMentionsTyVar tyVar) types]
+      reached
+        | liberal = closeOver contextDependencies (mentioned determiners)
+        | otherwise = mentioned determiners
+      escaping = filter (`notElem` reached) (mentioned determined)
   unless (null escaping) $
     emitError loc (funDepCoverageError classInfo headTypes dependency)
+
+-- | The functional dependencies that the predicates of an instance context
+-- state, as the type variables on each side.
+predicateFunDeps :: [TyVarId] -> [Pred] -> TcM [([TyVarId], [TyVarId])]
+predicateFunDeps tyVars context =
+  concat <$> mapM predicateDependencies context
+  where
+    predicateDependencies predicate =
+      case predicate of
+        ClassPred className arguments -> do
+          classInfo <- lookupClass className
+          pure
+            [ (variables (fdDeterminers dependency), variables (fdDetermined dependency))
+            | Just info <- [classInfo],
+              dependency <- ciFunDeps info
+            ]
+          where
+            variables positions =
+              [ tyVar
+              | tyVar <- tyVars,
+                any (typeMentionsTyVar tyVar) (atPositions positions arguments)
+              ]
+        _ -> pure []
+
+-- | Extend a set of type variables with every variable that a functional
+-- dependency of the instance context reaches from it.
+closeOver :: [([TyVarId], [TyVarId])] -> [TyVarId] -> [TyVarId]
+closeOver dependencies = go
+  where
+    go reached =
+      let step =
+            [ determined
+            | (determiners, determineds) <- dependencies,
+              all (`elem` reached) determiners,
+              determined <- determineds,
+              determined `notElem` reached
+            ]
+       in if null step then reached else go (reached <> step)
 
 -- | Two instances that agree on the determining parameters must agree on the
 -- parameters that the dependency determines.

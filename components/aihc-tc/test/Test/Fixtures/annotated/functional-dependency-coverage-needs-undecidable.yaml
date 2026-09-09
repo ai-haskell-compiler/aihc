@@ -1,0 +1,39 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  newtype ReaderT r m a = ReaderT (r -> m a)
+          │               └─ type: ∀ r m a. (r → m a) → ReaderT r m a
+          └─ type: Type → (Type → Type) → Type → Type
+  class MonadState s (m :: Type -> Type) | m -> s where
+  └─ class methods: put ∷ ∀ s m. (MonadState s m) ⇒ s → m (); fundeps: m → s
+    put :: s -> m ()
+  instance MonadState s m => MonadState s (ReaderT r m) where
+  │                          └─ error: instance MonadState s ReaderT r m does not determine s from m
+  └─ $fMonadStatesReaderTrm ∷ ∀ s m r. (MonadState s m) ⇒ MonadState s (ReaderT r m)
+    put value = ReaderT (\_ -> put value)
+    │   │       │        │││    └─ type: s → m (); type-args: s, m; evidence: given MonadState s m
+    │   │       │        │└─ type: r
+    │   │       │        │└─ type: r
+    │   │       │        └─ type: r → m ()
+    │   │       └─ type: (r → m ()) → ReaderT r m (); type-args: r, m, ()
+    │   └─ type: s
+    └─ put ∷ s → ReaderT r m ()
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  newtype ReaderT r m a = ReaderT (r -> m a)
+  class MonadState s (m :: Type -> Type) | m -> s where
+    put :: s -> m ()
+  instance MonadState s m => MonadState s (ReaderT r m) where
+    put value = ReaderT (\_ -> put value)
+status: pass
+reason: without UndecidableInstances the strict coverage condition ignores the instance
+  context, so a lifting instance is rejected

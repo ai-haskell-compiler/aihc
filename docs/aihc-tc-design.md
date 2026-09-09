@@ -823,7 +823,7 @@ with `MonoLocalBinds` (which is implied by `GADTs` and `TypeFamilies`).
 - Only nominal equality (no representational/phantom).
 - Only top-level instances (no local instances).
 - No overlapping instances.
-- Functional dependencies improve a wanted class constraint from a given, from another wanted, and from the head of an instance whose determining parameters it matches. Instances must satisfy the strict coverage condition and must agree pairwise; there is no liberal coverage condition, so `UndecidableInstances` does not relax either check.
+- Functional dependencies improve a wanted class constraint from a given, from another wanted, and from the head of an instance whose determining parameters it matches. Instances must agree pairwise, and must satisfy the coverage condition: the strict one by default, and under `UndecidableInstances` the liberal one, which also counts the variables that the dependencies of the instance context reach. An instance that the liberal condition accepts takes a dependent parameter from its context, so its head improves nothing.
 - No quantified constraints.
 - Implicit parameters (`ImplicitParams`) are constraints. A `?x` use wants `?x` at a fresh type. A `let ?x = e` binding or a signature context supplies it. The name selects the binding, and the innermost binding wins. A `?callStack :: CallStack` constraint follows the GHC `HasCallStack` rules: an occurrence of a function with the constraint pushes its call site, and an unsolved call stack is empty.
 - Eager flattening of all type family applications.

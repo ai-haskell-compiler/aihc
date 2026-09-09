@@ -23,7 +23,7 @@ import Aihc.Tc.Solve.Family (matchTypes)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred)
-import Control.Monad (forM_, void, zipWithM_)
+import Control.Monad (forM_, unless, void, zipWithM_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
@@ -92,6 +92,13 @@ improveFromPredicate className dependency constraint other =
 -- wanted names, and a meta variable of the wanted is rigid. Matching it
 -- against a concrete instance parameter instead would commit the wanted to
 -- an instance that a later solution could contradict.
+--
+-- An instance accepted under the liberal coverage condition can take a
+-- dependent parameter from its context rather than from its head, which
+-- leaves a variable of the instance in the parameter the match determined.
+-- Such an instance says nothing about the wanted on its own, so it improves
+-- nothing; the constraint its context states does the determining once the
+-- instance is selected.
 improveFromInstances :: TyCon -> FunDep -> Ct -> TcM ()
 improveFromInstances className dependency constraint = do
   instances <- getClassInstances className
@@ -102,10 +109,15 @@ improveFromInstances className dependency constraint = do
         | Just substitution <-
             matchTypes
               (determiners dependency (iiHead instanceInfo))
-              (determiners dependency arguments) ->
-            improveEqualities
-              (map (applySubst substitution) (determined dependency (iiHead instanceInfo)))
-              (determined dependency arguments)
+              (determiners dependency arguments) -> do
+            let instanceDetermined =
+                  map (applySubst substitution) (determined dependency (iiHead instanceInfo))
+                undetermined =
+                  any
+                    (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined)
+                    (iiTyVars instanceInfo)
+            unless undetermined $
+              improveEqualities instanceDetermined (determined dependency arguments)
       _ -> pure ()
 
 determiners :: FunDep -> [TcType] -> [TcType]
