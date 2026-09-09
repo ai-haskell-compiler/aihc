@@ -1,3 +1,4 @@
+-- | Utilities for the 'Functor' class.
 module Data.Functor
   ( Functor (..),
     (<$>),
@@ -8,24 +9,24 @@ module Data.Functor
   )
 where
 
-import Prelude (Functor (..), const, fst, snd, (<$), (<$>))
-
--- | Flipped '<$>'.
-(<&>) :: (Functor f) => f a -> (a -> b) -> f b
-functor <&> function = fmap function functor
+import Prelude (Functor (..), const, flip, fst, snd, (<$>))
 
 infixl 1 <&>
 
--- | Replace every result of @functor@ with @value@.
-($>) :: (Functor f) => f a -> b -> f b
-functor $> value = value <$ functor
+-- | 'fmap' with its arguments flipped.
+(<&>) :: (Functor f) => f a -> (a -> b) -> f b
+(<&>) = flip fmap
 
 infixl 4 $>
 
--- | Separate a functor of pairs into a pair of functors.
+-- | Replace every value with the given one.
+($>) :: (Functor f) => f a -> b -> f b
+functor $> value = fmap (const value) functor
+
+-- | Split a functor of pairs into a pair of functors.
 unzip :: (Functor f) => f (a, b) -> (f a, f b)
 unzip pairs = (fmap fst pairs, fmap snd pairs)
 
--- | Discard the result of @functor@.
+-- | Discard the result of a functor.
 void :: (Functor f) => f a -> f ()
 void = fmap (const ())

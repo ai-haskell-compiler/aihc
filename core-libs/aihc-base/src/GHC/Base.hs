@@ -5,8 +5,18 @@
 module GHC.Base
   ( module GHC.Prim.Base,
     module GHC.Prim,
+    Int (..),
+    Char (..),
     ord,
     unsafeChr,
+    eqInt,
+    neInt,
+    ltInt,
+    leInt,
+    gtInt,
+    geInt,
+    quotInt,
+    remInt,
     build,
     augment,
     unpackCString#,
@@ -26,7 +36,7 @@ import GHC.CString (unpackCString#, unpackCStringUtf8#, unpackFoldrCString#)
 import GHC.Int (Int (..))
 import GHC.Prim
 import GHC.Prim.Base
-import GHC.Types (Char (..), RuntimeRep, TYPE, Type)
+import GHC.Types (Bool, Char (..), RuntimeRep, TYPE, Type, isTrue#)
 
 -- | Convert a code point to a character without a range check.
 unsafeChr :: Int -> Char
@@ -34,6 +44,21 @@ unsafeChr (I# value) = C# (chr# value)
 
 ord :: Char -> Int
 ord (C# value) = I# (ord# value)
+
+-- | The monomorphic 'Int' comparisons.
+eqInt, neInt, ltInt, leInt, gtInt, geInt :: Int -> Int -> Bool
+eqInt (I# left) (I# right) = isTrue# (left ==# right)
+neInt (I# left) (I# right) = isTrue# (left /=# right)
+ltInt (I# left) (I# right) = isTrue# (left <# right)
+leInt (I# left) (I# right) = isTrue# (left <=# right)
+gtInt (I# left) (I# right) = isTrue# (left ># right)
+geInt (I# left) (I# right) = isTrue# (left >=# right)
+
+-- | The monomorphic 'Int' truncating division. Division by zero is the
+-- caller's responsibility.
+quotInt, remInt :: Int -> Int -> Int
+quotInt (I# numerator) (I# denominator) = I# (quotInt# numerator denominator)
+remInt (I# numerator) (I# denominator) = I# (remInt# numerator denominator)
 
 build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
 build generate = generate (:) []

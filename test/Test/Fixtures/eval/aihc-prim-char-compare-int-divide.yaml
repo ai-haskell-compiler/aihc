@@ -1,0 +1,30 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (eqChar# 'a'# 'a'#))
+        (I# (neChar# 'a'# 'a'#))
+        (I# (ltChar# 'a'# 'b'#))
+        (I# (leChar# 'b'# 'a'#))
+        (I# (gtChar# '\x03BB'# 'z'#))
+        (I# (geChar# 'a'# 'a'#))
+        (I# (quotInt# 7# 2#))
+        (I# (remInt# 7# 2#))
+        (I# (quotInt# -7# 2#))
+        (I# (remInt# -7# 2#))
+output: |
+  Results (I# 1) (I# 0) (I# 1) (I# 0) (I# 1) (I# 1) (I# 3) (I# 1) (I# -3) (I# -1)
+expression: |
+  results
+status: pass
+reason: Char# comparisons order by code point and quotInt#/remInt# truncate towards zero

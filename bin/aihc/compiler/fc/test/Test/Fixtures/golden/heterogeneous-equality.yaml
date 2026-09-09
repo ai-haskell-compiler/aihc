@@ -26,7 +26,7 @@ expected: |-
     2.tType = 2.tTYPE 2.tLiftedRep
 
   pub type 1.t:~~: (k1 : 2.tType) (k2 : 2.tType) (a : k1) (b : k2) :: 2.tType {
-      pub 1.vHRefl :: ∀(k : 2.tType) (a : k) (b : k). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (b ~ a) (1.t:~~: k k a b)
+      pub 1.vHRefl :: ∀(k : 2.tType) (a : k) (k2 : 2.tType) (b : k2). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (k2 ~ k) (FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (b ~ a) (1.t:~~: k k2 a b))
   }
 status: pass
 reason: Heterogeneous equality permits endpoints with distinct kinds.

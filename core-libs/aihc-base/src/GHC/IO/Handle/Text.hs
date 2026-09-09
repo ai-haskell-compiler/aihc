@@ -16,6 +16,7 @@ module GHC.IO.Handle.Text
     hGetContents,
     hGetContents',
     hWaitForInput,
+    commitBuffer',
   )
 where
 
@@ -27,10 +28,15 @@ import GHC.Char (chr)
 import GHC.IO (IO)
 import GHC.IO.Buffer
   ( Buffer (..),
+    BufferState (..),
+    CharBuffer,
     RawBuffer,
+    RawCharBuffer,
     bufferAvailable,
     bufferElems,
+    emptyBuffer,
     isEmptyBuffer,
+    readCharBuf,
     readWord8Buf,
     withRawBuffer,
   )
@@ -143,6 +149,30 @@ encodeUtf8 pointer offset code
   where
     otherwise = True
     byte index value = pokeByteOff pointer index (fromIntegral value :: Word8)
+
+-- | Encode the characters that a raw character buffer holds and hand the
+-- buffer back for reuse. @sz@ is the size of the raw buffer and @count@
+-- the number of characters in it; @flush@ asks for the byte buffer to
+-- reach the device, and @release@ says the caller is done with the raw
+-- buffer. The handle must be writable.
+commitBuffer' :: RawCharBuffer -> Int -> Int -> Bool -> Bool -> Handle__ -> IO CharBuffer
+commitBuffer' raw size count flush _release handle_ = do
+  writeRawChars handle_ raw 0 count
+  case flush of
+    True -> flushByteWriteBuffer handle_
+    False -> return ()
+  return (emptyBuffer raw size WriteBuffer)
+
+-- | Encode the first @count@ characters of a raw character buffer into
+-- the byte buffer of a handle.
+writeRawChars :: Handle__ -> RawCharBuffer -> Int -> Int -> IO ()
+writeRawChars handle_ raw index count =
+  case index >= count of
+    True -> return ()
+    False -> do
+      (character, next) <- readCharBuf raw index
+      _ <- writeChars handle_ [character]
+      writeRawChars handle_ raw next count
 
 -- ---------------------------------------------------------------------
 -- Text input

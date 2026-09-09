@@ -1562,6 +1562,8 @@ binaryPrimitives =
     ("timesWord#", Mul),
     ("quotWord#", DivU),
     ("remWord#", RemU),
+    ("quotInt#", DivS),
+    ("remInt#", RemS),
     ("and#", And),
     ("or#", Or),
     ("xor#", Xor),
@@ -1588,7 +1590,13 @@ comparisonPrimitives =
     ("ltWord64#", LtU),
     ("leWord64#", LeU),
     ("gtWord64#", GtU),
-    ("geWord64#", GeU)
+    ("geWord64#", GeU),
+    ("eqChar#", Eq),
+    ("neChar#", Ne),
+    ("ltChar#", LtU),
+    ("leChar#", LeU),
+    ("gtChar#", GtU),
+    ("geChar#", GeU)
   ]
 
 -- | Comparisons of two addresses. An address compares as an unsigned number.

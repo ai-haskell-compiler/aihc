@@ -729,6 +729,8 @@ evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
 evalPrimitive "-#" [left, right] = evalIntPrimitive "-#" (-) left right
 evalPrimitive "*#" [left, right] = evalIntPrimitive "*#" (*) left right
+evalPrimitive "quotInt#" [left, right] = evalIntPrimitive "quotInt#" quot left right
+evalPrimitive "remInt#" [left, right] = evalIntPrimitive "remInt#" rem left right
 evalPrimitive "addIntC#" [left, right] = evalIntCarryPrimitive "addIntC#" (+) left right
 evalPrimitive "subIntC#" [left, right] = evalIntCarryPrimitive "subIntC#" (-) left right
 evalPrimitive "plusWord#" [left, right] = evalWordPrimitive "plusWord#" (+) left right
@@ -789,6 +791,12 @@ evalPrimitive "ltWord#" [left, right] = evalWordComparison "ltWord#" (<) left ri
 evalPrimitive "leWord#" [left, right] = evalWordComparison "leWord#" (<=) left right
 evalPrimitive "gtWord#" [left, right] = evalWordComparison "gtWord#" (>) left right
 evalPrimitive "geWord#" [left, right] = evalWordComparison "geWord#" (>=) left right
+evalPrimitive "eqChar#" [left, right] = evalCharComparison "eqChar#" (==) left right
+evalPrimitive "neChar#" [left, right] = evalCharComparison "neChar#" (/=) left right
+evalPrimitive "ltChar#" [left, right] = evalCharComparison "ltChar#" (<) left right
+evalPrimitive "leChar#" [left, right] = evalCharComparison "leChar#" (<=) left right
+evalPrimitive "gtChar#" [left, right] = evalCharComparison "gtChar#" (>) left right
+evalPrimitive "geChar#" [left, right] = evalCharComparison "geChar#" (>=) left right
 evalPrimitive "clz#" [value] = evalWordCount "clz#" countLeadingZeros value
 evalPrimitive "intToInt8#" [value] = evalIntNarrow "intToInt8#" Int8Rep 8 value
 evalPrimitive "intToInt16#" [value] = evalIntNarrow "intToInt16#" Int16Rep 16 value
@@ -1350,6 +1358,12 @@ evalWordComparison name comparison left right = do
   leftWord <- expectWordPrimitiveArgument name left
   rightWord <- expectWordPrimitiveArgument name right
   pure [intRuntimeValue (if comparison leftWord rightWord then 1 else 0)]
+
+evalCharComparison :: Text -> (Char -> Char -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalCharComparison name comparison left right = do
+  leftChar <- expectCharPrimitiveArgument name left
+  rightChar <- expectCharPrimitiveArgument name right
+  pure [intRuntimeValue (if comparison leftChar rightChar then 1 else 0)]
 
 evalWordShift :: Text -> (Integer -> Int -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalWordShift name operation value amount = do

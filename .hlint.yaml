@@ -7,6 +7,15 @@
 - ignore:
     name: Use foldl
     within: GHC.Read.Lex
+# The class defaults of Num are mutually recursive, exactly as in GHC: (-)
+# goes through negate and negate goes through (-). Writing either hint's
+# suggestion makes the default call itself.
+- ignore:
+    name: Use -
+    within: GHC.Prim.Num
+- ignore:
+    name: Redundant fromInteger
+    within: GHC.Prim.Num
 - ignore:
     name: Use traverse
     within: GHC.Internal.Traversable

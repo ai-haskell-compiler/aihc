@@ -146,7 +146,11 @@ tests =
       testCase "accepts the Word64# comparison and conversion primitives in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["eqWord64#", "neWord64#", "ltWord64#", "leWord64#", "gtWord64#", "geWord64#", "wordToWord64#", "word16ToWord#"]
+          ["eqWord64#", "neWord64#", "ltWord64#", "leWord64#", "gtWord64#", "geWord64#", "wordToWord64#", "word16ToWord#"],
+      testCase "accepts the Char# comparison and Int# division primitives in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          ["eqChar#", "neChar#", "ltChar#", "leChar#", "gtChar#", "geChar#", "quotInt#", "remInt#"]
     ]
 
 runtimeCallSymbol :: NativeRuntimeCall -> Text

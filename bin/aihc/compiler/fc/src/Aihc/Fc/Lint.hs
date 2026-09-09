@@ -210,41 +210,16 @@ applyKind env function functionKind argument argumentKind =
         Just (_, _, expected, result) -> do
           unless (kindsCompatible env function expected argumentKind) (Left (KindMismatch "type application argument" expected argumentKind))
           Right result
-        Nothing -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
+        Nothing
+          | refined /= functionKind -> applyKind env function refined argument argumentKind
+          | otherwise -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
+  where
+    refined = refineKind env functionKind
 
 kindsCompatible :: TypeEnv -> Type -> Type -> Type -> Bool
 kindsCompatible env function expected actual =
-  typesEqual env expected actual
-    || kindFunctionsEqual env expected actual
+  kindsEqual env expected actual
     || (isTYPEName env function && isTypeKind env expected && isRuntimeRepKind env actual)
-
-kindFunctionsEqual :: TypeEnv -> Type -> Type -> Bool
-kindFunctionsEqual env left right =
-  compareKinds (reduceType env left) (reduceType env right)
-  where
-    compareKinds first second
-      | typesEqual env first second = True
-    compareKinds (TyFun _ _ argument result) (TyForAll binder body) =
-      not (typeUsesName (binderName binder) body)
-        && typesEqual env argument (binderType binder)
-        && compareKinds result body
-    compareKinds (TyForAll binder body) (TyFun _ _ argument result) =
-      not (typeUsesName (binderName binder) body)
-        && typesEqual env (binderType binder) argument
-        && compareKinds body result
-    compareKinds _ _ = False
-
-typeUsesName :: Name -> Type -> Bool
-typeUsesName target ty =
-  case ty of
-    TyVar name -> name == target
-    TyCon {} -> False
-    TyApp function argument -> typeUsesName target function || typeUsesName target argument
-    TyFun r1 r2 argument result -> any (typeUsesName target) [r1, r2, argument, result]
-    TyForAll binder body
-      | binderName binder == target -> typeUsesName target (binderType binder)
-      | otherwise -> typeUsesName target (binderType binder) || typeUsesName target body
-    TyEq left right -> typeUsesName target left || typeUsesName target right
 
 isTYPEName :: TypeEnv -> Type -> Bool
 isTYPEName env ty =
@@ -257,18 +232,6 @@ isTypeKind env = typesEqual env (typeKindType env)
 
 isRuntimeRepKind :: TypeEnv -> Type -> Bool
 isRuntimeRepKind env = typesEqual env (runtimeRepKind env)
-
-viewForAll :: TypeEnv -> Type -> Maybe (Binder, Type)
-viewForAll env ty =
-  case reduceType env ty of
-    TyForAll binder body -> Just (binder, body)
-    _ -> Nothing
-
-viewFun :: TypeEnv -> Type -> Maybe (Type, Type, Type, Type)
-viewFun env ty =
-  case reduceType env ty of
-    TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
-    _ -> Nothing
 
 typeKindType :: TypeEnv -> Type
 typeKindType env = typeSynonym (tePrimPackage env)
@@ -435,7 +398,7 @@ lintForeignCall env call types arguments = do
   when (isJust (viewForAll env instantiated)) (Left (LintFailure ("foreign call has too few type arguments: " <> show (foreignCallName call))))
   -- The declared type gives the arity. A type argument can be a function
   -- type, and the call does not take the arguments of that function.
-  let arity = foreignCallArity env (foreignTypeBody env (foreignCallType call))
+  let arity = length (foreignArgumentTypes env (foreignTypeBody env (foreignCallType call)))
   unless (length arguments == arity) (Left (LintFailure ("foreign call has " <> show (length arguments) <> " arguments for an arity of " <> show arity <> ": " <> show (foreignCallName call))))
   foldM applyValueArgument instantiated arguments
   where
@@ -452,20 +415,6 @@ lintForeignCall env call types arguments = do
           checkExpr env "foreign call argument" expected argument
           Right result
         Nothing -> Left (LintFailure ("foreign call has too many arguments: " <> show (foreignCallName call)))
-
--- | The type after the leading binders of a foreign type.
-foreignTypeBody :: TypeEnv -> Type -> Type
-foreignTypeBody env ty =
-  case viewForAll env ty of
-    Just (_, body) -> foreignTypeBody env body
-    Nothing -> ty
-
--- | The number of arrows of a foreign type after its binders.
-foreignCallArity :: TypeEnv -> Type -> Int
-foreignCallArity env ty =
-  case viewFun env ty of
-    Just (_, _, _, result) -> 1 + foreignCallArity env result
-    Nothing -> 0
 
 lookupTerm :: TypeEnv -> Name -> Either LintError Type
 lookupTerm env name =
@@ -679,7 +628,7 @@ coercionEndpoints env coercion =
           mapM_
             ( \(binder, argument) -> do
                 argumentKind <- lintType env argument
-                unless (typesEqual env (substTypes subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
+                unless (kindsEqual env (substTypes subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
             )
             (zip (axiomBinders declaration) arguments)
           Right (substTypes subst (axiomLeft declaration), substTypes subst (axiomRight declaration))
@@ -710,16 +659,15 @@ checkCoercionArgumentKind :: TypeEnv -> Type -> Type -> Type -> Either LintError
 checkCoercionArgumentKind env expected left right = do
   leftKind <- lintType env left
   rightKind <- lintType env right
-  unless (typesEqual env expected leftKind) (Left (KindMismatch "type constructor coercion argument" expected leftKind))
-  unless (typesEqual env expected rightKind) (Left (KindMismatch "type constructor coercion argument" expected rightKind))
+  unless (kindsEqual env expected leftKind) (Left (KindMismatch "type constructor coercion argument" expected leftKind))
+  unless (kindsEqual env expected rightKind) (Left (KindMismatch "type constructor coercion argument" expected rightKind))
 
 representationOf :: TypeEnv -> Type -> Either LintError Type
 representationOf env ty = do
   kind <- lintType env ty
-  case reduceType env kind of
-    TyApp (TyCon name) representation
-      | name == typeConstructor (tePrimPackage env) -> Right representation
-    other -> Left (LintFailure ("term type does not have a TYPE representation: " <> show other))
+  case representationFromKind env kind of
+    Just representation -> Right representation
+    Nothing -> Left (LintFailure ("term type does not have a TYPE representation: " <> show (reduceType env kind)))
 
 eitherToList :: Either LintError a -> [LintError]
 eitherToList = either pure (const [])

@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -603,7 +603,9 @@ inferCaseAlts sp scrutTy resTy alternatives = do
               rhsSp
           pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
       remainingCts <- solvePatternBranch branchSp patCheck resTy (rhsCts <> [resultCt])
-      pure (CaseAlt altAnns pat' rhs', remainingCts)
+      -- A constructor pattern can refine the result through its givens, so
+      -- the alternative casts its body like a function equation does.
+      pure (CaseAlt altAnns pat' (annotateRhsCast resTy resultEv rhs'), remainingCts)
 
 inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM (LambdaCaseAlt, [Ct])
 inferLambdaCaseAlt sp argTys resTy alt = do
@@ -615,7 +617,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
   remainingCts <- solvePatternBranch sp patCheck resTy (rhsCts <> [rhsCt])
-  pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, remainingCts)
+  pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = annotateRhsCast resTy ev rhs'}, remainingCts)
 
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
 sourceSpanFromAnns anns =

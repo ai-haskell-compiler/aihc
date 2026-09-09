@@ -43,6 +43,12 @@ module GHC.Prim
     Int32#,
     Int64#,
     chr#,
+    eqChar#,
+    neChar#,
+    ltChar#,
+    leChar#,
+    gtChar#,
+    geChar#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
     MVar#,
@@ -65,6 +71,8 @@ module GHC.Prim
     quotRemWord#,
     quotRemWord2#,
     quotWord#,
+    quotInt#,
+    remInt#,
     raise#,
     reallyUnsafePtrEquality#,
     Proxy#,
@@ -417,6 +425,10 @@ foreign import prim compareInt# :: Int# -> Int# -> Int#
 
 foreign import prim divInt# :: Int# -> Int# -> Int#
 
+foreign import prim quotInt# :: Int# -> Int# -> Int#
+
+foreign import prim remInt# :: Int# -> Int# -> Int#
+
 foreign import prim (+#) :: Int# -> Int# -> Int#
 
 foreign import prim (-#) :: Int# -> Int# -> Int#
@@ -430,6 +442,18 @@ foreign import prim (==#) :: Int# -> Int# -> Int#
 foreign import prim ord# :: Char# -> Int#
 
 foreign import prim chr# :: Int# -> Char#
+
+foreign import prim eqChar# :: Char# -> Char# -> Int#
+
+foreign import prim neChar# :: Char# -> Char# -> Int#
+
+foreign import prim ltChar# :: Char# -> Char# -> Int#
+
+foreign import prim leChar# :: Char# -> Char# -> Int#
+
+foreign import prim gtChar# :: Char# -> Char# -> Int#
+
+foreign import prim geChar# :: Char# -> Char# -> Int#
 
 foreign import prim addIntC# :: Int# -> Int# -> (# Int#, Int# #)
 
