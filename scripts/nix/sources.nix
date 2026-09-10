@@ -252,8 +252,11 @@ in rec {
           || pkgs.lib.hasSuffix ".h" baseName
           || pkgs.lib.hasSuffix ".wit" baseName;
         isCConfig = baseName == ".clang-format" || baseName == ".clang-tidy";
+        # A fixture's C source is a test input, and may include a header that
+        # only exists once the install under test has generated it.
+        isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" (toString path);
       in
-        !isBuildOutput && (type == "directory" || isCSource || isCConfig);
+        !isBuildOutput && (type == "directory" || ((isCSource || isCConfig) && !isFixture));
     };
 
   # Filtered source for scripts - only shell scripts.
