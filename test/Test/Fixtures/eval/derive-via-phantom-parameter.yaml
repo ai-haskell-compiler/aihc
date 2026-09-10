@@ -1,0 +1,50 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - StandaloneDeriving
+  - FlexibleInstances
+  - ScopedTypeVariables
+  - EmptyDataDecls
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+    {-# LANGUAGE FlexibleInstances, ScopedTypeVariables, EmptyDataDecls #-}
+    module Test where
+
+    import Prelude
+
+    data Celsius
+    data Fahrenheit
+
+    -- The tag parameter is phantom, so Tagged t Int and Tagged u Int are
+    -- representationally equal for any pair of tags: a via derivation can
+    -- move an instance from one tag to another.
+    newtype Tagged t a = Tagged a
+
+    unTagged :: Tagged t a -> a
+    unTagged (Tagged a) = a
+
+    instance Show (Tagged Celsius Int) where
+      show (Tagged n) = show n ++ "C"
+
+    deriving via Tagged Celsius Int instance Show (Tagged Fahrenheit Int)
+
+    newtype Degrees = Degrees Int
+      deriving Show via (Tagged Celsius Int)
+
+    main :: IO ()
+    main = do
+      print (Tagged 20 :: Tagged Celsius Int)
+      print (Tagged 20 :: Tagged Fahrenheit Int)
+      print (Degrees 20)
+      print (unTagged (Tagged 'x' :: Tagged Celsius Char))
+expression: main
+stdout: |
+  20C
+  20C
+  20C
+  'x'
+output: |
+  ()
+status: pass
+reason: a phantom parameter has a phantom role, so a via derivation can carry an instance across tag types

@@ -1,0 +1,49 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - MultiParamTypeClasses
+  - FlexibleInstances
+  - StandaloneDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, MultiParamTypeClasses #-}
+    {-# LANGUAGE FlexibleInstances, StandaloneDeriving #-}
+    module Test where
+
+    import Prelude
+
+    -- Only the last parameter of a multi-parameter class is the one being
+    -- derived; the earlier ones are fixed by the deriving clause.
+    class Render tag a where
+      render :: tag -> a -> String
+
+    data Brief = Brief
+    data Full = Full
+
+    instance Render Brief Int where
+      render _ n = show n
+
+    instance Render Full Int where
+      render _ n = "Int " ++ show n
+
+    newtype Count = Count Int
+      deriving (Render Brief, Render Full) via Int
+
+    newtype Score = Score Int
+
+    deriving via Int instance Render Brief Score
+
+    main :: IO ()
+    main = do
+      putStrLn (render Brief (Count 3))
+      putStrLn (render Full (Count 3))
+      putStrLn (render Brief (Score 9))
+expression: main
+stdout: |
+  3
+  Int 3
+  9
+output: |
+  ()
+status: pass
+reason: deriving via applies to the last parameter of a multi-parameter class, with the earlier parameters given in the deriving clause

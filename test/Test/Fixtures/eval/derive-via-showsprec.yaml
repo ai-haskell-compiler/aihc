@@ -1,0 +1,38 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+    module Test where
+
+    import Prelude
+
+    -- Show has three methods; deriving via must coerce all three, so both the
+    -- precedence-sensitive showsPrec and the list-level showList survive.
+    newtype Bracketed = Bracketed Int
+
+    instance Show Bracketed where
+      showsPrec d (Bracketed n) =
+        showParen (d > 5) (showString "<" . shows n . showString ">")
+      showList xs = showString "ALL" . shows (length xs)
+
+    newtype Token = Token Int
+      deriving Show via Bracketed
+
+    main :: IO ()
+    main = do
+      print (Token 3)
+      putStrLn (showsPrec 6 (Token 3) "")
+      putStrLn (show [Token 1, Token 2])
+      putStrLn (showsPrec 0 [Token 1] "!")
+expression: main
+stdout: |
+  <3>
+  (<3>)
+  ALL2
+  ALL1!
+output: |
+  ()
+status: pass
+reason: every method of the class is coerced, including showsPrec and the list-level showList

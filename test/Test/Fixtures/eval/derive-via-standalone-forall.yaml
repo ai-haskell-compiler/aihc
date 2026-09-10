@@ -1,0 +1,47 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - StandaloneDeriving
+  - ScopedTypeVariables
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+    {-# LANGUAGE ScopedTypeVariables, FlexibleInstances #-}
+    module Test where
+
+    import Prelude
+
+    newtype Const a b = Const a
+
+    instance Show a => Show (Const a b) where
+      showsPrec d (Const a) =
+        showParen (d > 10) (showString "Const " . showsPrec 11 a)
+
+    newtype Ratio2 = Ratio2 Int
+
+    -- The via type mentions a type variable that does not appear in the
+    -- instance head at all; an explicit forall binds it.
+    deriving via forall x. Const Int x instance Show Ratio2
+
+    newtype Boxed a = Boxed a
+
+    -- Here the forall binds both the head variable and a phantom one.
+    deriving via forall a x. Const a x instance Show a => Show (Boxed a)
+
+    main :: IO ()
+    main = do
+      print (Ratio2 5)
+      print (Just (Ratio2 5))
+      print (Boxed True)
+      print (Boxed (Boxed 'c'))
+expression: main
+stdout: |
+  Const 5
+  Just (Const 5)
+  Const True
+  Const (Const 'c')
+output: |
+  ()
+status: xfail
+reason: an explicit forall on a standalone deriving via declaration binds via-type variables that the instance head does not mention

@@ -1,0 +1,68 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - GeneralizedNewtypeDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving #-}
+    module Test where
+
+    import Data.Monoid (Product (..), Sum (..))
+    import Data.Semigroup (Max (..), Min (..))
+    import Prelude
+
+    -- The via types come from aihc-base, so the derivation reuses instance
+    -- dictionaries that were compiled in another package.
+    newtype Total = Total Int
+      deriving (Eq, Show) via Int
+      deriving (Semigroup, Monoid) via (Sum Int)
+
+    newtype Factor = Factor Int
+      deriving (Eq, Show) via Int
+      deriving (Semigroup, Monoid) via (Product Int)
+
+    newtype Deepest = Deepest Int
+      deriving (Eq, Show) via Int
+      deriving Semigroup via (Min Int)
+
+    newtype Shallowest = Shallowest Int
+      deriving (Eq, Show) via Int
+      deriving Semigroup via (Max Int)
+
+    -- A locally defined via type whose representation is a function.
+    newtype Endo a = Endo (a -> a)
+
+    instance Semigroup (Endo a) where
+      Endo f <> Endo g = Endo (\x -> f (g x))
+
+    instance Monoid (Endo a) where
+      mempty = Endo id
+
+    newtype Pipeline = Pipeline (Int -> Int)
+      deriving (Semigroup, Monoid) via (Endo Int)
+
+    runPipeline :: Pipeline -> Int -> Int
+    runPipeline (Pipeline f) = f
+
+    main :: IO ()
+    main = do
+      print (mconcat [Total 1, Total 2, Total 3])
+      print (mconcat [Factor 2, Factor 3, Factor 4])
+      print (Deepest 9 <> Deepest 2 <> Deepest 5)
+      print (Shallowest 9 <> Shallowest 2 <> Shallowest 5)
+      print (runPipeline (Pipeline (+ 1) <> Pipeline (* 10)) 3)
+      print (runPipeline mempty 3)
+      print (mempty :: Total)
+expression: main
+stdout: |
+  6
+  24
+  2
+  9
+  31
+  3
+  0
+output: |
+  ()
+status: pass
+reason: via types imported from another package supply the instance dictionaries the derivation coerces, so Show via Int prints the payload without its constructor

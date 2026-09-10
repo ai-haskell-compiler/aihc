@@ -1,0 +1,40 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, TypeFamilies #-}
+    module Test where
+
+    import Prelude
+
+    -- The method type mentions a type family applied to the class variable.
+    -- Both Item Src and Item Dst reduce to Int, so the coercion between the
+    -- two method types exists once the family is reduced.
+    type family Item a
+
+    type instance Item Src = Int
+
+    type instance Item Dst = Int
+
+    class Container a where
+      contents :: a -> [Item a]
+
+    newtype Src = Src Int
+
+    instance Container Src where
+      contents (Src n) = [n]
+
+    newtype Dst = Dst Int
+      deriving Container via Src
+
+    main :: IO ()
+    main = print (contents (Dst 3))
+expression: main
+stdout: |
+  [3]
+output: |
+  ()
+status: xfail
+reason: a method type that mentions a type family applied to the class variable is coercible once the family reduces on both sides

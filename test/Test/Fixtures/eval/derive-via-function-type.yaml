@@ -1,0 +1,63 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - GeneralizedNewtypeDeriving
+  - StandaloneDeriving
+  - FlexibleContexts
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving #-}
+    {-# LANGUAGE StandaloneDeriving, FlexibleContexts, KindSignatures #-}
+    module Test where
+
+    import Control.Applicative (liftA2)
+    import Data.Kind (Type)
+    import Prelude
+
+    newtype App (f :: Type -> Type) a = App (f a)
+      deriving newtype (Functor, Applicative)
+
+    instance (Applicative f, Semigroup a) => Semigroup (App f a) where
+      (<>) = liftA2 (<>)
+
+    instance (Applicative f, Monoid a) => Monoid (App f a) where
+      mempty = pure mempty
+
+    -- The via type is a function type, not a newtype: the derivation reuses
+    -- the Monoid instance of (->) and coerces its result through App. The
+    -- context cannot be inferred here, so it is written out on a standalone
+    -- deriving declaration.
+    newtype Kleisli m a b = Kleisli (a -> m b)
+
+    deriving via (a -> App m b) instance (Applicative m, Semigroup b) => Semigroup (Kleisli m a b)
+    deriving via (a -> App m b) instance (Applicative m, Monoid b) => Monoid (Kleisli m a b)
+
+    runKleisli :: Kleisli m a b -> a -> m b
+    runKleisli (Kleisli f) = f
+
+    keep :: Kleisli Maybe Int [Int]
+    keep = Kleisli (\n -> Just [n])
+
+    double :: Kleisli Maybe Int [Int]
+    double = Kleisli (\n -> Just [n * 2])
+
+    lost :: Kleisli Maybe Int [Int]
+    lost = Kleisli (const Nothing)
+
+    main :: IO ()
+    main = do
+      print (runKleisli (keep <> double) 3)
+      print (runKleisli (keep <> lost) 3)
+      print (runKleisli (mempty :: Kleisli Maybe Int [Int]) 3)
+      print (runKleisli (mconcat [keep, double, keep]) 5)
+expression: main
+stdout: |
+  Just [3,6]
+  Nothing
+  Just []
+  Just [5,10,5]
+output: |
+  ()
+status: pass
+reason: a via type may be a function type, reusing the Monoid instance of (->) under two layers of newtype

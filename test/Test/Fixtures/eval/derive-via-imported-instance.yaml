@@ -1,0 +1,52 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+modules:
+  - |
+    module Helper where
+
+    newtype Hex = Hex Int
+
+    hexDigits :: Int -> String
+    hexDigits n
+      | n < 16 = [digit n]
+      | otherwise = hexDigits (div n 16) ++ [digit (mod n 16)]
+      where
+        digit d
+          | d < 10 = toEnum (fromEnum '0' + d)
+          | otherwise = toEnum (fromEnum 'a' + d - 10)
+
+    instance Show Hex where
+      show (Hex n) = "0x" ++ hexDigits n
+
+    class Describe a where
+      describe :: a -> String
+
+    instance Describe Hex where
+      describe h = "hex " ++ show h
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+    module Test where
+
+    import Helper (Describe (..), Hex (..))
+    import Prelude
+
+    -- Both the via type and the class come from another module, and the
+    -- derivation must find the imported instance dictionaries.
+    newtype Unicode = U Int
+      deriving (Show, Describe) via Hex
+
+    main :: IO ()
+    main = do
+      print (U 0x20ac)
+      putStrLn (describe (U 255))
+      print [U 1, U 31]
+expression: main
+stdout: |
+  0x20ac
+  hex 0xff
+  [0x1,0x1f]
+output: |
+  ()
+status: pass
+reason: the via type, its instances and the derived class may all live in another module

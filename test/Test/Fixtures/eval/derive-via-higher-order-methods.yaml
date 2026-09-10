@@ -1,0 +1,54 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+    module Test where
+
+    import Data.List (sortBy)
+    import Prelude
+
+    -- The class variable appears in argument position, in nested argument
+    -- position and under a constructor, so the coercion has to run in both
+    -- directions inside a single method type.
+    class Selector a where
+      choose :: (a -> Bool) -> [a] -> Maybe a
+      rank :: (a -> a -> Ordering) -> [a] -> [a]
+      wrap :: a -> (a, [a])
+      apply :: ((a -> a) -> a) -> a
+
+    newtype Base = Base Int
+
+    instance Selector Base where
+      choose p xs = case filter p xs of
+        [] -> Nothing
+        (y : _) -> Just y
+      rank cmp = sortBy cmp
+      wrap x = (x, [x, x])
+      apply k = k (\(Base n) -> Base (n + 1))
+
+    newtype Level = Level Int
+      deriving Selector via Base
+
+    unLevel :: Level -> Int
+    unLevel (Level n) = n
+
+    main :: IO ()
+    main = do
+      print (fmap unLevel (choose (\l -> unLevel l > 2) [Level 1, Level 5, Level 9]))
+      print (fmap unLevel (choose (\l -> unLevel l > 20) [Level 1, Level 5]))
+      print (map unLevel (rank (\a b -> compare (unLevel b) (unLevel a)) [Level 1, Level 3, Level 2]))
+      print (case wrap (Level 4) of (a, bs) -> (unLevel a, map unLevel bs))
+      print (unLevel (apply (\f -> f (Level 10))))
+expression: main
+stdout: |
+  Just 5
+  Nothing
+  [3,2,1]
+  (4,[4,4])
+  11
+output: |
+  ()
+status: pass
+reason: methods that take the class variable in negative and doubly negative position coerce in both directions

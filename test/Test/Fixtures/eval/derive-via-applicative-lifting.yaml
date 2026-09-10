@@ -1,0 +1,53 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - GeneralizedNewtypeDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving #-}
+    module Test where
+
+    import Control.Applicative (liftA2)
+    import Prelude
+
+    -- The users guide example: one newtype carries the "lift the operation
+    -- over an Applicative" pattern, and every type that wants it derives
+    -- through the newtype instead of writing an overlapping instance.
+    newtype App f a = App (f a)
+      deriving newtype (Functor, Applicative)
+
+    instance (Applicative f, Semigroup a) => Semigroup (App f a) where
+      (<>) = liftA2 (<>)
+
+    instance (Applicative f, Monoid a) => Monoid (App f a) where
+      mempty = pure mempty
+
+    -- Pair is a data type, not a newtype, and the via type mentions the type
+    -- variable bound by the declaration head.
+    data Pair a = MkPair a a
+      deriving stock Show
+      deriving (Semigroup, Monoid) via (App Pair a)
+
+    instance Functor Pair where
+      fmap f (MkPair a b) = MkPair (f a) (f b)
+
+    instance Applicative Pair where
+      pure a = MkPair a a
+      MkPair f g <*> MkPair a b = MkPair (f a) (g b)
+
+    main :: IO ()
+    main = do
+      print (MkPair [1 :: Int] [2] <> MkPair [3] [4])
+      print (mempty :: Pair [Int])
+      print (mconcat [MkPair "a" "b", MkPair "c" "d", MkPair "e" "f"])
+      print (mappend (MkPair "x" "y") mempty)
+expression: main
+stdout: |
+  MkPair [1,3] [2,4]
+  MkPair [] []
+  MkPair "ace" "bdf"
+  MkPair "x" "y"
+output: |
+  ()
+status: pass
+reason: a via type that mentions the declaration head's type variable lifts the Applicative pattern onto a data type

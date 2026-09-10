@@ -1,0 +1,57 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+    module Test where
+
+    import Prelude
+
+    -- The via instance leaves two methods at their class defaults and
+    -- overrides a third. The derived instance must coerce the via type's
+    -- resolved methods, not the class defaults resolved afresh.
+    class Pretty a where
+      pretty :: a -> String
+      pretty _ = "?"
+      prettyList :: [a] -> String
+      prettyList xs = "[" ++ concatMap pretty xs ++ "]"
+      loud :: a -> String
+      loud x = pretty x ++ "!"
+
+    newtype Base = Base Int
+
+    instance Pretty Base where
+      pretty (Base n) = "b" ++ show n
+
+    newtype Quiet = Quiet Int
+
+    instance Pretty Quiet where
+      loud _ = "shh"
+
+    newtype Derived = Derived Int
+      deriving Pretty via Base
+
+    newtype Silent = Silent Int
+      deriving Pretty via Quiet
+
+    main :: IO ()
+    main = do
+      putStrLn (pretty (Derived 4))
+      putStrLn (loud (Derived 4))
+      putStrLn (prettyList [Derived 1, Derived 2])
+      putStrLn (pretty (Silent 4))
+      putStrLn (loud (Silent 4))
+      putStrLn (prettyList [Silent 1])
+expression: main
+stdout: |
+  b4
+  b4!
+  [b1b2]
+  ?
+  shh
+  [?]
+output: |
+  ()
+status: pass
+reason: a derived instance coerces the via type's methods, including the ones the via instance took from the class defaults
