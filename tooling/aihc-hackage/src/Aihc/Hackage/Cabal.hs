@@ -20,6 +20,13 @@ module Aihc.Hackage.Cabal
     collectCondTreeData,
     collectMergedBuildInfo,
 
+    -- * Configure build type
+    BuildType (..),
+    packageBuildType,
+    collectLibraryAutogenIncludesFor,
+    applyHookedBuildInfo,
+    prependIncludeDirs,
+
     -- * Build tool dependency extraction
     buildToolDependencyNames,
     packageUsesCustomPreprocessor,
@@ -45,15 +52,19 @@ import Distribution.ModuleName qualified as ModuleName
 import Distribution.Package (packageName, unPackageName)
 import Distribution.PackageDescription
   ( BuildInfo,
+    BuildType (..),
     Executable,
     FlagName,
+    HookedBuildInfo,
     Library,
     PackageDescription,
+    autogenIncludes,
     autogenModules,
     benchmarkBuildInfo,
     buildInfo,
     buildToolDepends,
     buildTools,
+    buildType,
     buildable,
     cSources,
     ccOptions,
@@ -202,6 +213,55 @@ mergeCCompileInfo items =
       cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
       cCompileCcOptions = concatMap cCompileCcOptions items
     }
+
+-- | The build type of a package. A missing @build-type@ field defaults the
+-- way Cabal defaults it: @Simple@, or @Custom@ when the file has a
+-- @custom-setup@ stanza.
+packageBuildType :: GenericPackageDescription -> BuildType
+packageBuildType = buildType . packageDescription
+
+-- | The headers the active library components declare as @autogen-includes@
+-- for one platform: the files a configure script is expected to write. The
+-- paths are relative to the include directories.
+collectLibraryAutogenIncludesFor :: OS -> Arch -> GenericPackageDescription -> [FilePath]
+collectLibraryAutogenIncludesFor os arch gpd =
+  nub
+    [ getSymbolicPath path
+    | tree <- libraryTrees,
+      let build = collectMergedBuildInfo evalCond libBuildInfo tree,
+      buildable build,
+      path <- autogenIncludes build
+    ]
+  where
+    evalCond = conditionEvaluatorFor gpd os arch
+    libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+
+-- | Overlay the build info a configure script wrote to @<package>.buildinfo@
+-- onto the library inputs, the way Cabal merges that file into the library
+-- after configure runs. The fields with a consumer here are the include
+-- directories, the C sources, and the C and CPP options; a relative path in
+-- the file is taken from the directory configure ran in, which is where the
+-- script writes its outputs. Fields without a consumer, such as
+-- @extra-libraries@, are dropped.
+applyHookedBuildInfo :: FilePath -> HookedBuildInfo -> [FileInfo] -> CCompileInfo -> ([FileInfo], CCompileInfo)
+applyHookedBuildInfo buildRoot (hooked, _) files cInfo =
+  case hooked of
+    Nothing -> (files, cInfo)
+    Just build ->
+      ( map (overlayFile build) files,
+        mergeCCompileInfo [cCompileInfoFromBuild buildRoot build, cInfo]
+      )
+  where
+    overlayFile build file =
+      file
+        { fileInfoCppOptions = fileInfoCppOptions file <> cppOptions build,
+          fileInfoIncludeDirs = nub (extractIncludeDirs buildRoot build <> fileInfoIncludeDirs file)
+        }
+
+-- | Search the given directories before the include directories of a file.
+prependIncludeDirs :: [FilePath] -> FileInfo -> FileInfo
+prependIncludeDirs directories file =
+  file {fileInfoIncludeDirs = nub (directories <> fileInfoIncludeDirs file)}
 
 -- | Collect the public module interface selected by active Cabal conditions.
 -- Private @other-modules@ are intentionally absent even though

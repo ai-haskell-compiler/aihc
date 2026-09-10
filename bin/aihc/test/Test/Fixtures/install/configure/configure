@@ -1,0 +1,17 @@
+#!/bin/sh
+# A stand-in for an autoconf script. Like one, it writes its outputs relative
+# to the working directory rather than next to the script, so an out-of-tree
+# run leaves the source tree alone, and it records what it was given so the
+# test can check the compiler and the host it was told about.
+set -e
+mkdir -p include
+cat > include/DemoConfig.h <<HEADER
+#define DEMO_CONFIGURED 1
+#define DEMO_CC "$CC"
+HEADER
+cat > demo.buildinfo <<BUILDINFO
+cc-options: -DDEMO_HOOKED=1
+cpp-options: -DDEMO_HOOKED_HS=1
+BUILDINFO
+printf '%s\n' "$@" > configure.args
+printf 'CC=%s\nCFLAGS=%s\n' "$CC" "$CFLAGS" > configure.env

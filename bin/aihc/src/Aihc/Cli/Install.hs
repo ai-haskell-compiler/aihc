@@ -58,7 +58,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -144,7 +144,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -152,8 +152,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (GenericPackageDescription, package, packageDescription)
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.PackageDescription (GenericPackageDescription, HookedBuildInfo, emptyHookedBuildInfo, package, packageDescription)
+import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
 import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
@@ -164,9 +164,9 @@ import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, makeRelative, takeDirectory, (<.>), (</>))
+import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
-import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
+import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode)
 
 data InstallResult = InstallResult
   { -- | The package directory: in the store for an immutable package, in
@@ -528,7 +528,11 @@ data PackageInputs = PackageInputs
   { inputCabalFile :: !FilePath,
     inputDescription :: !GenericPackageDescription,
     inputSources :: ![HackageCabal.FileInfo],
-    inputCCompileInfo :: !HackageCabal.CCompileInfo
+    inputCCompileInfo :: !HackageCabal.CCompileInfo,
+    -- | The configure script of a @build-type: Configure@ package.
+    inputConfigureScript :: !(Maybe FilePath),
+    -- | The headers the package expects its configure script to write.
+    inputAutogenIncludes :: ![FilePath]
   }
 
 readPackageInputs :: ModuleCompileConfig -> FilePath -> IO PackageInputs
@@ -543,12 +547,22 @@ readPackageInputs config root = do
     (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
   let (targetOs, targetArch) = cabalPlatformForTarget (compileTarget config)
   files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
+  configureScript <- case HackageCabal.packageBuildType gpd of
+    HackageCabal.Configure -> do
+      let script = root </> "configure"
+      exists <- doesFileExist script
+      unless exists $
+        ioError (userError ("The package has build-type Configure but no configure script: " <> script))
+      pure (Just script)
+    _ -> pure Nothing
   pure
     PackageInputs
       { inputCabalFile = cabalFile,
         inputDescription = gpd,
         inputSources = files,
-        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root
+        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root,
+        inputConfigureScript = configureScript,
+        inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesFor targetOs targetArch gpd
       }
 
 -- | Install an immutable package into the store, unless the store has it.
@@ -636,13 +650,12 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   let gpd = inputDescription inputs
-      files = inputSources inputs
-      cCompileInfo = inputCCompileInfo inputs
   let packageId = package (packageDescription gpd)
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
   let storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId unitIdentity)
+  (files, cCompileInfo) <- configurePackage config root storePath packageNameText inputs
   compiled <- compileModulesWithDependencies config storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
@@ -877,10 +890,14 @@ storePackageIdentity :: ModuleCompileConfig -> [InstalledPackage] -> PackageInpu
 storePackageIdentity config dependencies inputs = do
   let (unitIdentity, packageNameText, packageVersionText) = packageUnitIdentity inputs
       cInputs = inputCCompileInfo inputs
+      -- A configure script answers for the sysroot it saw, and its answers
+      -- reach the Haskell sources through the CPP pass, so they count even
+      -- without code.
+      usesSysroot = isJust (inputConfigureScript inputs) || not (compileNoCode config || null (HackageCabal.cCompileSources cInputs))
   cSysrootArguments <-
-    if compileNoCode config || null (HackageCabal.cCompileSources cInputs)
-      then pure []
-      else wasmSysrootIncludeArguments (compileTarget config)
+    if usesSysroot
+      then wasmSysrootIncludeArguments (compileTarget config)
+      else pure []
   let fingerprint =
         stableHash
           ( map
@@ -917,6 +934,8 @@ archiveInputsHash config root dependencies inputs = do
     if null (HackageCabal.cCompileSources cInputs)
       then pure []
       else wasmSysrootIncludeArguments (compileTarget config)
+  -- The C sources include the headers configure wrote.
+  configureHash <- maybe (pure "") (configureInputsHash config) (inputConfigureScript inputs)
   pure
     ( stableHash
         ( map
@@ -924,6 +943,7 @@ archiveInputsHash config root dependencies inputs = do
             ( T.pack (backendOptionsKey config)
                 : T.pack sourceHash
                 : T.pack (show cSysrootArguments)
+                : T.pack configureHash
                 : sortOn id (map installedIdentity dependencies)
             )
         )
@@ -2089,6 +2109,151 @@ compilePackageCFiles target verbose packageRoot storePath info
           )
         pure object
 
+-- | Run the configure script of a @build-type: Configure@ package and return
+-- the sources and C inputs with its outputs in their include paths.
+--
+-- Cabal runs the script in the package directory, so the generated headers
+-- land beside their templates. Here the source tree is shared by every
+-- target -- a Hackage release is unpacked once into the cache -- while the
+-- answers configure finds are per target, so the script runs out of tree
+-- from a directory under the package's own output path. Autoconf supports
+-- this: the outputs of @AC_CONFIG_HEADERS@ and @AC_CONFIG_FILES@ are written
+-- relative to the working directory and @srcdir@ is derived from the script
+-- path. Every include directory of the package then gets a counterpart under
+-- the configure directory that is searched first, which is how the generated
+-- headers reach both the CPP pass over the Haskell sources and the C
+-- compiles. A @<package>.buildinfo@ the script writes is merged the way
+-- Cabal merges it.
+--
+-- The script sees the C compiler of the target, so its feature tests answer
+-- for the target rather than the host.
+configurePackage :: ModuleCompileConfig -> FilePath -> FilePath -> Text -> PackageInputs -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
+configurePackage config root storePath packageName inputs =
+  case inputConfigureScript inputs of
+    Nothing -> pure (files, cInfo)
+    Just script -> do
+      let buildDirectory = storePath </> "configure"
+          stampPath = buildDirectory </> "configure.hash"
+      (executable, arguments, environment) <- configureCommand (compileTarget config) script
+      inputsHash <- configureInputsHash config script
+      previous <- readStampText stampPath
+      if previous == Just inputsHash
+        then verbose ("Reuse configure: " <> buildDirectory)
+        else do
+          exists <- doesDirectoryExist buildDirectory
+          when exists (removeDirectoryRecursive buildDirectory)
+          createDirectoryIfMissing True buildDirectory
+          verbose ("Configure: " <> unwords (executable : arguments))
+          runToolIn buildDirectory environment executable arguments
+          BS8.writeFile stampPath (BS8.pack inputsHash)
+      let packageIncludeDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files <> HackageCabal.cCompileIncludeDirs cInfo)
+          -- An include directory outside the package has no generated
+          -- counterpart.
+          counterparts =
+            [ buildDirectory </> relative
+            | directory <- packageIncludeDirs,
+              let relative = makeRelative root directory,
+              isRelative relative
+            ]
+      generatedDirs <- filterM doesDirectoryExist counterparts
+      hooked <- readHookedBuildInfo buildDirectory packageName
+      let (files', cInfo') =
+            HackageCabal.applyHookedBuildInfo
+              buildDirectory
+              hooked
+              (map (HackageCabal.prependIncludeDirs generatedDirs) files)
+              cInfo {HackageCabal.cCompileIncludeDirs = nub (generatedDirs <> HackageCabal.cCompileIncludeDirs cInfo)}
+          searchDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files' <> HackageCabal.cCompileIncludeDirs cInfo')
+      forM_ (inputAutogenIncludes inputs) $ \header -> do
+        found <- filterM (\directory -> doesFileExist (directory </> header)) searchDirs
+        when (null found) $
+          ioError
+            ( userError
+                ( "The configure script of "
+                    <> T.unpack packageName
+                    <> " did not write the autogen-includes header "
+                    <> header
+                    <> " under "
+                    <> buildDirectory
+                )
+            )
+      pure (files', cInfo')
+  where
+    files = inputSources inputs
+    cInfo = inputCCompileInfo inputs
+    verbose = compileVerbose config
+
+-- | The command that runs a configure script for a target: the shell, since
+-- an unpacked release does not keep the executable bit; the script and its
+-- arguments; and an environment naming the C compiler of the target.
+--
+-- @CC@ and @CFLAGS@ are what the C sources of the package are later compiled
+-- with, so a feature test and the code that acts on its answer see the same
+-- compiler, target and sysroot.
+--
+-- Autoconf and aihc use the word host for opposite machines. Autoconf's
+-- build machine is where the compiler runs, which aihc calls the host; its
+-- host machine is where the compiled code runs, which aihc calls the target.
+-- So the aihc target is passed as @--host@, and only when it is not the aihc
+-- host: that tells the script it cannot run the programs it compiles. When
+-- the two coincide nothing is passed, as Cabal passes nothing: the build
+-- machine is guessed by the script, and a named host that differs from that
+-- guess, even only by a version suffix, counts as cross-compiling too.
+configureCommand :: NativeTarget -> FilePath -> IO (FilePath, [String], [(String, String)])
+configureCommand target script = do
+  (compiler, targetArguments) <- backendCompiler target
+  sysrootIncludes <- wasmSysrootIncludeArguments target
+  inherited <- getEnvironment
+  let cflags = unwords (targetArguments <> handwrittenCArguments <> sysrootIncludes)
+      overrides = [("CC", compiler), ("CFLAGS", cflags)]
+      environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
+      crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
+  pure ("sh", script : crossArguments, environment)
+
+-- | The name autoconf gives the machine an aihc target's code runs on, in
+-- autoconf's vocabulary the host, for the @--host@ argument of a configure
+-- script. The names are the canonical ones config.sub produces, which is not
+-- always the Clang triple: Clang says @arm64@ where autoconf says @aarch64@.
+autoconfHostName :: NativeTarget -> Maybe String
+autoconfHostName target =
+  case target of
+    AppleArm64 -> Just "aarch64-apple-darwin"
+    LinuxAmd64 -> Just "x86_64-unknown-linux-gnu"
+    Wasm32Wasip3 -> Just "wasm32-unknown-wasi"
+    -- The LLVM target is whatever machine aihc runs on, so it has no name
+    -- of its own and is never a cross target.
+    Llvm -> Nothing
+
+-- | What the outputs of a configure run depend on: the script, the compiler
+-- and arguments it sees, and the target.
+configureInputsHash :: ModuleCompileConfig -> FilePath -> IO String
+configureInputsHash config script = do
+  let target = compileTarget config
+  scriptBytes <- BS.readFile script
+  environmentIdentity <- buildEnvironmentIdentity target
+  (executable, arguments, environment) <- configureCommand target script
+  pure
+    ( stableHash
+        [ TE.encodeUtf8 packageArtifactFormatVersion,
+          scriptBytes,
+          BS8.pack environmentIdentity,
+          BS8.pack (show (executable, arguments, lookup "CC" environment, lookup "CFLAGS" environment))
+        ]
+    )
+
+-- | The @<package>.buildinfo@ a configure script wrote, if it wrote one.
+readHookedBuildInfo :: FilePath -> Text -> IO HookedBuildInfo
+readHookedBuildInfo buildDirectory packageName = do
+  let path = buildDirectory </> T.unpack packageName <.> "buildinfo"
+  exists <- doesFileExist path
+  if not exists
+    then pure emptyHookedBuildInfo
+    else do
+      bytes <- BS.readFile path
+      case runParseResult (parseHookedBuildInfo bytes) of
+        (_, Right value) -> pure value
+        (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> path <> ": " <> show errors))
+
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =
   case target of
@@ -2132,8 +2297,15 @@ runTool :: FilePath -> [String] -> IO ()
 runTool = runToolWithEnvironment Nothing
 
 runToolWithEnvironment :: Maybe [(String, String)] -> FilePath -> [String] -> IO ()
-runToolWithEnvironment environment executable arguments = do
-  (status, output, errors) <- readCreateProcessWithExitCode (proc executable arguments) {env = environment} ""
+runToolWithEnvironment environment = runToolWith (\process -> process {env = environment})
+
+-- | Run a tool from a directory with the given environment.
+runToolIn :: FilePath -> [(String, String)] -> FilePath -> [String] -> IO ()
+runToolIn directory environment = runToolWith (\process -> process {cwd = Just directory, env = Just environment})
+
+runToolWith :: (CreateProcess -> CreateProcess) -> FilePath -> [String] -> IO ()
+runToolWith adjust executable arguments = do
+  (status, output, errors) <- readCreateProcessWithExitCode (adjust (proc executable arguments)) ""
   case status of
     ExitSuccess -> pure ()
     ExitFailure code ->
@@ -2301,4 +2473,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-20"
+packageArtifactFormatVersion = "aihc-artifacts-21"
