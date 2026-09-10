@@ -224,6 +224,10 @@ void aihc_memory_move(void *destination, const void *source, uint64_t length) {
   memmove(destination, source, (size_t)length);
 }
 
+void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
+  memset(destination, (int)(byte & 0xff), (size_t)length);
+}
+
 void aihc_memory_free(void *pointer) { free(pointer); }
 
 /* The RTS option parser and the argument store live in

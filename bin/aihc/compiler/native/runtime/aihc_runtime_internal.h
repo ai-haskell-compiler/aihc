@@ -131,6 +131,7 @@ void *aihc_allocate_zeroed(uint64_t bytes);
 void *aihc_allocate_auxiliary(AihcMachine *machine, uint64_t bytes);
 void aihc_memory_copy(void *destination, const void *source, uint64_t length);
 void aihc_memory_move(void *destination, const void *source, uint64_t length);
+void aihc_memory_set(void *destination, uint64_t byte, uint64_t length);
 void aihc_memory_free(void *pointer);
 /* The machine fields that aihc_stable_name.lir needs. Their offsets in
    AihcMachine follow the target word size, so a Lir unit reaches them through

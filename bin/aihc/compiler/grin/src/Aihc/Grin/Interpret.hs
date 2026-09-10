@@ -1144,6 +1144,38 @@ evalPrimitive "indexWord8ArrayAsWord32#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "indexWord8ArrayAsWord32#" 1 4 readAddressWord32 value offset
 evalPrimitive "indexWord8ArrayAsWord64#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "indexWord8ArrayAsWord64#" 1 8 readAddressWord64 value offset
+evalPrimitive "indexWord8Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word8Rep <$> readByteArrayElement "indexWord8Array#" 1 1 readAddressWord8 value index
+evalPrimitive "indexWord16Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readByteArrayElement "indexWord16Array#" 2 2 readAddressWord16 value index
+evalPrimitive "indexWord32Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "indexWord32Array#" 4 4 readAddressWord32 value index
+evalPrimitive "indexWord64Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "indexWord64Array#" 8 8 readAddressWord64 value index
+evalPrimitive "readWord8Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word8Rep <$> readByteArrayElement "readWord8Array#" 1 1 readAddressWord8 value index
+evalPrimitive "readWord16Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readByteArrayElement "readWord16Array#" 2 2 readAddressWord16 value index
+evalPrimitive "readWord32Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "readWord32Array#" 4 4 readAddressWord32 value index
+evalPrimitive "readWord64Array#" [value, index] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "readWord64Array#" 8 8 readAddressWord64 value index
+evalPrimitive "writeWord8Array#" [value, index, element] =
+  writeByteArrayElement "writeWord8Array#" 1 1 Word8Rep writeAddressWord8 value index element
+evalPrimitive "writeWord16Array#" [value, index, element] =
+  writeByteArrayElement "writeWord16Array#" 2 2 Word16Rep writeAddressWord16 value index element
+evalPrimitive "writeWord32Array#" [value, index, element] =
+  writeByteArrayElement "writeWord32Array#" 4 4 Word32Rep writeAddressWord32 value index element
+evalPrimitive "writeWord64Array#" [value, index, element] =
+  writeByteArrayElement "writeWord64Array#" 8 8 Word64Rep writeAddressWord64 value index element
+evalPrimitive "setByteArray#" [value, offset, byteCount, byteValue] = do
+  byteArray <- expectByteArrayPrimitiveArgument "setByteArray#" value
+  checkedOffset <- expectIntPrimitiveArgument "setByteArray#" offset
+  checkedLength <- expectIntPrimitiveArgument "setByteArray#" byteCount
+  element <- expectIntPrimitiveArgument "setByteArray#" byteValue
+  (start, byteLength) <- checkedByteArrayRange "setByteArray#" byteArray checkedOffset checkedLength
+  liftEvalIO (fillBytes (grinByteArrayContents byteArray `plusPtr` start) (fromInteger (element .&. 0xff)) byteLength)
+  pure []
 evalPrimitive "writeWordArray#" [value, index, wordValue] = do
   byteArray <- expectByteArrayPrimitiveArgument "writeWordArray#" value
   wordIndex <- expectIntPrimitiveArgument "writeWordArray#" index
@@ -1314,6 +1346,16 @@ readByteArrayElement symbol stride elementSize readElement value indexValue = do
   index <- expectIntPrimitiveArgument symbol indexValue
   (byteOffset, _) <- checkedByteArrayRange symbol byteArray (index * toInteger stride) (toInteger elementSize)
   liftEvalIO (readElement (grinByteArrayContents byteArray) byteOffset)
+
+-- | Write one element of a byte array at a scaled offset with a bounds check.
+writeByteArrayElement :: Text -> Int -> Int -> GrinRep -> (Ptr () -> Int -> Integer -> IO ()) -> RuntimeValue -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+writeByteArrayElement symbol stride elementSize valueRep writeElement value indexValue elementValue = do
+  byteArray <- expectByteArrayPrimitiveArgument symbol value
+  index <- expectIntPrimitiveArgument symbol indexValue
+  element <- expectRuntimeRepPrimitiveArgument symbol valueRep elementValue
+  (byteOffset, _) <- checkedByteArrayRange symbol byteArray (index * toInteger stride) (toInteger elementSize)
+  liftEvalIO (writeElement (grinByteArrayContents byteArray) byteOffset element)
+  pure []
 
 checkedWordArrayIndex :: Text -> GrinByteArray -> Integer -> EvalM Int
 checkedWordArrayIndex symbol byteArray index = do

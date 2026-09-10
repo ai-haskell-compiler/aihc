@@ -102,6 +102,20 @@ tests =
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           ["unsafeFreezeByteArray#", "unsafeThawByteArray#", "unsafeFreezeArray#", "unsafeThawArray#"],
+      testCase "keeps the element-strided and byte-offset byte-array families apart" $
+        mapM_
+          ( \(elementStrided, byteOffset) ->
+              assertEqual
+                ("runtime call for " <> show elementStrided <> " and " <> show byteOffset)
+                False
+                ( (runtimeCallSymbol <$> nativeRuntimePrimitiveCall elementStrided)
+                    == (runtimeCallSymbol <$> nativeRuntimePrimitiveCall byteOffset)
+                )
+          )
+          [ ("indexWord16Array#", "indexWord8ArrayAsWord16#"),
+            ("indexWord32Array#", "indexWord8ArrayAsWord32#"),
+            ("indexWord64Array#", "indexWord8ArrayAsWord64#")
+          ],
       testCase "accepts the complete byte-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -181,7 +195,20 @@ byteArrayRuntimeSymbols =
     ("copyMutableByteArray#", "aihc_byte_array_copy"),
     ("copyByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
     ("copyMutableByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
-    ("compareByteArrays#", "aihc_byte_array_compare")
+    ("compareByteArrays#", "aihc_byte_array_compare"),
+    ("setByteArray#", "aihc_byte_array_set"),
+    ("indexWord8Array#", "aihc_byte_array_index_word8"),
+    ("readWord8Array#", "aihc_byte_array_read_word8"),
+    ("writeWord8Array#", "aihc_byte_array_write_word8"),
+    ("indexWord16Array#", "aihc_byte_array_index_word16"),
+    ("readWord16Array#", "aihc_byte_array_read_word16"),
+    ("writeWord16Array#", "aihc_byte_array_write_word16"),
+    ("indexWord32Array#", "aihc_byte_array_index_word32"),
+    ("readWord32Array#", "aihc_byte_array_read_word32"),
+    ("writeWord32Array#", "aihc_byte_array_write_word32"),
+    ("indexWord64Array#", "aihc_byte_array_index_word64"),
+    ("readWord64Array#", "aihc_byte_array_read_word64"),
+    ("writeWord64Array#", "aihc_byte_array_write_word64")
   ]
 
 bitPatternCastNames :: [Text]

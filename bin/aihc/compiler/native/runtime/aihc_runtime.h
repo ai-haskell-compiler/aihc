@@ -345,6 +345,24 @@ uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset);
 uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset);
 uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset);
 uint64_t aihc_byte_array_index_byte_word64(void *opaque_array, int64_t offset);
+uint64_t aihc_byte_array_set(void *array, int64_t offset, int64_t length,
+                             uint64_t value);
+uint64_t aihc_byte_array_index_word8(void *array, int64_t index);
+uint64_t aihc_byte_array_read_word8(void *array, int64_t index);
+uint64_t aihc_byte_array_write_word8(void *array, int64_t index,
+                                     uint64_t value);
+uint64_t aihc_byte_array_index_word16(void *array, int64_t index);
+uint64_t aihc_byte_array_read_word16(void *array, int64_t index);
+uint64_t aihc_byte_array_write_word16(void *array, int64_t index,
+                                      uint64_t value);
+uint64_t aihc_byte_array_index_word32(void *array, int64_t index);
+uint64_t aihc_byte_array_read_word32(void *array, int64_t index);
+uint64_t aihc_byte_array_write_word32(void *array, int64_t index,
+                                      uint64_t value);
+uint64_t aihc_byte_array_index_word64(void *array, int64_t index);
+uint64_t aihc_byte_array_read_word64(void *array, int64_t index);
+uint64_t aihc_byte_array_write_word64(void *array, int64_t index,
+                                      uint64_t value);
 void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
                           int64_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,
