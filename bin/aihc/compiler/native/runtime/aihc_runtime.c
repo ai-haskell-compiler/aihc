@@ -1,9 +1,7 @@
 #include "aihc_runtime.h"
 #include "aihc_runtime_internal.h"
 
-#include <inttypes.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -290,6 +288,28 @@ void aihc_environment_initialize(char *const envp[]) {
 static AihcMachine *aihc_process_machine;
 static int aihc_statistics_reported;
 
+/* The report is formatted by hand: snprintf would pull the stdio layer of
+   libc into the WASI P3 runtime, and that layer imports WASI preview 1. */
+static char *aihc_append_text(char *cursor, const char *text) {
+  size_t length = strlen(text);
+  memcpy(cursor, text, length);
+  return cursor + length;
+}
+
+/* Twenty digits hold every uint64_t. */
+static char *aihc_append_decimal(char *cursor, uint64_t value) {
+  char digits[20];
+  size_t count = 0;
+  do {
+    digits[count++] = (char)('0' + value % 10);
+    value /= 10;
+  } while (value != 0);
+  while (count != 0) {
+    *cursor++ = digits[--count];
+  }
+  return cursor;
+}
+
 void aihc_runtime_statistics_report(void) {
   const char *path = aihc_rts_stats_path();
   AihcMachine *machine = aihc_process_machine;
@@ -298,18 +318,19 @@ void aihc_runtime_statistics_report(void) {
   }
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(machine);
+  /* The fixed text is 86 bytes and the four numbers take at most 80. */
   char text[256];
-  int length =
-      snprintf(text, sizeof(text),
-               "{\"schema\": 1, \"peak_heap_bytes\": %" PRIu64
-               ", \"allocated_bytes\": %" PRIu64 ", \"gc_count\": %" PRIu64
-               ", \"gc_time_ns\": %" PRIu64 "}\n",
-               machine->heap_peak_bytes, machine->heap_allocated_bytes,
-               machine->gc_count, machine->gc_time_ns);
-  if (length < 0 || (size_t)length >= sizeof(text)) {
-    aihc_fail("runtime statistics do not fit their buffer");
-  }
-  if (aihc_host_write_file(path, text, (size_t)length) != 0) {
+  char *cursor = text;
+  cursor = aihc_append_text(cursor, "{\"schema\": 1, \"peak_heap_bytes\": ");
+  cursor = aihc_append_decimal(cursor, machine->heap_peak_bytes);
+  cursor = aihc_append_text(cursor, ", \"allocated_bytes\": ");
+  cursor = aihc_append_decimal(cursor, machine->heap_allocated_bytes);
+  cursor = aihc_append_text(cursor, ", \"gc_count\": ");
+  cursor = aihc_append_decimal(cursor, machine->gc_count);
+  cursor = aihc_append_text(cursor, ", \"gc_time_ns\": ");
+  cursor = aihc_append_decimal(cursor, machine->gc_time_ns);
+  cursor = aihc_append_text(cursor, "}\n");
+  if (aihc_host_write_file(path, text, (size_t)(cursor - text)) != 0) {
     aihc_fail("cannot write the runtime statistics file");
   }
 }
