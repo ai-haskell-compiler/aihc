@@ -1,0 +1,62 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    data Celsius = Celsius Int
+    data Fahrenheit = Fahrenheit Int
+    data Kelvin = Kelvin Int
+
+    -- A one-to-one mapping between types: each parameter determines the other.
+    class Iso a b | a -> b, b -> a where
+      forwards :: a -> b
+      backwards :: b -> a
+
+    instance Iso Celsius Fahrenheit where
+      forwards (Celsius c) = Fahrenheit (div (c * 9) 5 + 32)
+      backwards (Fahrenheit f) = Celsius (div ((f - 32) * 5) 9)
+
+    instance Iso Kelvin Int where
+      forwards (Kelvin k) = k
+      backwards = Kelvin
+
+    -- Only the argument type is known; the result comes from a -> b.
+    toF :: Celsius -> Int
+    toF c = case forwards c of Fahrenheit f -> f
+
+    -- Only the result type is known; the argument comes from b -> a.
+    fromF :: Int -> Int
+    fromF f = case backwards (Fahrenheit f) of Celsius c -> c
+
+    -- Neither end is annotated: the round trip is resolved by both dependencies.
+    roundTrip :: Celsius -> Int
+    roundTrip c = case backwards (forwards c) of Celsius n -> n
+
+    -- b -> a picks the Kelvin instance from the Int alone.
+    kelvinOf :: Int -> Int
+    kelvinOf n = case backwards n of Kelvin k -> k
+
+    checks :: [Bool]
+    checks =
+      [ toF (Celsius 100) == 212,
+        toF (Celsius 0) == 32,
+        fromF 212 == 100,
+        roundTrip (Celsius 35) == 35,
+        kelvinOf 273 == 273,
+        forwards (Kelvin 7) == 7
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a class with dependencies in both directions improves from the argument type and from the result type

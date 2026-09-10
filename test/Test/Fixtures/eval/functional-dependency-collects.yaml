@@ -1,0 +1,76 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    -- The class from the users guide: the collection type determines the element
+    -- type, so `empty` is not ambiguous even though `e` is absent from its type.
+    class Collects e ce | ce -> e where
+      empty :: ce
+      insert :: e -> ce -> ce
+      member :: e -> ce -> Bool
+
+    instance Eq e => Collects e [e] where
+      empty = []
+      insert = (:)
+      member = elem
+
+    -- A characteristic function is also a collection of its argument type.
+    instance Eq e => Collects e (e -> Bool) where
+      empty _ = False
+      insert x f y = x == y || f y
+      member x f = f x
+
+    newtype DigitSet = DigitSet [Int]
+
+    -- A monomorphic instance: the element type is not a variable at all.
+    instance Collects Int DigitSet where
+      empty = DigitSet []
+      insert d (DigitSet ds) = DigitSet (d : ds)
+      member d (DigitSet ds) = elem d ds
+
+    -- Without the dependency this would need two Collects constraints and would
+    -- allow x and y to differ; with it GHC infers `Collects a c => a -> a -> c -> c`.
+    insertTwo x y = insert x . insert y
+
+    listOfBools :: [Bool]
+    listOfBools = insertTwo True False empty
+
+    -- `empty` used at a type the annotation alone fixes.
+    emptyDigits :: DigitSet
+    emptyDigits = empty
+
+    digits :: DigitSet
+    digits = insertTwo 1 2 emptyDigits
+
+    predicate :: Int -> Bool
+    predicate = insert 3 (insert 4 empty)
+
+    checks :: [Bool]
+    checks =
+      [ listOfBools == [True, False],
+        member (2 :: Int) digits,
+        not (member (9 :: Int) digits),
+        member (3 :: Int) predicate,
+        member (4 :: Int) predicate,
+        not (member (5 :: Int) predicate),
+        not (member 'z' (empty :: Char -> Bool)),
+        member 'q' (insert 'q' empty :: [Char])
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: the collection type determines the element type, so 'empty' is unambiguous and inserting two values into one collection unifies their types

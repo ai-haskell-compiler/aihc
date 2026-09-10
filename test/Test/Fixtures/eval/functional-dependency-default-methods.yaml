@@ -1,0 +1,84 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    -- The rule from the users guide: every class variable must be reachable from
+    -- each method type. `emptyOf` mentions only `s`, so without `s -> a` the class
+    -- would be rejected.
+    class Coll s a | s -> a where
+      emptyOf :: s
+      insertOne :: s -> a -> s
+      toL :: s -> [a]
+
+      -- A default method whose body raises constraints the dependency has to
+      -- resolve: `insertOne` and `emptyOf` are used at types nothing else fixes.
+      fromList :: [a] -> s
+      fromList = foldl insertOne emptyOf
+
+      size :: s -> Int
+      size = length . toL
+
+    newtype IntBag = IntBag [Int]
+
+    instance Coll IntBag Int where
+      emptyOf = IntBag []
+      insertOne (IntBag xs) x = IntBag (x : xs)
+      toL (IntBag xs) = xs
+
+    newtype CharStack = CharStack [Char]
+
+    instance Coll CharStack Char where
+      emptyOf = CharStack []
+      insertOne (CharStack xs) x = CharStack (x : xs)
+      toL (CharStack xs) = xs
+
+      -- One instance overrides the default; the other inherits it.
+      fromList = CharStack . reverse
+
+    -- A superclass that constrains the determined variable.
+    class Coll s a => Summable s a | s -> a where
+      total :: s -> Int
+
+    instance Summable IntBag Int where
+      total = sum . toL
+
+    -- The element type is never written: `s -> a` reads it out of the collection.
+    reload :: (Coll s a) => s -> [a]
+    reload s = toL (fromList (toL s) `asTypeOf` s)
+
+    bag :: IntBag
+    bag = fromList [1, 2, 3]
+
+    stack :: CharStack
+    stack = fromList "abc"
+
+    checks :: [Bool]
+    checks =
+      [ toL bag == [3, 2, 1],
+        toL stack == "cba",
+        size bag == 3,
+        size stack == 3,
+        total bag == 6,
+        toL (emptyOf :: IntBag) == [],
+        size (insertOne (emptyOf :: CharStack) 'q') == 1,
+        reload bag == [1, 2, 3],
+        reload stack == "abc"
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a dependency makes every class variable reachable and resolves the constraints raised by default method bodies

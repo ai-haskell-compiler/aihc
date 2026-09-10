@@ -1,0 +1,53 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    data Pair = Pair Int Bool
+    data Triple = Triple Bool Char Int
+
+    -- One parameter determines two others: `t -> a b`.
+    class Split t a b | t -> a b where
+      first :: t -> a
+      second :: t -> b
+
+    instance Split Pair Int Bool where
+      first (Pair n _) = n
+      second (Pair _ b) = b
+
+    instance Split Triple Bool Char where
+      first (Triple b _ _) = b
+      second (Triple _ c _) = c
+
+    -- Neither `a` nor `b` occurs in the signature; both come from `t`.
+    swapped :: (Split t a b) => t -> (b, a)
+    swapped t = (second t, first t)
+
+    pairSwapped :: (Bool, Int)
+    pairSwapped = swapped (Pair 3 True)
+
+    tripleSwapped :: (Char, Bool)
+    tripleSwapped = swapped (Triple False 'x' 9)
+
+    checks :: [Bool]
+    checks =
+      [ pairSwapped == (True, 3),
+        tripleSwapped == ('x', False),
+        first (Pair 8 False) == 8,
+        second (Triple True 'k' 0) == 'k'
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: one class parameter determines two others through a single 't -> a b' dependency

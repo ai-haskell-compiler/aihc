@@ -1,0 +1,31 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    {-# LANGUAGE FlexibleInstances #-}
+    module Test where
+
+    import Prelude
+
+    class D a b | a -> b where
+      d :: a -> b
+
+    -- Rejected on its own: one choice of [a] would stand for every choice of
+    -- b, so b is not determined by the instance head.
+    instance D [a] b where
+      d _ = error "unreachable"
+
+    result :: Bool
+    result = True
+expression: |
+  result
+output: |
+  True
+error: |
+  typecheck error: Test: instance D [a] b does not determine b from a
+status: fail
+reason: an instance whose determined parameter has a variable outside the determining parameters breaks the coverage condition

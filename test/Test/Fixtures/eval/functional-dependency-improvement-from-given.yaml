@@ -1,0 +1,64 @@
+extensions:
+  - FlexibleContexts
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    class Key k v | k -> v where
+      lookupKey :: k -> v
+
+    data NameKey = NameKey
+    data SizeKey = SizeKey
+
+    instance Key NameKey [Char] where
+      lookupKey _ = "aihc"
+
+    instance Key SizeKey Int where
+      lookupKey _ = 4
+
+    -- Every use of `lookupKey` below raises its own wanted constraint whose second
+    -- argument is a fresh variable. Only the dependency on the *given* constraint
+    -- can tie those variables to `v`, so without improvement from givens none of
+    -- these bodies typecheck.
+    sameValue :: (Key k v, Eq v) => k -> k -> Bool
+    sameValue a b = lookupKey a == lookupKey b
+
+    pairUp :: Key k v => k -> (v, v)
+    pairUp k = (lookupKey k, lookupKey k)
+
+    -- The given also improves a wanted raised inside an inferred `where` binding.
+    viaWhere :: (Key k v, Eq v) => k -> v -> Bool
+    viaWhere k expected = check k
+      where
+        check x = lookupKey x == expected
+
+    -- A given at a known instance head: the dependency and the instance agree.
+    sizeIsFour :: Key SizeKey v => v -> Bool
+    sizeIsFour = const True
+
+    checks :: [Bool]
+    checks =
+      [ sameValue NameKey NameKey,
+        sameValue SizeKey SizeKey,
+        fst (pairUp SizeKey) == 4,
+        snd (pairUp NameKey) == "aihc",
+        viaWhere SizeKey 4,
+        not (viaWhere NameKey "ghc"),
+        sizeIsFour (0 :: Int)
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a given constraint improves the wanted constraints raised by each method use
