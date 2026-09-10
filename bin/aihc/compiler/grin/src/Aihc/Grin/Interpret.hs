@@ -31,11 +31,12 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word16, Word32, Word64, Word8)
+import Foreign.C.Error (Errno (..), getErrno, resetErrno)
 import Foreign.LibFFI (Arg, RetType, argCDouble, argCFloat, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retCDouble, retCFloat, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
 import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
-import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, plusPtr, ptrToIntPtr)
+import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, nullPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile)
@@ -1278,6 +1279,7 @@ evalPrimitive "writeWord8OffAddrAsFloat#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsFloat#" 1 FloatRep writeAddressWord32 address offset value
 evalPrimitive "writeWord8OffAddrAsDouble#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsDouble#" 1 DoubleRep writeAddressWord64 address offset value
+evalPrimitive "nullAddr#" [] = pure [RuntimeAddress nullPtr]
 evalPrimitive "plusAddr#" [address, offset] = do
   byteOffset <- expectIntPrimitiveArgument "plusAddr#" offset
   (: []) <$> addressPlus "plusAddr#" address byteOffset
@@ -1851,6 +1853,21 @@ callForeign foreignCall arguments
   | symbol == "aihc_io_stderr",
     [] <- arguments =
       (: []) . RuntimeIOHandle . GrinIOHandle 2 . programStderr <$> getsMachine machineStreams
+  -- The interpreter runs a foreign call in its own process, so the errno of
+  -- that process is the one the call set. Only a reset ever reaches here,
+  -- because that is all Foreign.C.Error asks for; base has no general setter.
+  | symbol == "aihc_errno_get",
+    [] <- arguments = do
+      Errno current <- liftEvalIO getErrno
+      pure [RuntimeLit (GrinLitInt IntRep (toInteger current))]
+  | symbol == "aihc_errno_set",
+    [value] <- arguments = do
+      requested <- expectForeignInt symbol value
+      Errno previous <- liftEvalIO getErrno
+      if requested == 0
+        then liftEvalIO resetErrno
+        else throwInterpret (InterpretForeignTypeError symbol value)
+      pure [RuntimeLit (GrinLitInt IntRep (toInteger previous))]
   | symbol == "aihc_memory_write_byte",
     [bufferValue, offsetValue, byteValue] <- arguments = do
       buffer <- expectAddress symbol bufferValue

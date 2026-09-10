@@ -1,0 +1,50 @@
+extensions:
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE ForeignFunctionInterface #-}
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import Control.Exception (SomeException, try)
+    import Foreign.C.Error (Errno (..), eRANGE, getErrno, resetErrno, throwErrnoIfMinus1_)
+    import Foreign.C.Types (CInt (..), CLong (..))
+    import GHC.Prim (Addr#, nullAddr#)
+
+    -- strtol reports an overflow through errno and touches no file
+    -- descriptor, so it sets errno the same way on every POSIX target.
+    foreign import ccall unsafe "strtol"
+      c_strtol :: Addr# -> Addr# -> CInt -> IO CLong
+
+    main :: IO ()
+    main = do
+      resetErrno
+      Errno cleared <- getErrno
+      putStrLn ("cleared: " ++ show (cleared == 0))
+      _ <- c_strtol "999999999999999999999999"# nullAddr# 10
+      overflowed <- getErrno
+      putStrLn ("overflow is eRANGE: " ++ show (overflowed == eRANGE))
+      resetErrno
+      _ <- c_strtol "17"# nullAddr# 10
+      ok <- getErrno
+      putStrLn ("success leaves errno: " ++ show (ok == Errno 0))
+      raised <- try (throwErrnoIfMinus1_ "probe" (pure (negate 1 :: CInt)))
+      case raised of
+        Left err -> putStrLn ("raised: " ++ show (seq (err :: SomeException) True))
+        Right () -> putStrLn "raised: False"
+      passed <- try (throwErrnoIfMinus1_ "probe" (pure (0 :: CInt)))
+      case passed of
+        Left err -> putStrLn ("passed: " ++ show (seq (err :: SomeException) False))
+        Right () -> putStrLn "passed: True"
+stdout: |
+  cleared: True
+  overflow is eRANGE: True
+  success leaves errno: True
+  raised: True
+  passed: True
+output: |
+  ()
+expression: main
+status: pass
+reason: getErrno and resetErrno reach the real errno through the runtime shim, and throwErrnoIfMinus1_ raises only on -1

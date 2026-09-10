@@ -320,6 +320,8 @@ void *aihc_io_stdout(void);
 void *aihc_io_stderr(void);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
+int64_t aihc_errno_get(void);
+int64_t aihc_errno_set(int64_t value);
 int64_t aihc_memory_write_byte(void *buffer, int64_t offset, int64_t value);
 int64_t aihc_memory_read_byte(const void *buffer, int64_t offset);
 _Noreturn int64_t aihc_io_raise_error(int64_t error);

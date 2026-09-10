@@ -1,6 +1,7 @@
 #include "aihc_runtime.h"
 #include "aihc_runtime_internal.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -788,6 +789,17 @@ int64_t aihc_memory_read_byte(const void *opaque_buffer, int64_t offset) {
   }
   const uint8_t *buffer = opaque_buffer;
   return buffer[offset];
+}
+
+/* errno is a macro over a thread-local location, so a foreign import cannot
+   name it. Foreign.C.Error reads and clears it through these instead. The
+   setter reports the previous value so that it has a result to return. */
+int64_t aihc_errno_get(void) { return (int64_t)errno; }
+
+int64_t aihc_errno_set(int64_t value) {
+  int previous = errno;
+  errno = (int)value;
+  return (int64_t)previous;
 }
 
 void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
