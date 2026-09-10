@@ -1,5 +1,7 @@
 /* clock_gettime and CLOCK_MONOTONIC need a POSIX feature level under
-   -std=c11 on glibc. */
+   -std=c11 on glibc. The name is reserved by design: it is the macro the
+   standard defines for this purpose. */
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _POSIX_C_SOURCE 200809L
 
 #include "aihc_runtime_internal.h"
