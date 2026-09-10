@@ -48,13 +48,18 @@ import Numeric (showHex)
 import System.Directory (doesFileExist)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
 
--- | One loaded source file: its path, the parsed module, the source lines
--- for diagnostics, the parse and CPP diagnostics, the effective extensions,
--- the source text after preprocessing, and everything the parse depended on.
--- The text is what the parser saw, so offsets in the module's spans index
--- into it directly.
-data ParsedInterfaceFile
-  = ParsedInterfaceFile !FilePath Module !DiagnosticSourceMap [Aeson.Value] [Aeson.Value] [Extension] !Text !ModuleDeps
+-- | One loaded source file. 'parsedFileSource' is what the parser saw, so
+-- offsets in the module's spans index into it directly.
+data ParsedInterfaceFile = ParsedInterfaceFile
+  { parsedFilePath :: !FilePath,
+    parsedFileModule :: Module,
+    parsedFileSourceLines :: !DiagnosticSourceMap,
+    parsedFileParseDiagnostics :: [Aeson.Value],
+    parsedFileCppDiagnostics :: [Aeson.Value],
+    parsedFileExtensions :: [Extension],
+    parsedFileSource :: !Text,
+    parsedFileDeps :: !ModuleDeps
+  }
 
 -- | Everything outside the compiler itself that decides how one module
 -- parses. Two builds that agree on every component read the same source text
@@ -148,7 +153,17 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
             moduleDepsVersions =
               if cppEnabled then M.restrictKeys versions (S.fromList dependencies) else M.empty
           }
-  pure (ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions source deps)
+  pure
+    ParsedInterfaceFile
+      { parsedFilePath = path,
+        parsedFileModule = modu,
+        parsedFileSourceLines = sourceLines,
+        parsedFileParseDiagnostics = parseDiagnostics,
+        parsedFileCppDiagnostics = cppDiagnostics,
+        parsedFileExtensions = extensions,
+        parsedFileSource = source,
+        parsedFileDeps = deps
+      }
   where
     path = HackageCabal.fileInfoPath fileInfo
 

@@ -71,7 +71,7 @@ import Aihc.PackagePlan
     packageSpecFromSource,
   )
 import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
-import Aihc.PackagePlan.Source (ParsedInterfaceFile (ParsedInterfaceFile), moduleDepsDigest, parseInterfaceBytes)
+import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), moduleDepsDigest, parseInterfaceBytes)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -1108,7 +1108,16 @@ loadInstalledPackage requirements immutable storePath = do
 parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions _ deps <- parseInterfaceBytes root versions fileInfo bytes
+  ParsedInterfaceFile
+    { parsedFilePath = path,
+      parsedFileModule = modu,
+      parsedFileSourceLines = sourceLines,
+      parsedFileParseDiagnostics = parseDiagnostics,
+      parsedFileCppDiagnostics = cppDiagnostics,
+      parsedFileExtensions = extensions,
+      parsedFileDeps = deps
+    } <-
+    parseInterfaceBytes root versions fileInfo bytes
   let (cppWarnings, cppErrors) = partition isCppWarning cppDiagnostics
   mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
   unless (null cppErrors) $
