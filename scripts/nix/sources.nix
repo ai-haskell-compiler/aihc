@@ -174,6 +174,10 @@ in rec {
       # The golden assembly of the native backends.
       ".s"
       "expected.txt"
+      # The configure script and header template of the install fixture for
+      # build-type Configure packages.
+      "configure"
+      ".h.in"
     ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
