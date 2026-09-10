@@ -1,0 +1,36 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import Foreign
+    import GHC.Prim (word2Int#, word32ToWord#, wordToWord32#)
+
+    marker :: Word32
+    marker = W32# (wordToWord32# 3735928559##)
+
+    wordValue :: Word32 -> Int
+    wordValue (W32# value) = I# (word2Int# (word32ToWord# value))
+
+    results :: IO (Int, Int, Int, Int)
+    results = do
+      scalar <- alloca $ \pointer -> do
+        poke pointer marker
+        stored <- peek pointer
+        return (wordValue stored)
+      block <- allocaBytes 8 $ \pointer -> do
+        pokeByteOff pointer 0 (0 - 7 :: Int)
+        peekByteOff pointer 0
+      aligned <- allocaBytesAligned 8 8 $ \pointer -> do
+        poke pointer (1234 :: Int)
+        peek pointer
+      slack <- alloca $ \pointer -> do
+        poke pointer (0 :: Int)
+        return (alignPtr pointer 8 `minusPtr` pointer)
+      return (scalar, block, aligned, slack)
+output: |
+  ((I# 3735928559),(I# -7),(I# 1234),(I# 0))
+expression: results
+status: pass
+reason: alloca hands out a pinned, correctly aligned scratch block that survives peek and poke
