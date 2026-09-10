@@ -11,7 +11,7 @@ import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
@@ -101,6 +101,7 @@ tests =
             testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
             testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
+            testCase "runs the configure script of a Configure package out of tree" (test_installConfigure primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
             testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
@@ -735,6 +736,30 @@ test_installCSources getStore = do
     assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
     symbols <- readProcess "nm" [archivePath] ""
     assertBool "archive defines the C symbol" ("aihc_c_add" `isInfixOf` symbols)
+
+-- A @build-type: Configure@ package runs its configure script before anything
+-- is preprocessed. The script runs out of tree with the C compiler of the
+-- target, so its outputs land under the package's own output path rather
+-- than in the shared source tree, and both the CPP pass over the Haskell
+-- sources and the C compile find them there, along with the options of the
+-- buildinfo file the script wrote.
+test_installConfigure :: IO SeedStore -> Assertion
+test_installConfigure getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/configure"
+  withSandbox getStore "aihc-install-configure" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
+    let configureRoot = installStorePath result </> "configure"
+    assertFileExists (configureRoot </> "include" </> "DemoConfig.h")
+    generatedInSource <- doesFileExist (fixtureRoot </> "include" </> "DemoConfig.h")
+    assertBool "configure output stays out of the source tree" (not generatedInSource)
+    arguments <- filter (not . null) . lines <$> readFile (configureRoot </> "configure.args")
+    assertEqual "host argument" ["--host=aarch64-apple-darwin" | hostNativeTarget /= Just AppleArm64] arguments
+    environment <- lines <$> readFile (configureRoot </> "configure.env")
+    assertBool "configure sees the target in CFLAGS" (any ("--target=arm64-apple-darwin" `isInfixOf`) environment)
+    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
+    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
 
 -- An API standin such as aihc-internal has only empty modules, so nothing
 -- goes into its archive. BSD ar refuses to create an archive with no

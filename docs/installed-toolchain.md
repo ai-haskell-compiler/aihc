@@ -91,6 +91,29 @@ workflow does this: `nix build .#cross-examples-apple-arm64` compiles every
 example to a bundle on Linux, and `scripts/link-and-run-example-bundles.sh`
 links and runs the bundles on macOS.
 
+## Configure packages
+
+A package with `build-type: Configure`, such as `time` or `unix`, has a
+configure script that writes the headers its sources include, such as
+`HsTimeConfig.h`. `aihc install` runs the script before it preprocesses
+anything. The script runs out of tree, from `<package>/configure` under the
+package's own output path, because the unpacked source tree in the cache is
+shared by every target while the answers configure finds are per target.
+Autoconf writes the outputs of `AC_CONFIG_HEADERS` and `AC_CONFIG_FILES`
+relative to the working directory, so the source tree stays untouched. Every
+`include-dirs` entry of the package gets a counterpart under that directory
+that is searched first, for the CPP pass over the Haskell sources and the C
+sources alike, and a `<package>.buildinfo` the script writes is merged the
+way Cabal merges it.
+
+The script sees the C compiler of the target: `CC` and `CFLAGS` are the
+driver and arguments the C sources are later compiled with, including the
+`--target`, the macOS SDK from `AIHC_APPLE_SDK`, and the WASI sysroot. A
+target other than the host is named with `--host`, which tells the script it
+cannot run the programs it compiles. The script itself, the compiler, and
+those arguments are hashed into `configure.hash`, so a local package only
+reconfigures when one of them changes.
+
 ## Artifact reuse
 
 A package is either immutable or local, and the two never mix.

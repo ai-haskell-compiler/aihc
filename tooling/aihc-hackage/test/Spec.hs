@@ -18,8 +18,9 @@ import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (buildArch, buildOS)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -65,6 +66,7 @@ main =
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
       testCase "detects active custom preprocessor options" test_detectsCustomPreprocessorOptions,
       testCase "collects C sources and compile options from library cabal files" test_collectsCSources,
+      testCase "reads the Configure build type and merges a configure buildinfo" test_configureBuildInfo,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -258,6 +260,41 @@ test_collectsCSources = do
   assertBool
     "inactive javascript C source is not selected"
     (not (any ("js.c" `isSuffixOf`) (HC.cCompileSources info)))
+
+test_configureBuildInfo :: Assertion
+test_configureBuildInfo = do
+  gpd <- parseTestCabal configureCabal
+  assertEqual "build type" HC.Configure (HC.packageBuildType gpd)
+  assertEqual "autogen includes" ["DemoConfig.h"] (HC.collectLibraryAutogenIncludesFor buildOS buildArch gpd)
+  hooked <- case snd (runParseResult (parseHookedBuildInfo (BSC.pack "cc-options: -DHOOKED\ncpp-options: -DHOOKED_HS\ninclude-dirs: generated\n"))) of
+    Right parsed -> pure parsed
+    Left (_, errs) -> assertFailure ("failed to parse test buildinfo: " <> show errs)
+  let file = HC.FileInfo "/pkg/src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"]
+      cInfo = HC.collectLibraryCCompileInfo gpd "/pkg"
+      (files, cInfo') = HC.applyHookedBuildInfo "/build" hooked [HC.prependIncludeDirs ["/build/include"] file] cInfo
+  assertEqual "cpp options" [["-DFROM_CABAL", "-DHOOKED_HS"]] (map HC.fileInfoCppOptions files)
+  assertEqual "include dirs" [["/build/generated", "/build/include", "/pkg/include"]] (map HC.fileInfoIncludeDirs files)
+  assertEqual "cc options" ["-DHOOKED", "-std=c11"] (HC.cCompileCcOptions cInfo')
+  assertEqual "C include dirs" ["/build/generated", "/pkg/include"] (HC.cCompileIncludeDirs cInfo')
+  assertEqual "C sources" ["/pkg/cbits/helper.c"] (HC.cCompileSources cInfo')
+
+configureCabal :: String
+configureCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: demo",
+      "version: 0.1.0.0",
+      "build-type: Configure",
+      "",
+      "library",
+      "  exposed-modules: Demo",
+      "  hs-source-dirs: src",
+      "  include-dirs: include",
+      "  autogen-includes: DemoConfig.h",
+      "  c-sources: cbits/helper.c",
+      "  cc-options: -std=c11",
+      "  default-language: Haskell2010"
+    ]
 
 test_detectsCustomPreprocessorOptions :: Assertion
 test_detectsCustomPreprocessorOptions = do

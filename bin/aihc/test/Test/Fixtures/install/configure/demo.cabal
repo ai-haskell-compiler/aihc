@@ -1,0 +1,14 @@
+cabal-version: 3.0
+name: demo
+version: 0.1.0.0
+build-type: Configure
+extra-source-files: configure
+
+library
+  exposed-modules: Demo
+  hs-source-dirs: src
+  include-dirs: include
+  autogen-includes: DemoConfig.h
+  c-sources: cbits/helper.c
+  default-language: Haskell2010
+  default-extensions: CPP
