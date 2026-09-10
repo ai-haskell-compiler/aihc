@@ -20,6 +20,7 @@ import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, s
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Int (Int16, Int32, Int64, Int8)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -945,6 +946,10 @@ evalPrimitive "catch#" [action, handler] =
   applyValue action [] `catchE` handleRaised handler []
 evalPrimitive "runRW#" [action] =
   applyValue action []
+evalPrimitive "keepAlive#" [_kept, continuation] =
+  applyValue continuation []
+evalPrimitive "seq#" [value] =
+  (: []) <$> forceValue value
 evalPrimitive "newMutVar#" [initialValue] = do
   mutVar <- GrinMutVar <$> liftEvalIO (newIORef initialValue)
   pure [RuntimeMutVar mutVar]
@@ -1044,6 +1049,86 @@ evalPrimitive "getSizeofMutableByteArray#" [value] = do
   byteArray <- expectByteArrayPrimitiveArgument "getSizeofMutableByteArray#" value
   size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
   pure [RuntimeLit (GrinLitInt IntRep (toInteger size))]
+evalPrimitive "sizeofMutableByteArray#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "sizeofMutableByteArray#" value
+  size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
+  pure [RuntimeLit (GrinLitInt IntRep (toInteger size))]
+evalPrimitive "indexInt8OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int8Rep <$> indexAddressPrimitive "indexInt8OffAddr#" 1 readAddressInt8 address index
+evalPrimitive "readInt8OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int8Rep <$> indexAddressPrimitive "readInt8OffAddr#" 1 readAddressInt8 address index
+evalPrimitive "writeInt8OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeInt8OffAddr#" 1 Int8Rep writeAddressWord8 address index value
+evalPrimitive "indexInt16OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int16Rep <$> indexAddressPrimitive "indexInt16OffAddr#" 2 readAddressInt16 address index
+evalPrimitive "readInt16OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int16Rep <$> indexAddressPrimitive "readInt16OffAddr#" 2 readAddressInt16 address index
+evalPrimitive "writeInt16OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeInt16OffAddr#" 2 Int16Rep writeAddressWord16 address index value
+evalPrimitive "indexInt32OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int32Rep <$> indexAddressPrimitive "indexInt32OffAddr#" 4 readAddressInt32 address index
+evalPrimitive "readInt32OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int32Rep <$> indexAddressPrimitive "readInt32OffAddr#" 4 readAddressInt32 address index
+evalPrimitive "writeInt32OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeInt32OffAddr#" 4 Int32Rep writeAddressWord32 address index value
+evalPrimitive "indexInt64OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int64Rep <$> indexAddressPrimitive "indexInt64OffAddr#" 8 readAddressInt64 address index
+evalPrimitive "readInt64OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Int64Rep <$> indexAddressPrimitive "readInt64OffAddr#" 8 readAddressInt64 address index
+evalPrimitive "writeInt64OffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeInt64OffAddr#" 8 Int64Rep writeAddressWord64 address index value
+evalPrimitive "indexIntOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt IntRep <$> indexAddressPrimitive "indexIntOffAddr#" 8 readAddressInt64 address index
+evalPrimitive "readIntOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt IntRep <$> indexAddressPrimitive "readIntOffAddr#" 8 readAddressInt64 address index
+evalPrimitive "writeIntOffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeIntOffAddr#" 8 IntRep writeAddressWord64 address index value
+evalPrimitive "indexWordOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt WordRep <$> indexAddressPrimitive "indexWordOffAddr#" 8 readAddressWord64 address index
+evalPrimitive "readWordOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt WordRep <$> indexAddressPrimitive "readWordOffAddr#" 8 readAddressWord64 address index
+evalPrimitive "writeWordOffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeWordOffAddr#" 8 WordRep writeAddressWord64 address index value
+evalPrimitive "indexFloatOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt FloatRep <$> indexAddressPrimitive "indexFloatOffAddr#" 4 readAddressWord32 address index
+evalPrimitive "readFloatOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt FloatRep <$> indexAddressPrimitive "readFloatOffAddr#" 4 readAddressWord32 address index
+evalPrimitive "writeFloatOffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeFloatOffAddr#" 4 FloatRep writeAddressWord32 address index value
+evalPrimitive "indexDoubleOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt DoubleRep <$> indexAddressPrimitive "indexDoubleOffAddr#" 8 readAddressWord64 address index
+evalPrimitive "readDoubleOffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt DoubleRep <$> indexAddressPrimitive "readDoubleOffAddr#" 8 readAddressWord64 address index
+evalPrimitive "writeDoubleOffAddr#" [address, index, value] =
+  writeAddressPrimitive "writeDoubleOffAddr#" 8 DoubleRep writeAddressWord64 address index value
+evalPrimitive "indexWideCharOffAddr#" [address, index] = do
+  code <- indexAddressPrimitive "indexWideCharOffAddr#" 4 readAddressWord32 address index
+  pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromInteger code)))]
+evalPrimitive "readWideCharOffAddr#" [address, index] = do
+  code <- indexAddressPrimitive "readWideCharOffAddr#" 4 readAddressWord32 address index
+  pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromInteger code)))]
+evalPrimitive "writeWideCharOffAddr#" [address, index, value] = do
+  character <- expectCharPrimitiveArgument "writeWideCharOffAddr#" value
+  elementIndex <- expectIntPrimitiveArgument "writeWideCharOffAddr#" index
+  pointer <- expectAddress "writeWideCharOffAddr#" address
+  liftEvalIO (writeAddressWord32 pointer (fromInteger (elementIndex * 4)) (toInteger (Char.ord character)))
+  pure []
+evalPrimitive "indexAddrOffAddr#" [address, index] =
+  (: []) . RuntimeAddress . intPtrToPtr . IntPtr . fromInteger <$> indexAddressPrimitive "indexAddrOffAddr#" 8 readAddressWord64 address index
+evalPrimitive "readAddrOffAddr#" [address, index] =
+  (: []) . RuntimeAddress . intPtrToPtr . IntPtr . fromInteger <$> indexAddressPrimitive "readAddrOffAddr#" 8 readAddressWord64 address index
+evalPrimitive "writeAddrOffAddr#" [address, index, value] = do
+  stored <- expectAddress "writeAddrOffAddr#" value
+  elementIndex <- expectIntPrimitiveArgument "writeAddrOffAddr#" index
+  pointer <- expectAddress "writeAddrOffAddr#" address
+  liftEvalIO (writeAddressWord64 pointer (fromInteger (elementIndex * 8)) (addressOrdinal stored))
+  pure []
+evalPrimitive "readCharArray#" [value, index] = do
+  byte <- readByteArrayElement "readCharArray#" 1 1 readAddressWord8 value index
+  pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromInteger byte)))]
+evalPrimitive "writeCharArray#" [value, index, element] = do
+  character <- expectCharPrimitiveArgument "writeCharArray#" element
+  writeByteArrayElement "writeCharArray#" 1 1 WordRep writeAddressWord8 value index (RuntimeLit (GrinLitInt WordRep (toInteger (Char.ord character))))
 evalPrimitive "indexWord8OffAddr#" [address, index] =
   (: []) . RuntimeLit . GrinLitInt Word8Rep <$> indexAddressPrimitive "indexWord8OffAddr#" 1 readAddressWord8 address index
 evalPrimitive "indexWord32OffAddr#" [address, index] =
@@ -1200,6 +1285,7 @@ evalPrimitive "copyByteArray#" [sourceValue, sourceOffset, destinationValue, des
     )
   pure []
 evalPrimitive "copyMutableByteArray#" arguments = evalPrimitive "copyByteArray#" arguments
+evalPrimitive "copyMutableByteArrayNonOverlapping#" arguments = evalPrimitive "copyByteArray#" arguments
 evalPrimitive "copyMutableByteArrayToAddr#" arguments = evalPrimitive "copyByteArrayToAddr#" arguments
 evalPrimitive "copyByteArrayToAddr#" [value, offset, destination, byteCount] = do
   byteArray <- expectByteArrayPrimitiveArgument "copyByteArrayToAddr#" value
@@ -1800,6 +1886,18 @@ writeAddressWord64 pointer offset value = pokeByteOff pointer offset (fromIntege
 
 readAddressWord32 :: Ptr () -> Int -> IO Integer
 readAddressWord32 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word32)
+
+readAddressInt8 :: Ptr () -> Int -> IO Integer
+readAddressInt8 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Int8)
+
+readAddressInt16 :: Ptr () -> Int -> IO Integer
+readAddressInt16 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Int16)
+
+readAddressInt32 :: Ptr () -> Int -> IO Integer
+readAddressInt32 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Int32)
+
+readAddressInt64 :: Ptr () -> Int -> IO Integer
+readAddressInt64 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Int64)
 
 readAddressWord64 :: Ptr () -> Int -> IO Integer
 readAddressWord64 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word64)

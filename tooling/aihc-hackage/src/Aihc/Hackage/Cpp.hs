@@ -84,8 +84,16 @@ machineCppMacros =
             ("HSWORD", haskellWordBytes),
             ("HSFLOAT", 4),
             ("HSDOUBLE", 8),
+            ("HSPTR", haskellWordBytes),
+            ("HSFUNPTR", haskellWordBytes),
+            ("HSSTABLEPTR", haskellWordBytes),
+            ("INT8", 1),
+            ("WORD8", 1),
+            ("INT16", 2),
             ("WORD16", 2),
+            ("INT32", 4),
             ("WORD32", 4),
+            ("INT64", 8),
             ("WORD64", 8)
           ]
     )

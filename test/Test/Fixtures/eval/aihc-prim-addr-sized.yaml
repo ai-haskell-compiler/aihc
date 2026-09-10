@@ -1,0 +1,41 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newPinnedByteArray# 64# state of
+      (# state1, buffer #) -> case mutableByteArrayContents# buffer of
+       base -> case writeInt8OffAddr# base 0# (intToInt8# 200#) state1 of
+        state2 -> case writeInt16OffAddr# base 4# (intToInt16# 40000#) state2 of
+         state3 -> case writeIntOffAddr# base 2# 1234567890123# state3 of
+          state4 -> case writeWideCharOffAddr# base 8# 'A'# state4 of
+           state5 -> case writeDoubleOffAddr# base 5# (int2Double# 7#) state5 of
+            state6 -> case readInt8OffAddr# base 0# state6 of
+             (# state7, byte #) -> case readInt16OffAddr# base 4# state7 of
+              (# state8, half #) -> case readIntOffAddr# base 2# state8 of
+               (# state9, whole #) -> case readWideCharOffAddr# base 8# state9 of
+                (# state10, letter #) -> case readDoubleOffAddr# base 5# state10 of
+                 (# state11, number #) ->
+                   (# state11,
+                      Results
+                        (I# (int8ToInt# byte))
+                        (I# (int16ToInt# half))
+                        (I# whole)
+                        (I# (ord# letter))
+                        (I# (double2Int# number)) #))
+output: |
+  Results (I# -56) (I# -25536) (I# 1234567890123) (I# 65) (I# 7)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: sized address reads sign-extend signed elements and round-trip characters and doubles
