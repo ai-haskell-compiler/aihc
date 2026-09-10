@@ -1,0 +1,23 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (eqWord8# (wordToWord8# 7##) (wordToWord8# 7##)))
+        (I# (eqWord8# (wordToWord8# 7##) (wordToWord8# 8##)))
+        (I# (eqWord8# (wordToWord8# 300##) (wordToWord8# 44##)))
+output: |
+  Results (I# 1) (I# 0) (I# 1)
+expression: |
+  results
+status: pass
+reason: eqWord8# compares narrowed Word8# values following GHC semantics
