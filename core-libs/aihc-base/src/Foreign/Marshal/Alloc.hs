@@ -1,3 +1,6 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module Foreign.Marshal.Alloc
   ( alloca,
     allocaBytes,
@@ -14,22 +17,71 @@ module Foreign.Marshal.Alloc
 where
 
 import Foreign.Storable (Storable (..))
+import GHC.Base (Monad (..))
 import GHC.ForeignPtr (FinalizerPtr)
-import GHC.Ptr (Ptr)
-import Prelude (IO, Int, error, undefined)
+import GHC.IO (IO (..))
+import GHC.Int (Int (..))
+import GHC.Prim (MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, touch#)
+import GHC.Ptr (Ptr (..))
+import Prelude (error, undefined)
+
+-- | A pinned scratch buffer. Boxing the raw array lets the scope of the
+-- allocation be extended past the action with 'touch#'.
+data AllocaBuffer = AllocaBuffer (MutableByteArray# RealWorld)
 
 alloca :: (Storable a) => (Ptr a -> IO b) -> IO b
 alloca = allocaOf undefined
 
 allocaOf :: (Storable a) => a -> (Ptr a -> IO b) -> IO b
-allocaOf placeholder = allocaBytes (sizeOf placeholder)
+allocaOf placeholder = allocaBytesAligned (sizeOf placeholder) (alignment placeholder)
 
--- | Temporary memory needs the C allocator, which is not available.
+-- | Run the action with a pointer to a freshly allocated, uninitialised
+-- block of the given size. The block is only guaranteed to live for the
+-- duration of the action.
 allocaBytes :: Int -> (Ptr a -> IO b) -> IO b
-allocaBytes _ _ = error "Foreign.Marshal.Alloc.allocaBytes: temporary memory is not available"
+allocaBytes size action = do
+  buffer <- newAllocaBuffer size
+  withAllocaBuffer buffer action
 
 allocaBytesAligned :: Int -> Int -> (Ptr a -> IO b) -> IO b
-allocaBytesAligned size _ = allocaBytes size
+allocaBytesAligned size align action = do
+  buffer <- newAlignedAllocaBuffer size align
+  withAllocaBuffer buffer action
+
+newAllocaBuffer :: Int -> IO AllocaBuffer
+newAllocaBuffer (I# size) =
+  IO
+    ( \state ->
+        case newPinnedByteArray# size state of
+          (# allocatedState, buffer #) ->
+            (# allocatedState, AllocaBuffer buffer #)
+    )
+
+newAlignedAllocaBuffer :: Int -> Int -> IO AllocaBuffer
+newAlignedAllocaBuffer (I# size) (I# align) =
+  IO
+    ( \state ->
+        case newAlignedPinnedByteArray# size align state of
+          (# allocatedState, buffer #) ->
+            (# allocatedState, AllocaBuffer buffer #)
+    )
+
+withAllocaBuffer :: AllocaBuffer -> (Ptr a -> IO b) -> IO b
+withAllocaBuffer buffer action =
+  case buffer of
+    AllocaBuffer raw -> do
+      result <- action (Ptr (mutableByteArrayContents# raw))
+      touchAllocaBuffer buffer
+      return result
+
+-- | Keep the backing allocation alive until this point.
+touchAllocaBuffer :: AllocaBuffer -> IO ()
+touchAllocaBuffer buffer =
+  IO
+    ( \state ->
+        case touch# buffer state of
+          nextState -> (# nextState, () #)
+    )
 
 malloc :: (Storable a) => IO (Ptr a)
 malloc = mallocOf undefined
