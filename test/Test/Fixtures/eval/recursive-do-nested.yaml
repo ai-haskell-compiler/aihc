@@ -1,0 +1,65 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- A rec block is a single statement of the mdo that contains it.
+    recInMdo :: Maybe [Int]
+    recInMdo = mdo
+      k <- Just 1
+      rec xs <- Just (k : map (+ k) xs)
+      return (take 3 xs)
+
+    -- An mdo nested inside another mdo keeps its own knot.
+    nested :: Maybe ([Int], [Int])
+    nested = mdo
+      outer <- Just (1 : map (* 2) outer)
+      inner <- mdo
+        ys <- Just ((outer !! 0) : map (+ 5) ys)
+        return (take 3 ys)
+      return (take 3 outer, inner)
+
+    -- An mdo inside a plain do.
+    mdoInDo :: Maybe [Int]
+    mdoInDo = do
+      k <- Just 2
+      mdo
+        xs <- Just (k : map (* k) xs)
+        return (take 4 xs)
+
+    -- A rec block inside a do block inside a rec block.
+    recInRec :: Maybe [Int]
+    recInRec = do
+      rec outer <- do
+            rec inner <- Just (1 : map (+ 1) inner)
+            Just (take 3 inner ++ take 2 outer)
+      return (take 5 outer)
+
+    -- A rec block nested inside a lambda inside an mdo.
+    inLambda :: Maybe [Int]
+    inLambda = mdo
+      build <- Just (\seed -> do { rec { zs <- Just (seed : map (* seed) zs) }; return (take 3 zs) })
+      result <- build 3
+      return result
+
+    checks :: [Bool]
+    checks =
+      [ recInMdo == Just [1, 2, 3],
+        nested == Just ([1, 2, 4], [1, 6, 11]),
+        mdoInDo == Just [2, 4, 8, 16],
+        recInRec == Just [1, 2, 3, 1, 2],
+        inLambda == Just [3, 9, 27]
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: mdo and rec nest inside each other, inside plain do blocks, and inside a lambda

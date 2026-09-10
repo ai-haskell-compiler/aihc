@@ -1,0 +1,94 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Control.Monad.Fix (MonadFix (..))
+    import Prelude
+
+    -- A lazy writer monad that records the order in which statements run.
+    newtype Trace a = Trace (a, [Int])
+
+    runTrace :: Trace a -> (a, [Int])
+    runTrace (Trace pair) = pair
+
+    step :: Int -> a -> Trace a
+    step label value = Trace (value, [label])
+
+    instance Functor Trace where
+      fmap f (Trace (a, w)) = Trace (f a, w)
+
+    instance Applicative Trace where
+      pure a = Trace (a, [])
+      Trace (f, w1) <*> Trace (a, w2) = Trace (f a, w1 ++ w2)
+
+    instance Monad Trace where
+      Trace (a, w1) >>= k = case k a of
+        Trace (b, w2) -> Trace (b, w1 ++ w2)
+
+    instance MonadFix Trace where
+      mfix f = let Trace (a, w) = f a in Trace (a, w)
+
+    -- The shape of the users guide segmentation example. The statements split
+    -- into the segments  a | rec {b, c} | z | rec {d, e} | return.
+    segmentedMdo :: Trace [Int]
+    segmentedMdo = mdo
+      a <- step 0 1
+      b <- step 1 (c + 1)
+      c <- step 2 (a + 10)
+      z <- step 3 (a + b)
+      d <- step 4 (e + 100)
+      e <- step 5 (a + z)
+      return [a, b, c, z, d, e]
+
+    -- The translation the guide gives for that example, written out by hand.
+    explicitRecs :: Trace [Int]
+    explicitRecs = do
+      a <- step 0 1
+      rec b <- step 1 (c + 1)
+          c <- step 2 (a + 10)
+      z <- step 3 (a + b)
+      rec d <- step 4 (e + 100)
+          e <- step 5 (a + z)
+      return [a, b, c, z, d, e]
+
+    -- A monad with no MonadFix instance at all. Segmentation finds no recursive
+    -- group here, so the mdo introduces no rec block and needs no fixed point.
+    newtype Box a = Box a
+
+    unBox :: Box a -> a
+    unBox (Box a) = a
+
+    instance Functor Box where
+      fmap f (Box a) = Box (f a)
+
+    instance Applicative Box where
+      pure = Box
+      Box f <*> Box a = Box (f a)
+
+    instance Monad Box where
+      Box a >>= k = k a
+
+    noKnot :: Box Int
+    noKnot = mdo
+      a <- Box 3
+      b <- Box (a + 4)
+      return (a * b)
+
+    checks :: [Bool]
+    checks =
+      [ runTrace segmentedMdo == ([1, 12, 11, 13, 114, 14], [0, 1, 2, 3, 4, 5]),
+        runTrace segmentedMdo == runTrace explicitRecs,
+        unBox noKnot == 21
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: mdo segmentation wraps minimal recursive groups, matches the hand written rec blocks, and needs no MonadFix when nothing recurses

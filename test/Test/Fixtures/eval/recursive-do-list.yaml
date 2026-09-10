@@ -1,0 +1,59 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- MonadFix for lists walks the fixed point one column at a time:
+    --   mfix f = case fix (f . head) of { [] -> []; (x : _) -> x : mfix (tail . f) }
+
+    ones :: [[Int]]
+    ones = mdo
+      xs <- [1 : xs]
+      return (take 3 xs)
+
+    -- Two alternatives give two independent columns, each with its own knot.
+    twoColumns :: [[Int]]
+    twoColumns = mdo
+      xs <- [0 : map (+ 1) xs, 9 : map (subtract 1) xs]
+      return (take 4 xs)
+
+    -- An empty alternative kills the whole computation.
+    none :: [[Int]]
+    none = mdo
+      xs <- ([] :: [[Int]])
+      return (take 3 xs)
+
+    -- A non-recursive generator in front still multiplies the results.
+    mixed :: [(Int, Int)]
+    mixed = mdo
+      k <- [1, 2]
+      xs <- [k : xs]
+      return (k, xs !! 5)
+
+    -- The rec spelling of the same knot.
+    recOnes :: [[Int]]
+    recOnes = do
+      rec xs <- [1 : xs]
+      return (take 3 xs)
+
+    checks :: [Bool]
+    checks =
+      [ ones == [[1, 1, 1]],
+        twoColumns == [[0, 1, 2, 3], [9, 8, 7, 6]],
+        none == [],
+        mixed == [(1, 1), (2, 2)],
+        recOnes == ones
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: the list MonadFix instance solves each alternative as its own column, including the empty and multiplied cases

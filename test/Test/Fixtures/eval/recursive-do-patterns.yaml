@@ -1,0 +1,86 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- A tuple pattern in a rec block: both components join the knot.
+    tuplePattern :: Maybe [Int]
+    tuplePattern = do
+      rec (xs, n) <- Just (n : map (* 2) xs, 1)
+      return (take 4 xs)
+
+    -- A data constructor pattern in an mdo statement: matching it forces the
+    -- value the statement produced, not the knot.
+    data Wrap = Wrap [Int]
+
+    constructorPattern :: Maybe [Int]
+    constructorPattern = mdo
+      Wrap xs <- Just (Wrap (3 : map (+ 3) xs))
+      return (take 3 xs)
+
+    -- The same through a newtype, whose match is irrefutable.
+    newtype Thin = Thin [Int]
+
+    newtypePattern :: Maybe [Int]
+    newtypePattern = mdo
+      Thin xs <- Just (Thin (2 : map (+ 2) xs))
+      return (take 3 xs)
+
+    -- A lazy pattern written out by hand, tying two lists into each other.
+    lazyPattern :: Maybe [Int]
+    lazyPattern = mdo
+      ~(xs, ys) <- Just (1 : ys, 2 : xs)
+      return (take 4 xs)
+
+    -- A refutable pattern still falls back on the monad's fail when it does not
+    -- match.
+    refutableOk :: Maybe Int
+    refutableOk = do
+      rec Just x <- Just (Just 5)
+      return (x + 1)
+
+    refutableFails :: Maybe Int
+    refutableFails = do
+      rec Just x <- Just (Nothing :: Maybe Int)
+      return (x + 1)
+
+    -- A statement that binds nothing sits in the same rec group.
+    noBinder :: Maybe [Int]
+    noBinder = do
+      rec _ <- Just ()
+          xs <- Just (7 : xs)
+      return (take 2 xs)
+
+    -- where bound helpers are visible inside an mdo.
+    withWhere :: Maybe [Int]
+    withWhere = mdo
+      xs <- Just (start : map bump xs)
+      return (take 3 xs)
+      where
+        start = 4
+        bump = (+ 4)
+
+    checks :: [Bool]
+    checks =
+      [ tuplePattern == Just [1, 2, 4, 8],
+        constructorPattern == Just [3, 6, 9],
+        newtypePattern == Just [2, 4, 6],
+        lazyPattern == Just [1, 2, 1, 2],
+        refutableOk == Just 6,
+        refutableFails == Nothing,
+        noBinder == Just [7, 7],
+        withWhere == Just [4, 8, 12]
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: tuple, constructor, lazy, refutable, and binderless patterns all take part in a recursive do group

@@ -1,0 +1,72 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Control.Monad.Fix (MonadFix (..))
+    import Prelude
+
+    -- A lazy writer monad with a hand written MonadFix instance. Recursive do
+    -- needs nothing but this instance.
+    newtype Writer a = Writer (a, [Int])
+
+    runWriter :: Writer a -> (a, [Int])
+    runWriter (Writer pair) = pair
+
+    tell :: Int -> Writer ()
+    tell n = Writer ((), [n])
+
+    instance Functor Writer where
+      fmap f (Writer (a, w)) = Writer (f a, w)
+
+    instance Applicative Writer where
+      pure a = Writer (a, [])
+      Writer (f, w1) <*> Writer (a, w2) = Writer (f a, w1 ++ w2)
+
+    instance Monad Writer where
+      Writer (a, w1) >>= k = case k a of
+        Writer (b, w2) -> Writer (b, w1 ++ w2)
+
+    instance MonadFix Writer where
+      mfix f = let Writer (a, w) = f a in Writer (a, w)
+
+    -- A statement writes a summary of a value that a later statement binds.
+    countdown :: Writer [Int]
+    countdown = mdo
+      tell (length xs)
+      xs <- pure [1, 2, 3]
+      tell (sum xs)
+      return xs
+
+    -- A self-referential list built inside the writer.
+    knot :: Writer [Int]
+    knot = mdo
+      xs <- do
+        tell 0
+        pure (1 : map (* 2) xs)
+      return (take 4 xs)
+
+    recKnot :: Writer [Int]
+    recKnot = do
+      rec xs <- do
+            tell 0
+            pure (1 : map (* 2) xs)
+      return (take 4 xs)
+
+    checks :: [Bool]
+    checks =
+      [ runWriter countdown == ([1, 2, 3], [3, 6]),
+        runWriter knot == ([1, 2, 4, 8], [0]),
+        runWriter knot == runWriter recKnot
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: a user defined MonadFix instance is enough for mdo and rec, including a statement that reads a value bound below it
