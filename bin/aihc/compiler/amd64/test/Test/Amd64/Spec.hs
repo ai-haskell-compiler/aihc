@@ -2,7 +2,7 @@
 
 module Test.Amd64.Spec (tests) where
 
-import Aihc.Amd64.Lir (compileLirObjectWith, compileLirStatementsWith)
+import Aihc.Amd64.Lir (compileLirObjectWith, compileLirStatements)
 import Aihc.Amd64.Text (renderAmd64Statements)
 import Aihc.Cli.Backend (BackendOutput (..))
 import Aihc.Lir.Lower (posixTarget64)
@@ -16,35 +16,23 @@ import Test.Lir.NativeSuite (NativeBackend (..))
 import Test.Lir.NativeSuite qualified as NativeSuite
 import Test.Tasty (TestTree, testGroup)
 
--- | The suites run at each optimization level. Level 0 skips the optional
--- passes, so its programs must behave like the level 2 programs and its
--- assembly has a golden of its own.
+-- | The programs run at each optimization level. Level 0 skips the
+-- optional passes, so its programs must behave like the level 2 programs.
+-- The assembly goldens describe the optimized code only.
 tests :: IO TestTree
 tests = do
-  suites <- mapM levelTests [minBound .. maxBound]
-  pure (testGroup "amd64" suites)
+  native <- mapM nativeTests [minBound .. maxBound]
+  assembly <- assemblyTests
+  pure (testGroup "amd64" (native <> [assembly]))
 
-levelTests :: OptimizationLevel -> IO TestTree
-levelTests level = do
-  native <- nativeTests level
-  assembly <- assemblyTests level
-  pure (testGroup ("-O" <> renderOptimizationLevel level) [native, assembly])
-
-assemblyTests :: OptimizationLevel -> IO TestTree
-assemblyTests level =
+assemblyTests :: IO TestTree
+assemblyTests =
   AsmSuite.tests
     AsmBackend
       { asmBackendName = "aihc-amd64",
-        asmBackendExtension = levelExtension level <> ".amd64.s",
-        asmBackendRender = either (Left . show) (Right . renderAmd64Statements) . compileLirStatementsWith level
+        asmBackendExtension = ".amd64.s",
+        asmBackendRender = either (Left . show) (Right . renderAmd64Statements) . compileLirStatements
       }
-
--- | The golden of the default level keeps its name.
-levelExtension :: OptimizationLevel -> String
-levelExtension level =
-  case level of
-    O2 -> ""
-    _ -> ".O" <> renderOptimizationLevel level
 
 -- | The linked programs run on a Linux AMD64 host. Set @AIHC_RUN_AMD64=1@
 -- to run them elsewhere, with @clang@ and @ar@ on the path that compile and
@@ -54,7 +42,7 @@ nativeTests level = do
   forced <- (== Just "1") <$> lookupEnv "AIHC_RUN_AMD64"
   NativeSuite.tests
     NativeBackend
-      { backendName = "aihc-amd64",
+      { backendName = "aihc-amd64 -O" <> renderOptimizationLevel level,
         backendTarget = LinuxAmd64,
         backendLowerTarget = posixTarget64,
         backendClangArguments = ["--target=x86_64-unknown-linux-gnu"],
