@@ -73,6 +73,17 @@ module GHC.Prim
     indexWord32OffAddr#,
     indexWord64OffAddr#,
     indexWordArray#,
+    sizeofArray#,
+    sizeofMutableArray#,
+    fetchAddIntArray#,
+    fetchSubIntArray#,
+    fetchAndIntArray#,
+    fetchNandIntArray#,
+    fetchOrIntArray#,
+    fetchXorIntArray#,
+    casIntArray#,
+    atomicReadIntArray#,
+    atomicWriteIntArray#,
     int2Word#,
     Int#,
     Int8#,
@@ -859,6 +870,28 @@ foreign import prim indexWord8OffAddr# :: Addr# -> Int# -> Word8#
 foreign import prim indexWord32OffAddr# :: Addr# -> Int# -> Word32#
 
 foreign import prim indexWord64OffAddr# :: Addr# -> Int# -> Word64#
+
+foreign import prim sizeofArray# :: Array# a -> Int#
+
+foreign import prim sizeofMutableArray# :: MutableArray# d a -> Int#
+
+foreign import prim fetchAddIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchSubIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchAndIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchNandIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchOrIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchXorIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim casIntArray# :: MutableByteArray# d -> Int# -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim atomicReadIntArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim atomicWriteIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
 
 foreign import prim indexWordArray# :: ByteArray# -> Int# -> Word#
 

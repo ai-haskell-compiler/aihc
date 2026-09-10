@@ -994,6 +994,11 @@ evalPrimitive name [arrayValue]
   | name == "unsafeFreezeArray#" || name == "unsafeThawArray#" = do
       array <- expectArrayPrimitiveArgument name arrayValue
       pure [RuntimeArray array]
+evalPrimitive name [value]
+  | name == "sizeofArray#" || name == "sizeofMutableArray#" = do
+      GrinArray reference <- expectArrayPrimitiveArgument name value
+      elements <- liftEvalIO (readIORef reference)
+      pure [intRuntimeValue (toInteger (length elements))]
 evalPrimitive "sameMutableArray#" [left, right] = do
   leftArray <- expectArrayPrimitiveArgument "sameMutableArray#" left
   rightArray <- expectArrayPrimitiveArgument "sameMutableArray#" right
@@ -1215,6 +1220,34 @@ evalPrimitive "indexWordArray#" [value, index] = do
   byteOffset <- checkedWordArrayIndex "indexWordArray#" byteArray wordIndex
   word <- liftEvalIO (peekByteOff (grinByteArrayContents byteArray) byteOffset :: IO Word64)
   pure [wordRuntimeValue (toInteger word)]
+evalPrimitive "atomicReadIntArray#" [value, index] = do
+  byteArray <- expectByteArrayPrimitiveArgument "atomicReadIntArray#" value
+  wordIndex <- expectIntPrimitiveArgument "atomicReadIntArray#" index
+  byteOffset <- checkedWordArrayIndex "atomicReadIntArray#" byteArray wordIndex
+  contents <- liftEvalIO (readAddressWord64 (grinByteArrayContents byteArray) byteOffset)
+  pure [intRuntimeValue contents]
+evalPrimitive "atomicWriteIntArray#" [value, index, element] =
+  writeByteArrayElement "atomicWriteIntArray#" 8 8 IntRep writeAddressWord64 value index element
+evalPrimitive name [value, index, element]
+  | Just combine <- lookup name intArrayFetchPrimitives = do
+      byteArray <- expectByteArrayPrimitiveArgument name value
+      wordIndex <- expectIntPrimitiveArgument name index
+      operand <- expectRuntimeRepPrimitiveArgument name IntRep element
+      byteOffset <- checkedWordArrayIndex name byteArray wordIndex
+      let contents = grinByteArrayContents byteArray
+      old <- liftEvalIO (readAddressWord64 contents byteOffset)
+      liftEvalIO (writeAddressWord64 contents byteOffset (combine (normalizeInt old) operand))
+      pure [intRuntimeValue old]
+evalPrimitive "casIntArray#" [value, index, expected, replacement] = do
+  byteArray <- expectByteArrayPrimitiveArgument "casIntArray#" value
+  wordIndex <- expectIntPrimitiveArgument "casIntArray#" index
+  expectedValue <- expectRuntimeRepPrimitiveArgument "casIntArray#" IntRep expected
+  replacementValue <- expectRuntimeRepPrimitiveArgument "casIntArray#" IntRep replacement
+  byteOffset <- checkedWordArrayIndex "casIntArray#" byteArray wordIndex
+  let contents = grinByteArrayContents byteArray
+  old <- normalizeInt <$> liftEvalIO (readAddressWord64 contents byteOffset)
+  when (old == expectedValue) (liftEvalIO (writeAddressWord64 contents byteOffset replacementValue))
+  pure [intRuntimeValue old]
 evalPrimitive "readWordArray#" [value, index] = do
   byteArray <- expectByteArrayPrimitiveArgument "readWordArray#" value
   wordIndex <- expectIntPrimitiveArgument "readWordArray#" index
@@ -1573,6 +1606,18 @@ expectRuntimeRepPrimitiveArgument name expectedRep value =
     RuntimeLit (GrinLitInt actualRep intValue)
       | actualRep == expectedRep -> pure intValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+-- | The combining operations of the fetch-and-modify Int# array
+-- primitives, each taking the value the element holds and the operand.
+intArrayFetchPrimitives :: [(Text, Integer -> Integer -> Integer)]
+intArrayFetchPrimitives =
+  [ ("fetchAddIntArray#", (+)),
+    ("fetchSubIntArray#", (-)),
+    ("fetchAndIntArray#", (.&.)),
+    ("fetchNandIntArray#", \contents operand -> complement (contents .&. operand)),
+    ("fetchOrIntArray#", (.|.)),
+    ("fetchXorIntArray#", xor)
+  ]
 
 intRuntimeValue :: Integer -> RuntimeValue
 intRuntimeValue = RuntimeLit . GrinLitInt IntRep . normalizeInt

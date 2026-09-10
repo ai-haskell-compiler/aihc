@@ -1,0 +1,38 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newByteArray# 16# state of
+      (# state1, buffer #) -> case atomicWriteIntArray# buffer 0# 12# state1 of
+       state2 -> case fetchAddIntArray# buffer 0# 30# state2 of
+        (# state3, beforeAdd #) -> case fetchOrIntArray# buffer 0# 1# state3 of
+         (# state4, beforeOr #) -> case fetchXorIntArray# buffer 0# 7# state4 of
+          (# state5, beforeXor #) -> case casIntArray# buffer 0# 44# 99# state5 of
+           (# state6, beforeSwap #) -> case casIntArray# buffer 0# 99# 5# state6 of
+            (# state7, beforeSecondSwap #) -> case atomicReadIntArray# buffer 0# state7 of
+             (# state8, final #) ->
+               (# state8,
+                  Results
+                    (I# beforeAdd)
+                    (I# beforeOr)
+                    (I# beforeXor)
+                    (I# beforeSwap)
+                    (I# beforeSecondSwap)
+                    (I# final) #))
+output: |
+  Results (I# 12) (I# 42) (I# 43) (I# 44) (I# 99) (I# 5)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: the fetch-and-modify and compare-and-swap Int# array primitives return the value the element held before the write

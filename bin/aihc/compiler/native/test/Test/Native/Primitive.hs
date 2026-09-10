@@ -198,6 +198,15 @@ byteArrayRuntimeSymbols =
     ("copyByteArray#", "aihc_byte_array_copy"),
     ("copyMutableByteArray#", "aihc_byte_array_copy"),
     ("copyMutableByteArrayNonOverlapping#", "aihc_byte_array_copy"),
+    ("atomicReadIntArray#", "aihc_byte_array_read_word"),
+    ("atomicWriteIntArray#", "aihc_byte_array_write_word"),
+    ("fetchAddIntArray#", "aihc_byte_array_fetch_add_word"),
+    ("fetchSubIntArray#", "aihc_byte_array_fetch_sub_word"),
+    ("fetchAndIntArray#", "aihc_byte_array_fetch_and_word"),
+    ("fetchNandIntArray#", "aihc_byte_array_fetch_nand_word"),
+    ("fetchOrIntArray#", "aihc_byte_array_fetch_or_word"),
+    ("fetchXorIntArray#", "aihc_byte_array_fetch_xor_word"),
+    ("casIntArray#", "aihc_byte_array_compare_and_swap_word"),
     ("sizeofMutableByteArray#", "aihc_byte_array_get_size"),
     ("readCharArray#", "aihc_byte_array_read_word8"),
     ("writeCharArray#", "aihc_byte_array_write_word8"),
@@ -228,7 +237,9 @@ arrayRuntimeSymbols =
   [ ("indexArray#", "aihc_array_index"),
     ("readArray#", "aihc_array_index"),
     ("writeArray#", "aihc_array_write"),
-    ("sameMutableArray#", "aihc_array_same")
+    ("sameMutableArray#", "aihc_array_same"),
+    ("sizeofArray#", "aihc_array_length"),
+    ("sizeofMutableArray#", "aihc_array_length")
   ]
 
 mutVarRuntimeSymbols :: [(Text, Text)]

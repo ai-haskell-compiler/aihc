@@ -338,6 +338,21 @@ uint64_t aihc_byte_array_copy_from_addr(void *source, void *array,
 uint64_t aihc_byte_array_index_word(void *array, int64_t index);
 uint64_t aihc_byte_array_read_word(void *array, int64_t index);
 uint64_t aihc_byte_array_write_word(void *array, int64_t index, uint64_t value);
+uint64_t aihc_byte_array_fetch_add_word(void *array, int64_t index,
+                                        uint64_t value);
+uint64_t aihc_byte_array_fetch_sub_word(void *array, int64_t index,
+                                        uint64_t value);
+uint64_t aihc_byte_array_fetch_and_word(void *array, int64_t index,
+                                        uint64_t value);
+uint64_t aihc_byte_array_fetch_nand_word(void *array, int64_t index,
+                                         uint64_t value);
+uint64_t aihc_byte_array_fetch_or_word(void *array, int64_t index,
+                                       uint64_t value);
+uint64_t aihc_byte_array_fetch_xor_word(void *array, int64_t index,
+                                        uint64_t value);
+uint64_t aihc_byte_array_compare_and_swap_word(void *array, int64_t index,
+                                               uint64_t expected,
+                                               uint64_t replacement);
 uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
                               void *destination, int64_t destination_offset,
                               int64_t length);
