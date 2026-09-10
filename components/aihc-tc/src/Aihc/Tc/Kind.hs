@@ -8,6 +8,7 @@ module Aihc.Tc.Kind
     convertSurfaceType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
+    deferKindMetas,
     freeTypeVars,
     freshKindMeta,
     classPredicateArgKinds,
@@ -793,7 +794,17 @@ lookupKindSynonym tyCon
       pure (maybeInfo >>= tciTypeSynonym)
 
 defaultKindMetas :: TcType -> TcM TcType
-defaultKindMetas kind =
+defaultKindMetas = settleKindMetas Nothing
+
+-- | Like 'defaultKindMetas', but a kind variable proper is left open and
+-- reported to the callback instead of defaulting to 'Type'. Everything
+-- else still settles, a representation meta-variable included: 'Type' is
+-- the only kind a variable may still be open in.
+deferKindMetas :: (Unique -> TcM ()) -> TcType -> TcM TcType
+deferKindMetas = settleKindMetas . Just
+
+settleKindMetas :: Maybe (Unique -> TcM ()) -> TcType -> TcM TcType
+settleKindMetas defer kind =
   case kind of
     TcArrowTy -> pure kind
     TcMetaTv unique -> do
@@ -802,18 +813,19 @@ defaultKindMetas kind =
         Just solved -> do
           -- A partially solved kind such as @k1 -> k2@ keeps its shape; only
           -- the metas that remain inside it default.
-          defaulted <- defaultKindMetas =<< zonkKind solved
+          defaulted <- recur =<< zonkKind solved
           writeMetaTv unique defaulted
           pure defaulted
         Nothing -> do
           tracked <- isTrackedKindMeta unique
-          if tracked
-            then do
+          case (tracked, defer) of
+            (False, _) -> pure kind
+            (True, Just onDefer) -> onDefer unique >> pure kind
+            (True, Nothing) -> do
               kinds <- getKinds
               writeMetaTv unique (typeKind kinds) >> pure (typeKind kinds)
-            else pure kind
     TcTyVar tyVar -> do
-      kind' <- defaultKindMetas (tvKind tyVar)
+      kind' <- recur (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))
     KTYPE (TcMetaTv representation) -> do
       -- An open representation defaults to lifted, not to 'Type'. The meta
@@ -821,29 +833,30 @@ defaultKindMetas kind =
       -- this does not depend on kind-meta tracking.
       solution <- readMetaTv representation
       case solution of
-        Just {} -> defaultKindMetas =<< zonkKind kind
+        Just {} -> recur =<< zonkKind kind
         Nothing -> do
           kinds <- getKinds
           writeMetaTv representation (liftedRep kinds) >> pure (typeKind kinds)
-    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM defaultKindMetas arguments
-    TcFunTy argument result -> TcFunTy <$> defaultKindMetas argument <*> defaultKindMetas result
+    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM recur arguments
+    TcFunTy argument result -> TcFunTy <$> recur argument <*> recur result
     TcForAllTy tyVar body -> do
-      kind' <- defaultKindMetas (tvKind tyVar)
-      TcForAllTy (setTyVarKind kind' tyVar) <$> defaultKindMetas body
-    TcQualTy predicates body -> TcQualTy <$> mapM defaultKindPred predicates <*> defaultKindMetas body
-    TcAppTy function argument -> TcAppTy <$> defaultKindMetas function <*> defaultKindMetas argument
+      kind' <- recur (tvKind tyVar)
+      TcForAllTy (setTyVarKind kind' tyVar) <$> recur body
+    TcQualTy predicates body -> TcQualTy <$> mapM defaultKindPred predicates <*> recur body
+    TcAppTy function argument -> TcAppTy <$> recur function <*> recur argument
   where
+    recur = settleKindMetas defer
     defaultKindPred predicate =
       case predicate of
-        ClassPred className arguments -> ClassPred className <$> mapM defaultKindMetas arguments
-        EqPred left right -> EqPred <$> defaultKindMetas left <*> defaultKindMetas right
-        IParamPred name payload -> IParamPred name <$> defaultKindMetas payload
+        ClassPred className arguments -> ClassPred className <$> mapM recur arguments
+        EqPred left right -> EqPred <$> recur left <*> recur right
+        IParamPred name payload -> IParamPred name <$> recur payload
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM defaultVariable variables
             <*> mapM defaultKindPred antecedents
             <*> defaultKindPred consequent
-    defaultVariable variable = setTyVarKind <$> defaultKindMetas (tvKind variable) <*> pure variable
+    defaultVariable variable = setTyVarKind <$> recur (tvKind variable) <*> pure variable
 
 freshKindMeta :: TcM TcType
 freshKindMeta = do

@@ -1,0 +1,35 @@
+# An instance whose head applies a kind-polymorphic constructor to a type
+# variable must still solve when the wanted's variable is a signature
+# skolem: `usePhantom` generalizes `a`'s kind, so an instance head fixed
+# at Type would no longer match it.
+extensions:
+- PolyKinds
+- KindSignatures
+- FlexibleInstances
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Test where
+  import GHC.Types (Bool (..), Int)
+  data Tag a = Tag
+  class Same a where
+    same :: a -> a -> Bool
+  instance Same (Tag a) where
+    same _ _ = True
+  useConcrete :: Tag Int -> Bool
+  useConcrete t = same t t
+  usePhantom :: Tag a -> Bool
+  usePhantom t = same t t
+  useForall :: forall a. Tag a -> Bool
+  useForall t = same t t
+  result = case useConcrete Tag of
+    True -> case usePhantom (Tag :: Tag Int) of
+      True -> useForall (Tag :: Tag Bool)
+      False -> False
+    False -> False
+expression: result
+output: |
+  True
+status: pass
+evaluators:
+- grin
