@@ -22,7 +22,6 @@ import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, dia
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
-    ExtensionSetting (..),
     LanguageEdition (..),
     Module (..),
     effectiveExtensions,
@@ -116,21 +115,19 @@ parseInterfaceFile packageRoot versions fileInfo = do
 parseInterfaceBytes :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
 parseInterfaceBytes packageRoot versions fileInfo bytes = do
   let normalized = normalizeSource path (TE.decodeUtf8With lenientDecode bytes)
-      cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HackageCabal.fileInfoExtensions fileInfo)
-      -- The cabal settings come first and the module's own pragmas after, so
-      -- a @{-# LANGUAGE NoCPP #-}@ turns off a @default-extensions: CPP@ the
-      -- same way a later setting wins anywhere else.
-      cppEnabled = foldl applyCppSetting False (cabalExtSettings <> headerExtensionSettings (readModuleHeaderPragmas normalized))
+      -- The extensions of the source as it stands, which decide whether CPP
+      -- runs on it. A module turns CPP off with @{-# LANGUAGE NoCPP #-}@ the
+      -- same way it turns off any other extension the cabal file enabled.
+      normalizedExtensions = extensionsOf normalized
+      cppEnabled = CPP `elem` normalizedExtensions
   (source, cppDiagnostics, includes) <-
     if cppEnabled
       then preprocessInterfaceSource packageRoot versions fileInfo normalized
       else pure (normalized, [], M.empty)
-  let headerPragmas = readModuleHeaderPragmas source
-      allExtSettings = cabalExtSettings <> headerExtensionSettings headerPragmas
-      language =
-        headerLanguageEdition headerPragmas
-          `orElse` (HackageCabal.fileInfoLanguage fileInfo >>= parseLanguageEdition . T.pack)
-      extensions = effectiveExtensions (fromMaybe Haskell98Edition language) allExtSettings
+  -- The preprocessor may add or remove pragmas, so the extensions are
+  -- computed once more from its output. Without it the source is unchanged
+  -- and so is the set.
+  let extensions = if cppEnabled then extensionsOf source else normalizedExtensions
       cfg = defaultConfig {parserSourceName = path, parserExtensions = extensions}
       (parseErrs, modu) = parseModule cfg source
       parseDiagnostics = map (parseDiagnosticValue path) parseErrs
@@ -155,14 +152,19 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
   where
     path = HackageCabal.fileInfoPath fileInfo
 
+    cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HackageCabal.fileInfoExtensions fileInfo)
+
+    -- The extensions one text compiles under: the cabal file's settings with
+    -- the pragmas of that text applied to them.
+    extensionsOf text =
+      let headerPragmas = readModuleHeaderPragmas text
+          language =
+            headerLanguageEdition headerPragmas
+              `orElse` (HackageCabal.fileInfoLanguage fileInfo >>= parseLanguageEdition . T.pack)
+       in effectiveExtensions (fromMaybe Haskell98Edition language) (cabalExtSettings <> headerExtensionSettings headerPragmas)
+
     orElse (Just value) _ = Just value
     orElse Nothing fallback = fallback
-
-    applyCppSetting enabled setting =
-      case setting of
-        EnableExtension CPP -> True
-        DisableExtension CPP -> False
-        _ -> enabled
 
 -- | Preprocess one module and report, besides the output and the
 -- diagnostics, every package header it included.
