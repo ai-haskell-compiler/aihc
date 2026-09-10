@@ -33,9 +33,57 @@ module GHC.Prim
     getSizeofMutableByteArray#,
     indexArray#,
     indexWord8OffAddr#,
+    indexInt8OffAddr#,
+    readInt8OffAddr#,
+    writeInt8OffAddr#,
+    indexInt16OffAddr#,
+    readInt16OffAddr#,
+    writeInt16OffAddr#,
+    indexInt32OffAddr#,
+    readInt32OffAddr#,
+    writeInt32OffAddr#,
+    indexInt64OffAddr#,
+    readInt64OffAddr#,
+    writeInt64OffAddr#,
+    indexIntOffAddr#,
+    readIntOffAddr#,
+    writeIntOffAddr#,
+    indexWordOffAddr#,
+    readWordOffAddr#,
+    writeWordOffAddr#,
+    indexAddrOffAddr#,
+    readAddrOffAddr#,
+    writeAddrOffAddr#,
+    indexFloatOffAddr#,
+    readFloatOffAddr#,
+    writeFloatOffAddr#,
+    indexDoubleOffAddr#,
+    readDoubleOffAddr#,
+    writeDoubleOffAddr#,
+    indexWideCharOffAddr#,
+    readWideCharOffAddr#,
+    writeWideCharOffAddr#,
+    indexStablePtrOffAddr#,
+    readStablePtrOffAddr#,
+    writeStablePtrOffAddr#,
+    readCharArray#,
+    writeCharArray#,
+    sizeofMutableByteArray#,
+    copyMutableByteArrayNonOverlapping#,
     indexWord32OffAddr#,
     indexWord64OffAddr#,
     indexWordArray#,
+    sizeofArray#,
+    sizeofMutableArray#,
+    fetchAddIntArray#,
+    fetchSubIntArray#,
+    fetchAndIntArray#,
+    fetchNandIntArray#,
+    fetchOrIntArray#,
+    fetchXorIntArray#,
+    casIntArray#,
+    atomicReadIntArray#,
+    atomicWriteIntArray#,
     int2Word#,
     Int#,
     Int8#,
@@ -78,6 +126,8 @@ module GHC.Prim
     Proxy#,
     proxy#,
     runRW#,
+    keepAlive#,
+    seq#,
     readWordArray#,
     realWorld#,
     readMVar#,
@@ -422,6 +472,14 @@ foreign import prim realWorld# :: State# RealWorld
 -- any runtime representation.
 foreign import prim runRW# :: forall (r :: RuntimeRep) (o :: TYPE r). (State# RealWorld -> o) -> o
 
+-- | Run the continuation while the first argument stays reachable. The
+-- collector uses explicit root lists, so keeping the value alive costs no
+-- code and this is the continuation applied to the state token.
+foreign import prim keepAlive# :: forall (q :: RuntimeRep) (a :: TYPE q) (r :: RuntimeRep) (o :: TYPE r). a -> State# RealWorld -> (State# RealWorld -> o) -> o
+
+-- | Force the first argument, sequenced against the state token.
+foreign import prim seq# :: forall a d. a -> State# d -> (# State# d, a #)
+
 foreign import prim noDuplicate# :: State# d -> State# d
 
 foreign import prim makeStableName# :: a -> State# RealWorld -> (# State# RealWorld, StableName# a #)
@@ -751,11 +809,107 @@ foreign import prim getSizeofMutableByteArray# :: MutableByteArray# d -> State# 
 
 foreign import prim copyAddrToByteArray# :: Addr# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
 
+foreign import prim indexInt8OffAddr# :: Addr# -> Int# -> Int8#
+
+foreign import prim readInt8OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Int8# #)
+
+foreign import prim writeInt8OffAddr# :: Addr# -> Int# -> Int8# -> State# d -> State# d
+
+foreign import prim indexInt16OffAddr# :: Addr# -> Int# -> Int16#
+
+foreign import prim readInt16OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Int16# #)
+
+foreign import prim writeInt16OffAddr# :: Addr# -> Int# -> Int16# -> State# d -> State# d
+
+foreign import prim indexInt32OffAddr# :: Addr# -> Int# -> Int32#
+
+foreign import prim readInt32OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Int32# #)
+
+foreign import prim writeInt32OffAddr# :: Addr# -> Int# -> Int32# -> State# d -> State# d
+
+foreign import prim indexInt64OffAddr# :: Addr# -> Int# -> Int64#
+
+foreign import prim readInt64OffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Int64# #)
+
+foreign import prim writeInt64OffAddr# :: Addr# -> Int# -> Int64# -> State# d -> State# d
+
+foreign import prim indexIntOffAddr# :: Addr# -> Int# -> Int#
+
+foreign import prim readIntOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim writeIntOffAddr# :: Addr# -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim indexWordOffAddr# :: Addr# -> Int# -> Word#
+
+foreign import prim readWordOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Word# #)
+
+foreign import prim writeWordOffAddr# :: Addr# -> Int# -> Word# -> State# d -> State# d
+
+foreign import prim indexAddrOffAddr# :: Addr# -> Int# -> Addr#
+
+foreign import prim readAddrOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Addr# #)
+
+foreign import prim writeAddrOffAddr# :: Addr# -> Int# -> Addr# -> State# d -> State# d
+
+foreign import prim indexFloatOffAddr# :: Addr# -> Int# -> Float#
+
+foreign import prim readFloatOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Float# #)
+
+foreign import prim writeFloatOffAddr# :: Addr# -> Int# -> Float# -> State# d -> State# d
+
+foreign import prim indexDoubleOffAddr# :: Addr# -> Int# -> Double#
+
+foreign import prim readDoubleOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Double# #)
+
+foreign import prim writeDoubleOffAddr# :: Addr# -> Int# -> Double# -> State# d -> State# d
+
+foreign import prim indexWideCharOffAddr# :: Addr# -> Int# -> Char#
+
+foreign import prim readWideCharOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim writeWideCharOffAddr# :: Addr# -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim indexStablePtrOffAddr# :: Addr# -> Int# -> StablePtr# a
+
+foreign import prim readStablePtrOffAddr# :: Addr# -> Int# -> State# d -> (# State# d, StablePtr# a #)
+
+foreign import prim writeStablePtrOffAddr# :: Addr# -> Int# -> StablePtr# a -> State# d -> State# d
+
+foreign import prim readCharArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim writeCharArray# :: MutableByteArray# d -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim sizeofMutableByteArray# :: MutableByteArray# d -> Int#
+
+foreign import prim copyMutableByteArrayNonOverlapping# :: MutableByteArray# d -> Int# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
 foreign import prim indexWord8OffAddr# :: Addr# -> Int# -> Word8#
 
 foreign import prim indexWord32OffAddr# :: Addr# -> Int# -> Word32#
 
 foreign import prim indexWord64OffAddr# :: Addr# -> Int# -> Word64#
+
+foreign import prim sizeofArray# :: Array# a -> Int#
+
+foreign import prim sizeofMutableArray# :: MutableArray# d a -> Int#
+
+foreign import prim fetchAddIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchSubIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchAndIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchNandIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchOrIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim fetchXorIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim casIntArray# :: MutableByteArray# d -> Int# -> Int# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim atomicReadIntArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim atomicWriteIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
 
 foreign import prim indexWordArray# :: ByteArray# -> Int# -> Word#
 

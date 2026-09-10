@@ -1427,10 +1427,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       bits <- floatBits F32 result
       bind [bits]
     (_, [address, index])
-      | Just (ty, scale) <- lookup name addressLoadPrimitives -> do
+      | Just (ty, scale, extend) <- lookup name addressLoadPrimitives -> do
           target <- addressElement address index scale
           value <- emitValue "value" ty (Load ty (Address target 0) 1)
-          result <- if ty == I64 then pure value else emitValue "value" I64 (Convert ZExt ty (typedOperand value) I64)
+          result <- if ty == I64 then pure value else emitValue "value" I64 (Convert extend ty (typedOperand value) I64)
           bind [result]
     (_, [address, index, value])
       | Just (ty, scale) <- lookup name addressStorePrimitives -> do
@@ -1634,29 +1634,54 @@ addressComparisonPrimitives =
 
 -- | Reads of memory at an address. Each entry gives the width of the value
 -- and the size of one index step in bytes.
-addressLoadPrimitives :: [(Text, (Type, Integer))]
+-- | Reads of memory at an address. Each entry gives the width of the value,
+-- the size of one index step in bytes, and how the value widens to a word:
+-- a signed element sign-extends, every other element zero-extends.
+addressLoadPrimitives :: [(Text, (Type, Integer, ConvertOp))]
 addressLoadPrimitives =
-  [ ("indexWord8OffAddr#", (I8, 1)),
-    ("readWord8OffAddr#", (I8, 1)),
-    ("indexWord16OffAddr#", (I16, 2)),
-    ("readWord16OffAddr#", (I16, 2)),
-    ("indexWord32OffAddr#", (I32, 4)),
-    ("readWord32OffAddr#", (I32, 4)),
-    ("indexWord64OffAddr#", (I64, 8)),
-    ("readWord64OffAddr#", (I64, 8)),
-    ("indexWord8OffAddrAsWord16#", (I16, 1)),
-    ("readWord8OffAddrAsWord16#", (I16, 1)),
-    ("indexWord8OffAddrAsWord32#", (I32, 1)),
-    ("readWord8OffAddrAsWord32#", (I32, 1)),
-    ("indexWord8OffAddrAsWord64#", (I64, 1)),
-    ("readWord8OffAddrAsWord64#", (I64, 1)),
+  [ ("indexWord8OffAddr#", (I8, 1, ZExt)),
+    ("readWord8OffAddr#", (I8, 1, ZExt)),
+    ("indexWord16OffAddr#", (I16, 2, ZExt)),
+    ("readWord16OffAddr#", (I16, 2, ZExt)),
+    ("indexWord32OffAddr#", (I32, 4, ZExt)),
+    ("readWord32OffAddr#", (I32, 4, ZExt)),
+    ("indexWord64OffAddr#", (I64, 8, ZExt)),
+    ("readWord64OffAddr#", (I64, 8, ZExt)),
+    ("indexWord8OffAddrAsWord16#", (I16, 1, ZExt)),
+    ("readWord8OffAddrAsWord16#", (I16, 1, ZExt)),
+    ("indexWord8OffAddrAsWord32#", (I32, 1, ZExt)),
+    ("readWord8OffAddrAsWord32#", (I32, 1, ZExt)),
+    ("indexWord8OffAddrAsWord64#", (I64, 1, ZExt)),
+    ("readWord8OffAddrAsWord64#", (I64, 1, ZExt)),
     -- A Float# value travels as its bit pattern in the low 32 bits and a
     -- Double# value as its 64-bit pattern, thus the float accessors reuse
     -- the word accessors of the same width.
-    ("indexWord8OffAddrAsFloat#", (I32, 1)),
-    ("readWord8OffAddrAsFloat#", (I32, 1)),
-    ("indexWord8OffAddrAsDouble#", (I64, 1)),
-    ("readWord8OffAddrAsDouble#", (I64, 1))
+    ("indexWord8OffAddrAsFloat#", (I32, 1, ZExt)),
+    ("readWord8OffAddrAsFloat#", (I32, 1, ZExt)),
+    ("indexWord8OffAddrAsDouble#", (I64, 1, ZExt)),
+    ("readWord8OffAddrAsDouble#", (I64, 1, ZExt)),
+    ("indexFloatOffAddr#", (I32, 4, ZExt)),
+    ("readFloatOffAddr#", (I32, 4, ZExt)),
+    ("indexDoubleOffAddr#", (I64, 8, ZExt)),
+    ("readDoubleOffAddr#", (I64, 8, ZExt)),
+    ("indexWordOffAddr#", (I64, 8, ZExt)),
+    ("readWordOffAddr#", (I64, 8, ZExt)),
+    ("indexIntOffAddr#", (I64, 8, ZExt)),
+    ("readIntOffAddr#", (I64, 8, ZExt)),
+    ("indexInt64OffAddr#", (I64, 8, ZExt)),
+    ("readInt64OffAddr#", (I64, 8, ZExt)),
+    ("indexAddrOffAddr#", (I64, 8, ZExt)),
+    ("readAddrOffAddr#", (I64, 8, ZExt)),
+    ("indexStablePtrOffAddr#", (I64, 8, ZExt)),
+    ("readStablePtrOffAddr#", (I64, 8, ZExt)),
+    ("indexWideCharOffAddr#", (I32, 4, ZExt)),
+    ("readWideCharOffAddr#", (I32, 4, ZExt)),
+    ("indexInt8OffAddr#", (I8, 1, SExt)),
+    ("readInt8OffAddr#", (I8, 1, SExt)),
+    ("indexInt16OffAddr#", (I16, 2, SExt)),
+    ("readInt16OffAddr#", (I16, 2, SExt)),
+    ("indexInt32OffAddr#", (I32, 4, SExt)),
+    ("readInt32OffAddr#", (I32, 4, SExt))
   ]
 
 -- | Writes of memory at an address, with the same widths and index steps as
@@ -1671,7 +1696,18 @@ addressStorePrimitives =
     ("writeWord8OffAddrAsWord32#", (I32, 1)),
     ("writeWord8OffAddrAsWord64#", (I64, 1)),
     ("writeWord8OffAddrAsFloat#", (I32, 1)),
-    ("writeWord8OffAddrAsDouble#", (I64, 1))
+    ("writeWord8OffAddrAsDouble#", (I64, 1)),
+    ("writeInt8OffAddr#", (I8, 1)),
+    ("writeInt16OffAddr#", (I16, 2)),
+    ("writeInt32OffAddr#", (I32, 4)),
+    ("writeInt64OffAddr#", (I64, 8)),
+    ("writeIntOffAddr#", (I64, 8)),
+    ("writeWordOffAddr#", (I64, 8)),
+    ("writeAddrOffAddr#", (I64, 8)),
+    ("writeStablePtrOffAddr#", (I64, 8)),
+    ("writeFloatOffAddr#", (I32, 4)),
+    ("writeDoubleOffAddr#", (I64, 8)),
+    ("writeWideCharOffAddr#", (I32, 4))
   ]
 
 -- | Conversions to a narrow integer. The result keeps the width of a word.

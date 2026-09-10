@@ -325,7 +325,7 @@ foreignConstructorNames dependencies =
   [name | Fc.ForeignConstructor name <- dependencies]
 
 compilerPrimitives :: [Text]
-compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#"]
+compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#", "keepAlive#", "seq#"]
 
 -- | A primitive call with the values of every argument. A compiler primitive
 -- never comes here: its call is always saturated, so 'lowerSpecialApplication'
@@ -714,7 +714,7 @@ lowerArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments continuation)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("runRW#", 1)]
+specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("runRW#", 1), ("keepAlive#", 3), ("seq#", 2)]
 
 lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
@@ -736,6 +736,15 @@ lowerSpecialApplication env resultRep name arguments =
           lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
     ("runRW#", action : _) ->
       lowerLazy env "action" action (lowerRunRW resultRep)
+    -- The collector uses explicit root lists, so the kept-alive value needs
+    -- no code; the continuation runs on the state token the same way
+    -- 'runRW#' runs its action.
+    ("keepAlive#", _kept : state : continuation : _) ->
+      lowerLazy env "keep_alive_continuation" continuation $ \continuationValue ->
+        lowerArgument env state (const (lowerRunRW resultRep continuationValue))
+    ("seq#", value : state : _) ->
+      lowerLazy env "seq_value" value $ \valueThunk ->
+        lowerArgument env state (const (pure (GrinEval resultRep valueThunk)))
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
 
 lowerCatch :: GrinRep -> GrinValue -> GrinValue -> [GrinValue] -> LowerM GrinExpr

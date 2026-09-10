@@ -1,0 +1,25 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int
+
+    test :: IO Results
+    test = IO (\state -> case newArray# 5# 'x' state of
+      (# state1, mutable #) -> case unsafeFreezeArray# mutable state1 of
+       (# state2, frozen #) ->
+         (# state2, Results (I# (sizeofMutableArray# mutable)) (I# (sizeofArray# frozen)) #))
+output: |
+  Results (I# 5) (I# 5)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: the boxed-array size primitives report the length the array was allocated with

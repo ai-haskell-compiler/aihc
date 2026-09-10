@@ -571,3 +571,71 @@ entry:
   store i64 %value, [%address] align 1
   return 0
 }
+
+; The read-modify-write operations of the atomic Int# array primitives. The
+; runtime runs one Haskell thread, thus each is a plain read, combine and
+; write, and each returns the value the element held before the write.
+export func @aihc_byte_array_fetch_add_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %new = add i64 %old, %value
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  return %old
+}
+
+export func @aihc_byte_array_fetch_sub_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %new = sub i64 %old, %value
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  return %old
+}
+
+export func @aihc_byte_array_fetch_and_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %new = and i64 %old, %value
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  return %old
+}
+
+export func @aihc_byte_array_fetch_nand_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %combined = and i64 %old, %value
+  %new = xor i64 %combined, -1
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  return %old
+}
+
+export func @aihc_byte_array_fetch_or_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %new = or i64 %old, %value
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  return %old
+}
+
+export func @aihc_byte_array_fetch_xor_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %new = xor i64 %old, %value
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  return %old
+}
+
+; The compare and swap of casIntArray#. The result is the value the element
+; held, which tells the caller whether the swap happened.
+export func @aihc_byte_array_compare_and_swap_word(%array: ptr, %index: i64, %expected: i64, %replacement: i64) -> i64 cc c {
+entry:
+  %old = call @aihc_byte_array_read_word(%array, %index)
+  %matches = eq i64 %old, %expected
+  br %matches, swap, unchanged
+
+swap:
+  %ignored = call @aihc_byte_array_write_word(%array, %index, %replacement)
+  return %old
+
+unchanged:
+  return %old
+}
