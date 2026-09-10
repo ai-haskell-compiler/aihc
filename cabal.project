@@ -15,7 +15,7 @@ packages:
   tooling/aihc-tc-tooling-common
 
 constraints:
-  aihc-cpp ==1.0.0.2,
+  aihc-cpp ==2.0.0.0,
   aihc-parser ==3.0.1.0
 
 package aihc-tc

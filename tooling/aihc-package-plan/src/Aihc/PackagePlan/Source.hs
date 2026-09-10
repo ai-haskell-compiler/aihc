@@ -193,13 +193,13 @@ preprocessInterfaceSource packageRoot versions fileInfo source = do
     cppConfig =
       Cpp.defaultConfig
         { Cpp.configInputFile = path,
-          Cpp.configMacros = cppMacrosFromOptions cppOptions
+          Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions cppOptions))
         }
 
     drive includes step =
       case step of
         Cpp.Done result ->
-          pure (Cpp.resultOutput result, map cppDiagnosticValue (Cpp.resultDiagnostics result), includes)
+          pure (TE.decodeUtf8With lenientDecode (Cpp.resultOutput result), map cppDiagnosticValue (Cpp.resultDiagnostics result), includes)
         Cpp.NeedInclude req k -> do
           resolved <- resolveInclude packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
           case resolved of
