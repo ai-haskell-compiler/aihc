@@ -254,8 +254,8 @@ in rec {
         // {
           aihc-cpp = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-cpp";
-            ver = "1.0.0.2";
-            sha256 = "1bsq5549wq9nz62qrij6iabac4xv57dbwcqnflgvbfimj910jcz6";
+            ver = "2.0.0.0";
+            sha256 = "1zfxrcrfnb5dylbnnhhcwcavwsp4gs307f7mjx8p5l99lca55nsl";
           } {});
           aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-parser";

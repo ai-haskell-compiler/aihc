@@ -207,7 +207,7 @@ test_diagnosticsUseSourceLineNumbers = do
       config =
         Cpp.defaultConfig
           { Cpp.configInputFile = path,
-            Cpp.configMacros = cppMacrosFromOptions []
+            Cpp.configMacros = Map.mapKeys TE.encodeUtf8 (Map.map TE.encodeUtf8 (cppMacrosFromOptions []))
           }
   assertBool "the header must actually prepend lines" (length (T.lines injected) > length (T.lines source))
   case Cpp.preprocess config (TE.encodeUtf8 injected) of
