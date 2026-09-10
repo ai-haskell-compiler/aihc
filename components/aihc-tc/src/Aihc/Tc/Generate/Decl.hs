@@ -2785,6 +2785,8 @@ matcherPattern match =
 -- | The pattern of an implicitly bidirectional pattern synonym as an
 -- expression.
 patternToExpr :: Pattern -> Maybe Expr
+patternToExpr pat
+  | Just expr <- literalPatternToExpr pat = Just expr
 patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
@@ -2800,6 +2802,46 @@ patternToExpr pat =
     PStrict inner -> patternToExpr inner
     PTypeSig inner ty -> (`ETypeSig` ty) <$> patternToExpr inner
     _ -> Nothing
+
+-- | An annotated literal pattern as an expression.
+--
+-- The resolver annotates a literal pattern for a match: the type of the
+-- unconverted literal, the conversion that an overloaded literal applies,
+-- and the @==@ that compares the result to the scrutinee, with the
+-- literal keeping its own span underneath. An expression instead wants
+-- the type and the conversion wrapped directly around a bare literal, so
+-- rebuild that stack rather than translating the annotations one by one:
+-- the @==@ goes, and the annotations of the literal move outside.
+literalPatternToExpr :: Pattern -> Maybe Expr
+literalPatternToExpr = go []
+  where
+    go anns pattern' =
+      case pattern' of
+        PAnn ann inner
+          | isMatchOnlyAnnotation ann -> go anns inner
+          | otherwise -> go (ann : anns) inner
+        PLit literal ->
+          let (literalAnns, bare) = peelLiteralAnns literal
+           in Just (foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns))
+        _ -> Nothing
+
+-- | Whether a resolver annotation serves matching alone. Only a literal
+-- pattern carries the @==@ that compares it to the scrutinee, and a
+-- builder rebuilds the literal instead of matching it.
+isMatchOnlyAnnotation :: Annotation -> Bool
+isMatchOnlyAnnotation ann =
+  case fromAnnotation @ResolutionAnnotation ann of
+    Just resolution ->
+      resolutionNamespace resolution == ResolutionNamespaceTerm
+        && resolutionIdentifier resolution == IdentifierNamed "=="
+    Nothing -> False
+
+-- | The annotations of a literal, outermost last, and the literal itself.
+peelLiteralAnns :: Literal -> ([Annotation], Literal)
+peelLiteralAnns literal =
+  case literal of
+    LitAnn ann inner -> let (anns, bare) = peelLiteralAnns inner in (anns <> [ann], bare)
+    _ -> ([], literal)
 
 literalToExpr :: Literal -> Expr
 literalToExpr literal =

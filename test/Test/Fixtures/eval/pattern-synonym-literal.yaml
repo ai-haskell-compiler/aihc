@@ -1,0 +1,47 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+
+    type MonthOfYear = Int
+
+    pattern January :: MonthOfYear
+    pattern January = 1
+
+    pattern February :: MonthOfYear
+    pattern February = 2
+
+    pattern Zero :: Integer
+    pattern Zero = 0
+
+    pattern Dot :: Char
+    pattern Dot = '.'
+
+    numberOf :: MonthOfYear -> Int
+    numberOf January = 1
+    numberOf February = 2
+    numberOf _ = 0
+
+    isZero :: Integer -> Bool
+    isZero Zero = True
+    isZero _ = False
+
+    answer :: Bool
+    answer =
+      January == (1 :: MonthOfYear)
+        && February == (2 :: MonthOfYear)
+        && Zero == (0 :: Integer)
+        && Dot == '.'
+        && numberOf January == 1
+        && numberOf February == 2
+        && numberOf 3 == 0
+        && isZero Zero
+        && isZero 7 == False
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: the builder of an implicitly bidirectional pattern synonym rebuilds an overloaded literal without the annotations that only its match needs
