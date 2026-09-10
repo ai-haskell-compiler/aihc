@@ -1,0 +1,35 @@
+annotated:
+- |-
+  {-# LANGUAGE ScopedTypeVariables #-}
+  module Test where
+  data Ptr a = Ptr a
+       │       └─ type: ∀ a. a → Ptr a
+       └─ type: Type → Type
+  data Nat = Z
+       │     └─ type: Nat
+       └─ type: Type
+  alloca :: (Ptr a -> Nat) -> Nat
+  alloca k = Z
+  │      └─ type: Ptr a → Nat
+  └─ type: ∀ a. (Ptr a → Nat) → Nat
+  useIt :: Nat
+  useIt = alloca (\(ptr :: Ptr Nat) -> case ptr of Ptr n -> n)
+  │       │       │ └─ type: Ptr Nat   └─ type: Nat│   └─ type: Nat
+  │       │       └─ type: Ptr Nat → Nat           └─ type: Ptr Nat
+  │       └─ type: (Ptr Nat → Nat) → Nat; type-args: Nat
+  └─ type: Nat
+extensions:
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE ScopedTypeVariables #-}
+  module Test where
+  data Ptr a = Ptr a
+  data Nat = Z
+  alloca :: (Ptr a -> Nat) -> Nat
+  alloca k = Z
+  useIt :: Nat
+  useIt = alloca (\(ptr :: Ptr Nat) -> case ptr of Ptr n -> n)
+reason: a pattern signature checks its sub-pattern against the signature, so
+  a binder the sub-pattern introduces is in scope in the body at that type
+status: pass

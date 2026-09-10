@@ -161,6 +161,16 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           ["eqWord64#", "neWord64#", "ltWord64#", "leWord64#", "gtWord64#", "geWord64#", "wordToWord64#", "word16ToWord#"],
+      testCase "accepts the sized word shift primitives in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          [ "uncheckedShiftLWord16#",
+            "uncheckedShiftRLWord16#",
+            "uncheckedShiftLWord32#",
+            "uncheckedShiftRLWord32#",
+            "uncheckedShiftL64#",
+            "uncheckedShiftRL64#"
+          ],
       testCase "accepts the Word8# comparison primitives in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))

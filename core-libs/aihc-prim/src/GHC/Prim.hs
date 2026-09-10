@@ -107,6 +107,12 @@ module GHC.Prim
     putMVar#,
     uncheckedShiftL#,
     uncheckedShiftRL#,
+    uncheckedShiftLWord16#,
+    uncheckedShiftRLWord16#,
+    uncheckedShiftLWord32#,
+    uncheckedShiftRLWord32#,
+    uncheckedShiftL64#,
+    uncheckedShiftRL64#,
     unsafeCoerce#,
     word2Int#,
     word8ToWord#,
@@ -513,6 +519,18 @@ foreign import prim not# :: Word# -> Word#
 foreign import prim uncheckedShiftL# :: Word# -> Int# -> Word#
 
 foreign import prim uncheckedShiftRL# :: Word# -> Int# -> Word#
+
+foreign import prim uncheckedShiftLWord16# :: Word16# -> Int# -> Word16#
+
+foreign import prim uncheckedShiftRLWord16# :: Word16# -> Int# -> Word16#
+
+foreign import prim uncheckedShiftLWord32# :: Word32# -> Int# -> Word32#
+
+foreign import prim uncheckedShiftRLWord32# :: Word32# -> Int# -> Word32#
+
+foreign import prim uncheckedShiftL64# :: Word64# -> Int# -> Word64#
+
+foreign import prim uncheckedShiftRL64# :: Word64# -> Int# -> Word64#
 
 foreign import prim int2Word# :: Int# -> Word#
 
