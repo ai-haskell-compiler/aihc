@@ -1310,6 +1310,13 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           rightOperand <- word right
           result <- emitValue "result" I64 (Binary op I64 leftOperand rightOperand)
           bind [result]
+      | Just (op, ty) <- lookup name narrowBinaryPrimitives -> do
+          leftOperand <- word left
+          rightOperand <- word right
+          wide <- emitValue "wide" I64 (Binary op I64 leftOperand rightOperand)
+          narrow <- emitValue "narrow" ty (Convert Trunc I64 (typedOperand wide) ty)
+          result <- emitValue "result" I64 (Convert ZExt ty (typedOperand narrow) I64)
+          bind [result]
       | Just op <- lookup name comparisonPrimitives -> do
           leftOperand <- word left
           rightOperand <- word right
@@ -1568,7 +1575,20 @@ binaryPrimitives =
     ("or#", Or),
     ("xor#", Xor),
     ("uncheckedShiftL#", Shl),
-    ("uncheckedShiftRL#", ShrU)
+    ("uncheckedShiftRL#", ShrU),
+    ("uncheckedShiftL64#", Shl),
+    ("uncheckedShiftRL64#", ShrU)
+  ]
+
+-- | Binary operations whose result is a sized word. The operation runs at
+-- the width of a word and the result keeps only its low bits, which is how
+-- a @Word16#@ or @Word32#@ shift wraps.
+narrowBinaryPrimitives :: [(Text, (BinaryOp, Type))]
+narrowBinaryPrimitives =
+  [ ("uncheckedShiftLWord16#", (Shl, I16)),
+    ("uncheckedShiftRLWord16#", (ShrU, I16)),
+    ("uncheckedShiftLWord32#", (Shl, I32)),
+    ("uncheckedShiftRLWord32#", (ShrU, I32))
   ]
 
 comparisonPrimitives :: [(Text, CompareOp)]

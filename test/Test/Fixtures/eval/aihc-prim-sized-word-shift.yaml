@@ -1,0 +1,26 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (word2Int# (word16ToWord# (uncheckedShiftLWord16# (wordToWord16# 3##) 2#))))
+        (I# (word2Int# (word16ToWord# (uncheckedShiftLWord16# (wordToWord16# 0xf000##) 4#))))
+        (I# (word2Int# (word16ToWord# (uncheckedShiftRLWord16# (wordToWord16# 0x8000##) 15#))))
+        (I# (word2Int# (word32ToWord# (uncheckedShiftLWord32# (wordToWord32# 0xf0000000##) 4#))))
+        (I# (word2Int# (word32ToWord# (uncheckedShiftRLWord32# (wordToWord32# 0x80000000##) 31#))))
+        (I# (word2Int# (word64ToWord# (uncheckedShiftL64# (wordToWord64# 1##) 40#))))
+output: |
+  Results (I# 12) (I# 0) (I# 1) (I# 0) (I# 1) (I# 1099511627776)
+expression: |
+  results
+status: pass
+reason: a shift of a sized word keeps only the bits of its width, so a left shift wraps

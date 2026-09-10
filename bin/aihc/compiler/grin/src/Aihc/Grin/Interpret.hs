@@ -773,6 +773,18 @@ evalPrimitive "not#" [value] = do
   pure [wordRuntimeValue (complement word)]
 evalPrimitive "uncheckedShiftL#" [value, amount] = evalWordShift "uncheckedShiftL#" shiftL value amount
 evalPrimitive "uncheckedShiftRL#" [value, amount] = evalWordShift "uncheckedShiftRL#" shiftR value amount
+evalPrimitive "uncheckedShiftLWord16#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftLWord16#" Word16Rep 0xffff shiftL value amount
+evalPrimitive "uncheckedShiftRLWord16#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftRLWord16#" Word16Rep 0xffff shiftR value amount
+evalPrimitive "uncheckedShiftLWord32#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftLWord32#" Word32Rep 0xffffffff shiftL value amount
+evalPrimitive "uncheckedShiftRLWord32#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftRLWord32#" Word32Rep 0xffffffff shiftR value amount
+evalPrimitive "uncheckedShiftL64#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftL64#" Word64Rep wordMask shiftL value amount
+evalPrimitive "uncheckedShiftRL64#" [value, amount] =
+  evalSizedWordShift "uncheckedShiftRL64#" Word64Rep wordMask shiftR value amount
 evalPrimitive "int2Word#" [value] = do
   int <- expectIntPrimitiveArgument "int2Word#" value
   pure [wordRuntimeValue int]
@@ -1407,6 +1419,15 @@ evalCharComparison name comparison left right = do
   leftChar <- expectCharPrimitiveArgument name left
   rightChar <- expectCharPrimitiveArgument name right
   pure [intRuntimeValue (if comparison leftChar rightChar then 1 else 0)]
+
+-- | A shift of a sized word. The result keeps only the bits of its width,
+-- which is how a left shift of a 'Word16#' or 'Word32#' wraps.
+evalSizedWordShift ::
+  Text -> GrinRep -> Integer -> (Integer -> Int -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedWordShift name rep mask operation value amount = do
+  word <- expectRuntimeRepPrimitiveArgument name rep value
+  shiftAmount <- expectIntPrimitiveArgument name amount
+  pure [RuntimeLit (GrinLitInt rep (operation word (fromInteger shiftAmount) .&. mask))]
 
 evalWordShift :: Text -> (Integer -> Int -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalWordShift name operation value amount = do

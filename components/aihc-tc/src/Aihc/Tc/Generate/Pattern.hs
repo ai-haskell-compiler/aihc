@@ -28,6 +28,7 @@ import Aihc.Parser.Syntax
     RecordField (..),
     SourceSpan (..),
     TupleFlavor (..),
+    Type,
     UnqualifiedName (..),
     fromAnnotation,
     mkAnnotation,
@@ -44,7 +45,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Generate.Record (lookupRecordConstructor, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (tcTypeKind)
+import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
@@ -322,6 +323,7 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PStrict inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
       pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
+    PTypeSig inner tyAnn -> checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy
     PIrrefutable inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
       pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
@@ -354,6 +356,24 @@ checkPatternCore gadtHandling sp pat scrutTy =
       | length items == arity ->
           checkTuplePattern gadtHandling sp flavor items scrutTy
     _ -> pure (checkedOnly pat)
+
+-- | A pattern signature, @(ptr :: Ptr Word32)@. The signature is elaborated
+-- in the enclosing scoped type variables and the sub-pattern is checked
+-- against it, so the binders the sub-pattern introduces get the type the
+-- signature gives them. A wanted equality ties the signature to the
+-- scrutinee.
+checkTypeSigPattern :: GadtHandling -> SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
+checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy = do
+  kinds <- getKinds
+  scoped <- getScopedTyVars
+  sigTy <- checkSurfaceType scoped tyAnn (typeKind kinds)
+  eqCt <- wantedEq sp scrutTy sigTy
+  innerCheck <- checkPatternWith gadtHandling sp inner sigTy
+  pure
+    innerCheck
+      { pcWantedCts = eqCt : pcWantedCts innerCheck,
+        pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
+      }
 
 checkTuplePattern :: GadtHandling -> SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern gadtHandling sp flavor items scrutTy = do
