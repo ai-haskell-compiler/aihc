@@ -65,6 +65,7 @@ import Aihc.Native
     NativeRuntimeCall (..),
     buildAddrLiteralPool,
     executableEntryName,
+    mvarPeekPseudoPrimitive,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
@@ -1470,6 +1471,18 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           operand <- floatOperand ty value
           result <- emitValue "result" I64 (Convert FToIS ty operand I64)
           bind [result]
+    -- tryTakeMVar# and tryReadMVar# each give a flag and the contents. The
+    -- runtime function returns only the flag, so the contents are read first:
+    -- a runtime call never yields, thus nothing can empty the variable
+    -- between the two calls, and a failed try leaves the placeholder the
+    -- caller must not look at.
+    (_, [mvar])
+      | name `elem` ["tryTakeMVar#", "tryReadMVar#"],
+        Just tryCall <- nativeRuntimePrimitiveCall name,
+        Just peekCall <- nativeRuntimePrimitiveCall mvarPeekPseudoPrimitive -> do
+          contents <- compileRuntimeCall ctx env peekCall [mvar]
+          flag <- compileRuntimeCall ctx env tryCall [mvar]
+          bind [flag, contents]
     ("casMutVar#", [reference, expected, replacement])
       | Just swapCall <- nativeRuntimePrimitiveCall "casMutVar#",
         Just readCall <- nativeRuntimePrimitiveCall "readMutVar#" -> do
@@ -1801,6 +1814,8 @@ identityPrimitives =
     "chr#",
     "unsafeFreezeArray#",
     "unsafeThawArray#",
+    "unsafeFreezeSmallArray#",
+    "unsafeThawSmallArray#",
     "unsafeFreezeByteArray#",
     "unsafeThawByteArray#",
     "castFloatToWord32#",

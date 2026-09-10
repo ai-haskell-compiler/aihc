@@ -9,17 +9,17 @@ module GHC.Err
 where
 
 import GHC.Base (String)
-import GHC.Internal.Stack (appendCallStack)
+import GHC.Exception (errorCallException, errorCallWithCallStackException)
 import GHC.Prim (raise#)
 import GHC.Stack.Types (HasCallStack)
 import GHC.Types (RuntimeRep, TYPE)
 
 -- | Stop the program with a message and the call stack of the call site.
 error :: forall (r :: RuntimeRep) (a :: TYPE r). (HasCallStack) => String -> a
-error message = raise# (appendCallStack message ?callStack)
+error message = raise# (errorCallWithCallStackException message ?callStack)
 
 errorWithoutStackTrace :: forall (r :: RuntimeRep) (a :: TYPE r). String -> a
-errorWithoutStackTrace = raise#
+errorWithoutStackTrace message = raise# (errorCallException message)
 
 undefined :: forall (r :: RuntimeRep) (a :: TYPE r). (HasCallStack) => a
-undefined = raise# (appendCallStack "Prelude.undefined" ?callStack)
+undefined = raise# (errorCallWithCallStackException "Prelude.undefined" ?callStack)

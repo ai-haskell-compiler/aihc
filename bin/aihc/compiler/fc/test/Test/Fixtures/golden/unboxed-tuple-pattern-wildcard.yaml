@@ -27,11 +27,11 @@ expected: |-
     3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v: 3.tRuntimeRep r2 (3.v[] 3.tRuntimeRep))));
     3.tType :: 3.tType;
     3.t[] :: ∀(a : 3.tType). 3.tType;
-    3.v(#,#) :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.tLiftedRep a1 (FUN @r2 @(3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v: 3.tRuntimeRep r2 (3.v[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
     3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
     3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
     3.vIntRep :: 3.tRuntimeRep;
     3.vLifted :: 3.tLevity;
+    3.vTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.tLiftedRep a1 (FUN @r2 @(3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v: 3.tRuntimeRep r2 (3.v[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
     3.vTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
     3.v[] :: ∀(a : 3.tType). 3.t[] a
 
@@ -42,7 +42,7 @@ expected: |-
   pub val 1.vsecond :: FUN @(3.vTupleRep (3.v: 3.tRuntimeRep 3.vIntRep (3.v: 3.tRuntimeRep 3.vIntRep (3.v[] 3.tRuntimeRep)))) @3.vIntRep (3.tTuple2# 3.vIntRep 3.vIntRep 2.tInt# 2.tInt#) 2.tInt#
    = λ(x : 3.tTuple2# 3.vIntRep 3.vIntRep 2.tInt# 2.tInt#).
     case x as (_scrut : 3.tTuple2# 3.vIntRep 3.vIntRep 2.tInt# 2.tInt#) return (2.tInt#) of {
-        3.v(#,#) (_pat : 2.tInt#) (value : 2.tInt#) →
+        3.vTuple2# (_pat : 2.tInt#) (value : 2.tInt#) →
             value
     }
 status: pass

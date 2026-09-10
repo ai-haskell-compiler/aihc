@@ -2,14 +2,13 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 -- | Call-stack rendering. GHC spreads these over @GHC.Stack@ and
--- @GHC.Exception@; they live here so that @GHC.Err@ can render a call
--- stack without importing either.
+-- @GHC.Exception@; they live here so that @GHC.Exception@ can render a
+-- call stack without importing @GHC.Stack@.
 module GHC.Internal.Stack
   ( popCallStack,
     prettyCallStack,
     prettyCallStackLines,
     prettySrcLoc,
-    appendCallStack,
   )
 where
 
@@ -46,13 +45,6 @@ prettyCallStackLines stack =
     entries -> "CallStack (from HasCallStack):" : mapList prettyEntry entries
   where
     prettyEntry (name, location) = "  " ++ name ++ ", called at " ++ prettySrcLoc location
-
--- | Add a rendered call stack to an error message.
-appendCallStack :: String -> CallStack -> String
-appendCallStack message stack =
-  case prettyCallStackLines stack of
-    [] -> message
-    entries -> message ++ ('\n' : joinLines entries)
 
 infixr 5 ++
 

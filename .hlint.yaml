@@ -16,6 +16,12 @@
 - ignore:
     name: Redundant fromInteger
     within: GHC.Prim.Num
+# The one-element unboxed tuple is a tuple, not a wrapper: making it a
+# newtype would erase the constructor and change how it is laid out.
+- ignore:
+    name: Use newtype instead of data
+    within: GHC.Types
+
 - ignore:
     name: Use traverse
     within: GHC.Internal.Traversable

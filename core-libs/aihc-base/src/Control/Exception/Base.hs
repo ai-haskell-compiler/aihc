@@ -1,7 +1,11 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Control.Exception.Base
   ( Exception (..),
     SomeException (..),
     ArithException (..),
+    ErrorCall (..),
+    pattern ErrorCall,
     IOException,
     IOError,
     ioError,
@@ -40,7 +44,7 @@ module Control.Exception.Base
   )
 where
 
-import GHC.Exception (ArithException (..), Exception (..), SomeException (..), throw)
+import GHC.Exception (ArithException (..), ErrorCall (..), Exception (..), SomeException (..), throw, pattern ErrorCall)
 import GHC.IO (MaskingState (..), bracket, catch, evaluate, finally, getMaskingState, interruptible, mask, mask_, onException, throwIO, uninterruptibleMask, uninterruptibleMask_)
 import GHC.IO.Exception
   ( AllocationLimitExceeded (..),

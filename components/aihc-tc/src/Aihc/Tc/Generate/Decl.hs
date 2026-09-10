@@ -150,6 +150,8 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -491,7 +493,7 @@ tcModule unit = do
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
 tcModuleScc :: [ModuleUnit] -> TcM [Module]
-tcModuleScc units = do
+tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
   -- bodies, then register value-level declarations against those expanded
@@ -501,7 +503,6 @@ tcModuleScc units = do
       moduleExtensions = map moduleUnitExtensions units
       declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
-      polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
   mapM_ predeclareTypeConstructor declarations
   mapM_ predeclareTypeLevelDataConstructors declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
@@ -517,7 +518,9 @@ tcModuleScc units = do
   mapM_ registerNominalRoles declarations
   -- Generalize data kinds before instances use them.
   generalizeDataKinds polyKindOrigins initialKeys
-  mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
+  componentTyCons <- componentTyConKeys initialKeys
+  withComponentTyCons componentTyCons $
+    mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
@@ -534,9 +537,12 @@ tcModuleScc units = do
   pending <- zipWithM tcModuleBody schemes derivingFinalized
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
+  defaultDeferredKindMetas
   defaultGlobalKindMetas structuralKeys
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
+  where
+    polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -562,17 +568,27 @@ checkModuleSignatures extensions signatures = do
     then traverse generalizeSignatureKinds checked
     else traverse (\signature -> do scheme <- defaultTypeSchemeKinds (checkedSigScheme signature); pure signature {checkedSigScheme = scheme}) checked
 
+-- | Skolemize the kind meta-variables these type variables still leave
+-- open, so the binder they belong to quantifies over them instead of
+-- defaulting them to 'Type'. A meta whose own kind is not 'Type' is
+-- representation-polymorphic and defaults as before.
+generalizeTyVarKinds :: [TyVarId] -> TcM ()
+generalizeTyVarKinds variables = do
+  kinds <- getKinds
+  reserved <- reservedKindMetas
+  variableKinds <- mapM (zonkKind . tvKind) variables
+  forM_ (zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))) $ \(index, Unique meta) -> do
+    metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
+    tracked <- isTrackedKindMeta (Unique meta)
+    when (tracked && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
+      variable <- freshSkolemTv ("k" <> T.pack (show index))
+      writeMetaTv (Unique meta) (TcTyVar variable)
+
 -- | Quantify implicit kind variables before the signature enters the environment.
 generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
 generalizeSignatureKinds signature = do
   let ForAll variables predicates body = checkedSigScheme signature
-  kinds <- getKinds
-  variableKinds <- mapM (zonkKind . tvKind) variables
-  forM_ (nub (concatMap collectMetaVars variableKinds)) $ \meta -> do
-    metaKind <- readMetaTvKind meta >>= zonkKind
-    when (metaKind == typeKind kinds) $ do
-      variable <- freshSkolemTv "k"
-      writeMetaTv meta (TcTyVar variable)
+  generalizeTyVarKinds variables
   variables' <- mapM defaultTyVarKinds variables
   body' <- zonkType body
   predicates' <- mapM defaultPredKinds predicates
@@ -685,6 +701,33 @@ globalStateKeys state =
       globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state),
       globalPatSynKeys = Map.keysSet (tcsPatSyns state)
     }
+
+-- | Settle the kinds that a local generalization left open. The bodies
+-- that use those bindings have been checked by now, so every kind that a
+-- use fixes is already solved; whatever is left is 'Type' as it would
+-- have been at the point of generalization.
+defaultDeferredKindMetas :: TcM ()
+defaultDeferredKindMetas = do
+  deferred <- takeDeferredKindMetas
+  mapM_ (defaultKindMetas . TcMetaTv) deferred
+
+-- | The type constructors this component declared itself.
+componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set TcTypeKey)
+componentTyConKeys initialKeys = do
+  state <- lift get
+  pure (Map.keysSet (tcsGlobalTyCons state) `Set.difference` globalTyConKeys initialKeys)
+
+-- | The kind meta-variables the component's own type constructors still
+-- hold in their kind schemes, as they stand now. Unification rewrites
+-- them as the module is checked, so this is read afresh each time rather
+-- than snapshotted.
+reservedKindMetas :: TcM IntSet
+reservedKindMetas = do
+  keys <- getComponentTyCons
+  state <- lift get
+  let owned = Map.restrictKeys (tcsGlobalTyCons state) keys
+  kinds <- mapM (zonkKind . typeSchemeBody . tciKindScheme) (Map.elems owned)
+  pure (IntSet.fromList [key | Unique key <- concatMap collectMetaVars kinds])
 
 -- | Generalize each data kind in its own module extension scope.
 generalizeDataKinds :: [(Text, Text)] -> GlobalStateKeys -> TcM ()
@@ -1094,7 +1137,7 @@ annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
   familyInstances <- getTypeFamilyInstances
   let expectedKey =
-        TcAxiomKey (PackageId packageName) moduleName' (sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst))
+        TcAxiomKey (PackageId packageName) moduleName' (sourceTypeFamilyAxiomName (packageName, moduleName') (typeFamilyInstLhs familyInst))
   case find ((== expectedKey) . typeFamilyAxiomKey) familyInstances of
     Just familyInstance ->
       pure (DeclAnn (mkAnnotation familyInstance) (DeclTypeFamilyInst familyInst))
@@ -1410,7 +1453,11 @@ primitiveForeignTypes =
     (("Word64#", 0), ("Word64#", TcForeignWord64)),
     (("Float#", 0), ("Float#", TcForeignFloat)),
     (("Double#", 0), ("Double#", TcForeignDouble)),
-    (("Addr#", 0), ("Addr#", TcForeignAddr))
+    (("Addr#", 0), ("Addr#", TcForeignAddr)),
+    -- A Char# is a Unicode code point, which C sees as a 32-bit word, and a
+    -- StablePtr# is an address the runtime hands out.
+    (("Char#", 0), ("Char#", TcForeignWord32)),
+    (("StablePtr#", 1), ("StablePtr#", TcForeignAddr))
   ]
 
 primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
@@ -1480,7 +1527,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       let classNameText = nameText className
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
-      tvIds <- orderTyVarsByKind <$> mapM defaultTyVarKinds rawTvIds
+      tvIds <- resolveInstanceTyVars origin rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
       kinds <- getKinds
@@ -1541,7 +1588,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       let lookupEquation axiomName =
             find ((== TcAxiomKey (PackageId (fst origin)) (snd origin) axiomName) . typeFamilyAxiomKey) familyInstances
           explicitNames = mapMaybe typeFamilyInstName (instanceDeclTypeFamilyInsts instanceDecl)
-          explicitEquation familyInst = lookupEquation (sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst))
+          explicitEquation familyInst = lookupEquation (sourceTypeFamilyAxiomName origin (typeFamilyInstLhs familyInst))
           defaultEquations =
             [ equation
             | associated <- ciAssociatedTypes info,
@@ -2081,6 +2128,25 @@ orderTyVarsByKind = go []
         (next, rest) -> go (reverse next <> emitted) rest
     ready emitted pending tyVar =
       not (any (\other -> other /= tyVar && other `notElem` emitted && kindMentionsUnique (tvUnique other) (tvKind tyVar)) pending)
+
+-- | Settle the kinds an instance head left open and return the variables
+-- the dictionary quantifies over.
+--
+-- Under PolyKinds a head such as @Eq (Ptr a)@ constrains nothing about
+-- @a@'s kind, because @Ptr@ itself is kind-polymorphic. Defaulting the
+-- open kind to 'Type' would make the instance unusable at a wanted whose
+-- kind 'generalizeSignatureKinds' turned into a skolem, so quantify over
+-- the kind instead, the way GHC does. Without PolyKinds the kinds default
+-- as before.
+resolveInstanceTyVars :: (Text, Text) -> [TyVarId] -> TcM [TyVarId]
+resolveInstanceTyVars origin rawTyVars = do
+  polyKinds <- isPolyKindOrigin origin
+  if polyKinds
+    then do
+      generalizeTyVarKinds rawTyVars
+      tyVars <- mapM defaultTyVarKinds rawTyVars
+      pure (orderTyVarsByKind (closeKindVariables tyVars))
+    else orderTyVarsByKind <$> mapM defaultTyVarKinds rawTyVars
 
 makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TyVarId], TvKindEnv)
 makeInstanceTyVarEnv instanceDecl headArgTypes = do
@@ -3475,7 +3541,7 @@ registerInstanceDecl origin instanceDecl =
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
-      tvIds <- orderTyVarsByKind <$> mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) rawTvIds
+      tvIds <- resolveInstanceTyVars origin rawTvIds
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
       checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys context
@@ -3677,18 +3743,35 @@ unqualifiedFromResolvedName name =
       unqualifiedNameAnns = nameAnns name
     }
 
-sourceTypeFamilyAxiomName :: Type -> Text
-sourceTypeFamilyAxiomName ty = "$ax$" <> sourceTypeKey ty
+-- | The axiom name of one type family instance, within the module that holds
+-- it. The first argument is that module's package and name.
+sourceTypeFamilyAxiomName :: (Text, Text) -> Type -> Text
+sourceTypeFamilyAxiomName home ty = "$ax$" <> sourceTypeKey home ty
 
-sourceTypeKey :: Type -> Text
-sourceTypeKey ty =
+sourceTypeKey :: (Text, Text) -> Type -> Text
+sourceTypeKey home ty =
   case peelTypeHead ty of
-    TCon name _ -> nameText name
+    TCon name _ -> typeConKey home name
     TVar name -> unqualifiedNameText name
-    TApp function argument -> sourceTypeKey function <> "$" <> sourceTypeKey argument
-    TTypeApp function argument -> sourceTypeKey function <> "$" <> sourceTypeKey argument
-    TInfix left name _ right -> sourceTypeKey left <> "$" <> nameText name <> "$" <> sourceTypeKey right
+    TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
+    TTypeApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
+    TInfix left name _ right -> sourceTypeKey home left <> "$" <> typeConKey home name <> "$" <> sourceTypeKey home right
     _ -> "T"
+
+-- | The axiom-key fragment of one type constructor. A constructor the home
+-- module declares itself contributes its bare name, and an imported one
+-- contributes where it is defined: one module can hold instances of a single
+-- associated type family for two constructors that share a name -- the lazy
+-- and the strict @WriterT@, say -- and the bare names would put both
+-- instances on one axiom key.
+typeConKey :: (Text, Text) -> Name -> Text
+typeConKey home name =
+  case nameResolution (unqualifiedFromResolvedName name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
+      | Just definingModuleName <- nameQualifier resolvedName,
+        (packageIdText packageId, definingModuleName) /= home ->
+          packageIdText packageId <> ":" <> definingModuleName <> "." <> nameText resolvedName
+    _ -> nameText name
 
 registerTypeFamilyDeclHeader :: Maybe TypeScheme -> TypeFamilyDecl -> TcM [TcBindingResult]
 registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
@@ -3773,7 +3856,7 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
                   axiomName =
                     if isClosed
                       then typeFamilyAxiomName familyName (length existing)
-                      else sourceTypeFamilyAxiomName (typeFamilyEqLhs equation)
+                      else sourceTypeFamilyAxiomName (packageName, moduleName') (typeFamilyEqLhs equation)
                   instanceInfo =
                     TypeFamilyInstanceInfo
                       { tfiiFamilyName = familyName,
@@ -4270,11 +4353,23 @@ rejigIndices = go Map.empty
         TcAppTy function argument -> TcAppTy (substituteKindParams kindParams function) (substituteKindParams kindParams argument)
         _ -> kind
 
+-- | The name of one tuple data constructor. A boxed one takes its source
+-- spelling. An unboxed one takes the name of its type constructor, which is
+-- the name the wiring already gives it in both namespaces: the comma spelling
+-- cannot tell the empty tuple from the one-element one, because neither holds
+-- a comma, and GHC only separates them by spelling the empty one @(# #)@,
+-- whose space an FC name cannot hold.
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
   case flavor of
     Boxed -> "(" <> commas arity <> ")"
-    Unboxed -> "(#" <> commas arity <> "#)"
+    Unboxed -> unboxedTupleName arity
+
+-- | The name of the unboxed tuple of one arity, in either namespace. The
+-- copy in @Aihc.Prim.Wiring@ names the same constructors, and the FC
+-- desugarer and the GRIN lowering both spell it too.
+unboxedTupleName :: Int -> Text
+unboxedTupleName arity = "Tuple" <> T.pack (show arity) <> "#"
 
 unboxedSumConText :: Int -> Int -> Text
 unboxedSumConText pos arity = "(#" <> bars (pos - 1) <> "_" <> bars (arity - pos) <> "#)"

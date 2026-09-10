@@ -125,3 +125,105 @@ entry:
   %result = zext i1 %same to i64
   return %result
 }
+
+data @aihc_array_copy_message align 1 = {
+  bytes "boxed-array copy length is invalid", zero 1
+}
+
+; Copy one element between two arrays. Both accesses go through
+; aihc_array_element, so each one is bounds checked on its own array.
+func @aihc_array_copy_element(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %index: i64) cc c {
+entry:
+  %from = add i64 %source_offset, %index
+  %to = add i64 %target_offset, %index
+  %source_address = call @aihc_array_element(%source, %from)
+  %value = load i64 [%source_address] align 8
+  %target_address = call @aihc_array_element(%target, %to)
+  store i64 %value, [%target_address] align 8
+  return
+}
+
+; Copy %count elements from one array to another. The source and the target
+; may be the same array, so a copy that moves a run towards a higher index
+; within one array runs backwards and leaves the overlap intact.
+export func @aihc_array_copy(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %count: i64) -> i64 cc c {
+entry:
+  %negative = lt.s i64 %count, 0
+  br %negative, invalid_length, choose
+
+invalid_length:
+  call @aihc_fail(@aihc_array_copy_message)
+  trap "boxed-array copy length is invalid"
+
+choose:
+  %same = eq ptr %source, %target
+  %after = gt.u i64 %target_offset, %source_offset
+  %backwards = and i1 %same, %after
+  br %backwards, backward(%count), forward(0)
+
+forward(%index: i64):
+  %reached_end = ge.u i64 %index, %count
+  br %reached_end, done, forward_step
+
+forward_step:
+  call @aihc_array_copy_element(%source, %source_offset, %target, %target_offset, %index)
+  %next = add i64 %index, 1
+  jump forward(%next)
+
+backward(%remaining: i64):
+  %empty = eq i64 %remaining, 0
+  br %empty, done, backward_step
+
+backward_step:
+  %previous = sub i64 %remaining, 1
+  call @aihc_array_copy_element(%source, %source_offset, %target, %target_offset, %previous)
+  jump backward(%previous)
+
+done:
+  return 0
+}
+
+; A fresh array holding the %count elements that start at %offset. Freezing a
+; run, thawing one, and cloning one all land here: the three differ only in
+; the type their caller gives the result.
+export func @aihc_array_clone(%machine: ptr, %source: ptr, %offset: i64, %count: i64) -> ptr cc c {
+entry:
+  ; A null slot is a valid non-pointer to the collector, and nothing between
+  ; the allocation and the copy allocates, so the fresh array is never
+  ; scanned while it still holds the placeholder.
+  %clone = call @aihc_array_new(%machine, %count, 0)
+  %ignored = call @aihc_array_copy(%source, %offset, %clone, 0, %count)
+  return %clone
+}
+
+; Drop the tail of a mutable array. The length lives in the object, and the
+; collector reaches the elements from it, so the dropped slots stop being
+; roots as soon as the length changes.
+export func @aihc_array_shrink(%array: ptr, %count: i64) -> i64 cc c {
+entry:
+  %length = call @aihc_array_length(%array)
+  %negative = lt.s i64 %count, 0
+  %past_end = gt.u i64 %count, %length
+  %invalid = or i1 %negative, %past_end
+  br %invalid, invalid_size, shrink
+
+invalid_size:
+  call @aihc_fail(@aihc_array_size_message)
+  trap "boxed-array size is invalid"
+
+shrink:
+  store i64 %count, [%array + 8] align 8
+  return 0
+}
+
+; A mutable array of %count elements holding the prefix of %array that fits,
+; with %initial in any slot beyond the old length.
+export func @aihc_array_resize(%machine: ptr, %array: ptr, %count: i64, %initial: i64) -> ptr cc c {
+entry:
+  %length = call @aihc_array_length(%array)
+  %shorter = lt.u i64 %count, %length
+  %kept = select i64 %shorter, %count, %length
+  %resized = call @aihc_array_new(%machine, %count, %initial)
+  %ignored = call @aihc_array_copy(%array, 0, %resized, 0, %kept)
+  return %resized
+}

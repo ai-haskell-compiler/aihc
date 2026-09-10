@@ -1,0 +1,31 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import GHC.Exts (atomicModifyMutVar#, newMutVar#, readMutVar#)
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int
+
+    -- The function gives the value to install and the value to return, and
+    -- neither of them appears in the type of the primitive.
+    test :: IO Results
+    test = IO (\state -> case newMutVar# (I# 7#) state of
+      (# state1, reference #) ->
+        case atomicModifyMutVar# reference (\(I# n) -> (I# (n +# 1#), I# (n *# 2#))) state1 of
+          (# state2, returned #) -> case readMutVar# reference state2 of
+            (# state3, stored #) -> (# state3, Results stored returned #))
+output: |
+  Results (I# 8) (I# 14)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: atomicModifyMutVar# installs the first component of the pair and returns the second

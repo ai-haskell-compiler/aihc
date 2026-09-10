@@ -532,13 +532,11 @@ rawName =
       operatorName
     ]
 
+-- | Only a boxed tuple has a name of its own shape. An unboxed one is named
+-- after its type constructor, @Tuple2#@ and so on, which lexes as an
+-- identifier.
 tupleName :: Parser Text
-tupleName = unboxedTupleName <|> boxedTupleName
-
-unboxedTupleName :: Parser Text
-unboxedTupleName = makeTuple <$> MP.between (MPC.string "(#") (MPC.string "#)") (MP.many (MPC.char ','))
-  where
-    makeTuple commas = T.pack ("(#" <> commas <> "#)")
+tupleName = boxedTupleName
 
 boxedTupleName :: Parser Text
 boxedTupleName = makeTuple <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MPC.char ','))
