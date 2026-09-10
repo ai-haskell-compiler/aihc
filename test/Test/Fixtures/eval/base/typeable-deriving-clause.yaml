@@ -1,0 +1,42 @@
+extensions:
+  - DeriveDataTypeable
+  - StandaloneDeriving
+modules:
+  - |
+    {-# LANGUAGE DeriveDataTypeable #-}
+    {-# LANGUAGE StandaloneDeriving #-}
+    module Test where
+    import Data.Proxy (Proxy (..))
+    import Data.Typeable (typeRep)
+    import Type.Reflection (Typeable)
+
+    newtype Wrapped = Wrapped Int
+      deriving (Eq, Typeable)
+
+    data Pair = Pair Int Int
+      deriving (Eq, Ord, Typeable)
+
+    data Standalone = Standalone
+
+    deriving instance Typeable Standalone
+
+    distinctRepresentations :: Bool
+    distinctRepresentations =
+      case (==)
+        (typeRep (Proxy :: Proxy Wrapped))
+        (typeRep (Proxy :: Proxy Pair)) of
+        True -> False
+        False -> True
+
+    answer :: Bool
+    answer =
+      distinctRepresentations
+        && (==) (typeRep (Proxy :: Proxy Standalone)) (typeRep (Proxy :: Proxy Standalone))
+        && Wrapped 1 == Wrapped 1
+        && compare (Pair 1 2) (Pair 1 3) == LT
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: a deriving clause that names Typeable derives nothing and leaves the other classes in the clause alone

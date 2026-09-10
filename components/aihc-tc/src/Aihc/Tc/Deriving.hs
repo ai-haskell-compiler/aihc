@@ -43,7 +43,7 @@ import Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
   )
-import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback)
+import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, isAutomaticTypeableClass)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, takeVisibleArgumentKinds, tcTypeKind, unifyKinds)
@@ -144,30 +144,33 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
     Nothing -> do
       emitError classSpan (OtherError ("deriving target " <> T.unpack className <> " is not a type class"))
       pure Nothing
-    Just classInfo ->
-      case unsnoc (ciTyVars classInfo) of
-        Nothing -> do
-          emitError classSpan (OtherError ("deriving class " <> T.unpack className <> " has no target parameter"))
-          pure Nothing
-        Just (prefixClassVars, targetClassVar)
-          | length suppliedArguments /= length prefixClassVars -> do
-              emitError classSpan (derivingArityError className (length prefixClassVars) (length suppliedArguments))
-              pure Nothing
-          | not (null (unboundViaTyVars tvEnv strategy)) -> do
-              mapM_ (emitError classSpan . OtherError . unboundViaTyVarError) (unboundViaTyVars tvEnv strategy)
-              pure Nothing
-          | otherwise -> do
-              checkedArguments <- zipWithM (checkSurfaceType tvEnv) suppliedArguments (map tvKind prefixClassVars)
-              targetKind <- defaultKindMetas (tvKind targetClassVar)
-              targetType <- attachedTargetType classSpan targetInfo params targetKind
-              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
-              fallback <- defaultStockFallback className (ciOrigin classInfo) strategy checkedStrategy
-              kinds <- getKinds
-              methods <- derivingClassMethods classInfo
-              let headTypes = checkedArguments <> [targetType]
-                  strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
-                  quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
-              pure (Just ((mkDerivingPlan kinds classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
+    Just classInfo -> do
+      automaticTypeable <- isAutomaticTypeableClass className (ciOrigin classInfo)
+      if automaticTypeable
+        then pure Nothing
+        else case unsnoc (ciTyVars classInfo) of
+          Nothing -> do
+            emitError classSpan (OtherError ("deriving class " <> T.unpack className <> " has no target parameter"))
+            pure Nothing
+          Just (prefixClassVars, targetClassVar)
+            | length suppliedArguments /= length prefixClassVars -> do
+                emitError classSpan (derivingArityError className (length prefixClassVars) (length suppliedArguments))
+                pure Nothing
+            | not (null (unboundViaTyVars tvEnv strategy)) -> do
+                mapM_ (emitError classSpan . OtherError . unboundViaTyVarError) (unboundViaTyVars tvEnv strategy)
+                pure Nothing
+            | otherwise -> do
+                checkedArguments <- zipWithM (checkSurfaceType tvEnv) suppliedArguments (map tvKind prefixClassVars)
+                targetKind <- defaultKindMetas (tvKind targetClassVar)
+                targetType <- attachedTargetType classSpan targetInfo params targetKind
+                checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
+                fallback <- defaultStockFallback className (ciOrigin classInfo) strategy checkedStrategy
+                kinds <- getKinds
+                methods <- derivingClassMethods classInfo
+                let headTypes = checkedArguments <> [targetType]
+                    strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
+                    quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
+                pure (Just ((mkDerivingPlan kinds classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods) {tcDerivingStockFallback = fallback}))
 
 -- | The variables a via type mentions that the datatype head does not bind.
 -- A standalone declaration binds its own, but an attached clause has only
@@ -236,10 +239,13 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       let params = explicitParams <> implicitParams
           tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
       maybeClassInfo <- lookupClassNamed classNameSyntax
+      automaticTypeable <- maybe (pure False) (isAutomaticTypeableClass className . ciOrigin) maybeClassInfo
       case maybeClassInfo of
         Nothing -> do
           emitError classSpan (OtherError ("deriving target " <> T.unpack className <> " is not a type class"))
           pure Nothing
+        Just _
+          | automaticTypeable -> pure Nothing
         Just classInfo
           | length headArguments /= length (ciTyVars classInfo) -> do
               emitError classSpan (standaloneDerivingArityError className (length (ciTyVars classInfo)) (length headArguments))

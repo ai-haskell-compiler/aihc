@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveDataTypeable, StandaloneDeriving #-}
+  module Main where
+  import GHC.Classes (Eq)
+  import Type.Reflection (Typeable)
+  data D = D
+  │    │   └─ type: D
+  │    └─ type: Type
+  └─ deriving plans: stock Eq D [context: ()] [methods: ==, /=]
+    deriving (Eq, Typeable)
+              └─ $fEqD ∷ () ⇒ Eq D
+              └─ type: D
+              └─ == ∷ D → D → Bool
+              └─ type: D
+  data E = E
+       │   └─ type: E
+       └─ type: Type
+  deriving instance Typeable E
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+  └─ class methods:
+extensions:
+- DeriveDataTypeable
+- PolyKinds
+- StandaloneDeriving
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+- |
+  {-# LANGUAGE DeriveDataTypeable, StandaloneDeriving #-}
+  module Main where
+  import GHC.Classes (Eq)
+  import Type.Reflection (Typeable)
+  data D = D
+    deriving (Eq, Typeable)
+  data E = E
+  deriving instance Typeable E
+reason: the solver builds Typeable evidence from the type constructor itself, so a deriving clause or standalone declaration that names the kind-polymorphic class produces no plan and no error
+status: pass

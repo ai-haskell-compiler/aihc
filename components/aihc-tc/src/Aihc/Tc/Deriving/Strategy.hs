@@ -7,6 +7,7 @@
 module Aihc.Tc.Deriving.Strategy
   ( checkDerivingStrategy,
     defaultStockFallback,
+    isAutomaticTypeableClass,
     isGeneratedStockClass,
   )
 where
@@ -49,6 +50,18 @@ checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv target
     Just (DerivingVia viaType) -> do
       requireDerivingExtension extensions DerivingViaExtension "via deriving" sourceSpan
       TcDerivingVia <$> checkSurfaceType tvEnv viaType targetKind
+
+-- | Whether a deriving request names the automatic @Typeable@ class. The
+-- solver builds @Typeable@ evidence from the type constructor itself, so a
+-- clause that lists it derives nothing; GHC has ignored it since 7.10. The
+-- class is also kind-polymorphic, so checking a plan for it would demand a
+-- target of kind @k@ and reject every ordinary datatype.
+isAutomaticTypeableClass :: Text -> Maybe (Text, Text) -> TcM Bool
+isAutomaticTypeableClass className origin
+  | className /= "Typeable" = pure False
+  | otherwise = do
+      references <- getDerivingReferences
+      pure (isStockClass references className origin)
 
 -- | These default strategies can use stock when newtype derivation fails.
 defaultStockFallback :: Text -> Maybe (Text, Text) -> Maybe DerivingStrategy -> TcDerivingStrategy -> TcM Bool
