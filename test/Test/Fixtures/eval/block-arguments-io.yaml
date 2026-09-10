@@ -1,0 +1,43 @@
+extensions:
+  - BlockArguments
+modules:
+  - |
+    {-# LANGUAGE BlockArguments #-}
+    module Test where
+
+    import Control.Monad (forM_, unless, when)
+    import Prelude
+
+    -- The motivating shape from the users guide: a do block as the last
+    -- argument of a function, with no parentheses and no operator.
+    main :: IO ()
+    main = do
+      when True do
+        putStrLn "when"
+        putStrLn "block"
+      unless True do
+        putStrLn "never"
+      forM_ [1, 2 :: Int] \value -> do
+        putStr "item "
+        print value
+      -- A block argument nested inside another block argument.
+      when True do
+        forM_ [3 :: Int] \value -> print value
+      -- A case expression as a bare argument.
+      putStrLn case Just (4 :: Int) of
+        Just value -> "just " ++ show value
+        Nothing -> "nothing"
+      putStrLn "done"
+stdout: |
+  when
+  block
+  item 1
+  item 2
+  3
+  just 4
+  done
+output: |
+  ()
+expression: main
+status: pass
+reason: BlockArguments passes do blocks, lambdas, and a case expression to when, unless, forM_, and putStrLn without parentheses
