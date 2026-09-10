@@ -905,6 +905,7 @@ evalPrimitive "<=#" [left, right] =
   evalIntPrimitive "<=#" (\leftInt rightInt -> if leftInt <= rightInt then 1 else 0) left right
 evalPrimitive "/=#" [left, right] =
   evalIntPrimitive "/=#" (\leftInt rightInt -> if leftInt /= rightInt then 1 else 0) left right
+evalPrimitive "eqWord8#" [left, right] = evalWord8Comparison "eqWord8#" (==) left right
 evalPrimitive "eqWord64#" [left, right] = evalWord64Comparison "eqWord64#" (==) left right
 evalPrimitive "neWord64#" [left, right] = evalWord64Comparison "neWord64#" (/=) left right
 evalPrimitive "ltWord64#" [left, right] = evalWord64Comparison "ltWord64#" (<) left right
@@ -1719,6 +1720,12 @@ compareOrdinal ordering =
     LT -> -1
     EQ -> 0
     GT -> 1
+
+evalWord8Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWord8Comparison name comparison left right = do
+  leftWord <- expectRuntimeRepPrimitiveArgument name Word8Rep left
+  rightWord <- expectRuntimeRepPrimitiveArgument name Word8Rep right
+  pure [intRuntimeValue (if comparison leftWord rightWord then 1 else 0)]
 
 evalWord64Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalWord64Comparison name comparison left right = do

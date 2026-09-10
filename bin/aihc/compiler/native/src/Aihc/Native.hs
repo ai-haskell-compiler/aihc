@@ -460,6 +460,7 @@ supportedNativePrimitiveNames =
     ">=#",
     "<=#",
     "/=#",
+    "eqWord8#",
     "eqWord64#",
     "neWord64#",
     "ltWord64#",

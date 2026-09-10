@@ -1585,6 +1585,7 @@ comparisonPrimitives =
     ("leWord#", LeU),
     ("gtWord#", GtU),
     ("geWord#", GeU),
+    ("eqWord8#", Eq),
     ("eqWord64#", Eq),
     ("neWord64#", Ne),
     ("ltWord64#", LtU),

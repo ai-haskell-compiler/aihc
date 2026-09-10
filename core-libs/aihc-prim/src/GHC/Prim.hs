@@ -166,6 +166,7 @@ module GHC.Prim
     wordToWord32#,
     wordToWord64#,
     word16ToWord#,
+    eqWord8#,
     eqWord64#,
     neWord64#,
     ltWord64#,
@@ -835,6 +836,8 @@ foreign import prim wordToWord32# :: Word# -> Word32#
 foreign import prim wordToWord64# :: Word# -> Word64#
 
 foreign import prim word16ToWord# :: Word16# -> Word#
+
+foreign import prim eqWord8# :: Word8# -> Word8# -> Int#
 
 foreign import prim eqWord64# :: Word64# -> Word64# -> Int#
 
