@@ -1,0 +1,70 @@
+extensions:
+  - MagicHash
+  - PatternSynonyms
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ErrorCall (..), SomeException, catch, displayException, evaluate, fromException, pattern ErrorCall)
+    import GHC.IO (IO (..))
+    import GHC.Prim (RealWorld, State#, realWorld#)
+
+    showsMessageWithoutLocation :: Bool
+    showsMessageWithoutLocation = show (ErrorCall "boom") == "boom"
+
+    showsMessageWithLocation :: Bool
+    showsMessageWithLocation = show (ErrorCallWithLocation "boom" "here") == "boom\nhere"
+
+    displaysMessage :: Bool
+    displaysMessage = displayException (ErrorCall "boom") == "boom"
+
+    -- | The 'ErrorCall' pattern drops the call stack, which names the source
+    -- file of this fixture and so cannot be compared against.
+    messageOf :: SomeException -> String
+    messageOf exception =
+      case fromException exception of
+        Just (ErrorCall message) -> message
+        Nothing -> "not an ErrorCall"
+
+    catchesError :: IO Bool
+    catchesError =
+      catch
+        (evaluate (error "boom" :: Bool) >> pure False)
+        (\exception -> pure (messageOf exception == "boom"))
+
+    catchesErrorWithoutStackTrace :: IO Bool
+    catchesErrorWithoutStackTrace =
+      catch
+        (evaluate (errorWithoutStackTrace "quiet" :: Bool) >> pure False)
+        (\exception -> pure (displayException (exception :: SomeException) == "quiet"))
+
+    catchesUndefined :: IO Bool
+    catchesUndefined =
+      catch
+        (evaluate (undefined :: Bool) >> pure False)
+        (\exception -> pure (messageOf exception == "Prelude.undefined"))
+
+    runTests :: IO Bool
+    runTests = do
+      raised <- catchesError
+      quiet <- catchesErrorWithoutStackTrace
+      missing <- catchesUndefined
+      pure
+        ( showsMessageWithoutLocation
+            && showsMessageWithLocation
+            && displaysMessage
+            && raised
+            && quiet
+            && missing
+        )
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+output: |
+  True
+expression: |
+  case runIO runTests realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: error raises a SomeException wrapping ErrorCall, so a handler sees the message instead of an unmatched raw string

@@ -42,15 +42,14 @@ module Type.Reflection.Internal
 where
 
 import Data.Bool (Bool (..), (&&))
-import Data.Maybe (Maybe (..))
 import Data.Proxy (Proxy (..))
 import Data.Type.Equality ((:~~:) (..))
-import GHC.Base (List (..), String, foldr, unpackCString#, (.))
+import GHC.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Classes qualified
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Num qualified
 import GHC.Prim (ord#, seq, (==#))
-import GHC.Show (Show (..), ShowS, showChar, showParen, showString)
+import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Types (Char (..), KindRep (..), Levity (..), Module (..), RuntimeRep (..), TYPE, TrName (..), TyCon (..), Type, VecCount (..), VecElem (..), type (~~))
 import GHC.Types qualified
 import Unsafe.Coerce (unsafeCoerce)
@@ -282,6 +281,21 @@ instance forall k (a :: k). Show (TypeRep a) where
 showArguments :: [SomeTypeRep] -> ShowS
 showArguments [] = showString ""
 showArguments (x : xs) = showChar ' ' . showsPrec 10 x . showArguments xs
+
+-- | The rendering helpers of "GHC.Show". They are repeated here because
+-- that module sits above this one: it uses 'GHC.Err.error', which raises an
+-- 'GHC.Exception.ErrorCall' and so depends on 'Typeable'.
+showString :: String -> ShowS
+showString value suffix = value ++ suffix
+
+showChar :: Char -> ShowS
+showChar char suffix = char : suffix
+
+showParen :: Bool -> ShowS -> ShowS
+showParen condition output =
+  case condition of
+    False -> output
+    True -> showChar '(' . output . showChar ')'
 
 compareList :: (Ord a) => [a] -> [a] -> Ordering
 compareList [] [] = EQ
