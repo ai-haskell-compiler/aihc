@@ -1,0 +1,68 @@
+extensions:
+  - ImportQualifiedPost
+modules:
+  - |
+    {-# LANGUAGE ImportQualifiedPost #-}
+    module Qualified (qualified, Qualified (..), Box (..), unBox) where
+
+    import Prelude
+
+    -- qualified is not a keyword: it stays a perfectly ordinary name.
+    qualified :: Int
+    qualified = 7
+
+    data Qualified = Qualified {qualified' :: Int}
+
+    -- The same goes for a type variable.
+    newtype Box qualified = Box qualified
+
+    unBox :: Box a -> a
+    unBox (Box a) = a
+  - |
+    {-# LANGUAGE ImportQualifiedPost #-}
+    module Test where
+
+    import Prelude qualified as P
+    import Qualified qualified as Q
+    import Qualified (qualified)
+
+    -- A method argument and a local binding may still be named qualified.
+    class Sized a where
+      sizeOf :: a -> P.Int
+
+    instance Sized P.Bool where
+      sizeOf qualified = P.fromEnum qualified
+
+    local :: P.Int
+    local =
+      let qualified = 3
+       in qualified P.+ Q.qualified
+
+    field :: P.Int
+    field = Q.qualified' (Q.Qualified 9)
+
+    -- An explicit qualified import of Prelude suppresses the implicit one, so
+    -- every name below is spelled through the alias.
+    sums :: [P.Int]
+    sums = P.map (P.+ 1) [1, 2, 3]
+
+    failures :: [P.Int]
+    failures =
+      [ index
+      | (index, P.False) <-
+          P.zip
+            [0 ..]
+            [ qualified P.== 7,
+              local P.== 10,
+              field P.== 9,
+              sums P.== [2, 3, 4],
+              sizeOf P.True P.== 1,
+              Q.unBox (Q.Box 'q') P.== 'q'
+            ]
+      ]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: an explicit postpositive qualified import of Prelude suppresses the implicit one, and qualified stays usable as an ordinary name
