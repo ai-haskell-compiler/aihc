@@ -33,6 +33,7 @@ where
 
 import Aihc.Cli.Install (install)
 import Aihc.Cli.Options (InstallOptions (..))
+import Aihc.Lir.Optimization (OptimizationLevel (O2))
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless)
@@ -167,7 +168,7 @@ releaseSeedStore store =
 
 installCoreLibrary :: FilePath -> FilePath -> NativeTarget -> IO ()
 installCoreLibrary source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False False False False target)
+  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False O2 False False False False target)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

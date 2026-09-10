@@ -122,6 +122,7 @@ runBuildExe options = do
             compileKeepNative = False,
             compileLint = buildExeLint options,
             compileNoCode = False,
+            compileOptimization = buildExeOptimization options,
             compileTarget = target,
             compileVerbose = const (pure ()),
             compilePrintTimings = const (pure ()),

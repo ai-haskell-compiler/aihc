@@ -19,6 +19,7 @@ import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeS
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Lir.Lower qualified as Lir
+import Aihc.Lir.Optimization (defaultOptimizationLevel)
 import Aihc.Lir.Resolve (loadModule, renderLoadError)
 import Aihc.Lir.Syntax (Module)
 import Aihc.Native
@@ -152,7 +153,7 @@ buildLirRuntimeObjects target plan directory =
 -- lets the compiler driver of the target assemble it.
 compileLirObject :: NativeTarget -> String -> Module -> FilePath -> FilePath -> IO ()
 compileLirObject target name lirModule directory object = do
-  output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir target lirModule)
+  output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir defaultOptimizationLevel target lirModule)
   case output of
     BackendObject bytes -> BL.writeFile object bytes
     BackendSource source -> do

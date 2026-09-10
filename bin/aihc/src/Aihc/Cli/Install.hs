@@ -58,6 +58,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
+import Aihc.Lir.Optimization (OptimizationLevel (..))
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
@@ -308,6 +309,8 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
     compileNoCode :: !Bool,
+    -- | The level that selects the optional backend passes.
+    compileOptimization :: !OptimizationLevel,
     compileTarget :: !NativeTarget,
     compileVerbose :: String -> IO (),
     compilePrintTimings :: String -> IO (),
@@ -414,6 +417,7 @@ installWith output options = do
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileNoCode = installNoCode options,
+            compileOptimization = installOptimization options,
             compileTarget = target,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
@@ -737,7 +741,8 @@ compileFlagNames config =
         (compileKeepGrin config, "keep-grin"),
         (compileKeepNative config, "keep-native"),
         (compileLint config, "lint"),
-        (compileNoCode config, "no-code")
+        (compileNoCode config, "no-code"),
+        (compileOptimization config == O0, "O0")
       ],
     set
   ]
@@ -970,29 +975,46 @@ buildEnvironmentIdentity target = do
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
--- compiler and the target. Flags that add or drop outputs, such as
--- @--keep-core@, or that only check, such as @--lint@, are recorded in the
--- manifest instead.
+-- compiler, the target, and the optimization level. Flags that add or drop
+-- outputs, such as @--keep-core@, or that only check, such as @--lint@, are
+-- recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config =
-  stableHash
-    [ BS8.pack (compileBuildIdentity config),
-      TE.encodeUtf8 packageArtifactFormatVersion,
-      BS8.pack (show (compileTarget config))
-    ]
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config)
 
--- | The part of the configuration the type interfaces depend on.
+-- | The compiler and the target.
+compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+compilerKeyParts config =
+  [ BS8.pack (compileBuildIdentity config),
+    TE.encodeUtf8 packageArtifactFormatVersion,
+    BS8.pack (show (compileTarget config))
+  ]
+
+-- | The key part of a level that is not the default. The default level
+-- adds nothing, so the keys of a default build are the keys of a build
+-- before the level existed, and the store entries of such a build stay
+-- valid.
+optimizationKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+optimizationKeyParts config =
+  case compileOptimization config of
+    O0 -> ["O0"]
+    O2 -> []
+
+-- | The part of the configuration the type interfaces depend on. The level
+-- changes only the objects, so a local package that changes its level keeps
+-- its interfaces.
 frontendOptionsKey :: ModuleCompileConfig -> String
-frontendOptionsKey = packageOptionsKey
+frontendOptionsKey config = stableHash (compilerKeyParts config)
 
 -- | The part of the configuration the backend outputs depend on.
 backendOptionsKey :: ModuleCompileConfig -> String
 backendOptionsKey config =
   stableHash
-    [ BS8.pack (compileBuildIdentity config),
-      TE.encodeUtf8 packageArtifactFormatVersion,
-      BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
-    ]
+    ( [ BS8.pack (compileBuildIdentity config),
+        TE.encodeUtf8 packageArtifactFormatVersion,
+        BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
+      ]
+        <> optimizationKeyParts config
+    )
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
 createTemporaryStoreRoot storeRoot packageDirectory = do
@@ -2036,7 +2058,7 @@ compileCheckedModules config verbose primIdentity interface outputPaths desugarC
       let name = grinModuleName grinModule
           gcProgram = gcGrinProgram grinModule
       lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) gcProgram)
-      output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir selectedTarget lirModule)
+      output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir (compileOptimization config) selectedTarget lirModule)
       pure $ case output of
         BackendObject object -> NativeModule name (if keepNative then Just (Lir.renderModule lirModule) else Nothing) (Just object)
         BackendSource source -> NativeModule name (Just source) Nothing

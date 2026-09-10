@@ -142,6 +142,7 @@ library
     Aihc.Lir.Interpret
     Aihc.Lir.Lint
     Aihc.Lir.Lower
+    Aihc.Lir.Optimization
     Aihc.Lir.Parser
     Aihc.Lir.Pretty
     Aihc.Lir.RegAlloc

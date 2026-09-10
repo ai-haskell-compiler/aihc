@@ -29,7 +29,9 @@
 module Aihc.Amd64.Lir
   ( Amd64LirError (..),
     compileLirObject,
+    compileLirObjectWith,
     compileLirStatements,
+    compileLirStatementsWith,
     elideSlotReloads,
     lirSymbol,
   )
@@ -38,6 +40,7 @@ where
 import Aihc.Amd64.Assemble
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
+import Aihc.Lir.Optimization (OptimizationLevel, defaultOptimizationLevel)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
 import Aihc.Native.Lir
@@ -68,12 +71,20 @@ lirSymbol = unSymbol
 
 -- | Lint the module, then assemble it.
 compileLirObject :: Module -> Either Amd64LirError BL.ByteString
-compileLirObject lirModule = do
-  statements <- compileLirStatements lirModule
+compileLirObject = compileLirObjectWith defaultOptimizationLevel
+
+-- | 'compileLirObject' at a level.
+compileLirObjectWith :: OptimizationLevel -> Module -> Either Amd64LirError BL.ByteString
+compileLirObjectWith level lirModule = do
+  statements <- compileLirStatementsWith level lirModule
   either (Left . Amd64LirObjectError . T.pack . show) pure (assembleElf statements)
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
-compileLirStatements = compileNativeStatements amd64Backend
+compileLirStatements = compileLirStatementsWith defaultOptimizationLevel
+
+-- | 'compileLirStatements' at a level.
+compileLirStatementsWith :: OptimizationLevel -> Module -> Either Amd64LirError [Amd64Statement]
+compileLirStatementsWith level = compileNativeStatements level amd64Backend
 
 elideSlotReloads :: [Amd64Statement] -> [Amd64Statement]
 elideSlotReloads = elideSlotReloadsWith amd64AsCode

@@ -60,6 +60,9 @@ data NativeBackend = NativeBackend
     backendClangArguments :: ![String],
     -- | Whether this host can run the linked programs.
     backendRuns :: !Bool,
+    -- | Whether the optional passes run. The object size limits of the
+    -- fixtures describe the optimized code, so they apply only then.
+    backendOptimized :: !Bool,
     -- | The allocation count key of the snapshot fixtures.
     backendAllocationKey :: !Text,
     -- | The extension of a source output.
@@ -126,7 +129,7 @@ fixtureTest backend directory name = testCase name $ do
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   output <- compileUnit backend wrapped
-  when (backendTarget backend == AppleArm64) $
+  when (backendTarget backend == AppleArm64 && backendOptimized backend) $
     forM_ (headerValues "max-arm64-object-bytes" source) $ \limit -> do
       maximumBytes <- case reads (T.unpack limit) of
         [(value, "")] -> pure value

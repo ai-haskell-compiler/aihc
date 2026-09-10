@@ -3,10 +3,11 @@
 module Test.Arm64.Spec (tests) where
 
 import Aihc.Arm64.Assemble
-import Aihc.Arm64.Lir (compileLirObject, compileLirStatements, elideSlotReloads)
+import Aihc.Arm64.Lir (compileLirObjectWith, compileLirStatementsWith, elideSlotReloads)
 import Aihc.Arm64.Text (renderArm64Statements)
 import Aihc.Cli.Backend (BackendOutput (..))
 import Aihc.Lir.Lower (posixTarget64)
+import Aihc.Lir.Optimization (OptimizationLevel (..), renderOptimizationLevel)
 import Aihc.Native (NativeTarget (AppleArm64))
 import System.Info (arch, os)
 import Test.Lir.AsmSuite (AsmBackend (..))
@@ -16,8 +17,16 @@ import Test.Lir.NativeSuite qualified as NativeSuite
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
+-- | The suites run at each optimization level. Level 0 skips the optional
+-- passes, so its programs must behave like the level 2 programs and its
+-- assembly has a golden of its own.
 tests :: IO TestTree
 tests = do
+  suites <- mapM levelTests [minBound .. maxBound]
+  pure (testGroup "arm64" (suites <> [slotReloadTests]))
+
+levelTests :: OptimizationLevel -> IO TestTree
+levelTests level = do
   suite <-
     NativeSuite.tests
       NativeBackend
@@ -26,18 +35,26 @@ tests = do
           backendLowerTarget = posixTarget64,
           backendClangArguments = ["--target=arm64-apple-darwin"],
           backendRuns = arch == "aarch64" && os == "darwin",
+          backendOptimized = level == O2,
           backendAllocationKey = "macos-arm64",
           backendSourceExtension = ".o",
-          backendCompile = either (Left . show) (Right . BackendObject) . compileLirObject
+          backendCompile = either (Left . show) (Right . BackendObject) . compileLirObjectWith level
         }
   assembly <-
     AsmSuite.tests
       AsmBackend
         { asmBackendName = "aihc-arm64",
-          asmBackendExtension = ".arm64.s",
-          asmBackendRender = either (Left . show) (Right . renderArm64Statements) . compileLirStatements
+          asmBackendExtension = levelExtension level <> ".arm64.s",
+          asmBackendRender = either (Left . show) (Right . renderArm64Statements) . compileLirStatementsWith level
         }
-  pure (testGroup "arm64" [suite, assembly, slotReloadTests])
+  pure (testGroup ("-O" <> renderOptimizationLevel level) [suite, assembly])
+
+-- | The golden of the default level keeps its name.
+levelExtension :: OptimizationLevel -> String
+levelExtension level =
+  case level of
+    O2 -> ""
+    _ -> ".O" <> renderOptimizationLevel level
 
 slotReloadTests :: TestTree
 slotReloadTests =

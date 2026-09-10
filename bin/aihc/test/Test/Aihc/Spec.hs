@@ -4,7 +4,7 @@ module Test.Aihc.Spec (tests) where
 
 import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..))
+import Aihc.Cli.Options (BuildExeOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.Store (installedEntryArchivePath)
@@ -12,6 +12,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
+import Aihc.Lir.Optimization (OptimizationLevel (..))
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
@@ -86,7 +87,9 @@ tests =
             [ testCase "builds imported source modules and runs the executable" (test_buildExeSourceDirectories coreStore),
               testCase "reports the ambiguous installed module" (test_buildExeAmbiguousModule coreStore),
               testCase "reports the generated entry collision" (test_buildExeEntryCollision coreStore),
-              testCase "writes a link bundle that link-exe turns into the executable" (test_buildExeLinkBundle coreStore)
+              testCase "writes a link bundle that link-exe turns into the executable" (test_buildExeLinkBundle coreStore),
+              testCase "parses the optimization level" test_buildExeOptimizationOption,
+              testCase "builds an unoptimized executable with -O0" (test_buildExeUnoptimized coreStore)
             ],
         testGroup
           "install"
@@ -207,7 +210,7 @@ testInstallFixtures getStore = do
     assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
     withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
       store <- sandboxStore sandbox "store"
-      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False True False False buildExeHostTarget))
+      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False True False False buildExeHostTarget))
       case outcome :: Either IOException InstallResult of
         Left err -> do
           assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
@@ -252,6 +255,7 @@ withBuildExeSandbox getStore prefix action = do
               buildExeBuildRoot = Nothing,
               buildExeWorkspace = Nothing,
               buildExeLint = False,
+              buildExeOptimization = O2,
               buildExeNoLink = False,
               buildExeOutputFile = Just (sandboxRoot sandbox </> "program")
             }
@@ -332,6 +336,67 @@ test_buildExeSourceDirectories getStore =
     assertEqual "invalid heap size stdout" "" invalidStdout
     assertEqual "invalid heap size diagnostic" "aihc runtime: invalid size for RTS option -M\n" invalidStderr
 
+-- | The @-O@ option of @build-exe@ and @install@ takes level 0 or 2, and the
+-- default is 2. The help text names the option as @-O LEVEL@, which is the
+-- form the benchmark runner detects.
+--
+-- The essential property is the command line, which no Haskell source text
+-- can trigger. This test is a hand-written exception to the fixture rule.
+test_buildExeOptimizationOption :: Assertion
+test_buildExeOptimizationOption = do
+  let arguments extra = ["build-exe", "Main.hs", "--target", "apple-arm64"] <> extra
+      levelOf parsed =
+        case parsed of
+          Right (CmdBuildExe options) -> pure (buildExeOptimization options)
+          Right other -> assertFailure ("unexpected command: " <> show other)
+          Left err -> assertFailure ("parse error: " <> err)
+  assertEqual "default level" O2 =<< levelOf (parseCommandPure (arguments []))
+  assertEqual "-O0" O0 =<< levelOf (parseCommandPure (arguments ["-O0"]))
+  assertEqual "-O2" O2 =<< levelOf (parseCommandPure (arguments ["-O2"]))
+  assertEqual "-O 0" O0 =<< levelOf (parseCommandPure (arguments ["-O", "0"]))
+  case parseCommandPure (arguments ["-O1"]) of
+    Left err -> assertBool ("rejects -O1: " <> err) ("expected 0 or 2" `isInfixOf` err)
+    Right command -> assertFailure ("accepted -O1: " <> show command)
+  installLevel <-
+    case parseCommandPure ["install", "demo", "--target", "apple-arm64", "-O0"] of
+      Right (CmdInstall options) -> pure (installOptimization options)
+      other -> assertFailure ("install parse: " <> show other)
+  assertEqual "install -O0" O0 installLevel
+  help <- either pure (assertFailure . ("help is not a failure: " <>) . show) (parseCommandPure ["build-exe", "--help"])
+  assertBool ("help names -O LEVEL:\n" <> help) ("[-O LEVEL]" `isInfixOf` help)
+
+-- | @-O0@ builds the executable and its packages without the optional
+-- backend passes. The unoptimized packages are store entries of their own,
+-- next to the optimized ones, and the program behaves the same.
+test_buildExeUnoptimized :: IO SeedStore -> Assertion
+test_buildExeUnoptimized getStore =
+  withBuildExeSandbox getStore "aihc-build-exe-unoptimized" $ \sandbox _fixtureRoot storeRoot options -> do
+    let root = sandboxRoot sandbox
+        target = buildExeTarget options
+        targetStore = storeRoot </> nativeTargetStoreDirectory target
+        optimizedRoot = root </> "optimized"
+        unoptimizedRoot = root </> "unoptimized"
+        mainObject buildRoot = buildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o"
+        baseEntries = filter ("aihc-base-" `isPrefixOf`) <$> listDirectory targetStore
+    optimizedBase <- seededPackagePath storeRoot target "aihc-base"
+    withCurrentDirectory root (runBuildExe options {buildExeBuildRoot = Just optimizedRoot})
+    withCurrentDirectory root (runBuildExe options {buildExeBuildRoot = Just unoptimizedRoot, buildExeOptimization = O0})
+    optimizedObject <- BS.readFile (mainObject optimizedRoot)
+    unoptimizedObject <- BS.readFile (mainObject unoptimizedRoot)
+    assertBool "the level changes the main object" (optimizedObject /= unoptimizedObject)
+    entries <- baseEntries
+    assertEqual "aihc-base store entries" 2 (length entries)
+    let unoptimizedBase = [targetStore </> entry | entry <- entries, targetStore </> entry /= optimizedBase]
+    forM_ unoptimizedBase $ \entry -> do
+      manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath entry)
+      assertBool "the unoptimized manifest records O0" ("O0" `elem` packageManifestFlags manifest)
+    optimizedManifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath optimizedBase)
+    assertBool "the optimized manifest records no level" ("O0" `notElem` packageManifestFlags optimizedManifest)
+    (status, stdout, stderr) <- readProcessWithExitCode (root </> "program") [] ""
+    assertEqual "unoptimized executable exit status" ExitSuccess status
+    assertEqual "unoptimized executable stdout" "build-exe works\n" stdout
+    assertEqual "unoptimized executable stderr" "" stderr
+
 -- | @--no-link@ leaves no executable behind. The bundle it writes instead is
 -- self-contained: linking it from another directory, with the store gone,
 -- still produces the program.
@@ -398,7 +463,7 @@ test_installIncremental getStore = do
   withSandbox getStore "aihc-incremental" $ \sandbox -> do
     store <- sandboxStore sandbox "store"
     let root = sandboxRoot sandbox </> "source"
-        options = InstallOptions root (Just store) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
+        options = InstallOptions root (Just store) (Just (sandboxRoot sandbox </> "build")) False True False False False O2 False False False False AppleArm64
     createDirectoryIfMissing True (root </> "src")
     let dependencyRoot = sandboxRoot sandbox </> "dep"
     createDirectoryIfMissing True (dependencyRoot </> "src")
@@ -465,7 +530,7 @@ test_installImmutable getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
   withSandbox getStore "aihc-install-immutable" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) True False False False False False False False False AppleArm64
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) True False False False False O2 False False False False AppleArm64
     first <- install options
     assertEqual "written modules" ["Demo"] (installWrittenModules first)
     assertEqual "store directory" (storeRoot </> nativeTargetStoreDirectory AppleArm64) (takeDirectory (installStorePath first))
@@ -489,7 +554,7 @@ test_installResolveArtifacts getStore =
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False O2 False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -543,7 +608,7 @@ test_installTimingOutput getStore = do
   withSandbox getStore "aihc-install-timings" $ \sandbox -> do
     verboseStore <- sandboxStore sandbox "verbose"
     timingStore <- sandboxStore sandbox "timings"
-    let baseOptions = InstallOptions fixtureRoot Nothing Nothing False False False False False False True False False AppleArm64
+    let baseOptions = InstallOptions fixtureRoot Nothing Nothing False False False False False O2 False True False False AppleArm64
     verboseOutput <-
       captureInstallOutput baseOptions {installStoreRoot = Just verboseStore, installBuildRoot = Just (verboseStore <> "-build"), installVerbose = True}
     timingOutput <-
@@ -593,7 +658,7 @@ test_installResolveError getStore = do
         forM [1, 2, 4] $ \workers -> do
           setNumCapabilities workers
           storeRoot <- sandboxStore sandbox ("store-" <> show workers)
-          let options = InstallOptions fixtureRoot (Just storeRoot) (Just (storeRoot <> "-build")) False False False False False False False False False AppleArm64
+          let options = InstallOptions fixtureRoot (Just storeRoot) (Just (storeRoot <> "-build")) False False False False False O2 False False False False AppleArm64
           result <- try (install options) :: IO (Either IOException InstallResult)
           case result of
             Right _ -> assertFailure "expected frontend compilation to fail"
@@ -634,13 +699,13 @@ test_installKeepGrin getStore = do
     withoutStore <- sandboxStore sandbox "without"
     withStore <- sandboxStore sandbox "with"
     noCodeStore <- sandboxStore sandbox "no-code"
-    withoutGrin <- install (InstallOptions fixtureRoot (Just withoutStore) (Just (withoutStore <> "-build")) False False False False False False False False False AppleArm64)
+    withoutGrin <- install (InstallOptions fixtureRoot (Just withoutStore) (Just (withoutStore <> "-build")) False False False False False O2 False False False False AppleArm64)
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "core")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "cps.grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "Demo.o.lir")
-    retained <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False False False False False AppleArm64)
+    retained <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False O2 False False False False AppleArm64)
     let corePath = installStorePath retained </> "Demo" </> "core"
         grinPath = installStorePath retained </> "Demo" </> "grin"
         cpsGrinPath = installStorePath retained </> "Demo" </> "cps.grin"
@@ -651,7 +716,7 @@ test_installKeepGrin getStore = do
     originalCore <- readFile corePath
     removeFile cpsGrinPath
     removeFile gcGrinPath
-    repaired <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False True False False False AppleArm64)
+    repaired <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False O2 True False False False AppleArm64)
     assertFileExists grinPath
     assertFileExists cpsGrinPath
     assertFileExists gcGrinPath
@@ -660,7 +725,7 @@ test_installKeepGrin getStore = do
     assertEqual "GRIN repair writes the module" ["Demo"] (installWrittenModules repaired)
     noCode <-
       install
-        (InstallOptions fixtureRoot (Just noCodeStore) (Just (noCodeStore <> "-build")) False True True True True False True False False AppleArm64)
+        (InstallOptions fixtureRoot (Just noCodeStore) (Just (noCodeStore <> "-build")) False True True True True O2 False True False False AppleArm64)
     let noCodeRoot = installStorePath noCode
     assertFileExists (noCodeRoot </> "Demo" </> "resolve.cbor")
     assertFileExists (noCodeRoot </> "Demo" </> "type.cbor")
@@ -691,7 +756,7 @@ test_installTargetArchives getStore = do
     results <- forM targets $ \target -> do
       let directory = nativeTargetStoreDirectory target
           nativeExtension = nativeArtifactExtension target
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False False False False False target)
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False O2 False False False False target)
       let objectPath = installStorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
           corePath = installStorePath result </> "Demo" </> "core"
@@ -713,7 +778,7 @@ test_installTargetArchives getStore = do
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
-      repaired <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False True False False False target)
+      repaired <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False O2 True False False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native output repair keeps Core" originalCore repairedCore
@@ -741,7 +806,7 @@ test_installArchSourceDirs getStore = do
   withSandbox getStore "aihc-install-arch-source-dirs" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     forM_ targets $ \target -> do
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False target)
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False O2 False False False False target)
       core <- readFile (installStorePath result </> "Payload" </> "core")
       let expected = archSourceDirPayload target
           unexpected = if expected == "32#" then "64#" else "32#"
@@ -763,7 +828,7 @@ test_installCSources getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/c-sources"
   withSandbox getStore "aihc-install-c-sources" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
+    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64)
     let archivePath = installStorePath result </> "lib" </> "libdemo.a"
     assertFileExists archivePath
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
@@ -782,7 +847,7 @@ test_installConfigure getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/configure"
   withSandbox getStore "aihc-install-configure" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
+    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64)
     let configureRoot = installStorePath result </> "configure"
     assertFileExists (configureRoot </> "include" </> "DemoConfig.h")
     generatedInSource <- doesFileExist (fixtureRoot </> "include" </> "DemoConfig.h")
@@ -818,7 +883,7 @@ test_installEmptyArchive getStore =
           ]
       )
     writeFile (sourceDir </> "Demo.hs") "module Demo () where\n"
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64)
     let archivePath = installStorePath result </> "lib" </> "libdemo.a"
     assertFileExists archivePath
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
@@ -865,7 +930,7 @@ test_installMinVersionMacros getStore =
             "#endif"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- Every standin under core-libs claims the version of the boot library it
@@ -888,7 +953,7 @@ test_installFcCcall getStore =
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False O2 False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -915,7 +980,7 @@ test_installAihcPrim = do
   withTempDir "aihc-install-aihc-prim" $ \root -> do
     let storeRoot = root </> "store"
         targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        options = InstallOptions aihcPrimRoot (Just storeRoot) Nothing True True True False True False False False False AppleArm64
+        options = InstallOptions aihcPrimRoot (Just storeRoot) Nothing True True True False True O2 False False False False AppleArm64
     createDirectoryIfMissing True storeRoot
     caught <- try (install options) :: IO (Either IOException InstallResult)
     result <- case caught of
@@ -1036,7 +1101,7 @@ test_installTypeWarning getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/type-warning"
   withSandbox getStore "aihc-install-type-warning" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True False False AppleArm64
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False True False False AppleArm64
     result <- install options
     assertEqual "warning does not prevent installation" ["Demo"] (installWrittenModules result)
 
@@ -1046,7 +1111,7 @@ test_installImplicitPrelude getStore = do
   withSandbox getStore "aihc-install-implicit-prelude" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = fixtureRoot </> "demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False True False False AppleArm64
     result <- install options
     assertEqual "implicit Prelude user" ["Demo"] (installWrittenModules result)
 
@@ -1056,7 +1121,7 @@ test_installTypeReexports getStore =
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -1086,7 +1151,7 @@ test_installLocalDependencies getStore = do
   withSandbox getStore "aihc-install-local-dependencies" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     let sourceRoot = fixtureRoot </> "demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64
     _ <- install options
     let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
         targetBuildRoot = sandboxRoot sandbox </> "build" </> nativeTargetStoreDirectory AppleArm64
@@ -1120,7 +1185,7 @@ test_installInstanceVisibility getStore = do
   withSandbox getStore "aihc-install-instance-visibility" $ \sandbox -> do
     let installFixture source store =
           install
-            (InstallOptions (fixtureRoot </> source) (Just store) (Just (store <> "-build")) False False False False False False True False False AppleArm64)
+            (InstallOptions (fixtureRoot </> source) (Just store) (Just (store <> "-build")) False False False False False O2 False True False False AppleArm64)
     withoutStore <- sandboxStore sandbox "without-store"
     withStore <- sandboxStore sandbox "with-store"
     withoutResult <- try (installFixture "without" withoutStore) :: IO (Either IOException InstallResult)

@@ -35,12 +35,14 @@ module Aihc.Lir.RegAlloc
   ( Allocation (..),
     Registers (..),
     allocateRegistersFor,
+    allocateRegistersWith,
     Interval (..),
     functionIntervals,
     readCounts,
   )
 where
 
+import Aihc.Lir.Optimization (OptimizationLevel (..))
 import Aihc.Lir.Syntax
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
@@ -96,7 +98,13 @@ data Registers register = Registers
 -- | Assign the registers of the target to the values of the function. The
 -- signatures resolve the convention of every direct call.
 allocateRegistersFor :: (Ord register) => Registers register -> Map Symbol Signature -> Function -> Allocation register
-allocateRegistersFor target signatures function =
+allocateRegistersFor = allocateRegistersWith O2
+
+-- | 'allocateRegistersFor' at a level. At level 0 the scan takes no hint:
+-- every value gets the first free register, and a convention move stays a
+-- move.
+allocateRegistersWith :: (Ord register) => OptimizationLevel -> Registers register -> Map Symbol Signature -> Function -> Allocation register
+allocateRegistersWith level target signatures function =
   finish pool function (linearScan config candidates)
   where
     pool = registersVolatile target <> registersPreserved target
@@ -108,8 +116,14 @@ allocateRegistersFor target signatures function =
     counts = accessCounts function
     exits = exitCount function
     calls = callPositions signatures function
-    (fixedHints, partners) = hints target function
-    operandsOf = resultOperands function
+    (fixedHints, partners) =
+      case level of
+        O0 -> (Map.empty, Map.empty)
+        O2 -> hints target function
+    operandsOf =
+      case level of
+        O0 -> Map.empty
+        O2 -> resultOperands function
     intervals = functionIntervals function
     starts = Map.fromList [(intervalVar interval, intervalStart interval) | interval <- intervals]
     candidates =

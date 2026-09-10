@@ -114,6 +114,29 @@ cannot run the programs it compiles. The script itself, the compiler, and
 those arguments are hashed into `configure.hash`, so a local package only
 reconfigures when one of them changes.
 
+## Optimization level
+
+`aihc build-exe` and `aihc install` take `-O LEVEL`.
+The level is 0 or 2, and the default is 2.
+`-O0` and `-O2` are also accepted.
+
+Level 2 runs every optional pass of the native backends.
+Level 0 skips these passes:
+
+- The register hints of the allocator. Every value takes the first free register, and a convention move stays a move.
+- The fusion of a compare into the branch that tests it.
+- The elision of a slot reload that the register already holds.
+
+The two levels give the same program behavior.
+The GRIN passes and the Lir lowering run at each level.
+The `llvm` and `wasm32-wasip3` targets have no optional pass, and Clang compiles their output without `-O`, so the level does not change their code.
+The runtime and entry archives are C code and do not depend on the level.
+
+The level is part of the identity of an installed package.
+`aihc install -O0` writes a store entry next to the entry of the default level, and its manifest records the flag `O0`.
+`aihc build-exe -O0` builds its modules and its packages at level 0, so the first unoptimized build of a store also builds `aihc-base` at level 0.
+A default build keeps the store entries and stamps it had before the level existed.
+
 ## Artifact reuse
 
 A package is either immutable or local, and the two never mix.

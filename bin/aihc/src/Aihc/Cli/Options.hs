@@ -12,6 +12,7 @@ module Aihc.Cli.Options
   )
 where
 
+import Aihc.Lir.Optimization (OptimizationLevel, defaultOptimizationLevel, parseOptimizationLevel, renderOptimizationLevel)
 import Aihc.Native (NativeTarget, parseNativeTarget)
 import Options.Applicative qualified as OA
 
@@ -36,6 +37,7 @@ data BuildExeOptions = BuildExeOptions
     buildExeBuildRoot :: !(Maybe FilePath),
     buildExeWorkspace :: !(Maybe FilePath),
     buildExeLint :: !Bool,
+    buildExeOptimization :: !OptimizationLevel,
     buildExeNoLink :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
   }
@@ -64,6 +66,7 @@ data InstallOptions = InstallOptions
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
     installLint :: !Bool,
+    installOptimization :: !OptimizationLevel,
     installReinstall :: !Bool,
     installNoCode :: !Bool,
     installVerbose :: !Bool,
@@ -154,6 +157,7 @@ buildExeOptionsParser =
           )
       )
     <*> lintOption
+    <*> optimizationOption
     <*> OA.switch
       ( OA.long "no-link"
           <> OA.help "Compile only: write the objects, archives, and a link.json manifest to the output directory instead of linking"
@@ -201,6 +205,19 @@ lintOption =
   OA.switch
     ( OA.long "lint"
         <> OA.help "Run compiler intermediate-language lint checks"
+    )
+
+-- | @-O0@ or @-O2@. The level is part of the identity of an installed
+-- package, so the packages of a build share its level.
+optimizationOption :: OA.Parser OptimizationLevel
+optimizationOption =
+  OA.option
+    (OA.eitherReader parseOptimizationLevel)
+    ( OA.short 'O'
+        <> OA.metavar "LEVEL"
+        <> OA.value defaultOptimizationLevel
+        <> OA.showDefaultWith renderOptimizationLevel
+        <> OA.help "Optimization level: 0 skips the optional backend passes, 2 runs all of them"
     )
 
 parseGarbageCollector :: String -> Either String GarbageCollector
@@ -282,6 +299,7 @@ installOptionsParser =
           <> OA.help "Retain native output files"
       )
     <*> lintOption
+    <*> optimizationOption
     <*> OA.switch
       ( OA.long "reinstall"
           <> OA.help "Build the package again when it exists"
