@@ -1094,7 +1094,7 @@ annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
   familyInstances <- getTypeFamilyInstances
   let expectedKey =
-        TcAxiomKey (PackageId packageName) moduleName' (sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst))
+        TcAxiomKey (PackageId packageName) moduleName' (sourceTypeFamilyAxiomName (packageName, moduleName') (typeFamilyInstLhs familyInst))
   case find ((== expectedKey) . typeFamilyAxiomKey) familyInstances of
     Just familyInstance ->
       pure (DeclAnn (mkAnnotation familyInstance) (DeclTypeFamilyInst familyInst))
@@ -1410,7 +1410,11 @@ primitiveForeignTypes =
     (("Word64#", 0), ("Word64#", TcForeignWord64)),
     (("Float#", 0), ("Float#", TcForeignFloat)),
     (("Double#", 0), ("Double#", TcForeignDouble)),
-    (("Addr#", 0), ("Addr#", TcForeignAddr))
+    (("Addr#", 0), ("Addr#", TcForeignAddr)),
+    -- A Char# is a Unicode code point, which C sees as a 32-bit word, and a
+    -- StablePtr# is an address the runtime hands out.
+    (("Char#", 0), ("Char#", TcForeignWord32)),
+    (("StablePtr#", 1), ("StablePtr#", TcForeignAddr))
   ]
 
 primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
@@ -1541,7 +1545,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       let lookupEquation axiomName =
             find ((== TcAxiomKey (PackageId (fst origin)) (snd origin) axiomName) . typeFamilyAxiomKey) familyInstances
           explicitNames = mapMaybe typeFamilyInstName (instanceDeclTypeFamilyInsts instanceDecl)
-          explicitEquation familyInst = lookupEquation (sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst))
+          explicitEquation familyInst = lookupEquation (sourceTypeFamilyAxiomName origin (typeFamilyInstLhs familyInst))
           defaultEquations =
             [ equation
             | associated <- ciAssociatedTypes info,
@@ -3677,18 +3681,35 @@ unqualifiedFromResolvedName name =
       unqualifiedNameAnns = nameAnns name
     }
 
-sourceTypeFamilyAxiomName :: Type -> Text
-sourceTypeFamilyAxiomName ty = "$ax$" <> sourceTypeKey ty
+-- | The axiom name of one type family instance, within the module that holds
+-- it. The first argument is that module's package and name.
+sourceTypeFamilyAxiomName :: (Text, Text) -> Type -> Text
+sourceTypeFamilyAxiomName home ty = "$ax$" <> sourceTypeKey home ty
 
-sourceTypeKey :: Type -> Text
-sourceTypeKey ty =
+sourceTypeKey :: (Text, Text) -> Type -> Text
+sourceTypeKey home ty =
   case peelTypeHead ty of
-    TCon name _ -> nameText name
+    TCon name _ -> typeConKey home name
     TVar name -> unqualifiedNameText name
-    TApp function argument -> sourceTypeKey function <> "$" <> sourceTypeKey argument
-    TTypeApp function argument -> sourceTypeKey function <> "$" <> sourceTypeKey argument
-    TInfix left name _ right -> sourceTypeKey left <> "$" <> nameText name <> "$" <> sourceTypeKey right
+    TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
+    TTypeApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
+    TInfix left name _ right -> sourceTypeKey home left <> "$" <> typeConKey home name <> "$" <> sourceTypeKey home right
     _ -> "T"
+
+-- | The axiom-key fragment of one type constructor. A constructor the home
+-- module declares itself contributes its bare name, and an imported one
+-- contributes where it is defined: one module can hold instances of a single
+-- associated type family for two constructors that share a name -- the lazy
+-- and the strict @WriterT@, say -- and the bare names would put both
+-- instances on one axiom key.
+typeConKey :: (Text, Text) -> Name -> Text
+typeConKey home name =
+  case nameResolution (unqualifiedFromResolvedName name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
+      | Just definingModuleName <- nameQualifier resolvedName,
+        (packageIdText packageId, definingModuleName) /= home ->
+          packageIdText packageId <> ":" <> definingModuleName <> "." <> nameText resolvedName
+    _ -> nameText name
 
 registerTypeFamilyDeclHeader :: Maybe TypeScheme -> TypeFamilyDecl -> TcM [TcBindingResult]
 registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
@@ -3773,7 +3794,7 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
                   axiomName =
                     if isClosed
                       then typeFamilyAxiomName familyName (length existing)
-                      else sourceTypeFamilyAxiomName (typeFamilyEqLhs equation)
+                      else sourceTypeFamilyAxiomName (packageName, moduleName') (typeFamilyEqLhs equation)
                   instanceInfo =
                     TypeFamilyInstanceInfo
                       { tfiiFamilyName = familyName,
@@ -4274,6 +4295,12 @@ tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
   case flavor of
     Boxed -> "(" <> commas arity <> ")"
+    -- A one-element unboxed tuple holds no comma, so the comma spelling would
+    -- give it the name of the empty tuple. GHC separates the two by spelling
+    -- the empty one @(# #)@, which an FC name cannot hold because of the
+    -- space, so the arity goes in the middle instead. Every unboxed tuple
+    -- constructor still opens with @(#@, which the GRIN lowering looks for.
+    Unboxed | arity == 1 -> "(#1#)"
     Unboxed -> "(#" <> commas arity <> "#)"
 
 unboxedSumConText :: Int -> Int -> Text

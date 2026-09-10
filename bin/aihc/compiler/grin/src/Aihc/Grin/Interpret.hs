@@ -12,7 +12,7 @@ where
 
 import Aihc.Grin.Syntax
 import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
-import Control.Monad (when, zipWithM)
+import Control.Monad (when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
@@ -473,6 +473,14 @@ evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
       continue []
 evalScheduledPrimitive name arguments continue =
   continue =<< evalPrimitive name arguments
+
+-- | The value field a failed try-take or try-read hands back. The caller must
+-- not look at it, and GHC leaves it undefined for the same reason.
+emptyMVarPlaceholder :: RuntimeValue
+emptyMVarPlaceholder = intRuntimeValue 0
+
+enqueueThreadAction :: ThreadAction -> EvalM ()
+enqueueThreadAction (ThreadAction action) = enqueueThread action
 
 enqueueValueWaiter :: RuntimeValue -> MVarValueWaiter -> EvalM ()
 enqueueValueWaiter value (MVarValueWaiter resume) =
@@ -985,36 +993,106 @@ evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
   rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right
   pure [intRuntimeValue (if leftReference == rightReference then 1 else 0)]
-evalPrimitive "newArray#" [size, initialValue] = do
-  count <- checkedArraySize "newArray#" =<< expectIntPrimitiveArgument "newArray#" size
-  array <- GrinArray <$> liftEvalIO (newIORef (replicate count initialValue))
-  pure [RuntimeArray array]
-evalPrimitive "indexArray#" [arrayValue, indexValue] = do
-  array <- expectArrayPrimitiveArgument "indexArray#" arrayValue
-  index <- expectIntPrimitiveArgument "indexArray#" indexValue
-  (: []) <$> readArrayElement "indexArray#" array index
-evalPrimitive "readArray#" [arrayValue, indexValue] = do
-  array <- expectArrayPrimitiveArgument "readArray#" arrayValue
-  index <- expectIntPrimitiveArgument "readArray#" indexValue
-  (: []) <$> readArrayElement "readArray#" array index
-evalPrimitive "writeArray#" [arrayValue, indexValue, value] = do
-  array <- expectArrayPrimitiveArgument "writeArray#" arrayValue
-  index <- expectIntPrimitiveArgument "writeArray#" indexValue
-  writeArrayElement "writeArray#" array index value
-  pure []
+-- The non-blocking MVar primitives never suspend the calling thread, so they
+-- are ordinary primitives rather than scheduled ones. Each one shares the
+-- queue handling of its blocking counterpart above.
+evalPrimitive "sameMVar#" [left, right] = do
+  (leftIdentifier, _) <- expectMVarPrimitiveArgument "sameMVar#" left
+  (rightIdentifier, _) <- expectMVarPrimitiveArgument "sameMVar#" right
+  pure [intRuntimeValue (if leftIdentifier == rightIdentifier then 1 else 0)]
+evalPrimitive "isEmptyMVar#" [mvarValue] = do
+  (_, mvar) <- expectMVarPrimitiveArgument "isEmptyMVar#" mvarValue
+  pure [intRuntimeValue (maybe 1 (const 0) (grinMVarValue mvar))]
+evalPrimitive "tryReadMVar#" [mvarValue] = do
+  (_, mvar) <- expectMVarPrimitiveArgument "tryReadMVar#" mvarValue
+  pure $ case grinMVarValue mvar of
+    Nothing -> [intRuntimeValue 0, emptyMVarPlaceholder]
+    Just value -> [intRuntimeValue 1, value]
+evalPrimitive "tryTakeMVar#" [mvarValue] = do
+  (identifier, mvar) <- expectMVarPrimitiveArgument "tryTakeMVar#" mvarValue
+  case grinMVarValue mvar of
+    Nothing -> pure [intRuntimeValue 0, emptyMVarPlaceholder]
+    Just value -> do
+      -- A queued putter fills the variable again, exactly as takeMVar# does.
+      case Seq.viewl (grinMVarPutters mvar) of
+        EmptyL -> writeMVarState identifier mvar {grinMVarValue = Nothing}
+        (nextValue, putter) :< remaining -> do
+          writeMVarState identifier mvar {grinMVarValue = Just nextValue, grinMVarPutters = remaining}
+          enqueueThreadAction putter
+      pure [intRuntimeValue 1, value]
+evalPrimitive "tryPutMVar#" [mvarValue, value] = do
+  (identifier, mvar) <- expectMVarPrimitiveArgument "tryPutMVar#" mvarValue
+  case grinMVarValue mvar of
+    Just _ -> pure [intRuntimeValue 0]
+    Nothing -> do
+      mapM_ (enqueueValueWaiter value) (grinMVarReaders mvar)
+      case Seq.viewl (grinMVarTakers mvar) of
+        EmptyL ->
+          writeMVarState identifier mvar {grinMVarValue = Just value, grinMVarReaders = Seq.empty}
+        taker :< remaining -> do
+          enqueueValueWaiter value taker
+          writeMVarState identifier mvar {grinMVarReaders = Seq.empty, grinMVarTakers = remaining}
+      pure [intRuntimeValue 1]
+evalPrimitive name [size, initialValue]
+  | name `elem` ["newArray#", "newSmallArray#"] = do
+      count <- checkedArraySize name =<< expectIntPrimitiveArgument name size
+      array <- GrinArray <$> liftEvalIO (newIORef (replicate count initialValue))
+      pure [RuntimeArray array]
+evalPrimitive name [arrayValue, indexValue]
+  | name `elem` ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"] = do
+      array <- expectArrayPrimitiveArgument name arrayValue
+      index <- expectIntPrimitiveArgument name indexValue
+      (: []) <$> readArrayElement name array index
+evalPrimitive name [arrayValue, indexValue, value]
+  | name `elem` ["writeArray#", "writeSmallArray#"] = do
+      array <- expectArrayPrimitiveArgument name arrayValue
+      index <- expectIntPrimitiveArgument name indexValue
+      writeArrayElement name array index value
+      pure []
 evalPrimitive name [arrayValue]
-  | name == "unsafeFreezeArray#" || name == "unsafeThawArray#" = do
+  | name `elem` boxedArrayIdentityPrimitives = do
       array <- expectArrayPrimitiveArgument name arrayValue
       pure [RuntimeArray array]
 evalPrimitive name [value]
-  | name == "sizeofArray#" || name == "sizeofMutableArray#" = do
-      GrinArray reference <- expectArrayPrimitiveArgument name value
-      elements <- liftEvalIO (readIORef reference)
+  | name `elem` boxedArraySizePrimitives = do
+      elements <- readBoxedArray name value
       pure [intRuntimeValue (toInteger (length elements))]
-evalPrimitive "sameMutableArray#" [left, right] = do
-  leftArray <- expectArrayPrimitiveArgument "sameMutableArray#" left
-  rightArray <- expectArrayPrimitiveArgument "sameMutableArray#" right
-  pure [intRuntimeValue (if leftArray == rightArray then 1 else 0)]
+evalPrimitive name [left, right]
+  | name `elem` ["sameMutableArray#", "sameSmallMutableArray#"] = do
+      leftArray <- expectArrayPrimitiveArgument name left
+      rightArray <- expectArrayPrimitiveArgument name right
+      pure [intRuntimeValue (if leftArray == rightArray then 1 else 0)]
+-- Copy a run of elements between two boxed arrays. The source and the
+-- destination can be the same array, so the run is read out before it is
+-- written back.
+evalPrimitive name [sourceValue, sourceOffset, targetValue, targetOffset, lengthValue]
+  | name `elem` boxedArrayCopyPrimitives = do
+      elements <- boxedArraySlice name sourceValue sourceOffset lengthValue
+      target <- expectArrayPrimitiveArgument name targetValue
+      start <- expectIntPrimitiveArgument name targetOffset
+      zipWithM_ (writeArrayElement name target) [start ..] elements
+      pure []
+-- Freeze, thaw, and clone all copy a run into a fresh array; the result only
+-- differs in the type the caller gives it.
+evalPrimitive name [arrayValue, offsetValue, lengthValue]
+  | name `elem` boxedArrayClonePrimitives = do
+      elements <- boxedArraySlice name arrayValue offsetValue lengthValue
+      array <- GrinArray <$> liftEvalIO (newIORef elements)
+      pure [RuntimeArray array]
+evalPrimitive "shrinkSmallMutableArray#" [arrayValue, sizeValue] = do
+  GrinArray reference <- expectArrayPrimitiveArgument "shrinkSmallMutableArray#" arrayValue
+  elements <- liftEvalIO (readIORef reference)
+  count <- checkedArraySize "shrinkSmallMutableArray#" =<< expectIntPrimitiveArgument "shrinkSmallMutableArray#" sizeValue
+  if count > length elements
+    then throwInterpret (InterpretInvalidArrayIndex "shrinkSmallMutableArray#" (toInteger count) (length elements))
+    else liftEvalIO (writeIORef reference (take count elements))
+  pure []
+evalPrimitive "resizeSmallMutableArray#" [arrayValue, sizeValue, initialValue] = do
+  elements <- readBoxedArray "resizeSmallMutableArray#" arrayValue
+  count <- checkedArraySize "resizeSmallMutableArray#" =<< expectIntPrimitiveArgument "resizeSmallMutableArray#" sizeValue
+  let resized = take count (elements <> replicate count initialValue)
+  array <- GrinArray <$> liftEvalIO (newIORef resized)
+  pure [RuntimeArray array]
 evalPrimitive "newByteArray#" [size] = do
   byteArray <- allocateByteArray "newByteArray#" False 8 =<< expectIntPrimitiveArgument "newByteArray#" size
   pure [RuntimeByteArray byteArray]
@@ -1405,6 +1483,54 @@ checkedArraySize name size
   | size < 0 || size > toInteger (maxBound :: Int) =
       throwInterpret (InterpretInvalidArrayIndex name size 0)
   | otherwise = pure (fromInteger size)
+
+-- | Primitives that hand back the very array they were given. Freezing and
+-- thawing only change the type the caller sees, and the small-array family
+-- shares the boxed-array representation.
+boxedArrayIdentityPrimitives :: [Text]
+boxedArrayIdentityPrimitives =
+  ["unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeSmallArray#", "unsafeThawSmallArray#"]
+
+boxedArraySizePrimitives :: [Text]
+boxedArraySizePrimitives =
+  [ "sizeofArray#",
+    "sizeofMutableArray#",
+    "sizeofSmallArray#",
+    "sizeofSmallMutableArray#",
+    "getSizeofSmallMutableArray#"
+  ]
+
+boxedArrayCopyPrimitives :: [Text]
+boxedArrayCopyPrimitives =
+  ["copyArray#", "copyMutableArray#", "copySmallArray#", "copySmallMutableArray#"]
+
+boxedArrayClonePrimitives :: [Text]
+boxedArrayClonePrimitives =
+  [ "cloneArray#",
+    "cloneMutableArray#",
+    "freezeArray#",
+    "thawArray#",
+    "cloneSmallArray#",
+    "cloneSmallMutableArray#",
+    "freezeSmallArray#",
+    "thawSmallArray#"
+  ]
+
+readBoxedArray :: Text -> RuntimeValue -> EvalM [RuntimeValue]
+readBoxedArray name value = do
+  GrinArray reference <- expectArrayPrimitiveArgument name value
+  liftEvalIO (readIORef reference)
+
+-- | The @length@ elements of an array that start at @offset@.
+boxedArraySlice :: Text -> RuntimeValue -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+boxedArraySlice name arrayValue offsetValue lengthValue = do
+  elements <- readBoxedArray name arrayValue
+  offset <- expectIntPrimitiveArgument name offsetValue
+  count <- expectIntPrimitiveArgument name lengthValue
+  let available = toInteger (length elements)
+  if offset < 0 || count < 0 || offset + count > available
+    then throwInterpret (InterpretInvalidArrayIndex name (offset + count) (length elements))
+    else pure (take (fromInteger count) (drop (fromInteger offset) elements))
 
 expectArrayPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinArray
 expectArrayPrimitiveArgument name value =

@@ -536,8 +536,15 @@ tupleName :: Parser Text
 tupleName = unboxedTupleName <|> boxedTupleName
 
 unboxedTupleName :: Parser Text
-unboxedTupleName = makeTuple <$> MP.between (MPC.string "(#") (MPC.string "#)") (MP.many (MPC.char ','))
+unboxedTupleName = MP.between (MPC.string "(#") (MPC.string "#)") body
   where
+    -- A one-element unboxed tuple holds no comma, so it carries its arity in
+    -- the middle: @(##)@ is the empty tuple and @(#1#)@ the one-element one.
+    body =
+      MP.choice
+        [ "(#1#)" <$ MPC.char '1',
+          makeTuple <$> MP.many (MPC.char ',')
+        ]
     makeTuple commas = T.pack ("(#" <> commas <> "#)")
 
 boxedTupleName :: Parser Text

@@ -39,6 +39,7 @@ module GHC.Types
     TypeLitSort (..),
     TyCon (..),
     Tuple0# (..),
+    Tuple1# (..),
     Tuple2# (..),
     Tuple3# (..),
     Tuple4# (..),
@@ -228,6 +229,9 @@ data TyCon = TyCon Module TrName Int KindRep
 
 type Tuple0# :: TYPE ('TupleRep '[])
 data Tuple0# = (# #)
+
+type Tuple1# :: TYPE r1 -> TYPE ('TupleRep '[r1])
+data Tuple1# (a1 :: TYPE r1) = (# a1 #)
 
 type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r1, r2])
 data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)

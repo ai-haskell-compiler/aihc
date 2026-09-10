@@ -1,0 +1,40 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Char Char Int Int Int
+
+    -- The small-array family shares the boxed-array representation, so this
+    -- exercises the shape of each entry point rather than a second layout.
+    test :: IO Results
+    test = IO (\state -> case newSmallArray# 4# 'a' state of
+      (# state1, mutable #) -> case writeSmallArray# mutable 2# 'z' state1 of
+       state2 -> case cloneSmallMutableArray# mutable 2# 2# state2 of
+        (# state3, cloned #) -> case readSmallArray# cloned 0# state3 of
+         (# state4, clonedElement #) -> case resizeSmallMutableArray# mutable 6# 'q' state4 of
+          (# state5, resized #) -> case shrinkSmallMutableArray# resized 5# state5 of
+           state6 -> case getSizeofSmallMutableArray# resized state6 of
+            (# state7, resizedSize #) -> case unsafeFreezeSmallArray# mutable state7 of
+             (# state8, frozen #) -> case indexSmallArray# frozen 2# of
+              (# frozenElement #) ->
+                (# state8,
+                   Results
+                     clonedElement
+                     frozenElement
+                     (I# (sizeofSmallArray# frozen))
+                     (I# (sizeofSmallMutableArray# cloned))
+                     (I# resizedSize) #))
+output: |
+  Results 'z' 'z' (I# 4) (I# 2) (I# 5)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: the small-array primitives allocate, index, clone, resize, and shrink over the boxed-array representation

@@ -2119,10 +2119,7 @@ patternConstructor pattern' =
     Syn.PList (_ : _) -> AltData <$> primitiveName "GHC.Types" ":" SortDataConstructor
     Syn.PTuple flavor fields ->
       let arity = length fields
-          constructor =
-            case flavor of
-              Syn.Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
-              Syn.Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+          constructor = tupleConstructorText flavor arity
           moduleName' =
             case flavor of
               Syn.Boxed -> "GHC.Tuple"
@@ -3226,10 +3223,7 @@ tupleConstructorName annotation flavor arity = do
   primPackage <- gets (cePrimPackage . vsConvertEnv)
   pure (Name constructorText SortDataConstructor (origin primPackage))
   where
-    constructorText =
-      case flavor of
-        Syn.Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
-        Syn.Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+    constructorText = tupleConstructorText flavor arity
     origin primPackage =
       case sectionResultType (tcAnnType annotation) of
         TcTyCon tyCon _ -> OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
@@ -4487,3 +4481,13 @@ liftEither = either failValue pure
 
 failValue :: String -> ValueM a
 failValue = lift . Left
+
+-- | The name the type checker gives one tuple data constructor. A one-element
+-- unboxed tuple holds no comma, so the comma spelling would give it the name
+-- of the empty tuple; its arity goes in the middle instead.
+tupleConstructorText :: Syn.TupleFlavor -> Int -> Text
+tupleConstructorText flavor arity =
+  case flavor of
+    Syn.Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+    Syn.Unboxed | arity == 1 -> "(#1#)"
+    Syn.Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"

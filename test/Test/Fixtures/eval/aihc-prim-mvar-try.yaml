@@ -1,0 +1,42 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Char Int Int Int Char Int
+
+    -- None of these primitives ever blocks, so a single thread can drive an
+    -- MVar through empty, full, and empty again.
+    test :: IO Results
+    test = IO (\state -> case newMVar# state of
+      (# state1, mvar #) -> case isEmptyMVar# mvar state1 of
+       (# state2, emptyAtFirst #) -> case tryTakeMVar# mvar state2 of
+        (# state3, tookEmpty, _ #) -> case tryPutMVar# mvar 'v' state3 of
+         (# state4, put #) -> case tryPutMVar# mvar 'w' state4 of
+          (# state5, putAgain #) -> case tryReadMVar# mvar state5 of
+           (# state6, readFull, readValue #) -> case tryTakeMVar# mvar state6 of
+            (# state7, tookFull, takenValue #) -> case isEmptyMVar# mvar state7 of
+             (# state8, emptyAtEnd #) ->
+               (# state8,
+                  Results
+                    (I# emptyAtFirst)
+                    (I# tookEmpty)
+                    readValue
+                    (I# put)
+                    (I# putAgain)
+                    (I# readFull)
+                    takenValue
+                    (I# (sameMVar# mvar mvar)) #))
+output: |
+  Results (I# 1) (I# 0) 'v' (I# 1) (I# 0) (I# 1) 'v' (I# 1)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: the non-blocking MVar primitives report whether the variable was full and hand back its contents

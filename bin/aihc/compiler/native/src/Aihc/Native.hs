@@ -19,6 +19,7 @@ module Aihc.Native
     nativeTargetStoreDirectory,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
+    mvarPeekPseudoPrimitive,
     parseNativeTarget,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
@@ -489,6 +490,8 @@ supportedNativePrimitiveNames =
     "realWorld#",
     "unsafeFreezeArray#",
     "unsafeThawArray#",
+    "unsafeFreezeSmallArray#",
+    "unsafeThawSmallArray#",
     "unsafeFreezeByteArray#",
     "unsafeThawByteArray#",
     "castFloatToWord32#",
@@ -665,6 +668,14 @@ nativeCpsPrimitiveCalls =
     resumes primitive symbol operands =
       (primitive, NativeCpsCall symbol operands True NativeCpsResumeScheduler)
 
+-- | The name under which the runtime ABI carries @aihc_mvar_peek@. It reads
+-- the contents of an MVar without changing it, and no primitive maps to it on
+-- its own: the lowering of tryTakeMVar# and tryReadMVar# uses it for the value
+-- field those primitives return beside their flag. A leading @$@ keeps it out
+-- of the primitive namespace.
+mvarPeekPseudoPrimitive :: Text
+mvarPeekPseudoPrimitive = "$mvarPeek"
+
 -- | Runtime calls shared by native backends. Representation-preserving
 -- primitives such as freeze and thaw deliberately have no entry here.
 nativeRuntimePrimitiveCall :: Text -> Maybe NativeRuntimeCall
@@ -687,6 +698,41 @@ nativeRuntimePrimitiveCalls =
     call "sameMutableArray#" "aihc_array_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
     call "sizeofArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
     call "sizeofMutableArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
+    procedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    machineCall "cloneArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "cloneMutableArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "freezeArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "thawArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    -- The small-array family shares the boxed-array representation, so every
+    -- entry below names the boxed-array runtime function of the same shape.
+    machineCall "newSmallArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    call "indexSmallArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readSmallArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeSmallArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "sameSmallMutableArray#" "aihc_array_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
+    call "sizeofSmallArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
+    call "sizeofSmallMutableArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
+    call "getSizeofSmallMutableArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
+    procedure "copySmallArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "copySmallMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    machineCall "cloneSmallArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "cloneSmallMutableArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "freezeSmallArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "thawSmallArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    procedure "shrinkSmallMutableArray#" "aihc_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    machineCall "resizeSmallMutableArray#" "aihc_array_resize" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    -- The MVar operations that never block, so they are runtime calls rather
+    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# and
+    -- tryReadMVar# each give a flag and the contents; the lowering reads the
+    -- contents with the pseudo-primitive below before the operation runs,
+    -- which is safe because a runtime call never yields.
+    call "sameMVar#" "aihc_mvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
+    call "isEmptyMVar#" "aihc_mvar_is_empty" [GrinForeignAddr] GrinForeignWord64,
+    call mvarPeekPseudoPrimitive "aihc_mvar_peek" [GrinForeignAddr] GrinForeignWord64,
+    machineCall "tryTakeMVar#" "aihc_mvar_try_take" [GrinForeignAddr] GrinForeignWord64,
+    call "tryReadMVar#" "aihc_mvar_is_full" [GrinForeignAddr] GrinForeignWord64,
+    machineCall "tryPutMVar#" "aihc_mvar_try_put" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
     call "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
     call "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,

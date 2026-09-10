@@ -158,7 +158,7 @@ badSafeIndex :: Int -> Int -> Int
 badSafeIndex _ _ = badSafeIndex 0 0
 
 unsafeAt :: Array i e -> Int -> e
-unsafeAt (Array _ _ _ immutable#) (I# index#) = indexArray# immutable# index#
+unsafeAt (Array _ _ _ immutable#) (I# index#) = case indexArray# immutable# index# of (# element #) -> element
 
 bounds :: Array i e -> (i, i)
 bounds (Array lower upper _ _) = (lower, upper)

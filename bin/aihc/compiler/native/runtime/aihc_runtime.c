@@ -950,6 +950,69 @@ const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
   return aihc_resume_current(machine, continuation);
 }
 
+/* The non-blocking MVar operations. None of them suspends the caller, so each
+   one is an ordinary runtime call rather than a CPS call.
+
+   tryTakeMVar# and tryReadMVar# each yield a flag and a value. The backend
+   reads the value with aihc_mvar_peek before it runs the operation, which is
+   safe because a runtime call never yields, so nothing can change the
+   variable in between. */
+uint64_t aihc_mvar_same(void *left, void *right) { return left == right; }
+
+uint64_t aihc_mvar_is_empty(void *opaque_mvar) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  return mvar->full ? 0 : 1;
+}
+
+uint64_t aihc_mvar_is_full(void *opaque_mvar) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  return mvar->full ? 1 : 0;
+}
+
+AihcSlot aihc_mvar_peek(void *opaque_mvar) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  return mvar->full ? mvar->value : 0;
+}
+
+uint64_t aihc_mvar_try_take(AihcMachine *machine, void *opaque_mvar) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (!mvar->full) {
+    return 0;
+  }
+  AihcMVarWaiter *putter =
+      aihc_mvar_pop_waiter(&mvar->putters_head, &mvar->putters_tail);
+  if (putter == NULL) {
+    mvar->full = 0;
+    mvar->value = 0;
+  } else {
+    mvar->value = putter->value;
+    aihc_mvar_wake(machine, putter, 0, 0);
+  }
+  return 1;
+}
+
+uint64_t aihc_mvar_try_put(AihcMachine *machine, void *opaque_mvar,
+                           AihcSlot value) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (mvar->full) {
+    return 0;
+  }
+  AihcMVarWaiter *reader;
+  while ((reader = aihc_mvar_pop_waiter(&mvar->readers_head,
+                                        &mvar->readers_tail)) != NULL) {
+    aihc_mvar_wake(machine, reader, 1, value);
+  }
+  AihcMVarWaiter *taker =
+      aihc_mvar_pop_waiter(&mvar->takers_head, &mvar->takers_tail);
+  if (taker == NULL) {
+    mvar->full = 1;
+    mvar->value = value;
+  } else {
+    aihc_mvar_wake(machine, taker, 1, value);
+  }
+  return 1;
+}
+
 const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
                                 AihcValue *continuation) {
   AihcIoRequest *request = opaque_request;
