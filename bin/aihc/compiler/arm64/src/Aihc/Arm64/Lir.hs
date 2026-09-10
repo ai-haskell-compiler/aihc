@@ -25,9 +25,7 @@
 module Aihc.Arm64.Lir
   ( Arm64LirError (..),
     compileLirObject,
-    compileLirObjectWith,
     compileLirStatements,
-    compileLirStatementsWith,
     elideSlotReloads,
     lirSymbol,
   )
@@ -36,7 +34,6 @@ where
 import Aihc.Arm64.Assemble
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
-import Aihc.Lir.Optimization (OptimizationLevel, defaultOptimizationLevel)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
 import Aihc.Native.Lir
@@ -62,20 +59,12 @@ lirSymbol :: Symbol -> Text
 lirSymbol (Symbol name) = "_" <> name
 
 compileLirObject :: Module -> Either Arm64LirError BL.ByteString
-compileLirObject = compileLirObjectWith defaultOptimizationLevel
-
--- | 'compileLirObject' at a level.
-compileLirObjectWith :: OptimizationLevel -> Module -> Either Arm64LirError BL.ByteString
-compileLirObjectWith level lirModule = do
-  statements <- compileLirStatementsWith level lirModule
+compileLirObject lirModule = do
+  statements <- compileLirStatements lirModule
   either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
-compileLirStatements = compileLirStatementsWith defaultOptimizationLevel
-
--- | 'compileLirStatements' at a level.
-compileLirStatementsWith :: OptimizationLevel -> Module -> Either Arm64LirError [Arm64Statement]
-compileLirStatementsWith level = compileNativeStatements level arm64Backend
+compileLirStatements = compileNativeStatements arm64Backend
 
 elideSlotReloads :: [Arm64Statement] -> [Arm64Statement]
 elideSlotReloads = elideSlotReloadsWith arm64AsCode

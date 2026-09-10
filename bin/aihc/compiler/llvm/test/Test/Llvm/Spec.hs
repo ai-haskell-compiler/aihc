@@ -22,7 +22,6 @@ tests =
         backendLowerTarget = posixTarget64,
         backendClangArguments = ["-Wno-override-module"],
         backendRuns = (arch == "aarch64" && os == "darwin") || (arch == "x86_64" && os == "linux"),
-        backendOptimized = True,
         backendAllocationKey = if os == "darwin" then "macos-arm64" else "linux-amd64",
         backendSourceExtension = ".ll",
         backendCompile = either (Left . show) (Right . BackendSource) . compileLirModule

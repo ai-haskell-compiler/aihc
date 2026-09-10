@@ -12,8 +12,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Lir.Optimization (OptimizationLevel (..))
-import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
@@ -88,8 +87,7 @@ tests =
               testCase "reports the ambiguous installed module" (test_buildExeAmbiguousModule coreStore),
               testCase "reports the generated entry collision" (test_buildExeEntryCollision coreStore),
               testCase "writes a link bundle that link-exe turns into the executable" (test_buildExeLinkBundle coreStore),
-              testCase "parses the optimization level" test_buildExeOptimizationOption,
-              testCase "builds an unoptimized executable with -O0" (test_buildExeUnoptimized coreStore)
+              testCase "parses the optimization level" test_buildExeOptimizationOption
             ],
         testGroup
           "install"
@@ -364,38 +362,6 @@ test_buildExeOptimizationOption = do
   assertEqual "install -O0" O0 installLevel
   help <- either pure (assertFailure . ("help is not a failure: " <>) . show) (parseCommandPure ["build-exe", "--help"])
   assertBool ("help names -O LEVEL:\n" <> help) ("[-O LEVEL]" `isInfixOf` help)
-
--- | @-O0@ builds the executable and its packages without the optional
--- backend passes. The unoptimized packages are store entries of their own,
--- next to the optimized ones, and the program behaves the same.
-test_buildExeUnoptimized :: IO SeedStore -> Assertion
-test_buildExeUnoptimized getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-unoptimized" $ \sandbox _fixtureRoot storeRoot options -> do
-    let root = sandboxRoot sandbox
-        target = buildExeTarget options
-        targetStore = storeRoot </> nativeTargetStoreDirectory target
-        optimizedRoot = root </> "optimized"
-        unoptimizedRoot = root </> "unoptimized"
-        mainObject buildRoot = buildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o"
-        baseEntries = filter ("aihc-base-" `isPrefixOf`) <$> listDirectory targetStore
-    optimizedBase <- seededPackagePath storeRoot target "aihc-base"
-    withCurrentDirectory root (runBuildExe options {buildExeBuildRoot = Just optimizedRoot})
-    withCurrentDirectory root (runBuildExe options {buildExeBuildRoot = Just unoptimizedRoot, buildExeOptimization = O0})
-    optimizedObject <- BS.readFile (mainObject optimizedRoot)
-    unoptimizedObject <- BS.readFile (mainObject unoptimizedRoot)
-    assertBool "the level changes the main object" (optimizedObject /= unoptimizedObject)
-    entries <- baseEntries
-    assertEqual "aihc-base store entries" 2 (length entries)
-    let unoptimizedBase = [targetStore </> entry | entry <- entries, targetStore </> entry /= optimizedBase]
-    forM_ unoptimizedBase $ \entry -> do
-      manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath entry)
-      assertBool "the unoptimized manifest records O0" ("O0" `elem` packageManifestFlags manifest)
-    optimizedManifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath optimizedBase)
-    assertBool "the optimized manifest records no level" ("O0" `notElem` packageManifestFlags optimizedManifest)
-    (status, stdout, stderr) <- readProcessWithExitCode (root </> "program") [] ""
-    assertEqual "unoptimized executable exit status" ExitSuccess status
-    assertEqual "unoptimized executable stdout" "build-exe works\n" stdout
-    assertEqual "unoptimized executable stderr" "" stderr
 
 -- | @--no-link@ leaves no executable behind. The bundle it writes instead is
 -- self-contained: linking it from another directory, with the store gone,

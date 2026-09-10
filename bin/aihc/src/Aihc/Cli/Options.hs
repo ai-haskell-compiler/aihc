@@ -12,8 +12,7 @@ module Aihc.Cli.Options
   )
 where
 
-import Aihc.Lir.Optimization (OptimizationLevel, defaultOptimizationLevel, parseOptimizationLevel, renderOptimizationLevel)
-import Aihc.Native (NativeTarget, parseNativeTarget)
+import Aihc.Native (NativeTarget, OptimizationLevel, defaultOptimizationLevel, parseNativeTarget, parseOptimizationLevel, renderOptimizationLevel)
 import Options.Applicative qualified as OA
 
 data Command
@@ -207,8 +206,9 @@ lintOption =
         <> OA.help "Run compiler intermediate-language lint checks"
     )
 
--- | @-O0@ or @-O2@. The level is part of the identity of an installed
--- package, so the packages of a build share its level.
+-- | @-O0@ or @-O2@, the level Clang receives for C sources and LLVM output.
+-- The level is part of the identity of an installed package, so the
+-- packages of a build share its level.
 optimizationOption :: OA.Parser OptimizationLevel
 optimizationOption =
   OA.option
@@ -217,7 +217,7 @@ optimizationOption =
         <> OA.metavar "LEVEL"
         <> OA.value defaultOptimizationLevel
         <> OA.showDefaultWith renderOptimizationLevel
-        <> OA.help "Optimization level: 0 skips the optional backend passes, 2 runs all of them"
+        <> OA.help "Optimization level for C sources and LLVM output: 0 or 2"
     )
 
 parseGarbageCollector :: String -> Either String GarbageCollector

@@ -41,8 +41,7 @@ module Aihc.Native.Lir
 where
 
 import Aihc.Lir.Lint (LintError, lintModule)
-import Aihc.Lir.Optimization (OptimizationLevel (..))
-import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersWith, readCounts)
+import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, readCounts)
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
@@ -170,9 +169,7 @@ data Ctx register = Ctx
     ctxBlockParameters :: !(Map Label [(Var, Type)]),
     ctxSignatures :: !(Map Symbol Signature),
     ctxIncomingOverflow :: Int,
-    ctxReads :: !(Map Var Int),
-    -- | The level that selects the optional passes.
-    ctxOptimization :: !OptimizationLevel
+    ctxReads :: !(Map Var Int)
   }
 
 -- | Where a value lives: a register, or a frame slot at a byte offset above
@@ -239,10 +236,9 @@ trapLabel message = do
 trapStubLabel :: Int -> Text
 trapStubLabel index = ".Llir_trap_" <> tshow index
 
--- | Lint the module, then walk its items. The level selects the optional
--- passes: see "Aihc.Lir.Optimization".
-compileNativeStatements :: (Ord register) => OptimizationLevel -> NativeBackend statement register error -> Module -> Either error [statement]
-compileNativeStatements level backend lirModule =
+-- | Lint the module, then walk its items.
+compileNativeStatements :: (Ord register) => NativeBackend statement register error -> Module -> Either error [statement]
+compileNativeStatements backend lirModule =
   case lintModule lirModule of
     [] -> evalStateT compileItems initialState
     errors -> Left (nbLintErrors backend errors)
@@ -255,7 +251,7 @@ compileNativeStatements level backend lirModule =
             <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items]
         )
     compileItems = do
-      functionStatements <- concat <$> zipWithM (compileFunction level backend signatures) [0 ..] [function | ItemFunction function <- items]
+      functionStatements <- concat <$> zipWithM (compileFunction backend signatures) [0 ..] [function | ItemFunction function <- items]
       let dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
           globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
       trapStatements <- renderTraps backend
@@ -323,9 +319,9 @@ overflowBytes backend count =
 
 -- Functions
 
-compileFunction :: (Ord register) => OptimizationLevel -> NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error [statement]
-compileFunction level backend signatures index function = do
-  layout <- functionLayout level backend signatures function
+compileFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error [statement]
+compileFunction backend signatures index function = do
+  layout <- functionLayout backend signatures function
   let blocks = functionBlocks function
       labels = Map.fromList [(blockLabel block, ".Llir_" <> tshow index <> "_" <> tshow position) | (position, block) <- zip [0 :: Int ..] blocks]
       ctx =
@@ -338,8 +334,7 @@ compileFunction level backend signatures index function = do
             ctxIncomingOverflow = case functionConvention function of
               AihcConvention -> overflowBytes backend (length (functionParameters function))
               CConvention -> 0,
-            ctxReads = readCounts function,
-            ctxOptimization = level
+            ctxReads = readCounts function
           }
   when (functionConvention function == CConvention) $ do
     let (integers, floats) = classify (map snd (functionParameters function))
@@ -353,14 +348,10 @@ compileFunction level backend signatures index function = do
     ( [nbSection backend TextSection, nbAlign backend (nbCodeAlign backend)]
         <> [nbGlobal backend symbol | functionLinkage function == Export]
         <> [nbLabel backend symbol]
-        <> elide (prologue <> body)
+        <> elideSlotReloadsWith (nbAsCode backend) (prologue <> body)
     )
   where
     symbol = nbSymbol backend (functionName function)
-    elide =
-      case level of
-        O0 -> id
-        O2 -> elideSlotReloadsWith (nbAsCode backend)
 
 -- | Drop a read that the destination register already holds, and a store
 -- of what the slot already holds.
@@ -391,11 +382,11 @@ elideSlotReloadsWith asCode = go IntMap.empty
       | otherwise = statement : go (IntMap.insert register source (invalidate register held)) rest
     invalidate register held = IntMap.filter (/= FromRegister register) (IntMap.delete register held)
 
-functionLayout :: (Ord register) => OptimizationLevel -> NativeBackend statement register error -> Map Symbol Signature -> Function -> NativeM error (Layout register)
-functionLayout level backend signatures function = do
+functionLayout :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Function -> NativeM error (Layout register)
+functionLayout backend signatures function = do
   let blocks = functionBlocks function
       convention = functionConvention function
-      allocation = allocateRegistersWith level (nbRegistersFor backend convention function) signatures function
+      allocation = allocateRegistersFor (nbRegistersFor backend convention function) signatures function
       calls = [operation | block <- blocks, Instruction _ operation <- blockInstructions block, isCall operation]
       callsAihc = any ((== AihcConvention) . callConvention signatures) calls
       savedRegisters =
@@ -591,8 +582,7 @@ fuseCompare :: NativeBackend statement register error -> Ctx register -> [Instru
 fuseCompare backend ctx instructions terminator =
   case (reverse instructions, terminator) of
     (Instruction [var] (Compare op ty left right) : before, Branch (OperandVar condition) _ _)
-      | ctxOptimization ctx == O2,
-        condition == var,
+      | condition == var,
         Map.lookup var (ctxReads ctx) == Just 1,
         not (isFloatType ty) || nbCanFuseFloatCompare backend op ->
           (reverse before, Just (Fused op ty left right))

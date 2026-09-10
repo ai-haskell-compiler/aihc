@@ -120,17 +120,10 @@ reconfigures when one of them changes.
 The level is 0 or 2, and the default is 2.
 `-O0` and `-O2` are also accepted.
 
-Level 2 runs every optional pass of the native backends.
-Level 0 skips these passes:
-
-- The register hints of the allocator. Every value takes the first free register, and a convention move stays a move.
-- The fusion of a compare into the branch that tests it.
-- The elision of a slot reload that the register already holds.
-
-The two levels give the same program behavior.
-The GRIN passes and the Lir lowering run at each level.
-The `llvm` and `wasm32-wasip3` targets have no optional pass, and Clang compiles their output without `-O`, so the level does not change their code.
-The runtime and entry archives are C code and do not depend on the level.
+aihc has no optimization pass of its own, so the level is the level Clang receives.
+Clang gets it for the C sources of a package, for the `CFLAGS` of a configure script, and for the LLVM output of the `llvm` target.
+The GRIN passes, the Lir lowering, and the object backends of `apple-arm64` and `linux-amd64` do not read the level.
+The runtime and entry archives are compiled once for each target at the default level.
 
 The level is part of the identity of an installed package.
 `aihc install -O0` writes a store entry next to the entry of the default level, and its manifest records the flag `O0`.

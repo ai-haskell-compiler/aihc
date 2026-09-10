@@ -33,8 +33,7 @@ where
 
 import Aihc.Cli.Install (install)
 import Aihc.Cli.Options (InstallOptions (..))
-import Aihc.Lir.Optimization (OptimizationLevel (O2))
-import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (O2), hostNativeTarget, nativeTargetStoreDirectory)
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless)
 import Data.List (isPrefixOf, nub)

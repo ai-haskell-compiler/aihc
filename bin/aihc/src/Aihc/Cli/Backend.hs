@@ -13,7 +13,6 @@ where
 import Aihc.Amd64.Lir qualified as Amd64
 import Aihc.Arm64.Lir qualified as Arm64
 import Aihc.Lir.Lower (LowerTarget, posixTarget64, wasip3Target)
-import Aihc.Lir.Optimization (OptimizationLevel)
 import Aihc.Lir.Syntax (Module)
 import Aihc.Llvm.Lir qualified as Llvm
 import Aihc.Native (NativeTarget (..))
@@ -34,15 +33,12 @@ lowerTargetFor target =
     Wasm32Wasip3 -> wasip3Target
     _ -> posixTarget64
 
--- | Compile one Lir module for the target at a level. The level selects
--- the optional passes of the object backends. A text backend has no
--- optional pass, and the compiler driver of its target runs without @-O@,
--- so the level does not change its output.
-compileLir :: OptimizationLevel -> NativeTarget -> Module -> Either String BackendOutput
-compileLir level target lirModule =
+-- | Compile one Lir module for the target.
+compileLir :: NativeTarget -> Module -> Either String BackendOutput
+compileLir target lirModule =
   case target of
-    AppleArm64 -> either (Left . show) (Right . BackendObject) (Arm64.compileLirObjectWith level lirModule)
-    LinuxAmd64 -> either (Left . show) (Right . BackendObject) (Amd64.compileLirObjectWith level lirModule)
+    AppleArm64 -> either (Left . show) (Right . BackendObject) (Arm64.compileLirObject lirModule)
+    LinuxAmd64 -> either (Left . show) (Right . BackendObject) (Amd64.compileLirObject lirModule)
     Llvm -> either (Left . show) (Right . BackendSource) (Llvm.compileLirModule lirModule)
     Wasm32Wasip3 -> either (Left . show) (Right . BackendSource) (Wasm.compileLirModule lirModule)
 

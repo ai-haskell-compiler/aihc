@@ -6,6 +6,7 @@ module Aihc.Native
     NativeCpsTransfer (..),
     NativeRuntimeCall (..),
     NativeTarget (..),
+    OptimizationLevel (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
     WasmSysroot (..),
@@ -13,18 +14,22 @@ module Aihc.Native
     backendCompiler,
     handwrittenCArguments,
     buildAddrLiteralPool,
+    defaultOptimizationLevel,
     executableEntryName,
     hostNativeTarget,
     nativeTargetTriple,
     nativeTargetStoreDirectory,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
+    optimizationArgument,
     parseNativeTarget,
+    parseOptimizationLevel,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
     renderLinkedPartialConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
     renderNativeTarget,
+    renderOptimizationLevel,
     runtimePlan,
     supportedNativePrimitiveNames,
     wasmSysroot,
@@ -238,21 +243,52 @@ nativeTargetStoreDirectory target =
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
 
+-- | The @-O@ level of a build. aihc has no optimization pass of its own,
+-- so the level is the level Clang receives for the C sources of a package
+-- and for the LLVM output of the @llvm@ target. The object backends do not
+-- read it.
+data OptimizationLevel
+  = O0
+  | O2
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+defaultOptimizationLevel :: OptimizationLevel
+defaultOptimizationLevel = O2
+
+-- | Parse the digit of a @-O@ option.
+parseOptimizationLevel :: String -> Either String OptimizationLevel
+parseOptimizationLevel value =
+  case value of
+    "0" -> Right O0
+    "2" -> Right O2
+    _ -> Left "expected 0 or 2"
+
+-- | The digit of a level, as the @-O@ option takes it.
+renderOptimizationLevel :: OptimizationLevel -> String
+renderOptimizationLevel level =
+  case level of
+    O0 -> "0"
+    O2 -> "2"
+
+-- | The Clang argument of a level.
+optimizationArgument :: OptimizationLevel -> String
+optimizationArgument level = "-O" <> renderOptimizationLevel level
+
 -- | Arguments for compiling handwritten C: the runtime sources and the C
 -- sources of a Hackage package, as opposed to the code aihc generates.
 --
--- These are optimised where generated code is not. Handwritten C is compiled
--- rarely -- the runtime once per backend and collector, a package's C sources
--- once per install -- and it stays hot for the whole life of every program
--- linked against it, so the trade that makes generated code cheap runs the
--- other way here. It is also required rather than merely wanted: the runtime
--- builds with -Werror, and glibc's features.h raises #warning when
--- _FORTIFY_SOURCE is set without -O, which the Nixpkgs Clang wrapper does.
+-- The runtime takes the default level. It is compiled once per backend and
+-- collector, before any program names a level, and it stays hot for the
+-- whole life of every program linked against it. The default is also
+-- required rather than merely wanted there: the runtime builds with
+-- -Werror, and glibc's features.h raises #warning when _FORTIFY_SOURCE is
+-- set without -O, which the Nixpkgs Clang wrapper does. The C sources of a
+-- package take the level of the build.
 --
 -- Callers append their own arguments, so a caller that wants a different level
 -- can still override this by passing one later on the command line.
-handwrittenCArguments :: [String]
-handwrittenCArguments = ["-O2"]
+handwrittenCArguments :: OptimizationLevel -> [String]
+handwrittenCArguments level = [optimizationArgument level]
 
 -- | Select the compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
