@@ -98,6 +98,13 @@ module Aihc.Tc.Monad
     localDefaultTypes,
     getDefaultTypes,
     getUndecidableInstances,
+    deferKindMeta,
+    takeDeferredKindMetas,
+    isPolyKindOrigin,
+    getPolyKinds,
+    getComponentTyCons,
+    withComponentTyCons,
+    withPolyKindOrigins,
     withScopedTyVars,
     getScopedTyVars,
     withGivenPredicates,
@@ -208,6 +215,18 @@ data TcEnv = TcEnv
     -- | Whether UndecidableInstances is on. It relaxes the coverage
     -- condition that a functional dependency puts on an instance.
     tcEnvUndecidableInstances :: !Bool,
+    -- | The package and module of every unit in the component that has
+    -- PolyKinds on. An instance declared in one of them quantifies the
+    -- kind variables its head leaves open instead of defaulting them.
+    tcEnvPolyKindOrigins :: ![(Text, Text)],
+    -- | The type constructors the component declares itself.
+    --
+    -- 'generalizeDataKinds' only quantifies @data@ heads, so a
+    -- kind-polymorphic @newtype@ keeps bare kind metas in its kind scheme
+    -- that every occurrence of the constructor shares until they are all
+    -- defaulted together. An instance must not quantify one of those for
+    -- itself, and these are the kind schemes to look in.
+    tcEnvComponentTyCons :: !(Set.Set TcTypeKey),
     -- | The lexically scoped type variables, by source name. A signature
     -- with an explicit @forall@, an instance head, or a class head binds
     -- them over the bodies it covers.
@@ -368,6 +387,8 @@ emptyTcEnv config =
       tcEnvDefaultTypes = Nothing,
       tcEnvScopedTypeVariables = False,
       tcEnvUndecidableInstances = False,
+      tcEnvPolyKindOrigins = [],
+      tcEnvComponentTyCons = Set.empty,
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
       tcEnvVisibleTerms = Set.empty
@@ -410,7 +431,14 @@ data TcState = TcState
     -- | Pattern synonyms in scope, keyed like their builder term.
     tcsPatSyns :: !(Map TcTermKey PatSynInfo),
     -- | The checked calling convention of each foreign import in scope.
-    tcsForeignImports :: !(Map TcTermKey TcForeignImportInfo)
+    tcsForeignImports :: !(Map TcTermKey TcForeignImportInfo),
+    -- | Kind meta-variables a generalization left open on purpose.
+    --
+    -- Under PolyKinds a local binding is quantified before the body that
+    -- uses it is checked, and that use is what fixes the kind. The kinds
+    -- are therefore settled once the component is checked rather than at
+    -- the point of generalization.
+    tcsDeferredKindMetas :: !IntSet
   }
   deriving (Show)
 
@@ -433,7 +461,8 @@ initTcState =
       tcsDataFamilyInstances = Map.empty,
       tcsTypeFamilyInstances = Map.empty,
       tcsGadtCons = Set.empty,
-      tcsForeignImports = Map.empty
+      tcsForeignImports = Map.empty,
+      tcsDeferredKindMetas = IntSet.empty
     }
 
 -- | Allocate a fresh 'Unique'.
@@ -895,6 +924,41 @@ getDefaultTypes = asks tcEnvDefaultTypes
 -- | Whether UndecidableInstances is on.
 getUndecidableInstances :: TcM Bool
 getUndecidableInstances = asks tcEnvUndecidableInstances
+
+-- | Record a kind meta-variable whose defaulting is put off until the
+-- component is checked.
+deferKindMeta :: Unique -> TcM ()
+deferKindMeta (Unique key) =
+  lift $ modify' $ \state ->
+    state {tcsDeferredKindMetas = IntSet.insert key (tcsDeferredKindMetas state)}
+
+-- | Take the kind meta-variables whose defaulting was put off.
+takeDeferredKindMetas :: TcM [Unique]
+takeDeferredKindMetas = lift $ do
+  deferred <- gets tcsDeferredKindMetas
+  modify' (\state -> state {tcsDeferredKindMetas = IntSet.empty})
+  pure (map Unique (IntSet.toList deferred))
+
+-- | Whether the module that declares something at this origin has
+-- PolyKinds on.
+isPolyKindOrigin :: (Text, Text) -> TcM Bool
+isPolyKindOrigin origin = asks (elem origin . tcEnvPolyKindOrigins)
+
+-- | Whether any module in the component has PolyKinds on.
+getPolyKinds :: TcM Bool
+getPolyKinds = asks (not . null . tcEnvPolyKindOrigins)
+
+-- | The type constructors the component declares itself.
+getComponentTyCons :: TcM (Set.Set TcTypeKey)
+getComponentTyCons = asks tcEnvComponentTyCons
+
+-- | Run an action with the component's own type constructors in scope.
+withComponentTyCons :: Set.Set TcTypeKey -> TcM a -> TcM a
+withComponentTyCons keys = local (\env -> env {tcEnvComponentTyCons = keys})
+
+-- | Run an action with the PolyKinds origins of the component in scope.
+withPolyKindOrigins :: [(Text, Text)] -> TcM a -> TcM a
+withPolyKindOrigins origins = local (\env -> env {tcEnvPolyKindOrigins = origins})
 
 -- | Run an action with more lexically scoped type variables. The new
 -- variables shadow outer variables with the same name. Without

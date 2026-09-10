@@ -150,6 +150,8 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -491,7 +493,7 @@ tcModule unit = do
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
 tcModuleScc :: [ModuleUnit] -> TcM [Module]
-tcModuleScc units = do
+tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
   -- bodies, then register value-level declarations against those expanded
@@ -501,7 +503,6 @@ tcModuleScc units = do
       moduleExtensions = map moduleUnitExtensions units
       declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
-      polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
   mapM_ predeclareTypeConstructor declarations
   mapM_ predeclareTypeLevelDataConstructors declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
@@ -517,7 +518,9 @@ tcModuleScc units = do
   mapM_ registerNominalRoles declarations
   -- Generalize data kinds before instances use them.
   generalizeDataKinds polyKindOrigins initialKeys
-  mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
+  componentTyCons <- componentTyConKeys initialKeys
+  withComponentTyCons componentTyCons $
+    mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
@@ -534,9 +537,12 @@ tcModuleScc units = do
   pending <- zipWithM tcModuleBody schemes derivingFinalized
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
+  defaultDeferredKindMetas
   defaultGlobalKindMetas structuralKeys
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
+  where
+    polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -562,17 +568,27 @@ checkModuleSignatures extensions signatures = do
     then traverse generalizeSignatureKinds checked
     else traverse (\signature -> do scheme <- defaultTypeSchemeKinds (checkedSigScheme signature); pure signature {checkedSigScheme = scheme}) checked
 
+-- | Skolemize the kind meta-variables these type variables still leave
+-- open, so the binder they belong to quantifies over them instead of
+-- defaulting them to 'Type'. A meta whose own kind is not 'Type' is
+-- representation-polymorphic and defaults as before.
+generalizeTyVarKinds :: [TyVarId] -> TcM ()
+generalizeTyVarKinds variables = do
+  kinds <- getKinds
+  reserved <- reservedKindMetas
+  variableKinds <- mapM (zonkKind . tvKind) variables
+  forM_ (zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))) $ \(index, Unique meta) -> do
+    metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
+    tracked <- isTrackedKindMeta (Unique meta)
+    when (tracked && metaKind == typeKind kinds && not (IntSet.member meta reserved)) $ do
+      variable <- freshSkolemTv ("k" <> T.pack (show index))
+      writeMetaTv (Unique meta) (TcTyVar variable)
+
 -- | Quantify implicit kind variables before the signature enters the environment.
 generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
 generalizeSignatureKinds signature = do
   let ForAll variables predicates body = checkedSigScheme signature
-  kinds <- getKinds
-  variableKinds <- mapM (zonkKind . tvKind) variables
-  forM_ (nub (concatMap collectMetaVars variableKinds)) $ \meta -> do
-    metaKind <- readMetaTvKind meta >>= zonkKind
-    when (metaKind == typeKind kinds) $ do
-      variable <- freshSkolemTv "k"
-      writeMetaTv meta (TcTyVar variable)
+  generalizeTyVarKinds variables
   variables' <- mapM defaultTyVarKinds variables
   body' <- zonkType body
   predicates' <- mapM defaultPredKinds predicates
@@ -685,6 +701,33 @@ globalStateKeys state =
       globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state),
       globalPatSynKeys = Map.keysSet (tcsPatSyns state)
     }
+
+-- | Settle the kinds that a local generalization left open. The bodies
+-- that use those bindings have been checked by now, so every kind that a
+-- use fixes is already solved; whatever is left is 'Type' as it would
+-- have been at the point of generalization.
+defaultDeferredKindMetas :: TcM ()
+defaultDeferredKindMetas = do
+  deferred <- takeDeferredKindMetas
+  mapM_ (defaultKindMetas . TcMetaTv) deferred
+
+-- | The type constructors this component declared itself.
+componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set TcTypeKey)
+componentTyConKeys initialKeys = do
+  state <- lift get
+  pure (Map.keysSet (tcsGlobalTyCons state) `Set.difference` globalTyConKeys initialKeys)
+
+-- | The kind meta-variables the component's own type constructors still
+-- hold in their kind schemes, as they stand now. Unification rewrites
+-- them as the module is checked, so this is read afresh each time rather
+-- than snapshotted.
+reservedKindMetas :: TcM IntSet
+reservedKindMetas = do
+  keys <- getComponentTyCons
+  state <- lift get
+  let owned = Map.restrictKeys (tcsGlobalTyCons state) keys
+  kinds <- mapM (zonkKind . typeSchemeBody . tciKindScheme) (Map.elems owned)
+  pure (IntSet.fromList [key | Unique key <- concatMap collectMetaVars kinds])
 
 -- | Generalize each data kind in its own module extension scope.
 generalizeDataKinds :: [(Text, Text)] -> GlobalStateKeys -> TcM ()
@@ -1480,7 +1523,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       let classNameText = nameText className
       rawHeadTys <- checkInstanceHeadTypes className tvEnv headArgTypes
       rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
-      tvIds <- orderTyVarsByKind <$> mapM defaultTyVarKinds rawTvIds
+      tvIds <- resolveInstanceTyVars origin rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
       kinds <- getKinds
@@ -2081,6 +2124,25 @@ orderTyVarsByKind = go []
         (next, rest) -> go (reverse next <> emitted) rest
     ready emitted pending tyVar =
       not (any (\other -> other /= tyVar && other `notElem` emitted && kindMentionsUnique (tvUnique other) (tvKind tyVar)) pending)
+
+-- | Settle the kinds an instance head left open and return the variables
+-- the dictionary quantifies over.
+--
+-- Under PolyKinds a head such as @Eq (Ptr a)@ constrains nothing about
+-- @a@'s kind, because @Ptr@ itself is kind-polymorphic. Defaulting the
+-- open kind to 'Type' would make the instance unusable at a wanted whose
+-- kind 'generalizeSignatureKinds' turned into a skolem, so quantify over
+-- the kind instead, the way GHC does. Without PolyKinds the kinds default
+-- as before.
+resolveInstanceTyVars :: (Text, Text) -> [TyVarId] -> TcM [TyVarId]
+resolveInstanceTyVars origin rawTyVars = do
+  polyKinds <- isPolyKindOrigin origin
+  if polyKinds
+    then do
+      generalizeTyVarKinds rawTyVars
+      tyVars <- mapM defaultTyVarKinds rawTyVars
+      pure (orderTyVarsByKind (closeKindVariables tyVars))
+    else orderTyVarsByKind <$> mapM defaultTyVarKinds rawTyVars
 
 makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TyVarId], TvKindEnv)
 makeInstanceTyVarEnv instanceDecl headArgTypes = do
@@ -3475,7 +3537,7 @@ registerInstanceDecl origin instanceDecl =
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
-      tvIds <- orderTyVarsByKind <$> mapM (\tyVar -> (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)) rawTvIds
+      tvIds <- resolveInstanceTyVars origin rawTvIds
       classInfo <- lookupClassNamed className >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       registerInstanceAssociatedTypes origin classInfo tvIds headTys instanceDecl
       checkInstanceFunDeps (sourceSpanFromAnns (nameAnns className)) classInfo tvIds headTys context

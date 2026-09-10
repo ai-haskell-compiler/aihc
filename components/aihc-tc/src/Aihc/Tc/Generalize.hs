@@ -15,11 +15,11 @@ module Aihc.Tc.Generalize
   )
 where
 
-import Aihc.Tc.Kind (defaultKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Kind (defaultKindMetas, deferKindMetas)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, deferKindMeta, freshSkolemTv, getKinds, getPolyKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (forM_, void)
+import Control.Monad (forM_, void, when)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -73,8 +73,9 @@ generalizeGroupAndCommitIgnoring ignoredKeys bindings = do
   zonked' <- mapM zonkBinding zonked
   let bindingMetaVars = [nubOrd (collectMetaVars ty ++ concatMap predMetaVars preds) | (ty, preds) <- zonked']
       uniqueMetaVars = filter (`notElem` envMetaVars) (nubOrd (concat bindingMetaVars))
-  mapM_ defaultMetaKind uniqueMetaVars
-  tvs <- metaVarsToTyVars uniqueMetaVars
+  settleKinds <- settleKindsNow
+  when settleKinds (mapM_ defaultMetaKind uniqueMetaVars)
+  tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   forM_ subst (uncurry writeMetaTv)
   pure
@@ -98,10 +99,11 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   -- Only a quantified meta-variable needs a fixed kind now. A meta-variable
   -- of the environment, such as the type of a lambda-bound variable, keeps
   -- its open kind until a use fixes it; an unlifted use is still possible.
-  mapM_ defaultMetaKind uniqueMetaVars
+  settleKinds <- settleKindsNow
+  when settleKinds (mapM_ defaultMetaKind uniqueMetaVars)
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
-  tvs <- metaVarsToTyVars uniqueMetaVars
+  tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   let quantifiedTy = substMetas subst ty''
   let quantifiedPreds = map (substMetasPred subst) preds''
@@ -179,11 +181,11 @@ predMetaVars (QuantifiedPred variables antecedents consequent) =
 -- | Create a type variable from a meta-variable unique, using a
 -- sequential index for naming (so the first generalized variable is
 -- 'a', the second 'b', etc.).
-metaVarsToTyVars :: [Unique] -> TcM [TyVarId]
-metaVarsToTyVars uniques = mapM makeTyVar (zip [0 ..] uniques)
+metaVarsToTyVars :: Bool -> [Unique] -> TcM [TyVarId]
+metaVarsToTyVars settleKinds uniques = mapM makeTyVar (zip [0 ..] uniques)
   where
     makeTyVar (index, unique) = do
-      kind <- readMetaTvKind unique >>= defaultKindMetas
+      kind <- readMetaTvKind unique >>= (if settleKinds then defaultKindMetas else deferKindMetas deferKindMeta)
       rawTyVar <- freshSkolemTv (mkName index)
       pure (setTyVarKind kind rawTyVar)
 
@@ -198,6 +200,20 @@ defaultMetaKind unique = do
   kind <- readMetaTvKind unique
   -- defaultKindMetas writes each solution to the meta-variable store.
   void (defaultKindMetas kind)
+
+-- | Whether the kinds of the meta-variables a binding quantifies over
+-- must be settled before they are quantified.
+--
+-- Without PolyKinds an open kind defaults to 'Type' here. With it the
+-- kind is left open instead. A binding local to a kind-polymorphic
+-- instance is used at that instance's own kind, which need not be 'Type',
+-- and fixing the kind here would make the binding unusable in the very
+-- body it belongs to; FC has no way to bind a kind variable of a local
+-- scheme, so quantifying over it is not an option either. The kind is
+-- settled once the component is checked, by
+-- 'Aihc.Tc.Monad.takeDeferredKindMetas'.
+settleKindsNow :: TcM Bool
+settleKindsNow = not <$> getPolyKinds
 
 -- | Substitute meta-variables with their corresponding type variables.
 substMetas :: [(Unique, TcType)] -> TcType -> TcType
