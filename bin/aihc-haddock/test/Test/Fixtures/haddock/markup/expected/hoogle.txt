@@ -80,4 +80,6 @@ infixr 5 %%
 
 -- | A type family.
 type family F a
+
+-- | A pattern synonym.
 pattern P :: Int -> Thing
