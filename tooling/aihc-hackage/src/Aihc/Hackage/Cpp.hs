@@ -49,6 +49,8 @@ compilerCppHeader :: FilePath -> Maybe Text
 compilerCppHeader path = case path of
   -- Haskell source does not receive host configuration features.
   "ghcautoconf.h" -> Just (header "GHCAUTOCONF_H" [] [])
+  -- Modern GHC's base package reduces this legacy header to a redirect.
+  "HsBaseConfig.h" -> Just (header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] [])
   "MachDeps.h" -> Just (header "MACHDEPS_H" ["#include \"ghcplatform.h\""] (M.toList machineCppMacros))
   "ghcplatform.h" ->
     Just
