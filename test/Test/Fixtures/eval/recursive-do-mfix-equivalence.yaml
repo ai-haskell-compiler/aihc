@@ -1,0 +1,74 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Control.Monad.Fix (mfix)
+    import Prelude
+
+    -- The users guide translation:
+    --   rec ss  ==>  vs <- mfix (\ ~vs -> do { ss; return vs })
+
+    mdoOnes :: Maybe [Int]
+    mdoOnes = mdo
+      xs <- Just (1 : xs)
+      return (map negate xs)
+
+    recOnes :: Maybe [Int]
+    recOnes = do
+      rec xs <- Just (1 : xs)
+      return (map negate xs)
+
+    mfixOnes :: Maybe [Int]
+    mfixOnes = do
+      xs <- mfix (\ ~knot -> do { bound <- Just (1 : knot); return bound })
+      return (map negate xs)
+
+    -- Two mutually recursive generators tie one knot over the tuple of their
+    -- bound variables.
+    mdoPair :: Maybe ([Int], [Int])
+    mdoPair = mdo
+      as <- Just (1 : bs)
+      bs <- Just (2 : as)
+      return (take 4 as, take 4 bs)
+
+    mfixPair :: Maybe ([Int], [Int])
+    mfixPair = do
+      (as, bs) <- mfix (\ ~(_tiedAs, tiedBs) -> do
+        boundAs <- Just (1 : tiedBs)
+        boundBs <- Just (2 : boundAs)
+        return (boundAs, boundBs))
+      return (take 4 as, take 4 bs)
+
+    -- The same knot in the list monad.
+    mdoList :: [[Int]]
+    mdoList = mdo
+      xs <- [1 : xs]
+      return (take 3 xs)
+
+    mfixList :: [[Int]]
+    mfixList = do
+      xs <- mfix (\ ~knot -> [1 : knot])
+      return (take 3 xs)
+
+    checks :: [Bool]
+    checks =
+      [ fmap (take 3) mdoOnes == fmap (take 3) recOnes,
+        fmap (take 3) recOnes == fmap (take 3) mfixOnes,
+        fmap (take 3) mfixOnes == Just [-1, -1, -1],
+        mdoPair == mfixPair,
+        mdoPair == Just ([1, 2, 1, 2], [2, 1, 2, 1]),
+        mdoList == mfixList,
+        mdoList == [[1, 1, 1]]
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: mdo, rec, and a hand written mfix call agree on the same knot in Maybe and in the list monad

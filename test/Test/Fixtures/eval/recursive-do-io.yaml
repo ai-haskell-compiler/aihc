@@ -1,0 +1,88 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+    import Prelude
+
+    data Node = Node Int Node
+
+    -- A cyclic structure tied with the IO fixed point: the first node points
+    -- forward to the last, which points back at the first.
+    buildCycle :: IORef Int -> IO Node
+    buildCycle counter = mdo
+      a <- newNode 1 b
+      b <- newNode 2 c
+      c <- newNode 3 a
+      return a
+      where
+        newNode value next = do
+          modifyIORef' counter (+ 1)
+          return (Node value next)
+
+    walk :: Int -> Node -> [Int]
+    walk 0 _ = []
+    walk n (Node value next) = value : walk (n - 1) next
+
+    cycleValues :: IO ([Int], Int)
+    cycleValues = do
+      counter <- newIORef 0
+      start <- buildCycle counter
+      let values = walk 7 start
+      effects <- readIORef counter
+      return (values, effects)
+
+    -- The statement of the mdo runs exactly once even though the knot reads its
+    -- own result.
+    countingEffects :: IO (Int, [Int])
+    countingEffects = do
+      counter <- newIORef (0 :: Int)
+      xs <- mdo
+        ys <- do
+          modifyIORef' counter (+ 1)
+          return (1 : map (* 2) ys)
+        return ys
+      n <- readIORef counter
+      return (n, take 4 xs)
+
+    -- rec inside a plain IO do block, with statements before and after it.
+    recInIO :: IO [Int]
+    recInIO = do
+      seed <- return 5
+      rec xs <- return (seed : map (+ seed) xs)
+      total <- return (sum (take 3 xs))
+      return (total : take 3 xs)
+
+    -- A knot through a mutable cell: the cell is read inside the group that
+    -- fills it, and the value is demanded only afterwards.
+    throughIORef :: IO [Int]
+    throughIORef = do
+      rec reference <- newIORef (0 : map (+ 1) later)
+          later <- readIORef reference
+      writeIORef reference (take 4 later)
+      readIORef reference
+
+    main :: IO ()
+    main = do
+      (values, effects) <- cycleValues
+      counted <- countingEffects
+      recValues <- recInIO
+      refValues <- throughIORef
+      let checks =
+            [ values == [1, 2, 3, 1, 2, 3, 1],
+              effects == 3,
+              counted == (1, [1, 2, 4, 8]),
+              recValues == [30, 5, 10, 15],
+              refValues == [0, 1, 2, 3]
+            ]
+      print [index | (index, False) <- zip [0 :: Int ..] checks]
+stdout: |
+  []
+output: |
+  ()
+expression: main
+status: xfail
+reason: the IO MonadFix instance ties a cyclic structure and a knot through an IORef while running each effect once

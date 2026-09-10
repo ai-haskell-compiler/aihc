@@ -1,0 +1,74 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Control.Monad.ST (ST, runST)
+    import qualified Control.Monad.ST.Lazy as Lazy
+    import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
+    import Prelude
+
+    data Tree = Leaf Int | Fork Tree Tree
+
+    sameTree :: Tree -> Tree -> Bool
+    sameTree (Leaf a) (Leaf b) = a == b
+    sameTree (Fork la ra) (Fork lb rb) = sameTree la lb && sameTree ra rb
+    sameTree _ _ = False
+
+    -- Bird's repMin: a single traversal replaces every leaf with the smallest
+    -- leaf value, which is only known once the traversal has finished.
+    repMin :: Tree -> Tree
+    repMin tree =
+      runST
+        ( mdo
+            (replaced, smallest) <- walk tree smallest
+            return replaced
+        )
+      where
+        walk :: Tree -> Int -> ST s (Tree, Int)
+        walk (Leaf n) m = return (Leaf m, n)
+        walk (Fork l r) m = do
+          (l', ml) <- walk l m
+          (r', mr) <- walk r m
+          return (Fork l' r', min ml mr)
+
+    -- A knot through an STRef in the strict state thread monad.
+    strictKnot :: [Int]
+    strictKnot =
+      runST
+        ( do
+            rec reference <- newSTRef (1 : map (* 3) later)
+                later <- readSTRef reference
+            counter <- newSTRef (0 :: Int)
+            modifySTRef' counter (+ 1)
+            writeSTRef reference (take 4 later)
+            readSTRef reference
+        )
+
+    -- The same shape in the lazy state thread monad.
+    lazyKnot :: [Int]
+    lazyKnot =
+      Lazy.runST
+        ( mdo
+            xs <- return (1 : map (* 2) xs)
+            return (take 5 xs)
+        )
+
+    checks :: [Bool]
+    checks =
+      [ sameTree (repMin (Fork (Fork (Leaf 4) (Leaf 2)) (Leaf 7))) (Fork (Fork (Leaf 2) (Leaf 2)) (Leaf 2)),
+        sameTree (repMin (Leaf 9)) (Leaf 9),
+        strictKnot == [1, 3, 9, 27],
+        lazyKnot == [1, 2, 4, 8, 16]
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: strict and lazy ST tie value recursion knots, including repMin and a knot through an STRef

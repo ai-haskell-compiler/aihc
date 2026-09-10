@@ -1,0 +1,67 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- The rec spelling of the users guide example.
+    justOnes :: Maybe [Int]
+    justOnes = do
+      rec xs <- Just (1 : xs)
+      return (map negate xs)
+
+    justOnesBraces :: Maybe [Int]
+    justOnesBraces = do { rec { xs <- Just (1 : xs) }
+                        ; return (map negate xs) }
+
+    -- Two mutually recursive generators inside one rec block become one mfix
+    -- over the pair of bound variables.
+    mutual :: Maybe ([Int], [Int])
+    mutual = do
+      rec as <- Just (1 : bs)
+          bs <- Just (2 : as)
+      return (take 4 as, take 4 bs)
+
+    -- Variables bound by a rec are visible below the block, and a rec may follow
+    -- ordinary statements.
+    afterRec :: Maybe Int
+    afterRec = do
+      k <- Just 10
+      rec ns <- Just (k : map (+ 1) ns)
+      m <- Just (ns !! 0)
+      return (m + ns !! 3)
+
+    -- A let statement inside a rec block.
+    withLet :: Maybe [Int]
+    withLet = do
+      rec let step = (+ 1)
+          zs <- Just (0 : map step zs)
+      return (take 4 zs)
+
+    -- A rec block whose statement does not actually recurse is still valid.
+    degenerate :: Maybe Int
+    degenerate = do
+      rec a <- Just 7
+      return (a + 1)
+
+    checks :: [Bool]
+    checks =
+      [ fmap (take 3) justOnes == Just [-1, -1, -1],
+        fmap (take 3) justOnesBraces == Just [-1, -1, -1],
+        mutual == Just ([1, 2, 1, 2], [2, 1, 2, 1]),
+        afterRec == Just 23,
+        withLet == Just [0, 1, 2, 3],
+        degenerate == Just 8
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: a rec block inside do binds a recursive group, keeps its variables in scope below, and accepts let statements

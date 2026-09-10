@@ -1,0 +1,55 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- The example from the users guide: the bound variable is in scope in the
+    -- statement that binds it.
+    justOnes :: Maybe [Int]
+    justOnes = mdo
+      xs <- Just (1 : xs)
+      return (map negate xs)
+
+    -- The same knot with explicit braces and semicolons.
+    justOnesBraces :: Maybe [Int]
+    justOnesBraces = mdo { xs <- Just (1 : xs)
+                         ; return (map negate xs) }
+
+    -- An mdo without any recursive dependency behaves exactly like do.
+    plainMdo :: Maybe Int
+    plainMdo = mdo
+      a <- Just 3
+      b <- Just (a + 4)
+      return (a * b)
+
+    -- A knot that also reads a binding from an earlier, non-recursive statement.
+    scaled :: Maybe [Int]
+    scaled = mdo
+      k <- Just 2
+      ys <- Just (k : map (* k) ys)
+      return ys
+
+    -- The knot is productive: the list is infinite, so only the demanded prefix
+    -- is evaluated.
+    checks :: [Bool]
+    checks =
+      [ fmap (take 3) justOnes == Just [-1, -1, -1],
+        fmap (take 6) justOnesBraces == Just [-1, -1, -1, -1, -1, -1],
+        fmap (take 3) justOnesBraces == fmap (take 3) justOnes,
+        plainMdo == Just 21,
+        fmap (take 4) scaled == Just [2, 4, 8, 16],
+        fmap null justOnes == Just False
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+output: |
+  []
+expression: |
+  failures
+status: xfail
+reason: mdo ties a recursive knot in Maybe, in layout and in brace form, and stays a plain do when nothing recurses

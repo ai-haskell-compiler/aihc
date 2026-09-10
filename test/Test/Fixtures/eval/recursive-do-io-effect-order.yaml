@@ -1,0 +1,44 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- The effects of an mdo run once, top to bottom, in source order, even
+    -- though the second statement reads a value the third one binds.
+    report :: String -> Int -> IO Int
+    report label value = do
+      putStrLn label
+      return value
+
+    main :: IO ()
+    main = do
+      values <- mdo
+        a <- report "a" 1
+        b <- report "b" (c + 1)
+        c <- report "c" (a + 10)
+        z <- report "z" (a + b)
+        return [a, b, c, z]
+      print values
+      recValues <- do
+        rec p <- report "p" (q + 1)
+            q <- report "q" 5
+        return (p, q)
+      print recValues
+stdout: |
+  a
+  b
+  c
+  z
+  [1,12,11,13]
+  p
+  q
+  (6,5)
+output: |
+  ()
+expression: main
+status: xfail
+reason: mdo and rec keep the source order of the effects while a statement reads a value bound below it
