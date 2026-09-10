@@ -1,0 +1,32 @@
+modules:
+  - |
+    module Test where
+
+    import Text.ParserCombinators.ReadP
+
+    digits :: ReadP String
+    digits = munch1 (\c -> c >= '0' && c <= '9')
+
+    pair :: ReadP (String, String)
+    pair = do
+      skipSpaces
+      left <- digits
+      _ <- char ','
+      right <- digits
+      skipSpaces
+      eof
+      return (left, right)
+
+    parsed :: [((String, String), String)]
+    parsed = readP_to_S pair "  12,345  "
+
+    result :: String
+    result = case parsed of
+      [((left, right), _)] -> left ++ "/" ++ right
+      _ -> "no parse"
+output: |
+  : '1' (: '2' (: '/' (: '3' (: '4' (: '5' [])))))
+expression: |
+  result
+status: pass
+reason: ReadP offers the combinator API of base

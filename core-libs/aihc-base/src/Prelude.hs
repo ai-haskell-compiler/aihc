@@ -167,7 +167,7 @@ import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
 import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
-import GHC.Prim.Read (ReadS)
+import GHC.Prim.Read (ReadS, minPrec)
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -191,7 +191,6 @@ import GHC.Show (Show (..), ShowS, showChar, showParen, showString, shows)
 import GHC.Tuple ()
 import GHC.Types (RuntimeRep, TYPE, Type)
 import GHC.Word (Word (..), Word8 (..))
-import Text.ParserCombinators.ReadPrec (minPrec)
 
 -- | Function application. The result type can have any runtime
 -- representation, as in GHC. The definition returns the function itself, so
