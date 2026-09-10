@@ -1,0 +1,84 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import Prelude
+
+    data HNil = HNil
+    data HCons h t = HCons h t
+
+    data Zero = Zero
+    data Succ n = Succ n
+
+    -- Indexing a heterogeneous list: the index and the list determine the element
+    -- type, so `hIndex` has a useful type even though the element type is hidden.
+    class HIndex n l e | n l -> e where
+      hIndex :: n -> l -> e
+
+    instance HIndex Zero (HCons h t) h where
+      hIndex _ (HCons h _) = h
+
+    instance HIndex n t e => HIndex (Succ n) (HCons h t) e where
+      hIndex (Succ n) (HCons _ t) = hIndex n t
+
+    -- The length of a list, again as a dependency on the list alone.
+    class HLength l n | l -> n where
+      hLength :: l -> n
+
+    instance HLength HNil Zero where
+      hLength _ = Zero
+
+    instance HLength t n => HLength (HCons h t) (Succ n) where
+      hLength (HCons _ t) = Succ (hLength t)
+
+    class ToInt n where
+      toInt :: n -> Int
+
+    instance ToInt Zero where
+      toInt _ = 0
+
+    instance ToInt n => ToInt (Succ n) where
+      toInt (Succ n) = 1 + toInt n
+
+    row :: HCons Int (HCons Bool (HCons Char HNil))
+    row = HCons 42 (HCons True (HCons 'z' HNil))
+
+    atZero :: Int
+    atZero = hIndex Zero row
+
+    atOne :: Bool
+    atOne = hIndex (Succ Zero) row
+
+    atTwo :: Char
+    atTwo = hIndex (Succ (Succ Zero)) row
+
+    rowLength :: Int
+    rowLength = toInt (hLength row)
+
+    emptyLength :: Int
+    emptyLength = toInt (hLength HNil)
+
+    checks :: [Bool]
+    checks =
+      [ atZero == 42,
+        atOne,
+        atTwo == 'z',
+        rowLength == 3,
+        emptyLength == 0
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: xfail
+reason: indexing and measuring a heterogeneous list through dependencies whose recursive instances satisfy only the liberal coverage condition

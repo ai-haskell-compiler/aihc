@@ -1,0 +1,60 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    data Small = Small
+    data Medium = Medium
+    data Large = Large
+
+    -- Two classes whose dependencies chain: a -> b and b -> c together give a -> c.
+    class Next a b | a -> b where
+      next :: a -> b
+
+    class Label b c | b -> c where
+      label :: b -> c
+
+    instance Next Small Medium where
+      next _ = Medium
+
+    instance Next Medium Large where
+      next _ = Large
+
+    instance Label Medium Char where
+      label _ = 'm'
+
+    instance Label Large Int where
+      label _ = 3
+
+    -- `b` and `c` are both absent from the argument and the result; the chain of
+    -- dependencies has to run twice to pick both dictionaries.
+    describe :: (Next a b, Label b c) => a -> c
+    describe = label . next
+
+    fromSmall :: Char
+    fromSmall = describe Small
+
+    fromMedium :: Int
+    fromMedium = describe Medium
+
+    checks :: [Bool]
+    checks =
+      [ fromSmall == 'm',
+        fromMedium == 3,
+        label (next Small) == 'm'
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: dependencies of two classes chain so that the first type determines the last

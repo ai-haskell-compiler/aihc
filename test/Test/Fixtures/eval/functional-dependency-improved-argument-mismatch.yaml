@@ -1,0 +1,38 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    {-# LANGUAGE FlexibleInstances #-}
+    module Test where
+
+    import Prelude
+
+    class Collects e ce | ce -> e where
+      insert :: e -> ce -> ce
+
+    instance Collects e [e] where
+      insert = (:)
+
+    -- Without the dependency this would be
+    --   f :: (Collects a c, Collects b c) => a -> b -> c -> c
+    -- and `g` would be accepted. The dependency shortens it to
+    --   f :: Collects a c => a -> a -> c -> c
+    -- so the error shows up here rather than at a use site of `g`.
+    f x y = insert x . insert y
+
+    g = f True 'a'
+
+    result :: Bool
+    result = True
+expression: |
+  result
+output: |
+  True
+error: |
+  typecheck error: Test: could not match Bool with Char
+status: fail
+reason: the dependency forces the two inserted values to share a type, so a call that mixes them is rejected where it is written

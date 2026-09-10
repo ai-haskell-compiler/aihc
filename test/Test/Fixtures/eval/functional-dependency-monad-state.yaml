@@ -1,0 +1,76 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    newtype State s a = State {runState :: s -> (a, s)}
+
+    instance Functor (State s) where
+      fmap f (State step) = State (\s -> case step s of (a, s') -> (f a, s'))
+
+    instance Applicative (State s) where
+      pure a = State (\s -> (a, s))
+      State f <*> State a =
+        State
+          ( \s -> case f s of
+              (g, s') -> case a s' of
+                (x, s'') -> (g x, s'')
+          )
+
+    instance Monad (State s) where
+      State step >>= k =
+        State
+          ( \s -> case step s of
+              (a, s') -> runState (k a) s'
+          )
+
+    -- The dependency from the users guide: the monad determines the state type.
+    class Monad m => MonadState s m | m -> s where
+      get :: m s
+      put :: s -> m ()
+
+    instance MonadState s (State s) where
+      get = State (\s -> (s, s))
+      put s = State (\_ -> ((), s))
+
+    -- `s` appears only under the constraint; `m -> s` makes both uses agree and
+    -- makes the type unambiguous.
+    modify :: MonadState s m => (s -> s) -> m ()
+    modify f = get >>= (put . f)
+
+    -- The state type is never mentioned here at all.
+    bump :: MonadState Int m => m Int
+    bump = do
+      modify (+ 1)
+      get
+
+    counterRun :: (Int, Int)
+    counterRun = runState (bump >>= \a -> bump >>= \b -> return (a + b)) 0
+
+    -- A different state type through the same class.
+    appendRun :: ([Char], [Char])
+    appendRun = runState (modify ('a' :) >> modify ('b' :) >> get) "c"
+
+    checks :: [Bool]
+    checks =
+      [ counterRun == (3, 2),
+        appendRun == ("bac", "bac"),
+        fst (runState (put (7 :: Int) >> get) 0) == 7
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a MonadState style dependency lets the monad determine the state type of get and put

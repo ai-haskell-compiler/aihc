@@ -1,0 +1,71 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    data Small = Small
+    data Medium = Medium
+    data Large = Large
+
+    class Next a b | a -> b where
+      next :: a -> b
+
+    class Label b c | b -> c where
+      label :: b -> c
+
+    instance Next Small Medium where
+      next _ = Medium
+
+    instance Next Medium Large where
+      next _ = Large
+
+    instance Label Medium Char where
+      label _ = 'm'
+
+    instance Label Large Int where
+      label _ = 3
+
+    -- None of the local binders below carry a signature, so the dependencies have
+    -- to improve the constraints that generalisation would otherwise keep.
+    viaWhere :: Int
+    viaWhere = step Small
+      where
+        step x = label (next (next x))
+
+    viaLet :: Char
+    viaLet =
+      let step x = label (next x)
+       in step Small
+
+    viaLambda :: Int
+    viaLambda = (\x -> label (next (next x))) Small
+
+    -- A local binder used at one type only: its inferred type is improved rather
+    -- than generalised over the determined variable.
+    viaShared :: (Char, Int)
+    viaShared = (one Small, one Medium)
+      where
+        one x = label (next x)
+
+    checks :: [Bool]
+    checks =
+      [ viaWhere == 3,
+        viaLet == 'm',
+        viaLambda == 3,
+        viaShared == ('m', 3)
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: xfail
+reason: dependencies improve the constraints of local binders that carry no signature

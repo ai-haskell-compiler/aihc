@@ -1,0 +1,66 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    data Yes = Yes
+    data No = No
+
+    -- Two parameters together determine the third: `a b -> c`.
+    class And a b c | a b -> c where
+      andT :: a -> b -> c
+
+    instance And Yes Yes Yes where
+      andT _ _ = Yes
+
+    instance And Yes No No where
+      andT _ _ = No
+
+    instance And No Yes No where
+      andT _ _ = No
+
+    instance And No No No where
+      andT _ _ = No
+
+    class Reify a where
+      reify :: a -> Bool
+
+    instance Reify Yes where
+      reify _ = True
+
+    instance Reify No where
+      reify _ = False
+
+    -- The result type of `andT` is never written down; only `a b -> c` can find
+    -- it, and it has to be found before `reify` can pick its own instance.
+    value :: (And a b c, Reify c) => a -> b -> Bool
+    value x y = reify (andT x y)
+
+    -- Nested: the intermediate type of the inner call is determined too.
+    nested :: Bool
+    nested = reify (andT (andT Yes Yes) (andT Yes No))
+
+    checks :: [Bool]
+    checks =
+      [ value Yes Yes,
+        not (value Yes No),
+        not (value No Yes),
+        not (value No No),
+        not nested,
+        reify (andT Yes (andT Yes Yes))
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: two class parameters together determine a third that appears nowhere in the signatures

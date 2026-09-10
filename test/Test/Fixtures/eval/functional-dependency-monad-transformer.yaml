@@ -1,0 +1,102 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import Prelude
+
+    newtype Logger e a = Logger {runLogger :: ([e], a)}
+
+    instance Functor (Logger e) where
+      fmap f (Logger (es, a)) = Logger (es, f a)
+
+    instance Applicative (Logger e) where
+      pure a = Logger ([], a)
+      Logger (es, f) <*> Logger (fs, a) = Logger (es ++ fs, f a)
+
+    instance Monad (Logger e) where
+      Logger (es, a) >>= k = case runLogger (k a) of
+        (fs, b) -> Logger (es ++ fs, b)
+
+    newtype MaybeT m a = MaybeT {runMaybeT :: m (Maybe a)}
+
+    instance Monad m => Functor (MaybeT m) where
+      fmap f (MaybeT m) = MaybeT (fmap (fmap f) m)
+
+    instance Monad m => Applicative (MaybeT m) where
+      pure = MaybeT . pure . Just
+      MaybeT mf <*> MaybeT ma =
+        MaybeT
+          ( mf >>= \f -> case f of
+              Nothing -> pure Nothing
+              Just g -> ma >>= \a -> pure (fmap g a)
+          )
+
+    instance Monad m => Monad (MaybeT m) where
+      MaybeT m >>= k =
+        MaybeT
+          ( m >>= \a -> case a of
+              Nothing -> pure Nothing
+              Just x -> runMaybeT (k x)
+          )
+
+    -- The monad determines the log element type, exactly as mtl's classes do.
+    class Monad m => MonadLog e m | m -> e where
+      emit :: e -> m ()
+
+    instance MonadLog e (Logger e) where
+      emit e = Logger ([e], ())
+
+    -- The lifted instance: `MaybeT m` inherits its element type from `m`. The
+    -- dependency for the head only follows from the one in the context, which is
+    -- why this needs UndecidableInstances.
+    instance MonadLog e m => MonadLog e (MaybeT m) where
+      emit e = MaybeT (emit e >> pure (Just ()))
+
+    lift' :: Monad m => m a -> MaybeT m a
+    lift' m = MaybeT (fmap Just m)
+
+    abort :: Monad m => MaybeT m a
+    abort = MaybeT (pure Nothing)
+
+    -- Nothing here says what the log holds; the dependency finds it twice, once
+    -- through MaybeT and once through Logger.
+    traced :: MonadLog [Char] m => Int -> m Int
+    traced n = emit "start" >> emit "end" >> return (n + 1)
+
+    plain :: ([[Char]], Int)
+    plain = runLogger (traced 1)
+
+    stacked :: ([[Char]], Maybe Int)
+    stacked = runLogger (runMaybeT (traced 5))
+
+    interrupted :: ([[Char]], Maybe Int)
+    interrupted = runLogger (runMaybeT (emit "one" >> abort >> (emit "two" >> return 0)))
+
+    lifted :: ([[Char]], Maybe Int)
+    lifted = runLogger (runMaybeT (lift' (traced 0)))
+
+    checks :: [Bool]
+    checks =
+      [ plain == (["start", "end"], 2),
+        stacked == (["start", "end"], Just 6),
+        interrupted == (["one"], Nothing),
+        lifted == (["start", "end"], Just 1)
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: xfail
+reason: a lifted instance inherits its dependency from its context, as the mtl classes do, which the liberal coverage condition allows

@@ -1,0 +1,71 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import Prelude
+
+    data Zero = Zero
+    data Succ n = Succ n
+
+    -- A recursive dependency: the sum type is computed by instance selection.
+    -- The instance for Succ only satisfies the liberal coverage condition, which
+    -- is why UndecidableInstances is needed.
+    class Add a b c | a b -> c where
+      add :: a -> b -> c
+
+    instance Add Zero b b where
+      add _ b = b
+
+    instance Add a b c => Add (Succ a) b (Succ c) where
+      add (Succ a) b = Succ (add a b)
+
+    class ToInt n where
+      toInt :: n -> Int
+
+    instance ToInt Zero where
+      toInt _ = 0
+
+    instance ToInt n => ToInt (Succ n) where
+      toInt (Succ n) = 1 + toInt n
+
+    one :: Succ Zero
+    one = Succ Zero
+
+    two :: Succ (Succ Zero)
+    two = Succ one
+
+    three :: Succ (Succ (Succ Zero))
+    three = Succ two
+
+    -- The result type of every `add` below is left to the dependency; without it
+    -- the ToInt constraint could not be solved.
+    sumOf :: (Add a b c, ToInt c) => a -> b -> Int
+    sumOf a b = toInt (add a b)
+
+    nested :: Int
+    nested = toInt (add (add one two) three)
+
+    checks :: [Bool]
+    checks =
+      [ sumOf Zero Zero == 0,
+        sumOf one two == 3,
+        sumOf three two == 5,
+        nested == 6,
+        toInt (add two Zero) == 2
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: xfail
+reason: a recursive dependency computes type level addition, with the determined sum coming from the instance context under the liberal coverage condition

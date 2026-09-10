@@ -1,0 +1,68 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    -- The determined parameter is a variable of the determining type, so matching
+    -- the instance head has to look inside the argument type to improve it.
+    class Peel a b | a -> b where
+      peel :: a -> b
+      wrap :: b -> a
+
+    instance Peel [x] x where
+      peel xs = case xs of
+        (x : _) -> x
+        [] -> error "peel: empty"
+      wrap x = [x]
+
+    instance Peel (Maybe x) [x] where
+      peel m = case m of
+        Just x -> [x]
+        Nothing -> []
+      wrap xs = case xs of
+        (x : _) -> Just x
+        [] -> Nothing
+
+    -- The element type is never written; `a -> b` reads it out of the list type.
+    firstInt :: [Int] -> Int
+    firstInt = peel
+
+    -- The determined side is itself structured: Maybe x determines [x].
+    maybeToList :: Maybe Char -> [Char]
+    maybeToList = peel
+
+    -- Two layers: the inner improvement has to finish before the outer one starts.
+    inner :: [[Bool]] -> Bool
+    inner xss = peel (peel xss)
+
+    -- Improvement driven from the argument of `wrap`, where the class parameter
+    -- `a` is the result and `b` is what is known.
+    singleton :: [Int]
+    singleton = wrap 5
+
+    checks :: [Bool]
+    checks =
+      [ firstInt [4, 5, 6] == 4,
+        maybeToList (Just 'x') == "x",
+        maybeToList Nothing == "",
+        inner [[True, False]],
+        singleton == [5],
+        peel (wrap 'q' :: [Char]) == 'q'
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: improvement matches inside the determining type, so the determined parameter is a variable of the instance head

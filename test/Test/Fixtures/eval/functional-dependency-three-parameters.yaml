@@ -1,0 +1,65 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    data Meters = Meters Int
+    data Seconds = Seconds Int
+    data Speed = Speed Int
+    data Area = Area Int
+
+    -- Three parameters and two dependencies: the operands determine the result,
+    -- and the result together with the left operand determines the right one.
+    class Mul a b c | a b -> c, a c -> b where
+      mul :: a -> b -> c
+
+    instance Mul Speed Seconds Meters where
+      mul (Speed s) (Seconds t) = Meters (s * t)
+
+    instance Mul Meters Meters Area where
+      mul (Meters x) (Meters y) = Area (x * y)
+
+    class Value a where
+      value :: a -> Int
+
+    instance Value Meters where
+      value (Meters n) = n
+
+    instance Value Speed where
+      value (Speed n) = n
+
+    instance Value Area where
+      value (Area n) = n
+
+    -- `c` is fixed by `a b -> c`, which then lets Value pick its dictionary.
+    sized :: (Mul a b c, Value c) => a -> b -> Int
+    sized x y = value (mul x y)
+
+    -- Both dependencies at once: the inner product feeds the outer one.
+    areaOfTravel :: Int
+    areaOfTravel = value (mul (mul (Speed 3) (Seconds 4)) (Meters 2))
+
+    checks :: [Bool]
+    checks =
+      [ sized (Speed 5) (Seconds 6) == 30,
+        sized (Meters 3) (Meters 7) == 21,
+        areaOfTravel == 24,
+        value (mul (Speed 1) (Seconds 1)) == 1
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a class with three parameters and two dependencies determines its result parameter and dispatches a second class on it

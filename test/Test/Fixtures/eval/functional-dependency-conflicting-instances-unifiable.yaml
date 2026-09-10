@@ -1,0 +1,34 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+  - FlexibleInstances
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    {-# LANGUAGE FlexibleInstances #-}
+    module Test where
+
+    import Prelude
+
+    class D a b | a -> b where
+      d :: a -> b
+
+    instance D Bool Int where
+      d _ = 1
+
+    -- The heads do not overlap syntactically; they conflict only after the
+    -- determining parameters are unified.
+    instance D a Char where
+      d _ = 'x'
+
+    result :: Bool
+    result = True
+expression: |
+  result
+output: |
+  True
+error: |
+  typecheck error: Test: instance D a Char conflicts with instance D Bool Int under the functional dependency a → b
+status: fail
+reason: the consistency check unifies the determining parameters of two instances before comparing the determined ones

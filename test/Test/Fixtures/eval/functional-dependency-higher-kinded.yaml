@@ -1,0 +1,64 @@
+extensions:
+  - FlexibleInstances
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FlexibleInstances #-}
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Prelude
+
+    newtype Bits = Bits [Bool]
+    newtype Digits = Digits [Int]
+
+    -- The determined parameter has kind Type -> Type, so improvement has to work
+    -- on a type constructor rather than on a fully applied type.
+    class Shape s f | s -> f where
+      reshape :: s -> f Int
+      unshape :: f Int -> s
+
+    instance Shape Bits [] where
+      reshape (Bits bs) = map (\b -> if b then 1 else 0) bs
+      unshape ns = Bits (map (/= 0) ns)
+
+    instance Shape Digits Maybe where
+      reshape (Digits ns) = case ns of
+        (n : _) -> Just n
+        [] -> Nothing
+      unshape m = case m of
+        Just n -> Digits [n]
+        Nothing -> Digits []
+
+    -- `f` never appears in the signature; only `s -> f` can find it, and it has
+    -- to be applied to Int before the Functor dictionary can be chosen.
+    doubled :: (Shape s f, Functor f) => s -> s
+    doubled = unshape . fmap (* 2) . reshape
+
+    bitsOut :: [Bool]
+    bitsOut = case doubled (Bits [True, False, True]) of Bits bs -> bs
+
+    digitsOut :: [Int]
+    digitsOut = case doubled (Digits [21]) of Digits ns -> ns
+
+    emptyDigits :: [Int]
+    emptyDigits = case doubled (Digits []) of Digits ns -> ns
+
+    checks :: [Bool]
+    checks =
+      [ bitsOut == [True, False, True],
+        digitsOut == [42],
+        emptyDigits == [],
+        reshape (Bits [False, True]) == [0, 1]
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a dependency determines a parameter of kind Type to Type, which then carries a Functor constraint

@@ -1,0 +1,80 @@
+extensions:
+  - FunctionalDependencies
+  - MultiParamTypeClasses
+modules:
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Registry (Handle (..), Payload, Tag (..)) where
+
+    -- The dependency is declared here and has to travel with the class through
+    -- the module interface.
+    class Handle h p | h -> p where
+      open :: h -> p
+      close :: p -> h
+
+    type Payload = Int
+
+    data Tag = Tag
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Backends (FileH (..), SocketH (..)) where
+
+    import Registry
+
+    newtype FileH = FileH Int
+    newtype SocketH = SocketH Bool
+
+    instance Handle FileH Int where
+      open (FileH n) = n
+      close = FileH
+
+    instance Handle SocketH Bool where
+      open (SocketH b) = b
+      close = SocketH
+  - |
+    {-# LANGUAGE FunctionalDependencies #-}
+    {-# LANGUAGE MultiParamTypeClasses #-}
+    module Test where
+
+    import Backends
+    import Prelude
+    import Registry
+
+    -- The payload type is never written; only the imported dependency finds it.
+    reopen :: Handle h p => h -> h
+    reopen = close . open
+
+    fileValue :: Int
+    fileValue = open (reopen (FileH 7))
+
+    socketValue :: Bool
+    socketValue = open (reopen (SocketH True))
+
+    -- An instance declared in a third module, against a class from the first.
+    newtype LocalH = LocalH Char
+
+    instance Handle LocalH Char where
+      open (LocalH c) = c
+      close = LocalH
+
+    localValue :: Char
+    localValue = open (reopen (LocalH 'k'))
+
+    checks :: [Bool]
+    checks =
+      [ fileValue == 7,
+        socketValue,
+        localValue == 'k',
+        open (close 'z' :: LocalH) == 'z'
+      ]
+
+    failures :: [Int]
+    failures = [index | (index, False) <- zip [0 ..] checks]
+expression: |
+  failures
+output: |
+  []
+status: pass
+reason: a dependency declared in one module improves constraints in another, across instances from a third
