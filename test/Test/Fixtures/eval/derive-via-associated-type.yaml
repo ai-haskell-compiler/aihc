@@ -1,0 +1,49 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - TypeFamilies
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, TypeFamilies, UndecidableInstances #-}
+    module Test where
+
+    import Prelude
+
+    -- A derived instance of a class with an associated type family also gets
+    -- a type instance, defined as the via type's associated type.
+    class Keyed a where
+      type Key a
+      keyOf :: a -> Key a
+      relabel :: Key a -> a -> a
+
+    newtype Tagged = Tagged Int
+
+    instance Keyed Tagged where
+      type Key Tagged = Int
+      keyOf (Tagged n) = n
+      relabel k _ = Tagged k
+
+    newtype Record = Record Int
+      deriving Keyed via Tagged
+
+    unRecord :: Record -> Int
+    unRecord (Record n) = n
+
+    describe :: Record -> String
+    describe r = show (keyOf r)
+
+    main :: IO ()
+    main = do
+      putStrLn (describe (Record 12))
+      print (unRecord (relabel (5 :: Key Record) (Record 12)))
+      print (keyOf (Record 3) + (1 :: Int))
+expression: main
+stdout: |
+  12
+  5
+  4
+output: |
+  ()
+status: pass
+reason: deriving via an associated type family class also derives the type instance from the via type

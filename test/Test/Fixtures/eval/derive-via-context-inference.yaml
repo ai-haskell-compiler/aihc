@@ -1,0 +1,53 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - FlexibleContexts
+  - UndecidableInstances
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, FlexibleContexts #-}
+    {-# LANGUAGE UndecidableInstances #-}
+    module Test where
+
+    import Prelude
+
+    newtype Wrapped a = Wrapped a
+
+    instance Show a => Show (Wrapped a) where
+      showsPrec d (Wrapped x) =
+        showParen (d > 10) (showString "{" . showsPrec 0 x . showString "}")
+
+    data Two a b = Two a b
+
+    instance (Show a, Show b) => Show (Two a b) where
+      showsPrec _ (Two a b) = showString "<" . shows a . showString "|" . shows b . showString ">"
+
+    -- A deriving clause infers the instance context from the via type: one
+    -- argument here, two there, and none at all for the fully applied case.
+    newtype Box a = Box a
+      deriving Show via (Wrapped a)
+
+    newtype Pairish a b = Pairish (Two a b)
+      deriving Show via (Two a b)
+
+    newtype Fixed = Fixed Int
+      deriving Show via (Wrapped Int)
+
+    main :: IO ()
+    main = do
+      print (Box (3 :: Int))
+      print (Box (Box 'q'))
+      print (Just (Box True))
+      print (Pairish (Two (1 :: Int) "s"))
+      print (Fixed 7)
+expression: main
+stdout: |
+  {3}
+  {{'q'}}
+  Just ({True})
+  <1|"s">
+  {7}
+output: |
+  ()
+status: pass
+reason: a deriving via clause infers the instance context from the via type's own instance

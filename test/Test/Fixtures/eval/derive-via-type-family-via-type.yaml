@@ -1,0 +1,48 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - TypeFamilies
+  - DataKinds
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, TypeFamilies, DataKinds #-}
+    module Test where
+
+    import Prelude
+
+    newtype Hex = Hex Int
+
+    instance Show Hex where
+      show (Hex n) = "0x" ++ show n
+
+    newtype Dec = Dec Int
+
+    instance Show Dec where
+      show (Dec n) = show n
+
+    data Style = Hexadecimal | Decimal
+
+    type family Format (s :: Style) where
+      Format 'Hexadecimal = Hex
+      Format 'Decimal = Dec
+
+    -- The via type is a type family application that must be reduced before
+    -- the coercion can be checked.
+    newtype Code = Code Int
+      deriving Show via (Format 'Hexadecimal)
+
+    newtype Plain = Plain Int
+      deriving Show via (Format 'Decimal)
+
+    main :: IO ()
+    main = do
+      print (Code 32)
+      print (Plain 32)
+expression: main
+stdout: |
+  0x32
+  32
+output: |
+  ()
+status: xfail
+reason: a via type may be a type family application, which the derivation reduces before checking the coercion

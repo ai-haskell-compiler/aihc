@@ -1,0 +1,36 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - RoleAnnotations
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, RoleAnnotations #-}
+    module Test where
+
+    import Prelude
+
+    data Nom a = Nom a
+
+    type role Nom nominal
+
+    class Boxy a where
+      boxed :: Nom a -> String
+
+    instance Boxy Int where
+      boxed (Nom n) = show n
+
+    -- Coercing boxed from Int to Meters would need Coercible (Nom Meters)
+    -- (Nom Int). Nom is a data type, so there is no constructor coercion to
+    -- fall back on, and the nominal role annotation forbids the rest.
+    newtype Meters = Meters Int
+      deriving Boxy via Int
+
+    main :: IO ()
+    main = putStrLn (boxed (Nom (Meters 3)))
+expression: main
+output: |
+  ()
+error: |
+  typecheck error: Test: deriving via cannot prove a safe coercion for method boxed
+status: fail
+reason: a nominal role annotation blocks the coercion a method type needs, so the derivation is rejected

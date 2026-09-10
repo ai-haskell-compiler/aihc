@@ -1,0 +1,66 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - GeneralizedNewtypeDeriving
+  - DeriveAnyClass
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving #-}
+    {-# LANGUAGE DeriveAnyClass #-}
+    module Test where
+
+    import Prelude
+
+    class Tagged a where
+      tag :: a -> String
+      tag _ = "anyclass"
+
+    class Sized a where
+      size :: a -> Int
+
+    instance Sized Int where
+      size n = n
+
+    newtype Twice = Twice Int
+
+    instance Sized Twice where
+      size (Twice n) = n * 2
+
+    instance Tagged Twice where
+      tag _ = "twice"
+
+    -- Four strategies on one declaration: stock Show, newtype Num, anyclass
+    -- Tagged and via Twice for Sized. Each clause picks a different derivation
+    -- for the same underlying representation.
+    newtype Meters = Meters Int
+      deriving stock (Show, Eq, Ord)
+      deriving newtype (Num, Enum)
+      deriving anyclass Tagged
+      deriving Sized via Twice
+
+    -- Deriving the same class twice for different types via different types.
+    newtype Plain = Plain Int
+      deriving Sized via Int
+
+    main :: IO ()
+    main = do
+      print (Meters 3 + Meters 4)
+      print (size (Meters 3))
+      print (size (Plain 3))
+      putStrLn (tag (Meters 3))
+      print (compare (Meters 1) (Meters 2))
+      print (succ (Meters 1))
+      print [Meters 1 .. Meters 3]
+expression: main
+stdout: |
+  Meters 7
+  6
+  3
+  anyclass
+  LT
+  Meters 2
+  [Meters 1,Meters 2,Meters 3]
+output: |
+  ()
+status: pass
+reason: stock, newtype, anyclass and via clauses coexist on one declaration and each picks its own derivation

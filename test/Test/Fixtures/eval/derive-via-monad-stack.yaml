@@ -1,0 +1,71 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, KindSignatures #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import Prelude
+
+    newtype Identity a = Identity a
+
+    runIdentity :: Identity a -> a
+    runIdentity (Identity a) = a
+
+    instance Functor Identity where
+      fmap f (Identity a) = Identity (f a)
+
+    instance Applicative Identity where
+      pure = Identity
+      Identity f <*> Identity a = Identity (f a)
+
+    instance Monad Identity where
+      Identity a >>= k = k a
+
+    newtype StateT s (m :: Type -> Type) a = StateT (s -> m (a, s))
+
+    runStateT :: StateT s m a -> s -> m (a, s)
+    runStateT (StateT f) = f
+
+    instance Functor m => Functor (StateT s m) where
+      fmap f (StateT g) = StateT (\s -> fmap (\(a, s') -> (f a, s')) (g s))
+
+    instance Monad m => Applicative (StateT s m) where
+      pure a = StateT (\s -> pure (a, s))
+      StateT mf <*> StateT ma =
+        StateT (\s -> mf s >>= \(f, s') -> ma s' >>= \(a, s'') -> pure (f a, s''))
+
+    instance Monad m => Monad (StateT s m) where
+      StateT ma >>= k =
+        StateT (\s -> ma s >>= \(a, s') -> runStateT (k a) s')
+
+    -- The via type is a partially applied type constructor of kind
+    -- Type -> Type, and the derived classes are themselves higher kinded.
+    newtype Counter a = Counter (StateT Int Identity a)
+      deriving (Functor, Applicative, Monad) via (StateT Int Identity)
+
+    runCounter :: Counter a -> Int -> (a, Int)
+    runCounter (Counter m) s = runIdentity (runStateT m s)
+
+    tick :: Counter Int
+    tick = Counter (StateT (\s -> Identity (s, s + 1)))
+
+    main :: IO ()
+    main = do
+      print (runCounter (fmap (* 2) tick) 5)
+      print (runCounter ((,) <$> tick <*> tick) 0)
+      print (runCounter (tick >>= \a -> tick >>= \b -> pure (a + b)) 10)
+      print (runCounter (pure 'x') 3)
+expression: main
+stdout: |
+  (10,6)
+  ((0,1),2)
+  (21,12)
+  ('x',3)
+output: |
+  ()
+status: pass
+reason: deriving via a partially applied type constructor works for higher-kinded classes such as Functor, Applicative and Monad

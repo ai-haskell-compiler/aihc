@@ -1,0 +1,37 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+    module Test where
+
+    import Prelude
+
+    newtype Inner a = Inner a
+    newtype Middle a = Middle (Inner a)
+    newtype Outer a = Outer (Middle a)
+
+    instance Show a => Show (Outer a) where
+      showsPrec d (Outer (Middle (Inner x))) =
+        showParen (d > 10) (showString "Outer " . showsPrec 11 x)
+
+    newtype Age = Age Int
+    newtype Years = Years Age
+    newtype Lifetime = Lifetime Years
+      deriving Show via (Outer Int)
+
+    main :: IO ()
+    main = do
+      print (Lifetime (Years (Age 42)))
+      print (Just (Lifetime (Years (Age 7))))
+      putStrLn (showsPrec 11 (Lifetime (Years (Age 1))) "")
+expression: main
+stdout: |
+  Outer 42
+  Just (Outer 7)
+  (Outer 1)
+output: |
+  ()
+status: pass
+reason: the coercion between the derived type and the via type may traverse arbitrarily many newtype layers on both sides

@@ -1,0 +1,55 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - StandaloneDeriving
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, StandaloneDeriving #-}
+    module Test where
+
+    import Prelude
+
+    class Base a where
+      base :: a -> Int
+
+    class Base a => Extra a where
+      extra :: a -> String
+      extra x = "e" ++ show (base x)
+
+    newtype Src = Src Int
+
+    instance Base Src where
+      base (Src n) = n
+
+    instance Extra Src
+
+    newtype Dst = Dst Int
+
+    -- Dst has its own Base instance, but Extra is coerced from Src, whose
+    -- default method closed over Src's Base dictionary. The derived extra
+    -- therefore reports Src's answer, not Dst's.
+    instance Base Dst where
+      base (Dst n) = n * 100
+
+    deriving via Src instance Extra Dst
+
+    newtype Echo = Echo Int
+      deriving Base via Src
+      deriving Extra via Src
+
+    main :: IO ()
+    main = do
+      print (base (Dst 2))
+      putStrLn (extra (Dst 2))
+      print (base (Echo 2))
+      putStrLn (extra (Echo 2))
+expression: main
+stdout: |
+  200
+  e2
+  2
+  e2
+output: |
+  ()
+status: pass
+reason: a derived method keeps the superclass dictionary the via type's instance closed over, so it can disagree with the derived type's own superclass instance

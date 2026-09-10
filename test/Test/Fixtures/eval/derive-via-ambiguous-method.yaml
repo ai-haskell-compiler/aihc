@@ -1,0 +1,66 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+  - TypeApplications
+  - AllowAmbiguousTypes
+  - ScopedTypeVariables
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia, TypeApplications #-}
+    {-# LANGUAGE AllowAmbiguousTypes, ScopedTypeVariables #-}
+    module Test where
+
+    import Prelude
+
+    -- A method whose type never mentions the class variable is coerced by the
+    -- identity coercion, but it still has to be selected from the via type's
+    -- dictionary rather than from any other instance in scope.
+    class Meta a where
+      label :: String
+      arity :: Int
+      arity = 0
+      combine :: a -> a -> a
+
+    newtype Small = Small Int
+
+    instance Meta Small where
+      label = "small"
+      arity = 1
+      combine (Small a) (Small b) = Small (min a b)
+
+    newtype Large = Large Int
+
+    instance Meta Large where
+      label = "large"
+      combine (Large a) (Large b) = Large (max a b)
+
+    newtype Narrow = Narrow Int
+      deriving Meta via Small
+
+    newtype Wide = Wide Int
+      deriving Meta via Large
+
+    unNarrow :: Narrow -> Int
+    unNarrow (Narrow n) = n
+
+    unWide :: Wide -> Int
+    unWide (Wide n) = n
+
+    main :: IO ()
+    main = do
+      putStrLn (label @Narrow)
+      putStrLn (label @Wide)
+      print (arity @Narrow, arity @Wide)
+      print (unNarrow (combine (Narrow 3) (Narrow 8)))
+      print (unWide (combine (Wide 3) (Wide 8)))
+expression: main
+stdout: |
+  small
+  large
+  (1,0)
+  3
+  8
+output: |
+  ()
+status: pass
+reason: methods whose types do not mention the class variable are still taken from the via type's dictionary

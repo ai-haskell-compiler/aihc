@@ -1,0 +1,31 @@
+extensions:
+  - DerivingStrategies
+  - DerivingVia
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, DerivingVia #-}
+    module Test where
+
+    import Prelude
+
+    newtype Flag = Flag Bool
+
+    instance Show Flag where
+      show (Flag b) = if b then "yes" else "no"
+
+    -- Meters is represented by Int and Flag by Bool, so no coercion between
+    -- the two Show methods exists and the derivation must be rejected.
+    newtype Meters = Meters Int
+      deriving Show via Flag
+
+    main :: IO ()
+    main = print (Meters 3)
+expression: main
+output: |
+  ()
+error: |
+  typecheck error: Test: deriving via cannot prove a safe coercion for method showsPrec
+  Test: deriving via cannot prove a safe coercion for method show
+  Test: deriving via cannot prove a safe coercion for method showList
+status: fail
+reason: deriving via requires the derived type and the via type to have the same representation
