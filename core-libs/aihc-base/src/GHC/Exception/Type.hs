@@ -11,12 +11,11 @@ module GHC.Exception.Type
   )
 where
 
-import Data.Maybe (Maybe (..))
 import Data.Typeable (Typeable, cast)
-import GHC.Base (String)
+import GHC.Base (Maybe (..), String, (++))
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
-import GHC.Show (Show (..), showString)
+import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Types (Bool (..))
 
 class (Typeable e, Show e) => Exception e where
@@ -75,6 +74,11 @@ instance Ord ArithException where
     case left <= right of
       True -> left
       False -> right
+
+-- | 'GHC.Show.showString'. That module sits above this one, because it
+-- uses 'GHC.Err.error', which raises an 'GHC.Exception.ErrorCall'.
+showString :: String -> ShowS
+showString value suffix = value ++ suffix
 
 instance Show ArithException where
   showsPrec _ Overflow = showString "arithmetic overflow"

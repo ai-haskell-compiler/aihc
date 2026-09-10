@@ -22,8 +22,8 @@ module Data.Typeable
   )
 where
 
-import Data.Maybe (Maybe (..))
 import Data.Proxy (Proxy (..))
+import GHC.Base (Maybe (..))
 import GHC.Internal.Classes (Eq (..))
 import GHC.Types (Bool (..), Type)
 import Type.Reflection (SomeTypeRep (..), TyCon, Typeable, rnfSomeTypeRep, rnfTyCon, splitApps, tyConModule, tyConName, tyConPackage)
