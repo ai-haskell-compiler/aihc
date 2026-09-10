@@ -1,0 +1,20 @@
+modules:
+  - |
+    module Test where
+
+    import Text.Read (readMaybe)
+
+    good :: Maybe Int
+    good = readMaybe " 42 "
+
+    bad :: Maybe Int
+    bad = readMaybe "42x"
+
+    result :: (Maybe Int, Maybe Int)
+    result = (good, bad)
+output: |
+  ((Just (I# 42)),Nothing)
+expression: |
+  result
+status: pass
+reason: Text.Read exports readMaybe, as in base

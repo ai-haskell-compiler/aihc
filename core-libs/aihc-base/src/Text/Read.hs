@@ -4,6 +4,8 @@ module Text.Read
     read,
     reads,
     readParen,
+    readEither,
+    readMaybe,
     Lexeme (..),
     lexP,
     parens,
@@ -12,6 +14,7 @@ module Text.Read
     ReadPrec,
     Prec,
     minPrec,
+    lift,
     prec,
     step,
     reset,
@@ -26,6 +29,8 @@ module Text.Read
   )
 where
 
+import Data.Either (Either (..))
+import Data.Maybe (Maybe (..))
 import GHC.Read
   ( Read (..),
     ReadS,
@@ -36,11 +41,13 @@ import GHC.Read
     readParen,
   )
 import GHC.Read.Lex (Lexeme (..))
+import Text.ParserCombinators.ReadP (skipSpaces)
 import Text.ParserCombinators.ReadPrec
   ( Prec,
     ReadPrec,
     choice,
     get,
+    lift,
     look,
     minPrec,
     pfail,
@@ -52,4 +59,31 @@ import Text.ParserCombinators.ReadPrec
     (+++),
     (<++),
   )
-import Prelude (read, reads)
+import Prelude (Monad (..), String, null, otherwise, read, reads)
+
+-- | Parse a value, and say why if the string does not hold exactly one.
+readEither :: (Read a) => String -> Either String a
+readEither input =
+  case fullParses (readPrec_to_S readWhole minPrec input) of
+    [value] -> Right value
+    [] -> Left "Prelude.read: no parse"
+    _ -> Left "Prelude.read: ambiguous parse"
+  where
+    readWhole = do
+      value <- readPrec
+      lift skipSpaces
+      return value
+
+-- | Parse a value, or 'Nothing' if the string does not hold exactly one.
+readMaybe :: (Read a) => String -> Maybe a
+readMaybe input =
+  case readEither input of
+    Right value -> Just value
+    Left _ -> Nothing
+
+-- | The results of a parse that consumed the whole input.
+fullParses :: [(a, String)] -> [a]
+fullParses [] = []
+fullParses ((value, rest) : results)
+  | null rest = value : fullParses results
+  | otherwise = fullParses results
