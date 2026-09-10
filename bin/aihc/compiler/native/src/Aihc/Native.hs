@@ -699,7 +699,22 @@ nativeRuntimePrimitiveCalls =
     call "indexCharArray#" "aihc_byte_array_index_byte_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord8ArrayAsWord16#" "aihc_byte_array_index_byte_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord8ArrayAsWord32#" "aihc_byte_array_index_byte_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord8ArrayAsWord64#" "aihc_byte_array_index_byte_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64
+    call "indexWord8ArrayAsWord64#" "aihc_byte_array_index_byte_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "setByteArray#" "aihc_byte_array_set" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    -- The sized element families index by element rather than by byte, so the
+    -- runtime scales the index by the element width.
+    call "indexWord8Array#" "aihc_byte_array_index_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWord8Array#" "aihc_byte_array_read_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWord8Array#" "aihc_byte_array_write_word8" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord16Array#" "aihc_byte_array_index_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWord16Array#" "aihc_byte_array_read_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWord16Array#" "aihc_byte_array_write_word16" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord32Array#" "aihc_byte_array_index_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWord32Array#" "aihc_byte_array_read_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWord32Array#" "aihc_byte_array_write_word32" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord64Array#" "aihc_byte_array_index_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWord64Array#" "aihc_byte_array_read_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWord64Array#" "aihc_byte_array_write_word64" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
   ]
   where
     call = runtimeCall False 1

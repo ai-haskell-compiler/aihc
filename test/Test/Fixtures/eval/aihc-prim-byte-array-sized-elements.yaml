@@ -1,0 +1,61 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO (..))
+    import GHC.Int (Int (..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Int Int Int Int Int Int Int Int Int
+
+    -- Every sized family indexes by element, so the byte offset of element
+    -- @n@ is @n@ times the element width. The writes below therefore land on
+    -- bytes 3, 4-5, 8-11 and 16-23 and never overlap.
+    test :: IO Results
+    test = IO (\state -> case newByteArray# 32# state of
+      (# state1, buffer #) -> case setByteArray# buffer 0# 32# 0# state1 of
+        state2 -> case writeWord8Array# buffer 3# (wordToWord8# 0xab##) state2 of
+          state3 -> case writeWord16Array# buffer 2# (wordToWord16# 0x1234##) state3 of
+            state4 -> case writeWord32Array# buffer 2# (wordToWord32# 0xdeadbeef##) state4 of
+              state5 -> case writeWord64Array# buffer 2# (wordToWord64# 0x0102030405060708##) state5 of
+                state6 -> case setByteArray# buffer 24# 8# 255# state6 of
+                  state7 -> case readWord8Array# buffer 3# state7 of
+                    (# state8, byte #) -> case readWord16Array# buffer 2# state8 of
+                      (# state9, half #) -> case readWord32Array# buffer 2# state9 of
+                        (# state10, quarter #) -> case readWord64Array# buffer 2# state10 of
+                          (# state11, whole #) -> case readWord8Array# buffer 24# state11 of
+                            (# state12, filled #) -> case unsafeFreezeByteArray# buffer state12 of
+                              (# state13, frozen #) ->
+                                (# state13,
+                                   Results
+                                     (fromWord8 byte)
+                                     (fromWord16 half)
+                                     (fromWord32 quarter)
+                                     (fromWord64 whole)
+                                     (fromWord8 filled)
+                                     (fromWord8 (indexWord8Array# frozen 2#))
+                                     (fromWord16 (indexWord16Array# frozen 2#))
+                                     (fromWord32 (indexWord32Array# frozen 2#))
+                                     (fromWord32 (indexWord8ArrayAsWord32# frozen 8#)) #))
+
+    fromWord8 :: Word8# -> Int
+    fromWord8 value = I# (word2Int# (word8ToWord# value))
+
+    fromWord16 :: Word16# -> Int
+    fromWord16 value = I# (word2Int# (word16ToWord# value))
+
+    fromWord32 :: Word32# -> Int
+    fromWord32 value = I# (word2Int# (word32ToWord# value))
+
+    fromWord64 :: Word64# -> Int
+    fromWord64 value = I# (word2Int# (word64ToWord# value))
+output: |
+  Results (I# 171) (I# 4660) (I# 3735928559) (I# 72623859790382856) (I# 255) (I# 0) (I# 4660) (I# 3735928559) (I# 3735928559)
+expression: |
+  unsafePerformIO test
+status: pass
+reason: setByteArray# fills a range and the sized element families read and write at element-scaled offsets
