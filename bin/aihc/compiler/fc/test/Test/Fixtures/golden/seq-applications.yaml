@@ -36,9 +36,9 @@ expected: |-
     2.tTuple0# :: 2.tTYPE (2.vTupleRep (2.v[] 2.tRuntimeRep));
     2.tType :: 2.tType;
     2.t[] :: ∀(a : 2.tType). 2.tType;
-    2.v(##) :: 2.tTuple0#;
     2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
     2.vLifted :: 2.tLevity;
+    2.vTuple0# :: 2.tTuple0#;
     2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
     2.v[] :: ∀(a : 2.tType). 2.t[] a
 
@@ -94,6 +94,6 @@ expected: |-
         case seq_first as (seq_evaluated : 1.tUnit) return (2.tTuple0#) of {
             _ →
                 seq_second
-        }) x 2.v(##)
+        }) x 2.vTuple0#
 status: pass
 reason: seq applications support zero, one, and two arguments with lifted and unboxed results.

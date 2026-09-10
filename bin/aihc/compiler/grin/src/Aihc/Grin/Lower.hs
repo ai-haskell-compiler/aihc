@@ -19,6 +19,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
+import Data.Char (isDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isNothing, listToMaybe, mapMaybe)
@@ -152,7 +153,7 @@ lowerTypeDecl env declaration = do
       let name = Fc.conName constructor
           (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
           constructorEnv = foldl extendTypeBinder env typeBinders
-      if "(#" `T.isPrefixOf` Fc.nameText name
+      if isUnboxedConstructor (Fc.nameText name)
         then pure []
         else do
           fieldTypes <- liftEither (constructorArgumentTypes monotype)
@@ -618,10 +619,10 @@ lowerApplication env function argument = do
         length arguments == arity ->
           lowerSpecialApplication env resultRep (Fc.nameText name) arguments
     (TupleRep {}, (Fc.ExVar name, arguments))
-      | "(#" `T.isPrefixOf` Fc.nameText name -> lowerTupleArguments env arguments
+      | isUnboxedConstructor (Fc.nameText name) -> lowerTupleArguments env arguments
     (_, (Fc.ExVar name, arguments))
       | resultRep == liftedGrinRep,
-        not ("(#" `T.isPrefixOf` Fc.nameText name),
+        not (isUnboxedConstructor (Fc.nameText name)),
         Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity ->
           lowerConstructorApplication env name (arity - length arguments) arguments
@@ -652,6 +653,21 @@ collectApplications expression = go expression []
     go (Fc.ExTyApp function _) arguments = go function arguments
     go (Fc.ExCast function _) arguments = go function arguments
     go function arguments = (function, arguments)
+
+-- | Whether a constructor name is that of an unboxed tuple or an unboxed sum.
+-- Neither builds a heap node: an unboxed tuple lowers to its components, and
+-- an unboxed sum has no lowering yet. An unboxed tuple carries the name of its
+-- type constructor, @Tuple2#@ and so on, while an unboxed sum keeps its source
+-- spelling, @(#|#)@. Only @GHC.Types@ declares such a constructor, so the
+-- shape of the name identifies it.
+isUnboxedConstructor :: Text -> Bool
+isUnboxedConstructor name = "(#" `T.isPrefixOf` name || isUnboxedTupleName name
+
+isUnboxedTupleName :: Text -> Bool
+isUnboxedTupleName name =
+  case T.stripPrefix "Tuple" name >>= T.stripSuffix "#" of
+    Just arity -> not (T.null arity) && T.all isDigit arity
+    Nothing -> False
 
 lowerTupleArguments :: LowerEnv -> [Fc.Expr] -> LowerM GrinExpr
 lowerTupleArguments env = go []
@@ -889,7 +905,7 @@ lazyNodeShape env expression =
   case collectApplications expression of
     (Fc.ExVar name, arguments)
       | Map.member (Fc.nameText name) specialPrimitiveArities -> pure Nothing
-      | "(#" `T.isPrefixOf` Fc.nameText name -> pure Nothing
+      | isUnboxedConstructor (Fc.nameText name) -> pure Nothing
       | Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity -> do
           representation <- expressionRuntimeRep env expression

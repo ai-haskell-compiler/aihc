@@ -4291,17 +4291,23 @@ rejigIndices = go Map.empty
         TcAppTy function argument -> TcAppTy (substituteKindParams kindParams function) (substituteKindParams kindParams argument)
         _ -> kind
 
+-- | The name of one tuple data constructor. A boxed one takes its source
+-- spelling. An unboxed one takes the name of its type constructor, which is
+-- the name the wiring already gives it in both namespaces: the comma spelling
+-- cannot tell the empty tuple from the one-element one, because neither holds
+-- a comma, and GHC only separates them by spelling the empty one @(# #)@,
+-- whose space an FC name cannot hold.
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
   case flavor of
     Boxed -> "(" <> commas arity <> ")"
-    -- A one-element unboxed tuple holds no comma, so the comma spelling would
-    -- give it the name of the empty tuple. GHC separates the two by spelling
-    -- the empty one @(# #)@, which an FC name cannot hold because of the
-    -- space, so the arity goes in the middle instead. Every unboxed tuple
-    -- constructor still opens with @(#@, which the GRIN lowering looks for.
-    Unboxed | arity == 1 -> "(#1#)"
-    Unboxed -> "(#" <> commas arity <> "#)"
+    Unboxed -> unboxedTupleName arity
+
+-- | The name of the unboxed tuple of one arity, in either namespace. The
+-- copy in @Aihc.Prim.Wiring@ names the same constructors, and the FC
+-- desugarer and the GRIN lowering both spell it too.
+unboxedTupleName :: Int -> Text
+unboxedTupleName arity = "Tuple" <> T.pack (show arity) <> "#"
 
 unboxedSumConText :: Int -> Int -> Text
 unboxedSumConText pos arity = "(#" <> bars (pos - 1) <> "_" <> bars (arity - pos) <> "#)"

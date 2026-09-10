@@ -532,20 +532,11 @@ rawName =
       operatorName
     ]
 
+-- | Only a boxed tuple has a name of its own shape. An unboxed one is named
+-- after its type constructor, @Tuple2#@ and so on, which lexes as an
+-- identifier.
 tupleName :: Parser Text
-tupleName = unboxedTupleName <|> boxedTupleName
-
-unboxedTupleName :: Parser Text
-unboxedTupleName = MP.between (MPC.string "(#") (MPC.string "#)") body
-  where
-    -- A one-element unboxed tuple holds no comma, so it carries its arity in
-    -- the middle: @(##)@ is the empty tuple and @(#1#)@ the one-element one.
-    body =
-      MP.choice
-        [ "(#1#)" <$ MPC.char '1',
-          makeTuple <$> MP.many (MPC.char ',')
-        ]
-    makeTuple commas = T.pack ("(#" <> commas <> "#)")
+tupleName = boxedTupleName
 
 boxedTupleName :: Parser Text
 boxedTupleName = makeTuple <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MPC.char ','))

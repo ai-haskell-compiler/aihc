@@ -4482,12 +4482,11 @@ liftEither = either failValue pure
 failValue :: String -> ValueM a
 failValue = lift . Left
 
--- | The name the type checker gives one tuple data constructor. A one-element
--- unboxed tuple holds no comma, so the comma spelling would give it the name
--- of the empty tuple; its arity goes in the middle instead.
+-- | The name the type checker gives one tuple data constructor. An unboxed
+-- one carries the name of its type constructor, @Tuple2#@ and so on, because
+-- the comma spelling cannot tell the empty tuple from the one-element one.
 tupleConstructorText :: Syn.TupleFlavor -> Int -> Text
 tupleConstructorText flavor arity =
   case flavor of
     Syn.Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
-    Syn.Unboxed | arity == 1 -> "(#1#)"
-    Syn.Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+    Syn.Unboxed -> "Tuple" <> T.pack (show arity) <> "#"

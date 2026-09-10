@@ -2321,11 +2321,13 @@ renderBoxedChar value = do
     RuntimeLit (GrinLitChar _ charValue) -> pure (T.pack (show charValue))
     other -> throwInterpret (InterpretPrimitiveTypeError "C#" other)
 
+-- | Whether a constructor prints as a tuple. A boxed tuple carries its source
+-- spelling and an unboxed one the name of its type constructor.
 isTupleConstructor :: Text -> Int -> Bool
 isTupleConstructor name arity =
   arity >= 2
     && ( name == "(" <> T.replicate (arity - 1) "," <> ")"
-           || name == "(#" <> T.replicate (arity - 1) "," <> "#)"
+           || name == "Tuple" <> T.pack (show arity) <> "#"
        )
 
 -- | The name to show for one constructor. A tag names its package and its
