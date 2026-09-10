@@ -1,0 +1,87 @@
+extensions:
+  - EmptyDataDecls
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE EmptyDataDecls #-}
+    {-# LANGUAGE KindSignatures #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import Prelude
+
+    -- A type with no constructors, and one with a parameter.
+    data Nothingness
+
+    data Labelled a
+
+    -- A parameter of a kind other than Type needs an explicit kind annotation.
+    data Higher (f :: Type -> Type)
+
+    -- Empty types are useful as phantom tags.
+    data Metres
+
+    data Feet
+
+    newtype Tagged tag = Tagged Int
+
+    unTag :: Tagged tag -> Int
+    unTag (Tagged value) = value
+
+    distance :: Tagged Metres
+    distance = Tagged 5
+
+    height :: Tagged Feet
+    height = Tagged 6
+
+    -- A class can dispatch on an empty type.
+    data Proxy a = Proxy
+
+    class Unit a where
+      symbol :: Proxy a -> String
+
+    instance Unit Metres where
+      symbol _ = "m"
+
+    instance Unit Feet where
+      symbol _ = "ft"
+
+    -- The only value of an empty type is bottom, so a lazy field may hold one as
+    -- long as nothing forces it.
+    data Box = Box Nothingness
+
+    unusedBox :: Bool
+    unusedBox = case Box undefined of
+      Box _ -> True
+
+    -- An empty type applied to arguments is an ordinary type of kind Type.
+    labelled :: Tagged (Labelled Int)
+    labelled = Tagged 7
+
+    kindAnnotated :: Tagged (Higher Maybe)
+    kindAnnotated = Tagged 8
+
+    -- A phantom parameter is erased at runtime.
+    sameRepresentation :: Bool
+    sameRepresentation = unTag distance + unTag height == 11
+
+    failures :: [Int]
+    failures =
+      [ index
+      | (index, False) <-
+          zip
+            [0 ..]
+            [ symbol (Proxy :: Proxy Metres) == "m",
+              symbol (Proxy :: Proxy Feet) == "ft",
+              unusedBox,
+              sameRepresentation,
+              unTag labelled == 7,
+              unTag kindAnnotated == 8
+            ]
+      ]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: a data declaration with no constructors works as a phantom tag, dispatches class instances, and inhabits a lazy field

@@ -1,0 +1,78 @@
+extensions:
+  - MultiWayIf
+modules:
+  - |
+    {-# LANGUAGE MultiWayIf #-}
+    module Test where
+
+    import Prelude
+
+    -- The basic form: the first guard that holds wins.
+    classify :: Int -> String
+    classify n =
+      if
+        | n < 0 -> "negative"
+        | n == 0 -> "zero"
+        | n < 10 -> "small"
+        | otherwise -> "large"
+
+    -- Guards need not line up in a column, and several may share a line.
+    loose :: Int -> Int
+    loose n = if | n > 100 -> 3
+                 | n > 10 -> 2
+                     | n > 0 -> 1
+                 | otherwise -> 0
+
+    -- A multi-way if introduces its own layout context, so a nested one closes
+    -- when a guard appears at a smaller column.
+    nested :: Int -> Int -> Int
+    nested a b =
+      if
+        | a > 0 ->
+            if
+              | b > 0 -> 1
+              | b < 0 -> 2
+              | otherwise -> 3
+        | a < 0 -> 4
+        | otherwise -> 5
+
+    -- Explicit braces spell out the same layout, without semicolons.
+    braced :: Int -> Int
+    braced n = if { | n > 0 -> 1 | n < 0 -> -1 | otherwise -> 0 }
+
+    -- Guards are full guards: pattern guards, let guards, and boolean guards
+    -- may be combined with commas.
+    decompose :: [Int] -> String
+    decompose xs =
+      if
+        | (first : rest) <- xs,
+          let doubled = first * 2,
+          doubled > 4 ->
+            "big " ++ show (length rest)
+        | (first : _) <- xs -> "small " ++ show first
+        | otherwise -> "empty"
+
+    -- A multi-way if is an expression, so it nests inside other expressions.
+    inArgument :: Int -> Int
+    inArgument n = 1 + (if | even n -> 10 | otherwise -> 20)
+
+    failures :: [Int]
+    failures =
+      [ index
+      | (index, False) <-
+          zip
+            [0 ..]
+            [ map classify [-1, 0, 5, 50] == ["negative", "zero", "small", "large"],
+              map loose [200, 20, 5, -5] == [3, 2, 1, 0],
+              [nested 1 1, nested 1 (-1), nested 1 0, nested (-1) 0, nested 0 0] == [1, 2, 3, 4, 5],
+              map braced [5, -5, 0] == [1, -1, 0],
+              map decompose [[3, 9], [1], []] == ["big 1", "small 1", "empty"],
+              map inArgument [2, 3] == [11, 21]
+            ]
+      ]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: MultiWayIf accepts loose and nested guard layouts, explicit braces, and pattern, let, and boolean guards

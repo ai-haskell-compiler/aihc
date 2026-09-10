@@ -1,0 +1,77 @@
+extensions:
+  - BlockArguments
+modules:
+  - |
+    {-# LANGUAGE BlockArguments #-}
+    module Test where
+
+    import Prelude
+
+    applyTo :: Int -> (Int -> Int) -> Int
+    applyTo value f = f value
+
+    plus :: Int -> Int -> Int
+    plus = (+)
+
+    -- A lambda as the last argument, without parentheses.
+    lambdaArgument :: Int
+    lambdaArgument = applyTo 3 \value -> value + 1
+
+    -- The lambda extends as far to the right as possible, so the application
+    -- inside it belongs to the lambda body.
+    extendsRight :: Int
+    extendsRight = applyTo 3 \value -> plus value 10
+
+    -- let, if and case as arguments.
+    letArgument :: Int
+    letArgument = plus 1 let value = 2 in value * 5
+
+    ifArgument :: Bool -> Int
+    ifArgument flag = plus 1 if flag then 2 else 3
+
+    caseArgument :: Maybe Int -> Int
+    caseArgument option = plus 1 case option of
+      Just value -> value
+      Nothing -> 0
+
+    -- A do block as the last argument of a function.
+    runTwice :: Maybe Int -> Maybe Int
+    runTwice action = fmap (* 2) action
+
+    doArgument :: Maybe Int
+    doArgument = runTwice do
+      value <- Just 5
+      return (value + 1)
+
+    -- Blocks nest as arguments of each other.
+    nestedBlocks :: Int
+    nestedBlocks = applyTo 1 \outer -> applyTo outer \inner -> inner + 100
+
+    -- The extension does not disturb the usual operator spellings.
+    withDollar :: Maybe Int
+    withDollar = runTwice $ do
+      value <- Just 5
+      return value
+
+    failures :: [Int]
+    failures =
+      [ index
+      | (index, False) <-
+          zip
+            [0 ..]
+            [ lambdaArgument == 4,
+              extendsRight == 13,
+              letArgument == 11,
+              map ifArgument [True, False] == [3, 4],
+              map caseArgument [Just 7, Nothing] == [8, 1],
+              doArgument == Just 12,
+              nestedBlocks == 101,
+              withDollar == Just 10
+            ]
+      ]
+output: |
+  []
+expression: |
+  failures
+status: pass
+reason: BlockArguments accepts lambda, let, if, case, and do expressions as bare function arguments
