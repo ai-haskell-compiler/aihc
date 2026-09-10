@@ -25,6 +25,22 @@ _Noreturn void aihc_host_fail(const char *message) {
   __builtin_trap();
 }
 
+/* The statistics hook is not implemented on this host. The P3 driver
+   reads no environment, so AIHC_RTS_STATS is never seen, and every file
+   write on this host is one asynchronous stream that the driver pumps,
+   which the exit path cannot wait for. The component also imports no
+   clock. Both stay documented in docs/native-runtime-objects.md. */
+void aihc_program_environment_initialize(void) {}
+
+uint64_t aihc_host_monotonic_ns(void) { return 0; }
+
+int aihc_host_write_file(const char *path, const void *bytes, size_t length) {
+  (void)path;
+  (void)bytes;
+  (void)length;
+  return AIHC_IO_ERROR_NOT_SUPPORTED;
+}
+
 void *aihc_io_stdin(void) { return &aihc_standard_input; }
 
 void *aihc_io_stdout(void) { return &aihc_standard_output; }

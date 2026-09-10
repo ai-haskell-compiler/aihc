@@ -39,6 +39,39 @@ The `-Zs` option decides static object liveness from static reference tables
 instead of keeping every evaluated static object alive. It is off by default
 because the tables do not yet name everything a running program reaches.
 
+## Runtime statistics
+
+Set the environment variable `AIHC_RTS_STATS` to a file path to get the
+runtime statistics of a program. When the program exits normally, the runtime
+writes one JSON object to that file:
+
+```json
+{"schema": 1, "peak_heap_bytes": 0, "allocated_bytes": 0, "gc_count": 0, "gc_time_ns": 0}
+```
+
+A normal exit is a return from `main` or an `exitWith` call. A runtime failure
+writes no file. An empty value counts as an unset variable.
+
+- `peak_heap_bytes` is the most bytes the current semispace ever held. That is
+  the live data after a collection plus the allocations since it, sampled
+  before each collection and at exit. The value is comparable to the
+  `max_live_bytes` field of the GHC runtime.
+- `allocated_bytes` counts every byte the managed heap handed out. Auxiliary
+  runtime allocations, such as byte arrays, are not counted.
+- `gc_count` is the number of collections.
+- `gc_time_ns` is the monotonic time the collections took, in nanoseconds.
+
+The environment parser lives in `aihc_runtime_options.lir` next to the RTS
+option parser. The POSIX host flattens `environ` into one buffer of
+`NAME=VALUE` strings, and the C runtime reads the path through
+`aihc_rts_stats_path`.
+
+The `wasm32-wasip3` target does not implement the hook yet. The P3 driver
+reads no environment, every file write on that host is one asynchronous
+stream that the driver pumps, and the component imports no clock. A
+`wasm32-wasip3` program therefore never writes the file, even when the
+runner passes `--env AIHC_RTS_STATS=<path>` and `--dir` to wasmtime.
+
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining
 bits point to an aligned, statically emitted info table.

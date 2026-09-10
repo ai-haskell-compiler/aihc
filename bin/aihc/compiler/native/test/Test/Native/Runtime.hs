@@ -6,12 +6,17 @@ where
 import Aihc.Cli.Runtime (RuntimeBuild (..))
 import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), backendCompiler)
 import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
+import Data.Aeson (eitherDecodeFileStrict)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import System.Directory (doesFileExist)
+import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode, readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 tests :: TestTree
 tests =
@@ -36,13 +41,23 @@ tests =
         "every evaluated static object stays alive by default"
         RuntimeGcSemispace
         []
-        (staticReferenceSource KeepsEveryCaf)
+        (staticReferenceSource KeepsEveryCaf),
+      runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
+      runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the machine halts" True EndsWithReturn,
+      runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit
     ]
 
 -- | Compile one C program against the selected runtime with a 64-byte initial
 -- semispace. Then, run it with the given arguments and expect exit status 0.
 runtimeProgramTest :: String -> RuntimeGarbageCollector -> [String] -> String -> TestTree
 runtimeProgramTest name collector programArguments source =
+  runtimeProgramTestWith name collector programArguments (const []) source (const (pure ()))
+
+-- | Like 'runtimeProgramTest', with environment variables for the program
+-- and a check that runs in the temporary directory after the program exits.
+-- Both receive the temporary directory, so a variable can name a file there.
+runtimeProgramTestWith :: String -> RuntimeGarbageCollector -> [String] -> (FilePath -> [(String, String)]) -> String -> (FilePath -> IO ()) -> TestTree
+runtimeProgramTestWith name collector programArguments extraEnvironment source check =
   testCase name $
     withSystemTempDirectory "aihc-runtime" $ \directory -> do
       -- The tiny semispace forces a collection in every one of these
@@ -61,8 +76,13 @@ runtimeProgramTest name collector programArguments source =
       (compiler, _targetArguments) <- backendCompiler Llvm
       (compilerExit, _compilerOut, compilerErr) <- readProcessWithExitCode compiler arguments source
       assertEqual ("C compiler diagnostics:\n" <> compilerErr) ExitSuccess compilerExit
-      (programExit, _programOut, programErr) <- readProcessWithExitCode executable programArguments ""
+      inherited <- getEnvironment
+      let extra = extraEnvironment directory
+          environment = extra <> [entry | entry@(variable, _) <- inherited, variable `notElem` map fst extra]
+          process = (proc executable programArguments) {env = Just environment}
+      (programExit, _programOut, programErr) <- readCreateProcessWithExitCode process ""
       assertEqual ("runtime diagnostics:\n" <> programErr) ExitSuccess programExit
+      check directory
 
 stableNameSource :: String
 stableNameSource =
@@ -375,3 +395,90 @@ heapLimitSource =
       "  return 0;",
       "}"
     ]
+
+-- | How one run of 'statisticsSource' ends: through 'aihc_exit_process',
+-- as @exitWith@ does, or by a return from @main@ after the machine halts.
+data StatisticsEnding
+  = EndsWithProcessExit
+  | EndsWithReturn
+
+-- | Run 'statisticsSource' with or without @AIHC_RTS_STATS@ in its
+-- environment. With the variable, the program must leave one JSON object in
+-- the named file. Without it, no file appears.
+runtimeStatisticsTest :: String -> Bool -> StatisticsEnding -> TestTree
+runtimeStatisticsTest name requested ending =
+  runtimeProgramTestWith name RuntimeGcSemispace [] environment (statisticsSource ending) check
+  where
+    statisticsFile directory = directory </> "stats.json"
+    environment directory = [("AIHC_RTS_STATS", statisticsFile directory) | requested]
+    check directory = do
+      present <- doesFileExist (statisticsFile directory)
+      if requested
+        then do
+          assertBool "the statistics file exists" present
+          decoded <- eitherDecodeFileStrict (statisticsFile directory)
+          statistics <- either (assertFailure . ("statistics JSON: " <>)) pure decoded :: IO (Map String Integer)
+          assertEqual "field names" ["allocated_bytes", "gc_count", "gc_time_ns", "peak_heap_bytes", "schema"] (Map.keys statistics)
+          assertEqual "schema" (Just 1) (Map.lookup "schema" statistics)
+          -- One leaf and 1000 cells: 8 + 1000 * 16 bytes.
+          assertEqual "allocated_bytes" (Just 16008) (Map.lookup "allocated_bytes" statistics)
+          assertBool "peak_heap_bytes holds the live list" (Map.lookup "peak_heap_bytes" statistics >= Just 16008)
+          assertBool "gc_count counts the collections" (Map.lookup "gc_count" statistics >= Just 1)
+        else assertBool "no statistics file exists" (not present)
+
+-- | Check the environment parser of aihc_runtime_options.lir on crafted
+-- environments, then take the real one. Build a live list of 1000 cells so
+-- the 64-byte initial space collects many times, and end the program the
+-- given way.
+statisticsSource :: StatisticsEnding -> String
+statisticsSource ending =
+  unlines
+    ( [ "#include \"aihc_runtime.h\"",
+        "#include \"aihc_runtime_internal.h\"",
+        "#include <stdlib.h>",
+        "#include <string.h>",
+        "static const uint8_t cell_is_pointer[] = {1};",
+        "static const AihcInfo cell_info = {1, 0, 1, 0, cell_is_pointer, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
+        "static const AihcInfo leaf_info = {2, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE, AIHC_OBJECT_NODE, 0};",
+        "static char *const crafted[] = {\"OTHER=1\", \"AIHC_RTS_STATS=crafted\", \"AIHC_RTS_STATSX=no\", NULL};",
+        "static char *const empty_value[] = {\"AIHC_RTS_STATS=\", NULL};",
+        "/* The missing terminator makes this buffer malformed. */",
+        "static const char malformed[] = \"AIHC_RTS_STATS=x\";",
+        "static int path_is(const char *expected) {",
+        "  const char *path = aihc_rts_stats_path();",
+        "  if (expected == NULL || path == NULL) return expected == path;",
+        "  return strcmp(path, expected) == 0;",
+        "}",
+        "int main(int argc, char *const argv[]) {",
+        "  aihc_program_arguments_initialize(argc, argv);",
+        "  if (!path_is(NULL)) return 1;",
+        "  aihc_environment_initialize(crafted);",
+        "  if (!path_is(\"crafted\")) return 2;",
+        "  if (aihc_runtime_environment_initialize(malformed, sizeof(malformed) - 1) != -1) return 3;",
+        "  if (!path_is(\"crafted\")) return 4;",
+        "  aihc_environment_initialize(empty_value);",
+        "  if (!path_is(NULL)) return 5;",
+        "  aihc_program_environment_initialize();",
+        "  if (!path_is(getenv(\"AIHC_RTS_STATS\"))) return 6;",
+        "  AihcMachine *machine = aihc_machine_new(1);",
+        "  machine->globals[0] = (AihcSlot)aihc_make_node(machine, &leaf_info);",
+        "  for (int index = 0; index < 1000; ++index) {",
+        "    AihcValue *cell = aihc_make_node(machine, &cell_info);",
+        "    aihc_set_field(cell, 0, machine->globals[0]);",
+        "    machine->globals[0] = (AihcSlot)cell;",
+        "  }",
+        "  if (machine->heap_allocated_bytes != 16008) return 7;",
+        "  if (machine->gc_count == 0) return 8;",
+        "  if (machine->heap_peak_bytes == 0) return 9;"
+      ]
+        <> endingLines
+        <> ["}"]
+    )
+  where
+    endingLines =
+      case ending of
+        EndsWithProcessExit -> ["  aihc_exit_process(0);"]
+        EndsWithReturn ->
+          [ "  aihc_runtime_statistics_report();",
+            "  return 0;"
+          ]

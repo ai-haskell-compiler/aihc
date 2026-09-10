@@ -1,3 +1,9 @@
+/* clock_gettime and CLOCK_MONOTONIC need a POSIX feature level under
+   -std=c11 on glibc. The name is reserved by design: it is the macro the
+   standard defines for this purpose. */
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+#define _POSIX_C_SOURCE 200809L
+
 #include "aihc_runtime_internal.h"
 
 #include <errno.h>
@@ -7,7 +13,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+
+extern char **environ;
 
 static AihcIoHandle aihc_standard_input = {(uintptr_t)0, 0, AIHC_IO_READABLE, 0,
                                            0};
@@ -21,7 +30,51 @@ _Noreturn void aihc_host_fail(const char *message) {
   abort();
 }
 
-_Noreturn void aihc_exit_process(int64_t status) { exit((int)status); }
+_Noreturn void aihc_exit_process(int64_t status) {
+  aihc_runtime_statistics_report();
+  exit((int)status);
+}
+
+void aihc_program_environment_initialize(void) {
+  aihc_environment_initialize(environ);
+}
+
+uint64_t aihc_host_monotonic_ns(void) {
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+    aihc_fail("monotonic clock is unavailable");
+  }
+  return (uint64_t)now.tv_sec * UINT64_C(1000000000) + (uint64_t)now.tv_nsec;
+}
+
+int aihc_host_write_file(const char *path, const void *bytes, size_t length) {
+  int descriptor;
+  do {
+    descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  } while (descriptor == -1 && errno == EINTR);
+  if (descriptor == -1) {
+    return errno;
+  }
+  const uint8_t *cursor = bytes;
+  size_t remaining = length;
+  while (remaining != 0) {
+    ssize_t written = write(descriptor, cursor, remaining);
+    if (written < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      int error = errno;
+      close(descriptor);
+      return error;
+    }
+    cursor += written;
+    remaining -= (size_t)written;
+  }
+  if (close(descriptor) == -1) {
+    return errno;
+  }
+  return 0;
+}
 
 void *aihc_io_stdin(void) { return &aihc_standard_input; }
 

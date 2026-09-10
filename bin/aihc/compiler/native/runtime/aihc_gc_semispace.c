@@ -368,6 +368,12 @@ static void aihc_grow_target(AihcMachine *machine, size_t occupied_bytes) {
 
 static void aihc_collect(AihcMachine *machine, size_t required_bytes,
                          uint64_t root_count, AihcSlot *roots) {
+  uint64_t started_ns = aihc_host_monotonic_ns();
+  aihc_gc_record_peak(machine);
+  if (machine->gc_count == UINT64_MAX) {
+    aihc_fail("collection counter overflow");
+  }
+  ++machine->gc_count;
   uint8_t *from_start = machine->heap_start;
   size_t from_bytes = aihc_semispace_capacity(machine);
   size_t to_bytes = aihc_destination_bytes(machine, required_bytes);
@@ -410,6 +416,7 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
     aihc_semispace_exhausted(machine);
   }
   aihc_grow_target(machine, live_bytes + required_bytes);
+  machine->gc_time_ns += aihc_host_monotonic_ns() - started_ns;
 }
 
 void aihc_gc_init(AihcMachine *machine) {
@@ -458,8 +465,19 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_fail("unchecked allocation exceeded reserved heap");
   }
+  if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
+    aihc_fail("allocated byte counter overflow");
+  }
+  machine->heap_allocated_bytes += bytes;
   AihcValue *value = (AihcValue *)machine->heap_next;
   machine->heap_next += bytes;
   memset(value, 0, bytes);
   return value;
+}
+
+void aihc_gc_record_peak(AihcMachine *machine) {
+  uint64_t used = (uint64_t)(machine->heap_next - machine->heap_start);
+  if (used > machine->heap_peak_bytes) {
+    machine->heap_peak_bytes = used;
+  }
 }

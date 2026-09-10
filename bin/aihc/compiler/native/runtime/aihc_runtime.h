@@ -159,6 +159,14 @@ struct AihcMachine {
   AihcResume selected_resume;
   int64_t exit_status;
   uint64_t other_space_bytes;
+  /* The runtime statistics. heap_allocated_bytes above counts every byte
+     the managed heap handed out. heap_peak_bytes is the most the current
+     space ever held: the live data after a collection plus the allocations
+     since, sampled before each collection and when the statistics are
+     reported. The collector counts its runs and their monotonic time. */
+  uint64_t heap_peak_bytes;
+  uint64_t gc_count;
+  uint64_t gc_time_ns;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -257,6 +265,16 @@ void aihc_unsupported_primitive(void);
    four functions live in compiler/native/runtime/aihc_runtime_options.lir. */
 void aihc_program_arguments_initialize(int argc, char *const argv[]);
 int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
+/* The runtime settings that come from the environment. The host reads the
+   process environment and flattens it like argv; the parser in
+   aihc_runtime_options.lir keeps the AIHC_RTS_STATS value. The WASI P3 host
+   reads no environment: see aihc_host_wasip3.c. */
+void aihc_program_environment_initialize(void);
+int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
+/* Write the runtime statistics to the AIHC_RTS_STATS file, once, when the
+   environment names one. The generated main calls this when the machine
+   halts, and aihc_exit_process calls it before the process exits. */
+void aihc_runtime_statistics_report(void);
 int64_t aihc_program_arguments_size(void);
 int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_replace(const void *buffer, int64_t length);
