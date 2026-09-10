@@ -291,9 +291,10 @@ static int aihc_statistics_reported;
 /* The report is formatted by hand: snprintf would pull the stdio layer of
    libc into the WASI P3 runtime, and that layer imports WASI preview 1. */
 static char *aihc_append_text(char *cursor, const char *text) {
-  size_t length = strlen(text);
-  memcpy(cursor, text, length);
-  return cursor + length;
+  while (*text != 0) {
+    *cursor++ = *text++;
+  }
+  return cursor;
 }
 
 /* Twenty digits hold every uint64_t. */
