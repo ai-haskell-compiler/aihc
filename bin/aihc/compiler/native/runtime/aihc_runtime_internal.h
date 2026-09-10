@@ -147,6 +147,11 @@ uint64_t aihc_rts_heap_limit_enabled(void);
    tables do not yet name everything a running program reaches, so enabling
    it can collect a CAF that is still needed. */
 uint64_t aihc_rts_static_reference_roots(void);
+/* The zero-terminated path of the statistics file, or null when the
+   environment names none. */
+const char *aihc_rts_stats_path(void);
+/* Flatten one null-terminated list of NAME=VALUE strings for the parser. */
+void aihc_environment_initialize(char *const envp[]);
 uint64_t aihc_object_words(const AihcInfo *info);
 uint64_t aihc_value_words(const AihcValue *value);
 AihcSlot *aihc_array_elements(AihcValue *array);
@@ -173,8 +178,15 @@ void aihc_gc_note_update(AihcValue *object);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots);
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);
+/* Raise heap_peak_bytes to what the current space holds now. */
+void aihc_gc_record_peak(AihcMachine *machine);
 
 _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);
+/* A monotonic clock in nanoseconds, or zero on a host without one. */
+uint64_t aihc_host_monotonic_ns(void);
+/* Replace the file at path with the given bytes. The result is zero, or an
+   errno value when the host cannot write the file. */
+int aihc_host_write_file(const char *path, const void *bytes, size_t length);
 
 #endif

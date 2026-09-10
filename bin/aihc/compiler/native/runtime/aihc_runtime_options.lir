@@ -14,10 +14,15 @@
 ; options are -M<size>, a heap limit with an optional K, M, G, or T suffix,
 ; and -Zs, which decides static object liveness from the reference tables.
 ;
+; The environment arrives the same way: one buffer of NAME=VALUE strings,
+; each ended by a zero byte. The one recognized variable is AIHC_RTS_STATS,
+; whose value names the file that receives the runtime statistics on exit.
+;
 ; The parsed options and the kept arguments live in the globals below, and
 ; the C runtime reads them through the accessor functions, so no C structure
-; describes them. The host converts argv to the buffer in C, since the width
-; of a C pointer is the one thing a Lir unit does not know.
+; describes them. The host converts argv and the environment to the buffers
+; in C, since the width of a C pointer is the one thing a Lir unit does not
+; know.
 
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_allocate_zeroed(i64) -> ptr cc c
@@ -32,11 +37,15 @@ global @aihc_program_argument_bytes: i64
 global @aihc_rts_option_heap_max_bytes: i64
 global @aihc_rts_option_heap_limit_enabled: i64
 global @aihc_rts_option_static_reference_roots: i64
+; The zero-terminated path of the statistics file, or null when the
+; environment does not request one.
+global @aihc_rts_option_stats_path: ptr
 
 data @aihc_rts_start_marker align 1 = { bytes "+RTS", zero 1 }
 data @aihc_rts_end_marker align 1 = { bytes "-RTS", zero 1 }
 data @aihc_rts_stop_marker align 1 = { bytes "--RTS", zero 1 }
 data @aihc_rts_static_roots_option align 1 = { bytes "-Zs", zero 1 }
+data @aihc_rts_stats_variable align 1 = { bytes "AIHC_RTS_STATS=", zero 1 }
 
 data @aihc_rts_missing_size_message align 1 = {
   bytes "missing size for RTS option -M", zero 1
@@ -72,6 +81,12 @@ entry:
   return %value
 }
 
+export func @aihc_rts_stats_path() -> ptr cc c {
+entry:
+  %value = global.get @aihc_rts_option_stats_path
+  return %value
+}
+
 ; One when the zero-terminated string at %text equals the one at %expected.
 func @aihc_rts_text_is(%text: ptr, %expected: ptr) -> i64 cc c {
 entry:
@@ -95,6 +110,49 @@ different:
 
 equal:
   return 1
+}
+
+; One when the zero-terminated string at %text starts with the one at
+; %prefix. The scan stops at the end of the prefix, so it never reads past
+; the terminator of a shorter text.
+func @aihc_rts_text_starts_with(%text: ptr, %prefix: ptr) -> i64 cc c {
+entry:
+  jump compare(0)
+
+compare(%index: i64):
+  %prefix_address = ptr.add %prefix, %index
+  %prefix_byte = load i8 [%prefix_address] align 1
+  %end = eq i8 %prefix_byte, 0
+  br %end, matched, check
+
+check:
+  %text_address = ptr.add %text, %index
+  %text_byte = load i8 [%text_address] align 1
+  %differ = ne i8 %text_byte, %prefix_byte
+  %next = add i64 %index, 1
+  br %differ, different, compare(%next)
+
+different:
+  return 0
+
+matched:
+  return 1
+}
+
+; The number of bytes before the terminator of the string at %text.
+func @aihc_rts_text_length(%text: ptr) -> i64 cc c {
+entry:
+  jump scan(0)
+
+scan(%index: i64):
+  %address = ptr.add %text, %index
+  %byte = load i8 [%address] align 1
+  %end = eq i8 %byte, 0
+  %next = add i64 %index, 1
+  br %end, done, scan(%next)
+
+done:
+  return %index
 }
 
 ; The size after -M: a decimal number and an optional unit suffix. The
@@ -322,6 +380,73 @@ keep:
 
 install:
   call @aihc_rts_install(%arguments, %output)
+  return 0
+}
+
+; Make %path the statistics file and release the previous one.
+func @aihc_rts_set_stats_path(%path: ptr) cc c {
+entry:
+  %previous = global.get @aihc_rts_option_stats_path
+  call @aihc_memory_free(%previous)
+  global.set @aihc_rts_option_stats_path, %path
+  return
+}
+
+; Take the runtime settings out of the environment. The buffer holds one
+; NAME=VALUE string per variable, each ended by a zero byte, and the buffer
+; ends with the terminator of its last string. The result is zero, or minus
+; one when the buffer is malformed and nothing changed. A variable with an
+; empty value counts as absent.
+export func @aihc_runtime_environment_initialize(%buffer: ptr, %length: i64) -> i64 cc c {
+entry:
+  %valid = call @aihc_rts_buffer_is_valid(%buffer, %length)
+  %malformed = eq i64 %valid, 0
+  br %malformed, rejected, reset
+
+rejected:
+  return -1
+
+reset:
+  call @aihc_rts_set_stats_path(null)
+  jump variable(0)
+
+; %input is the offset of the next variable.
+variable(%input: i64):
+  %exhausted = ge.u i64 %input, %length
+  br %exhausted, done, scan(%input)
+
+; The buffer ends with a zero byte, so this scan stops inside it.
+scan(%end: i64):
+  %address = ptr.add %buffer, %end
+  %byte = load i8 [%address] align 1
+  %terminated = eq i8 %byte, 0
+  %after = add i64 %end, 1
+  br %terminated, classify, scan(%after)
+
+classify:
+  %text = ptr.add %buffer, %input
+  %next_input = add i64 %end, 1
+  %matches = call @aihc_rts_text_starts_with(%text, @aihc_rts_stats_variable)
+  %is_stats = ne i64 %matches, 0
+  br %is_stats, value, variable(%next_input)
+
+; The value follows the name and its equals sign.
+value:
+  %prefix_length = call @aihc_rts_text_length(@aihc_rts_stats_variable)
+  %value_start = add i64 %input, %prefix_length
+  %value_length = sub i64 %end, %value_start
+  %empty = eq i64 %value_length, 0
+  br %empty, variable(%next_input), copy
+
+copy:
+  %value_address = ptr.add %buffer, %value_start
+  %size = add i64 %value_length, 1
+  %path = call @aihc_allocate_zeroed(%size)
+  call @aihc_memory_copy(%path, %value_address, %size)
+  call @aihc_rts_set_stats_path(%path)
+  jump variable(%next_input)
+
+done:
   return 0
 }
 

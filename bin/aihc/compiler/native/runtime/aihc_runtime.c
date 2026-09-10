@@ -1,7 +1,9 @@
 #include "aihc_runtime.h"
 #include "aihc_runtime_internal.h"
 
+#include <inttypes.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -230,36 +232,86 @@ void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
 
 void aihc_memory_free(void *pointer) { free(pointer); }
 
-/* The RTS option parser and the argument store live in
-   compiler/native/runtime/aihc_runtime_options.lir. This flattens argv for
-   it: the width of a C pointer is the one thing a Lir unit does not know. */
-void aihc_program_arguments_initialize(int argc, char *const argv[]) {
-  if (argc < 0 || (argc != 0 && argv == NULL)) {
-    aihc_fail("invalid initial program arguments");
+/* The RTS option parser, the environment parser, and the argument store
+   live in compiler/native/runtime/aihc_runtime_options.lir. This flattens a
+   list of C strings for them: the width of a C pointer is the one thing a
+   Lir unit does not know. */
+static void aihc_strings_initialize(size_t count, char *const strings[],
+                                    int64_t (*initialize)(const void *,
+                                                          int64_t),
+                                    const char *invalid_message) {
+  if (count != 0 && strings == NULL) {
+    aihc_fail(invalid_message);
   }
   size_t length = 0;
-  for (int index = 0; index < argc; ++index) {
-    if (argv[index] == NULL) {
-      aihc_fail("null initial program argument");
+  for (size_t index = 0; index < count; ++index) {
+    if (strings[index] == NULL) {
+      aihc_fail(invalid_message);
     }
-    size_t argument_length = strlen(argv[index]);
-    if ((uint64_t)argument_length >= (uint64_t)INT64_MAX - (uint64_t)length) {
-      aihc_fail("program arguments are too large");
+    size_t string_length = strlen(strings[index]);
+    if ((uint64_t)string_length >= (uint64_t)INT64_MAX - (uint64_t)length) {
+      aihc_fail(invalid_message);
     }
-    length += argument_length + 1;
+    length += string_length + 1;
   }
-  uint8_t *arguments = aihc_allocate_zeroed(length == 0 ? 1 : length);
+  uint8_t *buffer = aihc_allocate_zeroed(length == 0 ? 1 : length);
   size_t offset = 0;
-  for (int index = 0; index < argc; ++index) {
-    size_t argument_length = strlen(argv[index]);
-    memcpy(arguments + offset, argv[index], argument_length);
-    offset += argument_length + 1;
+  for (size_t index = 0; index < count; ++index) {
+    size_t string_length = strlen(strings[index]);
+    memcpy(buffer + offset, strings[index], string_length);
+    offset += string_length + 1;
   }
-  if (aihc_runtime_arguments_initialize(arguments, (int64_t)length) != 0) {
-    free(arguments);
+  if (initialize(buffer, (int64_t)length) != 0) {
+    free(buffer);
+    aihc_fail(invalid_message);
+  }
+  free(buffer);
+}
+
+void aihc_program_arguments_initialize(int argc, char *const argv[]) {
+  if (argc < 0) {
     aihc_fail("invalid initial program arguments");
   }
-  free(arguments);
+  aihc_strings_initialize((size_t)argc, argv, aihc_runtime_arguments_initialize,
+                          "invalid initial program arguments");
+}
+
+void aihc_environment_initialize(char *const envp[]) {
+  size_t count = 0;
+  while (envp != NULL && envp[count] != NULL) {
+    ++count;
+  }
+  aihc_strings_initialize(count, envp, aihc_runtime_environment_initialize,
+                          "invalid program environment");
+}
+
+/* The machine of the process, for the statistics report: the exit path of
+   the POSIX host has no machine at hand. */
+static AihcMachine *aihc_process_machine;
+static int aihc_statistics_reported;
+
+void aihc_runtime_statistics_report(void) {
+  const char *path = aihc_rts_stats_path();
+  AihcMachine *machine = aihc_process_machine;
+  if (path == NULL || machine == NULL || aihc_statistics_reported) {
+    return;
+  }
+  aihc_statistics_reported = 1;
+  aihc_gc_record_peak(machine);
+  char text[256];
+  int length =
+      snprintf(text, sizeof(text),
+               "{\"schema\": 1, \"peak_heap_bytes\": %" PRIu64
+               ", \"allocated_bytes\": %" PRIu64 ", \"gc_count\": %" PRIu64
+               ", \"gc_time_ns\": %" PRIu64 "}\n",
+               machine->heap_peak_bytes, machine->heap_allocated_bytes,
+               machine->gc_count, machine->gc_time_ns);
+  if (length < 0 || (size_t)length >= sizeof(text)) {
+    aihc_fail("runtime statistics do not fit their buffer");
+  }
+  if (aihc_host_write_file(path, text, (size_t)length) != 0) {
+    aihc_fail("cannot write the runtime statistics file");
+  }
 }
 
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
@@ -591,6 +643,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   aihc_gc_init(machine);
   machine->current_thread = aihc_thread_new(machine);
   machine->io_backend = aihc_host_io_backend();
+  aihc_process_machine = machine;
   return machine;
 }
 

@@ -1898,7 +1898,10 @@ compileCase ctx env scrutinee binder alternatives = do
 -- | The @main@ of the executable and the special continuations: the top
 -- continuation applies the evaluated entry, the final continuation halts,
 -- the update continuation is the GC-GRIN update function, and the thread
--- done continuation returns to the scheduler.
+-- done continuation returns to the scheduler. @main@ hands the arguments
+-- and the environment to the runtime before the machine starts, and it
+-- reports the runtime statistics when the machine halts. An exit through
+-- @aihc_exit_process@ reports them itself.
 lowerExecutableMain :: GcGrinProgram -> LowerM ()
 lowerExecutableMain gcProgram = do
   entryItems gcProgram
@@ -1906,7 +1909,9 @@ lowerExecutableMain gcProgram = do
   argv <- fresh "argv"
   beginBlock (Label "entry") []
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
+  _ <- callRuntime "aihc_program_environment_initialize" [] [] []
   _ <- startMachine
+  _ <- callRuntime "aihc_runtime_statistics_report" [] [] []
   terminate (Return [OperandLiteral (LitInt 0)])
   finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention
 
