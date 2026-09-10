@@ -133,7 +133,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
-import Control.Monad (filterM, forM, forM_, unless, void, when, zipWithM)
+import Control.Monad (filterM, foldM, forM, forM_, unless, when, zipWithM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
@@ -229,8 +229,11 @@ data FcModule = FcModule
 
 data GrinModule = GrinModule
   { grinModuleName :: !Text,
-    plainGrinProgram :: !Grin.GrinProgram,
-    cpsGrinProgram :: !Grin.CpsGrinProgram,
+    -- | The plain and CPS forms, kept only for @--keep-grin@. Each form is
+    -- derived from the one before it, so holding them pins the whole
+    -- lowering chain of the module; the default path drops them as soon as
+    -- the GC form exists.
+    grinModuleStages :: !(Maybe (Grin.GrinProgram, Grin.CpsGrinProgram)),
     gcGrinProgram :: !Grin.GcGrinProgram
   }
 
@@ -1903,74 +1906,80 @@ renderBackendPhaseTotals timings =
     ]
 
 compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO BackendPhaseTimings
-compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
-  (splitModules, desugarNs) <- measureTime $ do
-    let kinds = primKinds primIdentity
-        bindings = concatMap (tcModuleBindings kinds) checkedModules
-        moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-        -- A module the resolver did not report on keeps every name public.
-        desugarConfig name =
-          Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
-        desugarResults =
-          [ Fc.desugarModuleFc (desugarConfig name) bindings interface checked
-          | (name, checked) <- zip moduleNames checkedModules
-          ]
-        desugarErrors =
-          [ T.unpack name <> ": " <> err
-          | (name, result) <- zip moduleNames desugarResults,
-            err <- dsErrors result
-          ]
-    unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
-    let fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
-    fcErrors <-
-      fmap concat $
-        forM fcModules $ \fcModule -> do
-          when lint (verbose ("Lint FC: " <> T.unpack (fcModuleName fcModule)))
-          let errors = [(fcModuleName fcModule, err) | err <- Fc.lintProgram (fcProgram fcModule)]
-          when lint (void (evaluate (length errors)))
-          pure errors
-    let fcReport = ["    " <> T.unpack name <> ": " <> show err | (name, err) <- fcErrors]
-    when lint $
-      unless (null fcErrors) $
-        ioError
-          ( userError
-              ( unlines
-                  ( ["FC lint failed:"]
-                      <> fcReport
-                  )
-              )
-          )
-    when keepCore (mapM_ writeFcModule fcModules)
-    pure (spanEmptyModules fcModules)
-  let (emptyFcModules, nonemptyFcModules) = splitModules
-  (grinModules, grinNs) <- measureTime $ do
-    grinModules <- mapM lowerGrinModule nonemptyFcModules
-    when keepGrin (mapM_ writeGrinModule grinModules)
-    pure grinModules
-  (_, nativeNs) <- measureTime $ do
-    mapM_ writeEmptyModule emptyFcModules
-    nativeModules <- mapM (generateNativeModule target) grinModules
-    mapM_ writeNativeSourceFile nativeModules
-    mapM_ compileNativeSourceFile nativeModules
-    unless keepNative (mapM_ removeNativeSourceFile nativeModules)
-  pure
-    BackendPhaseTimings
-      { backendDesugarNs = desugarNs,
-        backendGrinNs = grinNs,
-        backendNativeNs = nativeNs,
-        backendOtherNs = 0
-      }
+compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules =
+  foldM compileModule mempty (zip moduleNames checkedModules)
   where
+    kinds = primKinds primIdentity
+    bindings = concatMap (tcModuleBindings kinds) checkedModules
+    moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+    -- A module the resolver did not report on keeps every name public.
+    desugarConfig name =
+      Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
+
+    -- One module, from checked syntax to object file.
+    --
+    -- The unit compiles its modules one at a time rather than one phase at
+    -- a time, so nothing a module produces outlives its own iteration. Only
+    -- 'bindings', which every module of the unit desugars against, spans
+    -- the loop. Today every unit holds exactly one module, which makes the
+    -- two orders equivalent; the fold is what keeps them equivalent if a
+    -- unit ever bundles several.
+    compileModule totals (name, checked) = do
+      (fcModule, desugarNs) <- measureTime (desugarModule name checked)
+      (grinNs, nativeNs) <-
+        if null (Fc.programDecls (fcProgram fcModule))
+          then do
+            (_, emptyNs) <- measureTime (writeEmptyModule fcModule)
+            pure (0, emptyNs)
+          else do
+            (grinModule, grinNs) <- measureTime (lowerGrinModule fcModule)
+            (_, nativeNs) <- measureTime (emitNativeModule grinModule)
+            pure (grinNs, nativeNs)
+      pure
+        ( totals
+            <> BackendPhaseTimings
+              { backendDesugarNs = desugarNs,
+                backendGrinNs = grinNs,
+                backendNativeNs = nativeNs,
+                backendOtherNs = 0
+              }
+        )
+
+    -- A module that fails FC generation or FC lint stops the unit there.
+    -- Both are internal-error paths, so the first module to fail is the one
+    -- worth reading.
+    desugarModule name checked = do
+      let result = Fc.desugarModuleFc (desugarConfig name) bindings interface checked
+      unless (dsSuccess result) $
+        ioError
+          (userError ("FC generation failed: " <> unlines [T.unpack name <> ": " <> err | err <- dsErrors result]))
+      let fcModule = FcModule name (dsProgram result)
+      when lint $ do
+        verbose ("Lint FC: " <> T.unpack name)
+        let errors = Fc.lintProgram (fcProgram fcModule)
+        unless (null errors) $
+          ioError
+            ( userError
+                ( unlines
+                    ( ["FC lint failed:"]
+                        <> ["    " <> T.unpack name <> ": " <> show err | err <- errors]
+                    )
+                )
+            )
+      when keepCore (writeFcModule fcModule)
+      pure fcModule
+
+    emitNativeModule grinModule = do
+      nativeModule <- generateNativeModule target grinModule
+      writeNativeSourceFile nativeModule
+      compileNativeSourceFile nativeModule
+      unless keepNative (removeNativeSourceFile nativeModule)
+
     keepCore = compileKeepCore config
     keepGrin = compileKeepGrin config
     keepNative = compileKeepNative config
     lint = compileLint config
     target = compileTarget config
-    spanEmptyModules = foldr split ([], [])
-      where
-        split fcModule (emptyModules, nonemptyModules)
-          | null (Fc.programDecls (fcProgram fcModule)) = (fcModule : emptyModules, nonemptyModules)
-          | otherwise = (emptyModules, fcModule : nonemptyModules)
 
     writeEmptyModule fcModule = do
       let name = fcModuleName fcModule
@@ -2007,21 +2016,23 @@ compileCheckedModules config verbose primIdentity interface outputPaths desugarC
       when (compileLint config) $ do
         let gcErrors = Grin.lintGcProgram gcProgram
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
-      pure
-        GrinModule
-          { grinModuleName = fcModuleName fcModule,
-            plainGrinProgram = plainProgram,
-            cpsGrinProgram = cpsProgram,
-            gcGrinProgram = gcProgram
-          }
+      let grinModule =
+            GrinModule
+              { grinModuleName = fcModuleName fcModule,
+                grinModuleStages = if keepGrin then Just (plainProgram, cpsProgram) else Nothing,
+                gcGrinProgram = gcProgram
+              }
+      when keepGrin (writeGrinModule grinModule)
+      pure grinModule
 
     writeGrinModule grinModule = do
       let name = grinModuleName grinModule
           paths = outputPaths name
-      writeGrinFile (outputGrinPath paths) (plainGrinProgram grinModule)
-      verbose ("Write GRIN: " <> T.unpack name)
-      writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram (cpsGrinProgram grinModule))
-      verbose ("Write CPS-GRIN: " <> T.unpack name)
+      forM_ (grinModuleStages grinModule) $ \(plainProgram, cpsProgram) -> do
+        writeGrinFile (outputGrinPath paths) plainProgram
+        verbose ("Write GRIN: " <> T.unpack name)
+        writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram cpsProgram)
+        verbose ("Write CPS-GRIN: " <> T.unpack name)
       writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram (gcGrinProgram grinModule))
       verbose ("Write GC-GRIN: " <> T.unpack name)
 
