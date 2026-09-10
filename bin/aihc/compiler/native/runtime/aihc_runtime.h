@@ -303,6 +303,12 @@ const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,
                                  AihcValue *continuation);
 const AihcResume *aihc_mvar_take(AihcMachine *machine, void *mvar,
                                  AihcValue *continuation);
+uint64_t aihc_mvar_same(void *left, void *right);
+uint64_t aihc_mvar_is_empty(void *mvar);
+uint64_t aihc_mvar_is_full(void *mvar);
+AihcSlot aihc_mvar_peek(void *mvar);
+uint64_t aihc_mvar_try_take(AihcMachine *machine, void *mvar);
+uint64_t aihc_mvar_try_put(AihcMachine *machine, void *mvar, AihcSlot value);
 const AihcResume *aihc_mvar_put(AihcMachine *machine, void *mvar,
                                 AihcSlot value, AihcValue *continuation);
 const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation);

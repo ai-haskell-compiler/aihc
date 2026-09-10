@@ -1,0 +1,38 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    data Results = Results Char Char Char Char
+
+    at :: Array# Char -> Int# -> Char
+    at frozen index = case indexArray# frozen index of (# element #) -> element
+
+    -- Fill a five-element array with 'a', overwrite the first two with 'b',
+    -- then copy that pair over the last two. Cloning, freezing, and thawing
+    -- each take a run out of one of the arrays.
+    test :: IO Results
+    test = IO (\state -> case newArray# 5# 'a' state of
+      (# state1, mutable #) -> case writeArray# mutable 0# 'b' state1 of
+       state2 -> case writeArray# mutable 1# 'c' state2 of
+        state3 -> case copyMutableArray# mutable 0# mutable 3# 2# state3 of
+         state4 -> case freezeArray# mutable 3# 2# state4 of
+          (# state5, frozen #) -> case thawArray# frozen 0# 2# state5 of
+           (# state6, thawed #) -> case readArray# thawed 1# state6 of
+            (# state7, thawedElement #) -> case unsafeFreezeArray# mutable state7 of
+             (# state8, whole #) -> case cloneArray# whole 1# 3# of
+              cloned ->
+                (# state8, Results (at frozen 0#) (at frozen 1#) thawedElement (at cloned 0#) #))
+output: |
+  Results 'b' 'c' 'c' 'c'
+expression: |
+  unsafePerformIO test
+status: pass
+reason: the boxed-array copy, clone, freeze, and thaw primitives move runs of elements between arrays

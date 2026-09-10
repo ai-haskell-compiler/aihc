@@ -5,11 +5,15 @@ module Main where
 import Control.Concurrent (forkIO, yield)
 import Control.Concurrent.MVar
   ( MVar,
+    isEmptyMVar,
     newEmptyMVar,
     newMVar,
     putMVar,
     readMVar,
     takeMVar,
+    tryPutMVar,
+    tryReadMVar,
+    tryTakeMVar,
   )
 import GHC.Ptr (Ptr (..))
 import System.IO (hPutBuf, stdout)
@@ -69,3 +73,21 @@ main = do
     Second -> puts_ 41 (Ptr "blocked putMVar installed the next value\n"#)
     Published -> puts_ 31 (Ptr "unexpected published new value\n"#)
     First -> puts_ 27 (Ptr "unexpected first new value\n"#)
+
+  -- The non-blocking operations, on a single thread: none of them suspends,
+  -- so each one reports whether the MVar was empty or full.
+  spare <- newEmptyMVar
+  emptyAtFirst <- isEmptyMVar spare
+  missing <- tryTakeMVar spare
+  stored <- tryPutMVar spare First
+  storedAgain <- tryPutMVar spare Second
+  peeked <- tryReadMVar spare
+  taken <- tryTakeMVar spare
+  emptyAtEnd <- isEmptyMVar spare
+  case (emptyAtFirst, missing, stored, storedAgain) of
+    (True, Nothing, True, False) ->
+      case (peeked, taken, emptyAtEnd) of
+        (Just First, Just First, True) ->
+          puts_ 40 (Ptr "the non-blocking MVar operations agreed\n"#)
+        _ -> puts_ 31 (Ptr "unexpected non-blocking result\n"#)
+    _ -> puts_ 31 (Ptr "unexpected non-blocking result\n"#)

@@ -1,7 +1,9 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Exts
   ( module GHC.Prim,
+    atomicModifyMutVar#,
     IsList (..),
     Item,
     IsString (..),
@@ -134,3 +136,22 @@ inline value = value
 -- | The function is returned unchanged. Arity hints do not apply.
 oneShot :: (a -> b) -> a -> b
 oneShot function = function
+
+-- | Replace the contents of a mutable variable with the first component of
+-- what the function gives, and return the second. GHC compiles this to an
+-- RTS call that installs two selector thunks; the definition here builds the
+-- same two thunks with @let@, which is why the pair is never forced. The
+-- variable never yields between the read and the write, so a single-threaded
+-- run cannot observe the intermediate state.
+--
+-- The type is GHC\'s: the pair the function gives is not visible in it, so
+-- the coercion below is where the pair comes back.
+atomicModifyMutVar# :: MutVar# d a -> (a -> b) -> State# d -> (# State# d, c #)
+atomicModifyMutVar# reference modify state =
+  case readMutVar# reference state of
+    (# readState, current #) ->
+      let pair = unsafeCoerce# (modify current)
+          replacement = case pair of (next, _) -> next
+          extra = case pair of (_, second) -> second
+       in case writeMutVar# reference replacement readState of
+            writtenState -> (# writtenState, extra #)

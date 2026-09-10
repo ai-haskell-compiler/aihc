@@ -75,6 +75,37 @@ module GHC.Prim
     indexWordArray#,
     sizeofArray#,
     sizeofMutableArray#,
+    SmallArray#,
+    SmallMutableArray#,
+    copyArray#,
+    copyMutableArray#,
+    cloneArray#,
+    cloneMutableArray#,
+    freezeArray#,
+    thawArray#,
+    newSmallArray#,
+    indexSmallArray#,
+    readSmallArray#,
+    writeSmallArray#,
+    unsafeFreezeSmallArray#,
+    unsafeThawSmallArray#,
+    sameSmallMutableArray#,
+    sizeofSmallArray#,
+    sizeofSmallMutableArray#,
+    getSizeofSmallMutableArray#,
+    copySmallArray#,
+    copySmallMutableArray#,
+    cloneSmallArray#,
+    cloneSmallMutableArray#,
+    freezeSmallArray#,
+    thawSmallArray#,
+    shrinkSmallMutableArray#,
+    resizeSmallMutableArray#,
+    sameMVar#,
+    isEmptyMVar#,
+    tryTakeMVar#,
+    tryPutMVar#,
+    tryReadMVar#,
     fetchAddIntArray#,
     fetchSubIntArray#,
     fetchAndIntArray#,
@@ -430,6 +461,12 @@ data ByteArray#
 type MutableArray# :: Type -> Type -> UnliftedType
 data MutableArray# d a
 
+type SmallArray# :: Type -> UnliftedType
+data SmallArray# a
+
+type SmallMutableArray# :: Type -> Type -> UnliftedType
+data SmallMutableArray# d a
+
 type MutableByteArray# :: Type -> UnliftedType
 data MutableByteArray# d
 
@@ -754,6 +791,21 @@ foreign import prim takeMVar# :: MVar# d a -> State# d -> (# State# d, a #)
 
 foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
 
+foreign import prim sameMVar# :: MVar# d a -> MVar# d a -> Int#
+
+foreign import prim isEmptyMVar# :: MVar# d a -> State# d -> (# State# d, Int# #)
+
+-- | Take the contents when the variable is full. The flag is @0#@ when the
+-- variable was empty, and the value field is then undefined.
+foreign import prim tryTakeMVar# :: MVar# d a -> State# d -> (# State# d, Int#, a #)
+
+-- | Fill the variable when it is empty. The flag is @1#@ on success.
+foreign import prim tryPutMVar# :: MVar# d a -> a -> State# d -> (# State# d, Int# #)
+
+-- | Read the contents without taking them. The flag is @0#@ when the variable
+-- was empty, and the value field is then undefined.
+foreign import prim tryReadMVar# :: MVar# d a -> State# d -> (# State# d, Int#, a #)
+
 foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
 
 foreign import prim writeMutVar# :: MutVar# d a -> a -> State# d -> State# d
@@ -767,7 +819,7 @@ foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
 
 foreign import prim newArray# :: Int# -> a -> State# d -> (# State# d, MutableArray# d a #)
 
-foreign import prim indexArray# :: Array# a -> Int# -> a
+foreign import prim indexArray# :: Array# a -> Int# -> (# a #)
 
 foreign import prim readArray# :: MutableArray# d a -> Int# -> State# d -> (# State# d, a #)
 
@@ -778,6 +830,59 @@ foreign import prim unsafeFreezeArray# :: MutableArray# d a -> State# d -> (# St
 foreign import prim unsafeThawArray# :: Array# a -> State# d -> (# State# d, MutableArray# d a #)
 
 foreign import prim sameMutableArray# :: MutableArray# d a -> MutableArray# d a -> Int#
+
+foreign import prim copyArray# :: Array# a -> Int# -> MutableArray# d a -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim copyMutableArray# :: MutableArray# d a -> Int# -> MutableArray# d a -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim cloneArray# :: Array# a -> Int# -> Int# -> Array# a
+
+foreign import prim cloneMutableArray# :: MutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, MutableArray# d a #)
+
+foreign import prim freezeArray# :: MutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, Array# a #)
+
+foreign import prim thawArray# :: Array# a -> Int# -> Int# -> State# d -> (# State# d, MutableArray# d a #)
+
+-- | The small-array family shares the boxed-array representation. GHC keeps
+-- the two apart because a large 'MutableArray#' carries a card table for the
+-- generational write barrier; the aihc collector has no write barrier, so
+-- every small-array primitive below is the boxed-array primitive of the same
+-- name under a distinct type.
+foreign import prim newSmallArray# :: Int# -> a -> State# d -> (# State# d, SmallMutableArray# d a #)
+
+foreign import prim indexSmallArray# :: SmallArray# a -> Int# -> (# a #)
+
+foreign import prim readSmallArray# :: SmallMutableArray# d a -> Int# -> State# d -> (# State# d, a #)
+
+foreign import prim writeSmallArray# :: SmallMutableArray# d a -> Int# -> a -> State# d -> State# d
+
+foreign import prim unsafeFreezeSmallArray# :: SmallMutableArray# d a -> State# d -> (# State# d, SmallArray# a #)
+
+foreign import prim unsafeThawSmallArray# :: SmallArray# a -> State# d -> (# State# d, SmallMutableArray# d a #)
+
+foreign import prim sameSmallMutableArray# :: SmallMutableArray# d a -> SmallMutableArray# d a -> Int#
+
+foreign import prim sizeofSmallArray# :: SmallArray# a -> Int#
+
+foreign import prim sizeofSmallMutableArray# :: SmallMutableArray# d a -> Int#
+
+foreign import prim getSizeofSmallMutableArray# :: SmallMutableArray# d a -> State# d -> (# State# d, Int# #)
+
+foreign import prim copySmallArray# :: SmallArray# a -> Int# -> SmallMutableArray# d a -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim copySmallMutableArray# :: SmallMutableArray# d a -> Int# -> SmallMutableArray# d a -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim cloneSmallArray# :: SmallArray# a -> Int# -> Int# -> SmallArray# a
+
+foreign import prim cloneSmallMutableArray# :: SmallMutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, SmallMutableArray# d a #)
+
+foreign import prim freezeSmallArray# :: SmallMutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, SmallArray# a #)
+
+foreign import prim thawSmallArray# :: SmallArray# a -> Int# -> Int# -> State# d -> (# State# d, SmallMutableArray# d a #)
+
+foreign import prim shrinkSmallMutableArray# :: SmallMutableArray# d a -> Int# -> State# d -> State# d
+
+foreign import prim resizeSmallMutableArray# :: SmallMutableArray# d a -> Int# -> a -> State# d -> (# State# d, SmallMutableArray# d a #)
 
 foreign import prim sameMutableByteArray# :: MutableByteArray# d -> MutableByteArray# d -> Int#
 
