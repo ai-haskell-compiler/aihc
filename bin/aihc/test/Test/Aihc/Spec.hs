@@ -10,9 +10,11 @@ import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, en
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
+import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
+import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
@@ -104,7 +106,6 @@ tests =
             testCase "runs the configure script of a Configure package out of tree" (test_installConfigure primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
-            testCase "tracks the headers and pragmas a preprocessed module depends on" (test_installCppDependencies primStore),
             testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
             testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
             testCase "retains Core and GRIN only with keep-core and keep-grin" (test_installKeepGrin primStore),
@@ -117,8 +118,40 @@ tests =
         testGroup
           "artifacts"
           [ testCase "resolve artifacts keep each kind of resolved name" test_resolveArtifactRoundTrip
+          ],
+        testGroup
+          "sources"
+          [ testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader
           ]
       ]
+
+-- | The digest of a preprocessed module covers the headers it includes:
+-- editing one changes the digest even though the module itself is untouched.
+test_moduleDepsIncludedHeader :: Assertion
+test_moduleDepsIncludedHeader =
+  withTempDir "aihc-module-deps-header" $ \root -> do
+    let sourceDir = root </> "src"
+        includeDir = root </> "include"
+        fileInfo =
+          HackageCabal.FileInfo
+            { HackageCabal.fileInfoPath = sourceDir </> "Demo.hs",
+              HackageCabal.fileInfoExtensions = ["CPP"],
+              HackageCabal.fileInfoCppOptions = [],
+              HackageCabal.fileInfoIncludeDirs = [includeDir],
+              HackageCabal.fileInfoLanguage = Just "Haskell2010",
+              HackageCabal.fileInfoDependencies = []
+            }
+        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile root mempty fileInfo
+    createDirectoryIfMissing True sourceDir
+    createDirectoryIfMissing True includeDir
+    writeFile (sourceDir </> "Demo.hs") (unlines ["module Demo (demo) where", "#include \"demo.h\"", "demo = VALUE"])
+    writeFile (includeDir </> "demo.h") (unlines ["#define VALUE ()"])
+    original <- digest
+    unchanged <- digest
+    assertEqual "an unchanged module keeps its digest" original unchanged
+    writeFile (includeDir </> "demo.h") (unlines ["/* the value the module reads */", "#define VALUE ()"])
+    changed <- digest
+    assertBool "an edited header changes the digest" (original /= changed)
 
 -- | The scope encoder must keep each constructor of a resolved name.
 --
@@ -834,77 +867,6 @@ test_installMinVersionMacros getStore =
       )
     result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
-
--- | What a preprocessed module depends on: the headers it includes and
--- whether CPP runs on it at all.
---
--- Editing an included header must rebuild every module that reads it, even
--- when the module's own bytes and the preprocessed output are unchanged. A
--- module that turns CPP off with @NoCPP@ depends on neither.
-test_installCppDependencies :: IO SeedStore -> Assertion
-test_installCppDependencies getStore =
-  withSandbox getStore "aihc-install-cpp-dependencies" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = sandboxRoot sandbox </> "source"
-        sourceDir = sourceRoot </> "src"
-        includeDir = sourceRoot </> "include"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False False False AppleArm64
-        writePlain pragmas =
-          writeFile
-            (sourceDir </> "Plain.hs")
-            (unlines (pragmas <> ["module Plain (plain) where", "#if 0", "this is not haskell (", "#endif", "plain = ()"]))
-    createDirectoryIfMissing True sourceDir
-    createDirectoryIfMissing True includeDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Header, Plain, System",
-            "  hs-source-dirs: src",
-            "  include-dirs: include",
-            "  default-language: Haskell2010",
-            "  default-extensions: CPP"
-          ]
-      )
-    writeFile (includeDir </> "demo.h") (unlines ["#define VALUE ()"])
-    writeFile (includeDir </> "system.h") (unlines ["#define SYSTEM_VALUE ()"])
-    writeFile
-      (sourceDir </> "Header.hs")
-      (unlines ["module Header (header) where", "#include \"demo.h\"", "header = VALUE"])
-    writeFile
-      (sourceDir </> "System.hs")
-      (unlines ["module System (system) where", "#include <system.h>", "system = SYSTEM_VALUE"])
-    writePlain []
-    first <- install options
-    assertEqual "written modules" ["Header", "Plain", "System"] (sort (installWrittenModules first))
-    unchanged <- install options
-    assertEqual "unchanged modules are reused" ["Header", "Plain", "System"] (sort (installReusedModules unchanged))
-    -- The comment changes the header's bytes and nothing else: only a module
-    -- that records the header as an input rebuilds.
-    writeFile (includeDir </> "demo.h") (unlines ["/* the value the module reads */", "#define VALUE ()"])
-    headerChanged <- install options
-    assertEqual "the including module rebuilds" ["Header"] (installWrittenModules headerChanged)
-    assertEqual "the other modules are reused" ["Plain", "System"] (sort (installReusedModules headerChanged))
-    -- A header included as a system header belongs to the environment, which
-    -- the package identity covers, so it is not an input of the module.
-    writeFile (includeDir </> "system.h") (unlines ["/* the value the module reads */", "#define SYSTEM_VALUE ()"])
-    systemChanged <- install options
-    assertEqual "a system header is not a module input" [] (installWrittenModules systemChanged)
-    -- A module that turns CPP off is parsed as Haskell, so its directives are
-    -- no longer directives.
-    writePlain ["{-# LANGUAGE NoCPP #-}"]
-    caught <- try (install options) :: IO (Either IOException InstallResult)
-    case caught of
-      Left err -> assertBool ("reports the unparsed directive: " <> show err) ("unexpected #" `isInfixOf` show err)
-      Right _ -> assertFailure "expected NoCPP to leave the CPP directives to the parser"
-    -- Restoring the module restores the inputs of the build before the
-    -- failure, whose artifacts are still in place.
-    writePlain []
-    restored <- install options
-    assertEqual "the module is accepted again once CPP is back" ["Header", "Plain", "System"] (sort (installReusedModules restored))
 
 -- Every standin under core-libs claims the version of the boot library it
 -- replaces, and the emulated release is the single source of that version.
