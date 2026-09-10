@@ -2189,10 +2189,16 @@ configurePackage config root storePath packageName inputs =
 --
 -- @CC@ and @CFLAGS@ are what the C sources of the package are later compiled
 -- with, so a feature test and the code that acts on its answer see the same
--- compiler, target and sysroot. A target that is not the host is named with
--- @--host@, which tells the script it cannot run the programs it compiles.
--- The host itself is left unnamed, as Cabal leaves it: a named host that
--- differs from the guessed build string would count as cross-compiling too.
+-- compiler, target and sysroot.
+--
+-- Autoconf and aihc use the word host for opposite machines. Autoconf's
+-- build machine is where the compiler runs, which aihc calls the host; its
+-- host machine is where the compiled code runs, which aihc calls the target.
+-- So the aihc target is passed as @--host@, and only when it is not the aihc
+-- host: that tells the script it cannot run the programs it compiles. When
+-- the two coincide nothing is passed, as Cabal passes nothing: the build
+-- machine is guessed by the script, and a named host that differs from that
+-- guess, even only by a version suffix, counts as cross-compiling too.
 configureCommand :: NativeTarget -> FilePath -> IO (FilePath, [String], [(String, String)])
 configureCommand target script = do
   (compiler, targetArguments) <- backendCompiler target
@@ -2201,19 +2207,21 @@ configureCommand target script = do
   let cflags = unwords (targetArguments <> handwrittenCArguments <> sysrootIncludes)
       overrides = [("CC", compiler), ("CFLAGS", cflags)]
       environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
-      hostArguments = ["--host=" <> triple | Just target /= hostNativeTarget, Just triple <- [configureHostTriple target]]
-  pure ("sh", script : hostArguments, environment)
+      crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
+  pure ("sh", script : crossArguments, environment)
 
--- | The autoconf name of a target, for @--host@. The names are the canonical
--- ones config.sub produces, which is not always the Clang triple: Clang says
--- @arm64@ where autoconf says @aarch64@.
-configureHostTriple :: NativeTarget -> Maybe String
-configureHostTriple target =
+-- | The name autoconf gives the machine an aihc target's code runs on, in
+-- autoconf's vocabulary the host, for the @--host@ argument of a configure
+-- script. The names are the canonical ones config.sub produces, which is not
+-- always the Clang triple: Clang says @arm64@ where autoconf says @aarch64@.
+autoconfHostName :: NativeTarget -> Maybe String
+autoconfHostName target =
   case target of
     AppleArm64 -> Just "aarch64-apple-darwin"
     LinuxAmd64 -> Just "x86_64-unknown-linux-gnu"
     Wasm32Wasip3 -> Just "wasm32-unknown-wasi"
-    -- The LLVM target is the host.
+    -- The LLVM target is whatever machine aihc runs on, so it has no name
+    -- of its own and is never a cross target.
     Llvm -> Nothing
 
 -- | What the outputs of a configure run depend on: the script, the compiler
