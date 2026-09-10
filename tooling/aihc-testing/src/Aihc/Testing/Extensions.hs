@@ -16,30 +16,12 @@ where
 
 import Aihc.Parser.Syntax
   ( Extension,
-    ExtensionSetting (..),
     LanguageEdition,
     Module (..),
-    applyExtensionSetting,
-    applyImpliedExtensions,
-    languageEditionExtensions,
+    effectiveExtensions,
   )
 
 -- | The extensions of a fixture module: one language edition with the
 -- module's own pragmas applied to it.
---
--- The pragmas apply in source order, so a later pragma wins, and an enabled
--- extension brings its implied extensions with it at once. A later
--- @NoMonoLocalBinds@ then turns off the @MonoLocalBinds@ that an earlier
--- @TypeFamilies@ implied, like in GHC. 'Aihc.PackagePlan.Source' folds a
--- package's pragmas the same way, for the same reason: the parser's own
--- 'Aihc.Parser.Syntax.effectiveExtensions' folds the other way and applies
--- implied extensions once at the end,
--- <https://github.com/ai-haskell-compiler/aihc-parser/issues/29>.
 fixtureExtensions :: LanguageEdition -> Module -> [Extension]
-fixtureExtensions edition =
-  foldl applyOne (languageEditionExtensions edition) . moduleLanguagePragmas
-  where
-    applyOne extensions setting =
-      case setting of
-        EnableExtension _ -> applyImpliedExtensions (applyExtensionSetting setting extensions)
-        DisableExtension _ -> applyExtensionSetting setting extensions
+fixtureExtensions edition = effectiveExtensions edition . moduleLanguagePragmas
