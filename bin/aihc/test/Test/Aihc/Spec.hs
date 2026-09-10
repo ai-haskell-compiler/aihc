@@ -10,9 +10,11 @@ import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, en
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
+import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
+import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
@@ -116,8 +118,40 @@ tests =
         testGroup
           "artifacts"
           [ testCase "resolve artifacts keep each kind of resolved name" test_resolveArtifactRoundTrip
+          ],
+        testGroup
+          "sources"
+          [ testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader
           ]
       ]
+
+-- | The digest of a preprocessed module covers the headers it includes:
+-- editing one changes the digest even though the module itself is untouched.
+test_moduleDepsIncludedHeader :: Assertion
+test_moduleDepsIncludedHeader =
+  withTempDir "aihc-module-deps-header" $ \root -> do
+    let sourceDir = root </> "src"
+        includeDir = root </> "include"
+        fileInfo =
+          HackageCabal.FileInfo
+            { HackageCabal.fileInfoPath = sourceDir </> "Demo.hs",
+              HackageCabal.fileInfoExtensions = ["CPP"],
+              HackageCabal.fileInfoCppOptions = [],
+              HackageCabal.fileInfoIncludeDirs = [includeDir],
+              HackageCabal.fileInfoLanguage = Just "Haskell2010",
+              HackageCabal.fileInfoDependencies = []
+            }
+        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile root mempty fileInfo
+    createDirectoryIfMissing True sourceDir
+    createDirectoryIfMissing True includeDir
+    writeFile (sourceDir </> "Demo.hs") (unlines ["module Demo (demo) where", "#include \"demo.h\"", "demo = VALUE"])
+    writeFile (includeDir </> "demo.h") (unlines ["#define VALUE ()"])
+    original <- digest
+    unchanged <- digest
+    assertEqual "an unchanged module keeps its digest" original unchanged
+    writeFile (includeDir </> "demo.h") (unlines ["/* the value the module reads */", "#define VALUE ()"])
+    changed <- digest
+    assertBool "an edited header changes the digest" (original /= changed)
 
 -- | The scope encoder must keep each constructor of a resolved name.
 --

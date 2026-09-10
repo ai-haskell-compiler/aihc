@@ -71,7 +71,7 @@ import Aihc.PackagePlan
     packageSpecFromSource,
   )
 import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
-import Aihc.PackagePlan.Source (ParsedInterfaceFile (ParsedInterfaceFile), parseInterfaceBytes)
+import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), moduleDepsDigest, parseInterfaceBytes)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
     ImportDecl (..),
@@ -180,6 +180,10 @@ data InstallResult = InstallResult
 data SourceModule = SourceModule
   { sourceModulePath :: !FilePath,
     sourceModuleSize :: !Int,
+    -- | A digest of everything the parse of this module depended on: its
+    -- bytes, the cabal settings that shaped it, and, for a module that runs
+    -- CPP, the headers it included and the dependency versions its
+    -- @MIN_VERSION_*@ macros reported.
     sourceModuleHash :: !Text,
     sourceModuleAst :: Module,
     sourceModuleExtensions :: ![Extension],
@@ -1104,7 +1108,16 @@ loadInstalledPackage requirements immutable storePath = do
 parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  ParsedInterfaceFile path modu sourceLines parseDiagnostics cppDiagnostics extensions _ <- parseInterfaceBytes root versions fileInfo bytes
+  ParsedInterfaceFile
+    { parsedFilePath = path,
+      parsedFileModule = modu,
+      parsedFileSourceLines = sourceLines,
+      parsedFileParseDiagnostics = parseDiagnostics,
+      parsedFileCppDiagnostics = cppDiagnostics,
+      parsedFileExtensions = extensions,
+      parsedFileDeps = deps
+    } <-
+    parseInterfaceBytes root versions fileInfo bytes
   let (cppWarnings, cppErrors) = partition isCppWarning cppDiagnostics
   mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
   unless (null cppErrors) $
@@ -1113,7 +1126,7 @@ parseSource root versions fileInfo = do
   -- the language edition and the module's own pragmas folded into one set.
   -- Name resolution and the type checker take that set as data, so neither
   -- reads the pragmas again.
-  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes, BS8.pack (show modu), BS8.pack (show extensions)])) modu extensions sourceLines parseDiagnostics)
+  pure (SourceModule path (BS.length bytes) (moduleDepsDigest deps) modu extensions sourceLines parseDiagnostics)
 
 isCppWarning :: Value -> Bool
 isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
