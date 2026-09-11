@@ -676,7 +676,9 @@ desugarForeign :: Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [
 desugarForeign foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
     Syn.CPrim -> pure []
-    Syn.CCall -> do
+    -- A capi import is called like a ccall import once the type checker has
+    -- accepted its entity, see 'capiEntityProblem'.
+    callConv | callConv == Syn.CCall || callConv == Syn.CApi -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
       unless (isJust foreignPlan) (failValue "missing checked foreign import plan")
       _ <- convertForeignSafety (Syn.foreignSafety foreignDecl)

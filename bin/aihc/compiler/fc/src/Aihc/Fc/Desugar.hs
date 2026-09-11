@@ -542,6 +542,7 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
           case Syn.foreignCallConv foreignDecl of
             Syn.CPrim -> Right []
             Syn.CCall -> Right []
+            Syn.CApi -> Right []
             callConv -> Left ("unsupported System FC foreign calling convention: " <> show callConv)
         _ -> Right []
 

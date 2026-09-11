@@ -1240,7 +1240,10 @@ annotateForeignDeclTc foreignDecl = do
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
       annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
-    CCall -> do
+    CApi | Just message <- capiEntityProblem (foreignEntity foreignDecl) -> do
+      emitError sourceSpan (OtherError message)
+      pure annotated
+    callConv | callConv == CCall || callConv == CApi -> do
       let declaredName = unqualifiedNameText (foreignName foreignDecl)
       (target, symbol) <- checkForeignEntity sourceSpan declaredName (foreignEntity foreignDecl)
       plan <- checkForeignImportType sourceSpan target symbol ty
@@ -1291,6 +1294,22 @@ foreignSafetyMark safety =
     Just Safe -> TcForeignSafe
     Just Unsafe -> TcForeignUnsafe
     Just Interruptible -> TcForeignInterruptible
+
+-- | A @capi@ import of a function is called like a @ccall@ import: this
+-- compiler never includes the header, so the entity must name a symbol that
+-- exists at link time. A @value@ entity reads a C constant through the
+-- header, which no call can do, so it is refused rather than misread as a
+-- function named @value@.
+capiEntityProblem :: ForeignEntitySpec -> Maybe String
+capiEntityProblem entity =
+  case entity of
+    ForeignEntityStatic (Just text) -> checkWords text
+    ForeignEntityNamed text -> checkWords text
+    _ -> Nothing
+  where
+    checkWords text
+      | "value" `elem` T.words text = Just ("a capi value import is not supported: " <> T.unpack text)
+      | otherwise = Nothing
 
 -- | Read the C entity of a foreign import and report a bad entity.
 checkForeignEntity :: SourceSpan -> Text -> ForeignEntitySpec -> TcM (TcForeignTarget, Text)
