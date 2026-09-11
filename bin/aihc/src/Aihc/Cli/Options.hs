@@ -206,7 +206,8 @@ lintOption =
         <> OA.help "Run compiler intermediate-language lint checks"
     )
 
--- | @-O0@ or @-O2@, the level Clang receives for C sources and LLVM output.
+-- | @-O0@, @-O1@, @-O2@ or @-Os@, the level Clang receives for C sources
+-- and LLVM output.
 -- The level is part of the identity of an installed package, so the
 -- packages of a build share its level.
 optimizationOption :: OA.Parser OptimizationLevel
@@ -217,7 +218,7 @@ optimizationOption =
         <> OA.metavar "LEVEL"
         <> OA.value defaultOptimizationLevel
         <> OA.showDefaultWith renderOptimizationLevel
-        <> OA.help "Optimization level for C sources and LLVM output: 0 or 2"
+        <> OA.help "Optimization level for C sources and LLVM output: 0, 1, 2 or s"
     )
 
 parseGarbageCollector :: String -> Either String GarbageCollector

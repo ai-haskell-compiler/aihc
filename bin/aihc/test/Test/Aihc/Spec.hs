@@ -357,9 +357,11 @@ test_buildExeOptimizationOption = do
   assertEqual "-O0" O0 =<< levelOf (parseCommandPure (arguments ["-O0"]))
   assertEqual "-O2" O2 =<< levelOf (parseCommandPure (arguments ["-O2"]))
   assertEqual "-O 0" O0 =<< levelOf (parseCommandPure (arguments ["-O", "0"]))
-  case parseCommandPure (arguments ["-O1"]) of
-    Left err -> assertBool ("rejects -O1: " <> err) ("expected 0 or 2" `isInfixOf` err)
-    Right command -> assertFailure ("accepted -O1: " <> show command)
+  assertEqual "-O1" O1 =<< levelOf (parseCommandPure (arguments ["-O1"]))
+  assertEqual "-Os" Os =<< levelOf (parseCommandPure (arguments ["-Os"]))
+  case parseCommandPure (arguments ["-O3"]) of
+    Left err -> assertBool ("rejects -O3: " <> err) ("expected 0, 1, 2 or s" `isInfixOf` err)
+    Right command -> assertFailure ("accepted -O3: " <> show command)
   installLevel <-
     case parseCommandPure ["install", "demo", "--target", "apple-arm64", "-O0"] of
       Right (CmdInstall options) -> pure (installOptimization options)
