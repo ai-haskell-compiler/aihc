@@ -2100,12 +2100,12 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
       when (compileLint config) $ do
         let plainErrors = Grin.lintProgram plainProgram
-        unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
+        unless (null plainErrors) (ioError (userError ("GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show plainErrors)))
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
       let gcProgram = Grin.lowerGc cpsProgram
       when (compileLint config) $ do
         let gcErrors = Grin.lintGcProgram gcProgram
-        unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+        unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show gcErrors)))
       pure
         GrinModule
           { grinModuleName = fcModuleName fcModule,

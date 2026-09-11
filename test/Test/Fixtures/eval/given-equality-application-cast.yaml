@@ -1,0 +1,82 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts #-}
+    {-# LANGUAGE MagicHash #-}
+    {-# LANGUAGE TypeFamilies #-}
+    {-# LANGUAGE UnboxedTuples #-}
+    module Test where
+
+    import GHC.Exts
+      ( ByteArray#
+      , Int(..)
+      , State#
+      , isTrue#
+      , newByteArray#
+      , reallyUnsafePtrEquality#
+      , unsafeCoerce#
+      , unsafeFreezeByteArray#
+      )
+    import GHC.ST (ST(..), runST)
+
+    class Assoc m where
+      type St m
+      wrap :: (St m -> St m) -> m
+      unwrap :: m -> St m -> St m
+
+    newtype Tagged = Tagged (Int -> Int)
+
+    instance Assoc Tagged where
+      type St Tagged = Int
+      wrap = Tagged
+      unwrap (Tagged step) = step
+
+    newtype Labelled = Labelled (Int -> Int)
+
+    instance Assoc Labelled where
+      type St Labelled = Int
+      wrap = Labelled
+      unwrap (Labelled step) = step
+
+    -- The argument of @wrap@ has type @St m2 -> St m2@ and @unwrap x@ gives
+    -- @St m1 -> St m1@: only the given equality makes them the same type, so
+    -- the argument needs the cast that its proof carries.
+    convert :: (Assoc m1, Assoc m2, St m1 ~ St m2) => m1 -> m2
+    convert x = wrap (unwrap x)
+
+    converted :: Int
+    converted = case convert (Tagged (\n -> n + 1)) of
+      Labelled step -> step 41
+
+    -- An unlifted box coerced to a lifted type keeps its address: suspending
+    -- the coercion would compare the addresses of two fresh thunks instead.
+    sameByteArray :: ByteArray# -> ByteArray# -> Bool
+    sameByteArray left right =
+      isTrue# (reallyUnsafePtrEquality# (unsafeCoerce# left :: ()) (unsafeCoerce# right :: ()))
+
+    data Bytes = Bytes ByteArray#
+
+    newBytes :: Int -> ST s Bytes
+    newBytes (I# size#) = ST (\state ->
+      case newByteArray# size# state of
+        (# state', marr# #) ->
+          case unsafeFreezeByteArray# marr# state' of
+            (# state'', arr# #) -> (# state'', Bytes arr# #))
+
+    identicalArrays :: Bool
+    identicalArrays = runST (do
+      Bytes bytes <- newBytes 8
+      return (sameByteArray bytes bytes))
+
+    distinctArrays :: Bool
+    distinctArrays = runST (do
+      Bytes first <- newBytes 8
+      Bytes second <- newBytes 8
+      return (sameByteArray first second))
+output: |
+  ((I# 42),True,False)
+expression: |
+  (converted, identicalArrays, distinctArrays)
+status: pass
+reason: a given equality that makes an application argument fit becomes a cast in
+  Core, and an unsafeCoerce# of an unlifted box keeps the address it coerces

@@ -2373,6 +2373,12 @@ desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
   case expression of
     Syn.EAnn annotation inner
+      -- A given equality made the expression fit where it stands, so the
+      -- proof it carries is the cast that keeps the Core well typed.
+      | Just (TcCastAnnotation proof) <- Syn.fromAnnotation annotation ->
+          do
+            inner' <- desugarExpr inner
+            withCoercion proof (pure . ExCast inner')
       | Just tcAnnotation <- Syn.fromAnnotation annotation -> desugarAnnotatedExpr tcAnnotation inner
       | Just resolution <- Syn.fromAnnotation annotation,
         isIfThenElseResolution resolution ->

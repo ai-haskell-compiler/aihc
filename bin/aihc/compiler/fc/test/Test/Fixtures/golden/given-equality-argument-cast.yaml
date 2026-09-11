@@ -1,0 +1,67 @@
+extensions:
+  - TypeFamilies
+  - FlexibleContexts
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    {-# LANGUAGE FlexibleContexts #-}
+    module Test where
+    class Assoc m where
+      type St m
+      wrap :: (St m -> St m) -> m
+      unwrap :: m -> St m -> St m
+    convert :: (Assoc m1, Assoc m2, St m1 ~ St m2) => m1 -> m2
+    convert x = wrap (unwrap x)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity;
+    2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+    2.v[] :: ∀(a : 2.tType). 2.t[] a
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  pub type 1.t$Dict$Assoc (m : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Assoc :: ∀(m : 2.tType). ((1.tSt m 2.→ 1.tSt m) 2.→ m) 2.→ (m 2.→ 1.tSt m 2.→ 1.tSt m) 2.→ 1.t$Dict$Assoc m
+  }
+
+  pub type 1.tSt (m : 2.tType) :: 2.tType @N {}
+
+  pub val 1.vwrap :: ∀(m : 2.tType). 1.t$Dict$Assoc m 2.→ (1.tSt m 2.→ 1.tSt m) 2.→ m
+   = Λ(m : 2.tType).
+    λ($d0 : 1.t$Dict$Assoc m).
+      case $d0 as ($dict : 1.t$Dict$Assoc m) return ((1.tSt m 2.→ 1.tSt m) 2.→ m) of {
+          1.v$Dict$Assoc ($method0 : (1.tSt m 2.→ 1.tSt m) 2.→ m) ($method1 : m 2.→ 1.tSt m 2.→ 1.tSt m) →
+              $method0
+      }
+
+  pub val 1.vunwrap :: ∀(m : 2.tType). 1.t$Dict$Assoc m 2.→ m 2.→ 1.tSt m 2.→ 1.tSt m
+   = Λ(m : 2.tType).
+    λ($d0 : 1.t$Dict$Assoc m).
+      case $d0 as ($dict : 1.t$Dict$Assoc m) return (m 2.→ 1.tSt m 2.→ 1.tSt m) of {
+          1.v$Dict$Assoc ($method0 : (1.tSt m 2.→ 1.tSt m) 2.→ m) ($method1 : m 2.→ 1.tSt m 2.→ 1.tSt m) →
+              $method1
+      }
+
+  pub val 1.vconvert :: ∀(m1 : 2.tType) (m2 : 2.tType). 1.t$Dict$Assoc m1 2.→ 1.t$Dict$Assoc m2 2.→ FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (1.tSt m1 ~ 1.tSt m2) (m1 2.→ m2)
+   = Λ(m1 : 2.tType).
+    Λ(m2 : 2.tType).
+      λ($d0 : 1.t$Dict$Assoc m1).
+        λ($d1 : 1.t$Dict$Assoc m2).
+          λ($d2 : 1.tSt m1 ~ 1.tSt m2).
+            λ(x : m1).
+              1.vwrap @m2 $d1 ((1.vunwrap @m1 $d0 x) ▷ fun-co ($d2) ($d2))
+status: pass
+reason: the argument of an application that only a given equality makes fit takes
+  the cast the proof of that equality carries

@@ -3,6 +3,7 @@
 -- Handles meta-variable solving with occurs check.
 module Aihc.Tc.Unify
   ( unify,
+    unifyDeferring,
     unifyTypes,
   )
 where
@@ -13,7 +14,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 
@@ -21,14 +22,44 @@ import Aihc.Tc.Zonk (zonkType)
 -- they are incompatible.
 unify :: SourceSpan -> CtOrigin -> TcType -> TcType -> TcM ()
 unify loc origin t1 t2 = do
+  stuck <- unifyDeferring loc origin t1 t2
+  mapM_ reportStuck stuck
+  where
+    reportStuck (left, right) =
+      emitError loc (UnificationError left right origin Nothing)
+
+-- | Unify two types, returning the equalities that a saturated type
+-- family application no equation reduces yet leaves undecided.
+--
+-- Such an equality must not be decomposed or rejected: the application
+-- may still reduce once a meta variable of its arguments is solved,
+-- which can happen long after this unification. The caller turns the
+-- result into wanted constraints for the solver.
+unifyDeferring :: SourceSpan -> CtOrigin -> TcType -> TcType -> TcM [(TcType, TcType)]
+unifyDeferring loc origin t1 t2 = do
   t1' <- zonkType t1 >>= reduceTypeFamilies
   t2' <- zonkType t2 >>= reduceTypeFamilies
-  result <- unifyTypesAt loc t1' t2'
+  result <- unifyCollecting loc t1' t2'
   case result of
-    Right () -> pure ()
-    Left (UnificationError left right _ provenance) ->
+    Left err -> report err >> pure []
+    -- The rest of the unification may have solved the meta variables
+    -- that kept an application from reducing, so retry before deferring.
+    Right deferred -> concat <$> mapM retry deferred
+  where
+    report (UnificationError left right _ provenance) =
       emitError loc (UnificationError left right origin provenance)
-    Left err -> emitError loc err
+    report err = emitError loc err
+
+    retry (left, right) = do
+      left' <- zonkType left >>= reduceTypeFamilies
+      right' <- zonkType right >>= reduceTypeFamilies
+      if (left', right') == (left, right)
+        then pure [(left, right)]
+        else do
+          result <- unifyTypesAt loc left' right'
+          case result of
+            Right () -> pure []
+            Left err -> report err >> pure []
 
 -- | Attempt to unify two types, returning an error kind on failure.
 unifyTypes :: TcType -> TcType -> TcM (Either TcErrorKind ())
@@ -36,19 +67,54 @@ unifyTypes = unifyTypesAt NoSourceSpan
 
 -- | Attempt to unify two types. A kind mismatch is reported at the span.
 unifyTypesAt :: SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind ())
-unifyTypesAt _ (TcMetaTv u1) (TcMetaTv u2)
-  | u1 == u2 = pure (Right ())
-unifyTypesAt loc (TcMetaTv u) ty = unifyMetaTv loc u ty
-unifyTypesAt loc ty (TcMetaTv u) = unifyMetaTv loc u ty
-unifyTypesAt _ (TcTyVar v1) (TcTyVar v2)
-  | v1 == v2 = pure (Right ())
-unifyTypesAt loc t1 t2
-  | t1 == t2 = pure (Right ())
+unifyTypesAt loc t1 t2 = do
+  result <- unifyCollecting loc t1 t2
+  case result of
+    Left err -> pure (Left err)
+    Right deferred -> retryDeferred loc deferred
+
+-- | Unify two types, collecting the pairs that a type family application
+-- no equation reduces yet has held back.
+unifyCollecting :: SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind [(TcType, TcType)])
+unifyCollecting _ (TcMetaTv u1) (TcMetaTv u2)
+  | u1 == u2 = pure (Right [])
+unifyCollecting loc (TcMetaTv u) ty = fmap (const []) <$> unifyMetaTv loc u ty
+unifyCollecting loc ty (TcMetaTv u) = fmap (const []) <$> unifyMetaTv loc u ty
+unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
+  | v1 == v2 = pure (Right [])
+unifyCollecting loc t1 t2
+  | t1 == t2 = pure (Right [])
   | otherwise = do
-      children <- decomposeNominalEquality t1 t2
-      case children of
-        Just pairs -> sequence_ <$> mapM (uncurry (unifyTypesAt loc)) pairs
-        Nothing -> pure (Left (UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing))
+      stuck <- isStuckFamilyEquality t1 t2
+      if stuck
+        then pure (Right [(t1, t2)])
+        else do
+          children <- decomposeNominalEquality t1 t2
+          case children of
+            Just pairs -> fmap concat . sequence <$> mapM (uncurry (unifyCollecting loc)) pairs
+            Nothing -> pure (Left (UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing))
+
+-- | Whether either side is a saturated type family application that no
+-- equation reduces. Decomposing such an equality is unsound: the
+-- application may still reduce once its arguments are known.
+isStuckFamilyEquality :: TcType -> TcType -> TcM Bool
+isStuckFamilyEquality t1 t2 = do
+  left <- unsaturateFamilyApplication t1 >>= isTypeFamilyApplication
+  right <- unsaturateFamilyApplication t2 >>= isTypeFamilyApplication
+  pure (left || right)
+
+-- | Retry the equalities that a stuck type family application held back.
+-- Unifying the other pairs may have solved the meta variables that kept
+-- the application from reducing.
+retryDeferred :: SourceSpan -> [(TcType, TcType)] -> TcM (Either TcErrorKind ())
+retryDeferred loc pairs = sequence_ <$> mapM retryOne pairs
+  where
+    retryOne (t1, t2) = do
+      t1' <- zonkType t1 >>= reduceTypeFamilies
+      t2' <- zonkType t2 >>= reduceTypeFamilies
+      if (t1', t2') == (t1, t2)
+        then pure (Left (UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing))
+        else unifyTypesAt loc t1' t2'
 
 -- | Unify a meta-variable with a type, performing the occurs check.
 unifyMetaTv :: SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())

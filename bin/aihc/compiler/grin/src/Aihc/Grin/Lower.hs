@@ -864,41 +864,72 @@ lowerArgument env expression continuation = do
 -- expression whose lazy form needs code of its own, such as a case or a call
 -- of an unknown function, is suspended in a function by 'makeThunk'.
 lowerLazy :: LowerEnv -> Text -> Fc.Expr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerLazy env0 hint expression0 continuation =
-  case expression of
-    -- A name with no global of its own — a partially applied constructor,
-    -- a private function — falls through to the node shape below, which
-    -- builds the very node the global would have held.
-    Fc.ExVar name
-      | Just variables <- Map.lookup name (lowerLocals env) ->
-          case variables of
-            [variable] -> continuation (GrinVarValue variable)
-            _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
-      | hasGlobal env name ->
-          lookupGlobalName env name >>= continuation . GrinGlobalValue
-    Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
-    Fc.ExLet binding body -> do
-      representation <- binderRep env (Fc.bindBinder binding)
-      if isLiftedRuntimeRep representation
-        then lowerLetBinding env binding (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
-        else suspend
-    Fc.ExRec bindings body -> lowerRecBindings env bindings (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
-    _ -> do
-      shape <- lazyNodeShape env expression
-      case shape of
-        Just (tag, operands) -> do
-          classified <- mapM (classifyOperand env) operands
-          case sequence classified of
-            Just lazyOperands -> lowerLazyOperands env lazyOperands (storeNode . GrinNode tag)
-            Nothing -> suspend
-        Nothing -> suspend
+lowerLazy env0 hint expression0 continuation = do
+  transparent <- unliftedCoercionSource env expression
+  case transparent of
+    -- The coercion is the identity on the pointer, and the value it coerces
+    -- is already in whnf. Suspending it would hand on the address of a
+    -- fresh thunk instead, which @reallyUnsafePtrEquality#@ can see.
+    Just inner -> lowerLazy env hint inner continuation
+    Nothing -> lowerLazyExpr
   where
+    lowerLazyExpr = case expression of
+      -- A name with no global of its own — a partially applied constructor,
+      -- a private function — falls through to the node shape below, which
+      -- builds the very node the global would have held.
+      Fc.ExVar name
+        | Just variables <- Map.lookup name (lowerLocals env) ->
+            case variables of
+              [variable] -> continuation (GrinVarValue variable)
+              _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
+        | hasGlobal env name ->
+            lookupGlobalName env name >>= continuation . GrinGlobalValue
+      Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
+      Fc.ExLet binding body -> do
+        representation <- binderRep env (Fc.bindBinder binding)
+        if isLiftedRuntimeRep representation
+          then lowerLetBinding env binding (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
+          else suspend
+      Fc.ExRec bindings body -> lowerRecBindings env bindings (\bodyEnv -> lowerLazy bodyEnv hint body continuation)
+      _ -> do
+        shape <- lazyNodeShape env expression
+        case shape of
+          Just (tag, operands) -> do
+            classified <- mapM (classifyOperand env) operands
+            case sequence classified of
+              Just lazyOperands -> lowerLazyOperands env lazyOperands (storeNode . GrinNode tag)
+              Nothing -> suspend
+          Nothing -> suspend
+
     (env, expression) = stripLazyWrappers env0 expression0
     suspend = makeThunk env hint expression >>= storeNode
     storeNode node = do
       pointer <- freshVar hint liftedGrinRep
       rest <- continuation (GrinVarValue pointer)
       pure (GrinBind [pointer] (GrinStore node) rest)
+
+-- | The operand of an @unsafeCoerce#@ that turns an unlifted box into a
+-- lifted one. Such a coercion has no runtime work of its own: the operand
+-- is a heap object that is already evaluated, so the coerced value is the
+-- very same pointer.
+unliftedCoercionSource :: LowerEnv -> Fc.Expr -> LowerM (Maybe Fc.Expr)
+unliftedCoercionSource env expression =
+  case coercionOperand of
+    Just argument -> do
+      argumentRep <- expressionRuntimeRep env argument
+      pure (if argumentRep == BoxedRep Unlifted then Just argument else Nothing)
+    Nothing -> pure Nothing
+  where
+    coercionOperand =
+      case collectApplications expression of
+        (Fc.ExVar name, [argument])
+          | Fc.nameText name == "unsafeCoerce#" -> Just argument
+        (Fc.ExForeignCall call _ callArguments, arguments)
+          | Fc.Prim <- Fc.foreignCallConvention call,
+            Fc.nameText (Fc.foreignCallName call) == "unsafeCoerce#",
+            [argument] <- callArguments <> arguments ->
+              Just argument
+        _ -> Nothing
 
 -- | The node that stands for a lifted expression where no pointer can be
 -- bound before it: a recursive binding or a global. The node is direct only
