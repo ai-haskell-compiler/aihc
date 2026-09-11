@@ -3,6 +3,7 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, runLinkExe)
+import Aihc.Cli.CapiStub (parseDependencyFile)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -103,6 +104,7 @@ tests =
             testCase "prints timings independently from verbose output" (test_installTimingOutput primStore),
             testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
             testCase "writes Core for a ccall import" (test_installFcCcall primStore),
+            testCase "compiles and archives capi wrappers" (test_installCapi primStore),
             testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
             testCase "runs the configure script of a Configure package out of tree" (test_installConfigure primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
@@ -122,7 +124,8 @@ tests =
           ],
         testGroup
           "sources"
-          [ testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader
+          [ testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
+            testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
           ]
       ]
 
@@ -939,6 +942,99 @@ test_installFcCcall getStore =
       "module Demo where\nimport GHC.Prim (Int#)\ndata Int = I# Int#\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
     result <- install options
     assertCoreFile (installStorePath result </> "Demo" </> "core")
+
+-- | A @capi@ import reaches its entity through the C API of a header, so the
+-- compiler writes a C wrapper for it, compiles that beside the module object
+-- and archives the two together.  The entities here have no symbol of their
+-- own at all: one is a macro and the other a @static inline@ function.
+--
+-- The headers a wrapper included are recorded, so editing one rebuilds the
+-- module even though no Haskell source changed.
+-- | A dependency file is one make rule, so a name in it may be split across
+-- lines and may hold escaped spaces, colons and dollars.
+test_parseDependencyFile :: Assertion
+test_parseDependencyFile = do
+  assertEqual
+    "a rule over several lines"
+    ["stub.c", "/usr/include/stdio.h", "/usr/include/stdlib.h"]
+    ( parseDependencyFile
+        (unlines ["stub.o: stub.c \\", "  /usr/include/stdio.h \\", "  /usr/include/stdlib.h"])
+    )
+  assertEqual
+    "escaped separators inside names"
+    ["a b.h", "c:d.h", "e$f.h"]
+    (parseDependencyFile "stub.o: a\\ b.h c\\:d.h e$$f.h\n")
+  assertEqual "a rule with no prerequisites" [] (parseDependencyFile "stub.o:\n")
+  assertEqual "text that is no rule at all" [] (parseDependencyFile "")
+
+test_installCapi :: IO SeedStore -> Assertion
+test_installCapi getStore =
+  withSandbox getStore "aihc-install-capi" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+        includeDir = sourceRoot </> "include"
+        header = includeDir </> "demo_capi.h"
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64
+    createDirectoryIfMissing True sourceDir
+    createDirectoryIfMissing True includeDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  include-dirs: include",
+            "  default-language: Haskell2010",
+            "  default-extensions: CApiFFI, MagicHash"
+          ]
+      )
+    let headerText answer =
+          unlines
+            [ "#define DEMO_ANSWER " <> show (answer :: Int),
+              "static inline int demo_double(int value) { return value * 2; }"
+            ]
+    writeFile header (headerText 42)
+    writeFile
+      (sourceDir </> "Demo.hs")
+      ( unlines
+          [ "module Demo where",
+            "import GHC.Prim (Int32#)",
+            "data Int32 = I32# Int32#",
+            "foreign import capi unsafe \"demo_capi.h value DEMO_ANSWER\" answer :: Int32",
+            "foreign import capi unsafe \"demo_capi.h demo_double\" double :: Int32 -> Int32"
+          ]
+      )
+    first <- install options
+    let packageRoot = installStorePath first
+        stubSource = packageRoot </> "Demo" </> "Demo.capi.c"
+    assertFileExists stubSource
+    stub <- readFile stubSource
+    assertBool "the wrapper includes the header of its entity" ("#include \"demo_capi.h\"" `isInfixOf` stub)
+    assertBool "the value wrapper reads the macro" ("return DEMO_ANSWER;" `isInfixOf` stub)
+    assertBool "the call wrapper calls the inline function" ("demo_double(a1)" `isInfixOf` stub)
+    let archivePath = packageRoot </> "lib" </> "libdemo.a"
+    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive members" ["Demo.capi.o", "Demo.o"] (sort members)
+    symbols <- readProcess "nm" [archivePath] ""
+    -- The wrapper name carries the package, the module and the Haskell name
+    -- of the import, so that nothing else linked in can spell the same symbol.
+    assertBool "the archive defines the value wrapper" ("aihc_capi_demo_m0_d1_d0_d0_Demo_answer" `isInfixOf` symbols)
+    assertBool "the archive defines the call wrapper" ("aihc_capi_demo_m0_d1_d0_d0_Demo_double" `isInfixOf` symbols)
+    unchanged <- install options
+    assertEqual "an unchanged package rebuilds nothing" [] (installWrittenModules unchanged)
+    -- The Haskell source is untouched, so only the recorded headers can tell
+    -- the build that the wrapper is out of date.
+    writeFile header (headerText 43)
+    changed <- install options
+    assertEqual "a changed header rebuilds the module" ["Demo"] (installWrittenModules changed)
+    rebuilt <- readFile stubSource
+    assertBool "the wrapper still reads the macro" ("return DEMO_ANSWER;" `isInfixOf` rebuilt)
+    settled <- install options
+    assertEqual "the rebuilt module is reusable again" [] (installWrittenModules settled)
 
 test_installAihcPrim :: Assertion
 test_installAihcPrim = do

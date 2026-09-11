@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Test where
+
+  data Int32#
+       └─ type: Type
+
+  data CInt = CInt Int32#
+       │      └─ type: Int32# → CInt
+       └─ type: Type
+
+  foreign import ccall unsafe "demo.h value DEMO" demoValue :: CInt
+  └─ type: CInt                                   └─ error: a value entity needs the capi calling convention: demo.h value DEMO
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+modules:
+- |
+  module Test where
+
+  data Int32#
+
+  data CInt = CInt Int32#
+
+  foreign import ccall unsafe "demo.h value DEMO" demoValue :: CInt
+reason: only capi reads a C constant through a header, so ccall rejects a value entity
+status: pass

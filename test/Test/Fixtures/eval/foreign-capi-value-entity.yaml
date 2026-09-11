@@ -9,5 +9,5 @@ modules:
 output: |
   I# 2147483647
 expression: intMax
-status: xfail
-reason: a capi value import reads a C constant through the header, which needs a generated C stub and is not supported yet
+status: pass
+reason: a capi value import reads a C constant through the header, which the generated C wrapper returns

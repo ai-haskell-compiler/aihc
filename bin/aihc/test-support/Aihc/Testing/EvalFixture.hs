@@ -19,7 +19,9 @@ module Aihc.Testing.EvalFixture
   )
 where
 
+import Aihc.Cli.CapiStub (CapiWrapper, capiStubArguments, interfaceCapiWrappers, noCapiStubOptions, renderCapiStub)
 import Aihc.Fc qualified as Fc
+import Aihc.Native (OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -75,9 +77,12 @@ import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, getCurrentDirectory, listDirectory)
 import System.Environment (lookupEnv)
+import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO (Handle, hClose, stdout)
-import System.IO.Temp (withSystemTempFile)
+import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory, withSystemTempFile)
+import System.Posix.DynamicLinker (RTLDFlags (RTLD_GLOBAL, RTLD_NOW), dlopen)
+import System.Process (readProcessWithExitCode)
 
 data ExpectedStatus
   = StatusPass
@@ -262,18 +267,58 @@ evalEnvironmentProgram = envProgram
 
 evaluateEvalCase :: EvalEnvironment -> ProgramEvaluator -> EvalCase -> IO (Outcome, String)
 evaluateEvalCase env evaluator tc =
-  case compileEvalCase env tc of
+  case compileEvalCaseWithWrappers env tc of
     Left errMsg -> pure (classifyCompileFailure tc errMsg)
-    Right program -> do
-      (actualStdout, renderResult) <-
-        evaluateWithExpectedStdout tc (\output -> evaluator output evalBindingName program)
-      pure $
-        case renderResult of
-          Right actual -> classifySuccess tc (T.unpack actual) actualStdout
-          Left failure -> classifyEvaluationFailure tc failure actualStdout
+    Right (program, wrappers) -> do
+      loaded <- loadCapiWrappers wrappers
+      case loaded of
+        Left errMsg -> pure (classifyCompileFailure tc errMsg)
+        Right () -> do
+          (actualStdout, renderResult) <-
+            evaluateWithExpectedStdout tc (\output -> evaluator output evalBindingName program)
+          pure $
+            case renderResult of
+              Right actual -> classifySuccess tc (T.unpack actual) actualStdout
+              Left failure -> classifyEvaluationFailure tc failure actualStdout
+
+-- | Build the C wrappers of the capi imports of a fixture and load them into
+-- this process.
+--
+-- An evaluator calls a foreign symbol by name, so a capi import only works
+-- once the wrapper the compiler generated for it exists as a symbol.  The
+-- wrappers go into a shared library that is opened globally, which is where
+-- the evaluators look.
+--
+-- The wrapper names carry the module and the Haskell name of the import, so
+-- two fixtures collide only if both declare a capi import of the same name in
+-- a module of the same name.
+loadCapiWrappers :: [CapiWrapper] -> IO (Either String ())
+loadCapiWrappers wrappers =
+  case (renderCapiStub "the fixture" wrappers, hostNativeTarget) of
+    (Nothing, _) -> pure (Right ())
+    (Just _, Nothing) -> pure (Left "capi wrappers need a native target for this host")
+    (Just source, Just target) -> do
+      temporaryRoot <- getCanonicalTemporaryDirectory
+      directory <- createTempDirectory temporaryRoot "aihc-capi"
+      let stubSource = directory </> "stub.c"
+          library = directory </> "libstub.so"
+      TIO.writeFile stubSource source
+      (compiler, _) <- backendCompiler target
+      arguments <- capiStubArguments target O2 noCapiStubOptions
+      (code, _, errors) <-
+        readProcessWithExitCode compiler (arguments <> ["-fPIC", "-shared", stubSource, "-o", library]) ""
+      if code /= ExitSuccess
+        then pure (Left ("capi wrapper compile failed: " <> errors))
+        else do
+          _ <- dlopen library [RTLD_NOW, RTLD_GLOBAL]
+          pure (Right ())
 
 compileEvalCase :: EvalEnvironment -> EvalCase -> Either String Fc.Program
-compileEvalCase env tc = do
+compileEvalCase env tc = fst <$> compileEvalCaseWithWrappers env tc
+
+-- | The desugared fixture program and the capi wrappers its modules declare.
+compileEvalCaseWithWrappers :: EvalEnvironment -> EvalCase -> Either String (Fc.Program, [CapiWrapper])
+compileEvalCaseWithWrappers env tc = do
   (modules, expr) <- parseInputs tc
   let packageModules = [ModuleUnit unnamedPackage (fixtureExtensions fixtureLanguageEdition modu) modu | modu <- combineModules modules expr]
   case resolveWithDeps (envBuiltinScope env) (envExports env) packageModules of
@@ -290,7 +335,7 @@ compileEvalCase env tc = do
         Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
       -- This program contains only the fixture modules. The shared
       -- environment already holds aihc-prim and aihc-base.
-      pure (concatPrograms (map Fc.dsProgram results))
+      pure (concatPrograms (map Fc.dsProgram results), interfaceCapiWrappers localInterface)
     ResolveResult {resolveErrors} ->
       Left ("resolve error: " <> show resolveErrors)
 

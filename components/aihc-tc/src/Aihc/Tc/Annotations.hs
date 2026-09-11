@@ -17,6 +17,8 @@ module Aihc.Tc.Annotations
     TcForeignSafety (..),
     TcForeignEffect (..),
     TcForeignTarget (..),
+    TcForeignStub (..),
+    TcForeignStubKind (..),
     TcForeignMarshal (..),
     TcForeignAbiType (..),
     PendingTcAnnotation (..),
@@ -116,10 +118,43 @@ data TcForeignImportAnnotation = TcForeignImportAnnotation
   { tcForeignArguments :: ![TcForeignMarshal],
     tcForeignResult :: !TcForeignMarshal,
     tcForeignEffect :: !TcForeignEffect,
-    -- | The C symbol that the entity string names.
+    -- | The C symbol that the call names.  For a @capi@ import this is the
+    -- generated wrapper rather than the entity itself, see 'TcForeignStub'.
     tcForeignSymbol :: !Text,
-    tcForeignTarget :: !TcForeignTarget
+    tcForeignTarget :: !TcForeignTarget,
+    -- | The C wrapper that 'tcForeignSymbol' names, for a @capi@ import that
+    -- reaches its entity through a header.  A @ccall@ import calls its symbol
+    -- directly and has none.
+    tcForeignStub :: !(Maybe TcForeignStub)
   }
+  deriving (Eq, Show, Read)
+
+-- | The C wrapper a @capi@ import is called through.
+--
+-- A @capi@ entity is reached through the C API of its header rather than
+-- through the platform ABI, so it may be a macro, a @static inline@ function,
+-- or a constant.  None of those is a symbol a call can name.  The compiler
+-- therefore generates a C function that includes the header and performs the
+-- call or reads the constant, with a signature it chose itself; the Haskell
+-- call names that function.
+data TcForeignStub = TcForeignStub
+  { -- | The header the entity string names, included by the wrapper.  A
+    -- @capi@ entity may name none, and then the wrapper includes none, as GHC
+    -- does.
+    tcForeignStubHeader :: !(Maybe Text),
+    -- | The C entity the wrapper reaches: a function to call, or a constant
+    -- to read.
+    tcForeignStubEntity :: !Text,
+    tcForeignStubKind :: !TcForeignStubKind
+  }
+  deriving (Eq, Show, Read)
+
+-- | Whether a wrapper calls its entity or reads it as a value.
+data TcForeignStubKind
+  = -- | @foreign import capi "header.h f"@: the wrapper calls @f@.
+    TcForeignStubCall
+  | -- | @foreign import capi "header.h value x"@: the wrapper returns @x@.
+    TcForeignStubValue
   deriving (Eq, Show, Read)
 
 -- | The checked calling convention of a foreign import. The interface keeps

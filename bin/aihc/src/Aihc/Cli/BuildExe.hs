@@ -8,6 +8,7 @@ module Aihc.Cli.BuildExe
   )
 where
 
+import Aihc.Cli.CapiStub (noCapiStubOptions)
 import Aihc.Cli.Install
   ( InstallLocations (..),
     InstallResult (..),
@@ -157,7 +158,11 @@ runBuildExe options = do
             compilePackageRoot = currentDirectory,
             compilePackage = Package "exe" (PackageId "exe"),
             compileSourceFiles = sourceFiles,
-            compileDependencyRoots = map installedRoot selected
+            compileDependencyRoots = map installedRoot selected,
+            -- An executable built from loose sources has no Cabal file, so
+            -- its capi wrappers see only the headers the compiler finds by
+            -- itself.
+            compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest
   createDirectoryIfMissing True (takeDirectory output)

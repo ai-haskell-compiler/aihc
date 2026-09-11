@@ -46,7 +46,7 @@ import Aihc.Tc
     tyConArity,
     tyConName,
   )
-import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
+import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignStub (..), TcForeignStubKind (..), TcForeignTarget (..))
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types (mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when)
@@ -56,6 +56,7 @@ import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Word (Word64)
@@ -203,22 +204,46 @@ getForeignSafety = do
 
 putForeignPlan :: Map TyCon Word64 -> TcForeignImportAnnotation -> Builder.Builder
 putForeignPlan table plan =
-  cborArray 5
+  cborArray 6
     <> encodeList (putForeignMarshal table) (tcForeignArguments plan)
     <> putForeignMarshal table (tcForeignResult plan)
     <> putForeignEffect (tcForeignEffect plan)
     <> cborText (tcForeignSymbol plan)
     <> putForeignTarget (tcForeignTarget plan)
+    <> encodeList putForeignStub (maybeToList (tcForeignStub plan))
 
 getForeignPlan :: TyConTable -> Get.Get TcForeignImportAnnotation
 getForeignPlan table = do
-  expectArray 5
+  expectArray 6
   tcForeignArguments <- getList (getForeignMarshal table)
   tcForeignResult <- getForeignMarshal table
   tcForeignEffect <- getForeignEffect
   tcForeignSymbol <- getText
   tcForeignTarget <- getForeignTarget
-  pure TcForeignImportAnnotation {tcForeignArguments, tcForeignResult, tcForeignEffect, tcForeignSymbol, tcForeignTarget}
+  tcForeignStub <- listToMaybe <$> getList getForeignStub
+  pure TcForeignImportAnnotation {tcForeignArguments, tcForeignResult, tcForeignEffect, tcForeignSymbol, tcForeignTarget, tcForeignStub}
+
+-- | The wrapper of a @capi@ import.  The header is encoded as a list so that
+-- an absent header needs no separate tag.
+putForeignStub :: TcForeignStub -> Builder.Builder
+putForeignStub stub =
+  cborArray 3
+    <> encodeList cborText (maybeToList (tcForeignStubHeader stub))
+    <> cborText (tcForeignStubEntity stub)
+    <> cborWord (case tcForeignStubKind stub of TcForeignStubCall -> 0; TcForeignStubValue -> 1)
+
+getForeignStub :: Get.Get TcForeignStub
+getForeignStub = do
+  expectArray 3
+  tcForeignStubHeader <- listToMaybe <$> getList getText
+  tcForeignStubEntity <- getText
+  tag <- getWord
+  tcForeignStubKind <-
+    case tag of
+      0 -> pure TcForeignStubCall
+      1 -> pure TcForeignStubValue
+      _ -> fail "unsupported foreign stub kind"
+  pure TcForeignStub {tcForeignStubHeader, tcForeignStubEntity, tcForeignStubKind}
 
 putForeignMarshal :: Map TyCon Word64 -> TcForeignMarshal -> Builder.Builder
 putForeignMarshal table marshal =

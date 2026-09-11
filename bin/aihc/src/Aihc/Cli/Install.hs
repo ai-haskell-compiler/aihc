@@ -22,6 +22,7 @@ import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashCh
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
+    FileStamp (..),
     ModuleDigests (..),
     PackageDigests (..),
     ResolveStamp (..),
@@ -32,6 +33,7 @@ import Aihc.Cli.BuildStamp
     stampFiles,
     writeStamp,
   )
+import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments, moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -219,7 +221,12 @@ data ModuleOutputPaths = ModuleOutputPaths
     outputCpsGrinPath :: !FilePath,
     outputGcGrinPath :: !FilePath,
     outputNativePath :: !FilePath,
-    outputObjectPath :: !FilePath
+    outputObjectPath :: !FilePath,
+    -- | The C wrappers of the module's @capi@ imports, the object they
+    -- compile to, and the headers that compile read.
+    outputCapiSourcePath :: !FilePath,
+    outputCapiObjectPath :: !FilePath,
+    outputCapiDependencyPath :: !FilePath
   }
 
 data FcModule = FcModule
@@ -321,7 +328,9 @@ data ModuleCompileRequest = ModuleCompileRequest
     compilePackageRoot :: !FilePath,
     compilePackage :: !Package,
     compileSourceFiles :: ![HackageCabal.FileInfo],
-    compileDependencyRoots :: ![FilePath]
+    compileDependencyRoots :: ![FilePath],
+    -- | Where the capi wrappers of these modules look for their headers.
+    compileCapiStubOptions :: !CapiStubOptions
   }
 
 newtype ModuleCompileResult = ModuleCompileResult
@@ -378,6 +387,7 @@ data PackageTaskContext = PackageTaskContext
     taskDependencyPackages :: ![(Text, Text, Set.Set Text)],
     taskDependencyInstanceFacts :: !TcInterface,
     taskDependencyInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider)),
+    taskCapiStubOptions :: !CapiStubOptions,
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
   }
 
@@ -663,7 +673,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
   let storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId unitIdentity)
   (files, cCompileInfo) <- configurePackage config root storePath packageNameText inputs
-  compiled <- compileModulesWithDependencies config storePath root resolvePackage files dependencies
+  compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
       allTypes = compiledTypes compiled
@@ -673,12 +683,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       reused = compiledReused compiled
   unless (compileNoCode config) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
-        moduleObjects =
-          sortOn
-            id
-            [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
-            | source <- parsed
-            ]
+    moduleObjects <- moduleObjectPaths storePath target (map sourceName parsed)
     -- The archive follows its objects and the C sources. Both are known
     -- without reading the objects: a unit that wrote an object says so, and
     -- the C sources are hashed for the archive stamp.
@@ -752,23 +757,36 @@ compileModules config request = do
   compiled <-
     compileModulesWithDependencies
       config
+      (compileCapiStubOptions request)
       (compileOutputRoot request)
       (compilePackageRoot request)
       (compilePackage request)
       (compileSourceFiles request)
       dependencies
-  pure
-    ModuleCompileResult
-      { compileObjectPaths =
-          sortOn
-            id
-            [ outputObjectPath (moduleOutputPaths (compileOutputRoot request) (compileTarget config) (sourceName source))
-            | source <- compiledSources compiled
-            ]
-      }
+  objects <-
+    moduleObjectPaths
+      (compileOutputRoot request)
+      (compileTarget config)
+      (map sourceName (compiledSources compiled))
+  pure ModuleCompileResult {compileObjectPaths = objects}
 
-compileModulesWithDependencies :: ModuleCompileConfig -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> IO CompiledPackageModules
-compileModulesWithDependencies config outputRoot packageRoot resolvePackage files dependencies = do
+-- | The objects of a set of modules: one for each module, and the capi
+-- wrappers of those that declare any.
+--
+-- The wrappers are found on disk rather than reported by the backend,
+-- because a module whose artifacts were reused compiled nothing this time and
+-- still has the wrapper object it built before.  A module that no longer
+-- declares a capi import has had its wrapper object removed, so what is there
+-- is what belongs in the link.
+moduleObjectPaths :: FilePath -> NativeTarget -> [Text] -> IO [FilePath]
+moduleObjectPaths root target names = do
+  capiObjects <- filterM doesFileExist [outputCapiObjectPath (paths name) | name <- names]
+  pure (sortOn id ([outputObjectPath (paths name) | name <- names] <> capiObjects))
+  where
+    paths = moduleOutputPaths root target
+
+compileModulesWithDependencies :: ModuleCompileConfig -> CapiStubOptions -> FilePath -> FilePath -> Package -> [HackageCabal.FileInfo] -> [InstalledPackage] -> IO CompiledPackageModules
+compileModulesWithDependencies config capiOptions outputRoot packageRoot resolvePackage files dependencies = do
   let verbose = compileVerbose config
   verbose ("Parse " <> show (length files) <> " modules")
   capabilities <- getNumCapabilities
@@ -804,6 +822,7 @@ compileModulesWithDependencies config outputRoot packageRoot resolvePackage file
             taskDependencyPackages = dependencyPackages,
             taskDependencyInstanceFacts = dependencyInstanceFacts,
             taskDependencyInstanceProviders = dependencyInstanceProviders,
+            taskCapiStubOptions = capiOptions,
             taskBackendPhaseTimings = backendPhaseTimings
           }
   verbose ("Compute " <> show (length units) <> " SCC units")
@@ -1757,15 +1776,19 @@ reuseTypeUnit config storePath stampPath inputs = do
         if compileNoCode config
           then pure True
           else case unitStampBackend recorded of
-            Just backend | backendStampOptions backend == T.pack (backendOptionsKey config) -> filesMatchStamps storePath (backendStampFiles backend)
+            Just backend
+              | backendStampOptions backend == T.pack (backendOptionsKey config) ->
+                  -- A capi wrapper is rebuilt when a header it included
+                  -- changed, which nothing else in the build would notice.
+                  (&&) <$> filesMatchStamps storePath (backendStampFiles backend) <*> filesMatchStamps "" (backendStampHeaders backend)
             _ -> pure False
       pure (if frontendCurrent && backendCurrent then Just recorded else Nothing)
     _ -> pure Nothing
 
-writeUnitStamp :: FilePath -> PendingStamp -> Maybe (Text, [FilePath]) -> IO ()
+writeUnitStamp :: FilePath -> PendingStamp -> Maybe (Text, [FilePath], [FileStamp]) -> IO ()
 writeUnitStamp storePath pending backend = do
   files <- stampFiles storePath (pendingStampFrontendFiles pending)
-  backendStamp <- forM backend $ \(options, paths) -> BackendStamp options <$> stampFiles storePath paths
+  backendStamp <- forM backend $ \(options, paths, headers) -> BackendStamp options <$> stampFiles storePath paths <*> pure headers
   writeStamp
     (pendingStampPath pending)
     UnitStamp
@@ -1784,17 +1807,27 @@ runBackendUnit context runtime = do
     Just pending | typeUnitSuccess result -> do
       let config = taskModuleCompileConfig context
           storePath = taskStorePath context
-      phaseTimings <-
+      (phaseTimings, capiOutputs) <-
         compileCheckedModules
           config
+          (taskCapiStubOptions context)
           (compileVerbose config)
           (taskPrimIdentity context)
           (typeUnitDesugarInterface result)
           (moduleOutputPaths storePath (compileTarget config))
           (pendingDesugarConfigs pending)
           (pendingModules pending)
+      capiHeaders <- stampFiles "" (sortOn id (nub (concatMap capiStubHeaders capiOutputs)))
       forM_ (typeUnitPendingStamp result) $ \stamp ->
-        writeUnitStamp storePath stamp (Just (T.pack (backendOptionsKey config), unitBackendPaths config (runtimeUnit runtime)))
+        writeUnitStamp
+          storePath
+          stamp
+          ( Just
+              ( T.pack (backendOptionsKey config),
+                unitBackendPaths config (runtimeUnit runtime) <> capiStubPaths (compileTarget config) capiOutputs,
+                capiHeaders
+              )
+          )
       ended <- getMonotonicTimeNSec
       atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> withOtherTime started ended phaseTimings, ()))
     _ -> do
@@ -1923,12 +1956,12 @@ renderBackendPhaseTotals timings =
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
 
-compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO BackendPhaseTimings
-compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
+compileCheckedModules :: ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO (BackendPhaseTimings, [CapiStubOutput])
+compileCheckedModules config capiOptions verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
+  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
   (splitModules, desugarNs) <- measureTime $ do
     let kinds = primKinds primIdentity
         bindings = concatMap (tcModuleBindings (primTcWiring primIdentity)) checkedModules
-        moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
         -- A module the resolver did not report on keeps every name public.
         desugarConfig name =
           Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
@@ -1974,13 +2007,18 @@ compileCheckedModules config verbose primIdentity interface outputPaths desugarC
     mapM_ writeNativeSourceFile nativeModules
     mapM_ compileNativeSourceFile nativeModules
     unless keepNative (mapM_ removeNativeSourceFile nativeModules)
+  -- The wrappers are part of the native phase: they are the last objects the
+  -- backend writes for a unit.
+  (capiOutputs, capiNs) <- measureTime (concat <$> mapM buildCapiStub moduleNames)
   pure
-    BackendPhaseTimings
-      { backendDesugarNs = desugarNs,
-        backendGrinNs = grinNs,
-        backendNativeNs = nativeNs,
-        backendOtherNs = 0
-      }
+    ( BackendPhaseTimings
+        { backendDesugarNs = desugarNs,
+          backendGrinNs = grinNs,
+          backendNativeNs = nativeNs + capiNs,
+          backendOtherNs = 0
+        },
+      capiOutputs
+    )
   where
     keepCore = compileKeepCore config
     keepGrin = compileKeepGrin config
@@ -2004,6 +2042,35 @@ compileCheckedModules config verbose primIdentity interface outputPaths desugarC
         writeFile (outputGcGrinPath paths) ""
       when (compileKeepNative config) (writeFile (outputNativePath paths) "")
       verbose ("Write empty object: " <> T.unpack name)
+
+    -- The C wrappers of a module's capi imports are compiled beside its
+    -- object and archived with it, so a module that declares none must leave
+    -- no wrapper object behind for the archive to pick up.
+    buildCapiStub name = do
+      let paths = outputPaths name
+          wrappers = moduleCapiWrappers name interface
+      case renderCapiStub name wrappers of
+        Nothing -> do
+          mapM_ removeFileIfPresent [outputCapiSourcePath paths, outputCapiObjectPath paths, outputCapiDependencyPath paths]
+          pure []
+        Just source -> do
+          createDirectoryIfMissing True (takeDirectory (outputCapiSourcePath paths))
+          TIO.writeFile (outputCapiSourcePath paths) source
+          arguments <- capiStubArguments target (compileOptimization config) capiOptions
+          verbose ("Compile capi wrappers: " <> T.unpack name)
+          (compiler, _) <- backendCompiler target
+          runTool
+            compiler
+            ( arguments
+                <> ["-MD", "-MF", outputCapiDependencyPath paths]
+                <> ["-c", outputCapiSourcePath paths, "-o", outputCapiObjectPath paths]
+            )
+          recorded <- readFile (outputCapiDependencyPath paths)
+          source' <- canonicalizePath (outputCapiSourcePath paths)
+          -- The stub itself is a prerequisite of its own object, and it is
+          -- already recorded as an output of this unit.
+          headers <- filter (/= source') <$> mapM canonicalizePath (parseDependencyFile recorded)
+          pure [CapiStubOutput name (sortOn id (nub headers))]
 
     writeFcModule fcModule = do
       let name = fcModuleName fcModule
@@ -2098,11 +2165,15 @@ moduleOutputPaths storePath target name =
       outputCpsGrinPath = directory </> "cps.grin",
       outputGcGrinPath = directory </> "gc.grin",
       outputNativePath = objectPath <> nativeSourceExtension target,
-      outputObjectPath = objectPath
+      outputObjectPath = objectPath,
+      outputCapiSourcePath = capiPath <> ".c",
+      outputCapiObjectPath = capiPath <> ".o",
+      outputCapiDependencyPath = capiPath <> ".d"
     }
   where
     directory = storePath </> moduleNameDirectory name
     objectPath = directory </> T.unpack name <> ".o"
+    capiPath = directory </> T.unpack name <> ".capi"
 
 withFinalNewline :: String -> String
 withFinalNewline rendered
@@ -2116,6 +2187,40 @@ cabalPlatformForTarget target =
     LinuxAmd64 -> (Linux, X86_64)
     Llvm -> (buildOS, buildArch)
     Wasm32Wasip3 -> (Wasi, Wasm32)
+
+-- | What a module's capi wrappers were compiled from and what they read.
+--
+-- The headers come from the dependency file the compile wrote, so a wrapper
+-- is rebuilt when a header it included changes, even though nothing else in
+-- the compiler ever read that header.
+data CapiStubOutput = CapiStubOutput
+  { capiStubModule :: !Text,
+    capiStubHeaders :: ![FilePath]
+  }
+  deriving (Eq, Show)
+
+-- | The include directories and options of a package, which its capi wrappers
+-- are compiled with just as its own C sources are.
+capiStubOptions :: [HackageCabal.FileInfo] -> HackageCabal.CCompileInfo -> CapiStubOptions
+capiStubOptions files info =
+  CapiStubOptions
+    { capiStubIncludeDirs = nub (concatMap HackageCabal.fileInfoIncludeDirs files <> HackageCabal.cCompileIncludeDirs info),
+      capiStubCcOptions = HackageCabal.cCompileCcOptions info
+    }
+
+-- | What the capi wrappers of a unit add to its recorded backend outputs.
+capiStubPaths :: NativeTarget -> [CapiStubOutput] -> [FilePath]
+capiStubPaths target outputs =
+  [ path
+  | output <- outputs,
+    let paths = moduleOutputPaths "" target (capiStubModule output),
+    path <- [outputCapiSourcePath paths, outputCapiObjectPath paths, outputCapiDependencyPath paths]
+  ]
+
+removeFileIfPresent :: FilePath -> IO ()
+removeFileIfPresent path = do
+  exists <- doesFileExist path
+  when exists (removeFile path)
 
 compilePackageCFiles :: NativeTarget -> OptimizationLevel -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
 compilePackageCFiles target level verbose packageRoot storePath info
@@ -2510,4 +2615,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-21"
+packageArtifactFormatVersion = "aihc-artifacts-22"
