@@ -4,7 +4,7 @@
 -- per test.
 --
 -- Installing anything into an empty store compiles aihc-prim from source
--- first, and @build-module@ additionally needs aihc-base. Measured against a cold
+-- first, and @build@ additionally needs aihc-base. Measured against a cold
 -- store, installing a two-module package allocates ~21 GB; against a store
 -- that already holds aihc-prim the same install allocates ~5 MB. aihc-base
 -- costs a further ~520 GB. Every test used to pay the cold price into its own
@@ -25,7 +25,7 @@ module Test.Aihc.SeedStore
     withSandbox,
     seededPackagePath,
     installTestTargets,
-    buildModuleHostTarget,
+    buildHostTarget,
     findCoreLibraryRoot,
     prebuiltStoreVariable,
   )
@@ -110,15 +110,15 @@ installTestTargets = do
       <> [Wasm32Wasip3 | wasm && foreignArchives]
 
 -- | Every target the seed store holds aihc-prim for: what the install tests
--- ask for, plus whatever @build-module@ compiles to. Seeding the extra targets is
+-- ask for, plus whatever @build@ compiles to. Seeding the extra targets is
 -- cheap because the frontend Core is shared across them.
 primSeedTargets :: IO [NativeTarget]
-primSeedTargets = nub . (buildModuleHostTarget :) <$> installTestTargets
+primSeedTargets = nub . (buildHostTarget :) <$> installTestTargets
 
--- | The target @build-module@ compiles for, and therefore the target aihc-base is
+-- | The target @build@ compiles for, and therefore the target aihc-base is
 -- seeded for.
-buildModuleHostTarget :: NativeTarget
-buildModuleHostTarget = fromMaybe Llvm hostNativeTarget
+buildHostTarget :: NativeTarget
+buildHostTarget = fromMaybe Llvm hostNativeTarget
 
 -- | Seed aihc-prim for every target the install tests use.
 acquirePrimStore :: IO SeedStore
@@ -128,7 +128,7 @@ acquirePrimStore =
     targets <- primSeedTargets
     forM_ targets (installCoreLibrary primRoot root)
 
--- | Seed aihc-prim and aihc-base. Only @build-module@ needs aihc-base, so this is
+-- | Seed aihc-prim and aihc-base. Only @build@ needs aihc-base, so this is
 -- a separate resource: tasty initialises it only when one of those tests runs,
 -- and the @install@ tests never pay for it.
 acquireCoreStore :: IO SeedStore -> IO SeedStore
@@ -139,7 +139,7 @@ acquireCoreStore getPrimStore =
     primStore <- getPrimStore
     copyWritable (seedStoreRoot primStore) root
     baseRoot <- findCoreLibraryRoot "aihc-base"
-    installCoreLibrary baseRoot root buildModuleHostTarget
+    installCoreLibrary baseRoot root buildHostTarget
 
 -- | Use the store CI handed us, or build one in a temporary directory that is
 -- cleaned up if the seeding itself fails. The two stores are kept separate in

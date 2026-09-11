@@ -1,13 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The @build@ command: every executable of one Cabal package.
+-- | The @build@ command.
 --
--- The package comes from a local directory or from Hackage, as @install@
--- takes it. Its executables are found in the Cabal file, and each is built
--- from the sources and the @build-depends@ its own stanza declares. The
--- library of the package, when an executable depends on it, is installed
--- like any other dependency: in place under the build directory for a local
--- package, and into the store for a Hackage release.
+-- A Haskell source file is the main module of one executable, which
+-- "Aihc.Cli.BuildModule" builds from the source directories and package
+-- constraints of the command line. Anything else is a Cabal package: a local
+-- directory, or a Hackage release named as @install@ names it. Its
+-- executables are found in the Cabal file, and each is built from the
+-- sources and the @build-depends@ its own stanza declares. The library of
+-- the package, when an executable depends on it, is installed like any
+-- other dependency: in place under the build directory for a local package,
+-- and into the store for a Hackage release.
 module Aihc.Cli.Build
   ( build,
     runBuild,
@@ -23,6 +26,7 @@ import Aihc.Cli.BuildModule
     installedPackage,
     planConstraint,
     requirePackageArchive,
+    runBuildModule,
     validateSelectedPackageNames,
   )
 import Aihc.Cli.Install
@@ -53,6 +57,7 @@ import Aihc.PackagePlan
     localDependencyResolverWithFallback,
     packageSpecFromSource,
     parseSourcePackageDescription,
+    workspaceDependencyResolver,
   )
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Monad (forM, when)
@@ -60,7 +65,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.Directory (canonicalizePath, createDirectoryIfMissing, getCurrentDirectory)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
 import System.FilePath (takeDirectory, (<.>), (</>))
 
 runBuild :: BuildOptions -> IO ()
@@ -69,13 +74,22 @@ runBuild options = do
   let label = if buildNoLink options then "bundle: " else "executable: "
   mapM_ (putStrLn . (label <>)) outputs
 
--- | Build every executable of the package and return the paths they were
--- written to, or the paths of their link bundles with @--no-link@.
+-- | Build what the input names and return the paths of the executables, or
+-- of their link bundles with @--no-link@. An existing file is a main
+-- module; everything else is a package.
 build :: BuildOptions -> IO [FilePath]
 build options = do
+  isFile <- doesFileExist (buildInput options)
+  if isFile
+    then pure <$> runBuildModule options
+    else buildPackage options
+
+-- | Build every executable of the Cabal package the input names.
+buildPackage :: BuildOptions -> IO [FilePath]
+buildPackage options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
-  (root, origin) <- resolveInstallTarget (buildPackageTarget options)
+  (root, origin) <- resolveInstallTarget (buildInput options)
   spec <- packageSpecFromSource root
   gpd <- parseSourcePackageDescription root
   let target = buildTarget options
@@ -90,7 +104,7 @@ build options = do
           (if origin == PlanLocal then defaultBuildRoot root else currentDirectory </> ".aihc-target")
           (buildBuildRoot options)
       buildRoot = localBuildRoot </> targetDirectory
-      outputDirectory = fromMaybe (buildRoot </> "bin") (buildOutputDirectory options)
+      outputDirectory = fromMaybe (buildRoot </> "bin") (buildOutput options)
   executables <- HackageCabal.collectExecutablesFor os arch gpd root
   when (null executables) $
     ioError (userError ("The package " <> pkgName spec <> " has no buildable executable"))
@@ -109,10 +123,11 @@ build options = do
             compilePrintTimings = const (pure ()),
             compileUseColor = False
           }
-      -- The package itself and its siblings resolve locally before Hackage,
-      -- so an executable that depends on the library of its own package
-      -- finds it in the source tree.
-      resolver = localDependencyResolverWithFallback networkDependencyResolver root spec
+      -- The package itself and its siblings resolve locally before the
+      -- workspace and Hackage, so an executable that depends on the library
+      -- of its own package finds it in the source tree.
+      fallback = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildWorkspace options)
+      resolver = localDependencyResolverWithFallback fallback root spec
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,

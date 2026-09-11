@@ -146,7 +146,7 @@
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   # Test.Aihc.SeedStore installs aihc-prim for apple-arm64 and llvm always, and
   # for linux-amd64 and wasm32-wasip3 when the toolchain supports them, which it
-  # does inside the sandbox. aihc-base is only needed for the target build-module
+  # does inside the sandbox. aihc-base is only needed for the target build
   # compiles for, which is the host backend.
   specSeedPrimTargets =
     pkgs.lib.unique (["apple-arm64" "llvm" "linux-amd64" "wasm32-wasip3"] ++ [specSeedBaseTarget]);
@@ -191,7 +191,7 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} build-module "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} build "$source" \
       --target ${backend} \
       --gc ${gc} \
       --store "$store" \
@@ -271,7 +271,7 @@
     if [[ -f "$example_directory/exit.wasm32-wasip3" ]]; then
       expected_exit=$(<"$example_directory/exit.wasm32-wasip3")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} build-module "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} build "$source" \
       --target wasm32-wasip3 \
       --store "$store" \
       --build-root "$TMPDIR/.aihc-target" \
@@ -443,7 +443,7 @@
     '';
 
   # The store the aihc test suite works against. Installing anything into an
-  # empty store compiles aihc-prim first, and the build-module tests additionally
+  # empty store compiles aihc-prim first, and the build tests additionally
   # need aihc-base; the suite used to pay that per test, which was most of what
   # it allocated. Building the store here instead hands the tests a warm one
   # through AIHC_PREBUILT_STORE and keeps the result in the Nix cache across
@@ -476,7 +476,7 @@
         '')
         specSeedPrimTargets}
 
-      # The install tests want aihc-prim on its own and build-module wants
+      # The install tests want aihc-prim on its own and build wants
       # aihc-base as well. Keeping them apart matches what the suite builds for
       # itself outside CI, so a test sees the same store either way.
       cp -R --no-preserve=mode "$out/prim" "$out/core"
@@ -686,7 +686,7 @@
     then exampleToolchainFor target
     else hackageStoreAllFor target;
 
-  # build-module computes the store directory of each package from its plan, which
+  # build computes the store directory of each package from its plan, which
   # reads the Cabal files of the package and its dependencies. The extra
   # packages of an example therefore come with their sources in a workspace.
   exampleWorkspaceFor = exampleName: let
@@ -706,7 +706,7 @@
     pkgs.lib.concatMapStringsSep " " (name: "--package ${pkgs.lib.escapeShellArg name}") extraNames
     + pkgs.lib.optionalString (extraNames != []) " --workspace ${exampleWorkspaceFor exampleName}";
 
-  # The plan of an executable names the core libraries, so build-module needs
+  # The plan of an executable names the core libraries, so build needs
   # their Cabal files even when the store already holds them.
   exportCoreLibsRoot = ''
     coreLibsRoot="$TMPDIR/aihc-core-libs-root"
@@ -950,7 +950,7 @@
         ${exportCoreLibsRoot}
         package_flags=(${examplePackageFlags exampleName})
         store=${storeFor exampleName}
-        timeout --foreground --kill-after=5s 300s ${aihcExe} build-module "examples/$example_name/Main.hs" \
+        timeout --foreground --kill-after=5s 300s ${aihcExe} build "examples/$example_name/Main.hs" \
           --target ${target} \
           --gc semispace \
           --store "$store" \

@@ -31,7 +31,7 @@ import Aihc.Cli.Install
     networkDependencyResolver,
   )
 import Aihc.Cli.Install qualified as Install
-import Aihc.Cli.Options (BuildModuleOptions (..), GarbageCollector, LinkExeOptions (..))
+import Aihc.Cli.Options (BuildOptions (..), GarbageCollector, LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
@@ -114,16 +114,18 @@ data InstalledModule = InstalledModule
 
 type InstalledModuleIndex = Map.Map Text [InstalledModule]
 
-runBuildModule :: BuildModuleOptions -> IO ()
+-- | Build one executable from its main module and return the path of the
+-- executable, or of its link bundle.
+runBuildModule :: BuildOptions -> IO FilePath
 runBuildModule options = do
-  storeRoot <- maybe defaultStoreRoot pure (buildModuleStoreRoot options)
+  storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
-  let target = buildModuleTarget options
+  let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
-      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildModuleBuildRoot options)
+      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
       buildRoot = localBuildRoot </> targetDirectory
-      sourceDirectories = case buildModuleSourceDirectories options of [] -> ["."]; values -> values
-      output = fromMaybe (dropExtension (buildModuleSourceFile options)) (buildModuleOutputFile options)
+      sourceDirectories = case buildSourceDirectories options of [] -> ["."]; values -> values
+      output = fromMaybe (dropExtension (buildInput options)) (buildOutput options)
   buildIdentity <- buildEnvironmentIdentity target
   let compileConfig =
         ModuleCompileConfig
@@ -131,19 +133,19 @@ runBuildModule options = do
             compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,
-            compileLint = buildModuleLint options,
+            compileLint = buildLint options,
             compileNoCode = False,
-            compileOptimization = buildModuleOptimization options,
+            compileOptimization = buildOptimization options,
             compileTarget = target,
-            compileVerbose = const (pure ()),
+            compileVerbose = when (buildVerbose options) . putStrLn,
             compilePrintTimings = const (pure ()),
             compileUseColor = False
           }
-  constraints <- mapM parsePackageConstraint (buildModulePackageConstraints options)
+  constraints <- mapM parsePackageConstraint (buildPackageConstraints options)
   -- The packages of an executable are installed like any other: the plan
   -- names them, their fingerprints name the store directories, and a
   -- directory that is absent is built. Nothing lists the store.
-  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildModuleWorkspace options)
+  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildWorkspace options)
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,
@@ -157,7 +159,7 @@ runBuildModule options = do
   validateSelectedPackageNames selected
   mapM_ requirePackageArchive selected
   let moduleIndex = buildInstalledModuleIndex selected
-  sources <- discoverSources sourceDirectories moduleIndex (buildModuleSourceFile options)
+  sources <- discoverSources sourceDirectories moduleIndex (buildInput options)
   validateInstalledDependencies moduleIndex sources
   sourceFiles <- materializeSourceFiles buildRoot selected sources
   let compileRequest =
@@ -173,7 +175,8 @@ runBuildModule options = do
             compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest
-  finishExecutable storeRoot target (buildModuleGarbageCollector options) (buildModuleNoLink options) output (compileObjectPaths compiled) selected
+  finishExecutable storeRoot target (buildGarbageCollector options) (buildNoLink options) output (compileObjectPaths compiled) selected
+  pure output
 
 -- | Turn the objects of the modules of an executable and its installed
 -- packages into the executable, or into a link bundle when the link is
