@@ -1,0 +1,34 @@
+extensions:
+  - PartialTypeSignatures
+  - MagicHash
+  - LambdaCase
+modules:
+  - |
+    {-# LANGUAGE PartialTypeSignatures, MagicHash, LambdaCase #-}
+    module CaseMapping where
+
+    import GHC.Int
+    import GHC.Exts
+
+    unI64 :: Int64 -> _
+    unI64 (I64# n) = n
+
+    upperMapping :: Char# -> _
+    {-# NOINLINE upperMapping #-}
+    upperMapping = \case
+      'a'# -> unI64 65
+      _ -> unI64 0
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Int
+    import CaseMapping
+
+    result :: Int64
+    result = I64# (upperMapping 'a'#)
+output: |
+  I64# 65
+expression: result
+status: pass
+reason: a zero-argument wildcard binding calls another wildcard binding before its own check and exports the filled-in type, as in text's CaseMapping
