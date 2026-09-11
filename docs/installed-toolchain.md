@@ -53,6 +53,20 @@ Runtime archives use keys for the target and garbage collector. An incomplete st
 an error; application compilation never fills in missing artifacts by rebuilding
 source dependencies.
 
+## Preprocessed sources
+
+A module that a package ships as a `.hsc` file goes through `hsc2hs` before
+aihc reads it, as it does under Cabal. The suffix selects the tool; the cabal
+file does not have to name it. The tool is found on the `PATH`, or named with
+`AIHC_HSC2HS`; the standalone Hackage `hsc2hs` is preferred over the wrapper
+that ships with GHC, which adds GHC's own C flags and include directory.
+
+hsc2hs always runs in its cross-compilation mode, with the C compiler and
+flags of the target, so the constants it reads are the target's and no
+program is run. The generated module lands under the package's output path
+for that target, in `preprocess/`, next to the `configure/` directory of a
+`build-type: Configure` package, whose headers it can include.
+
 ## Linking on another host
 
 `aihc build-exe --no-link` stops before the link and writes a bundle

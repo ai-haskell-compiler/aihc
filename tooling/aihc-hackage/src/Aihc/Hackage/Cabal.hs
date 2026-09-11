@@ -31,6 +31,10 @@ module Aihc.Hackage.Cabal
     buildToolDependencyNames,
     packageUsesCustomPreprocessor,
 
+    -- * Preprocessors
+    Preprocessor (..),
+    filePreprocessor,
+
     -- * Extension / language extraction
     extractExtensions,
     extractLanguage,
@@ -39,6 +43,7 @@ module Aihc.Hackage.Cabal
   )
 where
 
+import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
 import Data.List (isPrefixOf, nub)
@@ -130,7 +135,7 @@ import Distribution.Types.UnqualComponentName (UnqualComponentName, unUnqualComp
 import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath (takeDirectory, (<.>), (</>))
+import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
 
 -- | Information about a Haskell source file discovered via a @.cabal@ file.
 data FileInfo = FileInfo
@@ -144,9 +149,17 @@ data FileInfo = FileInfo
     -- | Default language from the @default-language@ field.
     fileInfoLanguage :: Maybe String,
     -- | Build dependency package names.
-    fileInfoDependencies :: [Text]
+    fileInfoDependencies :: [Text],
+    -- | The tool that turns the file into Haskell, when its suffix names one.
+    -- The file at 'fileInfoPath' is that tool's input; a plain Haskell
+    -- source has none.
+    fileInfoPreprocessor :: Maybe Preprocessor
   }
   deriving (Show)
+
+-- | The preprocessor a source file's suffix selects.
+filePreprocessor :: FilePath -> Maybe Preprocessor
+filePreprocessor path = preprocessorForExtension (drop 1 (takeExtension path))
 
 -- | C compile inputs from the active library @c-sources@, @include-dirs@, and
 -- @cc-options@ fields.
@@ -312,7 +325,7 @@ libraryFilesFor pkgDescr evalCond packageRoot libName tree = do
       paths <- moduleFilesForBuildInfo packageRoot build moduleNames
       generatedPaths <- generatedPathsFiles packageRoot pkgDescr (libraryComponentName libName) moduleNames
       pure $
-        [FileInfo path exts cppOpts includeSearchDirs lang deps | path <- paths]
+        [FileInfo path exts cppOpts includeSearchDirs lang deps (filePreprocessor path) | path <- paths]
           <> [generatedPathsFileInfo path | path <- generatedPaths]
 
 executableFilesFor :: PackageDescription -> (Condition ConfVar -> Bool) -> FilePath -> UnqualComponentName -> CondTree ConfVar c Executable -> IO [FileInfo]
@@ -333,7 +346,7 @@ executableFilesFor pkgDescr evalCond packageRoot exeName tree = do
       mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
       generatedPaths <- generatedPathsFiles packageRoot pkgDescr (CExeName exeName) moduleNames
       pure $
-        [FileInfo path exts cppOpts includeSearchDirs lang deps | path <- moduleFiles <> mainFiles]
+        [FileInfo path exts cppOpts includeSearchDirs lang deps (filePreprocessor path) | path <- moduleFiles <> mainFiles]
           <> [generatedPathsFileInfo path | path <- generatedPaths]
 
 libraryComponentName :: LibraryName -> ComponentName
@@ -422,7 +435,8 @@ generatedPathsFileInfo path =
       fileInfoCppOptions = [],
       fileInfoIncludeDirs = [],
       fileInfoLanguage = Nothing,
-      fileInfoDependencies = [T.pack "base"]
+      fileInfoDependencies = [T.pack "base"],
+      fileInfoPreprocessor = Nothing
     }
 
 generatedPathsFiles :: FilePath -> PackageDescription -> ComponentName -> [ModuleName.ModuleName] -> IO [FilePath]

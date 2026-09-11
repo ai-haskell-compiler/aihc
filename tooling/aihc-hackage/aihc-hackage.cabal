@@ -16,6 +16,7 @@ library
     Aihc.Hackage.Cpp
     Aihc.Hackage.Download
     Aihc.Hackage.Index
+    Aihc.Hackage.Preprocessor
     Aihc.Hackage.Release
     Aihc.Hackage.Types
     Aihc.Hackage.Util
