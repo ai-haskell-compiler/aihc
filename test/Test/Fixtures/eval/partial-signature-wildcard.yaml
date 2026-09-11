@@ -1,0 +1,29 @@
+extensions:
+  - PartialTypeSignatures
+  - MagicHash
+  - LambdaCase
+modules:
+  - |
+    {-# LANGUAGE PartialTypeSignatures, MagicHash, LambdaCase #-}
+    module Test where
+
+    import GHC.Exts
+
+    mapping :: Char# -> _
+    mapping = \case
+      'a'# -> 1#
+      _ -> 0#
+
+    boxed :: _ -> Int
+    boxed n = n + 1
+
+    ignored :: _ -> Int
+    ignored _ = 3
+
+    result :: Int
+    result = boxed (I# (mapping 'a'#)) + ignored True
+output: |
+  I# 5
+expression: result
+status: pass
+reason: a wildcard in a signature is filled in by the checked body, as in text's CaseMapping

@@ -19,11 +19,13 @@ import Aihc.Parser.Syntax
   ( Annotation,
     ArithSeq (..),
     CaseAlt (..),
+    CompStmt (..),
     Decl (..),
     DoStmt (..),
     Expr (..),
     GuardQualifier (..),
     GuardedRhs (..),
+    LambdaCaseAlt (..),
     Match (..),
     Name (..),
     NameType (..),
@@ -49,7 +51,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Kind (explicitForallNames, scopedSigTyVars, sigToScheme)
+import Aihc.Tc.Kind (explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -58,7 +60,7 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (foldM, forM_)
+import Control.Monad (foldM, forM_, when)
 import Data.Data (Data)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
@@ -719,6 +721,8 @@ tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
 tcMatchEquation inferExpr argTys resTy match = do
   let pats = matchPats match
       matchSpan = sourceSpanFromAnnotations (matchAnns match)
+  when (length pats > length argTys) $
+    abortTc ("internal type checker error: equation with " <> show (length pats) <> " patterns checked against " <> show (length argTys) <> " argument types")
   patCheck <- checkFunctionPatternsWithGivens matchSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
@@ -992,6 +996,10 @@ freeVarsExpr expr =
       innerVars <- freeVarsExpr inner
       insertSyntaxTermKey ann innerVars
     EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
+    ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
+    ELambdaCases alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
+    EViewPat view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
     ELambdaPats pats body -> do
       bodyVars <- freeVarsExpr body
       patVars <- Set.unions <$> mapM freeVarsPattern pats
@@ -1032,7 +1040,70 @@ freeVarsExpr expr =
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
     EDo stmts _ -> freeVarsDoStmts stmts
+    EListComp body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
+    EListCompParallel body branches -> do
+      bodyVars <- freeVarsExpr body
+      branchVars <- mapM (\stmts -> freeVarsCompStmts stmts (pure Set.empty)) branches
+      -- A parallel branch scopes over the body; its binders are removed
+      -- from the body variables by the branches that bind them.
+      binders <- Set.unions <$> mapM compStmtsBinderKeys branches
+      pure (Set.unions branchVars <> Set.difference bodyVars binders)
+    ERecordCon name fields _ ->
+      Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields)
+    ERecordUpd record fields ->
+      Set.union <$> freeVarsExpr record <*> (Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields)
+    EGetField record _ -> freeVarsExpr record
+    EUnboxedSum _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
+
+freeVarsLambdaCaseAlt :: LambdaCaseAlt -> TcM (Set.Set TcTermKey)
+freeVarsLambdaCaseAlt alt = do
+  vars <- freeVarsRhs (lambdaCaseAltRhs alt)
+  patVars <- Set.unions <$> mapM freeVarsPattern (lambdaCaseAltPats alt)
+  binders <- Set.unions <$> mapM patternBinderKeys (lambdaCaseAltPats alt)
+  pure (Set.difference (vars <> patVars) binders)
+
+-- | The free variables of comprehension statements and of the body they
+-- scope over. A generator or a let statement binds names for the later
+-- statements and the body.
+freeVarsCompStmts :: [CompStmt] -> TcM (Set.Set TcTermKey) -> TcM (Set.Set TcTermKey)
+freeVarsCompStmts stmts bodyVars =
+  case stmts of
+    [] -> bodyVars
+    CompAnn _ inner : rest -> freeVarsCompStmts (inner : rest) bodyVars
+    CompGen pat source : rest -> do
+      sourceVars <- freeVarsExpr source
+      patVars <- freeVarsPattern pat
+      binders <- patternBinderKeys pat
+      restVars <- freeVarsCompStmts rest bodyVars
+      pure (sourceVars <> patVars <> Set.difference restVars binders)
+    CompGuard condition : rest ->
+      Set.union <$> freeVarsExpr condition <*> freeVarsCompStmts rest bodyVars
+    CompLetDecls decls : rest -> do
+      declVars <- freeVarsDecls decls
+      binders <- declBinderKeys decls
+      restVars <- freeVarsCompStmts rest bodyVars
+      pure (Set.difference (declVars <> restVars) binders)
+    CompThen function : rest ->
+      Set.union <$> freeVarsExpr function <*> freeVarsCompStmts rest bodyVars
+    CompThenBy function key : rest ->
+      Set.unions <$> sequence [freeVarsExpr function, freeVarsExpr key, freeVarsCompStmts rest bodyVars]
+    CompGroupUsing function : rest ->
+      Set.union <$> freeVarsExpr function <*> freeVarsCompStmts rest bodyVars
+    CompGroupByUsing key function : rest ->
+      Set.unions <$> sequence [freeVarsExpr key, freeVarsExpr function, freeVarsCompStmts rest bodyVars]
+
+-- | The names that comprehension statements bind.
+compStmtsBinderKeys :: [CompStmt] -> TcM (Set.Set TcTermKey)
+compStmtsBinderKeys stmts =
+  Set.unions <$> mapM binderKeys stmts
+  where
+    binderKeys stmt =
+      case stmt of
+        CompAnn _ inner -> compStmtsBinderKeys [inner]
+        CompGen pat _ -> patternBinderKeys pat
+        CompLetDecls decls -> declBinderKeys decls
+        _ -> pure Set.empty
 
 -- | Add the syntax term that a resolver annotation names, if it names one.
 --
@@ -1110,18 +1181,4 @@ hasPartialTypeSig :: Decl -> Bool
 hasPartialTypeSig decl =
   case peelDeclAnn decl of
     DeclTypeSig _ ty -> hasWildcardType ty
-    _ -> False
-
-hasWildcardType :: Type -> Bool
-hasWildcardType ty =
-  case ty of
-    TWildcard -> True
-    TApp f a -> hasWildcardType f || hasWildcardType a
-    TFun _ a b -> hasWildcardType a || hasWildcardType b
-    TParen inner -> hasWildcardType inner
-    TAnn _ inner -> hasWildcardType inner
-    TContext preds inner -> any hasWildcardType preds || hasWildcardType inner
-    TForall _ inner -> hasWildcardType inner
-    TTuple _ _ args -> any hasWildcardType args
-    TList _ args -> any hasWildcardType args
     _ -> False

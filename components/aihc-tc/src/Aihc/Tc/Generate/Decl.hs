@@ -135,7 +135,7 @@ import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -198,7 +198,10 @@ data CheckedSig = CheckedSig
     checkedSigSpan :: !SourceSpan,
     -- | The names of the explicit @forall@ variables. They scope over the
     -- binding.
-    checkedSigScopedNames :: ![Text]
+    checkedSigScopedNames :: ![Text],
+    -- | Whether the signature has a wildcard. The checked body fills the
+    -- wildcard in, and the binding is generalized over what it leaves open.
+    checkedSigPartial :: !Bool
   }
   deriving (Show)
 
@@ -2197,7 +2200,8 @@ checkUserSig userSig = do
       { checkedSigName = userSigName userSig,
         checkedSigScheme = scheme,
         checkedSigSpan = userSigSpan userSig,
-        checkedSigScopedNames = explicitForallNames (userSigType userSig)
+        checkedSigScopedNames = explicitForallNames (userSigType userSig),
+        checkedSigPartial = hasWildcardType (userSigType userSig)
       }
 
 splitContext :: Type -> ([Type], Type)
@@ -2435,7 +2439,7 @@ tcSingleDeclGroup sigs groupId d =
           (maybeMatches, bindings) <-
             case Map.lookup key sigs of
               Just sig ->
-                tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+                tcTopLevelWithSig key displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
               Nothing ->
                 tcFunctionInfer key displayName name [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
@@ -2561,7 +2565,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
         Just layout -> do
           let scheme = patSynLayoutScheme layout
           when (Map.notMember key sigs) $
-            registerCheckedSig key (CheckedSig name scheme nameSpan [])
+            registerCheckedSig key (CheckedSig name scheme nameSpan [] False)
           matcherSig <- patSynMatcherSig matcherName nameSpan layout
           registerCheckedSig matcherKey matcherSig
           (maybeMatcherMatches, matcherResults) <- tcFunctionWithSig matcherName matcherName matcherSig [matcherMatch]
@@ -2569,7 +2573,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
           case maybeMatcherMatches of
             Just [matcherMatch'] -> do
               checkedPat <- maybe (abortTc ("pattern synonym " <> T.unpack name <> " lost its checked pattern")) pure (matcherPattern matcherMatch')
-              let builderSig = CheckedSig builderName scheme nameSpan []
+              let builderSig = CheckedSig builderName scheme nameSpan [] False
               (direction, sourceBuilder) <-
                 case patSynDeclDir patSyn of
                   PatSynUnidirectional -> pure (PatSynUnidirectionalInfo, Just Nothing)
@@ -2772,7 +2776,7 @@ patSynMatcherSig matcherName sp layout = do
           provided -> TcQualTy provided continuationBody
       continuation = foldr TcForAllTy qualifiedContinuation (patSynLayoutExistentials layout)
       matcherTy = TcFunTy (patSynLayoutResultType layout) (TcFunTy continuation (TcFunTy resultTy resultTy))
-  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [result]) (patSynLayoutRequired layout) matcherTy) sp [])
+  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [result]) (patSynLayoutRequired layout) matcherTy) sp [] False)
 
 -- | Give a checked matcher or builder the type of its checked body. The
 -- signature check closes the body over fresh skolems, and the desugarer
@@ -2819,7 +2823,7 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
       | otherwise = do
           let key = TcTermGlobal package moduleName' field
               scheme = ForAll (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
-              sig = CheckedSig field scheme nameSpan []
+              sig = CheckedSig field scheme nameSpan [] False
           registerCheckedSig key sig
           (maybeMatches, results) <- tcFunctionWithSig field field sig [patSynSelectorMatch pat argBinder]
           commitCheckedHelper key field results
@@ -3022,14 +3026,41 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
       displayName = renderBinderName binder
   key <- resolvedUnqualifiedTermKey binder
   (maybeMatches, bindings) <- case Map.lookup key sigs of
-    Just sig -> do
+    Just sig ->
       -- Use the declared type signature for checking.
-      tcFunctionWithSig displayName name sig matches
+      tcTopLevelWithSig key displayName name sig matches
     Nothing -> do
       -- No signature: infer the type.
       tcFunctionInfer key displayName name matches
   let annotatedDecls = fmap (`replaceFunctionDeclMatches` decls) maybeMatches
   pure (TcDeclGroupResult groupId bindings annotatedDecls)
+
+-- | Check a top-level binding against its signature. A partial signature
+-- is then closed over what its wildcards left open.
+tcTopLevelWithSig :: TcTermKey -> Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcTopLevelWithSig key displayName name sig matches = do
+  (maybeMatches, bindings) <- tcFunctionWithSig displayName name sig matches
+  bindings' <-
+    if checkedSigPartial sig
+      then mapM (generalizePartialSigBinding name key) bindings
+      else pure bindings
+  pure (maybeMatches, bindings')
+
+-- | Close a binding with a partial signature over the wildcards its body
+-- left open, as GHC infers the rest of a partial signature. The binder
+-- registered from the signature still mentions the wildcard
+-- meta-variables, so it is replaced by the generalized scheme.
+generalizePartialSigBinding :: Text -> TcTermKey -> TcBindingResult -> TcM TcBindingResult
+generalizePartialSigBinding name key (TcBindingResult resultName displayName ty) = do
+  let ForAll sigTyVars sigPreds body = typeSchemeFromType ty
+  ForAll extraTyVars preds body' <-
+    generalizeAndCommitIgnoring (Set.fromList [unqualifiedTermKey name, key]) body sigPreds
+  let scheme = ForAll (sigTyVars <> extraTyVars) preds body'
+      binder = TcIdBinder scheme Closed
+  replaceTermKeyEnvPermanent (unqualifiedTermKey name) binder
+  replaceTermKeyEnvPermanent key binder
+  zonkedTy <- zonkType (schemeToType scheme)
+  pure (TcBindingResult resultName displayName zonkedTy)
 
 -- | Type-check a function with a known type signature.
 -- The signature's type variables are opened as rigid skolems so that
