@@ -22,6 +22,14 @@ would no longer point at a change in aihc.
 | containers | 0.8 |
 | bytestring | 0.12.2.0 |
 | binary | 0.8.9.3 |
+| transformers | 0.6.3.0 |
+| split | 0.2.5.1 |
+| pretty | 1.1.3.6 |
+| base64-bytestring | 1.2.1.0 |
+| base16-bytestring | 1.0.2.0 |
+| tagged | 0.8.10 |
+| dlist | 1.0 |
+| data-array-byte | 0.1.0.2 |
 
 ## Running it locally
 
