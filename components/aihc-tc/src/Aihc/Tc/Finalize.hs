@@ -11,7 +11,8 @@ where
 import Aihc.Parser.Syntax (Annotation, Module, TupleFlavor (..), fromAnnotation, mkAnnotation)
 import Aihc.Resolve.Traverse (traverseAnnotations)
 import Aihc.Tc.Annotations
-  ( PendingTcAnnotation (..),
+  ( CastDirection (..),
+    PendingTcAnnotation (..),
     PendingTcCastAnnotation (..),
     TcAnnotation (..),
     TcCastAnnotation (..),
@@ -49,13 +50,16 @@ finalizeModuleTc = traverseAnnotations finalizeAnnotationTc
 finalizeAnnotationTc :: Annotation -> TcM Annotation
 finalizeAnnotationTc ann =
   case fromAnnotation @PendingTcCastAnnotation ann of
-    Just (PendingTcCastAnnotation ty ev) -> do
+    Just (PendingTcCastAnnotation ty ev direction) -> do
       evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
       case evidence of
         EvCoercion (Refl _) -> pure (mkAnnotation ())
         EvCoercion proof -> do
-          rejectMeta "cast annotation" (firstMetaCoercion proof)
-          pure (mkAnnotation (TcCastAnnotation proof))
+          let oriented = case direction of
+                CastToRight -> proof
+                CastToLeft -> symmetric proof
+          rejectMeta "cast annotation" (firstMetaCoercion oriented)
+          pure (mkAnnotation (TcCastAnnotation oriented))
         EvVarTerm _ -> pure (mkAnnotation ())
         _ -> abortTc "a result cast requires equality evidence"
     Nothing -> finalizeOtherAnnotationTc ann
@@ -135,6 +139,13 @@ zonkTypeBinder binder = do
   case binderType of
     TcTyVar binder' -> pure binder'
     _ -> abortTc "internal type annotation error: type binder zonked to a non-variable"
+
+-- | Reverse a proof, cancelling a symmetry rather than stacking one.
+symmetric :: Coercion -> Coercion
+symmetric proof =
+  case proof of
+    Sym inner -> inner
+    _ -> Sym proof
 
 evidenceForEvVar :: TcType -> EvVar -> TcM EvTerm
 evidenceForEvVar contextType ev = do

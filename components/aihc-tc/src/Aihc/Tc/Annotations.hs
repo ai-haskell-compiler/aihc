@@ -11,7 +11,9 @@ module Aihc.Tc.Annotations
     TcAnnotation (..),
     TcCastAnnotation (..),
     PendingTcCastAnnotation (..),
+    CastDirection (..),
     annotateRhsCast,
+    annotateExprCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -81,15 +83,32 @@ newtype TcCastAnnotation = TcCastAnnotation Coercion
   deriving (Eq, Show)
 
 -- | The solver must supply the proof before FC desugaring.
-data PendingTcCastAnnotation = PendingTcCastAnnotation TcType EvVar
+data PendingTcCastAnnotation = PendingTcCastAnnotation TcType EvVar CastDirection
+  deriving (Eq, Show)
+
+-- | Which endpoint of the wanted equality the annotated expression has.
+-- The proof runs from the wanted's left type to its right type, so a
+-- cast onto the left type is the @sym@ of the proof.
+data CastDirection
+  = -- | The wanted is @source ~ target@: the proof is the cast.
+    CastToRight
+  | -- | The wanted is @target ~ source@: the cast is its @sym@.
+    CastToLeft
   deriving (Eq, Show)
 
 annotateRhsCast :: TcType -> EvVar -> Rhs body -> Rhs body
 annotateRhsCast ty evidence rhs =
-  let annotation = mkAnnotation (PendingTcCastAnnotation ty evidence)
+  let annotation = mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight)
    in case rhs of
         UnguardedRhs annotations body locals -> UnguardedRhs (annotation : annotations) body locals
         GuardedRhss annotations bodies locals -> GuardedRhss (annotation : annotations) bodies locals
+
+-- | Cast an expression onto the left type of its wanted equality. An
+-- application argument is checked as @expected ~ actual@, so a given
+-- equality that proves it runs backwards for the argument itself.
+annotateExprCast :: TcType -> EvVar -> Expr -> Expr
+annotateExprCast ty evidence =
+  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToLeft))
 
 -- | Annotation attached to AST nodes by the type checker.
 --

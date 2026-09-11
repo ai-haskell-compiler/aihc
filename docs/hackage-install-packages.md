@@ -30,6 +30,7 @@ would no longer point at a change in aihc.
 | tagged | 0.8.10 |
 | dlist | 1.0 |
 | data-array-byte | 0.1.0.2 |
+| primitive | 0.9.1.0 |
 
 ## Running it locally
 

@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -864,7 +864,10 @@ checkSpineSteps = go
                     ArgInferred _ arg' argTy cts -> pure (arg', argTy, cts)
                 ev <- freshEvVar
                 let eqCt = mkWantedCt (EqPred expectedArgTy argTy) ev (AppOrigin sp) sp
-                pure (arg', cts <> [eqCt])
+                -- A given equality can be what makes the argument fit, and
+                -- then FC needs the cast the proof carries. The annotation
+                -- is dropped again when the proof is reflexivity.
+                pure (annotateExprCast expectedArgTy ev arg', cts <> [eqCt])
           node <-
             if argPlanIsInfixRhs plan
               then case fun' of
