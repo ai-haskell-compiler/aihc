@@ -2,8 +2,8 @@
 
 module Test.Aihc.Spec (tests) where
 
+import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, runLinkExe)
-import Aihc.Cli.CapiStub (parseDependencyFile)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Options (BuildExeOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)

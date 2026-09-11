@@ -1,0 +1,231 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | The C wrappers that @capi@ foreign imports are called through.
+--
+-- A @capi@ entity is reached through the C API of its header rather than
+-- through the platform ABI, so it may be a macro, a @static inline@ function,
+-- or a constant, none of which is a symbol a call can name.  For every such
+-- import the compiler emits a C function that includes the header and makes
+-- the call, with a signature it chose itself, and the Haskell call names that
+-- function.  Only the C compiler ever reads the header; nothing else in the
+-- compiler has to know what the entity really is.
+--
+-- The wrapper is named here for both sides of that arrangement: the
+-- desugarer names it as the symbol of the call, and the driver names it as
+-- the function it defines.  One stub file holds the wrappers of one module,
+-- so it is written, compiled and reused with the object of that module.
+module Aihc.Capi
+  ( CapiWrapper (..),
+    capiWrapperSymbol,
+    moduleCapiWrappers,
+    interfaceCapiWrappers,
+    renderCapiStub,
+    parseDependencyFile,
+  )
+where
+
+import Aihc.Resolve (PackageId (..))
+import Aihc.Tc (TcInterface, TcTermKey (..), tcInterfaceForeignImports)
+import Aihc.Tc.Annotations
+  ( TcForeignAbiType (..),
+    TcForeignCApi (..),
+    TcForeignCApiKind (..),
+    TcForeignImportAnnotation (..),
+    TcForeignImportInfo (..),
+    TcForeignMarshal (..),
+  )
+import Data.Char (isAlphaNum, isAscii, ord)
+import Data.List (nub, sortOn)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Numeric (showHex)
+
+-- | The name of the C wrapper of a @capi@ import.
+--
+-- The wrapper is defined by the module that declares the import and called by
+-- every module that uses it, so the name must come out the same wherever it
+-- is derived and be unique across everything that is linked together.  The
+-- package identity, the module and the declared Haskell name give both: a
+-- foreign import is a top-level declaration, so its name is unique in its
+-- module, and the key of a use names the module that declares it.
+--
+-- The parts are escaped rather than concatenated, so that two different
+-- triples cannot spell the same symbol.
+capiWrapperSymbol :: TcTermKey -> Text
+capiWrapperSymbol key =
+  case key of
+    TcTermGlobal (PackageId package) owner name ->
+      T.intercalate "_" ("aihc_capi" : map escapeSymbolPart [package, owner, name])
+    TcTermLocal unique -> "aihc_capi_local_" <> T.pack (show unique)
+
+-- | Escape one part of a C identifier built from Haskell names.
+--
+-- A letter or digit stands for itself.  Every other character, @\_@ included,
+-- becomes an escape that starts with @\_@, so no part can contain the @\_@
+-- that separates the parts and the encoding is injective.
+escapeSymbolPart :: Text -> Text
+escapeSymbolPart = T.concatMap escapeCharacter
+  where
+    escapeCharacter character
+      | isAscii character && isAlphaNum character = T.singleton character
+      | character == '_' = "__"
+      | character == '.' = "_d"
+      | character == '-' = "_m"
+      | otherwise = "_x" <> T.pack (showHex (ord character) "") <> "_"
+
+-- | One C wrapper: the symbol it defines, and what it reaches.
+data CapiWrapper = CapiWrapper
+  { capiWrapperName :: !Text,
+    capiWrapperEntity :: !Text,
+    capiWrapperCApi :: !TcForeignCApi,
+    capiWrapperArguments :: ![TcForeignAbiType],
+    capiWrapperResult :: !TcForeignAbiType
+  }
+  deriving (Eq, Show)
+
+-- | The wrappers a module defines, in a stable order.
+--
+-- The wrapper belongs to the module that declares the import: every other
+-- module that uses the import calls the same symbol, and the plans they read
+-- from the interface say so.
+moduleCapiWrappers :: Text -> TcInterface -> [CapiWrapper]
+moduleCapiWrappers moduleName = interfaceCapiWrappersWhere (== moduleName)
+
+-- | Every wrapper an interface describes, whichever module declares it.
+interfaceCapiWrappers :: TcInterface -> [CapiWrapper]
+interfaceCapiWrappers = interfaceCapiWrappersWhere (const True)
+
+interfaceCapiWrappersWhere :: (Text -> Bool) -> TcInterface -> [CapiWrapper]
+interfaceCapiWrappersWhere owned interface =
+  sortOn capiWrapperName $
+    nub
+      [ CapiWrapper
+          { capiWrapperName = capiWrapperSymbol key,
+            capiWrapperEntity = tcForeignSymbol plan,
+            capiWrapperCApi = capi,
+            capiWrapperArguments = map tcForeignAbiType (tcForeignArguments plan),
+            capiWrapperResult = tcForeignAbiType (tcForeignResult plan)
+          }
+      | (key@(TcTermGlobal _ owner _), TcForeignCCallImport _ plan) <- tcInterfaceForeignImports interface,
+        owned owner,
+        Just capi <- [tcForeignCApi plan]
+      ]
+
+-- | The C source of a module's wrappers, or nothing when it declares none.
+renderCapiStub :: Text -> [CapiWrapper] -> Maybe Text
+renderCapiStub _ [] = Nothing
+renderCapiStub moduleName wrappers =
+  Just . T.unlines $
+    [ "/* Generated by aihc for the capi foreign imports of " <> moduleName <> ". Do not edit. */",
+      "#include \"HsFFI.h\"",
+      ""
+    ]
+      <> [includeDirective header | header <- headers]
+      <> ["" | not (null headers)]
+      <> map definition wrappers
+  where
+    -- A header is included once however many wrappers name it, and an import
+    -- that names none, which capi allows, adds nothing.
+    headers = nub [header | wrapper <- wrappers, Just header <- [tcForeignCApiHeader (capiWrapperCApi wrapper)]]
+    includeDirective header = "#include \"" <> header <> "\""
+    definition wrapper =
+      cType (capiWrapperResult wrapper)
+        <> " "
+        <> capiWrapperName wrapper
+        <> "("
+        <> parameters wrapper
+        <> ") { "
+        <> body wrapper
+        <> " }"
+    parameters wrapper =
+      case capiWrapperArguments wrapper of
+        [] -> "void"
+        arguments -> T.intercalate ", " [cType argument <> " " <> argumentName index | (index, argument) <- zip [1 :: Int ..] arguments]
+    -- A wrapper whose result is unit calls its entity as a statement, which
+    -- is the only way to reach a C function that returns void.
+    body wrapper =
+      let returned = case capiWrapperResult wrapper of
+            TcForeignVoid -> ""
+            _ -> "return "
+       in returned <> entity wrapper <> ";"
+    entity wrapper =
+      case tcForeignCApiKind (capiWrapperCApi wrapper) of
+        TcForeignCApiValue -> capiWrapperEntity wrapper
+        TcForeignCApiFunction ->
+          capiWrapperEntity wrapper
+            <> "("
+            <> T.intercalate ", " [argumentName index | index <- [1 .. length (capiWrapperArguments wrapper)]]
+            <> ")"
+    argumentName index = "a" <> T.pack (show index)
+
+-- | The C spelling of an ABI type.
+--
+-- These are the types of the wrapper, not of the entity: the C compiler
+-- converts between them and whatever the header declares, which is the whole
+-- point of reaching the entity through its header.
+cType :: TcForeignAbiType -> Text
+cType abiType =
+  case abiType of
+    TcForeignInt -> "HsInt"
+    TcForeignInt8 -> "HsInt8"
+    TcForeignInt16 -> "HsInt16"
+    TcForeignInt32 -> "HsInt32"
+    TcForeignInt64 -> "HsInt64"
+    TcForeignWord -> "HsWord"
+    TcForeignWord8 -> "HsWord8"
+    TcForeignWord16 -> "HsWord16"
+    TcForeignWord32 -> "HsWord32"
+    TcForeignWord64 -> "HsWord64"
+    TcForeignFloat -> "HsFloat"
+    TcForeignDouble -> "HsDouble"
+    TcForeignAddr -> "HsPtr"
+    TcForeignVoid -> "void"
+
+-- | The files a @-MD@ compile recorded as inputs of its object.
+--
+-- The format is one make rule: the object, a colon, then the prerequisites,
+-- which are the stub source and every header it reached, in no particular
+-- order.  A backslash at the end of a line continues the rule, and a
+-- backslash or a doubled dollar escapes a character of a file name, so the
+-- rule is read character by character rather than split on whitespace.
+parseDependencyFile :: String -> [FilePath]
+parseDependencyFile = prerequisites . tokenize
+
+-- | The prerequisites of the first rule: what follows the first bare colon.
+prerequisites :: [DependencyToken] -> [FilePath]
+prerequisites tokens =
+  case dropWhile (/= DependencyColon) tokens of
+    _ : rest -> [path | DependencyPath path <- rest]
+    [] -> []
+
+data DependencyToken
+  = DependencyColon
+  | DependencyPath !FilePath
+  deriving (Eq, Show)
+
+tokenize :: String -> [DependencyToken]
+tokenize text =
+  case dropSeparators text of
+    [] -> []
+    ':' : rest -> DependencyColon : tokenize rest
+    rest -> let (path, remaining) = readPath rest in DependencyPath path : tokenize remaining
+  where
+    -- A line continuation ends a name no more than the space around it does,
+    -- so it is dropped with the separators rather than read as an empty name.
+    dropSeparators text' =
+      case text' of
+        character : rest | isSeparator character -> dropSeparators rest
+        '\\' : '\n' : rest -> dropSeparators rest
+        _ -> text'
+    isSeparator character = character `elem` (" \t\r\n" :: String)
+    readPath text' =
+      case text' of
+        [] -> ("", "")
+        '\\' : '\n' : rest -> ("", rest)
+        '\\' : character : rest | character `elem` (" :\\#" :: String) -> consume character rest
+        '$' : '$' : rest -> consume '$' rest
+        ':' : rest -> ("", ':' : rest)
+        character : rest
+          | isSeparator character -> ("", rest)
+          | otherwise -> consume character rest
+    consume character rest = let (path, remaining) = readPath rest in (character : path, remaining)

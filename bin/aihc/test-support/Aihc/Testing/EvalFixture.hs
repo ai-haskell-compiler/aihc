@@ -19,7 +19,8 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Cli.CapiStub (CapiWrapper, capiStubArguments, interfaceCapiWrappers, noCapiStubOptions, renderCapiStub)
+import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
+import Aihc.Cli.CapiStub (capiStubArguments, noCapiStubOptions)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser

@@ -104,13 +104,13 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
+    TcForeignCApi (..),
+    TcForeignCApiKind (..),
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignMarshal (..),
     TcForeignSafety (..),
-    TcForeignStub (..),
-    TcForeignStubKind (..),
     TcForeignTarget (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
@@ -150,7 +150,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.Char (isAlpha, isAlphaNum, isAscii, isSpace, ord)
+import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
@@ -161,7 +161,6 @@ import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMayb
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Numeric (showHex)
 
 -- | Merge concrete source spans embedded in a list of annotations.
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
@@ -1247,10 +1246,8 @@ annotateForeignDeclTc foreignDecl = do
       let declaredName = unqualifiedNameText (foreignName foreignDecl)
           capi = callConv == CApi
       entity <- checkForeignEntity sourceSpan capi declaredName (foreignEntity foreignDecl)
-      let stub = foreignStubFor capi key entity
-          symbol = maybe (foreignEntityName entity) fst stub
-      plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) symbol ty
-      checkedPlan <- checkForeignTarget sourceSpan plan {tcForeignStub = snd <$> stub}
+      plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) (foreignEntityName entity) ty
+      checkedPlan <- checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
@@ -1298,57 +1295,23 @@ foreignSafetyMark safety =
     Just Unsafe -> TcForeignUnsafe
     Just Interruptible -> TcForeignInterruptible
 
--- | The C wrapper a @capi@ import is called through, and the symbol that
--- names it.
+-- | How a foreign import reaches its entity, when the entity string says it
+-- is reached through a header.
 --
--- A @ccall@ import calls its entity directly, so it has no wrapper.  So does
--- an address import under either convention: taking the address of a macro is
--- not a thing C can do, and GHC reads @capi "header.h &x"@ as the address of
--- the symbol @x@ rather than as something the header defines.
-foreignStubFor :: Bool -> TcTermKey -> ForeignEntity -> Maybe (Text, TcForeignStub)
-foreignStubFor capi key entity
+-- A @ccall@ import reaches its entity through the platform ABI, so it records
+-- nothing.  So does an address import under either convention: GHC reads
+-- @capi "header.h &x"@ as the address of the symbol @x@ rather than as
+-- something the header defines.
+foreignCApiFor :: Bool -> ForeignEntity -> Maybe TcForeignCApi
+foreignCApiFor capi entity
   | not capi = Nothing
   | foreignEntityTarget entity == TcForeignAddress = Nothing
-  | otherwise = Just (foreignStubSymbol key, stub)
-  where
-    stub =
-      TcForeignStub
-        { tcForeignStubHeader = foreignEntityHeader entity,
-          tcForeignStubEntity = foreignEntityName entity,
-          tcForeignStubKind = if foreignEntityIsValue entity then TcForeignStubValue else TcForeignStubCall
-        }
-
--- | The name of the C wrapper of a @capi@ import.
---
--- The wrapper is defined by the module that declares the import and called by
--- every module that uses it, so the name must be the same wherever it is
--- derived and unique across everything that is linked together.  The package
--- identity, the module and the declared Haskell name give both: a foreign
--- import is a top-level declaration, so its name is unique in its module.
---
--- The parts are escaped rather than concatenated, so that two different
--- triples cannot spell the same symbol.
-foreignStubSymbol :: TcTermKey -> Text
-foreignStubSymbol key =
-  case key of
-    TcTermGlobal (PackageId package) owner name ->
-      T.intercalate "_" ("aihc_capi" : map escapeSymbolPart [package, owner, name])
-    TcTermLocal unique -> "aihc_capi_local_" <> T.pack (show unique)
-
--- | Escape one part of a C identifier built from Haskell names.
---
--- A letter or digit stands for itself.  Every other character, @\_@ included,
--- becomes an escape that starts with @\_@, so no part can contain the @\_@
--- that separates the parts and the encoding is injective.
-escapeSymbolPart :: Text -> Text
-escapeSymbolPart = T.concatMap escapeCharacter
-  where
-    escapeCharacter character
-      | isAscii character && isAlphaNum character = T.singleton character
-      | character == '_' = "__"
-      | character == '.' = "_d"
-      | character == '-' = "_m"
-      | otherwise = "_x" <> T.pack (showHex (ord character) "") <> "_"
+  | otherwise =
+      Just
+        TcForeignCApi
+          { tcForeignCApiHeader = foreignEntityHeader entity,
+            tcForeignCApiKind = if foreignEntityIsValue entity then TcForeignCApiValue else TcForeignCApiFunction
+          }
 
 -- | Read the C entity of a foreign import and report a bad entity.
 checkForeignEntity :: SourceSpan -> Bool -> Text -> ForeignEntitySpec -> TcM ForeignEntity
@@ -1370,8 +1333,7 @@ checkForeignEntity sourceSpan capi declaredName entity =
 -- file name, names the declared Haskell function.
 --
 -- A @ccall@ import ignores the header, because it calls its entity through
--- the platform ABI.  A @capi@ import includes it in the C wrapper it is
--- called through, see 'foreignStubFor'.
+-- the platform ABI.  A @capi@ import keeps it, see 'foreignCApiFor'.
 resolveForeignEntity :: Bool -> Text -> ForeignEntitySpec -> Either String ForeignEntity
 resolveForeignEntity capi declaredName entity =
   case entity of
@@ -1462,8 +1424,8 @@ checkForeignTarget sourceSpan plan =
         emitError sourceSpan (OtherError "an address foreign import must produce a pointer")
       pure plan
     TcForeignCall
-      | Just stub <- tcForeignStub plan,
-        tcForeignStubKind stub == TcForeignStubValue -> do
+      | Just capi <- tcForeignCApi plan,
+        tcForeignCApiKind capi == TcForeignCApiValue -> do
           unless (null (tcForeignArguments plan)) $
             emitError sourceSpan (OtherError "a value foreign import must not take arguments")
           when (tcForeignAbiType (tcForeignResult plan) == TcForeignVoid) $
@@ -1489,7 +1451,7 @@ checkForeignImportType sourceSpan target symbol ty = do
         tcForeignEffect = effect,
         tcForeignSymbol = symbol,
         tcForeignTarget = target,
-        tcForeignStub = Nothing
+        tcForeignCApi = Nothing
       }
 
 splitFunctionType :: TcType -> ([TcType], TcType)

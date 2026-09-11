@@ -18,6 +18,7 @@ module Aihc.Cli.Install
   )
 where
 
+import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
 import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.BuildStamp
@@ -33,7 +34,7 @@ import Aihc.Cli.BuildStamp
     stampFiles,
     writeStamp,
   )
-import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments, moduleCapiWrappers, parseDependencyFile, renderCapiStub)
+import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
