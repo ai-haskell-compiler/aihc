@@ -14,39 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  select-runner:
-    runs-on: ubuntu-24.04
-    outputs:
-      use_self_hosted: ${{ steps.select.outputs.use_self_hosted }}
-      runs_on: ${{ steps.select.outputs.runs_on }}
-      selected_runner: ${{ steps.select.outputs.selected_runner }}
-      reason: ${{ steps.select.outputs.reason }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - id: select
-        uses: ./.github/actions/select-ci-runner
-        with:
-          repository: ${{ github.repository }}
-          runner-label: ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
-          fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'ubuntu-24.04' }}
-          runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN != '' && secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN || secrets.AUTOMATION_PR_TOKEN }}
-          allow-self-hosted: true
-
-      - name: Summarize runner selection
-        run: |
-          {
-            echo "### Runner selection"
-            echo
-            echo "- Selected runner: \`${{ steps.select.outputs.selected_runner }}\`"
-            echo "- Self-hosted enabled: \`${{ steps.select.outputs.use_self_hosted }}\`"
-            echo "- Reason: ${{ steps.select.outputs.reason }}"
-          } >>"$GITHUB_STEP_SUMMARY"
-
   install-hackage-packages:
-    needs: select-runner
-    runs-on: ${{ fromJSON(needs.select-runner.outputs.runs_on) }}
+    runs-on: ubuntu-24.04
     env:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
       REPORT_DIR: ${{ github.workspace }}/hackage-install-report
