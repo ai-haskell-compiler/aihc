@@ -990,13 +990,6 @@ test_installFcCcall getStore =
     result <- install options
     assertCoreFile (installStorePath result </> "Demo" </> "core")
 
--- | A @capi@ import reaches its entity through the C API of a header, so the
--- compiler writes a C wrapper for it, compiles that beside the module object
--- and archives the two together.  The entities here have no symbol of their
--- own at all: one is a macro and the other a @static inline@ function.
---
--- The headers a wrapper included are recorded, so editing one rebuilds the
--- module even though no Haskell source changed.
 -- | A dependency file is one make rule, so a name in it may be split across
 -- lines and may hold escaped spaces, colons and dollars.
 test_parseDependencyFile :: Assertion
@@ -1014,6 +1007,18 @@ test_parseDependencyFile = do
   assertEqual "a rule with no prerequisites" [] (parseDependencyFile "stub.o:\n")
   assertEqual "text that is no rule at all" [] (parseDependencyFile "")
 
+-- | A @capi@ import reaches its entity through the C API of a header, so the
+-- compiler writes a C wrapper for it, compiles that beside the module object
+-- and archives the two together.  The entities here have no symbol of their
+-- own at all: one is a macro and the other a @static inline@ function.
+--
+-- The headers a wrapper included are recorded, so editing one rebuilds the
+-- module even though no Haskell source changed.
+--
+-- This installs for the LLVM target rather than a named one.  A wrapper
+-- includes headers, and a host has only the headers of its own platform
+-- unless it was given a cross SDK, which this check is not; the LLVM target
+-- compiles C for whatever host runs the test.
 test_installCapi :: IO SeedStore -> Assertion
 test_installCapi getStore =
   withSandbox getStore "aihc-install-capi" $ \sandbox -> do
@@ -1022,7 +1027,7 @@ test_installCapi getStore =
         sourceDir = sourceRoot </> "src"
         includeDir = sourceRoot </> "include"
         header = includeDir </> "demo_capi.h"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False Llvm
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile
