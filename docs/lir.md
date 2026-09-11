@@ -21,7 +21,7 @@ The backends are `Aihc.Arm64.Lir` (Mach-O objects for Apple ARM64),
 `Aihc.Amd64.Lir` (ELF objects for Linux AMD64), `Aihc.Llvm.Lir` (textual
 LLVM IR), and `Aihc.Wasm.Lir` (WebAssembly assembly for WASI P3). The module
 `Aihc.Cli.Backend` selects the backend of a target for `aihc install`,
-`aihc prepare-runtime`, and `aihc build-exe`. The sections "Lowering from
+`aihc prepare-runtime`, `aihc build`, and `aihc build-module`. The sections "Lowering from
 GC-GRIN" and "Backends" describe them.
 
 ## Design rules

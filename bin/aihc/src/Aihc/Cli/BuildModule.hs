@@ -1,10 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Aihc.Cli.BuildExe
-  ( LinkBundle (..),
+module Aihc.Cli.BuildModule
+  ( InstalledPackage (..),
+    LinkBundle (..),
+    PackageConstraint (..),
+    dependencyConstraint,
+    finishExecutable,
+    generatedEntryText,
+    implicitConstraint,
+    installedPackage,
     linkBundleManifestPath,
-    runBuildExe,
+    planConstraint,
+    requirePackageArchive,
+    runBuildModule,
     runLinkExe,
+    validateSelectedPackageNames,
   )
 where
 
@@ -21,14 +31,14 @@ import Aihc.Cli.Install
     networkDependencyResolver,
   )
 import Aihc.Cli.Install qualified as Install
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
+import Aihc.Cli.Options (BuildModuleOptions (..), GarbageCollector, LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
-import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, coreProviders, workspaceDependencyResolver)
+import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -104,16 +114,16 @@ data InstalledModule = InstalledModule
 
 type InstalledModuleIndex = Map.Map Text [InstalledModule]
 
-runBuildExe :: BuildExeOptions -> IO ()
-runBuildExe options = do
-  storeRoot <- maybe defaultStoreRoot pure (buildExeStoreRoot options)
+runBuildModule :: BuildModuleOptions -> IO ()
+runBuildModule options = do
+  storeRoot <- maybe defaultStoreRoot pure (buildModuleStoreRoot options)
   currentDirectory <- getCurrentDirectory
-  let target = buildExeTarget options
+  let target = buildModuleTarget options
       targetDirectory = nativeTargetStoreDirectory target
-      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildExeBuildRoot options)
+      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildModuleBuildRoot options)
       buildRoot = localBuildRoot </> targetDirectory
-      sourceDirectories = case buildExeSourceDirectories options of [] -> ["."]; values -> values
-      output = fromMaybe (dropExtension (buildExeSourceFile options)) (buildExeOutputFile options)
+      sourceDirectories = case buildModuleSourceDirectories options of [] -> ["."]; values -> values
+      output = fromMaybe (dropExtension (buildModuleSourceFile options)) (buildModuleOutputFile options)
   buildIdentity <- buildEnvironmentIdentity target
   let compileConfig =
         ModuleCompileConfig
@@ -121,19 +131,19 @@ runBuildExe options = do
             compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,
-            compileLint = buildExeLint options,
+            compileLint = buildModuleLint options,
             compileNoCode = False,
-            compileOptimization = buildExeOptimization options,
+            compileOptimization = buildModuleOptimization options,
             compileTarget = target,
             compileVerbose = const (pure ()),
             compilePrintTimings = const (pure ()),
             compileUseColor = False
           }
-  constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
+  constraints <- mapM parsePackageConstraint (buildModulePackageConstraints options)
   -- The packages of an executable are installed like any other: the plan
   -- names them, their fingerprints name the store directories, and a
   -- directory that is absent is built. Nothing lists the store.
-  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildExeWorkspace options)
+  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildModuleWorkspace options)
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,
@@ -147,50 +157,61 @@ runBuildExe options = do
   validateSelectedPackageNames selected
   mapM_ requirePackageArchive selected
   let moduleIndex = buildInstalledModuleIndex selected
-  sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
+  sources <- discoverSources sourceDirectories moduleIndex (buildModuleSourceFile options)
   validateInstalledDependencies moduleIndex sources
   sourceFiles <- materializeSourceFiles buildRoot selected sources
-  runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
-  entry <- ensureEntry storeRoot target
   let compileRequest =
         ModuleCompileRequest
           { compileOutputRoot = buildRoot,
             compilePackageRoot = currentDirectory,
             compilePackage = Package "exe" (PackageId "exe"),
             compileSourceFiles = sourceFiles,
-            compileDependencyRoots = map installedRoot selected,
+            compileDependencies = installed,
             -- An executable built from loose sources has no Cabal file, so
             -- its capi wrappers see only the headers the compiler finds by
             -- itself.
             compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest
+  finishExecutable storeRoot target (buildModuleGarbageCollector options) (buildModuleNoLink options) output (compileObjectPaths compiled) selected
+
+-- | Turn the objects of the modules of an executable and its installed
+-- packages into the executable, or into a link bundle when the link is
+-- deferred. The entry and runtime archives of the target are prepared when
+-- the store lacks them.
+finishExecutable :: FilePath -> NativeTarget -> GarbageCollector -> Bool -> FilePath -> [FilePath] -> [InstalledPackage] -> IO ()
+finishExecutable storeRoot target garbageCollector noLink output moduleObjects packages = do
+  runtime <- ensureRuntime storeRoot target garbageCollector
+  entry <- ensureEntry storeRoot target
   createDirectoryIfMissing True (takeDirectory output)
-  let orderedPackages = linkOrderedPackages selected
+  let orderedPackages = linkOrderedPackages packages
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
-  let objects = compileObjectPaths compiled <> cObjects
+  let objects = moduleObjects <> cObjects
       archives = map packageArchive orderedPackages
-  if buildExeNoLink options
+  if noLink
     then writeLinkBundle target output objects archives entry runtime
     else linkExecutable target output objects archives entry runtime
 
 -- | The plan of one package constraint. A core library has the version it
--- ships with; any other package takes the version the resolver selects,
--- which the constraint must accept.
+-- ships with, under the name of the boot library it replaces as well as its
+-- own; any other package takes the version the resolver selects, which the
+-- constraint must accept.
 planConstraint :: DependencyResolver -> PackageConstraint -> IO PackagePlan
 planConstraint resolver constraint = do
-  let name = T.unpack (constraintName constraint)
+  let requested = T.unpack (constraintName constraint)
+      provider = lookupCoreProvider requested
+      name = maybe requested coreProviderName provider
   versionText <-
-    case [coreProviderVersion provider | provider <- coreProviders, coreProviderName provider == name] of
-      version : _ -> pure version
-      [] -> resolverResolveVersion resolver name
+    case provider of
+      Just core -> pure (coreProviderVersion core)
+      Nothing -> resolverResolveVersion resolver name
   version <-
     maybe
       (ioError (userError ("Invalid version " <> versionText <> " for package " <> name)))
       pure
       (simpleParsec versionText)
   unless (version `withinRange` constraintRange constraint) $
-    ioError (userError ("The selected version " <> versionText <> " of " <> name <> " does not fulfill the constraint"))
+    ioError (userError ("The selected version " <> versionText <> " of " <> name <> " does not fulfill the constraint on " <> requested))
   buildPackagePlanWithResolver resolver (PackageSpec name versionText)
 
 installedPackage :: Install.InstalledPackage -> InstalledPackage
@@ -333,8 +354,13 @@ implicitConstraint name =
 parsePackageConstraint :: String -> IO PackageConstraint
 parsePackageConstraint input =
   case simpleParsec input of
-    Just (Dependency name versionRange _) -> pure (PackageConstraint (T.pack (unPackageName name)) versionRange)
+    Just dependency -> pure (dependencyConstraint dependency)
     Nothing -> ioError (userError ("Invalid package constraint: " <> input))
+
+-- | The constraint a Cabal @build-depends@ entry states.
+dependencyConstraint :: Dependency -> PackageConstraint
+dependencyConstraint (Dependency name versionRange _) =
+  PackageConstraint (T.pack (unPackageName name)) versionRange
 
 packageCObjects :: InstalledPackage -> IO [FilePath]
 packageCObjects package = do

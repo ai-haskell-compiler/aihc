@@ -5,7 +5,10 @@ module Aihc.Cli.Install
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
+    cabalPlatformForTarget,
+    capiStubOptions,
     compileModules,
+    compilePackageCFiles,
     buildEnvironmentIdentity,
     defaultBuildRoot,
     install,
@@ -13,6 +16,7 @@ module Aihc.Cli.Install
     installPlanPackages,
     networkDependencyResolver,
     parsePackageTarget,
+    resolveInstallTarget,
     resolvePreferredVersion,
     runInstall,
   )
@@ -330,7 +334,9 @@ data ModuleCompileRequest = ModuleCompileRequest
     compilePackageRoot :: !FilePath,
     compilePackage :: !Package,
     compileSourceFiles :: ![HackageCabal.FileInfo],
-    compileDependencyRoots :: ![FilePath],
+    -- | The installed packages the modules are compiled against. Only the
+    -- modules the sources import are read from them.
+    compileDependencies :: ![InstalledPackage],
     -- | Where the capi wrappers of these modules look for their headers.
     compileCapiStubOptions :: !CapiStubOptions
   }
@@ -756,7 +762,6 @@ compileFlagNames config =
 
 compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
 compileModules config request = do
-  dependencies <- mapM (loadInstalledPackage Set.empty True) (compileDependencyRoots request)
   compiled <-
     compileModulesWithDependencies
       config
@@ -765,7 +770,7 @@ compileModules config request = do
       (compilePackageRoot request)
       (compilePackage request)
       (compileSourceFiles request)
-      dependencies
+      (compileDependencies request)
   objects <-
     moduleObjectPaths
       (compileOutputRoot request)
