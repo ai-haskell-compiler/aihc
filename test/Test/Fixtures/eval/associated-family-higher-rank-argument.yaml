@@ -1,0 +1,66 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    {-# LANGUAGE RankNTypes #-}
+    {-# LANGUAGE ScopedTypeVariables #-}
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+
+    import Control.Monad.ST (ST, runST)
+    import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
+    import GHC.Exts (Int#, Int(..), (+#), oneShot)
+
+    class Monad m => PrimMonad m where
+      type PrimState m
+      liftPrim :: ST (PrimState m) a -> m a
+
+    instance PrimMonad (ST s) where
+      type PrimState (ST s) = s
+      liftPrim action = action
+
+    newRef :: PrimMonad m => Int -> m (STRef (PrimState m) Int)
+    newRef value = liftPrim (newSTRef value)
+
+    readRef :: PrimMonad m => STRef (PrimState m) Int -> m Int
+    readRef reference = liftPrim (readSTRef reference)
+
+    writeRef :: PrimMonad m => STRef (PrimState m) Int -> Int -> m ()
+    writeRef reference value = liftPrim (writeSTRef reference value)
+
+    runRef :: (forall s. STRef s Int -> ST s ()) -> Int
+    runRef fill = runST (do
+      reference <- newSTRef 0
+      fill reference
+      readSTRef reference)
+
+    -- The worker is a local binding under a higher-rank argument, so the
+    -- monad of @writeRef@ is only known once the argument is tied to the
+    -- rank-2 type: @PrimState m ~ s@ has to wait for it.
+    sumList :: [Int] -> Int
+    sumList values = runRef (\reference ->
+      let stop ix# = if I# ix# < 0 then return () else return ()
+          step value k = oneShot (\ix# -> do
+            current <- readRef reference
+            writeRef reference (current + value)
+            k (ix# +# 1#))
+      in foldr step stop values 0#)
+
+    newtype IxST = IxST (forall s. STRef s Int -> ST s Int)
+
+    -- The pattern signature names the state thread of the @do@ block, which
+    -- only the expected rank-2 type fixes.
+    useIxST :: IxST -> Int
+    useIxST = \(IxST fill) -> runST $ do
+      reference :: STRef s Int <- newRef 0
+      count <- fill reference
+      writeRef reference count
+      readRef reference
+output: |
+  ((I# 6),(I# 9))
+expression: |
+  (sumList [1, 2, 3], useIxST (IxST (\reference -> writeSTRef reference 7 >> return 9)))
+status: pass
+reason: an associated family application over the monad of a higher-rank argument
+  waits for the argument to fix the monad, and a do block takes the expected
+  rank-2 type

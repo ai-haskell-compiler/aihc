@@ -56,7 +56,7 @@ import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
-import Aihc.Tc.Unify (unify)
+import Aihc.Tc.Unify (unifyDeferring)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (when)
 import Data.Either (fromRight)
@@ -876,27 +876,53 @@ checkSpineSteps = go
 
 -- | Check an argument against a polytype. The argument is inferred and
 -- its type unified with the skolemized polytype.
+--
+-- An expression that takes the expected type (a @do@ block, a @case@)
+-- is checked against the skolemized body instead: the result type of a
+-- @do@ block that the polytype fixes must reach its statements, or a
+-- type family application over the monad is stuck while they are
+-- checked and a meta variable is solved the wrong way.
 checkHigherRankArgument :: SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct])
-checkHigherRankArgument sp expectedTy arg = do
-  boundary <- getUniqueBoundary
-  (arg', actualTy, argCts) <- inferExpr arg
-  checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts
+checkHigherRankArgument sp expectedTy arg
+  | checksExpectedResult arg = do
+      boundary <- getUniqueBoundary
+      skolemized@(_, _, expectedBody) <- skolemizeSigmaType expectedTy
+      (arg', actualTy, argCts) <- checkExpr expectedBody arg
+      finishHigherRankArgument sp boundary expectedTy skolemized arg' actualTy argCts
+  | otherwise = do
+      boundary <- getUniqueBoundary
+      (arg', actualTy, argCts) <- inferExpr arg
+      checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts
 
 -- | Check an already inferred argument against a polytype. The boundary
 -- was taken before the inference: a meta-variable older than it must not
 -- mention the skolems.
 checkInferredHigherRankArgument :: SourceSpan -> Unique -> TcType -> Expr -> TcType -> [Ct] -> TcM (Expr, [Ct])
 checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts = do
-  (skolems, predicates, expectedBody) <- skolemizeSigmaType expectedTy
-  unify sp (AppOrigin sp) actualTy expectedBody
+  skolemized <- skolemizeSigmaType expectedTy
+  finishHigherRankArgument sp boundary expectedTy skolemized arg' actualTy argCts
+
+-- | Tie an argument of a higher-rank application to the skolemized
+-- polytype it was checked or inferred against.
+finishHigherRankArgument :: SourceSpan -> Unique -> TcType -> ([TyVarId], [Pred], TcType) -> Expr -> TcType -> [Ct] -> TcM (Expr, [Ct])
+finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBody) arg' actualTy argCts = do
+  -- An equality that a stuck type family application leaves undecided
+  -- becomes a wanted: the meta variable that blocks the reduction may
+  -- only be solved by a later part of the enclosing binding.
+  deferred <- unifyDeferring sp (AppOrigin sp) actualTy expectedBody
+  deferredCts <- mapM deferredConstraint deferred
   rejectEscapingHigherRankMetas sp boundary skolems actualTy
   givenCts <- mapM makeGiven predicates
-  let (equalityCts, dictionaryCts) = partition isEqualityConstraint argCts
+  let (equalityCts, dictionaryCts) = partition isEqualityConstraint (argCts <> deferredCts)
   residualEqualities <- concat <$> mapM (solveEqualityConstraint predicates) equalityCts
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
   let annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) arg'
   pure (annotatedArg, residualEqualities <> residualDictionaries)
   where
+    deferredConstraint (left, right) = do
+      evidence <- freshEvVar
+      pure (mkWantedCt (EqPred left right) evidence (AppOrigin sp) sp)
+
     makeGiven predicate = do
       evidence <- freshEvVar
       bindEvidence evidence (EvGiven predicate)
@@ -907,15 +933,15 @@ checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts = do
         EqPred {} -> True
         _ -> False
 
-    solveEqualityConstraint predicates ct = do
-      result <- withGivenPredicates predicates (solveEquality ct)
+    solveEqualityConstraint givens ct = do
+      result <- withGivenPredicates givens (solveEquality ct)
       pure $ case result of
         EqSolved -> []
         EqStuck stuck -> [stuck]
         EqError err -> [err]
 
-    solveDictionary predicates ct = do
-      result <- solveDictWithGivens predicates ct
+    solveDictionary givens ct = do
+      result <- solveDictWithGivens givens ct
       pure $ case result of
         DictSolved -> []
         DictStuck stuck -> [stuck]

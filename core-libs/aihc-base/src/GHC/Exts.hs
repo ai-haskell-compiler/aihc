@@ -134,7 +134,10 @@ inline :: a -> a
 inline value = value
 
 -- | The function is returned unchanged. Arity hints do not apply.
-oneShot :: (a -> b) -> a -> b
+--
+-- The argument and the result may have any runtime representation: a
+-- worker that takes an @Int#@ index is the common caller.
+oneShot :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). (a -> b) -> a -> b
 oneShot function = function
 
 -- | Replace the contents of a mutable variable with the first component of
