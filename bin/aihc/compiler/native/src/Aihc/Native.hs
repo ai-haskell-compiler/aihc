@@ -15,6 +15,7 @@ module Aihc.Native
     handwrittenCArguments,
     buildAddrLiteralPool,
     defaultOptimizationLevel,
+    runtimeOptimizationLevel,
     wholeProgramLevel,
     executableEntryName,
     executableEntryParts,
@@ -265,7 +266,13 @@ data OptimizationLevel
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 defaultOptimizationLevel :: OptimizationLevel
-defaultOptimizationLevel = O2
+defaultOptimizationLevel = O0
+
+-- | The level the runtime and entry archives are compiled at. They are
+-- compiled once per target, before any program names a level, and they
+-- stay hot for the whole life of every program linked against them.
+runtimeOptimizationLevel :: OptimizationLevel
+runtimeOptimizationLevel = O2
 
 -- | Whether a level compiles the whole program at once, as @--lto@ does.
 -- The levels that optimize do: @-O2@ and @-Os@. @-O0@ and @-O1@ compile
@@ -299,13 +306,13 @@ optimizationArgument level = "-O" <> renderOptimizationLevel level
 -- | Arguments for compiling handwritten C: the runtime sources and the C
 -- sources of a Hackage package, as opposed to the code aihc generates.
 --
--- The runtime takes the default level. It is compiled once per backend and
--- collector, before any program names a level, and it stays hot for the
--- whole life of every program linked against it. The default is also
--- required rather than merely wanted there: the runtime builds with
--- -Werror, and glibc's features.h raises #warning when _FORTIFY_SOURCE is
--- set without -O, which the Nixpkgs Clang wrapper does. The C sources of a
--- package take the level of the build.
+-- The runtime takes 'runtimeOptimizationLevel'. It is compiled once per
+-- backend and collector, before any program names a level, and it stays hot
+-- for the whole life of every program linked against it. An optimizing
+-- level is also required rather than merely wanted there: the runtime
+-- builds with -Werror, and glibc's features.h raises #warning when
+-- _FORTIFY_SOURCE is set without -O, which the Nixpkgs Clang wrapper does.
+-- The C sources of a package take the level of the build.
 --
 -- Callers append their own arguments, so a caller that wants a different level
 -- can still override this by passing one later on the command line.

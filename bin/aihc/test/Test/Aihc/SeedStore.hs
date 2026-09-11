@@ -67,8 +67,8 @@ prebuiltStoreVariable :: String
 prebuiltStoreVariable = "AIHC_PREBUILT_STORE"
 
 -- | The subdirectory of the prebuilt store holding aihc-prim only. This
--- store and the core store are built at @-O1@, which compiles each module
--- to its own object; the default level compiles the whole program at once
+-- store and the core store are built at the default level, which compiles
+-- each module to its own object; @-O2@ compiles the whole program at once
 -- and has the @lto@ store.
 primStoreDirectory :: FilePath
 primStoreDirectory = "prim"
@@ -78,7 +78,7 @@ coreStoreDirectory :: FilePath
 coreStoreDirectory = "core"
 
 -- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base
--- built at the default level, which implies @--lto@.
+-- built at @-O2@, which implies @--lto@.
 ltoStoreDirectory :: FilePath
 ltoStoreDirectory = "lto"
 
@@ -150,10 +150,10 @@ acquireCoreStore getPrimStore =
     baseRoot <- findCoreLibraryRoot "aihc-base"
     installCoreLibrary baseRoot root buildExeHostTarget
 
--- | Seed aihc-prim and aihc-base at the default level for the host target,
--- which is a @--lto@ build. The build is part of the identity of a package,
--- so the entries of the other stores do not serve it. Only the @lto@ tests
--- need this store.
+-- | Seed aihc-prim and aihc-base at @-O2@ for the host target, which is a
+-- @--lto@ build. The build is part of the identity of a package, so the
+-- entries of the other stores do not serve it. Only the @lto@ tests need
+-- this store.
 acquireLtoStore :: IO SeedStore
 acquireLtoStore =
   withPreparedStore ltoStoreDirectory $ \root -> do
@@ -187,7 +187,7 @@ releaseSeedStore store =
     BorrowedStore _ -> pure ()
 
 installCoreLibrary :: FilePath -> FilePath -> NativeTarget -> IO ()
-installCoreLibrary = installCoreLibraryWith O1
+installCoreLibrary = installCoreLibraryWith O0
 
 -- | Install a core library into the store at a level.
 installCoreLibraryWith :: OptimizationLevel -> FilePath -> FilePath -> NativeTarget -> IO ()

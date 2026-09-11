@@ -5,7 +5,7 @@ module Test.Native.Compiler
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0, O1, Os), backendCompiler, defaultOptimizationLevel, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol)
+import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0, O1, Os), backendCompiler, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol, runtimeOptimizationLevel)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, isDigit, isHexDigit, ord)
 import Data.Text (Text)
@@ -25,12 +25,12 @@ tests =
     [ testCase "takes the Clang optimization level from the build" $ do
         -- The target arguments carry no level. The build adds the level of
         -- its -O option for LLVM output and package C sources, and the
-        -- runtime takes the default level: it builds with -Werror, and glibc
-        -- warns when _FORTIFY_SOURCE is set without -O.
+        -- runtime takes its own optimizing level: it builds with -Werror,
+        -- and glibc warns when _FORTIFY_SOURCE is set without -O.
         (compiler, arguments) <- backendCompiler Llvm
         assertEqual "LLVM compiler" "clang" compiler
         assertBool "no level in the target arguments" (all (`notElem` arguments) ["-O0", "-O1", "-O2", "-O3"])
-        assertEqual "runtime level" ["-O2"] (handwrittenCArguments defaultOptimizationLevel)
+        assertEqual "runtime level" ["-O2"] (handwrittenCArguments runtimeOptimizationLevel)
         assertEqual "level 0 argument" "-O0" (optimizationArgument O0)
         assertEqual "level 1 argument" "-O1" (optimizationArgument O1)
         assertEqual "size argument" "-Os" (optimizationArgument Os)
