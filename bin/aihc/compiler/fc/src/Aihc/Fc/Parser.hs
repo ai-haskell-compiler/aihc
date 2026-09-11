@@ -9,6 +9,7 @@ module Aihc.Fc.Parser
 where
 
 import Aihc.Fc.Name
+import Aihc.Fc.Pretty (reservedWords)
 import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
@@ -16,10 +17,11 @@ import Control.Applicative ((<|>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
-import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, ord)
+import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, isSpace, ord)
 import Data.Either (isLeft, lefts, partitionEithers)
 import Data.Functor (($>))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -346,31 +348,6 @@ typeAtom =
       TyCon <$> topNameWithSort
     ]
 
-reservedWords :: [Text]
-reservedWords =
-  [ "pub",
-    "val",
-    "type",
-    "axiom",
-    "foreign",
-    "import",
-    "prim",
-    "module",
-    "where",
-    "let",
-    "rec",
-    "in",
-    "case",
-    "as",
-    "of",
-    "FUN",
-    "refl",
-    "sym",
-    "trans",
-    "tycon-co",
-    "axiom-co"
-  ]
-
 openPiBinder :: Parser Binder
 openPiBinder = parens (Binder <$> localBinderName SortTypeVariable <*> (symbol ":" *> fcType))
 
@@ -505,7 +482,9 @@ printedName defaultSort =
   MP.choice
     [ do
         prefix <- MP.optional (MP.satisfy (\character -> character == 't' || character == 'v'))
-        raw <- rawName
+        -- The class prefix sets a top name apart from a keyword, so a
+        -- reserved word is a name after it.
+        raw <- rawNameWith (isJust prefix)
         let printedClass =
               case prefix of
                 Just 't' -> Just NameClassType
@@ -524,13 +503,25 @@ printedName defaultSort =
     ]
 
 rawName :: Parser Text
-rawName =
+rawName = rawNameWith False
+
+-- | A printed name. The flag says whether a reserved word is a name here.
+rawNameWith :: Bool -> Parser Text
+rawNameWith reservedAllowed =
   MP.choice
     [ "[]" <$ MPC.string "[]",
       MP.try tupleName,
-      MP.try identName,
+      MP.try parenthesizedOperatorName,
+      MP.try (identNameWith reservedAllowed),
       operatorName
     ]
+
+-- | The name of a type constructor that is an operator, such as @(->)@,
+-- carries its parentheses. Inside them a reserved operator is a name.
+parenthesizedOperatorName :: Parser Text
+parenthesizedOperatorName = do
+  operator <- MP.between (MPC.char '(') (MPC.char ')') (MP.some (MP.satisfy (`elem` operatorNameCharacters)))
+  pure (T.pack ('(' : operator <> ")"))
 
 -- | Only a boxed tuple has a name of its own shape. An unboxed one is named
 -- after its type constructor, @Tuple2#@ and so on, which lexes as an
@@ -544,7 +535,10 @@ boxedTupleName = makeTuple <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many
     makeTuple commas = T.pack ('(' : commas <> ")")
 
 identName :: Parser Text
-identName = do
+identName = identNameWith False
+
+identNameWith :: Bool -> Parser Text
+identNameWith reservedAllowed = do
   first <- MP.satisfy identStart
   rest <- MP.many (MP.satisfy identContinue)
   listSuffix <- MP.option "" (MPC.string "[]")
@@ -552,10 +546,35 @@ identName = do
   following <- MP.optional (MP.lookAhead MP.anySingle)
   case following of
     Just next
-      | first == '$' && next `elem` operatorNameCharacters -> fail "operator"
+      | first == '$' && next `elem` operatorNameCharacters && value == "$" -> fail "operator"
+      -- A local named after a reserved word always carries its unique.
+      | value `elem` reservedWords && next == '{' -> pure value
     _
-      | value `elem` reservedWords -> fail "reserved word"
+      | value `elem` reservedWords && not reservedAllowed -> fail "reserved word"
+      | first == '$' -> (value <>) <$> generatedNameTail
       | otherwise -> pure value
+
+-- | The rest of a generated name. The compiler builds such a name from the
+-- names it stands for, so @$fFunctor(->)r@, @$c==@, and
+-- @$ax$aihc-base-4.21.2.0:GHC.IsList.Item$ByteArray@ all occur. The tail
+-- runs over identifier characters, operator characters, and balanced
+-- parentheses, and stops at white space or an unbalanced delimiter.
+generatedNameTail :: Parser Text
+generatedNameTail = T.concat <$> MP.many segment
+  where
+    segment =
+      MP.choice
+        [ T.pack <$> MP.some (MP.satisfy identContinue),
+          T.pack <$> MP.some (MP.satisfy (`elem` operatorNameCharacters)),
+          "[]" <$ MPC.string "[]",
+          group
+        ]
+    group = (\inner -> "(" <> inner <> ")") <$> MP.between (MPC.char '(') (MPC.char ')') (T.concat <$> MP.many groupSegment)
+    groupSegment =
+      MP.choice
+        [ T.pack <$> MP.some (MP.satisfy (\character -> character `notElem` ("()" :: String) && not (isSpace character))),
+          group
+        ]
 
 operatorName :: Parser Text
 operatorName = do

@@ -21,6 +21,7 @@ module Test.Aihc.SeedStore
     Sandbox (..),
     acquirePrimStore,
     acquireCoreStore,
+    acquireLtoStore,
     releaseSeedStore,
     withSandbox,
     seededPackagePath,
@@ -61,7 +62,7 @@ import System.Info qualified as System
 import System.Process (readProcess)
 
 -- | The environment variable through which CI hands us a directory holding
--- both seeded stores, one per subdirectory named below.
+-- the seeded stores, one per subdirectory named below.
 prebuiltStoreVariable :: String
 prebuiltStoreVariable = "AIHC_PREBUILT_STORE"
 
@@ -72,6 +73,11 @@ primStoreDirectory = "prim"
 -- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base.
 coreStoreDirectory :: FilePath
 coreStoreDirectory = "core"
+
+-- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base
+-- built with @--lto@.
+ltoStoreDirectory :: FilePath
+ltoStoreDirectory = "lto"
 
 -- | A store holding the core libraries, ready to be copied for a single test.
 data SeedStore
@@ -141,8 +147,19 @@ acquireCoreStore getPrimStore =
     baseRoot <- findCoreLibraryRoot "aihc-base"
     installCoreLibrary baseRoot root buildExeHostTarget
 
+-- | Seed aihc-prim and aihc-base built with @--lto@ for the host target. The
+-- flag is part of the identity of a package, so the entries of the other
+-- stores do not serve a @--lto@ build. Only the @lto@ tests need this store.
+acquireLtoStore :: IO SeedStore
+acquireLtoStore =
+  withPreparedStore ltoStoreDirectory $ \root -> do
+    primRoot <- findCoreLibraryRoot "aihc-prim"
+    baseRoot <- findCoreLibraryRoot "aihc-base"
+    installCoreLibraryWith True primRoot root buildExeHostTarget
+    installCoreLibraryWith True baseRoot root buildExeHostTarget
+
 -- | Use the store CI handed us, or build one in a temporary directory that is
--- cleaned up if the seeding itself fails. The two stores are kept separate in
+-- cleaned up if the seeding itself fails. The stores are kept separate in
 -- both cases, so a test sees the same contents wherever it runs.
 withPreparedStore :: FilePath -> (FilePath -> IO ()) -> IO SeedStore
 withPreparedStore subdirectory populate = do
@@ -166,8 +183,12 @@ releaseSeedStore store =
     BorrowedStore _ -> pure ()
 
 installCoreLibrary :: FilePath -> FilePath -> NativeTarget -> IO ()
-installCoreLibrary source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False O2 False False False False target)
+installCoreLibrary = installCoreLibraryWith False
+
+-- | Install a core library into the store, with or without @--lto@.
+installCoreLibraryWith :: Bool -> FilePath -> FilePath -> NativeTarget -> IO ()
+installCoreLibraryWith lto source storeRoot target = do
+  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False lto O2 False False False False target)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

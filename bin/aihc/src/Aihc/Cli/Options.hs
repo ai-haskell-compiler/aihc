@@ -36,6 +36,7 @@ data BuildExeOptions = BuildExeOptions
     buildExeBuildRoot :: !(Maybe FilePath),
     buildExeWorkspace :: !(Maybe FilePath),
     buildExeLint :: !Bool,
+    buildExeLto :: !Bool,
     buildExeOptimization :: !OptimizationLevel,
     buildExeNoLink :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
@@ -65,6 +66,7 @@ data InstallOptions = InstallOptions
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
     installLint :: !Bool,
+    installLto :: !Bool,
     installOptimization :: !OptimizationLevel,
     installReinstall :: !Bool,
     installNoCode :: !Bool,
@@ -156,6 +158,7 @@ buildExeOptionsParser =
           )
       )
     <*> lintOption
+    <*> ltoOption
     <*> optimizationOption
     <*> OA.switch
       ( OA.long "no-link"
@@ -204,6 +207,17 @@ lintOption =
   OA.switch
     ( OA.long "lint"
         <> OA.help "Run compiler intermediate-language lint checks"
+    )
+
+-- | Compile each module to System FC only. @build-exe@ merges the System
+-- FC of every module of the program and compiles the merged program once.
+-- The flag is part of the identity of an installed package, so the packages
+-- of such a build are separate store entries.
+ltoOption :: OA.Parser Bool
+ltoOption =
+  OA.switch
+    ( OA.long "lto"
+        <> OA.help "Compile each module to System FC only and compile the merged program of the executable once"
     )
 
 -- | @-O0@, @-O1@, @-O2@ or @-Os@, the level Clang receives for C sources
@@ -300,6 +314,7 @@ installOptionsParser =
           <> OA.help "Retain native output files"
       )
     <*> lintOption
+    <*> ltoOption
     <*> optimizationOption
     <*> OA.switch
       ( OA.long "reinstall"

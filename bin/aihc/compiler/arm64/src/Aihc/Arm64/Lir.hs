@@ -127,6 +127,10 @@ arm64Backend =
       nbQuadSymbolAddend = arm64QuadSymbolAddend,
       nbAsCode = arm64AsCode,
       nbRenderTraps = renderTraps,
+      -- A conditional branch reaches 1 MB. A whole-program object is
+      -- larger, so each function branches to its own trampoline and the
+      -- trampoline takes the 128 MB reach of an unconditional branch.
+      nbTrapTrampoline = Just (\local stub -> [arm64Label local, arm64Instruction (ArmB stub)]),
       nbPrologueFrame = prologueFrame,
       nbLeaveFrame = leaveFrame,
       nbSaveReg = storeSlot,

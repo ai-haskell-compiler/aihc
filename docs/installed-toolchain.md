@@ -144,6 +144,27 @@ The level is part of the identity of an installed package.
 `aihc build-exe -O0` builds its modules and its packages at level 0, so the first unoptimized build of a store also builds `aihc-base` at level 0.
 A default build keeps the store entries and stamps it had before the level existed.
 
+## Whole-program compilation
+
+`aihc build-exe --lto` and `aihc install --lto` stop each module at System FC.
+An install with the flag writes the System FC of each module to its `core` file.
+It writes no GRIN, no Lir, and no object below it.
+The library archive then holds only the C objects of the package and the C wrappers of its `capi` imports.
+The manifest records the flag `lto`.
+It also lists every module the package compiled, exposed or hidden, under `compiledModules`.
+
+`aihc build-exe --lto` installs its packages with the flag and compiles its own modules to System FC in the same way.
+It then reads the System FC of every module of the program, from the packages and the executable alike.
+It merges them into one program and lowers that program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
+The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
+A `--no-link` bundle carries the program object in place of the module objects.
+
+The program object follows the System FC files and the backend options.
+A build whose inputs are unchanged reuses it.
+The flag is part of the identity of an installed package, like the optimization level.
+A `--lto` build writes store entries next to the entries of a build without the flag.
+`--keep-grin` and `--keep-native` have no effect on an install with the flag, because nothing below System FC is generated.
+
 ## Artifact reuse
 
 A package is either immutable or local, and the two never mix.

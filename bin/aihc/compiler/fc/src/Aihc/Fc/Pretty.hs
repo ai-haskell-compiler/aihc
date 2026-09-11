@@ -5,6 +5,7 @@ module Aihc.Fc.Pretty
   ( renderProgram,
     renderType,
     renderExpr,
+    reservedWords,
   )
 where
 
@@ -516,13 +517,44 @@ prettyPrintedName name =
 prettyRawPrinted :: Text -> Doc ann
 prettyRawPrinted = pretty
 
+-- | A local name prints its unique when it is not zero, and always when
+-- the name is a reserved word: the suffix is what tells the parser that
+-- @as{0}@ is a name and not a keyword.
 prettyUniqueSuffix :: Name -> Doc ann
 prettyUniqueSuffix name =
   case nameOrigin name of
     OriginLocal (Unique unique)
-      | unique /= 0 -> "{" <> pretty unique <> "}"
+      | unique /= 0 || nameText name `elem` reservedWords -> "{" <> pretty unique <> "}"
       | otherwise -> mempty
     OriginTop {} -> mempty
+
+-- | The words the printed form reserves. A top name prints behind its class
+-- prefix and a local name prints with its unique, so both stay apart from
+-- these.
+reservedWords :: [Text]
+reservedWords =
+  [ "pub",
+    "val",
+    "type",
+    "axiom",
+    "foreign",
+    "import",
+    "prim",
+    "module",
+    "where",
+    "let",
+    "rec",
+    "in",
+    "case",
+    "as",
+    "of",
+    "FUN",
+    "refl",
+    "sym",
+    "trans",
+    "tycon-co",
+    "axiom-co"
+  ]
 
 parenthesize :: Bool -> Doc ann -> Doc ann
 parenthesize False value = value

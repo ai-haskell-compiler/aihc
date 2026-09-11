@@ -336,7 +336,7 @@ compileEvalCaseWithWrappers env tc = do
         Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
       -- This program contains only the fixture modules. The shared
       -- environment already holds aihc-prim and aihc-base.
-      pure (concatPrograms (map Fc.dsProgram results), interfaceCapiWrappers localInterface)
+      pure (Fc.mergePrograms (map Fc.dsProgram results), interfaceCapiWrappers localInterface)
     ResolveResult {resolveErrors} ->
       Left ("resolve error: " <> show resolveErrors)
 
@@ -530,27 +530,6 @@ moduleKey = fromMaybe "Main" . Surface.moduleName
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Prim", "GHC.Tuple", "GHC.Types"]
 
-concatPrograms :: [Fc.Program] -> Fc.Program
-concatPrograms programs =
-  Fc.Program
-    { Fc.programScopes = Fc.insertScope minBound primPackageId "GHC.Types" mergedScopes,
-      Fc.programImports =
-        Fc.Imports
-          { Fc.importHeaders = Map.unions (map (Fc.importHeaders . Fc.programImports) programs),
-            Fc.importSynonyms = Map.unions (map (Fc.importSynonyms . Fc.programImports) programs),
-            Fc.importAxioms = Map.unions (map (Fc.importAxioms . Fc.programImports) programs),
-            Fc.importBinders = Map.unions (map (Fc.importBinders . Fc.programImports) programs)
-          },
-      Fc.programDecls = concatMap Fc.programDecls programs
-    }
-  where
-    mergedScopes = foldl addScopes Fc.emptyScopeTable programs
-    addScopes scopes program =
-      foldl
-        (\current (scopeId, package, moduleName') -> Fc.insertScope scopeId package moduleName' current)
-        scopes
-        (Fc.scopeEntries (Fc.programScopes program))
-
 -- | Compile the complete aihc-prim and aihc-base packages. Any failure is
 -- fatal: every fixture depends on this environment.
 loadEvalEnvironment :: IO EvalEnvironment
@@ -572,7 +551,7 @@ loadEvalEnvironment = do
           results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig configs checked) bindings interface checked) tcResults
       unless (all Fc.dsSuccess results) $
         fail ("core library desugar error: " <> unlines (concatMap Fc.dsErrors results))
-      let program = concatPrograms (map Fc.dsProgram results)
+      let program = Fc.mergePrograms (map Fc.dsProgram results)
       -- Force the shared structures once so no fixture pays for them again.
       _ <- evaluate (length (Fc.programDecls program))
       _ <- evaluate (length (tcInterfaceTerms interface))

@@ -2,10 +2,15 @@ module Aihc.Cli.Install
   ( InstallResult (..),
     InstallLocations (..),
     InstalledPackage (..),
+    FcModule (..),
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
+    ModuleOutputPaths (..),
+    backendOptionsKey,
+    compileFcModules,
     compileModules,
+    moduleOutputPaths,
     buildEnvironmentIdentity,
     defaultBuildRoot,
     install,
@@ -316,6 +321,9 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileKeepGrin :: !Bool,
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
+    -- | Stop each module at System FC. @build-exe@ merges the System FC of
+    -- the whole program and compiles it once.
+    compileLto :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
@@ -335,8 +343,11 @@ data ModuleCompileRequest = ModuleCompileRequest
     compileCapiStubOptions :: !CapiStubOptions
   }
 
-newtype ModuleCompileResult = ModuleCompileResult
-  { compileObjectPaths :: [FilePath]
+data ModuleCompileResult = ModuleCompileResult
+  { -- | The objects of the modules, and of their capi wrappers. A @--lto@
+    -- build has wrapper objects only.
+    compileObjectPaths :: [FilePath],
+    compileModuleNames :: [Text]
   }
   deriving (Eq, Show)
 
@@ -427,6 +438,7 @@ installWith output options = do
             compileKeepGrin = installKeepGrin options,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
+            compileLto = installLto options,
             compileNoCode = installNoCode options,
             compileOptimization = installOptimization options,
             compileTarget = target,
@@ -686,7 +698,9 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       reused = compiledReused compiled
   unless (compileNoCode config) $ do
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
-    moduleObjects <- moduleObjectPaths storePath target (map sourceName parsed)
+    -- A @--lto@ archive holds the wrapper and C objects only: the Haskell
+    -- code of the package reaches the executable as System FC.
+    moduleObjects <- moduleObjectPaths (not (compileLto config)) storePath target (map sourceName parsed)
     -- The archive follows its objects and the C sources. Both are known
     -- without reading the objects: a unit that wrote an object says so, and
     -- the C sources are hashed for the archive stamp.
@@ -709,6 +723,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
             packageManifestUnitId = unitIdentity,
             packageManifestDependencies = sortOn id (map installedIdentity dependencies),
             packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd),
+            packageManifestCompiledModules = sortOn id (map sourceName parsed),
             packageManifestFlags = compileFlagNames config
           }
   writePackageManifest (packageManifestPath storePath) manifest
@@ -748,6 +763,7 @@ compileFlagNames config =
         (compileKeepGrin config, "keep-grin"),
         (compileKeepNative config, "keep-native"),
         (compileLint config, "lint"),
+        (compileLto config, "lto"),
         (compileNoCode config, "no-code"),
         (compileOptimization config /= defaultOptimizationLevel, optimizationFlagName (compileOptimization config))
       ],
@@ -766,25 +782,22 @@ compileModules config request = do
       (compilePackage request)
       (compileSourceFiles request)
       dependencies
-  objects <-
-    moduleObjectPaths
-      (compileOutputRoot request)
-      (compileTarget config)
-      (map sourceName (compiledSources compiled))
-  pure ModuleCompileResult {compileObjectPaths = objects}
+  let names = map sourceName (compiledSources compiled)
+  objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
+  pure ModuleCompileResult {compileObjectPaths = objects, compileModuleNames = names}
 
--- | The objects of a set of modules: one for each module, and the capi
--- wrappers of those that declare any.
+-- | The objects of a set of modules: one for each module when the modules
+-- have objects, and the capi wrappers of those that declare any.
 --
 -- The wrappers are found on disk rather than reported by the backend,
 -- because a module whose artifacts were reused compiled nothing this time and
 -- still has the wrapper object it built before.  A module that no longer
 -- declares a capi import has had its wrapper object removed, so what is there
 -- is what belongs in the link.
-moduleObjectPaths :: FilePath -> NativeTarget -> [Text] -> IO [FilePath]
-moduleObjectPaths root target names = do
+moduleObjectPaths :: Bool -> FilePath -> NativeTarget -> [Text] -> IO [FilePath]
+moduleObjectPaths withModuleObjects root target names = do
   capiObjects <- filterM doesFileExist [outputCapiObjectPath (paths name) | name <- names]
-  pure (sortOn id ([outputObjectPath (paths name) | name <- names] <> capiObjects))
+  pure (sortOn id ([outputObjectPath (paths name) | withModuleObjects, name <- names] <> capiObjects))
   where
     paths = moduleOutputPaths root target
 
@@ -999,11 +1012,12 @@ buildEnvironmentIdentity target = do
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
--- compiler, the target, and the optimization level. Flags that add or drop
--- outputs, such as @--keep-core@, or that only check, such as @--lint@, are
--- recorded in the manifest instead.
+-- compiler, the target, the optimization level, and whether the package
+-- stops at System FC. Flags that add or drop outputs, such as
+-- @--keep-core@, or that only check, such as @--lint@, are recorded in the
+-- manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config)
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -1028,6 +1042,11 @@ optimizationKeyParts config
 optimizationFlagName :: OptimizationLevel -> Text
 optimizationFlagName level = "O" <> T.pack (renderOptimizationLevel level)
 
+-- | The key part of a @--lto@ build. A build without the flag adds nothing,
+-- so its keys stay the keys of a build before the flag existed.
+ltoKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+ltoKeyParts config = ["lto" | compileLto config]
+
 -- | The part of the configuration the type interfaces depend on. The level
 -- changes only C and LLVM objects, so a local package that changes its
 -- level keeps its interfaces.
@@ -1043,6 +1062,7 @@ backendOptionsKey config =
         BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
       ]
         <> optimizationKeyParts config
+        <> ltoKeyParts config
     )
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -1860,17 +1880,19 @@ unitResolveStampPath unit = unitStampBase unit <.> "resolve.json"
 unitStampPath :: SourceUnit -> FilePath
 unitStampPath unit = unitStampBase unit <.> "unit.json"
 
--- | The backend outputs of a unit, relative to the package.
+-- | The backend outputs of a unit, relative to the package. A @--lto@ unit
+-- writes the System FC of each module and nothing below it.
 unitBackendPaths :: ModuleCompileConfig -> SourceUnit -> [FilePath]
 unitBackendPaths config unit = concatMap paths (sourceUnitSources unit)
   where
-    paths source =
-      let name = sourceName source
-          output = moduleOutputPaths "" (compileTarget config) name
-       in [outputObjectPath output]
-            <> [outputFcPath output | compileKeepCore config]
-            <> concat [[outputGrinPath output, outputCpsGrinPath output, outputGcGrinPath output] | compileKeepGrin config]
-            <> [outputNativePath output | compileKeepNative config]
+    paths source
+      | compileLto config = [outputFcPath (output source)]
+      | otherwise =
+          [outputObjectPath (output source)]
+            <> [outputFcPath (output source) | compileKeepCore config]
+            <> concat [[outputGrinPath (output source), outputCpsGrinPath (output source), outputGcGrinPath (output source)] | compileKeepGrin config]
+            <> [outputNativePath (output source) | compileKeepNative config]
+    output source = moduleOutputPaths "" (compileTarget config) (sourceName source)
 
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
@@ -1970,7 +1992,7 @@ renderBackendPhaseTotals timings =
 compileCheckedModules :: ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO (BackendPhaseTimings, [CapiStubOutput])
 compileCheckedModules config capiOptions verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-  (splitModules, desugarNs) <- measureTime $ do
+  (fcModules, desugarNs) <- measureTime $ do
     let kinds = primKinds primIdentity
         bindings = concatMap (tcModuleBindings (primTcWiring primIdentity)) checkedModules
         -- A module the resolver did not report on keeps every name public.
@@ -2005,19 +2027,14 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
                   )
               )
           )
-    when keepCore (mapM_ writeFcModule fcModules)
-    pure (spanEmptyModules fcModules)
-  let (emptyFcModules, nonemptyFcModules) = splitModules
-  (grinModules, grinNs) <- measureTime $ do
-    grinModules <- mapM lowerGrinModule nonemptyFcModules
-    when keepGrin (mapM_ writeGrinModule grinModules)
-    pure grinModules
-  (_, nativeNs) <- measureTime $ do
-    mapM_ writeEmptyModule emptyFcModules
-    nativeModules <- mapM (generateNativeModule target) grinModules
-    mapM_ writeNativeSourceFile nativeModules
-    mapM_ compileNativeSourceFile nativeModules
-    unless keepNative (mapM_ removeNativeSourceFile nativeModules)
+    -- A @--lto@ build keeps the System FC of every module: it is what the
+    -- executable compiles.
+    when (keepCore || lto) (mapM_ writeFcModule fcModules)
+    pure fcModules
+  (grinNs, nativeNs) <-
+    if lto
+      then pure (0, 0)
+      else compileFcModules config verbose outputPaths fcModules
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
   (capiOutputs, capiNs) <- measureTime (concat <$> mapM buildCapiStub moduleNames)
@@ -2032,27 +2049,9 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
     )
   where
     keepCore = compileKeepCore config
-    keepGrin = compileKeepGrin config
-    keepNative = compileKeepNative config
     lint = compileLint config
+    lto = compileLto config
     target = compileTarget config
-    spanEmptyModules = foldr split ([], [])
-      where
-        split fcModule (emptyModules, nonemptyModules)
-          | null (Fc.programDecls (fcProgram fcModule)) = (fcModule : emptyModules, nonemptyModules)
-          | otherwise = (emptyModules, fcModule : nonemptyModules)
-
-    writeEmptyModule fcModule = do
-      let name = fcModuleName fcModule
-          paths = outputPaths name
-      createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      BS.writeFile (outputObjectPath paths) ""
-      when (compileKeepGrin config) $ do
-        writeFile (outputGrinPath paths) ""
-        writeFile (outputCpsGrinPath paths) ""
-        writeFile (outputGcGrinPath paths) ""
-      when (compileKeepNative config) (writeFile (outputNativePath paths) "")
-      verbose ("Write empty object: " <> T.unpack name)
 
     -- The C wrappers of a module's capi imports are compiled beside its
     -- object and archived with it, so a module that declares none must leave
@@ -2094,6 +2093,45 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
           output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       TIO.writeFile path output
+
+-- | Lower System FC modules to objects: GRIN, then Lir, then the object of
+-- the target. A module with no declarations gets an empty object. Returns
+-- the time the GRIN phase and the native phase took.
+compileFcModules :: ModuleCompileConfig -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [FcModule] -> IO (Word64, Word64)
+compileFcModules config verbose outputPaths fcModules = do
+  let (emptyFcModules, nonemptyFcModules) = spanEmptyModules fcModules
+  (grinModules, grinNs) <- measureTime $ do
+    grinModules <- mapM lowerGrinModule nonemptyFcModules
+    when keepGrin (mapM_ writeGrinModule grinModules)
+    pure grinModules
+  (_, nativeNs) <- measureTime $ do
+    mapM_ writeEmptyModule emptyFcModules
+    nativeModules <- mapM (generateNativeModule target) grinModules
+    mapM_ writeNativeSourceFile nativeModules
+    mapM_ compileNativeSourceFile nativeModules
+    unless keepNative (mapM_ removeNativeSourceFile nativeModules)
+  pure (grinNs, nativeNs)
+  where
+    keepGrin = compileKeepGrin config
+    keepNative = compileKeepNative config
+    target = compileTarget config
+    spanEmptyModules = foldr split ([], [])
+      where
+        split fcModule (emptyModules, nonemptyModules)
+          | null (Fc.programDecls (fcProgram fcModule)) = (fcModule : emptyModules, nonemptyModules)
+          | otherwise = (emptyModules, fcModule : nonemptyModules)
+
+    writeEmptyModule fcModule = do
+      let name = fcModuleName fcModule
+          paths = outputPaths name
+      createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
+      BS.writeFile (outputObjectPath paths) ""
+      when (compileKeepGrin config) $ do
+        writeFile (outputGrinPath paths) ""
+        writeFile (outputCpsGrinPath paths) ""
+        writeFile (outputGcGrinPath paths) ""
+      when (compileKeepNative config) (writeFile (outputNativePath paths) "")
+      verbose ("Write empty object: " <> T.unpack name)
 
     lowerGrinModule fcModule = do
       verbose ("Lower GRIN: " <> T.unpack (fcModuleName fcModule))
@@ -2770,4 +2808,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-22"
+packageArtifactFormatVersion = "aihc-artifacts-23"
