@@ -55,6 +55,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
@@ -163,12 +164,12 @@ import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
-import System.Environment (getEnvironment)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
-import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode)
+import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode, readProcess)
 
 data InstallResult = InstallResult
   { -- | The package directory: in the store for an immutable package, in
@@ -672,7 +673,8 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
   let storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId unitIdentity)
-  (files, cCompileInfo) <- configurePackage config root storePath packageNameText inputs
+  (configuredFiles, cCompileInfo) <- configurePackage config root storePath packageNameText inputs
+  files <- preprocessPackage config root storePath (inputConfigureScript inputs) cCompileInfo configuredFiles
   compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
@@ -920,7 +922,10 @@ storePackageIdentity config dependencies inputs = do
       -- A configure script answers for the sysroot it saw, and its answers
       -- reach the Haskell sources through the CPP pass, so they count even
       -- without code.
-      usesSysroot = isJust (inputConfigureScript inputs) || not (compileNoCode config || null (HackageCabal.cCompileSources cInputs))
+      -- So does hsc2hs, which computes its constants with the C compiler of
+      -- the target.
+      usesPreprocessor = any (isJust . HackageCabal.fileInfoPreprocessor) (inputSources inputs)
+      usesSysroot = isJust (inputConfigureScript inputs) || usesPreprocessor || not (compileNoCode config || null (HackageCabal.cCompileSources cInputs))
   cSysrootArguments <-
     if usesSysroot
       then wasmSysrootIncludeArguments (compileTarget config)
@@ -2343,14 +2348,158 @@ configurePackage config root storePath packageName inputs =
 -- guess, even only by a version suffix, counts as cross-compiling too.
 configureCommand :: NativeTarget -> OptimizationLevel -> FilePath -> IO (FilePath, [String], [(String, String)])
 configureCommand target level script = do
-  (compiler, targetArguments) <- backendCompiler target
-  sysrootIncludes <- wasmSysrootIncludeArguments target
+  (compiler, cflagList) <- targetCCompiler target level
   inherited <- getEnvironment
-  let cflags = unwords (targetArguments <> handwrittenCArguments level <> sysrootIncludes)
+  let cflags = unwords cflagList
       overrides = [("CC", compiler), ("CFLAGS", cflags)]
       environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
       crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
   pure ("sh", script : crossArguments, environment)
+
+-- | The C compiler of a target and the flags handwritten C is compiled
+-- with: the target arguments, the level, and the sysroot includes. A tool
+-- that compiles C on the package's behalf, such as a configure script or
+-- hsc2hs, gets these so that what it learns about the target holds for the
+-- code that is later compiled for it.
+targetCCompiler :: NativeTarget -> OptimizationLevel -> IO (FilePath, [String])
+targetCCompiler target level = do
+  (compiler, targetArguments) <- backendCompiler target
+  sysrootIncludes <- wasmSysrootIncludeArguments target
+  pure (compiler, targetArguments <> handwrittenCArguments level <> sysrootIncludes)
+
+-- | Turn the sources a preprocessor owns into Haskell modules, and return
+-- the source list with those files pointing at the generated modules.
+--
+-- The generated files live under @<storePath>/preprocess@, mirroring the
+-- package layout. That directory is per target, as it must be: hsc2hs
+-- answers with the sizes and constants of the target, so the same @.hsc@
+-- file yields a different module per target. The package's own tree is
+-- shared across targets and stays untouched.
+--
+-- Each output carries a stamp of everything it was made from, and an
+-- unchanged stamp skips the tool. The configure hash is part of it because
+-- a @.hsc@ file includes the headers configure wrote.
+preprocessPackage :: ModuleCompileConfig -> FilePath -> FilePath -> Maybe FilePath -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
+preprocessPackage config root storePath configureScript cInfo = mapM preprocessFile
+  where
+    verbose = compileVerbose config
+
+    preprocessFile file =
+      case HackageCabal.fileInfoPreprocessor file of
+        Nothing -> pure file
+        Just preprocessor -> do
+          let input = HackageCabal.fileInfoPath file
+              output = storePath </> "preprocess" </> dropExtension (makeRelative root input) <.> "hs"
+              stampPath = output <.> "hash"
+          (executable, arguments) <- preprocessorCommand config preprocessor cInfo file output
+          toolIdentity <- preprocessorIdentity executable
+          inputBytes <- BS.readFile input
+          configureHash <- maybe (pure "") (configureInputsHash config) configureScript
+          environmentIdentity <- buildEnvironmentIdentity (compileTarget config)
+          let inputsHash =
+                stableHash
+                  [ TE.encodeUtf8 packageArtifactFormatVersion,
+                    inputBytes,
+                    BS8.pack toolIdentity,
+                    BS8.pack (show (executable, arguments)),
+                    BS8.pack configureHash,
+                    BS8.pack environmentIdentity
+                  ]
+          previous <- readStampText stampPath
+          exists <- doesFileExist output
+          if exists && previous == Just inputsHash
+            then verbose ("Reuse preprocessed: " <> output)
+            else do
+              createDirectoryIfMissing True (takeDirectory output)
+              verbose ("Preprocess: " <> unwords (executable : arguments))
+              -- The tool keeps its scratch files next to the output, and
+              -- an @#include "..."@ in the source resolves against the
+              -- source's own directory through the -I passed above.
+              inherited <- getEnvironment
+              runToolIn (takeDirectory output) inherited executable arguments
+              BS8.writeFile stampPath (BS8.pack inputsHash)
+          pure file {HackageCabal.fileInfoPath = output, HackageCabal.fileInfoPreprocessor = Nothing}
+
+-- | The executable and arguments that run a preprocessor over one file.
+preprocessorCommand :: ModuleCompileConfig -> Preprocessor -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> IO (FilePath, [String])
+preprocessorCommand config preprocessor cInfo file output = do
+  executable <- preprocessorExecutable preprocessor
+  arguments <-
+    case preprocessor of
+      Hsc2hs -> hsc2hsArguments config cInfo file output
+  pure (executable, arguments)
+
+-- | The arguments Cabal would give hsc2hs, with one difference: aihc always
+-- asks for cross-compilation mode. In that mode hsc2hs finds every constant
+-- by compiling test programs with the C compiler of the target and never
+-- runs one, so the same code path serves the host, a foreign machine and
+-- wasm, and the result cannot depend on which of them aihc happens to run
+-- on.
+--
+-- The C compiler is the target's, with the flags handwritten C is compiled
+-- with, plus the package's @cc-options@ and @cpp-options@ and its include
+-- directories, which by now include the ones configure wrote. The template
+-- hsc2hs wraps the file in includes @HsFFI.h@, so the runtime's include
+-- directory is searched too. The @*_HOST_OS@ and @*_HOST_ARCH@ macros are
+-- defined the way Cabal defines them, since a @.hsc@ file resolves its own
+-- @#if@ lines through the C compiler rather than through aihc's CPP pass.
+hsc2hsArguments :: ModuleCompileConfig -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> IO [String]
+hsc2hsArguments config cInfo file output = do
+  let target = compileTarget config
+      input = HackageCabal.fileInfoPath file
+  (compiler, cflags) <- targetCCompiler target (compileOptimization config)
+  runtimeInclude <- takeDirectory <$> getDataFileName "compiler/native/runtime/include/HsFFI.h"
+  let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [runtimeInclude])
+      options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
+  pure
+    ( ["--cross-compile", "--cc=" <> compiler, "--ld=" <> compiler]
+        <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target)
+        <> map ("-I" <>) includeDirs
+        <> ["-o", output, input]
+    )
+
+-- | The @-D@ flags that name the platform a target's code runs on, in the
+-- spelling GHC and Cabal use: @darwin_HOST_OS@, not @osx@.
+hostPlatformMacros :: NativeTarget -> [String]
+hostPlatformMacros target =
+  let (os, arch) = cabalPlatformForTarget target
+      osName = case os of
+        OSX -> "darwin"
+        other -> prettyShow other
+      archName = prettyShow arch
+   in ["-D" <> osName <> "_HOST_OS=1", "-D" <> archName <> "_HOST_ARCH=1"]
+
+-- | Where a preprocessor's executable is: the environment variable named
+-- for it, or else the search path.
+preprocessorExecutable :: Preprocessor -> IO FilePath
+preprocessorExecutable preprocessor = do
+  let name = preprocessorToolName preprocessor
+      variable = preprocessorEnvironmentVariable preprocessor
+  override <- lookupEnv variable
+  case override of
+    Just path | not (null path) -> pure path
+    _ -> do
+      found <- findExecutable name
+      case found of
+        Just path -> pure path
+        Nothing ->
+          ioError
+            ( userError
+                ( "The package has a source that needs "
+                    <> name
+                    <> ", which is not on the PATH. Install it, or name it with "
+                    <> variable
+                    <> "."
+                )
+            )
+
+-- | What identifies a preprocessor for the stamps of its outputs: where it
+-- is and what it says its version is.
+preprocessorIdentity :: FilePath -> IO String
+preprocessorIdentity executable = do
+  path <- canonicalizePath executable
+  version <- readProcess executable ["--version"] ""
+  pure (stableHash [BS8.pack path, BS8.pack version])
 
 -- | The name autoconf gives the machine an aihc target's code runs on, in
 -- autoconf's vocabulary the host, for the @--host@ argument of a configure

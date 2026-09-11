@@ -1,0 +1,1 @@
+#define DEMO_ANSWER 42

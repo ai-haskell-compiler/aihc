@@ -265,6 +265,7 @@ library
     GHC.Internal.Read
     GHC.Internal.Stack
     GHC.Internal.Traversable
+    GHC.Internal.Utf8
     GHC.Read.Lex
     Type.Reflection.Internal
 

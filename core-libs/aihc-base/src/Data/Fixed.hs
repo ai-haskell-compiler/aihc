@@ -29,6 +29,9 @@ module Data.Fixed
   )
 where
 
+import GHC.Read (readListDefault, readListPrecDefault, readNumber)
+import Text.ParserCombinators.ReadPrec (ReadPrec, pfail)
+import Text.Read.Lex (Lexeme (..), numberToFixed)
 import Prelude
 
 -- | Generalized integral division for real values.
@@ -167,6 +170,29 @@ addDecimalPoint text = '.' : text
 instance (HasResolution a) => Show (Fixed a) where
   showsPrec precedence value =
     showParen (precedence > 6 && value < 0) (showString (showFixed False value))
+
+instance (HasResolution a) => Read (Fixed a) where
+  readPrec = readNumber convertFixed
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+-- | The value of a number lexeme at the resolution of the result. The
+-- fraction is read to as many decimal digits as the resolution has, so
+-- @read "1.25" :: Centi@ is @1.25@ and a longer fraction is truncated.
+convertFixed :: (HasResolution a) => Lexeme -> ReadPrec (Fixed a)
+convertFixed = convertFixedAt undefined
+
+convertFixedAt :: (HasResolution a) => Fixed a -> Lexeme -> ReadPrec (Fixed a)
+convertFixedAt proxy lexeme =
+  case lexeme of
+    Number number ->
+      let scale = resolution proxy
+          digits = decimalDigits scale
+       in case numberToFixed (toInteger digits) number of
+            Just (whole, fraction) ->
+              return (sameFixedType (MkFixed (whole * scale + div (fraction * scale) (10 ^ digits))) proxy)
+            Nothing -> pfail
+    _ -> pfail
 
 data E0
 

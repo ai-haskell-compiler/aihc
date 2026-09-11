@@ -1,0 +1,27 @@
+#!/bin/sh
+# A stand-in for hsc2hs. It answers --version, records the arguments it was
+# given next to its output, and turns the .hsc into Haskell the way the real
+# tool would for this fixture: the directives go, and the one constant is
+# filled in. The test that runs the real hsc2hs checks the same fixture.
+set -e
+if [ "$1" = "--version" ]; then
+  echo "hsc2hs stand-in 0.0"
+  exit 0
+fi
+output=
+input=
+expect_output=0
+for argument in "$@"; do
+  if [ "$expect_output" = 1 ]; then
+    output=$argument
+    expect_output=0
+  else
+    case "$argument" in
+      -o) expect_output=1 ;;
+      -*) ;;
+      *) input=$argument ;;
+    esac
+  fi
+done
+printf '%s\n' "$@" > "$output.args"
+sed -e '/^#/d' -e 's/#{const DEMO_ANSWER}/42/' "$input" > "$output"

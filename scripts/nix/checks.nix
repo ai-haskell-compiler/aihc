@@ -99,6 +99,10 @@
                   # links into its own bin directory: the foreign-target suites
                   # archive their objects with llvm-ar.
                   export PATH=${pkgs.llvmPackages.bintools}/bin:${pkgs.llvmPackages.clang}/bin:$PATH
+                  # The install tests preprocess a .hsc fixture with the real
+                  # tool; the standalone one, not GHC's wrapper, which adds
+                  # GHC's own C flags and include directory.
+                  export AIHC_HSC2HS=${pkgs.haskellPackages.hsc2hs}/bin/hsc2hs
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"
                   ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
@@ -605,6 +609,7 @@
         pkgs.wasm-tools
         pkgs.wit-bindgen
         wasmLd
+        pkgs.haskellPackages.hsc2hs
       ];
     } ''
       set -euo pipefail

@@ -10,6 +10,7 @@ module Aihc.Hackage.Util
   )
 where
 
+import Aihc.Hackage.Preprocessor (preprocessorExtensions)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
 import Data.Char (toLower)
@@ -112,12 +113,15 @@ moduleFilesForBuildInfo packageRoot build modules = do
   let dirs = sourceDirs packageRoot build
   fmap catMaybes (mapM (firstExistingModule dirs) modules)
 
+-- | The file a module is found as. Like Cabal, the search covers the
+-- suffixes of the preprocessors after the plain Haskell ones, so a module
+-- that ships both @Foo.hs@ and @Foo.hsc@ takes the plain file.
 firstExistingModule :: [FilePath] -> ModuleName -> IO (Maybe FilePath)
 firstExistingModule dirs modu =
   firstExisting
     [ dir </> toFilePath modu <.> ext
     | dir <- dirs,
-      ext <- ["hs", "lhs"]
+      ext <- ["hs", "lhs"] <> preprocessorExtensions
     ]
 
 firstExisting :: [FilePath] -> IO (Maybe FilePath)

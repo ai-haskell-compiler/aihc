@@ -1,6 +1,8 @@
-{-# LANGUAGE MagicHash #-}
-
 -- | String marshalling through text encodings.
+--
+-- A 'TextEncoding' here is a name only, so this chooses between the two
+-- codecs "Foreign.C.String" has: UTF-8 for the UTF-8 encodings and one byte
+-- per character for every other.
 module GHC.Foreign
   ( peekCString,
     peekCStringLen,
@@ -12,30 +14,43 @@ module GHC.Foreign
 where
 
 import Foreign.C.String (CString, CStringLen)
+import Foreign.C.String qualified as C
 import GHC.Base (String)
 import GHC.IO (IO)
-import GHC.IO.Encoding (TextEncoding)
-import GHC.Prim (raise#)
+import GHC.IO.Encoding (TextEncoding, textEncodingName)
+import Prelude (Bool, Eq (..), otherwise, (||))
 
--- | Marshalling through text encodings needs byte access through pointers,
--- which is not available.
 peekCString :: TextEncoding -> CString -> IO String
-peekCString _ _ = marshalError "GHC.Foreign.peekCString: string marshalling is not available"
+peekCString encoding
+  | isUtf8 encoding = C.peekCString
+  | otherwise = C.peekCAString
 
 peekCStringLen :: TextEncoding -> CStringLen -> IO String
-peekCStringLen _ _ = marshalError "GHC.Foreign.peekCStringLen: string marshalling is not available"
+peekCStringLen encoding
+  | isUtf8 encoding = C.peekCStringLen
+  | otherwise = C.peekCAStringLen
 
 newCString :: TextEncoding -> String -> IO CString
-newCString _ _ = marshalError "GHC.Foreign.newCString: string marshalling is not available"
+newCString encoding
+  | isUtf8 encoding = C.newCString
+  | otherwise = C.newCAString
 
 newCStringLen :: TextEncoding -> String -> IO CStringLen
-newCStringLen _ _ = marshalError "GHC.Foreign.newCStringLen: string marshalling is not available"
+newCStringLen encoding
+  | isUtf8 encoding = C.newCStringLen
+  | otherwise = C.newCAStringLen
 
 withCString :: TextEncoding -> String -> (CString -> IO a) -> IO a
-withCString _ _ _ = marshalError "GHC.Foreign.withCString: string marshalling is not available"
+withCString encoding
+  | isUtf8 encoding = C.withCString
+  | otherwise = C.withCAString
 
 withCStringLen :: TextEncoding -> String -> (CStringLen -> IO a) -> IO a
-withCStringLen _ _ _ = marshalError "GHC.Foreign.withCStringLen: string marshalling is not available"
+withCStringLen encoding
+  | isUtf8 encoding = C.withCStringLen
+  | otherwise = C.withCAStringLen
 
-marshalError :: String -> a
-marshalError = raise#
+isUtf8 :: TextEncoding -> Bool
+isUtf8 encoding =
+  let name = textEncodingName encoding
+   in name == "UTF-8" || name == "UTF-8BOM" || name == "UTF8"

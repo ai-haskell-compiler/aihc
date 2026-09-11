@@ -20,7 +20,7 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
-import Control.Exception (IOException, bracket, try)
+import Control.Exception (IOException, bracket, bracket_, try)
 import Control.Monad (forM, forM_, void)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
@@ -50,7 +50,7 @@ import System.Directory
     setModificationTime,
     withCurrentDirectory,
   )
-import System.Environment (lookupEnv)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
 import System.IO (IOMode (WriteMode), hClose, openTempFile, withFile)
@@ -107,6 +107,7 @@ tests =
             testCase "compiles and archives capi wrappers" (test_installCapi primStore),
             testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
             testCase "runs the configure script of a Configure package out of tree" (test_installConfigure primStore),
+            testCase "preprocesses .hsc sources with hsc2hs" (test_installHsc2hs primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
             testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
@@ -143,7 +144,8 @@ test_moduleDepsIncludedHeader =
               HackageCabal.fileInfoCppOptions = [],
               HackageCabal.fileInfoIncludeDirs = [includeDir],
               HackageCabal.fileInfoLanguage = Just "Haskell2010",
-              HackageCabal.fileInfoDependencies = []
+              HackageCabal.fileInfoDependencies = [],
+              HackageCabal.fileInfoPreprocessor = Nothing
             }
         digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile root mempty fileInfo
     createDirectoryIfMissing True sourceDir
@@ -828,6 +830,51 @@ test_installConfigure getStore = do
     let archivePath = installStorePath result </> "lib" </> "libdemo.a"
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
     assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
+
+-- A module found as a @.hsc@ file goes through hsc2hs before anything else
+-- reads it. The generated module lands under the package's own output
+-- path, per target, and the rest of the install sees it as an ordinary
+-- source. The first install runs a stand-in for the tool that records its
+-- arguments, which is what checks the command line: cross-compilation
+-- mode, the C compiler of the target, the package's include directory and
+-- the runtime's, and the platform macros. The second runs the real hsc2hs
+-- over the same fixture, which is what checks that the command line works.
+--
+-- The two run one after the other because the stand-in is named through
+-- the environment, which the process has only one of.
+test_installHsc2hs :: IO SeedStore -> Assertion
+test_installHsc2hs getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/hsc2hs"
+  let standIn = fixtureRoot </> "tools" </> "hsc2hs"
+      preprocessedModule result = installStorePath result </> "preprocess" </> "src" </> "Demo.hs"
+      installFixture sandbox = do
+        storeRoot <- sandboxStore sandbox "store"
+        install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False O2 False False False False AppleArm64)
+  withSandbox getStore "aihc-install-hsc2hs-stand-in" $ \sandbox ->
+    bracket_ (setEnv "AIHC_HSC2HS" standIn) (unsetEnv "AIHC_HSC2HS") $ do
+      result <- installFixture sandbox
+      let generated = preprocessedModule result
+      assertFileExists generated
+      generatedInSource <- doesFileExist (fixtureRoot </> "src" </> "Demo.hs")
+      assertBool "the generated module stays out of the source tree" (not generatedInSource)
+      arguments <- lines <$> readFile (generated <> ".args")
+      assertBool "hsc2hs runs in cross-compilation mode" ("--cross-compile" `elem` arguments)
+      assertBool "hsc2hs compiles for the target" (any ("--cflag=--target=arm64-apple-darwin" `isPrefixOf`) arguments)
+      assertBool "hsc2hs sees the package include directory" (("-I" <> fixtureRoot </> "include") `elem` arguments)
+      assertBool "hsc2hs sees the runtime include directory" (any (\argument -> "-I" `isPrefixOf` argument && "runtime/include" `isSuffixOf` argument) arguments)
+      assertBool "hsc2hs sees the platform macros" ("--cflag=-Ddarwin_HOST_OS=1" `elem` arguments && "--cflag=-Daarch64_HOST_ARCH=1" `elem` arguments)
+      assertEqual "hsc2hs writes the module and reads the fixture" ["-o", generated, fixtureRoot </> "src" </> "Demo.hsc"] (drop (length arguments - 3) arguments)
+      assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
+      -- A second install finds the stamp current and leaves the output alone.
+      removeFile (generated <> ".args")
+      _ <- installFixture sandbox
+      argumentsAgain <- doesFileExist (generated <> ".args")
+      assertBool "an unchanged .hsc is not preprocessed again" (not argumentsAgain)
+  withSandbox getStore "aihc-install-hsc2hs" $ \sandbox -> do
+    result <- installFixture sandbox
+    generated <- readFile (preprocessedModule result)
+    assertBool "hsc2hs fills in the constant from the header" ("answer = 42" `isInfixOf` generated)
+    assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
 
 -- An API standin such as aihc-internal has only empty modules, so nothing
 -- goes into its archive. BSD ar refuses to create an archive with no
