@@ -10,6 +10,7 @@ module Aihc.Fc.Desugar.Value
   )
 where
 
+import Aihc.Capi (capiWrapperSymbol)
 import Aihc.Fc.Convert
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
@@ -687,17 +688,25 @@ desugarForeign foreignPlan foreignDecl =
 
 -- | The System FC facts of a foreign import: its calling convention and the
 -- axioms and constructors that its marshalling needs.
-foreignCallFacts :: TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
-foreignCallFacts ty info =
+--
+-- A @capi@ import of a function or a value does not call its entity: the
+-- entity is reached through the C API of a header, so the call names the C
+-- wrapper the compiler generates for it instead.  The key is the one of the
+-- module that declares the import, so every use spells the same symbol.
+foreignCallFacts :: TcTermKey -> TcType -> TcForeignImportInfo -> ValueM (CallingConvention, [ForeignImportDependency])
+foreignCallFacts key ty info =
   case info of
     TcForeignPrimImport -> pure (Prim, [])
     TcForeignCCallImport safety plan -> do
       convertedSafety <- convertForeignSafetyMark safety
       dependencies <- foreignImportPlanDependencies ty plan
-      let convention =
+      let symbol = case tcForeignCApi plan of
+            Just _ -> capiWrapperSymbol key
+            Nothing -> tcForeignSymbol plan
+          convention =
             CCall
               CCallSpec
-                { ccallSymbol = tcForeignSymbol plan,
+                { ccallSymbol = symbol,
                   ccallTarget = convertForeignTarget (tcForeignTarget plan),
                   ccallSafety = convertedSafety,
                   ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
@@ -714,7 +723,7 @@ desugarForeignReference variable key info types evidence = do
   unless (null evidence) (failValue ("foreign import " <> T.unpack (nameText variable) <> " has unexpected evidence arguments"))
   ty <- lookupBindingType key
   foreignType <- convertCheckedType ty
-  (convention, dependencies) <- foreignCallFacts ty info
+  (convention, dependencies) <- foreignCallFacts key ty info
   let call =
         ForeignCall
           { foreignCallName = variable,

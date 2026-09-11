@@ -1,0 +1,42 @@
+annotated:
+- |-
+  module Test where
+
+  import GHC.Prim (Int32#)
+
+  data CInt = CInt Int32#
+       │      └─ type: GHC.Prim.Int32# → CInt
+       └─ type: Type
+
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+
+  foreign import capi unsafe "demo.h value DEMO" valueWithArguments :: CInt -> CInt
+  └─ type: CInt → CInt                           └─ error: a value foreign import must not take arguments
+
+  foreign import capi unsafe "demo.h value DEMO" valueOfUnit :: Unit
+  └─ type: ()                                    └─ error: a value foreign import must produce a value
+
+  foreign import capi unsafe "<demo.h> demo_call" angledHeader :: CInt -> CInt
+  └─ type: CInt → CInt                            └─ error: unsupported header file name in a foreign import entity: <demo.h> demo_call
+extensions:
+- CApiFFI
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Int32#)
+
+  data CInt = CInt Int32#
+
+  data Unit = Unit
+
+  foreign import capi unsafe "demo.h value DEMO" valueWithArguments :: CInt -> CInt
+
+  foreign import capi unsafe "demo.h value DEMO" valueOfUnit :: Unit
+
+  foreign import capi unsafe "<demo.h> demo_call" angledHeader :: CInt -> CInt
+reason: a value entity names a constant, and a header name must be one an include directive can hold
+status: pass

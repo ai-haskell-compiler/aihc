@@ -101,21 +101,30 @@ data UnitStamp = UnitStamp
 -- | The backend outputs of a unit and the options they were built with.
 data BackendStamp = BackendStamp
   { backendStampOptions :: !Text,
-    backendStampFiles :: ![FileStamp]
+    backendStampFiles :: ![FileStamp],
+    -- | The headers the capi wrappers of the unit included, by absolute path.
+    -- Nothing else in the build reads these files, so without them a changed
+    -- header would leave a wrapper that calls the old C API in place.
+    backendStampHeaders :: ![FileStamp]
   }
   deriving (Eq, Show)
 
 instance Aeson.ToJSON BackendStamp where
-  toJSON stamp = Aeson.object ["options" .= backendStampOptions stamp, "files" .= backendStampFiles stamp]
+  toJSON stamp =
+    Aeson.object
+      [ "options" .= backendStampOptions stamp,
+        "files" .= backendStampFiles stamp,
+        "headers" .= backendStampHeaders stamp
+      ]
 
 instance Aeson.FromJSON BackendStamp where
   parseJSON = Aeson.withObject "BackendStamp" $ \object ->
-    BackendStamp <$> object .: "options" <*> object .: "files"
+    BackendStamp <$> object .: "options" <*> object .: "files" <*> object .: "headers"
 
 instance Aeson.ToJSON UnitStamp where
   toJSON stamp =
     Aeson.object
-      [ "schemaVersion" .= (1 :: Int),
+      [ "schemaVersion" .= (2 :: Int),
         "inputs" .= unitStampInputs stamp,
         "types" .= unitStampTypes stamp,
         "facts" .= unitStampFacts stamp,
@@ -127,7 +136,7 @@ instance Aeson.FromJSON UnitStamp where
   parseJSON = Aeson.withObject "UnitStamp" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
     case schemaVersion :: Int of
-      1 ->
+      2 ->
         UnitStamp
           <$> object .: "inputs"
           <*> object .: "types"

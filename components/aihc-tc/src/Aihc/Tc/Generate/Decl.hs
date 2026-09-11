@@ -104,6 +104,8 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
+    TcForeignCApi (..),
+    TcForeignCApiKind (..),
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
@@ -148,7 +150,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.Char (isAlpha, isAlphaNum, ord)
+import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
@@ -1240,14 +1242,12 @@ annotateForeignDeclTc foreignDecl = do
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
       annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
-    CApi | Just message <- capiEntityProblem (foreignEntity foreignDecl) -> do
-      emitError sourceSpan (OtherError message)
-      pure annotated
     callConv | callConv == CCall || callConv == CApi -> do
       let declaredName = unqualifiedNameText (foreignName foreignDecl)
-      (target, symbol) <- checkForeignEntity sourceSpan declaredName (foreignEntity foreignDecl)
-      plan <- checkForeignImportType sourceSpan target symbol ty
-      checkedPlan <- checkForeignTarget sourceSpan plan
+          capi = callConv == CApi
+      entity <- checkForeignEntity sourceSpan capi declaredName (foreignEntity foreignDecl)
+      plan <- checkForeignImportType sourceSpan (foreignEntityTarget entity) (foreignEntityName entity) ty
+      checkedPlan <- checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
       pure (DeclAnn (mkAnnotation checkedPlan) annotated)
     CPrim -> do
@@ -1295,48 +1295,53 @@ foreignSafetyMark safety =
     Just Unsafe -> TcForeignUnsafe
     Just Interruptible -> TcForeignInterruptible
 
--- | A @capi@ import of a function is called like a @ccall@ import: this
--- compiler never includes the header, so the entity must name a symbol that
--- exists at link time. A @value@ entity reads a C constant through the
--- header, which no call can do, so it is refused rather than misread as a
--- function named @value@.
-capiEntityProblem :: ForeignEntitySpec -> Maybe String
-capiEntityProblem entity =
-  case entity of
-    ForeignEntityStatic (Just text) -> checkWords text
-    ForeignEntityNamed text -> checkWords text
-    _ -> Nothing
-  where
-    checkWords text
-      | "value" `elem` T.words text = Just ("a capi value import is not supported: " <> T.unpack text)
-      | otherwise = Nothing
+-- | How a foreign import reaches its entity, when the entity string says it
+-- is reached through a header.
+--
+-- A @ccall@ import reaches its entity through the platform ABI, so it records
+-- nothing.  So does an address import under either convention: GHC reads
+-- @capi "header.h &x"@ as the address of the symbol @x@ rather than as
+-- something the header defines.
+foreignCApiFor :: Bool -> ForeignEntity -> Maybe TcForeignCApi
+foreignCApiFor capi entity
+  | not capi = Nothing
+  | foreignEntityTarget entity == TcForeignAddress = Nothing
+  | otherwise =
+      Just
+        TcForeignCApi
+          { tcForeignCApiHeader = foreignEntityHeader entity,
+            tcForeignCApiKind = if foreignEntityIsValue entity then TcForeignCApiValue else TcForeignCApiFunction
+          }
 
 -- | Read the C entity of a foreign import and report a bad entity.
-checkForeignEntity :: SourceSpan -> Text -> ForeignEntitySpec -> TcM (TcForeignTarget, Text)
-checkForeignEntity sourceSpan declaredName entity =
-  case resolveForeignEntity declaredName entity of
+checkForeignEntity :: SourceSpan -> Bool -> Text -> ForeignEntitySpec -> TcM ForeignEntity
+checkForeignEntity sourceSpan capi declaredName entity =
+  case resolveForeignEntity capi declaredName entity of
     Right resolved -> pure resolved
     Left message -> do
       emitError sourceSpan (OtherError message)
-      pure (TcForeignCall, declaredName)
+      pure (callEntity declaredName)
 
--- | The C entity string has the form @[static] [header] [&] [symbol]@.  The
--- @static@ keyword and the header file name give no information to this
--- compiler, because it does not include the header when it makes the call.
--- Thus it accepts both and then ignores them, as GHC does.
+-- | The C entity string has the form @[static] [header] [&|value] [symbol]@.
+-- The @static@ keyword says the entity is not a dynamic library import, which
+-- is the only kind this compiler makes, so it is accepted and then ignored, as
+-- GHC does.
 --
--- The parser removes the @static@ keyword.  This function must remove an
--- optional header file name and read an optional @&@ address mark.  An empty
--- entity, or an entity that gives only a header file name, names the declared
--- Haskell function.
-resolveForeignEntity :: Text -> ForeignEntitySpec -> Either String (TcForeignTarget, Text)
-resolveForeignEntity declaredName entity =
+-- The parser removes the @static@ keyword.  This function must read an
+-- optional header file name, an optional @&@ address mark or @value@ keyword,
+-- and the C entity.  An empty entity, or an entity that gives only a header
+-- file name, names the declared Haskell function.
+--
+-- A @ccall@ import ignores the header, because it calls its entity through
+-- the platform ABI.  A @capi@ import keeps it, see 'foreignCApiFor'.
+resolveForeignEntity :: Bool -> Text -> ForeignEntitySpec -> Either String ForeignEntity
+resolveForeignEntity capi declaredName entity =
   case entity of
-    ForeignEntityOmitted -> Right (TcForeignCall, declaredName)
-    ForeignEntityStatic Nothing -> Right (TcForeignCall, declaredName)
+    ForeignEntityOmitted -> Right (callEntity declaredName)
+    ForeignEntityStatic Nothing -> Right (callEntity declaredName)
     ForeignEntityStatic (Just text) -> readEntityText TcForeignCall text
     ForeignEntityNamed text -> readEntityText TcForeignCall text
-    ForeignEntityAddress Nothing -> Right (TcForeignAddress, declaredName)
+    ForeignEntityAddress Nothing -> Right (addressEntity declaredName)
     ForeignEntityAddress (Just text) -> readEntityText TcForeignAddress text
     ForeignEntityDynamic -> Left "a dynamic foreign import is not supported"
     ForeignEntityWrapper -> Left "a wrapper foreign import is not supported"
@@ -1345,18 +1350,37 @@ resolveForeignEntity declaredName entity =
     -- word, which is then the header file name.
     readEntityText defaultTarget text =
       let entityWords = T.words text
-       in case readEntityWords defaultTarget entityWords <|> readEntityWords defaultTarget (drop 1 entityWords) of
-            Just resolved -> Right resolved
+          withoutHeader = readEntityWords defaultTarget entityWords
+          withHeader = do
+            header <- listToMaybe entityWords
+            resolved <- readEntityWords defaultTarget (drop 1 entityWords)
+            pure resolved {foreignEntityHeader = Just header}
+       in case withoutHeader <|> withHeader of
+            Just resolved
+              | Just problem <- entityProblem resolved -> Left (problem <> ": " <> T.unpack text)
+              | otherwise -> Right resolved
             Nothing -> Left ("unsupported foreign import entity: " <> T.unpack text)
     readEntityWords defaultTarget entityWords =
       case entityWords of
-        [] -> Just (defaultTarget, declaredName)
-        ["&"] -> Just (TcForeignAddress, declaredName)
-        ["&", name] -> (TcForeignAddress,) <$> cIdentifier name
+        [] -> Just (ForeignEntity defaultTarget Nothing False declaredName)
+        ["&"] -> Just (addressEntity declaredName)
+        ["&", name] -> addressEntity <$> cIdentifier name
+        -- A @value@ entity reads a C constant rather than calling a function.
+        ["value", name] -> valueEntity <$> cIdentifier name
         [name]
-          | Just addressName <- T.stripPrefix "&" name -> (TcForeignAddress,) <$> cIdentifier addressName
-          | otherwise -> (defaultTarget,) <$> cIdentifier name
+          | Just addressName <- T.stripPrefix "&" name -> addressEntity <$> cIdentifier addressName
+          | otherwise -> ForeignEntity defaultTarget Nothing False <$> cIdentifier name
         _ -> Nothing
+    -- Only @capi@ reaches a constant through a header, so only @capi@ reads
+    -- the @value@ keyword; under @ccall@ it would have to name a function.
+    entityProblem resolved
+      | foreignEntityIsValue resolved && not capi = Just "a value entity needs the capi calling convention"
+      | Just header <- foreignEntityHeader resolved, not (validHeaderName header) = Just "unsupported header file name in a foreign import entity"
+      | otherwise = Nothing
+    -- The header name is written into a generated C file, so it must be a
+    -- name an include directive can hold.
+    validHeaderName header =
+      not (T.null header) && T.all (\character -> not (isSpace character) && character `notElem` ['"', '\\', '>', '<']) header
     cIdentifier name =
       case T.uncons name of
         Just (first, rest)
@@ -1364,6 +1388,26 @@ resolveForeignEntity declaredName entity =
         _ -> Nothing
     isIdentifierStart character = isAlpha character || character == '_'
     isIdentifierPart character = isAlphaNum character || character == '_'
+
+-- | The C entity a foreign import names, as the entity string spells it.
+data ForeignEntity = ForeignEntity
+  { foreignEntityTarget :: !TcForeignTarget,
+    -- | The header file the entity names, which only a @capi@ import uses.
+    foreignEntityHeader :: !(Maybe Text),
+    -- | Whether the entity is a @value@ rather than a function.
+    foreignEntityIsValue :: !Bool,
+    foreignEntityName :: !Text
+  }
+  deriving (Eq, Show)
+
+callEntity :: Text -> ForeignEntity
+callEntity = ForeignEntity TcForeignCall Nothing False
+
+addressEntity :: Text -> ForeignEntity
+addressEntity = ForeignEntity TcForeignAddress Nothing False
+
+valueEntity :: Text -> ForeignEntity
+valueEntity = ForeignEntity TcForeignCall Nothing True
 
 -- | An address import (@foreign import ccall "&sym"@) names static data
 -- rather than a function, so it takes no arguments and its value is the
@@ -1379,7 +1423,15 @@ checkForeignTarget sourceSpan plan =
       unless (tcForeignAbiType (tcForeignResult plan) == TcForeignAddr) $
         emitError sourceSpan (OtherError "an address foreign import must produce a pointer")
       pure plan
-    TcForeignCall -> pure plan
+    TcForeignCall
+      | Just capi <- tcForeignCApi plan,
+        tcForeignCApiKind capi == TcForeignCApiValue -> do
+          unless (null (tcForeignArguments plan)) $
+            emitError sourceSpan (OtherError "a value foreign import must not take arguments")
+          when (tcForeignAbiType (tcForeignResult plan) == TcForeignVoid) $
+            emitError sourceSpan (OtherError "a value foreign import must produce a value")
+          pure plan
+      | otherwise -> pure plan
 
 checkForeignImportType :: SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
 checkForeignImportType sourceSpan target symbol ty = do
@@ -1398,7 +1450,8 @@ checkForeignImportType sourceSpan target symbol ty = do
         tcForeignResult = result,
         tcForeignEffect = effect,
         tcForeignSymbol = symbol,
-        tcForeignTarget = target
+        tcForeignTarget = target,
+        tcForeignCApi = Nothing
       }
 
 splitFunctionType :: TcType -> ([TcType], TcType)

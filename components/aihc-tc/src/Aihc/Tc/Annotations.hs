@@ -17,6 +17,8 @@ module Aihc.Tc.Annotations
     TcForeignSafety (..),
     TcForeignEffect (..),
     TcForeignTarget (..),
+    TcForeignCApi (..),
+    TcForeignCApiKind (..),
     TcForeignMarshal (..),
     TcForeignAbiType (..),
     PendingTcAnnotation (..),
@@ -116,10 +118,34 @@ data TcForeignImportAnnotation = TcForeignImportAnnotation
   { tcForeignArguments :: ![TcForeignMarshal],
     tcForeignResult :: !TcForeignMarshal,
     tcForeignEffect :: !TcForeignEffect,
-    -- | The C symbol that the entity string names.
+    -- | The C entity that the entity string names.
     tcForeignSymbol :: !Text,
-    tcForeignTarget :: !TcForeignTarget
+    tcForeignTarget :: !TcForeignTarget,
+    -- | How the entity is reached, when it is reached through a header rather
+    -- than through the platform ABI.  A @ccall@ import has none.
+    tcForeignCApi :: !(Maybe TcForeignCApi)
   }
+  deriving (Eq, Show, Read)
+
+-- | What a @capi@ import says about how its entity is reached.
+--
+-- A @capi@ entity is reached through the C API of its header rather than
+-- through the platform ABI, so it may be a macro, a @static inline@ function
+-- or a constant.  The type checker records what the declaration says; it is
+-- for the code generator to decide what reaching such an entity takes.
+data TcForeignCApi = TcForeignCApi
+  { -- | The header the entity string names.  A @capi@ entity may name none.
+    tcForeignCApiHeader :: !(Maybe Text),
+    tcForeignCApiKind :: !TcForeignCApiKind
+  }
+  deriving (Eq, Show, Read)
+
+-- | Whether a @capi@ entity is called or read as a value.
+data TcForeignCApiKind
+  = -- | @foreign import capi "header.h f"@: @f@ is a function.
+    TcForeignCApiFunction
+  | -- | @foreign import capi "header.h value x"@: @x@ is a constant.
+    TcForeignCApiValue
   deriving (Eq, Show, Read)
 
 -- | The checked calling convention of a foreign import. The interface keeps

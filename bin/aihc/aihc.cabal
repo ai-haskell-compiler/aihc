@@ -100,11 +100,13 @@ library
     Aihc.Arm64.Assemble
     Aihc.Arm64.Lir
     Aihc.Arm64.Text
+    Aihc.Capi
     Aihc.Cli
     Aihc.Cli.ArtifactCache
     Aihc.Cli.Backend
     Aihc.Cli.BuildExe
     Aihc.Cli.BuildStamp
+    Aihc.Cli.CapiStub
     Aihc.Cli.Install
     Aihc.Cli.Options
     Aihc.Cli.PackageManifest
@@ -377,6 +379,7 @@ test-suite spec
     temporary,
     text,
     time,
+    unix,
     yaml,
 
 test-suite dev-spec

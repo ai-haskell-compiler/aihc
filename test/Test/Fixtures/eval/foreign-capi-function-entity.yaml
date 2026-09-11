@@ -18,4 +18,4 @@ output: |
   Results (I# 3) (I# 4)
 expression: results
 status: pass
-reason: a capi import of a function is called like a ccall import
+reason: a capi import of a function is called through a generated C wrapper that includes its header
