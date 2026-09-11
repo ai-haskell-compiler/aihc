@@ -26,7 +26,7 @@ modules:
     wordValue :: Word32 -> Int
     wordValue (W32# value) = I# (word2Int# (word32ToWord# value))
 
-    results :: IO (Int, Int, Int, Int, Int, Int, Int, Int)
+    results :: IO (Int, Int, Int, Int, Int, Int, Int, Int, Int)
     results = do
       buffer <- mallocPlainForeignPtrBytes 32
       withForeignPtr buffer $ \pointer -> do
@@ -34,6 +34,7 @@ modules:
         pokeElemOff (castPtr pointer) 1 half
         poke (pointer `plusPtr` 4) word
         poke (castPtr pointer `plusPtr` 8) (0 - 5 :: Int)
+        poke (castPtr pointer `plusPtr` 16) (pointer `plusPtr` 7)
         copyBytes (pointer `plusPtr` 24) (pointer `plusPtr` 4) 4
         moveBytes (pointer `plusPtr` 1) pointer 3
         first <- peek (castPtr pointer)
@@ -42,6 +43,7 @@ modules:
         fourth <- peekByteOff pointer 8
         fifth <- peekByteOff pointer 24
         sixth <- peekByteOff pointer 3
+        stored <- peekByteOff pointer 16
         return
           ( byteValue first,
             halfValue second,
@@ -49,11 +51,12 @@ modules:
             fourth,
             wordValue fifth,
             byteValue sixth,
+            (stored :: Ptr Word8) `minusPtr` pointer,
             alignPtr (pointer `plusPtr` 1) 8 `minusPtr` pointer,
             (pointer `plusPtr` 32) `minusPtr` pointer
           )
 output: |
-  ((I# 17),(I# 13073),(I# 1146447479),(I# -5),(I# 1146447479),(I# 51),(I# 8),(I# 32))
+  ((I# 17),(I# 13073),(I# 1146447479),(I# -5),(I# 1146447479),(I# 51),(I# 7),(I# 8),(I# 32))
 expression: results
 status: pass
-reason: Foreign pointer arithmetic, Storable reads and writes, and byte copies use the address primops
+reason: Foreign pointer arithmetic, Storable reads and writes (including a stored pointer), and byte copies use the address primops

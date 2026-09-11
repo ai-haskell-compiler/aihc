@@ -4,6 +4,7 @@
 -- | The POSIX types that the C bindings of the boot libraries use.
 module System.Posix.Types
   ( CSsize (..),
+    CClockId (..),
     Fd (..),
   )
 where
@@ -17,6 +18,10 @@ import GHC.Real (Integral (..), Real (..))
 
 -- | The C @ssize_t@: a byte count that can also carry @-1@ for an error.
 newtype CSsize = CSsize CSsizeRep
+  deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral)
+
+-- | The POSIX @clockid_t@: the C @int@ that names a system clock.
+newtype CClockId = CClockId CInt
   deriving newtype (Eq, Ord, Enum, Bounded, Num, Real, Integral)
 
 -- | The POSIX file descriptor: the C @int@ that names an open file.
