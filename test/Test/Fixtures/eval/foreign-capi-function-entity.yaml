@@ -1,0 +1,21 @@
+extensions:
+  - CApiFFI
+  - ForeignFunctionInterface
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    foreign import capi unsafe "string.h strlen" strlenHeader :: Addr# -> Int
+
+    foreign import capi unsafe "strlen" strlenPlain :: Addr# -> Int
+
+    data Results = Results Int Int
+
+    results :: Results
+    results = Results (strlenHeader "abc"#) (strlenPlain "abcd"#)
+output: |
+  Results (I# 3) (I# 4)
+expression: results
+status: pass
+reason: a capi import of a function is called like a ccall import
