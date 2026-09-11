@@ -1,0 +1,25 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    -- The final statement applies a local that a later let binds. A let
+    -- statement takes the type of the do block from the block itself, so
+    -- desugaring the first let does not look up the later local.
+    counted :: Maybe Int
+    counted = do
+      let base = 40
+      extra <- Just 2
+      let outer x = Just (x + base + extra)
+      outer 0
+
+    result :: Int
+    result = case counted of
+      Nothing -> 0
+      Just n -> n
+output: |
+  I# 42
+expression: |
+  result
+status: pass
+reason: a do let takes the result type from the annotated do block instead of inferring it from the final statement
