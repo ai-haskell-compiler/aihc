@@ -1906,7 +1906,7 @@ compileCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -
 compileCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   (splitModules, desugarNs) <- measureTime $ do
     let kinds = primKinds primIdentity
-        bindings = concatMap (tcModuleBindings kinds) checkedModules
+        bindings = concatMap (tcModuleBindings (primTcWiring primIdentity)) checkedModules
         moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
         -- A module the resolver did not report on keeps every name public.
         desugarConfig name =

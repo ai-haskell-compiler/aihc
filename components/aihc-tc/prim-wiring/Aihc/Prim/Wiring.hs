@@ -18,8 +18,10 @@ module Aihc.Prim.Wiring
     primTcWiring,
     primDerivingReferences,
     boxedTupleTyConName,
+    boxedTupleDataConName,
     unboxedTupleTyConName,
     unboxedSumTyConName,
+    unboxedSumDataConName,
   )
 where
 
@@ -57,13 +59,18 @@ primTcConfig prim =
 primTcWiring :: PackageId -> TcWiring
 primTcWiring prim =
   TcWiring
-    { tcWiringBoxedTupleTyCon = boxedTuple ResolutionNamespaceType,
-      tcWiringBoxedTupleDataCon = boxedTuple ResolutionNamespaceTerm,
+    { tcWiringBoxedTupleTyCon = \arity ->
+        tyCon ResolutionNamespaceType "GHC.Tuple" (boxedTupleTyConName arity) arity,
+      tcWiringBoxedTupleDataCon = \arity ->
+        tyCon ResolutionNamespaceTerm "GHC.Tuple" (boxedTupleDataConName arity) arity,
       tcWiringUnboxedTupleTyCon = unboxedTuple ResolutionNamespaceType,
       tcWiringUnboxedTupleDataCon = unboxedTuple ResolutionNamespaceTerm,
       tcWiringUnboxedSumTyCon = \arity ->
         types ResolutionNamespaceType (unboxedSumTyConName arity) arity,
+      tcWiringUnboxedSumDataCon = \alternative arity ->
+        types ResolutionNamespaceTerm (unboxedSumDataConName alternative arity) 1,
       tcWiringListTyCon = types ResolutionNamespaceType "[]" 1,
+      tcWiringListDeclaration = types ResolutionNamespaceType "List" 1,
       tcWiringNilDataCon = types ResolutionNamespaceTerm "[]" 0,
       tcWiringConsDataCon = types ResolutionNamespaceTerm ":" 2,
       tcWiringArrowTyCon = types ResolutionNamespaceType "(->)" 2,
@@ -84,8 +91,6 @@ primTcWiring prim =
       tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where
-    boxedTuple namespace arity =
-      tyCon namespace "GHC.Tuple" (boxedTupleTyConName arity) arity
     unboxedTuple namespace arity =
       types namespace (unboxedTupleTyConName arity) arity
     types namespace = tyCon namespace "GHC.Types"
@@ -100,7 +105,20 @@ boxedTupleTyConName arity =
     1 -> "Solo"
     _ -> "Tuple" <> T.pack (show arity)
 
--- | The name of the unboxed tuple of one arity.
+-- | The name of the boxed tuple data constructor of one arity, as
+-- @GHC.Tuple@ declares it: @()@, @MkSolo@, @(,)@ and so on.
+boxedTupleDataConName :: Int -> Text
+boxedTupleDataConName arity =
+  case arity of
+    1 -> "MkSolo"
+    _ -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+
+-- | The name of the unboxed tuple of one arity. The data constructor takes
+-- the name of its type constructor: the comma spelling cannot tell the
+-- empty tuple from the one-element one, because neither holds a comma, and
+-- GHC only separates them by spelling the empty one @(# #)@, whose space an
+-- FC name cannot hold. The FC desugarer and the GRIN lowering spell the
+-- same name.
 unboxedTupleTyConName :: Int -> Text
 unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
 
@@ -109,6 +127,12 @@ unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
 unboxedSumTyConName :: Int -> Text
 unboxedSumTyConName arity =
   "(#" <> T.replicate (max 0 (arity - 1)) "|" <> "#)"
+
+-- | The name of one unboxed sum data constructor, such as @(#|_#)@ for the
+-- second of two alternatives.
+unboxedSumDataConName :: Int -> Int -> Text
+unboxedSumDataConName alternative arity =
+  "(#" <> T.replicate (max 0 (alternative - 1)) "|" <> "_" <> T.replicate (max 0 (arity - alternative)) "|" <> "#)"
 
 -- | The deriving-reference table of the aihc core libraries, given the
 -- identity of the @aihc-prim@ package.

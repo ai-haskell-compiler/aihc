@@ -1121,8 +1121,8 @@ inferTuple sp flavor elems = do
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do
-  nilInstantiation <- instantiateListConstructor sp tcWiringNilDataCon
-  nilCts <- mapM (predToCt sp "[]") (instPreds nilInstantiation)
+  (nilCon, nilInstantiation) <- instantiateListConstructor sp tcWiringNilDataCon
+  nilCts <- mapM (predToCt sp (tyConName nilCon)) (instPreds nilInstantiation)
   case elems of
     [] -> do
       let listTy = instType nilInstantiation
@@ -1130,8 +1130,8 @@ inferList sp elems = do
       pure (annotatePendingExprAt sp pending (EList []), listTy, nilCts)
     _ -> do
       results <- mapM inferElem elems
-      consInstantiation <- instantiateListConstructor sp tcWiringConsDataCon
-      consPredicateCts <- mapM (predToCt sp ":") (instPreds consInstantiation)
+      (consCon, consInstantiation) <- instantiateListConstructor sp tcWiringConsDataCon
+      consPredicateCts <- mapM (predToCt sp (tyConName consCon)) (instPreds consInstantiation)
       case instType consInstantiation of
         TcFunTy sourceElemTy (TcFunTy sourceTailTy sourceResultTy) -> do
           let elems' = map (\(element, _, _, _) -> element) results
@@ -1242,13 +1242,14 @@ inferArithSeqForm arithSeq =
       (second', secondTy, secondCts) <- inferExpr second
       pure (constructor first' second', [firstTy, secondTy], firstCts <> secondCts)
 
-instantiateListConstructor :: SourceSpan -> (TcWiring -> TyCon) -> TcM Instantiation
+-- | The identity and an instantiation of one wired list constructor.
+instantiateListConstructor :: SourceSpan -> (TcWiring -> TyCon) -> TcM (TyCon, Instantiation)
 instantiateListConstructor sp select = do
   wired <- wiredTyConIdentity select
   maybeBinder <- lookupWiredTerm wired
   let name = tyConName wired
   case maybeBinder of
-    Just (TcIdBinder scheme _) -> instantiateWithArgs scheme
+    Just (TcIdBinder scheme _) -> (,) wired <$> instantiateWithArgs scheme
     Just TcMonoIdBinder {} ->
       abortTc ("the wired list constructor is monomorphic at " <> show sp <> ": " <> show name)
     Nothing ->

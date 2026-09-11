@@ -408,7 +408,7 @@ typecheckExprM expr = do
   zonkType ty
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
-tcModuleBindings :: TcKinds -> Module -> [TcBindingResult]
+tcModuleBindings :: TcWiring -> Module -> [TcBindingResult]
 tcModuleBindings =
   moduleBindings
 

@@ -8,8 +8,8 @@ annotated:
        │          └─ type: ∀ a b. a → b → Pair a b
        └─ type: Type → Type → Type
   data List a = Nil | Cons a (List a)
-       │        │     └─ type: ∀ a. a → [a] → [a]
-       │        └─ type: ∀ a. [a]
+       │        │     └─ type: ∀ a. a → List a → List a
+       │        └─ type: ∀ a. List a
        └─ type: Type → Type
   dup :: Num a => a -> Pair a a
   dup x = Pair (x + x) x
@@ -37,26 +37,26 @@ annotated:
               └─ type: i → i → i; type-args: i; evidence: given Num i
   total :: Num b => List b -> b -> b
   total xs z = go xs z
-  │     │  │   └─ type: [b] → b → b; type-args: b; evidence: given Num b
+  │     │  │   └─ type: List b → b → b; type-args: b; evidence: given Num b
   │     │  └─ type: b
-  │     └─ type: [b]
-  └─ type: ∀ b. (Num b) ⇒ [b] → b → b
+  │     └─ type: List b
+  └─ type: ∀ b. (Num b) ⇒ List b → b → b
     where
       go :: Num i => List i -> i -> i
       go Nil acc = addSelf acc
       │  │   │     └─ type: i → i; type-args: i; evidence: given Num i
       │  │   └─ type: i
-      │  └─ type: [i]
-      └─ type: ∀ i. (Num i) ⇒ [i] → i → i
+      │  └─ type: List i
+      └─ type: ∀ i. (Num i) ⇒ List i → i → i
       go (Cons x rest) acc = go rest (x + acc)
       │   │    │ │     │     ││          └─ type: i → i → i; type-args: i; evidence: given Num i
-      │   │    │ │     │     └─ type: [i] → i → i; type-args: i; evidence: given Num i
-      │   │    │ │     │     └─ type: [i] → i → i; type-args: i; evidence: given Num i
+      │   │    │ │     │     └─ type: List i → i → i; type-args: i; evidence: given Num i
+      │   │    │ │     │     └─ type: List i → i → i; type-args: i; evidence: given Num i
       │   │    │ │     └─ type: i
-      │   │    │ └─ type: [i]
+      │   │    │ └─ type: List i
       │   │    └─ type: i
-      │   └─ type: [i]
-      └─ type: ∀ i. (Num i) ⇒ [i] → i → i
+      │   └─ type: List i
+      └─ type: ∀ i. (Num i) ⇒ List i → i → i
       addSelf :: Num i => i -> i
       addSelf = \w -> w + w
       │         ││      └─ type: i → i → i; type-args: i; evidence: given Num i

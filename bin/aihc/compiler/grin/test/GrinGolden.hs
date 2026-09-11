@@ -30,6 +30,7 @@ import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..
 import Aihc.Tc
   ( TcInterface,
     TcKinds,
+    TcWiring,
     emptyTcInterface,
     mkTcKinds,
     tcModuleBindings,
@@ -113,7 +114,7 @@ buildFcPrograms extensions sources = do
     then Left ("typecheck error: " <> unlines [show diagnostic | result <- fixtureTcResults, diagnostic <- tcModuleDiagnostics result])
     else do
       let availableInterface = supportTcInterface primitiveSupport <> tcInterface
-          fixtureBindings = concatMap (tcModuleBindings fixtureKinds) fixtureTcResults
+          fixtureBindings = concatMap (tcModuleBindings fixtureWiring) fixtureTcResults
           fixtureExports =
             collectModuleExportsWithDeps (supportScopes primitiveSupport) fixtureModules
           fixtureResults =
@@ -207,7 +208,7 @@ preparePrimitiveSupport sources = do
               ]
         )
     else do
-      let primitiveBindings = concatMap (tcModuleBindings fixtureKinds) primitiveTcResults
+      let primitiveBindings = concatMap (tcModuleBindings fixtureWiring) primitiveTcResults
           primitiveResults =
             map
               (\checked -> desugarModuleFc (desugarConfig primitivePackage exports checked) primitiveBindings tcInterface checked)
@@ -248,8 +249,11 @@ fixtureBuiltinScope modules =
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum"]
 
 -- | The kind vocabulary of the fixture compiler.
+fixtureWiring :: TcWiring
+fixtureWiring = primTcWiring (PackageId "aihc-prim")
+
 fixtureKinds :: TcKinds
-fixtureKinds = mkTcKinds (primTcWiring (PackageId "aihc-prim"))
+fixtureKinds = mkTcKinds fixtureWiring
 
 desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
 desugarConfig package exports modu =

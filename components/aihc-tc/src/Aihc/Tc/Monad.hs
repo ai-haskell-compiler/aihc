@@ -41,6 +41,8 @@ module Aihc.Tc.Monad
     TcWiring (..),
     wiredTupleTyCon,
     wiredTupleDataCon,
+    wiredBuiltinDataCon,
+    wiredDeclarationIdentity,
     wiredTyCon,
     wiredTyConIdentity,
     lookupWiredTerm,
@@ -148,7 +150,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (.
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
-import Aihc.Tc.Wiring (TcWiring (..), mkTcKinds, tupleDataCon, tupleTyCon)
+import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
 import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
@@ -276,6 +278,23 @@ wiredTupleDataCon :: TupleFlavor -> Int -> TcM TyCon
 wiredTupleDataCon flavor arity = do
   wiring <- getWiring
   pure (tupleDataCon wiring flavor arity)
+
+-- | The data constructor that one built-in syntactic form denotes.
+wiredBuiltinDataCon :: BuiltinDataCon -> TcM TyCon
+wiredBuiltinDataCon builtin = do
+  wiring <- getWiring
+  pure (builtinDataCon wiring builtin)
+
+-- | The identity a source declaration gets. The declaration of the list
+-- type, which the wiring names, denotes the list type constructor rather
+-- than the name its head spells; any other declaration is its own identity.
+wiredDeclarationIdentity :: TyCon -> TcM TyCon
+wiredDeclarationIdentity declared = do
+  wiring <- getWiring
+  pure $
+    if tyConKey declared == tyConKey (tcWiringListDeclaration wiring)
+      then tcWiringListTyCon wiring
+      else declared
 
 -- | The identity that one wiring entry names, without registering a kind.
 wiredTyConIdentity :: (TcWiring -> TyCon) -> TcM TyCon

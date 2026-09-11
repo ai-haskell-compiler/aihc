@@ -307,7 +307,14 @@ data TcKinds = TcKinds
     -- type checker needs it -- an arrow is recognised by its form -- but a
     -- partially applied arrow that leaves for the desugarer has to be
     -- named there like any other type constructor.
-    kindsArrowTyCon :: TyCon
+    kindsArrowTyCon :: TyCon,
+    -- | The list type constructor, and the declaration that defines it.
+    kindsListTyCon :: TyCon,
+    kindsListDeclaration :: TyCon,
+    -- | The promoted list constructors that a @TupleRep@ or @SumRep@ kind
+    -- lists its fields with.
+    kindsNilDataCon :: TyCon,
+    kindsConsDataCon :: TyCon
   }
 
 -- | The tables are functions, so a table shows as its name alone, as
@@ -375,8 +382,8 @@ sumRep kinds fields =
 dataConstructorList :: TcKinds -> [TcType] -> TcType
 dataConstructorList kinds = foldr cons nil
   where
-    nil = TcTyCon (kindsDataCon kinds "[]" 0) []
-    cons field rest = TcTyCon (kindsDataCon kinds ":" 2) [field, rest]
+    nil = TcTyCon (kindsNilDataCon kinds) []
+    cons field rest = TcTyCon (kindsConsDataCon kinds) [field, rest]
 
 -- | Get a type kind from the complete type-constructor identity table.
 typeKindInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType

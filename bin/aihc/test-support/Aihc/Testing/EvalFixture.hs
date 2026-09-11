@@ -58,7 +58,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, diagKind, emptyTcInterface, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
@@ -298,8 +298,11 @@ evalTcConfig :: TcConfig
 evalTcConfig = primTcConfig primPackageId
 
 -- | The kind vocabulary of the fixture compiler.
+evalWiring :: TcWiring
+evalWiring = primTcWiring primPackageId
+
 evalKinds :: TcKinds
-evalKinds = mkTcKinds (primTcWiring primPackageId)
+evalKinds = mkTcKinds evalWiring
 
 -- | How to desugar each module, by module name.
 --
@@ -453,7 +456,7 @@ renderTcErrorKind errorKind =
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
-  concatMap (tcModuleBindings evalKinds)
+  concatMap (tcModuleBindings evalWiring)
 
 -- | Typecheck the core library modules, which must arrive in dependency
 -- order. The wired-in modules are checked first as one group.
