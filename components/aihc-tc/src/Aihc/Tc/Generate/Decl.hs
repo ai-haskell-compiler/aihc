@@ -64,7 +64,6 @@ import Aihc.Parser.Syntax
     Role (..),
     RoleAnnotation (..),
     SourceSpan (..),
-    TupleFlavor (..),
     TyVarBinder,
     Type (..),
     TypeFamilyDecl (..),
@@ -143,6 +142,7 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
@@ -200,9 +200,11 @@ data CheckedSig = CheckedSig
   }
   deriving (Show)
 
-moduleBindings :: TcKinds -> Module -> [TcBindingResult]
-moduleBindings kinds modu =
-  concatMap (declBindings kinds (resolvedModuleOrigin modu)) (moduleDecls modu)
+-- | The wiring names the constructors that built-in syntax declares, such
+-- as @(,)@ or @[]@; the kind vocabulary follows from it.
+moduleBindings :: TcWiring -> Module -> [TcBindingResult]
+moduleBindings wiring modu =
+  concatMap (declBindings wiring (mkTcKinds wiring) (resolvedModuleOrigin modu)) (moduleDecls modu)
 
 -- | Recover instance-environment entries from finalized module annotations.
 moduleInstances :: TcKinds -> Module -> [InstanceInfo]
@@ -322,18 +324,18 @@ dictBinderPred kinds dictBinder =
     Just predicate -> predicate
     Nothing -> error "invalid checked dictionary binder type"
 
-declBindings :: TcKinds -> (Text, Text) -> Decl -> [TcBindingResult]
-declBindings kinds origin decl =
+declBindings :: TcWiring -> TcKinds -> (Text, Text) -> Decl -> [TcBindingResult]
+declBindings wiring kinds origin decl =
   case decl of
     DeclAnn ann inner ->
-      annotationBindings kinds ann inner <> declBindings kinds origin inner
+      annotationBindings kinds ann inner <> declBindings wiring kinds origin inner
     DeclData dataDecl ->
-      concatMap dataConBindings (dataDeclConstructors dataDecl)
+      concatMap (dataConBindings wiring) (dataDeclConstructors dataDecl)
         <> concatMap recordSelectorBindings (dataDeclConstructors dataDecl)
     DeclNewtype newtypeDecl ->
-      maybe [] (\constructor -> dataConBindings constructor <> recordSelectorBindings constructor) (newtypeDeclConstructor newtypeDecl)
+      maybe [] (\constructor -> dataConBindings wiring constructor <> recordSelectorBindings constructor) (newtypeDeclConstructor newtypeDecl)
     DeclDataFamilyInst familyInst ->
-      concatMap dataConBindings (dataFamilyInstConstructors familyInst)
+      concatMap (dataConBindings wiring) (dataFamilyInstConstructors familyInst)
     _ -> []
 
 annotationBindings :: TcKinds -> Annotation -> Decl -> [TcBindingResult]
@@ -400,16 +402,16 @@ instanceAnnotationBindings ann =
       [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
     Nothing -> []
 
-dataConBindings :: DataConDecl -> [TcBindingResult]
-dataConBindings dataConDecl =
+dataConBindings :: TcWiring -> DataConDecl -> [TcBindingResult]
+dataConBindings wiring dataConDecl =
   case dataConDecl of
     DataConAnn ann inner ->
       case fromAnnotation ann of
         Just tcAnn ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn)
-          | (name, displayName) <- dataConBindingNames inner
+          [ TcBindingResult name name (tcAnnType tcAnn)
+          | name <- map (dataConIdentityName wiring) (dataConIdentities inner)
           ]
-        Nothing -> dataConBindings inner
+        Nothing -> dataConBindings wiring inner
     _ -> []
 
 recordSelectorBindings :: DataConDecl -> [TcBindingResult]
@@ -453,30 +455,43 @@ valueDeclBindingNames valueDecl =
 patternBindingNames :: Pattern -> [(Text, Text)]
 patternBindingNames = map binderBindingName . patternBinderNames
 
-dataConBindingNames :: DataConDecl -> [(Text, Text)]
-dataConBindingNames dataConDecl =
+-- | One data constructor that a declaration binds: a constructor the
+-- source names, or a built-in form such as @(,)@, @(# | _ #)@ or @[]@,
+-- which names nothing and whose identity the wiring supplies.
+data DataConIdentity
+  = DeclaredDataCon UnqualifiedName
+  | BuiltinDataConIdentity BuiltinDataCon
+
+dataConIdentities :: DataConDecl -> [DataConIdentity]
+dataConIdentities dataConDecl =
   case dataConDecl of
-    DataConAnn _ inner -> dataConBindingNames inner
-    PrefixCon _ _ name _ -> [dataConBindingName name]
-    InfixCon _ _ _ name _ -> [dataConBindingName name]
-    RecordCon _ _ name _ -> [dataConBindingName name]
-    GadtCon _ _ names _ -> map dataConBindingName names
-    TupleCon _ _ flavor fields ->
-      let name = tupleConText flavor (length fields)
-       in [(name, name)]
-    UnboxedSumCon _ _ pos arity _ ->
-      let name = unboxedSumConText pos arity
-       in [(name, name)]
-    ListCon {} -> [("[]", "[]")]
+    DataConAnn _ inner -> dataConIdentities inner
+    PrefixCon _ _ name _ -> [DeclaredDataCon name]
+    InfixCon _ _ _ name _ -> [DeclaredDataCon name]
+    RecordCon _ _ name _ -> [DeclaredDataCon name]
+    GadtCon _ _ names _ -> map DeclaredDataCon names
+    TupleCon _ _ flavor fields -> [BuiltinDataConIdentity (BuiltinTupleCon flavor (length fields))]
+    UnboxedSumCon _ _ alternative arity _ -> [BuiltinDataConIdentity (BuiltinUnboxedSumCon alternative arity)]
+    ListCon {} -> [BuiltinDataConIdentity BuiltinNilCon]
+
+-- | The name a constructor has in the term environment. A declared
+-- constructor is named by its source. A built-in one is named by the
+-- identity the wiring gives it, which is the name every use of the form
+-- looks up.
+dataConIdentityName :: TcWiring -> DataConIdentity -> Text
+dataConIdentityName wiring identity =
+  case identity of
+    DeclaredDataCon name -> unqualifiedNameText name
+    BuiltinDataConIdentity builtin -> tyConName (builtinDataCon wiring builtin)
+
+dataConNames :: DataConDecl -> TcM [Text]
+dataConNames declaration = do
+  wiring <- getWiring
+  pure (map (dataConIdentityName wiring) (dataConIdentities declaration))
 
 binderBindingName :: UnqualifiedName -> (Text, Text)
 binderBindingName name =
   (unqualifiedNameText name, renderBinderName name)
-
-dataConBindingName :: UnqualifiedName -> (Text, Text)
-dataConBindingName name =
-  let raw = unqualifiedNameText name
-   in (raw, raw)
 
 -- | Type-check a module, returning the same syntax tree annotated with the
 -- inferred interface. Call 'moduleBindings' when a flat compatibility view is
@@ -1147,7 +1162,7 @@ annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
 annotateDataFamilyInstTc familyInst = do
   constructors <- mapM annotateRegisteredDataConDeclTc (dataFamilyInstConstructors familyInst)
   let annotated = DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors})
-      constructorNames = concatMap (map fst . dataConBindingNames) constructors
+  constructorNames <- concat <$> mapM dataConNames constructors
   familyInstances <- getDataFamilyInstances
   case constructorNames of
     firstConstructor : _ ->
@@ -1157,10 +1172,11 @@ annotateDataFamilyInstTc familyInst = do
     [] -> pure annotated
 
 annotateRegisteredDataConDeclTc :: DataConDecl -> TcM DataConDecl
-annotateRegisteredDataConDeclTc dataConDecl =
-  case dataConBindingNames dataConDecl of
+annotateRegisteredDataConDeclTc dataConDecl = do
+  names <- dataConNames dataConDecl
+  case names of
     [] -> pure dataConDecl
-    (name, _) : _ -> do
+    name : _ -> do
       maybeBinder <- lookupTerm name
       case maybeBinder of
         Just (TcIdBinder scheme _) -> annotateWithType (schemeToType scheme)
@@ -1185,9 +1201,10 @@ annotateUnqualifiedName tcAnn name =
 
 annotateDataConDeclTc :: DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc dataConDecl = do
-  case dataConBindingNames dataConDecl of
+  names <- dataConNames dataConDecl
+  case names of
     [] -> pure dataConDecl
-    (name, _) : _ -> do
+    name : _ -> do
       ty <- dataConBindingType name
       selectors <- annotateRecordSelectorNames dataConDecl
       pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [] [])) selectors)
@@ -3132,7 +3149,7 @@ predeclareTypeConstructor declaration =
     DeclData dataDeclaration ->
       let binder = binderHeadName (dataDeclHead dataDeclaration)
           name = unqualifiedNameText binder
-       in predeclare binder (if name == "List" then "[]" else name) (length (binderHeadParams (dataDeclHead dataDeclaration))) DataTyCon
+       in predeclare binder name (length (binderHeadParams (dataDeclHead dataDeclaration))) DataTyCon
     DeclNewtype newtypeDeclaration ->
       let binder = binderHeadName (newtypeDeclHead newtypeDeclaration)
        in predeclare binder (unqualifiedNameText binder) (length (binderHeadParams (newtypeDeclHead newtypeDeclaration))) NewtypeTyCon
@@ -3202,7 +3219,7 @@ predeclareTypeLevelDataConstructors declaration =
       let parentBinder = binderHeadName (dataDeclHead dataDeclaration)
           parentName = unqualifiedNameText parentBinder
           parentArity = length (binderHeadParams (dataDeclHead dataDeclaration))
-      parent <- dataDeclTyCon parentBinder parentName parentArity
+      parent <- mkDeclaredTyCon parentBinder parentName parentArity
       mapM_ (predeclareConstructor parent) (dataDeclConstructors dataDeclaration)
     DeclNewtype newtypeDeclaration -> do
       let parentBinder = binderHeadName (newtypeDeclHead newtypeDeclaration)
@@ -3213,8 +3230,9 @@ predeclareTypeLevelDataConstructors declaration =
     _ -> pure ()
   where
     predeclareConstructor parent constructor = do
-      let (_, fields, names) = dataConSourceLayout constructor
+      let (_, fields, _) = dataConSourceLayout constructor
           arity = length fields
+      names <- dataConNames constructor
       mapM_ (predeclareName parent arity) names
     predeclareName parent arity name = do
       let dataConTyCon =
@@ -3587,7 +3605,10 @@ typeSuffix kinds ty =
     TcFunTy argument result ->
       tyConName (kindsArrowTyCon kinds) <> typeSuffix kinds argument <> typeSuffix kinds result
     TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [_] -> "List"
+    -- A list instance is named after the declaration, @$fShowList@, not
+    -- after the syntax the type constructor is spelled with.
+    TcTyCon tc [_]
+      | tyConKey tc == tyConKey (kindsListTyCon kinds) -> tyConName (kindsListDeclaration kinds)
     TcTyCon tc args -> tyConName tc <> T.concat (map (typeSuffix kinds) args)
     _ -> "T"
 
@@ -3657,7 +3678,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
           [ (paramName param, (paramTyVar param, paramKind param))
           | param <- paramInfos
           ]
-      constructorNames = concatMap (map fst . dataConBindingNames) (dataFamilyInstConstructors familyInst)
+  constructorNames <- concat <$> mapM dataConNames (dataFamilyInstConstructors familyInst)
   kinds <- getKinds
   familyType <- checkSurfaceType tvEnv (dataFamilyInstHead familyInst) (typeKind kinds)
   case (familyType, constructorNames) of
@@ -3968,7 +3989,7 @@ registerDataDeclHeader maybeKindScheme dd = do
   (kindParams, paramInfos) <- dataDeclParamInfos maybeKindScheme dd
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   inferredKind <- tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
-  tc <- dataDeclTyCon tyBinder tyName arity
+  tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
     TyConInfo
@@ -4179,16 +4200,15 @@ typeResultKind remaining kind
 typeResultKind remaining (KFun _ result) = typeResultKind (remaining - 1) result
 typeResultKind _ kind = kind
 
-dataDeclTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
-dataDeclTyCon binder "List" 1 = mkDeclaredTyCon binder "[]" 1
-dataDeclTyCon binder name arity = mkDeclaredTyCon binder name arity
-
+-- | The identity of a declared type constructor. The wiring may give a
+-- declaration another identity than the one its head spells; see
+-- 'wiredDeclarationIdentity'.
 mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
 mkDeclaredTyCon binder name arity =
   case nameResolution binder of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
       | Just definingModuleName <- nameQualifier resolvedName ->
-          pure (mkTyConWithOrigin packageId definingModuleName name arity)
+          wiredDeclarationIdentity (mkTyConWithOrigin packageId definingModuleName name arity)
     _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
 -- | Register a single data constructor as a polymorphic binding.
@@ -4207,11 +4227,11 @@ registerDataConWithResult paramInfos resTy con = case con of
   RecordCon forallVars context conName fields ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType (recordBangFields fields))
   TupleCon forallVars context flavor fields ->
-    registerH98DataCon forallVars context Nothing (tupleConText flavor (length fields)) (map bangType fields)
-  UnboxedSumCon forallVars context pos arity field ->
-    registerH98DataCon forallVars context Nothing (unboxedSumConText pos arity) [bangType field]
+    registerBuiltinDataCon forallVars context (BuiltinTupleCon flavor (length fields)) (map bangType fields)
+  UnboxedSumCon forallVars context alternative arity field ->
+    registerBuiltinDataCon forallVars context (BuiltinUnboxedSumCon alternative arity) [bangType field]
   ListCon forallVars context ->
-    registerH98DataCon forallVars context Nothing "[]" []
+    registerBuiltinDataCon forallVars context BuiltinNilCon []
   GadtCon forallBinders context names body -> do
     explicitParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
     let explicitNames = map paramName (explicitParams <> paramInfos)
@@ -4260,6 +4280,12 @@ registerDataConWithResult paramInfos resTy con = case con of
         | param <- paramInfos
         ]
     paramVarIds = map paramTyVar paramInfos
+    -- A built-in form declares the constructor the wiring already names,
+    -- so the declaration binds that name rather than spelling one.
+    registerBuiltinDataCon forallVars context builtin fieldTypes = do
+      wired <- wiredBuiltinDataCon builtin
+      registerH98DataCon forallVars context Nothing (tyConName wired) fieldTypes
+
     registerH98DataCon forallVars context maybeName name fieldTypes = do
       constructorParams <- makeParamEnv forallVars
       let constructorEnv =
@@ -4353,37 +4379,6 @@ rejigIndices = go Map.empty
         TcAppTy function argument -> TcAppTy (substituteKindParams kindParams function) (substituteKindParams kindParams argument)
         _ -> kind
 
--- | The name of one tuple data constructor. A boxed one takes its source
--- spelling. An unboxed one takes the name of its type constructor, which is
--- the name the wiring already gives it in both namespaces: the comma spelling
--- cannot tell the empty tuple from the one-element one, because neither holds
--- a comma, and GHC only separates them by spelling the empty one @(# #)@,
--- whose space an FC name cannot hold.
-tupleConText :: TupleFlavor -> Int -> Text
-tupleConText flavor arity =
-  case flavor of
-    Boxed -> "(" <> commas arity <> ")"
-    Unboxed -> unboxedTupleName arity
-
--- | The name of the unboxed tuple of one arity, in either namespace. The
--- copy in @Aihc.Prim.Wiring@ names the same constructors, and the FC
--- desugarer and the GRIN lowering both spell it too.
-unboxedTupleName :: Int -> Text
-unboxedTupleName arity = "Tuple" <> T.pack (show arity) <> "#"
-
-unboxedSumConText :: Int -> Int -> Text
-unboxedSumConText pos arity = "(#" <> bars (pos - 1) <> "_" <> bars (arity - pos) <> "#)"
-
-commas :: Int -> Text
-commas n
-  | n <= 1 = ""
-  | otherwise = mconcat (replicate (n - 1) ",")
-
-bars :: Int -> Text
-bars n
-  | n <= 0 = ""
-  | otherwise = mconcat (replicate n "|")
-
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]
 gadtBodyArgTypes (GadtPrefixBody argsWithKinds _) = map (bangType . fst) argsWithKinds
@@ -4394,8 +4389,9 @@ recordBangFields = concatMap $ \field -> replicate (length (fieldNames field)) (
 
 checkedDataConInfos :: TyCon -> DataConDecl -> TcM [DataConInfo]
 checkedDataConInfos tyCon declaration = do
-  let (sourceForm, sourceFields, constructorNames) = dataConSourceLayout declaration
+  let (sourceForm, sourceFields, _) = dataConSourceLayout declaration
       origin = (tyConPackageId tyCon, tyConModuleName tyCon)
+  constructorNames <- dataConNames declaration
   mapM (checkedDataConInfo origin sourceForm sourceFields) constructorNames
 
 checkedDataConInfo :: (PackageId, Text) -> DataConSourceForm -> [(Maybe Text, BangType)] -> Text -> TcM DataConInfo
@@ -4441,27 +4437,30 @@ fieldUnpack bang =
     NoUnpackPragma : _ -> NoUnpackField
     [] -> NoFieldUnpack
 
-dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType)], [Text])
+-- | The source form, the labelled fields, and the constructors of one
+-- declaration. The names follow 'dataConIdentities'.
+dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType)], [DataConIdentity])
 dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
-    PrefixCon _ _ constructor fields ->
-      (PrefixDataCon, map (Nothing,) fields, [unqualifiedNameText constructor])
-    InfixCon _ _ left constructor right ->
-      (InfixDataCon, map (Nothing,) [left, right], [unqualifiedNameText constructor])
-    RecordCon _ _ constructor fields ->
-      (RecordDataCon, recordSourceFields fields, [unqualifiedNameText constructor])
-    TupleCon _ _ flavor fields ->
-      (SyntaxDataCon, map (Nothing,) fields, [tupleConText flavor (length fields)])
-    UnboxedSumCon _ _ position arity field ->
-      (SyntaxDataCon, [(Nothing, field)], [unboxedSumConText position arity])
+    PrefixCon _ _ _ fields ->
+      (PrefixDataCon, map (Nothing,) fields, identities)
+    InfixCon _ _ left _ right ->
+      (InfixDataCon, map (Nothing,) [left, right], identities)
+    RecordCon _ _ _ fields ->
+      (RecordDataCon, recordSourceFields fields, identities)
+    TupleCon _ _ _ fields ->
+      (SyntaxDataCon, map (Nothing,) fields, identities)
+    UnboxedSumCon _ _ _ _ field ->
+      (SyntaxDataCon, [(Nothing, field)], identities)
     ListCon {} ->
-      (SyntaxDataCon, [], ["[]"])
-    GadtCon _ _ constructors body ->
-      let names = map unqualifiedNameText constructors
-       in case body of
-            GadtPrefixBody fields _ -> (PrefixDataCon, map ((Nothing,) . fst) fields, names)
-            GadtRecordBody fields _ -> (RecordDataCon, recordSourceFields fields, names)
+      (SyntaxDataCon, [], identities)
+    GadtCon _ _ _ body ->
+      case body of
+        GadtPrefixBody fields _ -> (PrefixDataCon, map ((Nothing,) . fst) fields, identities)
+        GadtRecordBody fields _ -> (RecordDataCon, recordSourceFields fields, identities)
+  where
+    identities = dataConIdentities declaration
 
 recordSourceFields :: [FieldDecl] -> [(Maybe Text, BangType)]
 recordSourceFields = concatMap $ \field ->

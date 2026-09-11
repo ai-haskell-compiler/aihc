@@ -14,9 +14,11 @@
 -- libraries call the boxed ones @Unit@, @Solo@, @Tuple2@, and so on.
 module Aihc.Tc.Wiring
   ( TcWiring (..),
+    BuiltinDataCon (..),
     mkTcKinds,
     tupleTyCon,
     tupleDataCon,
+    builtinDataCon,
   )
 where
 
@@ -41,8 +43,15 @@ data TcWiring = TcWiring
     tcWiringUnboxedTupleDataCon :: Int -> TyCon,
     -- | The unboxed sum type of each arity, for @(# a | b #)@.
     tcWiringUnboxedSumTyCon :: Int -> TyCon,
+    -- | The unboxed sum data constructor of one alternative (1-based) and
+    -- arity, such as @(# | _ #)@ for the second of two.
+    tcWiringUnboxedSumDataCon :: Int -> Int -> TyCon,
     -- | The list type constructor, for @[a]@ and list comprehensions.
     tcWiringListTyCon :: TyCon,
+    -- | The source declaration that defines the list type, such as
+    -- @GHC.Types.List@. The type checker gives that declaration the
+    -- identity of 'tcWiringListTyCon' instead of the one its head spells.
+    tcWiringListDeclaration :: TyCon,
     -- | The empty-list data constructor, which a promoted @'[]@ also
     -- denotes.
     tcWiringNilDataCon :: TyCon,
@@ -99,7 +108,11 @@ mkTcKinds wiring =
     { kindsTyCon = tcWiringKindTyCon wiring,
       kindsDataCon = tcWiringKindDataCon wiring,
       kindsEqualityTyCon = tcWiringEqualityTyCon wiring,
-      kindsArrowTyCon = tcWiringArrowTyCon wiring
+      kindsArrowTyCon = tcWiringArrowTyCon wiring,
+      kindsListTyCon = tcWiringListTyCon wiring,
+      kindsListDeclaration = tcWiringListDeclaration wiring,
+      kindsNilDataCon = tcWiringNilDataCon wiring,
+      kindsConsDataCon = tcWiringConsDataCon wiring
     }
 
 -- | The tuple type constructor of one flavor and arity.
@@ -115,3 +128,26 @@ tupleDataCon wiring flavor =
   case flavor of
     Boxed -> tcWiringBoxedTupleDataCon wiring
     Unboxed -> tcWiringUnboxedTupleDataCon wiring
+
+-- | A data constructor that built-in syntax denotes. The syntax names no
+-- module and spells no identifier, so the type checker describes the
+-- constructor by its shape and asks the wiring for its identity.
+data BuiltinDataCon
+  = -- | @(,)@, @()@ or @(# , #)@, by flavor and arity.
+    BuiltinTupleCon !TupleFlavor !Int
+  | -- | An unboxed sum alternative, by 1-based alternative and arity.
+    BuiltinUnboxedSumCon !Int !Int
+  | -- | @[]@
+    BuiltinNilCon
+  | -- | @(:)@
+    BuiltinConsCon
+  deriving (Eq, Show)
+
+-- | The identity of the data constructor that one built-in form denotes.
+builtinDataCon :: TcWiring -> BuiltinDataCon -> TyCon
+builtinDataCon wiring builtin =
+  case builtin of
+    BuiltinTupleCon flavor arity -> tupleDataCon wiring flavor arity
+    BuiltinUnboxedSumCon alternative arity -> tcWiringUnboxedSumDataCon wiring alternative arity
+    BuiltinNilCon -> tcWiringNilDataCon wiring
+    BuiltinConsCon -> tcWiringConsDataCon wiring

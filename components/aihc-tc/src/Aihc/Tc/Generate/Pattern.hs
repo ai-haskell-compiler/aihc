@@ -401,10 +401,10 @@ checkListPattern :: GadtHandling -> SourceSpan -> [Pattern] -> TcType -> TcM Pat
 checkListPattern gadtHandling sp items scrutTy =
   case items of
     [] -> do
-      scheme <- listConstructorScheme tcWiringNilDataCon
+      (nilCon, scheme) <- listConstructorScheme tcWiringNilDataCon
       (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
-      scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey "[]") scrutTy nilTy
-      predicateGivens <- mapM (constructorGiven sp "[]") predicates
+      scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey (tyConName nilCon)) scrutTy nilTy
+      predicateGivens <- mapM (constructorGiven sp (tyConName nilCon)) predicates
       pure
         mempty
           { pcWantedCts = fst scrutCts,
@@ -413,15 +413,15 @@ checkListPattern gadtHandling sp items scrutTy =
             pcPatterns = [PList []]
           }
     item : rest -> do
-      scheme <- listConstructorScheme tcWiringConsDataCon
+      (consCon, scheme) <- listConstructorScheme tcWiringConsDataCon
       (consTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argumentTypes, resultTy) <- splitConTy 2 consTy
       case argumentTypes of
         [itemTy, tailTy] -> do
-          scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey ":") scrutTy resultTy
+          scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey (tyConName consCon)) scrutTy resultTy
           itemCheck <- checkPatternWith gadtHandling sp item itemTy
           tailCheck <- checkListPattern gadtHandling sp rest tailTy
-          predicateGivens <- mapM (constructorGiven sp ":") predicates
+          predicateGivens <- mapM (constructorGiven sp (tyConName consCon)) predicates
           let nestedCheck = itemCheck <> tailCheck
               checkedTailItems = case checkedPattern tailCheck of
                 PAnn _ (PList patterns) -> patterns
@@ -437,13 +437,14 @@ checkListPattern gadtHandling sp items scrutTy =
               }
         _ -> abortTc "the wired list cons constructor has an invalid arity"
 
-listConstructorScheme :: (TcWiring -> TyCon) -> TcM TypeScheme
+-- | The identity and the checked scheme of one wired list constructor.
+listConstructorScheme :: (TcWiring -> TyCon) -> TcM (TyCon, TypeScheme)
 listConstructorScheme select = do
   wired <- wiredTyConIdentity select
   maybeBinder <- lookupWiredTerm wired
   let name = tyConName wired
   case maybeBinder of
-    Just (TcIdBinder scheme _) -> pure scheme
+    Just (TcIdBinder scheme _) -> pure (wired, scheme)
     Just TcMonoIdBinder {} -> abortTc ("the wired list constructor is monomorphic: " <> T.unpack name)
     Nothing -> abortTc ("the wired list constructor is missing: " <> T.unpack name)
 
