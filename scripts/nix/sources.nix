@@ -181,7 +181,7 @@ in rec {
       # The hsc2hs fixture: its .hsc source and the stand-in tool that
       # records the arguments it is given.
       ".hsc"
-      "tools/hsc2hs"
+      "hsc2hs"
     ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
