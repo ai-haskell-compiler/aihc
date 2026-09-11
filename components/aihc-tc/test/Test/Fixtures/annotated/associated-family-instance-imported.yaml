@@ -1,0 +1,91 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module Prelude where
+  import GHC.Types (Type)
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  newtype ST s a = ST a
+          │        └─ type: ∀ s a. a → ST s a
+          └─ type: Type → Type → Type
+  data MArr s = MArr
+       │        └─ type: ∀ s. MArr s
+       └─ type: Type → Type
+  data Arr = Arr
+       │     └─ type: Arr
+       └─ type: Type
+  class Assoc m where
+  └─ class methods: freeze ∷ ∀ m. (Assoc m) ⇒ MArr (State m) → m Arr
+    type State m
+         └─ type: (Type → Type) → Type
+    freeze :: MArr (State m) -> m Arr
+  instance Assoc (ST s) where
+  └─ $fAssocSTs ∷ ∀ s. () ⇒ Assoc (ST s) [associated types: State (ST s) = s]
+    type State (ST s) = s
+    freeze _ = ST Arr
+    │      │   └─ type: Arr → ST s Arr; type-args: s, Arr
+    │      └─ type: MArr (State (ST s))
+    └─ freeze ∷ MArr (State (ST s)) → ST s Arr
+  unST :: ST s a -> a
+  unST (ST x) = x
+  │     │  └─ type: a
+  │     └─ type: ST s a
+  └─ type: ∀ s a. ST s a → a
+  runST :: (forall s. ST s a) -> a
+  runST m = unST m
+  │     │   │    └─ type: ST () a; type-args: ()
+  │     │   └─ type: ST () a → a; type-args: (), a
+  │     └─ type: ∀ s. ST s a
+  └─ type: ∀ a. (∀ s. ST s a) → a
+- |-
+  {-# LANGUAGE TypeFamilies, RankNTypes #-}
+  module Use where
+  import Prelude
+  bind :: ST s a -> (a -> ST s b) -> ST s b
+  bind (ST x) k = k x
+  │     │  │  └─ type: a → Prelude.ST s b
+  │     │  └─ type: a
+  │     └─ type: Prelude.ST s a
+  └─ type: ∀ s a b. Prelude.ST s a → (a → Prelude.ST s b) → Prelude.ST s b
+  runArr :: (forall s. ST s (MArr s)) -> Arr
+  runArr m = runST (bind m freeze)
+  │      │   ││      │    │ └─ type: Prelude.MArr (Prelude.State (Prelude.ST s)) → Prelude.ST s Prelude.Arr; type-args: ST s; evidence: $fAssocSTs @s
+  │      │   ││      │    └─ type: Prelude.ST s (Prelude.MArr s); type-args: s
+  │      │   ││      └─ type: Prelude.ST s (Prelude.MArr s) → (Prelude.MArr s → Prelude.ST s Prelude.Arr) → Prelude.ST s Prelude.Arr; type-args: s, MArr s, Arr
+  │      │   └─ type: ∀ s. Prelude.ST s Prelude.Arr
+  │      │   └─ type: (∀ s. Prelude.ST s Prelude.Arr) → Prelude.Arr; type-args: Arr
+  │      └─ type: ∀ s. Prelude.ST s (Prelude.MArr s)
+  └─ type: (∀ s. Prelude.ST s (Prelude.MArr s)) → Prelude.Arr
+extensions:
+- TypeFamilies
+- RankNTypes
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Prelude where
+  import GHC.Types (Type)
+  data Unit = Unit
+  newtype ST s a = ST a
+  data MArr s = MArr
+  data Arr = Arr
+  class Assoc m where
+    type State m
+    freeze :: MArr (State m) -> m Arr
+  instance Assoc (ST s) where
+    type State (ST s) = s
+    freeze _ = ST Arr
+  unST :: ST s a -> a
+  unST (ST x) = x
+  runST :: (forall s. ST s a) -> a
+  runST m = unST m
+- |
+  {-# LANGUAGE TypeFamilies, RankNTypes #-}
+  module Use where
+  import Prelude
+  bind :: ST s a -> (a -> ST s b) -> ST s b
+  bind (ST x) k = k x
+  runArr :: (forall s. ST s (MArr s)) -> Arr
+  runArr m = runST (bind m freeze)
+reason: an associated family instance declared in an imported module reduces under a skolem in the importing module
+status: pass
