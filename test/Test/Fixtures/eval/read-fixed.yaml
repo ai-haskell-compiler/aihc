@@ -1,0 +1,26 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Fixed (Centi, Milli, Pico)
+
+    main :: IO ()
+    main = do
+      print (read "1.25" :: Centi)
+      print (read "-3.5" :: Milli)
+      print (read "7" :: Pico)
+      print (read "(2.999)" :: Centi)
+      print (reads "12.5s" :: [(Centi, String)])
+      print (read "[0.5, 1]" :: [Centi])
+expression: main
+stdout: |
+  1.25
+  -3.500
+  7.000000000000
+  2.99
+  [(12.50,"s")]
+  [0.50,1.00]
+output: |
+  ()
+status: pass
+reason: Fixed has a Read instance that reads a decimal literal at the resolution of the type, as in base

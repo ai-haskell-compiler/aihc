@@ -183,7 +183,12 @@ choice :: [ReadPrec a] -> ReadPrec a
 choice [] = pfail
 choice (parser : parsers) = parser +++ choice parsers
 
-newtype NumberToken = NumberToken Integer
+-- | A numeric literal. An integer literal keeps its value. A decimal
+-- literal with a fraction or an exponent keeps its whole part, its fraction
+-- digits and its exponent, because its value depends on the type read.
+data NumberToken
+  = NumberToken Integer
+  | DecimalToken Integer String Integer
 
 data Lexeme
   = Char Char
@@ -234,7 +239,7 @@ sameLexeme (String left) (String right) = stringEqual left right
 sameLexeme (Punc left) (Punc right) = stringEqual left right
 sameLexeme (Ident left) (Ident right) = stringEqual left right
 sameLexeme (Symbol left) (Symbol right) = stringEqual left right
-sameLexeme (Number (NumberToken left)) (Number (NumberToken right)) = integerEqual left right
+sameLexeme (Number left) (Number right) = sameNumber left right
 sameLexeme EOF EOF = True
 sameLexeme _ _ = False
 
@@ -306,8 +311,7 @@ lexNumberToken :: String -> [(String, Lexeme, String)]
 lexNumberToken input =
   case input of
     '0' : afterZero -> lexZeroNumber afterZero
-    _ ->
-      lexBasedNumber 10 isDecimalDigit input []
+    _ -> lexDecimalNumber input
 
 lexZeroNumber :: String -> [(String, Lexeme, String)]
 lexZeroNumber input =
@@ -318,7 +322,7 @@ lexZeroNumber input =
     'O' : rest -> lexBasedNumber 8 isOctalDigit rest "0O"
     'b' : rest -> lexBasedNumber 2 isBinaryDigit rest "0b"
     'B' : rest -> lexBasedNumber 2 isBinaryDigit rest "0B"
-    _ -> lexBasedNumber 10 isDecimalDigit ('0' : input) []
+    _ -> lexDecimalNumber ('0' : input)
 
 lexBasedNumber :: Integer -> (Char -> Bool) -> String -> String -> [(String, Lexeme, String)]
 lexBasedNumber base predicate chars prefix =
@@ -327,6 +331,67 @@ lexBasedNumber base predicate chars prefix =
     (digits, rest) ->
       let spelling = appendList prefix digits
        in [(spelling, Number (NumberToken (digitsToInteger base digits)), rest)]
+
+-- | A decimal literal: digits, then an optional fraction and an optional
+-- exponent. Without either it is an integer token.
+lexDecimalNumber :: String -> [(String, Lexeme, String)]
+lexDecimalNumber input =
+  case takeDigits input of
+    ([], _) -> []
+    (digits, afterDigits) ->
+      case lexFraction afterDigits of
+        (fraction, afterFraction) ->
+          case lexExponent afterFraction of
+            (exponentSpelling, exponentValue, rest) ->
+              let whole = digitsToInteger 10 digits
+                  spelling = appendList digits (appendList (fractionSpelling fraction) exponentSpelling)
+                  decimal = [(spelling, Number (DecimalToken whole fraction exponentValue), rest)]
+               in case fraction of
+                    [] ->
+                      case exponentSpelling of
+                        [] -> [(digits, Number (NumberToken whole), afterDigits)]
+                        _ -> decimal
+                    _ -> decimal
+
+fractionSpelling :: String -> String
+fractionSpelling [] = []
+fractionSpelling fraction = '.' : fraction
+
+-- | A fraction is a point followed by at least one digit; a point followed
+-- by anything else belongs to the next lexeme.
+lexFraction :: String -> (String, String)
+lexFraction input =
+  case input of
+    '.' : rest ->
+      case takeDigits rest of
+        ([], _) -> ([], input)
+        (fraction, remaining) -> (fraction, remaining)
+    _ -> ([], input)
+
+-- | An exponent is @e@ or @E@, an optional sign, and at least one digit.
+lexExponent :: String -> (String, Integer, String)
+lexExponent input =
+  case input of
+    marker : rest ->
+      case orBool (charEqual marker 'e') (charEqual marker 'E') of
+        True ->
+          case rest of
+            '-' : afterSign -> lexExponentDigits input [marker, '-'] True afterSign
+            '+' : afterSign -> lexExponentDigits input [marker, '+'] False afterSign
+            _ -> lexExponentDigits input [marker] False rest
+        False -> ([], 0, input)
+    [] -> ([], 0, input)
+
+lexExponentDigits :: String -> String -> Bool -> String -> (String, Integer, String)
+lexExponentDigits original prefix negative input =
+  case takeDigits input of
+    ([], _) -> ([], 0, original)
+    (digits, rest) ->
+      let magnitude = digitsToInteger 10 digits
+          value = case negative of
+            True -> negate magnitude
+            False -> magnitude
+       in (appendList prefix digits, value, rest)
 
 classifySymbol :: String -> Lexeme
 classifySymbol symbol =
@@ -521,6 +586,17 @@ digitsToInt base = go 0
 
 reverseRead :: [a] -> [a]
 reverseRead values = reverseAppend values []
+
+sameNumber :: NumberToken -> NumberToken -> Bool
+sameNumber (NumberToken left) (NumberToken right) = integerEqual left right
+sameNumber (DecimalToken leftWhole leftFraction leftExponent) (DecimalToken rightWhole rightFraction rightExponent) =
+  case integerEqual leftWhole rightWhole of
+    False -> False
+    True ->
+      case stringEqual leftFraction rightFraction of
+        False -> False
+        True -> integerEqual leftExponent rightExponent
+sameNumber _ _ = False
 
 reverseAppend :: [a] -> [a] -> [a]
 reverseAppend [] suffix = suffix

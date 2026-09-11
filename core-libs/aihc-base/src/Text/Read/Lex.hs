@@ -1,3 +1,9 @@
-module Text.Read.Lex (Lexeme (..)) where
+module Text.Read.Lex
+  ( Lexeme (..),
+    numberToInteger,
+    numberToFixed,
+    numberToRational,
+  )
+where
 
-import GHC.Read.Lex (Lexeme (..))
+import GHC.Read.Lex (Lexeme (..), numberToFixed, numberToInteger, numberToRational)
