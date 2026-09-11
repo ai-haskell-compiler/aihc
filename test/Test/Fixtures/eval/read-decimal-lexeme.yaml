@@ -1,0 +1,40 @@
+modules:
+  - |
+    module Test where
+
+    import Text.Read (readMaybe)
+    import Text.Read.Lex (Lexeme (..), numberToInteger, numberToRational)
+    import Text.ParserCombinators.ReadP (readP_to_S)
+    import GHC.Read (lexP)
+    import Text.ParserCombinators.ReadPrec (readPrec_to_S, minPrec)
+
+    lexNumber :: String -> Maybe (Rational, Maybe Integer, String)
+    lexNumber input =
+      case readPrec_to_S lexP minPrec input of
+        (Number number, rest) : _ -> Just (numberToRational number, numberToInteger number, rest)
+        _ -> Nothing
+
+    main :: IO ()
+    main = do
+      print (lexNumber "42 rest")
+      print (lexNumber "1.5e3 rest")
+      print (lexNumber "2.25")
+      print (lexNumber "1e-2")
+      print (lexNumber "0x1f")
+      print (lexNumber "3.")
+      print (readMaybe "12.5" :: Maybe Int)
+      print (readMaybe "12" :: Maybe Int)
+expression: main
+stdout: |
+  Just (42 % 1,Just 42," rest")
+  Just (1500 % 1,Nothing," rest")
+  Just (9 % 4,Nothing,"")
+  Just (1 % 100,Nothing,"")
+  Just (31 % 1,Just 31,"")
+  Just (3 % 1,Just 3,".")
+  Nothing
+  Just 12
+output: |
+  ()
+status: pass
+reason: the Read lexer reads a decimal literal with a fraction and an exponent as one number lexeme, as in base

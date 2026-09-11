@@ -1,0 +1,37 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.String
+    import Foreign.C.Types (CSize)
+
+    foreign import ccall unsafe "string.h strlen" c_strlen :: CString -> IO CSize
+
+    main :: IO ()
+    main = do
+      utf8 <- withCString "héllo, wörld" $ \pointer -> do
+        byteCount <- c_strlen pointer
+        string <- peekCString pointer
+        return (byteCount, string)
+      print utf8
+      withCStringLen "añb" $ \(pointer, byteCount) -> do
+        print byteCount
+        peekCStringLen (pointer, byteCount) >>= print
+      withCAString "abc" c_strlen >>= print
+      ascii <- withCAString "latin" peekCAString
+      print ascii
+      print (castCCharToChar (castCharToCChar 'z'), castCUCharToChar (castCharToCUChar 'q'))
+expression: main
+stdout: |
+  (14,"héllo, wörld")
+  4
+  "añb"
+  3
+  "latin"
+  ('z','q')
+output: |
+  ()
+status: pass
+reason: Foreign.C.String marshals UTF-8 C strings and byte-per-character C strings, as in base
