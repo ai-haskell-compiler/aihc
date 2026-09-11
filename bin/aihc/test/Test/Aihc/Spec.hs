@@ -1054,10 +1054,13 @@ test_installCapi getStore =
       (sourceDir </> "Demo.hs")
       ( unlines
           [ "module Demo where",
-            "import GHC.Prim (Int32#)",
+            "import GHC.Prim (Addr#, Int32#)",
             "data Int32 = I32# Int32#",
             "foreign import capi unsafe \"demo_capi.h value DEMO_ANSWER\" answer :: Int32",
-            "foreign import capi unsafe \"demo_capi.h demo_double\" double :: Int32 -> Int32"
+            "foreign import capi unsafe \"demo_capi.h demo_double\" double :: Int32 -> Int32",
+            -- An address import names a symbol the linker resolves, so it
+            -- goes through no wrapper, which is what GHC does for capi \"&x\".
+            "foreign import capi unsafe \"demo_capi.h &demo_data\" demoData :: Addr#"
           ]
       )
     first <- install options
@@ -1068,6 +1071,8 @@ test_installCapi getStore =
     assertBool "the wrapper includes the header of its entity" ("#include \"demo_capi.h\"" `isInfixOf` stub)
     assertBool "the value wrapper reads the macro" ("return DEMO_ANSWER;" `isInfixOf` stub)
     assertBool "the call wrapper calls the inline function" ("demo_double(a1)" `isInfixOf` stub)
+    assertBool "the address import goes through no wrapper" (not ("demo_data" `isInfixOf` stub))
+    assertEqual "one wrapper for each import that needs one" 2 (length (filter ("aihc_capi_" `isPrefixOf`) (words stub)))
     let archivePath = packageRoot </> "lib" </> "libdemo.a"
     members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
     assertEqual "archive members" ["Demo.capi.o", "Demo.o"] (sort members)

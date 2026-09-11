@@ -1,0 +1,26 @@
+annotated:
+- |-
+  module Test where
+
+  import GHC.Prim (Int32#)
+
+  data CInt = CInt Int32#
+       │      └─ type: GHC.Prim.Int32# → CInt
+       └─ type: Type
+
+  foreign import capi unsafe "demo.h value DEMO" demoValue :: CInt
+  └─ type: CInt
+extensions:
+- CApiFFI
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Int32#)
+
+  data CInt = CInt Int32#
+
+  foreign import capi unsafe "demo.h value DEMO" demoValue :: CInt
+reason: a capi value entity names a C constant, which the entity grammar accepts
+status: pass

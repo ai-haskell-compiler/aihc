@@ -1375,7 +1375,7 @@ resolveForeignEntity capi declaredName entity =
     -- the @value@ keyword; under @ccall@ it would have to name a function.
     entityProblem resolved
       | foreignEntityIsValue resolved && not capi = Just "a value entity needs the capi calling convention"
-      | Just header <- foreignEntityHeader resolved, not (validHeaderName header) = Just ("unsupported header file name in a foreign import entity: " <> T.unpack header)
+      | Just header <- foreignEntityHeader resolved, not (validHeaderName header) = Just "unsupported header file name in a foreign import entity"
       | otherwise = Nothing
     -- The header name is written into a generated C file, so it must be a
     -- name an include directive can hold.
