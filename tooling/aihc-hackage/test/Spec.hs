@@ -67,6 +67,7 @@ main =
       testCase "detects active custom preprocessor options" test_detectsCustomPreprocessorOptions,
       testCase "collects C sources and compile options from library cabal files" test_collectsCSources,
       testCase "reads the Configure build type and merges a configure buildinfo" test_configureBuildInfo,
+      testCase "finds preprocessor sources by suffix after the plain ones" test_findsPreprocessorSources,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -269,7 +270,7 @@ test_configureBuildInfo = do
   hooked <- case snd (runParseResult (parseHookedBuildInfo (BSC.pack "cc-options: -DHOOKED\ncpp-options: -DHOOKED_HS\ninclude-dirs: generated\n"))) of
     Right parsed -> pure parsed
     Left (_, errs) -> assertFailure ("failed to parse test buildinfo: " <> show errs)
-  let file = HC.FileInfo "/pkg/src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"]
+  let file = HC.FileInfo "/pkg/src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"] Nothing
       cInfo = HC.collectLibraryCCompileInfo gpd "/pkg"
       (files, cInfo') = HC.applyHookedBuildInfo "/build" hooked [HC.prependIncludeDirs ["/build/include"] file] cInfo
   assertEqual "cpp options" [["-DFROM_CABAL", "-DHOOKED_HS"]] (map HC.fileInfoCppOptions files)
@@ -277,6 +278,37 @@ test_configureBuildInfo = do
   assertEqual "cc options" ["-DHOOKED", "-std=c11"] (HC.cCompileCcOptions cInfo')
   assertEqual "C include dirs" ["/build/generated", "/pkg/include"] (HC.cCompileIncludeDirs cInfo')
   assertEqual "C sources" ["/pkg/cbits/helper.c"] (HC.cCompileSources cInfo')
+
+-- A module found as @.hsc@ is marked for hsc2hs; one that also ships as
+-- plain Haskell takes the plain file, as under Cabal. Nothing in the cabal
+-- file has to name the tool.
+test_findsPreprocessorSources :: Assertion
+test_findsPreprocessorSources =
+  withTempDir "aihc-hackage-preprocessor" $ \root -> do
+    let srcDir = root </> "src"
+    createDirectoryIfMissing True srcDir
+    writeFile
+      (root </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "",
+            "library",
+            "  exposed-modules: Generated, Plain",
+            "  hs-source-dirs: src",
+            "  default-language: Haskell2010"
+          ]
+      )
+    writeFile (srcDir </> "Generated.hsc") "module Generated where\n"
+    writeFile (srcDir </> "Plain.hsc") "module Plain where\n"
+    writeFile (srcDir </> "Plain.hs") "module Plain where\n"
+    gpd <- parseTestCabal =<< readFile (root </> "demo.cabal")
+    files <- HC.collectLibraryFiles gpd root
+    assertEqual
+      "sources and their preprocessors"
+      [(srcDir </> "Generated.hsc", Just HC.Hsc2hs), (srcDir </> "Plain.hs", Nothing)]
+      (sort [(HC.fileInfoPath file, HC.fileInfoPreprocessor file) | file <- files])
 
 configureCabal :: String
 configureCabal =

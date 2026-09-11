@@ -462,7 +462,8 @@ sourceFileInfo generatedPath dependencyNames source =
       HackageCabal.fileInfoCppOptions = [],
       HackageCabal.fileInfoIncludeDirs = [],
       HackageCabal.fileInfoLanguage = Nothing,
-      HackageCabal.fileInfoDependencies = dependencyNames
+      HackageCabal.fileInfoDependencies = dependencyNames,
+      HackageCabal.fileInfoPreprocessor = Nothing
     }
 
 findSourceFile :: [FilePath] -> Text -> IO FilePath

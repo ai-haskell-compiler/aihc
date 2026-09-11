@@ -18,6 +18,7 @@ in {
       '')
       pkgs.wasm-tools
       pkgs.wasmtime
+      pkgs.haskellPackages.hsc2hs
       pkgs.wit-bindgen
       pkgs.zlib
       pkgs.python3Packages.mkdocs-material
