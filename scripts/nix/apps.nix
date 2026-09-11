@@ -146,6 +146,29 @@ in {
     cabal test --test-show-details=direct
   '';
 
+  install-hackage-packages =
+    mkAppWithInputs "install-hackage-packages" [
+      pkgs.bash
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gnutar
+      pkgs.gzip
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang
+    ] ''
+      set -euo pipefail
+      ${repoRootGuard}
+      export GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export AIHC=${aihcExe}
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      exec bash ./scripts/install-hackage-packages.sh "$@"
+    '';
+
   generate-reports = mkReportsApp "generate-reports" ''
     set -euo pipefail
     ${repoRootGuard}
