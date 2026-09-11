@@ -22,7 +22,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', 
 import Data.Char (isDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -268,9 +268,7 @@ lowerForeignCallBody env call axioms constructors argumentTypes valueGroups resu
     Fc.CCall specification -> do
       let foreignCall = lowerForeignCall name specification
       declareForeignCall foreignCall
-      (expression, adapterPrimitives) <- lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType
-      mapM_ declarePrimitive adapterPrimitives
-      pure expression
+      lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType
 
 -- | The function of a foreign import that takes every argument of the
 -- import. The module has one such function for each import that it applies
@@ -349,41 +347,73 @@ lowerRunRW resultRep action = do
         (GrinApply resultRep (GrinVarValue evaluatedAction) [])
     )
 
--- | Lower a foreign call body. The result also lists the primitives that
--- the argument adapters use, so the module declares them.
-lowerForeignBody :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM (GrinExpr, [(GrinVar, Int)])
+-- | Lower a foreign call body. Each adapter declares the primitive it
+-- emits, so the module carries a declaration for every one of them.
+lowerForeignBody :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM GrinExpr
 lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType = do
   operands <- concat <$> zipWithM (sourceValues env) argumentTypes valueGroups
   resultValues <- sourceValueTypes env resultType
   let signature = grinForeignCallSignature foreignCall
       expectedOperands = grinForeignOperandReps signature
       resultReps = grinForeignCallResultReps signature
-      adapterPrimitives =
-        [ (GrinVar byteArrayContentsPrimitive (-2000000000 + 1) AddrRep, 1)
-        | any (\((_, value), expectedRep) -> isByteArrayOperand value expectedRep) (zip operands expectedOperands)
-        ]
   if length operands /= length expectedOperands
     then throwLower ("GRIN foreign source arguments do not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
     else case (resultValues, resultReps) of
-      ([(resultValueType, resultValueRep)], [foreignResultRep]) -> do
-        expression <-
-          adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
-            adaptForeignResult env axioms constructors resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
-        pure (expression, adapterPrimitives)
+      ([(resultValueType, resultValueRep)], [foreignResultRep]) ->
+        adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
+          adaptForeignResult env axioms constructors resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
       -- A C procedure gives no value; the Haskell result is the nullary
       -- constructor of its type, which is the unit type in practice.
       ([(resultValueType, resultValueRep)], [])
         | isLiftedRuntimeRep resultValueRep -> do
             tag <- findNullaryConstructor env axioms constructors resultValueType
-            expression <-
-              adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
-                pure (GrinBind [] (GrinForeignCallExpr foreignCall values) (GrinStore (GrinNode (GrinConstructor tag 0) [])))
-            pure (expression, adapterPrimitives)
+            adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
+              pure (GrinBind [] (GrinForeignCallExpr foreignCall values) (GrinStore (GrinNode (GrinConstructor tag 0) [])))
       _ -> throwLower ("GRIN foreign result does not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
 
 -- | The primitive that gives the payload address of a byte array.
 byteArrayContentsPrimitive :: Text
 byteArrayContentsPrimitive = "byteArrayContents#"
+
+-- | The primitives that rewrite a value from one runtime representation to
+-- the other, each with the representation it gives, for a foreign type that
+-- GRIN and the C ABI hold at different widths.
+--
+-- Only @Char#@ is such a type: a code point lives in a word slot, which is
+-- what the @Char#@ primops read and write, while C sees a code point as the
+-- 32-bit @HsChar@. It is also the only entry of the type checker's
+-- @primitiveForeignTypes@ whose C representation differs from its GRIN one,
+-- so this pair of representations identifies it. The conversion goes through
+-- @Int#@ because that is the representation a @Char#@ converts to.
+widthAdapter :: GrinRep -> GrinRep -> Maybe [(Text, GrinRep)]
+widthAdapter from to =
+  lookup
+    (from, to)
+    [ ((WordRep, Word32Rep), [("ord#", IntRep), ("wordToWord32#", Word32Rep)]),
+      ((Word32Rep, WordRep), [("word32ToWord#", WordRep), ("chr#", WordRep)])
+    ]
+
+-- | Whether a value of one representation can cross the C boundary as the
+-- other.
+adaptableReps :: GrinRep -> GrinRep -> Bool
+adaptableReps left right = left == right || isJust (widthAdapter left right) || isJust (widthAdapter right left)
+
+-- | Hand a value to the continuation at the target representation,
+-- converting it first when the two differ in width, and declare the
+-- primitive that converts it.
+adaptForeignWidth :: GrinRep -> GrinRep -> GrinValue -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+adaptForeignWidth valueRep targetRep value continuation
+  | valueRep == targetRep = continuation value
+  | otherwise = case widthAdapter valueRep targetRep of
+      Nothing -> throwLower ("GRIN cannot convert the foreign representation " <> show valueRep <> " to " <> show targetRep)
+      Just steps -> convert value steps
+  where
+    convert current [] = continuation current
+    convert current ((primitive, stepRep) : rest) = do
+      declarePrimitive (GrinVar primitive (-2000000000 + 1) stepRep, 1)
+      converted <- freshVar "foreign_width" stepRep
+      body <- convert (GrinVarValue converted) rest
+      pure (GrinBind [converted] (GrinPrimitiveCall stepRep primitive [current]) body)
 
 -- | A byte array value that a foreign call receives as an address.
 isByteArrayOperand :: GrinValue -> GrinRep -> Bool
@@ -423,15 +453,21 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
       | grinValueRuntimeRep value == expectedRep = go (value : values) rest
       -- A byte array argument passes the address of its payload.
       | isByteArrayOperand value expectedRep = do
+          declarePrimitive (GrinVar byteArrayContentsPrimitive (-2000000000 + 1) AddrRep, 1)
           contents <- freshVar "foreign_contents" AddrRep
           body <- go (GrinVarValue contents : values) rest
           pure (GrinBind [contents] (GrinPrimitiveCall AddrRep byteArrayContentsPrimitive [value]) body)
+      -- An unboxed argument that C takes at another width, such as a Char#.
+      | isJust (widthAdapter (grinValueRuntimeRep value) expectedRep) =
+          adaptForeignWidth (grinValueRuntimeRep value) expectedRep value $ \converted ->
+            go (converted : values) rest
       | isLiftedRuntimeRep (grinValueRuntimeRep value) = do
           (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
           evaluated <- freshVar "foreign_box" liftedGrinRep
           caseBinder <- freshVar "foreign_box_case" liftedGrinRep
           field <- freshVar "foreign_field" fieldRep
-          body <- go (GrinVarValue field : values) rest
+          body <- adaptForeignWidth fieldRep expectedRep (GrinVarValue field) $ \converted ->
+            go (converted : values) rest
           pure
             ( GrinBind
                 [evaluated]
@@ -447,15 +483,17 @@ adaptForeignOperands env axioms constructors operands continuation = go [] opera
 adaptForeignResult :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
 adaptForeignResult env axioms constructors sourceType sourceRep foreignRep foreignExpression
   | sourceRep == foreignRep = pure foreignExpression
+  -- An unboxed result that C gives at another width, such as a Char#.
+  | isJust (widthAdapter foreignRep sourceRep) = do
+      result <- freshVar "foreign_result" foreignRep
+      body <- adaptForeignWidth foreignRep sourceRep (GrinVarValue result) (pure . GrinConstant . (: []))
+      pure (GrinBind [result] foreignExpression body)
   | isLiftedRuntimeRep sourceRep = do
       (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType foreignRep
-      result <- freshVar "foreign_result" fieldRep
-      pure
-        ( GrinBind
-            [result]
-            foreignExpression
-            (GrinStore (GrinNode (GrinConstructor tag 0) [GrinVarValue result]))
-        )
+      result <- freshVar "foreign_result" foreignRep
+      body <- adaptForeignWidth foreignRep fieldRep (GrinVarValue result) $ \converted ->
+        pure (GrinStore (GrinNode (GrinConstructor tag 0) [converted]))
+      pure (GrinBind [result] foreignExpression body)
   | otherwise = throwLower ("GRIN cannot adapt a foreign result representation: " <> show sourceType)
 
 findUnaryConstructor :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinRep -> LowerM (Text, GrinRep)
@@ -472,7 +510,7 @@ findUnaryConstructor env axioms constructors resultType expectedRep =
             [fieldType] ->
               case runtimeRep env fieldType of
                 Right fieldRep
-                  | fieldRep == expectedRep -> Just (constructorTag name, fieldRep)
+                  | adaptableReps fieldRep expectedRep -> Just (constructorTag name, fieldRep)
                 _ -> Nothing
             _ -> Nothing
 

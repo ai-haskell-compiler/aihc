@@ -1,0 +1,13 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    foreign import ccall unsafe "toupper" c_toupper :: Char -> Char
+output: |
+  'A'
+expression: |
+  c_toupper 'a'
+status: pass
+reason: a Char argument and result marshal as the 32-bit HsChar of the C ABI, narrowing and widening the word slot that holds the code point
