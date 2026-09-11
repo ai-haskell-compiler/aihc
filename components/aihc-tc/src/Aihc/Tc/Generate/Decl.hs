@@ -145,7 +145,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, when, zipWithM, zipWithM_)
+import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, ord)
@@ -3137,8 +3137,28 @@ registerTypeDeclHeader kindSchemes (DeclTypeFamilyDecl familyDecl) =
   registerTypeFamilyDeclHeader (typeFamilyHeadName (typeFamilyDeclHead familyDecl) >>= resolvedTypeKey >>= (`Map.lookup` kindSchemes)) familyDecl
 registerTypeDeclHeader kindSchemes (DeclTypeSyn typeSynDecl) =
   registerTypeSynonymHeader (resolvedTypeKey (binderHeadName (typeSynHead typeSynDecl)) >>= (`Map.lookup` kindSchemes)) typeSynDecl
-registerTypeDeclHeader kindSchemes (DeclClass classDecl) =
-  concat <$> mapM (registerTypeDeclHeader kindSchemes . DeclTypeFamilyDecl) (classDeclTypeFamilies classDecl)
+registerTypeDeclHeader kindSchemes (DeclClass classDecl) = do
+  -- An associated family shares the class parameters' kinds: the class
+  -- head was predeclared with one kind meta per parameter, and the class
+  -- registration unifies those metas with what its methods fix. Registering
+  -- the family against fresh, immediately defaulted metas would pin a class
+  -- parameter to 'Type' before a method such as @m ()@ could say otherwise.
+  let classHead = classDeclHead classDecl
+      classBinder = binderHeadName classHead
+      classParamNames = map tyVarBinderName (binderHeadParams classHead)
+  classTyCon <- mkDeclaredTyCon classBinder (unqualifiedNameText classBinder) (length classParamNames)
+  predeclared <- lookupTyConByIdentity classTyCon
+  let classParamKinds = maybe [] (takeVisibleArgumentKinds (length classParamNames) . typeSchemeBody . tciKindScheme) predeclared
+      sharedKinds = Map.fromList (zip classParamNames classParamKinds)
+  concat
+    <$> mapM
+      ( \familyDecl ->
+          registerTypeFamilyDeclHeaderWith
+            sharedKinds
+            (typeFamilyHeadName (typeFamilyDeclHead familyDecl) >>= resolvedTypeKey >>= (`Map.lookup` kindSchemes))
+            familyDecl
+      )
+      (classDeclTypeFamilies classDecl)
 registerTypeDeclHeader kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader kindSchemes inner
 registerTypeDeclHeader _ _ = pure []
 
@@ -3795,7 +3815,14 @@ typeConKey home name =
     _ -> nameText name
 
 registerTypeFamilyDeclHeader :: Maybe TypeScheme -> TypeFamilyDecl -> TcM [TcBindingResult]
-registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
+registerTypeFamilyDeclHeader = registerTypeFamilyDeclHeaderWith Map.empty
+
+-- | Register a type family header whose parameters named in the map take
+-- the given kinds instead of defaulting to 'Type': the class parameters of
+-- an associated family. Every other unannotated parameter defaults to
+-- 'Type' here, as it would in GHC.
+registerTypeFamilyDeclHeaderWith :: Map Text TcType -> Maybe TypeScheme -> TypeFamilyDecl -> TcM [TcBindingResult]
+registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
   case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
     Nothing -> do
       emitError NoSourceSpan (OtherError "type family head does not name a type family")
@@ -3805,6 +3832,8 @@ registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
           params = typeFamilyDeclParams familyDecl
           arity = length params
       (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+      forM_ paramInfos $ \param ->
+        forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
       inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
       familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
       let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
@@ -3817,7 +3846,16 @@ registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
             tciFlavor = TypeFamilyTyCon,
             tciTypeSynonym = Nothing
           }
-      zonkedKind <- defaultKindMetas declaredKind
+      zonkedKind <-
+        if Map.null sharedKinds
+          then defaultKindMetas declaredKind
+          else do
+            -- Only the class parameters stay open; the class registration
+            -- settles them once its methods have been seen.
+            forM_ paramInfos $ \param ->
+              unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
+            void (defaultKindMetas (typeResultKind arity declaredKind))
+            zonkKind declaredKind
       pure [TcBindingResult familyName familyName zonkedKind]
 
 typeFamilyResultKindType :: TypeFamilyDecl -> Maybe Type

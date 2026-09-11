@@ -1,0 +1,26 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies #-}
+  module Prelude where
+  import GHC.Types (Type)
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  class Assoc m where
+  └─ class methods: wrap ∷ ∀ m. (Assoc m) ⇒ Token m → m ()
+    type Token m
+         └─ type: (Type → Type) → Type
+    wrap :: Token m -> m Unit
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies #-}
+  module Prelude where
+  import GHC.Types (Type)
+  data Unit = Unit
+  class Assoc m where
+    type Token m
+    wrap :: Token m -> m Unit
+reason: an associated type family does not pin the class variable to kind Type; the class head, its methods and its families are one kind group
+status: pass

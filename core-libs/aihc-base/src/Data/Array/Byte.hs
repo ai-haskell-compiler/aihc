@@ -10,11 +10,12 @@ module Data.Array.Byte
 where
 
 import Data.Data (Data (..), mkNoRepType)
+import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.IsList (IsList (..))
 import GHC.Num (Num (..))
-import GHC.Prim (ByteArray#, MutableByteArray#, compareByteArrays#, indexWord8Array#, newByteArray#, sizeofByteArray#, unsafeFreezeByteArray#, writeWord8Array#, (+#), (-#), (<#), (==#))
+import GHC.Prim (ByteArray#, MutableByteArray#, compareByteArrays#, copyByteArray#, indexWord8Array#, newByteArray#, sizeofByteArray#, unsafeFreezeByteArray#, writeWord8Array#, (+#), (-#), (<#), (==#))
 import GHC.ST (ST (..), runST)
 import GHC.Types (Bool (..), Int (..), Ordering (..), isTrue#)
 import GHC.Word (Word8 (..))
@@ -50,6 +51,36 @@ compareByteArrays left@(ByteArray left#) right@(ByteArray right#) =
               if isTrue# (result# ==# 0#)
                 then compare (I# leftLength#) (I# rightLength#)
                 else GT
+
+-- | Concatenate byte arrays by copying each one into a fresh array.
+concatByteArrays :: [ByteArray] -> ByteArray
+concatByteArrays arrays =
+  case totalLength arrays 0# of
+    n# ->
+      runST
+        ( ST
+            ( \s0 ->
+                case newByteArray# n# s0 of
+                  (# s1, marr# #) ->
+                    let copy _ [] s = s
+                        copy offset# (ByteArray src# : rest) s =
+                          case sizeofByteArray# src# of
+                            len# -> copy (offset# +# len#) rest (copyByteArray# src# 0# marr# offset# len# s)
+                     in case copy 0# arrays s1 of
+                          s2 -> case unsafeFreezeByteArray# marr# s2 of
+                            (# s3, arr# #) -> (# s3, ByteArray arr# #)
+            )
+        )
+  where
+    totalLength [] acc# = acc#
+    totalLength (ByteArray arr# : rest) acc# = totalLength rest (acc# +# sizeofByteArray# arr#)
+
+instance Semigroup ByteArray where
+  left <> right = concatByteArrays [left, right]
+
+instance Monoid ByteArray where
+  mempty = concatByteArrays []
+  mconcat = concatByteArrays
 
 instance Eq ByteArray where
   left == right = case compareByteArrays left right of
