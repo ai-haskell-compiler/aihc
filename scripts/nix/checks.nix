@@ -481,6 +481,13 @@
       # itself outside CI, so a test sees the same store either way.
       cp -R --no-preserve=mode "$out/prim" "$out/core"
       ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${specSeedBaseTarget}
+
+      # The lto tests want both core libraries built at -O2, which implies
+      # --lto. The build is part of the identity of a package, so the
+      # entries above do not serve it.
+      mkdir -p "$out/lto"
+      ${aihcExe} install core-libs/aihc-prim --store "$out/lto" --immutable --target ${specSeedBaseTarget} -O2
+      ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${specSeedBaseTarget} -O2
     '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives

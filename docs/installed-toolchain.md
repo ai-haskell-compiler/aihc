@@ -131,18 +131,45 @@ reconfigures when one of them changes.
 ## Optimization level
 
 `aihc build-exe` and `aihc install` take `-O LEVEL`.
-The level is 0, 1, 2 or s, and the default is 2.
+The level is 0, 1, 2 or s, and the default is 0.
 `-O0`, `-O1`, `-O2` and `-Os` are also accepted.
 
-aihc has no optimization pass of its own, so the level is the level Clang receives.
+The level is the level Clang receives.
 Clang gets it for the C sources of a package, for the `CFLAGS` of a configure script, and for the LLVM output of the `llvm` target.
 The GRIN passes, the Lir lowering, and the object backends of `apple-arm64` and `linux-amd64` do not read the level.
-The runtime and entry archives are compiled once for each target at the default level.
+`-O2` and `-Os` also compile the whole program at once, as `--lto` does.
+`-O0` and `-O1` compile each module to its own object.
+See "Whole-program compilation" below.
+The runtime and entry archives are compiled once for each target at `-O2`, whatever level a program names.
 
 The level is part of the identity of an installed package.
-`aihc install -O0` writes a store entry next to the entry of the default level, and its manifest records the flag `O0`; `-O1` and `-Os` record `O1` and `Os`.
-`aihc build-exe -O0` builds its modules and its packages at level 0, so the first unoptimized build of a store also builds `aihc-base` at level 0.
-A default build keeps the store entries and stamps it had before the level existed.
+`aihc install -O2` writes a store entry next to the entry of the default level, and its manifest records the flag `O2`; `-O1` and `-Os` record `O1` and `Os`.
+`aihc build-exe -O2` builds its modules and its packages at level 2, so the first optimized build of a store also builds `aihc-base` at level 2.
+
+## Whole-program compilation
+
+`aihc build-exe --lto` and `aihc install --lto` stop each module at System FC.
+`-O2` and `-Os` imply the flag.
+The flag selects the same build at `-O0` and `-O1`, which is the default.
+An install with the flag writes the System FC of each module to its `core` file.
+It writes no GRIN, no Lir, and no object below it.
+The library archive then holds only the C objects of the package and the C wrappers of its `capi` imports.
+The manifest records the flag `lto`.
+It also lists every module the package compiled, exposed or hidden, under `compiledModules`.
+
+`aihc build-exe --lto` installs its packages with the flag and compiles its own modules to System FC in the same way.
+It then reads the System FC of every module of the program, from the packages and the executable alike.
+It merges them into one program and drops each value declaration that the entry of the executable does not reach.
+Type, synonym, and axiom declarations stay.
+It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
+The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
+A `--no-link` bundle carries the program object in place of the module objects.
+
+The program object follows the System FC files and the backend options.
+A build whose inputs are unchanged reuses it.
+The whole-program build is part of the identity of an installed package, like the optimization level.
+Its store entries sit next to the entries of a per-module build.
+`--keep-grin` and `--keep-native` have no effect on an install with the flag, because nothing below System FC is generated.
 
 ## Artifact reuse
 

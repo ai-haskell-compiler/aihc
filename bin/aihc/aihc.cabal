@@ -108,6 +108,7 @@ library
     Aihc.Cli.BuildStamp
     Aihc.Cli.CapiStub
     Aihc.Cli.Install
+    Aihc.Cli.Lto
     Aihc.Cli.Options
     Aihc.Cli.PackageManifest
     Aihc.Cli.ResolveArtifact
@@ -119,10 +120,12 @@ library
     Aihc.Fc.Desugar
     Aihc.Fc.Imports
     Aihc.Fc.Lint
+    Aihc.Fc.Merge
     Aihc.Fc.Name
     Aihc.Fc.Normalize
     Aihc.Fc.Parser
     Aihc.Fc.Pretty
+    Aihc.Fc.Prune
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf

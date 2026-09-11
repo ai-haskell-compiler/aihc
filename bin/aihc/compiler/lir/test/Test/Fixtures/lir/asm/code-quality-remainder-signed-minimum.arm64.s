@@ -5,16 +5,18 @@ _main:
 	mov x17, #255
 	sxtb x16, w16
 	sxtb x17, w17
-	cbz x17, .Llir_trap_0
+	cbz x17, .Llir_trap_0_0
 	sdiv x15, x16, x17
 	msub x0, x15, x17, x16
 	and x0, x0, #0xff
 	ldr x16, =-0x8000000000000000
 	mov x17, #-1
-	cbz x17, .Llir_trap_0
+	cbz x17, .Llir_trap_0_0
 	sdiv x15, x16, x17
 	msub x1, x15, x17, x16
 	ret
+.Llir_trap_0_0:
+	b .Llir_trap_0
 	.text
 	.p2align 2
 .Llir_trap_0:

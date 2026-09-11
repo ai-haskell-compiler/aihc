@@ -48,12 +48,13 @@ import Aihc.Native.Move (orderMoves)
 import Aihc.Native.Object (SectionRole (..))
 import Control.Monad (forM, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
+import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, modify, put)
 import Data.ByteString qualified as BS
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -64,7 +65,15 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
 -- | Trap messages of one object, and the next private label index.
 data ObjectState = ObjectState
   { objectTraps :: !(Map Text Int),
-    objectNextLabel :: !Int
+    objectNextLabel :: !Int,
+    -- | Whether a trap branch goes to a trampoline of the function rather
+    -- than to the stub of the object. A backend whose conditional branch
+    -- has a short reach keeps the stub within reach this way.
+    objectLocalTraps :: !Bool,
+    -- | The index of the function being compiled, and the traps it has
+    -- referenced so far, by message.
+    objectFunctionIndex :: !Int,
+    objectFunctionTraps :: !(Map Text Int)
   }
 
 type NativeM error = StateT ObjectState (Either error)
@@ -100,6 +109,10 @@ data NativeBackend statement register error = NativeBackend
     nbQuadSymbolAddend :: Text -> Int64 -> statement,
     nbAsCode :: statement -> Maybe SlotEffect,
     nbRenderTraps :: [(Text, Int)] -> [statement],
+    -- | A trampoline of one function: its local label and an unconditional
+    -- branch to the trap stub with the given label. A backend whose
+    -- conditional branch reaches the whole object gives 'Nothing'.
+    nbTrapTrampoline :: !(Maybe (Text -> Text -> [statement])),
     nbPrologueFrame :: Bool -> Int -> [statement],
     nbLeaveFrame :: Ctx register -> Int -> [statement],
     nbSaveReg :: register -> Int -> statement,
@@ -224,17 +237,40 @@ freshLabel kind = do
 trapLabel :: Text -> NativeM error Text
 trapLabel message = do
   state <- get
-  index <-
-    case Map.lookup message (objectTraps state) of
-      Just known -> pure known
-      Nothing -> do
-        let index = Map.size (objectTraps state)
-        put state {objectTraps = Map.insert message index (objectTraps state)}
-        pure index
-  pure (trapStubLabel index)
+  let index = Map.findWithDefault (Map.size (objectTraps state)) message (objectTraps state)
+  put
+    state
+      { objectTraps = Map.insert message index (objectTraps state),
+        objectFunctionTraps = Map.insert message index (objectFunctionTraps state)
+      }
+  pure
+    ( if objectLocalTraps state
+        then functionTrapLabel (objectFunctionIndex state) index
+        else trapStubLabel index
+    )
 
 trapStubLabel :: Int -> Text
 trapStubLabel index = ".Llir_trap_" <> tshow index
+
+-- | The trampoline of one function to one trap stub.
+functionTrapLabel :: Int -> Int -> Text
+functionTrapLabel functionIndex index = ".Llir_trap_" <> tshow functionIndex <> "_" <> tshow index
+
+-- | The trampolines of the function being compiled, one for each trap it
+-- referenced, and clear them for the next function.
+functionTrapTrampolines :: NativeBackend statement register error -> NativeM error [statement]
+functionTrapTrampolines backend = do
+  state <- get
+  put state {objectFunctionTraps = Map.empty}
+  pure
+    ( case nbTrapTrampoline backend of
+        Just render ->
+          concat
+            [ render (functionTrapLabel (objectFunctionIndex state) index) (trapStubLabel index)
+            | (_, index) <- Map.toAscList (objectFunctionTraps state)
+            ]
+        Nothing -> []
+    )
 
 -- | Lint the module, then walk its items.
 compileNativeStatements :: (Ord register) => NativeBackend statement register error -> Module -> Either error [statement]
@@ -244,7 +280,14 @@ compileNativeStatements backend lirModule =
     errors -> Left (nbLintErrors backend errors)
   where
     Module items = resolveConstants lirModule
-    initialState = ObjectState {objectTraps = Map.empty, objectNextLabel = 0}
+    initialState =
+      ObjectState
+        { objectTraps = Map.empty,
+          objectNextLabel = 0,
+          objectLocalTraps = isJust (nbTrapTrampoline backend),
+          objectFunctionIndex = 0,
+          objectFunctionTraps = Map.empty
+        }
     signatures =
       Map.fromList
         ( [(functionName function, functionSignature function) | ItemFunction function <- items]
@@ -321,6 +364,7 @@ overflowBytes backend count =
 
 compileFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error [statement]
 compileFunction backend signatures index function = do
+  modify (\state -> state {objectFunctionIndex = index, objectFunctionTraps = Map.empty})
   layout <- functionLayout backend signatures function
   let blocks = functionBlocks function
       labels = Map.fromList [(blockLabel block, ".Llir_" <> tshow index <> "_" <> tshow position) | (position, block) <- zip [0 :: Int ..] blocks]
@@ -344,11 +388,15 @@ compileFunction backend signatures index function = do
       unsupported backend ("function " <> unSymbol (functionName function) <> " has more than eight float C parameters")
   prologue <- functionPrologue backend ctx
   body <- concat <$> mapM (compileBlock backend ctx) (zip3 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]))
+  -- The trampolines follow the last block, which ends in a transfer, so
+  -- nothing falls into them.
+  trampolines <- functionTrapTrampolines backend
   pure
     ( [nbSection backend TextSection, nbAlign backend (nbCodeAlign backend)]
         <> [nbGlobal backend symbol | functionLinkage function == Export]
         <> [nbLabel backend symbol]
         <> elideSlotReloadsWith (nbAsCode backend) (prologue <> body)
+        <> trampolines
     )
   where
     symbol = nbSymbol backend (functionName function)

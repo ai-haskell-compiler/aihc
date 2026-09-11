@@ -36,6 +36,7 @@ data BuildExeOptions = BuildExeOptions
     buildExeBuildRoot :: !(Maybe FilePath),
     buildExeWorkspace :: !(Maybe FilePath),
     buildExeLint :: !Bool,
+    buildExeLto :: !Bool,
     buildExeOptimization :: !OptimizationLevel,
     buildExeNoLink :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
@@ -65,6 +66,7 @@ data InstallOptions = InstallOptions
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
     installLint :: !Bool,
+    installLto :: !Bool,
     installOptimization :: !OptimizationLevel,
     installReinstall :: !Bool,
     installNoCode :: !Bool,
@@ -156,6 +158,7 @@ buildExeOptionsParser =
           )
       )
     <*> lintOption
+    <*> ltoOption
     <*> optimizationOption
     <*> OA.switch
       ( OA.long "no-link"
@@ -206,6 +209,18 @@ lintOption =
         <> OA.help "Run compiler intermediate-language lint checks"
     )
 
+-- | Compile each module to System FC only. @build-exe@ merges the System
+-- FC of every module of the program and compiles the merged program once.
+-- @-O2@ and @-Os@ imply the flag, which selects the same build at @-O0@
+-- and @-O1@. The build is part of the identity of an installed package, so
+-- its packages are separate store entries.
+ltoOption :: OA.Parser Bool
+ltoOption =
+  OA.switch
+    ( OA.long "lto"
+        <> OA.help "Compile each module to System FC only and compile the merged program of the executable once. -O2 and -Os imply this"
+    )
+
 -- | @-O0@, @-O1@, @-O2@ or @-Os@, the level Clang receives for C sources
 -- and LLVM output.
 -- The level is part of the identity of an installed package, so the
@@ -218,7 +233,7 @@ optimizationOption =
         <> OA.metavar "LEVEL"
         <> OA.value defaultOptimizationLevel
         <> OA.showDefaultWith renderOptimizationLevel
-        <> OA.help "Optimization level for C sources and LLVM output: 0, 1, 2 or s"
+        <> OA.help "Optimization level: 0, 1, 2 or s. Levels 2 and s compile the whole program at once, and every level is the level Clang receives for C sources and LLVM output"
     )
 
 parseGarbageCollector :: String -> Either String GarbageCollector
@@ -300,6 +315,7 @@ installOptionsParser =
           <> OA.help "Retain native output files"
       )
     <*> lintOption
+    <*> ltoOption
     <*> optimizationOption
     <*> OA.switch
       ( OA.long "reinstall"

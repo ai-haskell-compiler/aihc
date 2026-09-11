@@ -1,6 +1,7 @@
 -- | Select and check the facts that a System FC program imports.
 module Aihc.Fc.Imports
-  ( emptyImports,
+  ( declReferences,
+    emptyImports,
     importsForProgramLookup,
     unusedImports,
   )

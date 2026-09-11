@@ -21,6 +21,9 @@ data PackageManifest = PackageManifest
     packageManifestUnitId :: !Text,
     packageManifestDependencies :: ![Text],
     packageManifestModules :: ![Text],
+    -- | Every module the package compiled, exposed or hidden, in the order
+    -- the store holds them. A @--lto@ build reads the System FC of each.
+    packageManifestCompiledModules :: ![Text],
     -- | The install flags the package was built with, such as @keep-core@
     -- or @no-code@. A store entry never changes, so an install that asks
     -- for an output the entry lacks must rebuild it.
@@ -31,13 +34,14 @@ data PackageManifest = PackageManifest
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =
     Aeson.object
-      [ "schemaVersion" .= (4 :: Int),
+      [ "schemaVersion" .= (5 :: Int),
         "name" .= packageManifestName manifest,
         "version" .= packageManifestVersion manifest,
         "identity" .= packageManifestIdentity manifest,
         "unitId" .= packageManifestUnitId manifest,
         "dependencies" .= packageManifestDependencies manifest,
         "modules" .= packageManifestModules manifest,
+        "compiledModules" .= packageManifestCompiledModules manifest,
         "flags" .= packageManifestFlags manifest
       ]
 
@@ -53,6 +57,7 @@ instance Aeson.FromJSON PackageManifest where
           <$> object .: "dependencies"
           <*> object .: "modules"
           <*> pure []
+          <*> pure []
       3 ->
         PackageManifest
           <$> object .: "name"
@@ -62,6 +67,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "dependencies"
           <*> object .: "modules"
           <*> pure []
+          <*> pure []
       4 ->
         PackageManifest
           <$> object .: "name"
@@ -70,6 +76,17 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "unitId"
           <*> object .: "dependencies"
           <*> object .: "modules"
+          <*> pure []
+          <*> object .: "flags"
+      5 ->
+        PackageManifest
+          <$> object .: "name"
+          <*> object .: "version"
+          <*> object .: "identity"
+          <*> object .: "unitId"
+          <*> object .: "dependencies"
+          <*> object .: "modules"
+          <*> object .: "compiledModules"
           <*> object .: "flags"
       _ -> fail "unsupported package manifest schema"
 

@@ -21,13 +21,14 @@ import Aihc.Cli.Install
     networkDependencyResolver,
   )
 import Aihc.Cli.Install qualified as Install
+import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, coreProviders, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -122,6 +123,7 @@ runBuildExe options = do
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildExeLint options,
+            compileLto = buildExeLto options || wholeProgramLevel (buildExeOptimization options),
             compileNoCode = False,
             compileOptimization = buildExeOptimization options,
             compileTarget = target,
@@ -165,10 +167,25 @@ runBuildExe options = do
             compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest
+  -- A @--lto@ build compiles the System FC of every module of the program,
+  -- from the packages and the executable alike, into one object. The
+  -- package archives then hold only their C and capi wrapper objects.
+  programObjects <-
+    if compileLto compileConfig
+      then do
+        let corePaths =
+              [ moduleCorePath target (installedRoot package) name
+              | package <- selected,
+                name <- packageManifestCompiledModules (installedManifest package)
+              ]
+                <> [moduleCorePath target buildRoot name | name <- compileModuleNames compiled]
+        object <- compileLtoProgram compileConfig buildRoot corePaths
+        pure [object]
+      else pure []
   createDirectoryIfMissing True (takeDirectory output)
   let orderedPackages = linkOrderedPackages selected
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
-  let objects = compileObjectPaths compiled <> cObjects
+  let objects = programObjects <> compileObjectPaths compiled <> cObjects
       archives = map packageArchive orderedPackages
   if buildExeNoLink options
     then writeLinkBundle target output objects archives entry runtime
