@@ -22,6 +22,7 @@ import GHC.Prim
     intToInt64#,
     intToInt8#,
     ord#,
+    readAddrOffAddr#,
     readWord16OffAddr#,
     readWord32OffAddr#,
     readWord64OffAddr#,
@@ -37,6 +38,7 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
+    writeAddrOffAddr#,
     writeWord16OffAddr#,
     writeWord32OffAddr#,
     writeWord64OffAddr#,
@@ -282,5 +284,23 @@ instance Storable Char where
     IO
       ( \state ->
           case writeWord32OffAddr# address index (wordToWord32# (int2Word# (ord# value))) state of
+            nextState -> (# nextState, () #)
+      )
+
+-- | A pointer is stored as the machine address it holds, so it round-trips
+-- through the address primops rather than through a numeric width.
+instance Storable (Ptr a) where
+  sizeOf _ = 8
+  alignment _ = 8
+  peekElemOff (Ptr address) (I# index) =
+    IO
+      ( \state ->
+          case readAddrOffAddr# address index state of
+            (# readState, value #) -> (# readState, Ptr value #)
+      )
+  pokeElemOff (Ptr address) (I# index) (Ptr value) =
+    IO
+      ( \state ->
+          case writeAddrOffAddr# address index value state of
             nextState -> (# nextState, () #)
       )
