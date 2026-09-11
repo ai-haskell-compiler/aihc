@@ -10,6 +10,7 @@ module Aihc.Fc
     FcParseError,
     tidyProgram,
     mergePrograms,
+    pruneProgram,
     desugarModuleFc,
     DesugarConfig (..),
     moduleDesugarConfig,
@@ -29,5 +30,6 @@ import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderType)
+import Aihc.Fc.Prune (pruneProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)

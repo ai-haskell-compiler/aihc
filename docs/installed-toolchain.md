@@ -155,7 +155,9 @@ It also lists every module the package compiled, exposed or hidden, under `compi
 
 `aihc build-exe --lto` installs its packages with the flag and compiles its own modules to System FC in the same way.
 It then reads the System FC of every module of the program, from the packages and the executable alike.
-It merges them into one program and lowers that program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
+It merges them into one program and drops each value declaration that the entry of the executable does not reach.
+Type, synonym, and axiom declarations stay.
+It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
 The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
 A `--no-link` bundle carries the program object in place of the module objects.
 

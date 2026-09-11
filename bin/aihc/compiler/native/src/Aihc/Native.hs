@@ -16,6 +16,7 @@ module Aihc.Native
     buildAddrLiteralPool,
     defaultOptimizationLevel,
     executableEntryName,
+    executableEntryParts,
     hostNativeTarget,
     nativeTargetTriple,
     nativeTargetStoreDirectory,
@@ -59,7 +60,14 @@ import System.Info qualified as System
 
 -- | The fixed linked global that starts each executable.
 executableEntryName :: Text
-executableEntryName = T.intercalate "\0" ["exe", "Aihc.Entry", "entry"]
+executableEntryName = T.intercalate "\0" [package, moduleName, name]
+  where
+    (package, moduleName, name) = executableEntryParts
+
+-- | The package, module, and name of the global that starts each
+-- executable.
+executableEntryParts :: (Text, Text, Text)
+executableEntryParts = ("exe", "Aihc.Entry", "entry")
 
 -- | A complete backend and executable target.
 -- Every target consumes Lir. See @docs/lir.md@.

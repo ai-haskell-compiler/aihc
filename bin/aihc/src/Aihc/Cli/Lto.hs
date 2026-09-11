@@ -13,7 +13,8 @@ where
 import Aihc.Cli.ArtifactCache (hashChunks, sourceFilesHash)
 import Aihc.Cli.Install (FcModule (..), ModuleCompileConfig (..), ModuleOutputPaths (..), backendOptionsKey, compileFcModules, moduleOutputPaths)
 import Aihc.Fc qualified as Fc
-import Aihc.Native (NativeTarget)
+import Aihc.Native (NativeTarget, executableEntryParts)
+import Aihc.Resolve (PackageId (..))
 import Control.Concurrent.Async (forConcurrently)
 import Control.Exception (evaluate)
 import Control.Monad (forM_, unless)
@@ -49,12 +50,25 @@ compileLtoProgram config buildRoot corePaths = do
     then verbose ("Reuse program object: " <> object)
     else do
       programs <- forConcurrently corePaths readProgram
-      let merged = Fc.mergePrograms programs
-      verbose ("Merge System FC: " <> show (length programs) <> " modules")
+      -- The whole program is known here, so a value that the entry does
+      -- not reach is dropped before it is lowered.
+      let merged = Fc.pruneProgram [entryName] (Fc.mergePrograms programs)
+      verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
       createDirectoryIfMissing True (takeDirectory object)
       _ <- compileFcModules config verbose (const paths) [FcModule "program" merged]
       writeFile stampPath current
   pure object
+
+-- | The global that the entry archive calls: the root of the program.
+entryName :: Fc.Name
+entryName =
+  Fc.Name
+    { Fc.nameText = name,
+      Fc.nameSort = Fc.SortValue,
+      Fc.nameOrigin = Fc.OriginTop (PackageId package) moduleName
+    }
+  where
+    (package, moduleName, name) = executableEntryParts
 
 readProgram :: FilePath -> IO Fc.Program
 readProgram path = do

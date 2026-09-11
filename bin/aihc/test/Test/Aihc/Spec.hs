@@ -410,9 +410,9 @@ test_buildExeLinkBundle getStore =
     assertEqual "linked executable stderr" "" stderr
 
 -- | @--lto@ stops every module at System FC and compiles the merged program
--- of the executable once. The package archives hold no Haskell object, the
--- executable links the one program object, and an unchanged program keeps
--- that object.
+-- of the executable once, without the values the entry does not reach. The
+-- package archives hold no Haskell object, the executable links the one
+-- program object, and an unchanged program keeps that object.
 test_buildExeLto :: IO SeedStore -> Assertion
 test_buildExeLto getStore =
   withBuildExeSandbox getStore "aihc-build-exe-lto" $ \sandbox _fixtureRoot storeRoot options -> do
@@ -437,6 +437,12 @@ test_buildExeLto getStore =
     assertCoreFile (targetRoot </> "Main" </> "core")
     assertFileDoesNotExist (targetRoot </> "Main" </> "Main.o")
     assertFileExists programObject
+    -- The program object holds the entry and no value the entry does not
+    -- reach: the fixture never uses the Data.Complex instances. The
+    -- constructor tables of the type stay, because types are not pruned.
+    symbols <- readProcess "nm" [programObject] ""
+    assertBool "program object defines the entry" ("Aihc__dEntry_entry" `isInfixOf` symbols)
+    assertBool "program object drops unreached values" (not ("Data__dComplex___sfEqComplex" `isInfixOf` symbols))
     -- So do the modules of aihc-base, whose archive holds no module object.
     basePackage <- seededPackagePath storeRoot target "aihc-base"
     manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath basePackage)

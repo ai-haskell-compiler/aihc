@@ -125,6 +125,7 @@ library
     Aihc.Fc.Normalize
     Aihc.Fc.Parser
     Aihc.Fc.Pretty
+    Aihc.Fc.Prune
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf
