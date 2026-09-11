@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Prelude where
+  data Ptr a = Ptr
+       │       └─ type: ∀ k0 a. Ptr a
+       └─ type: k0 → Type
+  data WordPtr = WordPtr
+       │         └─ type: WordPtr
+       └─ type: Type
+  ptrToWordPtr :: Ptr a -> WordPtr
+  ptrToWordPtr _ = WordPtr
+  │            └─ type: Ptr a
+  └─ type: ∀ k0 a. Ptr a → WordPtr
+- |-
+  module Use where
+  import Prelude
+  class Prim a where
+  └─ class methods: index ∷ ∀ a. (Prim a) ⇒ a
+    index :: a
+  instance Prim (Ptr a) where
+  └─ $fPrimPtra ∷ ∀ a. () ⇒ Prim (Ptr a)
+    index = Ptr
+    │       └─ type: Prelude.Ptr a; type-args: Type, a
+    └─ index ∷ Ptr a
+  wordPtrIndex :: WordPtr
+  wordPtrIndex = ptrToWordPtr index
+  │              │            └─ type: Prelude.Ptr (); type-args: Ptr (); evidence: $fPrimPtra @()
+  │              └─ type: Prelude.Ptr () → Prelude.WordPtr; type-args: Type, ()
+  └─ type: Prelude.WordPtr
+extensions:
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Prelude where
+  data Ptr a = Ptr
+  data WordPtr = WordPtr
+  ptrToWordPtr :: Ptr a -> WordPtr
+  ptrToWordPtr _ = WordPtr
+- |
+  module Use where
+  import Prelude
+  class Prim a where
+    index :: a
+  instance Prim (Ptr a) where
+    index = Ptr
+  wordPtrIndex :: WordPtr
+  wordPtrIndex = ptrToWordPtr index
+reason: an instance head that matches applies even when the wanted's type argument still carries the kind meta of a poly-kinded type constructor
+status: pass
