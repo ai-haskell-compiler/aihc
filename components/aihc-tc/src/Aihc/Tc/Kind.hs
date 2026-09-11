@@ -11,6 +11,7 @@ module Aihc.Tc.Kind
     deferKindMetas,
     freeTypeVars,
     freshKindMeta,
+    bindKindMeta,
     classPredicateArgKinds,
     makeParamEnv,
     makeParamEnvWith,
@@ -732,6 +733,10 @@ isGroundKind ty =
     TcForAllTy {} -> False
     TcQualTy _ body -> isGroundKind body
     TcAppTy function argument -> isGroundKind function && isGroundKind argument
+
+-- | Solve a kind meta with a kind, with no source span to report at.
+bindKindMeta :: Unique -> TcType -> TcM ()
+bindKindMeta = bindKindMetaAt NoSourceSpan
 
 bindKindMetaAt :: SourceSpan -> Unique -> TcType -> TcM ()
 bindKindMetaAt sp u kind
