@@ -62,7 +62,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -749,7 +749,7 @@ compileFlagNames config =
         (compileKeepNative config, "keep-native"),
         (compileLint config, "lint"),
         (compileNoCode config, "no-code"),
-        (compileOptimization config == O0, "O0")
+        (compileOptimization config /= defaultOptimizationLevel, optimizationFlagName (compileOptimization config))
       ],
     set
   ]
@@ -1018,10 +1018,15 @@ compilerKeyParts config =
 -- before the level existed, and the store entries of such a build stay
 -- valid.
 optimizationKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
-optimizationKeyParts config =
-  case compileOptimization config of
-    O0 -> ["O0"]
-    O2 -> []
+optimizationKeyParts config
+  | level == defaultOptimizationLevel = []
+  | otherwise = [TE.encodeUtf8 (optimizationFlagName level)]
+  where
+    level = compileOptimization config
+
+-- | The name a level goes by in a manifest flag and in a store key.
+optimizationFlagName :: OptimizationLevel -> Text
+optimizationFlagName level = "O" <> T.pack (renderOptimizationLevel level)
 
 -- | The part of the configuration the type interfaces depend on. The level
 -- changes only C and LLVM objects, so a local package that changes its

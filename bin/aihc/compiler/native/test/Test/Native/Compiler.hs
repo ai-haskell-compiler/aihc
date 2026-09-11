@@ -5,7 +5,7 @@ module Test.Native.Compiler
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0), backendCompiler, defaultOptimizationLevel, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol)
+import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0, O1, Os), backendCompiler, defaultOptimizationLevel, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, isDigit, isHexDigit, ord)
 import Data.Text (Text)
@@ -32,6 +32,8 @@ tests =
         assertBool "no level in the target arguments" (all (`notElem` arguments) ["-O0", "-O1", "-O2", "-O3"])
         assertEqual "runtime level" ["-O2"] (handwrittenCArguments defaultOptimizationLevel)
         assertEqual "level 0 argument" "-O0" (optimizationArgument O0)
+        assertEqual "level 1 argument" "-O1" (optimizationArgument O1)
+        assertEqual "size argument" "-Os" (optimizationArgument Os)
         assertEqual "module-warning flag count" 1 (length (filter (== "-Wno-override-module") arguments)),
       testCase "renders common linker identities readably" $ do
         assertEqual

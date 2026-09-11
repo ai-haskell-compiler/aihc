@@ -250,26 +250,32 @@ nativeTargetStoreDirectory target =
 -- read it.
 data OptimizationLevel
   = O0
+  | O1
   | O2
+  | Os
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 defaultOptimizationLevel :: OptimizationLevel
 defaultOptimizationLevel = O2
 
--- | Parse the digit of a @-O@ option.
+-- | Parse the argument of a @-O@ option.
 parseOptimizationLevel :: String -> Either String OptimizationLevel
 parseOptimizationLevel value =
   case value of
     "0" -> Right O0
+    "1" -> Right O1
     "2" -> Right O2
-    _ -> Left "expected 0 or 2"
+    "s" -> Right Os
+    _ -> Left "expected 0, 1, 2 or s"
 
--- | The digit of a level, as the @-O@ option takes it.
+-- | The argument of a level, as the @-O@ option takes it.
 renderOptimizationLevel :: OptimizationLevel -> String
 renderOptimizationLevel level =
   case level of
     O0 -> "0"
+    O1 -> "1"
     O2 -> "2"
+    Os -> "s"
 
 -- | The Clang argument of a level.
 optimizationArgument :: OptimizationLevel -> String
