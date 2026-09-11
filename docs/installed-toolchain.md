@@ -114,6 +114,22 @@ cannot run the programs it compiles. The script itself, the compiler, and
 those arguments are hashed into `configure.hash`, so a local package only
 reconfigures when one of them changes.
 
+## Optimization level
+
+`aihc build-exe` and `aihc install` take `-O LEVEL`.
+The level is 0 or 2, and the default is 2.
+`-O0` and `-O2` are also accepted.
+
+aihc has no optimization pass of its own, so the level is the level Clang receives.
+Clang gets it for the C sources of a package, for the `CFLAGS` of a configure script, and for the LLVM output of the `llvm` target.
+The GRIN passes, the Lir lowering, and the object backends of `apple-arm64` and `linux-amd64` do not read the level.
+The runtime and entry archives are compiled once for each target at the default level.
+
+The level is part of the identity of an installed package.
+`aihc install -O0` writes a store entry next to the entry of the default level, and its manifest records the flag `O0`.
+`aihc build-exe -O0` builds its modules and its packages at level 0, so the first unoptimized build of a store also builds `aihc-base` at level 0.
+A default build keeps the store entries and stamps it had before the level existed.
+
 ## Artifact reuse
 
 A package is either immutable or local, and the two never mix.

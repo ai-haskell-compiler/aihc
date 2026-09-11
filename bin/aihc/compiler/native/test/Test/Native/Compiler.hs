@@ -5,7 +5,7 @@ module Test.Native.Compiler
   )
 where
 
-import Aihc.Native (NativeTarget (Llvm), backendCompiler, handwrittenCArguments, renderLinkedFunctionSymbol)
+import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0), backendCompiler, defaultOptimizationLevel, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, isDigit, isHexDigit, ord)
 import Data.Text (Text)
@@ -22,17 +22,16 @@ tests :: TestTree
 tests =
   testGroup
     "backend compiler"
-    [ testCase "leaves generated code unoptimized by Clang" $ do
-        -- aihc optimizes before it emits IR, so Clang running its own optimizer
-        -- over generated code was redundant work on the compiler's hottest
-        -- path. Handwritten C is the other way round: compiled rarely, hot for
-        -- the life of every program linked against it, and -O is required
-        -- anyway because the runtime builds -Werror and glibc warns when
-        -- _FORTIFY_SOURCE is set without it.
+    [ testCase "takes the Clang optimization level from the build" $ do
+        -- The target arguments carry no level. The build adds the level of
+        -- its -O option for LLVM output and package C sources, and the
+        -- runtime takes the default level: it builds with -Werror, and glibc
+        -- warns when _FORTIFY_SOURCE is set without -O.
         (compiler, arguments) <- backendCompiler Llvm
         assertEqual "LLVM compiler" "clang" compiler
-        assertBool "no Clang optimization of generated code" (all (`notElem` arguments) ["-O1", "-O2", "-O3"])
-        assertBool "handwritten C is optimized" ("-O2" `elem` handwrittenCArguments)
+        assertBool "no level in the target arguments" (all (`notElem` arguments) ["-O0", "-O1", "-O2", "-O3"])
+        assertEqual "runtime level" ["-O2"] (handwrittenCArguments defaultOptimizationLevel)
+        assertEqual "level 0 argument" "-O0" (optimizationArgument O0)
         assertEqual "module-warning flag count" 1 (length (filter (== "-Wno-override-module") arguments)),
       testCase "renders common linker identities readably" $ do
         assertEqual

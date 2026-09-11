@@ -58,7 +58,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -308,6 +308,8 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
     compileNoCode :: !Bool,
+    -- | The level Clang receives for C sources and LLVM output.
+    compileOptimization :: !OptimizationLevel,
     compileTarget :: !NativeTarget,
     compileVerbose :: String -> IO (),
     compilePrintTimings :: String -> IO (),
@@ -414,6 +416,7 @@ installWith output options = do
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileNoCode = installNoCode options,
+            compileOptimization = installOptimization options,
             compileTarget = target,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
@@ -686,7 +689,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
     let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
     if current
       then do
-        cObjects <- compilePackageCFiles target verbose root storePath cCompileInfo
+        cObjects <- compilePackageCFiles target (compileOptimization config) verbose root storePath cCompileInfo
         buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
@@ -737,7 +740,8 @@ compileFlagNames config =
         (compileKeepGrin config, "keep-grin"),
         (compileKeepNative config, "keep-native"),
         (compileLint config, "lint"),
-        (compileNoCode config, "no-code")
+        (compileNoCode config, "no-code"),
+        (compileOptimization config == O0, "O0")
       ],
     set
   ]
@@ -970,29 +974,46 @@ buildEnvironmentIdentity target = do
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
--- compiler and the target. Flags that add or drop outputs, such as
--- @--keep-core@, or that only check, such as @--lint@, are recorded in the
--- manifest instead.
+-- compiler, the target, and the optimization level. Flags that add or drop
+-- outputs, such as @--keep-core@, or that only check, such as @--lint@, are
+-- recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config =
-  stableHash
-    [ BS8.pack (compileBuildIdentity config),
-      TE.encodeUtf8 packageArtifactFormatVersion,
-      BS8.pack (show (compileTarget config))
-    ]
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config)
 
--- | The part of the configuration the type interfaces depend on.
+-- | The compiler and the target.
+compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+compilerKeyParts config =
+  [ BS8.pack (compileBuildIdentity config),
+    TE.encodeUtf8 packageArtifactFormatVersion,
+    BS8.pack (show (compileTarget config))
+  ]
+
+-- | The key part of a level that is not the default. The default level
+-- adds nothing, so the keys of a default build are the keys of a build
+-- before the level existed, and the store entries of such a build stay
+-- valid.
+optimizationKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+optimizationKeyParts config =
+  case compileOptimization config of
+    O0 -> ["O0"]
+    O2 -> []
+
+-- | The part of the configuration the type interfaces depend on. The level
+-- changes only C and LLVM objects, so a local package that changes its
+-- level keeps its interfaces.
 frontendOptionsKey :: ModuleCompileConfig -> String
-frontendOptionsKey = packageOptionsKey
+frontendOptionsKey config = stableHash (compilerKeyParts config)
 
 -- | The part of the configuration the backend outputs depend on.
 backendOptionsKey :: ModuleCompileConfig -> String
 backendOptionsKey config =
   stableHash
-    [ BS8.pack (compileBuildIdentity config),
-      TE.encodeUtf8 packageArtifactFormatVersion,
-      BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
-    ]
+    ( [ BS8.pack (compileBuildIdentity config),
+        TE.encodeUtf8 packageArtifactFormatVersion,
+        BS8.pack (show (compileTarget config, compileKeepCore config, compileKeepGrin config, compileKeepNative config, compileLint config))
+      ]
+        <> optimizationKeyParts config
+    )
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
 createTemporaryStoreRoot storeRoot packageDirectory = do
@@ -2058,7 +2079,10 @@ compileCheckedModules config verbose primIdentity interface outputPaths desugarC
         Just object -> BL.writeFile (outputObjectPath paths) object
         Nothing -> do
           (compiler, compilerArguments) <- backendCompiler (compileTarget config)
-          runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
+          -- LLVM output takes the level of the build. Assembly does not
+          -- change with it.
+          let levelArguments = [optimizationArgument (compileOptimization config) | compileTarget config == Llvm]
+          runTool compiler (compilerArguments <> levelArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
       verbose ("Write object: " <> T.unpack name)
 
     removeNativeSourceFile nativeModule =
@@ -2093,8 +2117,8 @@ cabalPlatformForTarget target =
     Llvm -> (buildOS, buildArch)
     Wasm32Wasip3 -> (Wasi, Wasm32)
 
-compilePackageCFiles :: NativeTarget -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
-compilePackageCFiles target verbose packageRoot storePath info
+compilePackageCFiles :: NativeTarget -> OptimizationLevel -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target level verbose packageRoot storePath info
   | null (HackageCabal.cCompileSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
@@ -2115,7 +2139,7 @@ compilePackageCFiles target verbose packageRoot storePath info
         runTool
           compiler
           ( targetArguments
-              <> handwrittenCArguments
+              <> handwrittenCArguments level
               <> HackageCabal.cCompileCcOptions info
               <> includeArguments
               <> ["-c", source, "-o", object]
@@ -2147,7 +2171,7 @@ configurePackage config root storePath packageName inputs =
     Just script -> do
       let buildDirectory = storePath </> "configure"
           stampPath = buildDirectory </> "configure.hash"
-      (executable, arguments, environment) <- configureCommand (compileTarget config) script
+      (executable, arguments, environment) <- configureCommand (compileTarget config) (compileOptimization config) script
       inputsHash <- configureInputsHash config script
       previous <- readStampText stampPath
       if previous == Just inputsHash
@@ -2212,12 +2236,12 @@ configurePackage config root storePath packageName inputs =
 -- the two coincide nothing is passed, as Cabal passes nothing: the build
 -- machine is guessed by the script, and a named host that differs from that
 -- guess, even only by a version suffix, counts as cross-compiling too.
-configureCommand :: NativeTarget -> FilePath -> IO (FilePath, [String], [(String, String)])
-configureCommand target script = do
+configureCommand :: NativeTarget -> OptimizationLevel -> FilePath -> IO (FilePath, [String], [(String, String)])
+configureCommand target level script = do
   (compiler, targetArguments) <- backendCompiler target
   sysrootIncludes <- wasmSysrootIncludeArguments target
   inherited <- getEnvironment
-  let cflags = unwords (targetArguments <> handwrittenCArguments <> sysrootIncludes)
+  let cflags = unwords (targetArguments <> handwrittenCArguments level <> sysrootIncludes)
       overrides = [("CC", compiler), ("CFLAGS", cflags)]
       environment = overrides <> [entry | entry@(name, _) <- inherited, name `notElem` map fst overrides]
       crossArguments = ["--host=" <> name | Just target /= hostNativeTarget, Just name <- [autoconfHostName target]]
@@ -2244,7 +2268,7 @@ configureInputsHash config script = do
   let target = compileTarget config
   scriptBytes <- BS.readFile script
   environmentIdentity <- buildEnvironmentIdentity target
-  (executable, arguments, environment) <- configureCommand target script
+  (executable, arguments, environment) <- configureCommand target (compileOptimization config) script
   pure
     ( stableHash
         [ TE.encodeUtf8 packageArtifactFormatVersion,

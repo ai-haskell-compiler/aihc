@@ -28,6 +28,7 @@ import Aihc.Native
     WasmSysroot (..),
     backendArchiver,
     backendCompiler,
+    defaultOptimizationLevel,
     handwrittenCArguments,
     nativeTargetTriple,
     runtimePlan,
@@ -118,7 +119,7 @@ buildRuntimeArchive target garbageCollector extraCArguments directory = do
   (compiler, targetArguments) <- backendCompiler target
   let commonArguments =
         targetArguments
-          <> handwrittenCArguments
+          <> handwrittenCArguments defaultOptimizationLevel
           <> extraCArguments
           <> ["-I" <> includeDirectory | includeDirectory <- runtimeIncludeDirectories]
   cObjects <- forM (zip [0 :: Int ..] runtimeSources) $ \(index, source) -> do
