@@ -67,7 +67,7 @@ import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Lir qualified as Lir
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -322,7 +322,8 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
     -- | Stop each module at System FC. @build-exe@ merges the System FC of
-    -- the whole program and compiles it once.
+    -- the whole program and compiles it once. @--lto@ sets this, and so
+    -- does a level that optimizes.
     compileLto :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
@@ -438,7 +439,7 @@ installWith output options = do
             compileKeepGrin = installKeepGrin options,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
-            compileLto = installLto options,
+            compileLto = installLto options || wholeProgramLevel (installOptimization options),
             compileNoCode = installNoCode options,
             compileOptimization = installOptimization options,
             compileTarget = target,

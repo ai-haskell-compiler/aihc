@@ -423,7 +423,9 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target apple-arm64
+      # -O1 compiles each module to its own object. The default level
+      # compiles the whole program at once and writes no object here.
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target apple-arm64 -O1
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -431,7 +433,7 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target apple-arm64
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target apple-arm64 -O1
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
@@ -471,8 +473,11 @@
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       mkdir -p "$out/prim"
 
+      # The prim and core stores are built at -O1, which compiles each
+      # module to its own object. The default level compiles the whole
+      # program at once and has the lto store below.
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --immutable --target ${target}
+          ${aihcExe} install core-libs/aihc-prim --store "$out/prim" --immutable --target ${target} -O1
         '')
         specSeedPrimTargets}
 
@@ -480,14 +485,14 @@
       # aihc-base as well. Keeping them apart matches what the suite builds for
       # itself outside CI, so a test sees the same store either way.
       cp -R --no-preserve=mode "$out/prim" "$out/core"
-      ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${specSeedBaseTarget}
+      ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${specSeedBaseTarget} -O1
 
-      # The lto tests want both core libraries built with --lto. The flag is
-      # part of the identity of a package, so the entries above do not serve
-      # such a build.
+      # The lto tests want both core libraries built at the default level,
+      # which implies --lto. The build is part of the identity of a package,
+      # so the entries above do not serve it.
       mkdir -p "$out/lto"
-      ${aihcExe} install core-libs/aihc-prim --store "$out/lto" --immutable --target ${specSeedBaseTarget} --lto
-      ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${specSeedBaseTarget} --lto
+      ${aihcExe} install core-libs/aihc-prim --store "$out/lto" --immutable --target ${specSeedBaseTarget}
+      ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${specSeedBaseTarget}
     '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives

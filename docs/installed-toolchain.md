@@ -134,9 +134,12 @@ reconfigures when one of them changes.
 The level is 0, 1, 2 or s, and the default is 2.
 `-O0`, `-O1`, `-O2` and `-Os` are also accepted.
 
-aihc has no optimization pass of its own, so the level is the level Clang receives.
+The level is the level Clang receives.
 Clang gets it for the C sources of a package, for the `CFLAGS` of a configure script, and for the LLVM output of the `llvm` target.
 The GRIN passes, the Lir lowering, and the object backends of `apple-arm64` and `linux-amd64` do not read the level.
+`-O2` and `-Os` also compile the whole program at once, as `--lto` does.
+`-O0` and `-O1` compile each module to its own object.
+See "Whole-program compilation" below.
 The runtime and entry archives are compiled once for each target at the default level.
 
 The level is part of the identity of an installed package.
@@ -147,6 +150,8 @@ A default build keeps the store entries and stamps it had before the level exist
 ## Whole-program compilation
 
 `aihc build-exe --lto` and `aihc install --lto` stop each module at System FC.
+`-O2` and `-Os` imply the flag, so the default build is a whole-program build.
+The flag selects the same build at `-O0` and `-O1`.
 An install with the flag writes the System FC of each module to its `core` file.
 It writes no GRIN, no Lir, and no object below it.
 The library archive then holds only the C objects of the package and the C wrappers of its `capi` imports.
@@ -163,8 +168,8 @@ A `--no-link` bundle carries the program object in place of the module objects.
 
 The program object follows the System FC files and the backend options.
 A build whose inputs are unchanged reuses it.
-The flag is part of the identity of an installed package, like the optimization level.
-A `--lto` build writes store entries next to the entries of a build without the flag.
+The whole-program build is part of the identity of an installed package, like the optimization level.
+Its store entries sit next to the entries of a per-module build.
 `--keep-grin` and `--keep-native` have no effect on an install with the flag, because nothing below System FC is generated.
 
 ## Artifact reuse

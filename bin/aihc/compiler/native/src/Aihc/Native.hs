@@ -15,6 +15,7 @@ module Aihc.Native
     handwrittenCArguments,
     buildAddrLiteralPool,
     defaultOptimizationLevel,
+    wholeProgramLevel,
     executableEntryName,
     executableEntryParts,
     hostNativeTarget,
@@ -265,6 +266,12 @@ data OptimizationLevel
 
 defaultOptimizationLevel :: OptimizationLevel
 defaultOptimizationLevel = O2
+
+-- | Whether a level compiles the whole program at once, as @--lto@ does.
+-- The levels that optimize do: @-O2@ and @-Os@. @-O0@ and @-O1@ compile
+-- each module to its own object.
+wholeProgramLevel :: OptimizationLevel -> Bool
+wholeProgramLevel level = level `elem` [O2, Os]
 
 -- | Parse the argument of a @-O@ option.
 parseOptimizationLevel :: String -> Either String OptimizationLevel

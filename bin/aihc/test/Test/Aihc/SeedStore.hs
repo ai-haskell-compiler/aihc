@@ -34,7 +34,7 @@ where
 
 import Aihc.Cli.Install (install)
 import Aihc.Cli.Options (InstallOptions (..))
-import Aihc.Native (NativeTarget (..), OptimizationLevel (O2), hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless)
 import Data.List (isPrefixOf, nub)
@@ -66,7 +66,10 @@ import System.Process (readProcess)
 prebuiltStoreVariable :: String
 prebuiltStoreVariable = "AIHC_PREBUILT_STORE"
 
--- | The subdirectory of the prebuilt store holding aihc-prim only.
+-- | The subdirectory of the prebuilt store holding aihc-prim only. This
+-- store and the core store are built at @-O1@, which compiles each module
+-- to its own object; the default level compiles the whole program at once
+-- and has the @lto@ store.
 primStoreDirectory :: FilePath
 primStoreDirectory = "prim"
 
@@ -75,7 +78,7 @@ coreStoreDirectory :: FilePath
 coreStoreDirectory = "core"
 
 -- | The subdirectory of the prebuilt store holding aihc-prim and aihc-base
--- built with @--lto@.
+-- built at the default level, which implies @--lto@.
 ltoStoreDirectory :: FilePath
 ltoStoreDirectory = "lto"
 
@@ -147,16 +150,17 @@ acquireCoreStore getPrimStore =
     baseRoot <- findCoreLibraryRoot "aihc-base"
     installCoreLibrary baseRoot root buildExeHostTarget
 
--- | Seed aihc-prim and aihc-base built with @--lto@ for the host target. The
--- flag is part of the identity of a package, so the entries of the other
--- stores do not serve a @--lto@ build. Only the @lto@ tests need this store.
+-- | Seed aihc-prim and aihc-base at the default level for the host target,
+-- which is a @--lto@ build. The build is part of the identity of a package,
+-- so the entries of the other stores do not serve it. Only the @lto@ tests
+-- need this store.
 acquireLtoStore :: IO SeedStore
 acquireLtoStore =
   withPreparedStore ltoStoreDirectory $ \root -> do
     primRoot <- findCoreLibraryRoot "aihc-prim"
     baseRoot <- findCoreLibraryRoot "aihc-base"
-    installCoreLibraryWith True primRoot root buildExeHostTarget
-    installCoreLibraryWith True baseRoot root buildExeHostTarget
+    installCoreLibraryWith O2 primRoot root buildExeHostTarget
+    installCoreLibraryWith O2 baseRoot root buildExeHostTarget
 
 -- | Use the store CI handed us, or build one in a temporary directory that is
 -- cleaned up if the seeding itself fails. The stores are kept separate in
@@ -183,12 +187,12 @@ releaseSeedStore store =
     BorrowedStore _ -> pure ()
 
 installCoreLibrary :: FilePath -> FilePath -> NativeTarget -> IO ()
-installCoreLibrary = installCoreLibraryWith False
+installCoreLibrary = installCoreLibraryWith O1
 
--- | Install a core library into the store, with or without @--lto@.
-installCoreLibraryWith :: Bool -> FilePath -> FilePath -> NativeTarget -> IO ()
-installCoreLibraryWith lto source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False lto O2 False False False False target)
+-- | Install a core library into the store at a level.
+installCoreLibraryWith :: OptimizationLevel -> FilePath -> FilePath -> NativeTarget -> IO ()
+installCoreLibraryWith level source storeRoot target = do
+  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False level False False False False target)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

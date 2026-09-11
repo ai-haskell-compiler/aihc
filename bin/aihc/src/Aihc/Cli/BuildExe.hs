@@ -28,7 +28,7 @@ import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmCla
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, coreProviders, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -123,7 +123,7 @@ runBuildExe options = do
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildExeLint options,
-            compileLto = buildExeLto options,
+            compileLto = buildExeLto options || wholeProgramLevel (buildExeOptimization options),
             compileNoCode = False,
             compileOptimization = buildExeOptimization options,
             compileTarget = target,
@@ -171,7 +171,7 @@ runBuildExe options = do
   -- from the packages and the executable alike, into one object. The
   -- package archives then hold only their C and capi wrapper objects.
   programObjects <-
-    if buildExeLto options
+    if compileLto compileConfig
       then do
         let corePaths =
               [ moduleCorePath target (installedRoot package) name
