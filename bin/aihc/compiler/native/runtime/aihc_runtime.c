@@ -35,6 +35,8 @@ _Static_assert(offsetof(AihcStableName, value) == 8, "stable-name value ABI");
 _Static_assert(offsetof(AihcStableName, hash) == 16, "stable-name hash ABI");
 _Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
 _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
+_Static_assert(offsetof(AihcMVar, full) == 8, "MVar full-flag ABI");
+_Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 #elif UINTPTR_MAX == UINT32_MAX
 _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
 _Static_assert(offsetof(AihcInfo, remaining_arity) == 12,
@@ -58,6 +60,8 @@ _Static_assert(offsetof(AihcResume, value) == 16, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 24, "resume count ABI");
 _Static_assert(offsetof(AihcStableName, value) == 8, "stable-name value ABI");
 _Static_assert(offsetof(AihcStableName, hash) == 16, "stable-name hash ABI");
+_Static_assert(offsetof(AihcMVar, full) == 8, "MVar full-flag ABI");
+_Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 _Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
 _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #endif
@@ -193,8 +197,8 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
   return array->fields + 1;
 }
 
-/* aihc_array_new, aihc_array_index, aihc_array_write, aihc_array_same, and
-   the info table they share live in compiler/native/runtime/aihc_array.lir.
+/* aihc_array_new, aihc_array_index, aihc_array_write, and the info table
+   they share live in compiler/native/runtime/aihc_array.lir.
    aihc_array_length and aihc_array_elements stay here: the collector walks
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */
@@ -1051,29 +1055,11 @@ const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
 }
 
 /* The non-blocking MVar operations. None of them suspends the caller, so each
-   one is an ordinary runtime call rather than a CPS call.
-
-   tryTakeMVar# and tryReadMVar# each yield a flag and a value. The backend
-   reads the value with aihc_mvar_peek before it runs the operation, which is
-   safe because a runtime call never yields, so nothing can change the
-   variable in between. */
-uint64_t aihc_mvar_same(void *left, void *right) { return left == right; }
-
-uint64_t aihc_mvar_is_empty(void *opaque_mvar) {
-  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  return mvar->full ? 0 : 1;
-}
-
-uint64_t aihc_mvar_is_full(void *opaque_mvar) {
-  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  return mvar->full ? 1 : 0;
-}
-
-AihcSlot aihc_mvar_peek(void *opaque_mvar) {
-  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
-  return mvar->full ? mvar->value : 0;
-}
-
+   one is an ordinary runtime call rather than a CPS call. Compiled code
+   reads the full flag and the value itself, at the offsets asserted above:
+   isEmptyMVar#, tryReadMVar#, and the value half of tryTakeMVar# are loads,
+   which is safe because a runtime call never yields, so nothing can change
+   the variable between the load and the take. */
 uint64_t aihc_mvar_try_take(AihcMachine *machine, void *opaque_mvar) {
   AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
   if (!mvar->full) {
@@ -1361,10 +1347,11 @@ uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
   }
   AihcTransactionWrite *write = aihc_allocate_zeroed(sizeof(*write));
   write->variable = variable;
-  write->previous = aihc_mutvar_read(variable);
+  write->previous = variable->fields[1];
   write->next = transaction->writes;
   transaction->writes = write;
-  return aihc_mutvar_write(variable, value);
+  variable->fields[1] = value;
+  return 0;
 }
 
 uint64_t aihc_stm_abort(AihcMachine *machine) {
@@ -1375,7 +1362,7 @@ uint64_t aihc_stm_abort(AihcMachine *machine) {
   AihcTransactionWrite *write = transaction->writes;
   while (write != NULL) {
     AihcTransactionWrite *next = write->next;
-    aihc_mutvar_write(write->variable, write->previous);
+    write->variable->fields[1] = write->previous;
     free(write);
     write = next;
   }
@@ -1433,7 +1420,7 @@ static void aihc_stm_expire_timers(AihcMachine *machine) {
   while (*link != NULL) {
     AihcTransactionTimer *timer = *link;
     if (timer->deadline <= now) {
-      aihc_mutvar_write(timer->variable, timer->final);
+      timer->variable->fields[1] = timer->final;
       *link = timer->next;
       free(timer);
     } else {
@@ -1447,7 +1434,7 @@ AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable) {
   if (!aihc_stm_active(machine)) {
     aihc_stm_expire_timers(machine);
   }
-  return aihc_mutvar_read(variable);
+  return variable->fields[1];
 }
 
 void *aihc_stm_wait_request(AihcMachine *machine) {

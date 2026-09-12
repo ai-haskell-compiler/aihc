@@ -28,13 +28,10 @@ data @aihc_stable_name_null_message align 1 = {
   bytes "stable-name primitive received null", zero 1
 }
 
-data @aihc_stable_name_hash_null_message align 1 = {
-  bytes "stable-name hash received null", zero 1
-}
-
 ; The stable name of %value, allocating one when the machine has none. Two
 ; calls with the same object give the same name, which is what eqStableName#
-; and stableNameToInt# rest on.
+; rests on: compiled code compares two names as pointers and reads the hash
+; from the name itself.
 export func @aihc_stable_name_make(%machine: ptr, %value: ptr) -> ptr cc c {
 entry:
   %missing = eq ptr %value, null
@@ -75,25 +72,4 @@ allocate:
   store ptr %first, [%fresh + 24] align 8
   store ptr %fresh, [%head] align 8
   return %fresh
-}
-
-export func @aihc_stable_name_equal(%left: ptr, %right: ptr) -> i64 cc c {
-entry:
-  %same = eq ptr %left, %right
-  %result = zext i1 %same to i64
-  return %result
-}
-
-export func @aihc_stable_name_hash(%name: ptr) -> i64 cc c {
-entry:
-  %missing = eq ptr %name, null
-  br %missing, invalid, read
-
-invalid:
-  call @aihc_fail(@aihc_stable_name_hash_null_message)
-  trap "stable-name hash received null"
-
-read:
-  %hash = load i64 [%name + 16] align 8
-  return %hash
 }

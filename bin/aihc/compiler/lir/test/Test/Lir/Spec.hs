@@ -2,7 +2,10 @@
 
 module Test.Lir.Spec (tests) where
 
+import Aihc.Grin hiding (renderParseError)
+import Aihc.Grin qualified as Grin
 import Aihc.Lir
+import Aihc.Lir.Lower (lowerModule, posixTarget64)
 import Control.Monad (unless)
 import Data.List (sort)
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -30,9 +33,38 @@ tests = do
         [ testProperty "generated Lir pretty-printer round-trip" prop_lirPrettyRoundTrip,
           testGroup "evaluation fixtures" (map evalTest evalCases),
           testGroup "lint error fixtures" (map lintTest lintCases),
+          testCase "emits the primitive bounds checks only when asked" test_primitiveBoundsChecks,
           regAlloc
         ]
     )
+
+-- | The array primitives are unchecked loads and stores, as in GHC. With
+-- the bounds checks on, an element access compares the index against the
+-- length and reaches the runtime failure when it is out of bounds.
+test_primitiveBoundsChecks :: Assertion
+test_primitiveBoundsChecks = do
+  program <-
+    either (assertFailure . Grin.renderParseError) pure $
+      parseProgram
+        ( T.unlines
+            [ "primitive newByteArray#%1 :: BoxedRep Unlifted/1",
+              "primitive readWordArray#%2 :: WordRep/2",
+              "",
+              "$entry -> WordRep =",
+              "  (array%3 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (8 :: IntRep)",
+              "  primitive-call @WordRep readWordArray# (array%3 :: BoxedRep Unlifted) (4 :: IntRep)"
+            ]
+        )
+  gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
+  let externsWith check = do
+        lowered <- either (assertFailure . show) pure (lowerModule posixTarget64 check gc)
+        assertEqual "Lir lint" [] (lintModule lowered)
+        pure [externFunctionName extern | ItemExternFunction extern <- moduleItems lowered]
+      failure = Symbol "aihc_byte_array_bounds_fail"
+  unchecked <- externsWith False
+  checked <- externsWith True
+  assertEqual "unchecked access calls no failure" False (failure `elem` unchecked)
+  assertEqual "checked access can reach the failure" True (failure `elem` checked)
 
 fixtureRoot :: IO FilePath
 fixtureRoot = do

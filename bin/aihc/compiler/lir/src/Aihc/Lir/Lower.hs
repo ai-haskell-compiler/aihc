@@ -65,7 +65,6 @@ import Aihc.Native
     NativeRuntimeCall (..),
     buildAddrLiteralPool,
     executableEntryName,
-    mvarPeekPseudoPrimitive,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
@@ -133,19 +132,25 @@ data LowerOptions = LowerOptions
   { lowerUnitKind :: !UnitKind,
     -- | Export every function symbol. Test harnesses use the symbols.
     lowerExposeFunctions :: !Bool,
-    lowerTarget :: !LowerTarget
+    lowerTarget :: !LowerTarget,
+    -- | Check the index of every array primitive against the length, as
+    -- GHC does under @-fcheck-prim-bounds@. Off, an access is an unchecked
+    -- load or store, as in GHC by default.
+    lowerCheckPrimBounds :: !Bool
   }
   deriving (Eq, Show)
 
--- | Lower one library module.
-lowerModule :: LowerTarget -> GcGrinProgram -> Either LowerError Module
-lowerModule target = lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target}
+-- | Lower one library module. The flag selects the bounds checks of
+-- 'lowerCheckPrimBounds'.
+lowerModule :: LowerTarget -> Bool -> GcGrinProgram -> Either LowerError Module
+lowerModule target checkPrimBounds =
+  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds}
 
 -- | Lower the fixed executable entry unit.
 lowerEntry :: LowerTarget -> Either LowerError Module
 lowerEntry target = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -1471,24 +1476,76 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           operand <- floatOperand ty value
           result <- emitValue "result" I64 (Convert FToIS ty operand I64)
           bind [result]
-    -- tryTakeMVar# and tryReadMVar# each give a flag and the contents. The
-    -- runtime function returns only the flag, so the contents are read first:
-    -- a runtime call never yields, thus nothing can empty the variable
-    -- between the two calls, and a failed try leaves the placeholder the
-    -- caller must not look at.
-    (_, [mvar])
-      | name `elem` ["tryTakeMVar#", "tryReadMVar#"],
-        Just tryCall <- nativeRuntimePrimitiveCall name,
-        Just peekCall <- nativeRuntimePrimitiveCall mvarPeekPseudoPrimitive -> do
-          contents <- compileRuntimeCall ctx env peekCall [mvar]
-          flag <- compileRuntimeCall ctx env tryCall [mvar]
-          bind [flag, contents]
-    ("casMutVar#", [reference, expected, replacement])
-      | Just swapCall <- nativeRuntimePrimitiveCall "casMutVar#",
-        Just readCall <- nativeRuntimePrimitiveCall "readMutVar#" -> do
-          flag <- compileRuntimeCall ctx env swapCall [reference, expected, replacement]
-          current <- compileRuntimeCall ctx env readCall [reference]
-          bind [flag, current]
+    -- The runtime objects below keep the layouts that docs/lir.md fixes
+    -- for the Lir runtime units, so their accessors are loads and stores
+    -- rather than runtime calls. Every field is one eight-byte slot on
+    -- every target.
+    (_, [object])
+      | Just (ty, offset) <- lookup name objectFieldPrimitives -> do
+          base <- pointerValue ctx env object
+          value <- emitValue "field" ty (Load ty (Address base offset) 8)
+          bind [value]
+    ("writeMutVar#", [reference, value]) -> do
+      base <- pointerValue ctx env reference
+      operand <- word value
+      emit [] (Store I64 operand (Address base mutVarContentsOffset) 8)
+      bind []
+    -- casMutVar# gives a failure flag, one when the contents differed from
+    -- the expected value, and the final contents. The runtime runs one
+    -- Haskell thread, so the swap is a plain load, compare, and store.
+    ("casMutVar#", [reference, expected, replacement]) -> do
+      base <- pointerValue ctx env reference
+      expectedOperand <- word expected
+      replacementOperand <- word replacement
+      current <- emitValue "current" I64 (Load I64 (Address base mutVarContentsOffset) 8)
+      matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
+      final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
+      emit [] (Store I64 (typedOperand final) (Address base mutVarContentsOffset) 8)
+      unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
+      bind [unchanged, final]
+    ("isEmptyMVar#", [mvar]) -> do
+      full <- mvarFull mvar
+      empty <- emitValue "empty" I1 (Compare Eq I64 (typedOperand full) (OperandLiteral (LitInt 0))) >>= widen
+      bind [empty]
+    -- tryReadMVar# and tryTakeMVar# each give a flag and the contents. An
+    -- empty variable gives a null placeholder the caller must not look at,
+    -- because the collector may find the result in a frame slot. The take
+    -- is a runtime call, and the contents are read before it runs.
+    ("tryReadMVar#", [mvar]) -> do
+      full <- mvarFull mvar
+      flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand full) (OperandLiteral (LitInt 0)))
+      contents <- mvarContents mvar flag
+      wide <- widen flag
+      bind [wide, contents]
+    ("tryTakeMVar#", [mvar])
+      | Just tryCall <- nativeRuntimePrimitiveCall name -> do
+          full <- mvarFull mvar
+          flag <- emitValue "flag" I1 (Compare Ne I64 (typedOperand full) (OperandLiteral (LitInt 0)))
+          contents <- mvarContents mvar flag
+          result <- compileRuntimeCall ctx env tryCall [mvar]
+          bind [result, contents]
+    (_, [array, index])
+      | name `elem` arrayLoadPrimitives -> do
+          slot <- arrayElement array index
+          value <- emitValue "element" I64 (Load I64 (Address slot arrayElementsOffset) 8)
+          bind [value]
+      | Just (ty, indexing) <- lookup name byteArrayLoadPrimitives -> do
+          address <- byteArrayElement array index ty indexing
+          value <- emitValue "value" ty (Load ty (Address address 0) 1)
+          result <- if ty == I64 then pure value else emitValue "value" I64 (Convert ZExt ty (typedOperand value) I64)
+          bind [result]
+    (_, [array, index, value])
+      | name `elem` arrayStorePrimitives -> do
+          slot <- arrayElement array index
+          operand <- word value
+          emit [] (Store I64 operand (Address slot arrayElementsOffset) 8)
+          bind []
+      | Just (ty, indexing) <- lookup name byteArrayStorePrimitives -> do
+          address <- byteArrayElement array index ty indexing
+          operand <- word value
+          narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
+          emit [] (Store ty narrow (Address address 0) 1)
+          bind []
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileRuntimeCall ctx env runtimeCall arguments
@@ -1505,6 +1562,75 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     word value = materialize ctx env value >>= coerce I64
     widen (Typed flag _) = emitValue "wide" I64 (Convert ZExt I1 flag I64)
     zeroValue ty = Typed (OperandLiteral (if ty == Ptr then LitNull else LitInt 0)) ty
+    -- Whether an MVar holds a value, as a word: its flag is one byte.
+    mvarFull mvar = do
+      base <- pointerValue ctx env mvar
+      flag <- emitValue "full" I8 (Load I8 (Address base mvarFullOffset) 1)
+      emitValue "full" I64 (Convert ZExt I8 (typedOperand flag) I64)
+    -- The contents of an MVar when @full@ holds, and null otherwise.
+    mvarContents mvar (Typed full _) = do
+      base <- pointerValue ctx env mvar
+      value <- emitValue "value" I64 (Load I64 (Address base mvarValueOffset) 8)
+      emitValue "contents" I64 (Select I64 full (typedOperand value) (OperandLiteral (LitInt 0)))
+    checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
+    -- Leave the current block for one whose entry means the bounds check
+    -- passed. The other successor reports the failure and never returns.
+    boundsCheck invalid failure message = do
+      failed <- freshLabel "out_of_bounds"
+      inside <- freshLabel "inside"
+      terminate (Branch invalid (Target failed []) (Target inside []))
+      beginBlock failed []
+      _ <- callRuntime failure [] [] []
+      terminate (Trap message)
+      beginBlock inside []
+    -- The slot of element @index@ of a boxed array. As in GHC, the index
+    -- is unchecked unless the bounds checks are on; then a negative index
+    -- is a huge unsigned one, thus one comparison rejects both it and an
+    -- index at or beyond the length.
+    arrayElement array index = do
+      base <- pointerValue ctx env array
+      offset <- word index
+      when checkPrimBounds $ do
+        count <- emitValue "count" I64 (Load I64 (Address base arrayLengthOffset) 8)
+        invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand count))
+        boundsCheck (typedOperand invalid) "aihc_array_bounds_fail" "boxed-array index is out of bounds"
+      scaled <- emitValue "offset" I64 (Binary Mul I64 offset (OperandLiteral (LitInt 8)))
+      typedOperand <$> emitValue "slot" Ptr (PtrAdd base (typedOperand scaled))
+    -- The address of an element of a byte array. An element index counts
+    -- elements of the width of @ty@, so it scales by that width; a byte
+    -- offset is used as it is. As in GHC, neither is checked unless the
+    -- bounds checks are on; then an element index is in bounds below the
+    -- size divided by the width, and a byte offset when the element it
+    -- starts fits before the size. The contents are a separate allocation,
+    -- so the address is read last.
+    byteArrayElement array index ty indexing = do
+      base <- pointerValue ctx env array
+      offset <- word index
+      let width = typeWidth ty
+          literal = OperandLiteral . LitInt
+      when checkPrimBounds $ do
+        size <- emitValue "size" I64 (Load I64 (Address base byteArraySizeOffset) 8)
+        invalid <-
+          case indexing of
+            ElementIndex
+              | width == 1 -> emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand size))
+              | otherwise -> do
+                  limit <- emitValue "limit" I64 (Binary DivU I64 (typedOperand size) (literal width))
+                  emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand limit))
+            ByteOffset
+              | width == 1 -> emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand size))
+              | otherwise -> do
+                  pastEnd <- emitValue "past_end" I1 (Compare GtU I64 offset (typedOperand size))
+                  remaining <- emitValue "remaining" I64 (Binary Sub I64 (typedOperand size) offset)
+                  tooLong <- emitValue "too_long" I1 (Compare GtU I64 (literal width) (typedOperand remaining))
+                  emitValue "invalid" I1 (Binary Or I1 (typedOperand pastEnd) (typedOperand tooLong))
+        boundsCheck (typedOperand invalid) "aihc_byte_array_bounds_fail" "byte array access is out of bounds"
+      byteOffset <-
+        if indexing == ByteOffset || width == 1
+          then pure offset
+          else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (literal width))
+      contents <- emitValue "contents" Ptr (Load Ptr (Address base byteArrayContentsOffset) 8)
+      typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) byteOffset)
     -- The address of element @index@ of the given width. Every access uses
     -- alignment one, because the source can give an unaligned address.
     addressElement address index scale = do
@@ -1634,9 +1760,18 @@ comparisonPrimitives =
   ]
 
 -- | Comparisons of two addresses. An address compares as an unsigned number.
+-- The identity tests of the mutable heap objects belong here too: two
+-- arrays or two references are the same exactly when they are one object,
+-- so the test is a pointer comparison and needs no runtime call.
 addressComparisonPrimitives :: [(Text, CompareOp)]
 addressComparisonPrimitives =
   [ ("reallyUnsafePtrEquality#", Eq),
+    ("sameMutableArray#", Eq),
+    ("sameSmallMutableArray#", Eq),
+    ("sameMutVar#", Eq),
+    ("sameTVar#", Eq),
+    ("sameMVar#", Eq),
+    ("eqStableName#", Eq),
     ("eqAddr#", Eq),
     ("neAddr#", Ne),
     ("ltAddr#", LtU),
@@ -1645,8 +1780,107 @@ addressComparisonPrimitives =
     ("geAddr#", GeU)
   ]
 
--- | Reads of memory at an address. Each entry gives the width of the value
--- and the size of one index step in bytes.
+-- The layouts of the runtime objects, as docs/lir.md fixes them for the
+-- Lir runtime units. A boxed array holds its length in its first field and
+-- its elements after it; a mutable reference is a boxed array of one
+-- element. A byte array holds its size and then the address of its
+-- contents. An MVar holds a one-byte full flag and then its value, which
+-- aihc_runtime.c asserts. A stable name holds its hash in its third slot.
+
+arrayLengthOffset, arrayElementsOffset, mutVarContentsOffset :: Integer
+arrayLengthOffset = 8
+arrayElementsOffset = 16
+mutVarContentsOffset = arrayElementsOffset
+
+byteArraySizeOffset, byteArrayContentsOffset, byteArrayPinnedOffset :: Integer
+byteArraySizeOffset = 8
+byteArrayContentsOffset = 16
+byteArrayPinnedOffset = 24
+
+mvarFullOffset, mvarValueOffset :: Integer
+mvarFullOffset = 8
+mvarValueOffset = 16
+
+stableNameHashOffset :: Integer
+stableNameHashOffset = 16
+
+-- | Reads of one field of a runtime object. Each entry gives the type of
+-- the field and its byte offset.
+objectFieldPrimitives :: [(Text, (Type, Integer))]
+objectFieldPrimitives =
+  [ ("readMutVar#", (I64, mutVarContentsOffset)),
+    ("sizeofArray#", (I64, arrayLengthOffset)),
+    ("sizeofMutableArray#", (I64, arrayLengthOffset)),
+    ("sizeofSmallArray#", (I64, arrayLengthOffset)),
+    ("sizeofSmallMutableArray#", (I64, arrayLengthOffset)),
+    ("getSizeofSmallMutableArray#", (I64, arrayLengthOffset)),
+    ("sizeofByteArray#", (I64, byteArraySizeOffset)),
+    ("sizeofMutableByteArray#", (I64, byteArraySizeOffset)),
+    ("getSizeofMutableByteArray#", (I64, byteArraySizeOffset)),
+    ("byteArrayContents#", (Ptr, byteArrayContentsOffset)),
+    ("mutableByteArrayContents#", (Ptr, byteArrayContentsOffset)),
+    ("isByteArrayPinned#", (I64, byteArrayPinnedOffset)),
+    ("isMutableByteArrayPinned#", (I64, byteArrayPinnedOffset)),
+    ("stableNameToInt#", (I64, stableNameHashOffset))
+  ]
+
+-- | Reads and writes of one element of a boxed array. The small-array
+-- family shares the boxed-array representation.
+arrayLoadPrimitives, arrayStorePrimitives :: [Text]
+arrayLoadPrimitives = ["indexArray#", "readArray#", "indexSmallArray#", "readSmallArray#"]
+arrayStorePrimitives = ["writeArray#", "writeSmallArray#"]
+
+-- | How a byte-array primitive names an element: by an index that counts
+-- elements of the element width, or by a byte offset.
+data ByteArrayIndexing = ElementIndex | ByteOffset
+  deriving (Eq, Show)
+
+-- | Reads of one element of a byte array. Each entry gives the width of
+-- the element, which widens to a word by zero extension. The atomic
+-- primitives are plain accesses, because the runtime runs one Haskell
+-- thread.
+byteArrayLoadPrimitives :: [(Text, (Type, ByteArrayIndexing))]
+byteArrayLoadPrimitives =
+  [ ("indexWordArray#", (I64, ElementIndex)),
+    ("readWordArray#", (I64, ElementIndex)),
+    ("atomicReadIntArray#", (I64, ElementIndex)),
+    ("indexWord8Array#", (I8, ElementIndex)),
+    ("readWord8Array#", (I8, ElementIndex)),
+    ("indexWord16Array#", (I16, ElementIndex)),
+    ("readWord16Array#", (I16, ElementIndex)),
+    ("indexWord32Array#", (I32, ElementIndex)),
+    ("readWord32Array#", (I32, ElementIndex)),
+    ("indexWord64Array#", (I64, ElementIndex)),
+    ("readWord64Array#", (I64, ElementIndex)),
+    ("indexCharArray#", (I8, ByteOffset)),
+    ("readCharArray#", (I8, ByteOffset)),
+    ("indexWord8ArrayAsWord16#", (I16, ByteOffset)),
+    ("indexWord8ArrayAsWord32#", (I32, ByteOffset)),
+    ("indexWord8ArrayAsWord64#", (I64, ByteOffset))
+  ]
+
+-- | Writes of one element of a byte array, with the widths and indexing of
+-- 'byteArrayLoadPrimitives'.
+byteArrayStorePrimitives :: [(Text, (Type, ByteArrayIndexing))]
+byteArrayStorePrimitives =
+  [ ("writeWordArray#", (I64, ElementIndex)),
+    ("atomicWriteIntArray#", (I64, ElementIndex)),
+    ("writeWord8Array#", (I8, ElementIndex)),
+    ("writeWord16Array#", (I16, ElementIndex)),
+    ("writeWord32Array#", (I32, ElementIndex)),
+    ("writeWord64Array#", (I64, ElementIndex)),
+    ("writeCharArray#", (I8, ByteOffset))
+  ]
+
+-- | The width in bytes of an integer element.
+typeWidth :: Type -> Integer
+typeWidth ty =
+  case ty of
+    I8 -> 1
+    I16 -> 2
+    I32 -> 4
+    _ -> 8
+
 -- | Reads of memory at an address. Each entry gives the width of the value,
 -- the size of one index step in bytes, and how the value widens to a word:
 -- a signed element sign-extends, every other element zero-extends.

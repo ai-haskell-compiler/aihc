@@ -172,6 +172,12 @@ The whole-program build is part of the identity of an installed package, like th
 Its store entries sit next to the entries of a per-module build.
 `--keep-grin` and `--keep-native` have no effect on an install with the flag, because nothing below System FC is generated.
 
+## Primitive bounds checks
+
+The array primitives are unchecked, as in GHC: `indexArray#`, `readWordArray#`, `writeWord8Array#`, and their relatives compile to a load or store at the indexed address.
+`--check-prim-bounds` makes every one of them compare the index against the length first and abort with a runtime message on an out-of-bounds access, as GHC does under `-fcheck-prim-bounds`.
+The checks are part of the generated code, so the flag is part of the identity of an installed package, like the optimization level, and the manifest records it.
+
 ## Artifact reuse
 
 A package is either immutable or local, and the two never mix.

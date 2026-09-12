@@ -12,9 +12,15 @@
 ;   offset 32   alignment
 ;
 ; The contents are a separate allocation, so a resize keeps the header and an
-; unpinned array is still free to hold pinned contents. Bulk moves call the
-; memory helpers of the C runtime rather than looping here, so a copy stays as
-; fast as the platform memcpy.
+; unpinned array is still free to hold pinned contents. Compiled code reads
+; the size, the contents address, and the pinned flag itself, and the Lir
+; lowering emits the element accesses of the index, read, and write
+; primitives as loads and stores, unchecked as in GHC unless
+; --check-prim-bounds is on; this unit holds the allocation, the bulk
+; operations, and the atomic operations. Bulk moves call the memory
+; helpers of the C runtime rather than looping here, so a copy stays as fast
+; as the platform memcpy. The three accessors after the allocations serve C
+; callers such as the runtime tests.
 
 extern data @aihc_runtime_object_info
 extern func @aihc_fail(ptr) cc c
@@ -59,20 +65,8 @@ data @aihc_byte_array_word_index_message align 1 = {
   bytes "invalid byte array word index", zero 1
 }
 
-data @aihc_byte_array_word_bounds_message align 1 = {
-  bytes "byte array word index out of bounds", zero 1
-}
-
-data @aihc_byte_array_byte_offset_message align 1 = {
-  bytes "invalid byte array byte offset", zero 1
-}
-
-data @aihc_byte_array_byte_bounds_message align 1 = {
-  bytes "byte array byte offset out of bounds", zero 1
-}
-
-data @aihc_byte_array_element_index_message align 1 = {
-  bytes "invalid byte array element index", zero 1
+data @aihc_byte_array_bounds_message align 1 = {
+  bytes "byte array access is out of bounds", zero 1
 }
 
 data @aihc_byte_array_set_message align 1 = {
@@ -81,7 +75,7 @@ data @aihc_byte_array_set_message align 1 = {
 
 ; A count the caller gave: a size, an offset, or a length. Every one of them
 ; is non-negative, so this rejects the rest before any arithmetic on it.
-func @aihc_byte_array_count(%value: i64) -> i64 cc c {
+func @aihc_byte_array_count(%value: i64) -> i64 {
 entry:
   %negative = lt.s i64 %value, 0
   br %negative, invalid, valid
@@ -95,7 +89,7 @@ valid:
 }
 
 ; The size of %array, or a failure with %message when %array is null.
-func @aihc_byte_array_size_or_fail(%array: ptr, %message: ptr) -> i64 cc c {
+func @aihc_byte_array_size_or_fail(%array: ptr, %message: ptr) -> i64 {
 entry:
   %missing = eq ptr %array, null
   br %missing, invalid, size
@@ -112,7 +106,7 @@ size:
 ; Fail with %message unless the %length bytes at %offset lie inside an array
 ; of %size bytes. Both counts have passed @aihc_byte_array_count, so the
 ; comparisons are unsigned and no sum overflows.
-func @aihc_byte_array_range(%size: i64, %offset: i64, %length: i64, %message: ptr) cc c {
+func @aihc_byte_array_range(%size: i64, %offset: i64, %length: i64, %message: ptr) {
 entry:
   %past_end = gt.u i64 %offset, %size
   %remaining = sub i64 %size, %offset
@@ -129,7 +123,7 @@ inside:
 }
 
 ; The address of byte %offset of %array.
-func @aihc_byte_array_address(%array: ptr, %offset: i64) -> ptr cc c {
+func @aihc_byte_array_address(%array: ptr, %offset: i64) -> ptr {
 entry:
   %contents = load ptr [%array + 16] align 8
   %address = ptr.add %contents, %offset
@@ -139,7 +133,7 @@ entry:
 ; Allocate a byte array of %size bytes whose contents start at a multiple of
 ; %alignment. The contents are over-allocated by one less than the alignment
 ; and the start is rounded up inside that block.
-func @aihc_byte_array_allocate(%size: i64, %pinned: i64, %alignment: i64) -> ptr cc c {
+func @aihc_byte_array_allocate(%size: i64, %pinned: i64, %alignment: i64) -> ptr {
 entry:
   %checked = call @aihc_byte_array_count(%size)
   %not_positive = le.s i64 %alignment, 0
@@ -370,8 +364,17 @@ equal:
   return 0
 }
 
+; The failure of an element access that compiled code checks itself: under
+; --check-prim-bounds the Lir lowering emits the bounds check of the index,
+; read, and write primitives, and calls this when it fails.
+export func @aihc_byte_array_bounds_fail() cc c {
+entry:
+  call @aihc_fail(@aihc_byte_array_bounds_message)
+  trap "byte array access is out of bounds"
+}
+
 ; The byte offset of word %index, after the bounds check.
-func @aihc_byte_array_word_address(%array: ptr, %index: i64) -> ptr cc c {
+func @aihc_byte_array_word_address(%array: ptr, %index: i64) -> ptr {
 entry:
   %negative = lt.s i64 %index, 0
   %huge = gt.u i64 %index, 2305843009213693951
@@ -389,187 +392,24 @@ bounds:
 offset:
   %byte_offset = mul i64 %index, 8
   %size = load i64 [%array + 8] align 8
-  call @aihc_byte_array_range(%size, %byte_offset, 8, @aihc_byte_array_word_bounds_message)
+  call @aihc_byte_array_range(%size, %byte_offset, 8, @aihc_byte_array_bounds_message)
   %address = call @aihc_byte_array_address(%array, %byte_offset)
   return %address
 }
 
-export func @aihc_byte_array_index_word(%array: ptr, %index: i64) -> i64 cc c {
+; The word at %index, and its replacement, for the atomic operations below.
+func @aihc_byte_array_read_word(%array: ptr, %index: i64) -> i64 {
 entry:
   %address = call @aihc_byte_array_word_address(%array, %index)
   %value = load i64 [%address] align 1
   return %value
 }
 
-export func @aihc_byte_array_read_word(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %value = call @aihc_byte_array_index_word(%array, %index)
-  return %value
-}
-
-export func @aihc_byte_array_write_word(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
+func @aihc_byte_array_write_word(%array: ptr, %index: i64, %value: i64) {
 entry:
   %address = call @aihc_byte_array_word_address(%array, %index)
   store i64 %value, [%address] align 1
-  return 0
-}
-
-; The address of an element of %width bytes at byte offset %offset. The
-; source may give any offset, so every access below uses alignment one.
-func @aihc_byte_array_element(%array: ptr, %offset: i64, %width: i64) -> ptr cc c {
-entry:
-  %negative = lt.s i64 %offset, 0
-  %missing = eq ptr %array, null
-  %invalid = or i1 %negative, %missing
-  br %invalid, bad_offset, bounds
-
-bad_offset:
-  call @aihc_fail(@aihc_byte_array_byte_offset_message)
-  trap "invalid byte array byte offset"
-
-bounds:
-  %size = load i64 [%array + 8] align 8
-  call @aihc_byte_array_range(%size, %offset, %width, @aihc_byte_array_byte_bounds_message)
-  %address = call @aihc_byte_array_address(%array, %offset)
-  return %address
-}
-
-export func @aihc_byte_array_index_byte_word8(%array: ptr, %offset: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element(%array, %offset, 1)
-  %value = load i8 [%address] align 1
-  %result = zext i8 %value to i64
-  return %result
-}
-
-export func @aihc_byte_array_index_byte_word16(%array: ptr, %offset: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element(%array, %offset, 2)
-  %value = load i16 [%address] align 1
-  %result = zext i16 %value to i64
-  return %result
-}
-
-export func @aihc_byte_array_index_byte_word32(%array: ptr, %offset: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element(%array, %offset, 4)
-  %value = load i32 [%address] align 1
-  %result = zext i32 %value to i64
-  return %result
-}
-
-export func @aihc_byte_array_index_byte_word64(%array: ptr, %offset: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element(%array, %offset, 8)
-  %value = load i64 [%address] align 1
-  return %value
-}
-
-; The address of element %index of %width bytes, after the bounds check. The
-; index counts elements rather than bytes, so the byte offset scales by the
-; width. An index above two to the sixty-first cannot scale without wrapping,
-; and no array is that long, so this rejects it before the multiplication.
-func @aihc_byte_array_element_address(%array: ptr, %index: i64, %width: i64) -> ptr cc c {
-entry:
-  %negative = lt.s i64 %index, 0
-  %huge = gt.u i64 %index, 2305843009213693951
-  %invalid = or i1 %negative, %huge
-  br %invalid, bad_index, offset
-
-bad_index:
-  call @aihc_fail(@aihc_byte_array_element_index_message)
-  trap "invalid byte array element index"
-
-offset:
-  %byte_offset = mul i64 %index, %width
-  %address = call @aihc_byte_array_element(%array, %byte_offset, %width)
-  return %address
-}
-
-export func @aihc_byte_array_index_word8(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 1)
-  %value = load i8 [%address] align 1
-  %result = zext i8 %value to i64
-  return %result
-}
-
-export func @aihc_byte_array_read_word8(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %value = call @aihc_byte_array_index_word8(%array, %index)
-  return %value
-}
-
-export func @aihc_byte_array_write_word8(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 1)
-  %narrow = trunc i64 %value to i8
-  store i8 %narrow, [%address] align 1
-  return 0
-}
-
-export func @aihc_byte_array_index_word16(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 2)
-  %value = load i16 [%address] align 1
-  %result = zext i16 %value to i64
-  return %result
-}
-
-export func @aihc_byte_array_read_word16(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %value = call @aihc_byte_array_index_word16(%array, %index)
-  return %value
-}
-
-export func @aihc_byte_array_write_word16(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 2)
-  %narrow = trunc i64 %value to i16
-  store i16 %narrow, [%address] align 1
-  return 0
-}
-
-export func @aihc_byte_array_index_word32(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 4)
-  %value = load i32 [%address] align 1
-  %result = zext i32 %value to i64
-  return %result
-}
-
-export func @aihc_byte_array_read_word32(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %value = call @aihc_byte_array_index_word32(%array, %index)
-  return %value
-}
-
-export func @aihc_byte_array_write_word32(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 4)
-  %narrow = trunc i64 %value to i32
-  store i32 %narrow, [%address] align 1
-  return 0
-}
-
-export func @aihc_byte_array_index_word64(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 8)
-  %value = load i64 [%address] align 1
-  return %value
-}
-
-export func @aihc_byte_array_read_word64(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %value = call @aihc_byte_array_index_word64(%array, %index)
-  return %value
-}
-
-export func @aihc_byte_array_write_word64(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_byte_array_element_address(%array, %index, 8)
-  store i64 %value, [%address] align 1
-  return 0
+  return
 }
 
 ; The read-modify-write operations of the atomic Int# array primitives. The
@@ -579,7 +419,7 @@ export func @aihc_byte_array_fetch_add_word(%array: ptr, %index: i64, %value: i6
 entry:
   %old = call @aihc_byte_array_read_word(%array, %index)
   %new = add i64 %old, %value
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  call @aihc_byte_array_write_word(%array, %index, %new)
   return %old
 }
 
@@ -587,7 +427,7 @@ export func @aihc_byte_array_fetch_sub_word(%array: ptr, %index: i64, %value: i6
 entry:
   %old = call @aihc_byte_array_read_word(%array, %index)
   %new = sub i64 %old, %value
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  call @aihc_byte_array_write_word(%array, %index, %new)
   return %old
 }
 
@@ -595,7 +435,7 @@ export func @aihc_byte_array_fetch_and_word(%array: ptr, %index: i64, %value: i6
 entry:
   %old = call @aihc_byte_array_read_word(%array, %index)
   %new = and i64 %old, %value
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  call @aihc_byte_array_write_word(%array, %index, %new)
   return %old
 }
 
@@ -604,7 +444,7 @@ entry:
   %old = call @aihc_byte_array_read_word(%array, %index)
   %combined = and i64 %old, %value
   %new = xor i64 %combined, -1
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  call @aihc_byte_array_write_word(%array, %index, %new)
   return %old
 }
 
@@ -612,7 +452,7 @@ export func @aihc_byte_array_fetch_or_word(%array: ptr, %index: i64, %value: i64
 entry:
   %old = call @aihc_byte_array_read_word(%array, %index)
   %new = or i64 %old, %value
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  call @aihc_byte_array_write_word(%array, %index, %new)
   return %old
 }
 
@@ -620,7 +460,7 @@ export func @aihc_byte_array_fetch_xor_word(%array: ptr, %index: i64, %value: i6
 entry:
   %old = call @aihc_byte_array_read_word(%array, %index)
   %new = xor i64 %old, %value
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %new)
+  call @aihc_byte_array_write_word(%array, %index, %new)
   return %old
 }
 
@@ -633,7 +473,7 @@ entry:
   br %matches, swap, unchanged
 
 swap:
-  %ignored = call @aihc_byte_array_write_word(%array, %index, %replacement)
+  call @aihc_byte_array_write_word(%array, %index, %replacement)
   return %old
 
 unchanged:

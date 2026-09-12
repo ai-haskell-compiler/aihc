@@ -46,7 +46,7 @@ lowerObservedProgram target entryName gcProgram = do
   pure (Module items, metadata)
   where
     program = gcGrinProgram gcProgram
-    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target}
+    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
     threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
     snapshotInfo = Symbol "aihc_lir_snapshot_info"

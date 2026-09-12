@@ -290,9 +290,6 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
    compiler/native/runtime. See the "Runtime units" section of docs/lir.md. */
 AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
                           AihcSlot initial);
-AihcSlot aihc_array_index(AihcValue *array, int64_t index);
-AihcSlot aihc_array_write(AihcValue *array, int64_t index, AihcSlot value);
-uint64_t aihc_array_same(AihcValue *left, AihcValue *right);
 AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
                            AihcSlot initial, AihcSlot final);
 AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable);
@@ -305,17 +302,13 @@ uint64_t aihc_stm_active(AihcMachine *machine);
 uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
                          AihcSlot value);
 
+AihcSlot aihc_array_copy(AihcValue *source, int64_t source_offset,
+                         AihcValue *target, int64_t target_offset,
+                         int64_t count);
 AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial);
-AihcSlot aihc_mutvar_read(AihcValue *mutvar);
-AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value);
-uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
-                                      AihcSlot replacement);
-uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right);
 /* Stable-name handles are auxiliary, non-moving objects. The machine-owned
    table keeps their referents synchronized with a moving collector. */
 void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value);
-uint64_t aihc_stable_name_equal(const void *left, const void *right);
-int64_t aihc_stable_name_hash(const void *name);
 /* State and allocation helpers used by native code. None of these functions
    transfers control to a generated user function. */
 AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
@@ -336,10 +329,6 @@ const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,
                                  AihcValue *continuation);
 const AihcResume *aihc_mvar_take(AihcMachine *machine, void *mvar,
                                  AihcValue *continuation);
-uint64_t aihc_mvar_same(void *left, void *right);
-uint64_t aihc_mvar_is_empty(void *mvar);
-uint64_t aihc_mvar_is_full(void *mvar);
-AihcSlot aihc_mvar_peek(void *mvar);
 uint64_t aihc_mvar_try_take(AihcMachine *machine, void *mvar);
 uint64_t aihc_mvar_try_put(AihcMachine *machine, void *mvar, AihcSlot value);
 const AihcResume *aihc_mvar_put(AihcMachine *machine, void *mvar,
@@ -376,9 +365,6 @@ void *aihc_byte_array_resize(void *array, int64_t size);
 uint64_t aihc_byte_array_get_size(void *array);
 uint64_t aihc_byte_array_copy_from_addr(void *source, void *array,
                                         int64_t offset, int64_t length);
-uint64_t aihc_byte_array_index_word(void *array, int64_t index);
-uint64_t aihc_byte_array_read_word(void *array, int64_t index);
-uint64_t aihc_byte_array_write_word(void *array, int64_t index, uint64_t value);
 uint64_t aihc_byte_array_fetch_add_word(void *array, int64_t index,
                                         uint64_t value);
 uint64_t aihc_byte_array_fetch_sub_word(void *array, int64_t index,
@@ -397,28 +383,8 @@ uint64_t aihc_byte_array_compare_and_swap_word(void *array, int64_t index,
 uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
                               void *destination, int64_t destination_offset,
                               int64_t length);
-uint64_t aihc_byte_array_index_byte_word8(void *opaque_array, int64_t offset);
-uint64_t aihc_byte_array_index_byte_word16(void *opaque_array, int64_t offset);
-uint64_t aihc_byte_array_index_byte_word32(void *opaque_array, int64_t offset);
-uint64_t aihc_byte_array_index_byte_word64(void *opaque_array, int64_t offset);
 uint64_t aihc_byte_array_set(void *array, int64_t offset, int64_t length,
                              uint64_t value);
-uint64_t aihc_byte_array_index_word8(void *array, int64_t index);
-uint64_t aihc_byte_array_read_word8(void *array, int64_t index);
-uint64_t aihc_byte_array_write_word8(void *array, int64_t index,
-                                     uint64_t value);
-uint64_t aihc_byte_array_index_word16(void *array, int64_t index);
-uint64_t aihc_byte_array_read_word16(void *array, int64_t index);
-uint64_t aihc_byte_array_write_word16(void *array, int64_t index,
-                                      uint64_t value);
-uint64_t aihc_byte_array_index_word32(void *array, int64_t index);
-uint64_t aihc_byte_array_read_word32(void *array, int64_t index);
-uint64_t aihc_byte_array_write_word32(void *array, int64_t index,
-                                      uint64_t value);
-uint64_t aihc_byte_array_index_word64(void *array, int64_t index);
-uint64_t aihc_byte_array_read_word64(void *array, int64_t index);
-uint64_t aihc_byte_array_write_word64(void *array, int64_t index,
-                                      uint64_t value);
 void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
                           int64_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,
