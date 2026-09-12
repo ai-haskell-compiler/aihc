@@ -138,6 +138,7 @@ data GrinIOOperation
   = GrinRead !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinWrite !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinOpen !Text !Integer
+  | GrinWaitUntil !Word64
   deriving (Eq, Show)
 
 data GrinIOResult
@@ -997,16 +998,16 @@ evalPrimitive "newDelayTVar#" [delayValue, initialValue, finalValue] = do
     let deadline = fromInteger (min (toInteger (maxBound :: Word64)) (toInteger now + delay * 1000))
     lift $ modify' (\machine -> machine {machineTimers = (deadline, reference, finalValue) : machineTimers machine})
   pure [RuntimeMutVar reference]
-evalPrimitive "stmWait#" [] = do
+evalPrimitive "stmWaitRequest#" [] = do
   timers <- lift (gets machineTimers)
-  case timers of
-    [] -> pure [intRuntimeValue 0]
-    _ -> do
-      now <- liftEvalIO Host.getMonotonicTimeNSec
-      let deadline = minimum [time | (time, _, _) <- timers]
-      when (deadline > now) (liftEvalIO (Host.threadDelay (fromIntegral ((deadline - now) `div` 1000 + 1))))
-      expireTransactionTimers
-      pure [intRuntimeValue 1]
+  let state = case timers of
+        [] -> GrinIOCompleted (GrinIOInt 0)
+        _ -> GrinIOSubmitted (GrinWaitUntil (minimum [time | (time, _, _) <- timers]))
+  (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef state)
+evalPrimitive "stmWaitResult#" [request] = do
+  result <- takeIOResult "stmWaitResult#" request
+  expireTransactionTimers
+  pure [result]
 evalPrimitive "stmActive#" [] = do
   transactions <- lift (gets machineTransactions)
   pure [intRuntimeValue (if null transactions then 0 else 1)]
@@ -2199,6 +2200,10 @@ completeIORequest (GrinIORequest reference) = do
 performIOOperation :: GrinIOOperation -> EvalM GrinIOResult
 performIOOperation operation =
   case operation of
+    GrinWaitUntil deadline -> do
+      now <- liftEvalIO Host.getMonotonicTimeNSec
+      when (deadline > now) (liftEvalIO (Host.threadDelay (fromIntegral ((deadline - now) `div` 1000 + 1))))
+      pure (GrinIOInt 1)
     GrinRead (GrinIOHandle _ handle) buffer offset byteCount -> do
       result <- liftEvalIO (tryForeign (BS.hGet handle byteCount))
       case result of

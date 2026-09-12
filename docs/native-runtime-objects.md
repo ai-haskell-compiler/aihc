@@ -68,9 +68,16 @@ option parser. The POSIX host flattens `environ` into one buffer of
 
 The `wasm32-wasip3` target does not implement the hook yet. The P3 driver
 reads no environment, every file write on that host is one asynchronous
-stream that the driver pumps, and the component imports no clock. A
+stream that the driver pumps. A
 `wasm32-wasip3` program therefore never writes the file, even when the
 runner passes `--env AIHC_RTS_STATS=<path>` and `--dir` to wasmtime.
+
+STM delay variables use `wasi:clocks/monotonic-clock@0.3.0` on this target.
+The runtime submits a timer request for the earliest deadline.
+`awaitIO#` preserves the continuation while `wait-until` waits on the host.
+The WASI callback completes the request and resumes the continuation.
+The runtime then updates expired delay variables before the transaction starts again.
+Timer variables remain garbage collection roots throughout the wait.
 
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining

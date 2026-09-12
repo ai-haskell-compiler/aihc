@@ -12,6 +12,8 @@ extern int64_t aihc_wasip3_start_write(int32_t target, int32_t descriptor,
 extern int64_t aihc_wasip3_start_open(const unsigned char *path, size_t length,
                                       int32_t mode);
 extern void aihc_wasip3_close(int32_t descriptor);
+extern uint64_t aihc_wasip3_monotonic_ns(void);
+extern int64_t aihc_wasip3_start_timer(uint64_t deadline);
 
 static AihcIoHandle aihc_standard_input = {(uintptr_t)0, 0, AIHC_IO_READABLE, 0,
                                            0};
@@ -28,11 +30,11 @@ _Noreturn void aihc_host_fail(const char *message) {
 /* The statistics hook is not implemented on this host. The P3 driver
    reads no environment, so AIHC_RTS_STATS is never seen, and every file
    write on this host is one asynchronous stream that the driver pumps,
-   which the exit path cannot wait for. The component also imports no
-   clock. Both stay documented in docs/native-runtime-objects.md. */
+   which the exit path cannot wait for. The statistics hook stays documented in
+   docs/native-runtime-objects.md. */
 void aihc_program_environment_initialize(void) {}
 
-uint64_t aihc_host_monotonic_ns(void) { return 0; }
+uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 
 int aihc_host_write_file(const char *path, const void *bytes, size_t length) {
   (void)path;
@@ -53,6 +55,10 @@ static int aihc_wasip3_prepare(AihcIoRequest *request) {
 }
 
 static int aihc_wasip3_try_request(AihcIoRequest *request, int64_t *result) {
+  if (request->kind == AIHC_IO_TIMER) {
+    *result = aihc_wasip3_start_timer(request->deadline);
+    return *result != INT64_MIN;
+  }
   if (request->kind == AIHC_IO_OPEN) {
     *result = aihc_wasip3_start_open(request->buffer, request->length,
                                      (int32_t)request->mode);
@@ -113,6 +119,9 @@ static int64_t aihc_wasip3_finish_request(AihcIoRequest *request,
     handle->append = request->mode == 2;
     return (int64_t)(uintptr_t)handle;
   }
+  if (request->kind == AIHC_IO_TIMER) {
+    return result;
+  }
   if (result >= 0 && request->handle != &aihc_standard_input &&
       request->handle != &aihc_standard_output &&
       request->handle != &aihc_standard_error) {
@@ -153,9 +162,4 @@ int64_t aihc_io_close(void *opaque_handle) {
 _Noreturn int64_t aihc_io_raise_error(int64_t error) {
   (void)error;
   __builtin_trap();
-}
-
-void aihc_host_sleep_ns(uint64_t duration) {
-  (void)duration;
-  aihc_fail("STM timers need a host clock");
 }

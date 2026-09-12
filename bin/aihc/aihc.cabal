@@ -88,6 +88,7 @@ data-files:
   compiler/wasm/runtime/aihc_wasm_internal.h
   compiler/wasm/runtime/wit/command.wit
   compiler/wasm/runtime/wit/deps/cli.wit
+  compiler/wasm/runtime/wit/deps/clocks.wit
   compiler/wasm/runtime/wit/deps/filesystem.wit
 
 custom-setup

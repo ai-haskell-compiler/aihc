@@ -11,7 +11,18 @@ modules:
       second <- atomically $ do
         ready <- readTVar delayed
         if ready then pure ready else retry
-      pure (first && second)
+      later <- registerDelay 2000
+      earlier <- registerDelay 1000
+      value <- newTVarIO (7 :: Int)
+      atomically $
+        (writeTVar value 99 >> retry) `orElse` (do
+          a <- readTVar earlier
+          b <- readTVar later
+          if a && b then pure () else retry)
+      restored <- readTVarIO value
+      negative <- registerDelay (-1)
+      third <- readTVarIO negative
+      pure (first && second && third && restored == 7)
 expression: test
 output: |
   True

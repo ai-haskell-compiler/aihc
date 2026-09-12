@@ -1346,6 +1346,14 @@ finalizeWeak# weak state = case readMutVar# weak state of
       WeakLive _ finalizer -> (# finalState, 1#, unsafeCoerce# finalizer #)
       _ -> (# finalState, 0#, (# ,unsafeCoerce# WeakUnit #) #)
 
-foreign import prim stmWait# :: State# RealWorld -> (# State# RealWorld, Int# #)
+-- The request preserves the continuation while the host waits for a timer.
+stmWait# :: State# RealWorld -> (# State# RealWorld, Int# #)
+stmWait# state = case stmWaitRequest# state of
+  (# next, request #) -> case awaitIO# request next of
+    ready -> stmWaitResult# request ready
+
+foreign import prim stmWaitRequest# :: State# RealWorld -> (# State# RealWorld, Addr# #)
+
+foreign import prim stmWaitResult# :: Addr# -> State# RealWorld -> (# State# RealWorld, Int# #)
 
 foreign import prim newDelayTVar# :: Int# -> a -> a -> State# RealWorld -> (# State# RealWorld, TVar# RealWorld a #)

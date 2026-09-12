@@ -12,6 +12,7 @@ typedef enum {
   AIHC_IO_READ,
   AIHC_IO_WRITE,
   AIHC_IO_OPEN,
+  AIHC_IO_TIMER,
 } AihcIoKind;
 
 typedef enum {
@@ -131,6 +132,7 @@ struct AihcIoRequest {
   size_t offset;
   size_t length;
   int64_t mode;
+  uint64_t deadline;
   AihcThread *thread;
   AihcValue *continuation;
   int64_t result;

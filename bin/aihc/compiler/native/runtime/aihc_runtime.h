@@ -296,7 +296,8 @@ uint64_t aihc_array_same(AihcValue *left, AihcValue *right);
 AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
                            AihcSlot initial, AihcSlot final);
 AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable);
-uint64_t aihc_stm_wait(AihcMachine *machine);
+void *aihc_stm_wait_request(AihcMachine *machine);
+int64_t aihc_stm_wait_result(AihcMachine *machine, void *request);
 uint64_t aihc_stm_begin(AihcMachine *machine);
 uint64_t aihc_stm_commit(AihcMachine *machine);
 uint64_t aihc_stm_abort(AihcMachine *machine);

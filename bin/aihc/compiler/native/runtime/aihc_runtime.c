@@ -1450,21 +1450,29 @@ AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable) {
   return aihc_mutvar_read(variable);
 }
 
-uint64_t aihc_stm_wait(AihcMachine *machine) {
+void *aihc_stm_wait_request(AihcMachine *machine) {
+  AihcIoRequest *request = aihc_allocate_zeroed(sizeof(*request));
+  request->kind = AIHC_IO_TIMER;
+  request->state = AIHC_IO_COMPLETED;
   if (machine->transaction_timers == NULL) {
-    return 0;
+    return request;
   }
-  uint64_t deadline = UINT64_MAX;
+  request->deadline = UINT64_MAX;
   for (AihcTransactionTimer *timer = machine->transaction_timers; timer != NULL;
        timer = timer->next) {
-    if (timer->deadline < deadline) {
-      deadline = timer->deadline;
+    if (timer->deadline < request->deadline) {
+      request->deadline = timer->deadline;
     }
   }
-  uint64_t now = aihc_host_monotonic_ns();
-  if (now < deadline) {
-    aihc_host_sleep_ns(deadline - now);
+  request->state = AIHC_IO_SUBMITTED;
+  return request;
+}
+
+int64_t aihc_stm_wait_result(AihcMachine *machine, void *request) {
+  int64_t result = aihc_io_take_result(request);
+  if (result < 0) {
+    aihc_fail("STM timer wait failed");
   }
   aihc_stm_expire_timers(machine);
-  return 1;
+  return result;
 }

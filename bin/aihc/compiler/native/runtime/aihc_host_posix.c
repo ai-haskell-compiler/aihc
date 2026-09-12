@@ -141,7 +141,7 @@ static void *aihc_posix_open(void *opaque_path, int64_t requested_length,
 }
 
 static int aihc_posix_prepare(AihcIoRequest *request) {
-  if (request->kind == AIHC_IO_OPEN) {
+  if (request->kind == AIHC_IO_OPEN || request->kind == AIHC_IO_TIMER) {
     return 0;
   }
   int descriptor = aihc_posix_descriptor(request->handle);
@@ -157,6 +157,14 @@ static int aihc_posix_prepare(AihcIoRequest *request) {
 }
 
 static int aihc_posix_try_request(AihcIoRequest *request, int64_t *result) {
+  if (request->kind == AIHC_IO_TIMER) {
+    uint64_t now = aihc_host_monotonic_ns();
+    if (now < request->deadline) {
+      aihc_host_sleep_ns(request->deadline - now);
+    }
+    *result = 1;
+    return 1;
+  }
   if (request->kind == AIHC_IO_OPEN) {
     *result = (int64_t)(uintptr_t)aihc_posix_open(
         request->buffer, (int64_t)request->length, request->mode);

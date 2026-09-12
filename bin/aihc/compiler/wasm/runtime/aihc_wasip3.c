@@ -18,6 +18,7 @@ typedef enum {
   AIHC_WASI_IO_FILE_WRITE,
   AIHC_WASI_IO_FILE_APPEND,
   AIHC_WASI_IO_FILE_OPEN,
+  AIHC_WASI_IO_TIMER,
 } AihcWasiIoKind;
 
 typedef enum {
@@ -344,6 +345,8 @@ static int64_t aihc_wasi_progress(void) {
     return aihc_wasi_progress_file_write();
   case AIHC_WASI_IO_FILE_OPEN:
     return aihc_wasi_progress_open();
+  case AIHC_WASI_IO_TIMER:
+    return aihc_wasi_io.subtask_returned ? aihc_wasi_finish(1) : INT64_MIN;
   default:
     return aihc_wasi_error(5);
   }
@@ -359,6 +362,26 @@ static int aihc_wasi_start(AihcWasiIoKind kind, unsigned char *bytes,
   aihc_wasi_io.length = length;
   aihc_wasi_io.wait_set = command_waitable_set_new();
   return 1;
+}
+
+uint64_t aihc_wasip3_monotonic_ns(void) {
+  return wasi_clocks_monotonic_clock_now();
+}
+
+int64_t aihc_wasip3_start_timer(uint64_t deadline) {
+  if (!aihc_wasi_start(AIHC_WASI_IO_TIMER, NULL, 0)) {
+    return INT64_MIN;
+  }
+  command_subtask_status_t status =
+      wasi_clocks_monotonic_clock_wait_until(deadline);
+  if (COMMAND_SUBTASK_STATE(status) == COMMAND_SUBTASK_RETURNED) {
+    aihc_wasi_io.subtask_returned = 1;
+  } else {
+    aihc_wasi_io.subtask = COMMAND_SUBTASK_HANDLE(status);
+    aihc_wasi_io.pending = AIHC_WASI_PENDING_SUBTASK;
+    command_waitable_join(aihc_wasi_io.subtask, aihc_wasi_io.wait_set);
+  }
+  return aihc_wasi_progress();
 }
 
 int64_t aihc_wasip3_start_read(int32_t target, int32_t descriptor,
