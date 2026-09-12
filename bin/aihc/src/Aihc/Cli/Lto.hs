@@ -17,7 +17,7 @@ import Aihc.Native (NativeTarget, executableEntryParts)
 import Aihc.Resolve (PackageId (..))
 import Control.Concurrent.Async (forConcurrently)
 import Control.Exception (evaluate)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, when)
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
@@ -57,8 +57,16 @@ compileLtoProgram config buildRoot corePaths = do
       -- The whole program is known here, so the inliner keeps only the
       -- entry and what it reaches.
       optimized <- optimizeFcProgram config verbose (Just [entryName]) "program" merged
+      -- Inlining drops the values that its copies made dead, and with them
+      -- the last reference to a type or a constructor. Prune again, so that
+      -- those constructors emit no info table.
+      let pruned = Fc.pruneProgram [entryName] optimized
+      verbose ("Prune System FC: " <> show (length (Fc.programDecls optimized)) <> " -> " <> show (length (Fc.programDecls pruned)) <> " declarations")
+      when (compileLint config) $ do
+        let errors = Fc.lintProgram pruned
+        unless (null errors) (ioError (userError ("FC lint failed after pruning the program:\n" <> unlines (map (("    " <>) . show) errors))))
       createDirectoryIfMissing True (takeDirectory object)
-      _ <- compileFcModules config verbose (const paths) [FcModule "program" optimized]
+      _ <- compileFcModules config verbose (const paths) [FcModule "program" pruned]
       writeFile stampPath current
   pure object
 
