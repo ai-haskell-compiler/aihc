@@ -163,10 +163,12 @@ struct AihcMachine {
   int64_t exit_status;
   uint64_t other_space_bytes;
   /* The runtime statistics. heap_allocated_bytes above counts every byte
-     the managed heap handed out. heap_peak_bytes is the most the current
-     space ever held: the live data after a collection plus the allocations
-     since, sampled before each collection and when the statistics are
-     reported. The collector counts its runs and their monotonic time. */
+     reserved on the managed heap: compiled code bumps the heap pointer
+     itself, so the reservation is the only allocation the runtime sees.
+     heap_peak_bytes is the most the current space ever held: the live data
+     after a collection plus the allocations since, sampled before each
+     collection and when the statistics are reported. The collector counts its
+     runs and their monotonic time. */
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;
@@ -245,12 +247,9 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
    heap objects whose info tables carry their tables. */
 extern const AihcSrt *aihc_current_srt;
 
-AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info);
-AihcValue *aihc_make_node_unchecked(AihcMachine *machine, const AihcInfo *info);
-AihcValue *aihc_make_partial(AihcMachine *machine, const AihcInfo *info,
-                             uint64_t applied);
-AihcValue *aihc_make_partial_unchecked(AihcMachine *machine,
-                                       const AihcInfo *info, uint64_t applied);
+/* Reserve heap for the objects that follow. Compiled code then takes each
+   object by bumping the heap pointer itself, so the runtime exports no
+   allocator. */
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);

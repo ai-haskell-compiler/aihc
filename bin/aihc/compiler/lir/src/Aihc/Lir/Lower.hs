@@ -36,6 +36,7 @@ module Aihc.Lir.Lower
     functionSymbol,
     functionResultTypes,
     threadDoneContinuation,
+    allocateContinuation,
     constructorInfoSymbol,
     repType,
     beginBlock,
@@ -56,7 +57,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
-import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction, nodeWords)
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Aihc.Lir.Syntax
@@ -671,6 +672,11 @@ slotPointerFields target field
 machineExitCodeOffset :: Integer
 machineExitCodeOffset = 16
 
+-- | The bump pointer of the heap, the field after the exit code. A pointer
+-- field, so its offset follows the target word size.
+machineHeapNextOffset :: LowerTarget -> Integer
+machineHeapNextOffset target = machineExitCodeOffset + toInteger (lowerWordSize target)
+
 -- Coercion
 
 -- | Convert a typed operand to a type. Pointers and words convert both ways.
@@ -1041,8 +1047,15 @@ compileExpr ctx env expression =
     GrinBind vars value body -> do
       env' <- compileBinding ctx env vars value
       compileExpr ctx env' body
-    GrinStoreRec bindings body -> compileStoreRec "aihc_make_node" bindings body
-    GrinStoreRecUnchecked bindings body -> compileStoreRec "aihc_make_node_unchecked" bindings body
+    GrinStoreRec {} -> unsupported "store-rec without a heap reservation"
+    GrinStoreRecUnchecked bindings body -> do
+      allocated <- forM bindings $ \(var, node) -> do
+        object <- allocateNode ctx node
+        pure (var, object)
+      let env' = Map.fromList allocated `Map.union` env
+      forM_ allocated $ \(var, object) ->
+        for_ (lookup var bindings) (initializeFields ctx env' object)
+      compileExpr ctx env' body
     GrinCpsEval _ value continuation updateContinuation -> do
       valueOperand <- pointerValue ctx env value
       continuationOperand <- pointerValue ctx env continuation
@@ -1103,14 +1116,6 @@ compileExpr ctx env expression =
     GrinForeignCallExpr {} -> unsupported "unbound foreign call after CPS"
   where
     unsupported = failWith . LowerUnsupportedExpression
-    compileStoreRec allocator bindings body = do
-      allocated <- forM bindings $ \(var, node) -> do
-        object <- allocateNode ctx allocator node
-        pure (var, object)
-      let env' = Map.fromList allocated `Map.union` env
-      forM_ allocated $ \(var, object) ->
-        for_ (lookup var bindings) (initializeFields ctx env' object)
-      compileExpr ctx env' body
 
 functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
@@ -1185,8 +1190,11 @@ compileBinding ctx env vars expression =
             typed <- materialize ctx env value >>= coerceTo (repType (grinVarRuntimeRep var))
             pure (var, typed)
           pure (Map.fromList bound `Map.union` env)
-    GrinStore node -> allocateAndInitialize "aihc_make_node" node
-    GrinStoreUnchecked node -> allocateAndInitialize "aihc_make_node_unchecked" node
+    GrinStore {} -> failWith (LowerUnsupportedExpression "store without a heap reservation")
+    GrinStoreUnchecked node -> do
+      object <- allocateNode ctx node
+      initializeFields ctx env object node
+      bindResults [object]
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
           words' <- materialize ctx env requiredWords >>= coerce I64
@@ -1211,10 +1219,6 @@ compileBinding ctx env vars expression =
       compileForeignCall ctx env foreignCall arguments >>= bindResults
     _ -> failWith (LowerUnsupportedExpression "non-direct expression remained in a CPS bind")
   where
-    allocateAndInitialize allocator node = do
-      object <- allocateNode ctx allocator node
-      initializeFields ctx env object node
-      bindResults [object]
     update symbol passMachine pointer value = do
       pointerOperand <- pointerValue ctx env pointer
       valueTyped <- materialize ctx env value
@@ -1235,30 +1239,30 @@ bindVars env vars values
         pure (var, typed)
       pure (Map.fromList bound `Map.union` env)
 
-allocateNode :: FunctionCtx -> Text -> GrinNode -> LowerM Typed
-allocateNode ctx allocator node = do
+-- | One object of a reservation the code before it has already made.
+allocateNode :: FunctionCtx -> GrinNode -> LowerM Typed
+allocateNode ctx node = do
   info <- nodeInfoSymbol (ctxEnv ctx) node
-  object <-
-    if isPartialConstructorNode node
-      then
-        -- The shared info table of an unsaturated constructor does not say
-        -- how wide this stage is, so the allocator is told and writes the
-        -- count into the object.
-        callRuntime
-          (partialAllocator allocator)
-          [Ptr, Ptr, I64]
-          [Ptr]
-          [ctxMachine ctx, OperandLiteral (LitSymbol info), OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))]
-      else callRuntime allocator [Ptr, Ptr] [Ptr] [ctxMachine ctx, OperandLiteral (LitSymbol info)]
-  pure (Typed object Ptr)
+  object <- bumpAllocate (ctxMachine ctx) (nodeWords node)
+  storeSlot Ptr (OperandLiteral (LitSymbol info)) (typedOperand object) 0
+  -- The shared info table of an unsaturated constructor does not say how wide
+  -- this stage is, so the object records the count itself.
+  when (isPartialConstructorNode node) $
+    storeSlot I64 (OperandLiteral (LitInt (toInteger (length (grinNodeFields node))))) (typedOperand object) 8
+  pure object
 
--- | The allocator of an unsaturated constructor, matching the checked or
--- unchecked node allocator it stands in for.
-partialAllocator :: Text -> Text
-partialAllocator allocator =
-  case allocator of
-    "aihc_make_node_unchecked" -> "aihc_make_partial_unchecked"
-    _ -> "aihc_make_partial"
+-- | Take the given words from heap that a reservation has already made: load
+-- the bump pointer of the machine, advance it, and give back the object. The
+-- caller writes the header and every field, so nothing zeroes the slots.
+bumpAllocate :: Operand -> Int -> LowerM Typed
+bumpAllocate machine words' = do
+  target <- targetM
+  let width = toInteger (lowerWordSize target)
+      address = Address machine (machineHeapNextOffset target)
+  object <- emitValue "object" Ptr (Load Ptr address width)
+  next <- emitValue "heap" Ptr (PtrAdd (typedOperand object) (OperandLiteral (LitInt (8 * toInteger words'))))
+  emit [] (Store Ptr (typedOperand next) address width)
+  pure object
 
 -- | An unsaturated constructor spends field zero on its applied count, so its
 -- payload starts one slot later than every other object's.
@@ -2334,13 +2338,13 @@ startMachine = do
   let entryGlobal = globalSymbol executableEntryName
   machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
   _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [machine, OperandLiteral (LitInt 7), OperandLiteral (LitInt 0), OperandLiteral LitNull]
-  final <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol finalInfo)]
-  top <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol topInfo)]
+  final <- allocateContinuation machine finalInfo 1
+  top <- allocateContinuation machine topInfo 2
   storeSlot Ptr final top 8
-  update <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol updateInfo)]
+  update <- allocateContinuation machine updateInfo 3
   storeSlot Ptr top update 8
   storeSlot Ptr (OperandLiteral (LitSymbol entryGlobal)) update 16
-  threadDone <- callRuntime "aihc_make_node_unchecked" [Ptr, Ptr] [Ptr] [machine, OperandLiteral (LitSymbol threadDoneInfo)]
+  threadDone <- allocateContinuation machine threadDoneInfo 1
   _ <- callRuntime "aihc_set_thread_done_continuation" [Ptr, Ptr] [] [machine, threadDone]
   -- The halt path returns through the exit function to the caller.
   emit [] (Store Code (OperandLiteral (LitSymbol exit)) (Address machine machineExitCodeOffset) (toInteger (lowerWordSize target)))
@@ -2348,6 +2352,15 @@ startMachine = do
   eval <- requireHelper HelperEval
   emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top, update])
   pure machine
+
+-- | One continuation of an entry, in words the caller has already reserved:
+-- an info-table pointer and the captured slots the caller fills. Exported for
+-- harnesses that build their own entry.
+allocateContinuation :: Operand -> Symbol -> Int -> LowerM Operand
+allocateContinuation machine info words' = do
+  object <- typedOperand <$> bumpAllocate machine words'
+  storeSlot Ptr (OperandLiteral (LitSymbol info)) object 0
+  pure object
 
 -- | The continuation that a finished thread enters. Exported for harnesses
 -- that build their own entry.

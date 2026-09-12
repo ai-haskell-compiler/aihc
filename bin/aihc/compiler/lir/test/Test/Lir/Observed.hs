@@ -74,15 +74,16 @@ lowerObservedProgram target entryName gcProgram = do
       requireExtern (Symbol "aihc_machine_new") [I64] [Ptr]
       machine <- fresh "machine"
       emit [machine] (Call (Symbol "aihc_machine_new") [OperandLiteral (LitInt 0)])
-      requireExtern (Symbol "aihc_make_node") [Ptr, Ptr] [Ptr]
-      threadDone <- fresh "thread_done"
-      emit [threadDone] (Call (Symbol "aihc_make_node") [OperandVar machine, OperandLiteral (LitSymbol threadDoneInfo)])
+      -- Both continuations capture nothing, so they are one word each: the
+      -- driver reserves the two and takes them the way compiled code does.
+      requireExtern (Symbol "aihc_ensure_heap") [Ptr, I64, I64, Ptr] []
+      emit [] (Call (Symbol "aihc_ensure_heap") [OperandVar machine, OperandLiteral (LitInt 2), OperandLiteral (LitInt 0), OperandLiteral LitNull])
+      threadDone <- allocateContinuation (OperandVar machine) threadDoneInfo 1
       requireExtern (Symbol "aihc_set_thread_done_continuation") [Ptr, Ptr] []
-      emit [] (Call (Symbol "aihc_set_thread_done_continuation") [OperandVar machine, OperandVar threadDone])
-      snapshot <- fresh "snapshot"
-      emit [snapshot] (Call (Symbol "aihc_make_node") [OperandVar machine, OperandLiteral (LitSymbol snapshotInfo)])
+      emit [] (Call (Symbol "aihc_set_thread_done_continuation") [OperandVar machine, threadDone])
+      snapshot <- allocateContinuation (OperandVar machine) snapshotInfo 1
       requireExtern (Symbol "aihc_reset_allocation_count") [Ptr] []
       emit [] (Call (Symbol "aihc_reset_allocation_count") [OperandVar machine])
-      emit [] (Call (functionSymbol entryName) [OperandVar machine, OperandVar snapshot])
+      emit [] (Call (functionSymbol entryName) [OperandVar machine, snapshot])
       terminate (Return [OperandLiteral (LitInt 0)])
       finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention

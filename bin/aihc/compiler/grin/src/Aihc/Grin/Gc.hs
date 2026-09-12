@@ -10,6 +10,7 @@ module Aihc.Grin.Gc
     gcGrinProgram,
     gcUpdateFunction,
     lowerGc,
+    nodeWords,
   )
 where
 
@@ -179,9 +180,10 @@ freshRelocated var = do
   put (unique + 1)
   pure var {grinVarName = grinVarName var <> "$gc", grinVarUnique = unique}
 
--- One info-table pointer plus the statically known payload. A
+-- | One info-table pointer plus the statically known payload. A
 -- zero-field thunk reserves one payload word so it can become an indirection
--- in place.
+-- in place. The Lir lowering uses this for the heap-pointer bump of an
+-- unchecked store, so the two always agree on an object's width.
 nodeWords :: GrinNode -> Int
 nodeWords node =
   1

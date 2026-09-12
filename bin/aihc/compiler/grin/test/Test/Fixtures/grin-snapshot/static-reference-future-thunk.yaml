@@ -23,7 +23,7 @@ heap: |
   @0 = CPair @1 @1
   @1 = CBox 42
 allocations:
-  macos-arm64: 14
-  linux-amd64: 14
+  macos-arm64: 11
+  linux-amd64: 11
 status: pass
 reason: A future thunk must retain the static objects that its code can reach before allocation.

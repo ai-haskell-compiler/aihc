@@ -23,7 +23,7 @@ heap: |
   @0 = CPair @1 @1
   @1 = CBox 42
 allocations:
-  macos-arm64: 11
-  linux-amd64: 11
+  macos-arm64: 9
+  linux-amd64: 9
 status: pass
 reason: A future partial application must retain the static objects that its code can reach before allocation.

@@ -44,6 +44,9 @@ _Static_assert(offsetof(AihcMVar, full) == 8, "MVar full-flag ABI");
 _Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 #elif UINTPTR_MAX == UINT32_MAX
 _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
+_Static_assert(offsetof(AihcMachine, heap_next) == 20, "machine heap-next ABI");
+_Static_assert(offsetof(AihcMachine, heap_limit) == 24,
+               "machine heap-limit ABI");
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 4,
                "info-table bitmap ABI");
 _Static_assert(offsetof(AihcInfo, next) == 8, "info-table next ABI");
@@ -451,37 +454,24 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
   aihc_gc_ensure(machine, words, root_count, roots);
 }
 
-AihcValue *aihc_make_node_unchecked(AihcMachine *machine,
-                                    const AihcInfo *info) {
-  uint64_t words = aihc_object_words(info);
+/* Place one object in heap the caller has already reserved. Compiled code
+   inlines the same two steps - bump the heap pointer, write the header - and
+   the slow apply path below is the only caller left in the runtime. */
+static AihcValue *aihc_place_node(AihcMachine *machine, const AihcInfo *info,
+                                  uint64_t words) {
   AihcValue *value = aihc_gc_allocate(machine, words);
-  aihc_record_allocation(machine);
   value->header = aihc_make_header(info);
   return value;
-}
-
-AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info) {
-  uint64_t words = aihc_object_words(info);
-  aihc_ensure_heap(machine, words, 0, NULL);
-  return aihc_make_node_unchecked(machine, info);
 }
 
 /* One stage of a constructor that is not saturated yet. Its width is not in
    the info table - every stage of the constructor shares one - so the caller
    names the slots and the object records them in field zero. */
-AihcValue *aihc_make_partial_unchecked(AihcMachine *machine,
-                                       const AihcInfo *info, uint64_t applied) {
-  AihcValue *value = aihc_gc_allocate(machine, 2 + applied);
-  aihc_record_allocation(machine);
-  value->header = aihc_make_header(info);
+static AihcValue *aihc_place_partial(AihcMachine *machine, const AihcInfo *info,
+                                     uint64_t applied) {
+  AihcValue *value = aihc_place_node(machine, info, 2 + applied);
   value->fields[0] = applied;
   return value;
-}
-
-AihcValue *aihc_make_partial(AihcMachine *machine, const AihcInfo *info,
-                             uint64_t applied) {
-  aihc_ensure_heap(machine, 2 + applied, 0, NULL);
-  return aihc_make_partial_unchecked(machine, info, applied);
 }
 
 uint64_t aihc_allocation_count(const AihcMachine *machine) {
@@ -568,10 +558,9 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
 
   /* The stage that fills the last slot becomes a saturated node and drops the
      applied count, so the result decides the allocator, not the source. */
-  AihcValue *copy = next_partial
-                        ? aihc_make_partial_unchecked(machine, next_info,
+  AihcValue *copy = next_partial ? aihc_place_partial(machine, next_info,
                                                       original_count + count)
-                        : aihc_make_node_unchecked(machine, next_info);
+                                 : aihc_place_node(machine, next_info, words);
   const AihcSlot *original_fields = partial ? aihc_partial_fields_const(value)
                                             : aihc_value_fields_const(value);
   AihcSlot *copy_fields =

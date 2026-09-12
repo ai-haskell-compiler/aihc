@@ -54,8 +54,10 @@ writes no file. An empty value counts as an unset variable.
   the live data after a collection plus the allocations since it, sampled
   before each collection and at exit. The value is comparable to the
   `max_live_bytes` field of the GHC runtime.
-- `allocated_bytes` counts every byte the managed heap handed out. Auxiliary
-  runtime allocations, such as byte arrays, are not counted.
+- `allocated_bytes` counts every byte reserved on the managed heap. Compiled
+  code bumps the heap pointer itself within a reservation, so a reservation
+  that a branch does not use in full is still counted. Auxiliary runtime
+  allocations, such as byte arrays, are not counted.
 - `gc_count` is the number of collections.
 - `gc_time_ns` is the monotonic time the collections took, in nanoseconds.
 

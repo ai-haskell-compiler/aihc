@@ -52,12 +52,15 @@ Snapshotting reads heap objects but never enters them. A suspended thunk remains
 are recovered through descriptor tables generated beside the assembly, so
 snapshot output does not depend on debug symbols or raw addresses.
 
-Successful fixtures also record every managed-object and auxiliary C allocation
-made while the observed entry executes. The native harness resets the counter
-after creating its own continuations and initializing globals, then selects the
-expectation for its backend from `allocations`. This includes locals, argument
-vectors, thread records, blackhole records, and waiters. Interpreter execution
-does not check allocations.
+Successful fixtures also record every heap reservation and auxiliary C
+allocation made while the observed entry executes. Compiled code takes managed
+objects by bumping the heap pointer itself, so one reservation - which may
+cover a group of objects - is the allocation the runtime counts. The native
+harness resets the counter after creating its own continuations and
+initializing globals, then selects the expectation for its backend from
+`allocations`. The auxiliary allocations include argument vectors, thread
+records, blackhole records, and waiters. Interpreter execution does not check
+allocations.
 
 Fixtures may replace `return` and `heap` with an `error` expectation. These
 cases assert the same stable runtime diagnostic from the interpreter and native
