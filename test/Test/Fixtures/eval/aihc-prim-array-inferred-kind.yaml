@@ -1,0 +1,29 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim
+    import GHC.IO (IO(..))
+
+    data Immutable a = Immutable (Array# a)
+    data Mutable a = Mutable (MutableArray# RealWorld a)
+
+    freeze :: Mutable a -> IO (Immutable a)
+    freeze (Mutable array) = IO $ \state ->
+      case unsafeFreezeArray# array state of
+        (# next, frozen #) -> (# next, Immutable frozen #)
+
+    test :: IO Int
+    test = do
+      array <- IO $ \state -> case newArray# 1# (42 :: Int) state of
+        (# next, mutable #) -> (# next, Mutable mutable #)
+      Immutable frozen <- freeze array
+      case indexArray# frozen 0# of
+        (# value #) -> pure value
+expression: test
+output: |
+  I# 42
+status: pass
+reason: Array wrappers default an unresolved element levity to Lifted.
