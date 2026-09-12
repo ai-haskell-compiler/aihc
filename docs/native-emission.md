@@ -1,6 +1,6 @@
-# Incremental AArch64 object emission
+# Incremental native object emission
 
-The AArch64 Mach-O path now consumes each LIR function before GRIN conversion produces the next function.
+The AArch64 Mach-O and AMD64 ELF paths consume each LIR function before GRIN conversion produces the next function.
 Instruction selection sends each statement directly to the encoder.
 The object writer stores section bytes in temporary files with bounded buffers.
 
@@ -11,14 +11,18 @@ one FC module
   -> GRIN -> CPS-GRIN -> GC-GRIN
   -> one LIR function
   -> register allocation and frame layout
-  -> instruction selection -> reload filter -> AArch64 encoder
+  -> instruction selection -> reload filter -> native instruction encoder
   -> section buffers -> temporary section files
-  -> Mach-O layout -> byte patches -> temporary object -> destination
+  -> object layout -> byte patches -> temporary object -> destination
 ```
 
 `compileFcModules` completes one module before it starts the next module.
 It no longer collects all GRIN programs or all native outputs.
 It writes optional GRIN dumps at their phase boundaries.
+
+`Native.Emit` controls conversion, optional lint and dumps, instruction emission, and object output for both native backends.
+Each backend supplies an `ObjectBackend` with its instruction encoder, alignment fill, and object format.
+The shared emitter also writes target-specific final sections, such as the ELF stack marker.
 
 `lowerModuleTo` gives each complete item to a consumer.
 It retains declaration signatures, helper requirements, and other conversion metadata.
@@ -40,7 +44,8 @@ It retains byte offsets and encoded patch words until final output.
 
 The layout code uses explicit section sizes.
 It does not read section payloads to find their sizes.
-The Mach-O writer separates layout metadata from payloads, so later relocation output cannot retain earlier payload bytes.
+The Mach-O and ELF writers separate layout metadata from payloads.
+Later relocation, symbol, and section-header output cannot retain earlier payload bytes.
 The final byte stream applies patches across chunk boundaries without a complete section copy.
 
 The writer closes the complete temporary object before it replaces the destination.
@@ -57,15 +62,16 @@ A second conversion pass checks and emits each item.
 This preserves forward-reference and duplicate-declaration checks without retention of a complete LIR module.
 The benchmark disables lint and primitive bounds checks.
 
-The AArch64 package, runtime, and entry object paths use the file writer.
+The AArch64 and AMD64 package, runtime, and entry object paths use the file writer.
 The pure object API still returns object bytes in memory.
-AMD64, LLVM, and WASM keep their existing output APIs.
-They share applicable changes in conversion, instruction selection, or object layout.
+LLVM and WASM keep their existing output APIs.
 
-## Measurements
+## Initial AArch64 measurements
+
+The [shared-emitter report](shared-native-emission.md) measures the later AMD64 extension and the shared emitter on both targets.
 
 The baseline is commit `e13d04e5c`.
-The comparison uses the implementation in this change.
+The comparison uses the implementation in commit `b2f779509`.
 Both builds use GHC 9.12.4, Cabal 3.14.2.0, and optimization level `-O1`.
 The machine has an Apple M4 Pro and 48 GiB of RAM.
 Measurements used macOS on 12 September 2026.
@@ -152,12 +158,11 @@ The LIR native fixture harness compares file-writer bytes with pure-API bytes.
 The GRIN native harness uses incremental conversion with lint and a LIR dump.
 The existing runtime and scheduler fixtures execute the resulting objects.
 
-The new LIR fixture covers forward calls, backward branches, section changes, large alignment, zero data, and a pointer addend beside a buffer boundary.
+The incremental-sections LIR fixture covers forward calls, backward branches, section changes, large alignment, zero data, and pointer addends beside a buffer boundary.
 Three source fixtures cause failures in later GRIN conversion, later instruction selection, and data emission after a section-file write.
 A fourth source fixture checks duplicate local labels at a function boundary.
 Each failure fixture checks temporary-file cleanup and preservation of the destination.
 Each fixture checks both an absent destination and an existing destination.
+Both native backends use these four source fixtures.
 
-Language progress counts do not change.
-The LIR evaluation fixture count increases by one.
-The AArch64 object-failure fixture count increases by four.
+These changes do not add language support.

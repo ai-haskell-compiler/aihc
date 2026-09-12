@@ -1,5 +1,5 @@
 language: lir
-error: more than eight integer C parameters
+error: integer C parameters
 source: |
   func @first() -> i64 {
   entry:

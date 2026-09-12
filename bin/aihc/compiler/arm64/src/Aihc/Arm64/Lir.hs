@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile Lir modules to AArch64 Mach-O objects for Darwin.
@@ -39,29 +40,20 @@ import Aihc.Arm64.Assemble
 import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
-import Aihc.Lir.Lint qualified as Lint
-import Aihc.Lir.Lower qualified as Lower
-import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
+import Aihc.Native.Emit qualified as Emit
 import Aihc.Native.Lir
 import Aihc.Native.Lir qualified as Native
 import Aihc.Native.MachO (writeArm64MachO)
-import Aihc.Native.Object (emptyDraft, layoutDraft, sealFunction)
-import Aihc.Native.ObjectWriter (ObjectWriter, alignObject, modifyObject, withObjectWriter)
-import Control.Monad (unless, when)
-import Control.Monad.Trans.State.Strict (StateT (..), runStateT)
+import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
-import Data.Text.IO qualified as TIO
 import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
-import System.IO (IOMode (WriteMode), withFile)
 
 data Arm64LirError
   = Arm64LirLintErrors ![LintError]
@@ -79,74 +71,31 @@ compileLirObject = compileLirObjectWith True
 
 -- | Assemble the module, linting it first when asked to.
 compileLirObjectWith :: Bool -> Module -> Either Arm64LirError BL.ByteString
-compileLirObjectWith lint lirModule = do
-  (result, draft) <- objectResult (runStateT (compileNativeTo lint arm64Backend output endFunction lirModule) emptyDraft)
-  result
-  objectResult (layoutDraft draft >>= writeArm64MachO)
-  where
-    output statement = StateT (\draft -> ((),) <$> applyStatement (Right draft) statement)
-    endFunction = StateT (fmap ((),) . sealFunction)
-    objectResult = either (Left . Arm64LirObjectError . T.pack . show) Right
+compileLirObjectWith = Emit.compileLirObjectWith objectBackend
 
 -- | Write an object with bounded section buffers.
 writeLirObjectWith :: Bool -> Module -> FilePath -> IO ()
-writeLirObjectWith lint lirModule path =
-  withObjectWriter path writeArm64MachO $ \writer ->
-    compileNativeTo lint arm64Backend (writeStatement writer) (modifyObject writer sealFunction) lirModule >>= checked
+writeLirObjectWith = Emit.writeLirObjectWith objectBackend
 
--- | Consume each Lir item as GC-GRIN conversion completes it.
+-- | Consume each LIR item as GC-GRIN conversion completes it.
 writeGrinObjectWith :: Bool -> Bool -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
-writeGrinObjectWith lint checkBounds dumpPath gcProgram path = do
-  -- The optional declaration pass repeats conversion without retention of bodies.
-  symbols <- if lint then declarations else pure Map.empty
-  withDump $ \dump ->
-    withObjectWriter path writeArm64MachO $ \writer -> do
-      state <- newIORef (initialObjectState arm64Backend)
-      let output signatures item = do
-            when lint (checkLint (Lint.lintItem symbols item))
-            dump item
-            current <- readIORef state
-            next <- compileNativeItemTo arm64Backend (writeStatement writer) signatures item current >>= checked
-            writeIORef state next
-            case item of
-              ItemFunction _ -> modifyObject writer sealFunction
-              _ -> pure ()
-      Lower.lowerModuleTo Lower.posixTarget64 checkBounds output gcProgram >>= checked
-      current <- readIORef state
-      finishNativeTo arm64Backend (writeStatement writer) current >>= checked
-  where
-    declarations = do
-      items <- newIORef []
-      let declaration item = case item of
-            ItemFunction function -> ItemExternFunction (ExternFunction (functionName function) (functionSignature function))
-            ItemData value -> ItemData value {dataFields = []}
-            _ -> item
-      let retain _ item =
-            let value = declaration item
-             in value `seq` modifyIORef' items (value :)
-      Lower.lowerModuleTo Lower.posixTarget64 checkBounds retain gcProgram >>= checked
-      (symbols, errors) <- Lint.moduleSymbols . Module . reverse <$> readIORef items
-      checkLint errors
-      pure symbols
-    checkLint [] = pure ()
-    checkLint errors = checked (Left (Arm64LirLintErrors errors))
-    withDump action = case dumpPath of
-      Nothing -> action (const (pure ()))
-      Just dump -> withFile dump WriteMode $ \handle -> action (TIO.hPutStrLn handle . renderModule . Module . pure)
+writeGrinObjectWith = Emit.writeGrinObjectWith objectBackend
 
-writeStatement :: ObjectWriter -> Arm64Statement -> IO ()
-writeStatement writer statement = case statement of
-  Arm64Align power -> alignObject writer power alignmentFill
-  Arm64Bytes bytes -> chunks bytes
-  _ -> modifyObject writer (\draft -> applyStatement (Right draft) statement)
-  where
-    chunks bytes = unless (BS.null bytes) $ do
-      let (prefix, rest) = BS.splitAt 65536 bytes
-      modifyObject writer (\draft -> applyStatement (Right draft) (Arm64Bytes prefix))
-      chunks rest
-
-checked :: (Show error) => Either error value -> IO value
-checked = either (ioError . userError . show) pure
+objectBackend :: Emit.ObjectBackend Arm64Statement Arm64Register Arm64LirError
+objectBackend =
+  Emit.ObjectBackend
+    { Emit.obNative = arm64Backend,
+      Emit.obStatement = applyStatement,
+      Emit.obImage = writeArm64MachO,
+      Emit.obError = Arm64LirObjectError . T.pack . show,
+      Emit.obAlign = \case
+        Arm64Align power -> Just power
+        _ -> Nothing,
+      Emit.obBytes = \case
+        Arm64Bytes bytes -> Just bytes
+        _ -> Nothing,
+      Emit.obFill = alignmentFill
+    }
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
 compileLirStatements = compileNativeStatements arm64Backend

@@ -26,7 +26,7 @@ import Data.Word (Word32, Word64)
 
 writeArm64MachO :: Image -> Either ObjectError BL.ByteString
 writeArm64MachO image =
-  writeImage image {imageSections = map (\section -> section {imageSectionBytes = BL.empty}) (imageSections image)} (map imageSectionBytes (imageSections image))
+  writeImage (imageMetadata image) (map imageSectionBytes (imageSections image))
 
 writeImage :: Image -> [BL.ByteString] -> Either ObjectError BL.ByteString
 writeImage image payloads = do
