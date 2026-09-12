@@ -18,14 +18,12 @@ import Aihc.Arm64.Lir qualified as Arm64
 import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Lower (LowerTarget, posixTarget64, wasip3Target)
 import Aihc.Lir.Lower qualified as Lower
-import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Syntax (Module)
 import Aihc.Llvm.Lir qualified as Llvm
 import Aihc.Native (NativeTarget (..))
 import Aihc.Wasm.Lir qualified as Wasm
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
-import Data.Text.IO qualified as TIO
 
 data BackendOutput
   = -- | A finished object file.
@@ -58,21 +56,20 @@ compileLirWith lint target lirModule =
 compileLirTo :: Bool -> NativeTarget -> Module -> FilePath -> IO (Maybe Text)
 compileLirTo lint target lirModule path = case target of
   AppleArm64 -> Arm64.writeLirObjectWith lint lirModule path >> pure Nothing
+  LinuxAmd64 -> Amd64.writeLirObjectWith lint lirModule path >> pure Nothing
   _ -> do
     output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLirWith lint target lirModule)
     case output of
       BackendObject bytes -> BL.writeFile path bytes >> pure Nothing
       BackendSource source -> pure (Just source)
 
--- | Use incremental conversion for the AArch64 object path.
+-- | Use shared incremental conversion for both native object paths.
 compileGrinTo :: Bool -> Bool -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe Text)
 compileGrinTo lint checkBounds target dumpPath gcProgram path = case target of
   AppleArm64 -> Arm64.writeGrinObjectWith lint checkBounds dumpPath gcProgram path >> pure Nothing
+  LinuxAmd64 -> Amd64.writeGrinObjectWith lint checkBounds dumpPath gcProgram path >> pure Nothing
   _ -> do
     lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) checkBounds gcProgram)
-    case target of
-      LinuxAmd64 -> mapM_ (\dump -> TIO.writeFile dump (renderModule lirModule)) dumpPath
-      _ -> pure ()
     compileLirTo lint target lirModule path
 
 -- | The extension of the source kept next to an object. An object target

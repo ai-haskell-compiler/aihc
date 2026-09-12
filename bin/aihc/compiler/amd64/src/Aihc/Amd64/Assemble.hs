@@ -15,6 +15,8 @@ module Aihc.Amd64.Assemble
     Amd64SseOp (..),
     assembleElf,
     assembleElfChunks,
+    applyStatement,
+    alignmentFill,
     amd64Align,
     amd64Bytes,
     amd64Global,
@@ -251,6 +253,16 @@ data Amd64Instruction
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
 assembleElf statements = applyStatements emptyDraft statements >>= layoutDraft >>= writeAmd64Elf
+
+-- | Encode one statement before the producer selects the next instruction.
+applyStatement :: Either ObjectError Draft -> Amd64Statement -> Either ObjectError Draft
+applyStatement result statement = do
+  draft <- result
+  case statement of
+    Amd64Section role -> pure (selectSection role draft)
+    Amd64Global symbol -> pure (addGlobal symbol draft)
+    Amd64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
+    _ -> addItems (statementItems statement) draft
 
 -- | Apply a list of statements. A run of statements that only add items to
 -- the current section is appended in one pass.

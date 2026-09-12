@@ -13,13 +13,15 @@ import Test.Lir.AsmSuite (AsmBackend (..))
 import Test.Lir.AsmSuite qualified as AsmSuite
 import Test.Lir.NativeSuite (NativeBackend (..))
 import Test.Lir.NativeSuite qualified as NativeSuite
+import Test.Native.ObjectFailure (failureFixtures)
 import Test.Tasty (TestTree, testGroup)
 
 tests :: IO TestTree
 tests = do
   native <- nativeTests
   assembly <- assemblyTests
-  pure (testGroup "amd64" [native, assembly])
+  failures <- failureFixtures LinuxAmd64
+  pure (testGroup "amd64" [native, assembly, failures])
 
 assemblyTests :: IO TestTree
 assemblyTests =

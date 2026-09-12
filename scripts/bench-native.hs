@@ -5,7 +5,11 @@
 -- | Measure native compilation from generated GRIN or source text.
 module Main (main) where
 
-import Aihc.Arm64.Lir qualified as Arm64
+#ifdef AMD64
+import Aihc.Amd64.Lir qualified as Native
+#else
+import Aihc.Arm64.Lir qualified as Native
+#endif
 import Aihc.Grin qualified as Grin
 import Aihc.Lir qualified as Lir
 #ifdef BASELINE
@@ -42,16 +46,16 @@ writeGc :: Grin.GcGrinProgram -> FilePath -> IO ()
 #ifdef BASELINE
 writeGc gc object = do
   lir <- checked (Lower.lowerModule Lower.posixTarget64 False gc)
-  checked (Arm64.compileLirObjectWith False lir) >>= BL.writeFile object
+  checked (Native.compileLirObjectWith False lir) >>= BL.writeFile object
 #else
-writeGc = Arm64.writeGrinObjectWith False False Nothing
+writeGc = Native.writeGrinObjectWith False False Nothing
 #endif
 
 writeLir :: Lir.Module -> FilePath -> IO ()
 #ifdef BASELINE
-writeLir lir object = checked (Arm64.compileLirObjectWith False lir) >>= BL.writeFile object
+writeLir lir object = checked (Native.compileLirObjectWith False lir) >>= BL.writeFile object
 #else
-writeLir = Arm64.writeLirObjectWith False
+writeLir = Native.writeLirObjectWith False
 #endif
 
 -- | Construct the same program as the source generator, without parser costs.

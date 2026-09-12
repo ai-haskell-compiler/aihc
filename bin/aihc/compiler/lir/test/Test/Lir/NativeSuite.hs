@@ -10,8 +10,7 @@ module Test.Lir.NativeSuite
   )
 where
 
-import Aihc.Arm64.Lir qualified as Arm64
-import Aihc.Cli.Backend (BackendOutput (..))
+import Aihc.Cli.Backend (BackendOutput (..), compileGrinTo, compileLirTo)
 import Aihc.Cli.Runtime (RuntimeBuild (..))
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
@@ -31,6 +30,7 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, evaluate)
 import Control.Monad (forM, forM_, when, (<=<))
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
@@ -119,14 +119,15 @@ writeUnit backend directory base output =
 compileUnit :: NativeBackend -> Module -> IO BackendOutput
 compileUnit backend lirModule = do
   output <- either (assertFailure . ("backend failed: " <>)) pure (backendCompile backend lirModule)
-  when (backendTarget backend == AppleArm64) $
+  when (backendTarget backend `elem` [AppleArm64, LinuxAmd64]) $
     withTempDirectory "aihc-lir-object" $ \directory -> do
       let path = directory </> "stream.o"
-      Arm64.writeLirObjectWith True lirModule path
+      source <- compileLirTo True (backendTarget backend) lirModule path
+      assertEqual "native object output" Nothing source
       bytes <- BL.readFile path
       case output of
         BackendObject expected -> assertEqual "incremental object bytes" expected bytes
-        BackendSource _ -> assertFailure "ARM64 output is not an object"
+        BackendSource _ -> assertFailure "Native output is not an object."
   pure output
 
 fixtureTest :: NativeBackend -> FilePath -> FilePath -> TestTree
@@ -349,15 +350,18 @@ compileProgramUnits backend program = do
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))
   moduleUnit <-
-    if backendTarget backend == AppleArm64
+    if backendTarget backend `elem` [AppleArm64, LinuxAmd64]
       then withTempDirectory "aihc-grin-object" $ \directory -> do
         let path = directory </> "stream.o"
             dump = directory </> "stream.lir"
-        Arm64.writeGrinObjectWith True False (Just dump) gc path
+        source <- compileGrinTo True False (backendTarget backend) (Just dump) gc path
+        assertEqual "native object output" Nothing source
         dumped <- loadModule dump >>= either (assertFailure . renderLoadError) pure
         assertEqual "incremental Lir dump lint" [] (map renderLintError (lintModule dumped))
         bytes <- BL.readFile path
         _ <- evaluate (BL.length bytes)
+        when (backendTarget backend == LinuxAmd64) $
+          assertBool "ELF stack section is absent." (".note.GNU-stack\0" `BS.isInfixOf` BL.toStrict bytes)
         pure (BackendObject bytes)
       else compileUnit backend moduleLir
   entryUnit <- compileUnit backend entryLir

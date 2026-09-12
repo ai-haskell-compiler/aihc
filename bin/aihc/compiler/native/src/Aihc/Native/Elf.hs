@@ -23,7 +23,10 @@ import Data.Text.Encoding qualified as Text
 import Data.Word (Word32, Word64)
 
 writeAmd64Elf :: Image -> Either ObjectError BL.ByteString
-writeAmd64Elf image = do
+writeAmd64Elf image = writeImage (imageMetadata image) (map imageSectionBytes (imageSections image))
+
+writeImage :: Image -> [BL.ByteString] -> Either ObjectError BL.ByteString
+writeImage image payloads = do
   baseSections <- mapM describeSection (imageSections image)
   mapM_ validateSectionRelocations baseSections
   let placedSymbols = orderSymbols (imageSymbols image)
@@ -61,7 +64,7 @@ writeAmd64Elf image = do
       localCount = length (filter (not . symbolGlobal) orderedSymbols)
   pure . runPut $ do
     putHeader sectionHeaderOffset sectionCount sectionStringTableIndex
-    _ <- putBaseContents 64 placedBaseSections
+    _ <- putBaseContents 64 (zip placedBaseSections payloads)
     putPadding (alignUp 8 baseEnd - baseEnd)
     _ <- putRelocationContents symbolIndexes (alignUp 8 baseEnd) placedRelocations
     putPadding (symbolOffset - relocationEnd)
@@ -153,14 +156,13 @@ putHeader sectionHeaderOffset sectionCount sectionStringIndex = do
   putWord16le (fromIntegral sectionCount)
   putWord16le (fromIntegral sectionStringIndex)
 
-putBaseContents :: Word64 -> [PlacedBaseSection] -> PutM Word64
+putBaseContents :: Word64 -> [(PlacedBaseSection, BL.ByteString)] -> PutM Word64
 putBaseContents offset sections =
   case sections of
     [] -> pure offset
-    section : rest -> do
+    (section, bytes) : rest -> do
       putPadding (placedBaseOffset section - offset)
       let imageSection = descriptionImage (placedBaseDescription section)
-          bytes = imageSectionBytes imageSection
           next = placedBaseOffset section + imageSectionSize imageSection
       putLazyByteString bytes
       putBaseContents next rest

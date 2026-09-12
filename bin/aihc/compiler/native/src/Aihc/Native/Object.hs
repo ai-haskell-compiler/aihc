@@ -15,6 +15,7 @@ module Aihc.Native.Object
     FixupKind (..),
     Image (..),
     ImageSection (..),
+    imageMetadata,
     Item (..),
     Name (..),
     nameText,
@@ -156,6 +157,10 @@ draftSections draft =
   case draftCurrentSection draft of
     Nothing -> draftOtherSections draft
     Just role -> Map.insert role (draftCurrent draft) (draftOtherSections draft)
+
+-- | Remove payload references from metadata used after section output.
+imageMetadata :: Image -> Image
+imageMetadata image = image {imageSections = map (\section -> section {imageSectionBytes = BL.empty}) (imageSections image)}
 
 data Symbol = Symbol
   { symbolName :: !Text,

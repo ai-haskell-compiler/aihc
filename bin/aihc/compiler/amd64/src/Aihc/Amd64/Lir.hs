@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile Lir modules to AMD64 ELF objects for Linux.
@@ -30,6 +31,8 @@ module Aihc.Amd64.Lir
   ( Amd64LirError (..),
     compileLirObject,
     compileLirObjectWith,
+    writeLirObjectWith,
+    writeGrinObjectWith,
     compileLirStatements,
     elideSlotReloads,
     lirSymbol,
@@ -37,10 +40,13 @@ module Aihc.Amd64.Lir
 where
 
 import Aihc.Amd64.Assemble
+import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Convert (integerConversionBounds)
 import Aihc.Lir.Lint (LintError)
 import Aihc.Lir.RegAlloc (Registers (..))
 import Aihc.Lir.Syntax
+import Aihc.Native.Elf (writeAmd64Elf)
+import Aihc.Native.Emit qualified as Emit
 import Aihc.Native.Lir
 import Aihc.Native.Lir qualified as Native
 import Control.Monad (when)
@@ -73,8 +79,31 @@ compileLirObject = compileLirObjectWith True
 
 -- | Assemble the module, linting it first when asked to.
 compileLirObjectWith :: Bool -> Module -> Either Amd64LirError BL.ByteString
-compileLirObjectWith lint lirModule =
-  either (either Left (Left . Amd64LirObjectError . T.pack . show)) pure (assembleElfChunks (compileNativeChunksWith lint amd64Backend lirModule))
+compileLirObjectWith = Emit.compileLirObjectWith objectBackend
+
+-- | Write an object with bounded section buffers.
+writeLirObjectWith :: Bool -> Module -> FilePath -> IO ()
+writeLirObjectWith = Emit.writeLirObjectWith objectBackend
+
+-- | Consume each LIR item as GC-GRIN conversion completes it.
+writeGrinObjectWith :: Bool -> Bool -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
+writeGrinObjectWith = Emit.writeGrinObjectWith objectBackend
+
+objectBackend :: Emit.ObjectBackend Amd64Statement Amd64Register Amd64LirError
+objectBackend =
+  Emit.ObjectBackend
+    { Emit.obNative = amd64Backend,
+      Emit.obStatement = applyStatement,
+      Emit.obImage = writeAmd64Elf,
+      Emit.obError = Amd64LirObjectError . T.pack . show,
+      Emit.obAlign = \case
+        Amd64Align power -> Just power
+        _ -> Nothing,
+      Emit.obBytes = \case
+        Amd64Bytes bytes -> Just bytes
+        _ -> Nothing,
+      Emit.obFill = alignmentFill
+    }
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
 compileLirStatements = compileNativeStatements amd64Backend
