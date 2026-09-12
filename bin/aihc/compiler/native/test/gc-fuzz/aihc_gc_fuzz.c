@@ -499,7 +499,7 @@ static void print_object(AihcValue *object) {
   printf("\n");
 }
 
-/* An evaluated static object that a collection under -Zs did not mark keeps
+/* An evaluated static object that a collection did not mark keeps
    a target into the old space. The model knows which slots those are, so the
    driver reports the target without a violation. */
 static void print_static_target(AihcSlot slot) {

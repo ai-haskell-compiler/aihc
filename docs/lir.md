@@ -602,8 +602,7 @@ The units are:
   `aihc_runtime_environment_initialize` keeps the `AIHC_RTS_STATS` value.
   The parsed settings live in globals of the unit, and the C runtime reads
   them through `aihc_rts_heap_max_bytes`, `aihc_rts_heap_limit_enabled`,
-  `aihc_rts_static_reference_roots`, and `aihc_rts_stats_path`, so no C
-  structure describes them.
+  and `aihc_rts_stats_path`. No C structure describes them.
 
 A unit reaches the C runtime only through functions, never through the fields
 of a C structure, unless those fields sit one eight-byte slot apart on every

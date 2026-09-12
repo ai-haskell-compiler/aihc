@@ -55,16 +55,12 @@ import Test.Tasty.Hedgehog (testProperty)
 -- | One runtime configuration of the collector.
 data Config = Config
   { cfgName :: String,
-    cfgArgs :: [String],
-    -- | The @-Zs@ option: static objects live only through reference tables.
-    cfgStaticRoots :: Bool
+    cfgArgs :: [String]
   }
 
 configs :: [Config]
 configs =
-  [ Config "default" [] False,
-    Config "-Zs" ["+RTS", "-Zs", "-RTS"] True
-  ]
+  [Config "default" []]
 
 tests :: TestTree
 tests =
@@ -82,8 +78,7 @@ tests =
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
 -- alive, then force a collection. The thunk must reach the moved object
--- afterwards. By default the runtime keeps every evaluated static object.
--- Under @-Zs@ the published table names the thunk.
+-- afterwards. The published table names the thunk.
 --
 -- This fixed script is a unit test for the same reason as the property
 -- above: no source fixture can force a collection at a chosen heap state, so
@@ -136,7 +131,7 @@ prop_collect config getDriver = property $ do
           classify (fromString "decoy word") (or [True | CSet _ _ (VDecoy _) <- script])
           classify (fromString "more than four survivors") (any ((> 4) . Map.size . rObjects) (Map.elems reports))
           classify (fromString "more than sixteen survivors") (any ((> 16) . Map.size . rObjects) (Map.elems reports))
-          classify (fromString "stale static object") (or [True | CSUpdate {} <- script] && cfgStaticRoots config)
+          classify (fromString "stale static object") (or [True | CSUpdate {} <- script])
           unless (null problems) $ do
             annotate ("driver output:\n" <> unlines output)
             annotate (unlines problems)
@@ -166,9 +161,8 @@ data Object
   | Ind Value
   deriving (Eq, Show)
 
--- | The state of one static thunk slot. A stale slot was an evaluated static
--- object that a collection under @-Zs@ did not mark. Its target is invalid,
--- and nothing may reach the slot again.
+-- | A stale slot contains an evaluated static object that the collector did not mark.
+-- Its target is invalid. No code can use the slot again.
 data StaticThunk = SThunk | SInd Value | SStale
   deriving (Eq, Show)
 
@@ -387,12 +381,9 @@ data Item = IHeap Id | IStatic Int | ISrt Int
 -- | Decide what one collection keeps: the heap objects it copies and the
 -- static objects it marks.
 --
--- The collector has no list of static objects. By default it starts from the
--- evaluated static thunks, which the runtime records when they are updated,
--- and it marks any other static object only when something points at it.
--- Under @-Zs@ it starts from the published reference table instead.
+-- The collector starts from the published table and the explicit roots.
 liveness :: Config -> Model -> Live
-liveness config model = go initial (Live Set.empty Set.empty) Set.empty
+liveness _config model = go initial (Live Set.empty Set.empty) Set.empty
   where
     rootValues =
       mGlobals model
@@ -402,9 +393,7 @@ liveness config model = go initial (Live Set.empty Set.empty) Set.empty
         <> [mThreadFunction model, mThreadContinuation model]
         <> maybe [] pure (mThreadValue model)
         <> map VHeap (mBlackholes model)
-    staticStart
-      | cfgStaticRoots config = maybe [] (pure . ISrt) (mCurrentSrt model)
-      | otherwise = [IStatic slot | (slot, SInd _) <- zip [0 ..] (mStaticThunks model)]
+    staticStart = maybe [] (pure . ISrt) (mCurrentSrt model)
     initial = concatMap fromValue rootValues <> staticStart
     fromValue value = case resolve model value of
       VHeap identity -> [IHeap identity]
@@ -466,8 +455,7 @@ collectModel config model =
           SInd target -> SInd (r target)
           other -> other
       | otherwise = case state of
-          SInd _
-            | cfgStaticRoots config -> SStale
+          SInd _ -> SStale
           other -> other
 
 -- * Reports

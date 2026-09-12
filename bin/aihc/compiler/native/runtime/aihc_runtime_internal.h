@@ -165,11 +165,6 @@ uint64_t aihc_stable_name_take_hash(AihcMachine *machine);
    the arguments the host passed. */
 uint64_t aihc_rts_heap_max_bytes(void);
 uint64_t aihc_rts_heap_limit_enabled(void);
-/* Decide static object liveness from static reference tables instead of
-   keeping every evaluated static object alive. This is off by default: the
-   tables do not yet name everything a running program reaches, so enabling
-   it can collect a CAF that is still needed. */
-uint64_t aihc_rts_static_reference_roots(void);
 /* The zero-terminated path of the statistics file, or null when the
    environment names none. */
 const char *aihc_rts_stats_path(void);
@@ -194,10 +189,6 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
 extern const AihcInfo aihc_runtime_object_info;
 
 void aihc_gc_init(AihcMachine *machine);
-/* Tell the collector that an object became an indirection. A static object
-   that holds a heap pointer is the only static object the collector cannot
-   find by itself, so the semispace collector records it as a root. */
-void aihc_gc_note_update(AihcValue *object);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots);
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);

@@ -1194,7 +1194,6 @@ void aihc_update(AihcValue *object, AihcValue *value) {
   }
   object->fields[0] = (AihcSlot)value;
   object->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
-  aihc_gc_note_update(object);
 }
 
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,

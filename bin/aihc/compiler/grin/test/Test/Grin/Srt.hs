@@ -75,10 +75,10 @@ tests =
           "callsUsesNil"
           Nothing
           (tableOf "callsUsesNil"),
-      testCase "storing a thunk does not inherit its table" $
+      testCase "a future thunk inherits its table" $
         assertEqual
           "storesThunk"
-          Nothing
+          (Just (StaticReferenceTable [] [FunctionName "usesCaf"]))
           (tableOf "storesThunk"),
       testCase "self recursion drops the self child" $
         assertEqual
@@ -100,6 +100,7 @@ tests =
             "mutualA",
             "mutualB",
             "recursesOnCaf",
+            "storesThunk",
             "usesCaf",
             "usesCafByVar",
             "usesImported",

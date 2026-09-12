@@ -35,9 +35,7 @@ the program when the live data and the pending reservation do not fit in that
 capacity. It does not count the second space, auxiliary runtime allocations, or
 static objects.
 
-The `-Zs` option decides static object liveness from static reference tables
-instead of keeping every evaluated static object alive. It is off by default
-because the tables do not yet name everything a running program reaches.
+Static reference tables determine static object liveness for every collection.
 
 ## Runtime statistics
 
@@ -157,27 +155,23 @@ finalization are intentionally outside the initial interface.
 
 ## Static objects
 
-Static objects live in an object-file data section and never move. Keeping all
-of them alive is wasteful: an evaluated CAF is an indirection into the managed
-heap, so treating every static object as a root retains everything any CAF has
-ever produced. That is still what the collector does by default.
+Static objects occupy an object-file data section and never move.
+An evaluated CAF contains an indirection into the managed heap.
+The collector retains its target only while the CAF remains reachable.
 
-Every info table carries a static reference table, which names the static
-objects that object's code reaches without going through a heap object,
-together with the tables of the functions it calls by name. Under `-Zs` a
-collection marks the objects named by the running function's table, by the
-table of anything it traces, and by anything a live object points at, and scans
-only those.
+Each info table contains a static reference table (SRT).
+The SRT names static objects that the code can reach directly.
+It also names the tables of called functions and the entry functions of objects that the code can create.
+These entries retain the required CAF values before those objects exist.
+This includes thunks, partial applications, and continuation closures.
+The collector follows these tables from active code and live objects.
+It also follows pointer fields in live objects.
 
-That set is not yet complete. Compiling the examples against the core libraries
-and running them under `-Zs` collects CAFs the program still needs, so the
-option stays off until the tables name everything a running program reaches.
-
-Compiled functions publish their own table in `aihc_current_srt` on entry.
-After CPS conversion every call is a tail call, so a running function has no
-heap object of its own to carry its table, and a collection can happen at one
-of its safepoints or inside a runtime helper it called. Suspended code is an
-ordinary continuation closure and reaches its table through its info table.
+Compiled functions publish their table in `aihc_current_srt` at entry.
+After CPS conversion, each call is a tail call.
+The active function has no heap object to carry its table.
+A collection can occur at its safepoints or inside a runtime helper.
+Suspended code uses a continuation closure with a table in its info table.
 
 No section and no table lists the static objects. The collector finds them by
 address: a pointer that is outside both spaces of the managed heap names an
@@ -191,11 +185,6 @@ table. The byte arrays, MVars, stable names, and threads that the runtime
 allocates outside the heap therefore also start with a header. Their info
 tables have the kind `AIHC_OBJECT_RUNTIME` or `AIHC_OBJECT_THREAD`, and the
 collector scans nothing behind them.
-
-An evaluated CAF that only code references is reachable through no pointer.
-`aihc_update` therefore records every object outside the heap that becomes an
-indirection. By default each collection marks all recorded objects. Under
-`-Zs` the reference tables decide instead.
 
 ## IO manager
 
