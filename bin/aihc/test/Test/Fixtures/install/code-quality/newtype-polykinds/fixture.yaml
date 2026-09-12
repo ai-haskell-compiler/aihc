@@ -1,2 +1,0 @@
-status: pass
-reason: A newtype must retain its polymorphic kind across module interfaces.

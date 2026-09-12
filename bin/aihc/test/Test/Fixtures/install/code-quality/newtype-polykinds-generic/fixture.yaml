@@ -1,2 +1,0 @@
-status: pass
-reason: Generic1 must specialize the kind of a polymorphic newtype.
