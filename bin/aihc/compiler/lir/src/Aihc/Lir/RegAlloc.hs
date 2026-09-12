@@ -42,6 +42,7 @@ module Aihc.Lir.RegAlloc
 where
 
 import Aihc.Lir.Syntax
+import Data.Array (listArray, (!))
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (nub, sortOn)
@@ -489,16 +490,6 @@ data Candidate register = Candidate
     candidateLeads :: !Bool
   }
 
--- | Whether a candidate may live in a register.
-accepts :: (Ord register) => Config register -> Candidate register -> register -> Bool
-accepts config candidate register =
-  case candidateReach candidate of
-    ReachNone -> False
-    ReachPreserved -> preserved && candidateEarnsPreserved candidate
-    ReachAny -> not preserved || candidateEarnsPreserved candidate
-  where
-    preserved = Set.member register (configPreserved config)
-
 -- | Walk the intervals in order of their start and hand out registers.
 --
 -- An interval that outlives another may take its register once that one has
@@ -508,22 +499,49 @@ accepts config candidate register =
 -- the pool. When nothing acceptable is free, the acceptable interval that
 -- reaches furthest goes to a frame slot; it is the one whose register would
 -- sit idle the longest.
+--
+-- Registers are handled by their index in the pool, so the free set is an
+-- 'IntSet' whose ascending order is the pool order.
 linearScan :: (Ord register) => Config register -> [Candidate register] -> Map Var register
-linearScan config candidates = scanState (foldl' step (ScanState [] (configPool config) Map.empty) ordered)
+linearScan config candidates = Map.map (registerArray !) (scanState (foldl' step initial ordered))
   where
+    pool = configPool config
+    poolSize = length pool
+    registerArray = listArray (0, poolSize - 1) pool
+    indexOf = Map.fromList (zip pool [0 ..])
+    indexesOf = mapMaybe (`Map.lookup` indexOf)
+    preserved = IntSet.fromList [index | (index, register) <- zip [0 ..] pool, Set.member register (configPreserved config)]
+    initial = ScanState [] (IntSet.fromDistinctAscList [0 .. poolSize - 1]) Map.empty
     ordered = sortOn (\candidate -> (intervalStart (candidateInterval candidate), not (candidateLeads candidate), intervalVar (candidateInterval candidate))) candidates
+    acceptsIndex candidate index =
+      case candidateReach candidate of
+        ReachNone -> False
+        ReachPreserved -> isPreserved && candidateEarnsPreserved candidate
+        ReachAny -> not isPreserved || candidateEarnsPreserved candidate
+      where
+        isPreserved = IntSet.member index preserved
     step state candidate =
       let interval = candidateInterval candidate
           expired = expire (intervalStart interval) state
+          free = scanFree expired
           preferred =
-            candidateHints candidate
+            indexesOf (candidateHints candidate)
               <> mapMaybe (`Map.lookup` scanState expired) (candidatePartners candidate)
-              <> candidateWeakHints candidate
+              <> indexesOf (candidateWeakHints candidate)
               <> mapMaybe (`Map.lookup` scanState expired) (candidateOperands candidate)
-          choices = [register | register <- preferred <> scanFree expired, register `elem` scanFree expired, accepts config candidate register]
-       in case choices of
-            register : _ -> activate interval register expired
-            [] -> spill candidate expired
+          choice =
+            case [index | index <- preferred, IntSet.member index free, acceptsIndex candidate index] of
+              index : _ -> Just index
+              [] -> firstFree candidate (IntSet.toAscList free)
+       in case choice of
+            Just index -> activate interval index expired
+            Nothing -> spill candidate expired
+    firstFree candidate indexes =
+      case indexes of
+        [] -> Nothing
+        index : rest
+          | acceptsIndex candidate index -> Just index
+          | otherwise -> firstFree candidate rest
     -- The active intervals that end before this one starts give their
     -- registers back. An interval that ends exactly where the next begins
     -- does so too: the value an instruction consumes hands its register to
@@ -536,39 +554,50 @@ linearScan config candidates = scanState (foldl' step (ScanState [] (configPool 
             intervalEnd active < position
               || (intervalEnd active == position && intervalStart active < intervalEnd active)
           (done, alive) = span (finished . fst) (scanActive state)
-       in state
-            { scanActive = alive,
-              scanFree = [register | register <- configPool config, register `elem` map snd done || register `elem` scanFree state]
-            }
-    activate interval register state =
+       in case done of
+            [] -> state
+            _ ->
+              state
+                { scanActive = alive,
+                  scanFree = foldl' (\free (_, index) -> IntSet.insert index free) (scanFree state) done
+                }
+    -- The active list stays sorted by end; a new interval goes before the
+    -- ones that end where it ends.
+    activate interval index state =
       state
-        { scanActive = sortOn (intervalEnd . fst) ((interval, register) : scanActive state),
-          scanFree = filter (/= register) (scanFree state),
-          scanState = Map.insert (intervalVar interval) register (scanState state)
+        { scanActive = insertActive (interval, index) (scanActive state),
+          scanFree = IntSet.delete index (scanFree state),
+          scanState = Map.insert (intervalVar interval) index (scanState state)
         }
+    insertActive entry active =
+      case active of
+        [] -> [entry]
+        first : rest
+          | intervalEnd (fst entry) <= intervalEnd (fst first) -> entry : active
+          | otherwise -> first : insertActive entry rest
     -- The furthest-reaching acceptable interval loses its register. The
     -- active list is sorted by end, so it is the last acceptable one.
     spill candidate state =
       let interval = candidateInterval candidate
-       in case reverse [(active, register) | (active, register) <- scanActive state, accepts config candidate register] of
-            (victim, register) : _
+       in case reverse [(active, index) | (active, index) <- scanActive state, acceptsIndex candidate index] of
+            (victim, index) : _
               | intervalEnd victim > intervalEnd interval ->
                   activate
                     interval
-                    register
+                    index
                     state
                       { scanActive = filter ((/= intervalVar victim) . intervalVar . fst) (scanActive state),
-                        scanFree = register : scanFree state,
+                        scanFree = IntSet.insert index (scanFree state),
                         scanState = Map.delete (intervalVar victim) (scanState state)
                       }
             _ -> state
 
-data ScanState register = ScanState
+data ScanState = ScanState
   { -- | The intervals holding a register, sorted by their end.
-    scanActive :: ![(Interval, register)],
-    -- | The registers nothing holds, in pool order.
-    scanFree :: ![register],
-    scanState :: !(Map Var register)
+    scanActive :: ![(Interval, Int)],
+    -- | The pool indexes nothing holds.
+    scanFree :: !IntSet,
+    scanState :: !(Map Var Int)
   }
 
 -- Uses
