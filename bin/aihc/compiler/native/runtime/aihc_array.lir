@@ -119,13 +119,6 @@ entry:
   return 0
 }
 
-export func @aihc_array_same(%left: ptr, %right: ptr) -> i64 cc c {
-entry:
-  %same = eq ptr %left, %right
-  %result = zext i1 %same to i64
-  return %result
-}
-
 data @aihc_array_copy_message align 1 = {
   bytes "boxed-array copy length is invalid", zero 1
 }

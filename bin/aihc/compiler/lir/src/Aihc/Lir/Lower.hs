@@ -1634,9 +1634,15 @@ comparisonPrimitives =
   ]
 
 -- | Comparisons of two addresses. An address compares as an unsigned number.
+-- The identity tests of the mutable heap objects belong here too: two
+-- arrays or two references are the same exactly when they are one object,
+-- so the test is a pointer comparison and needs no runtime call.
 addressComparisonPrimitives :: [(Text, CompareOp)]
 addressComparisonPrimitives =
   [ ("reallyUnsafePtrEquality#", Eq),
+    ("sameMutableArray#", Eq),
+    ("sameSmallMutableArray#", Eq),
+    ("sameMutVar#", Eq),
     ("eqAddr#", Eq),
     ("neAddr#", Ne),
     ("ltAddr#", LtU),

@@ -289,13 +289,11 @@ AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
                           AihcSlot initial);
 AihcSlot aihc_array_index(AihcValue *array, int64_t index);
 AihcSlot aihc_array_write(AihcValue *array, int64_t index, AihcSlot value);
-uint64_t aihc_array_same(AihcValue *left, AihcValue *right);
 AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial);
 AihcSlot aihc_mutvar_read(AihcValue *mutvar);
 AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value);
 uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
                                       AihcSlot replacement);
-uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right);
 /* Stable-name handles are auxiliary, non-moving objects. The machine-owned
    table keeps their referents synchronized with a moving collector. */
 void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value);

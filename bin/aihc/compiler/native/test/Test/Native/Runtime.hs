@@ -127,8 +127,6 @@ mutVarSource =
       "  if (aihc_mutvar_read(mutvar) != 9) return 4;",
       "  if (aihc_mutvar_compare_and_swap(mutvar, 9, 10) != 0) return 5;",
       "  if (aihc_mutvar_read(mutvar) != 10) return 6;",
-      "  if (!aihc_mutvar_same(mutvar, mutvar)) return 7;",
-      "  if (aihc_mutvar_same(mutvar, aihc_mutvar_new(machine, 0))) return 8;",
       "  return 0;",
       "}"
     ]

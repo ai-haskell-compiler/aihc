@@ -47,6 +47,14 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           addressIndexInlineNames,
+      testCase "keeps the identity tests of mutable heap objects out of the runtime ABI" $
+        mapM_
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
+          identityInlineNames,
+      testCase "accepts the identity tests of mutable heap objects in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          identityInlineNames,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
         mapM_
           ( \(primitive, symbol) ->
@@ -123,11 +131,11 @@ tests =
       testCase "accepts the complete boxed-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst arrayRuntimeSymbols <> ["newArray#", "unsafeFreezeArray#", "unsafeThawArray#"]),
+          (map fst arrayRuntimeSymbols <> ["newArray#", "sameMutableArray#", "unsafeFreezeArray#", "unsafeThawArray#"]),
       testCase "accepts the complete mutable-reference API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ("newMutVar#" : map fst mutVarRuntimeSymbols),
+          ("newMutVar#" : "sameMutVar#" : map fst mutVarRuntimeSymbols),
       testCase "accepts the complete stable-name API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -247,7 +255,6 @@ arrayRuntimeSymbols =
   [ ("indexArray#", "aihc_array_index"),
     ("readArray#", "aihc_array_index"),
     ("writeArray#", "aihc_array_write"),
-    ("sameMutableArray#", "aihc_array_same"),
     ("sizeofArray#", "aihc_array_length"),
     ("sizeofMutableArray#", "aihc_array_length")
   ]
@@ -256,9 +263,15 @@ mutVarRuntimeSymbols :: [(Text, Text)]
 mutVarRuntimeSymbols =
   [ ("readMutVar#", "aihc_mutvar_read"),
     ("writeMutVar#", "aihc_mutvar_write"),
-    ("casMutVar#", "aihc_mutvar_compare_and_swap"),
-    ("sameMutVar#", "aihc_mutvar_same")
+    ("casMutVar#", "aihc_mutvar_compare_and_swap")
   ]
+
+-- | Identity tests of mutable heap objects. Each one is a pointer comparison
+-- that the Lir lowering gives as a Lir operation, so none has an entry in the
+-- runtime ABI.
+identityInlineNames :: [Text]
+identityInlineNames =
+  ["sameMutableArray#", "sameSmallMutableArray#", "sameMutVar#"]
 
 -- | Primitives that the Lir lowering gives as Lir operations. They have no
 -- entry in the runtime ABI.

@@ -7,7 +7,6 @@
 extern func @aihc_array_new(ptr, i64, i64) -> ptr cc c
 extern func @aihc_array_index(ptr, i64) -> i64 cc c
 extern func @aihc_array_write(ptr, i64, i64) -> i64 cc c
-extern func @aihc_array_same(ptr, ptr) -> i64 cc c
 
 export func @aihc_mutvar_new(%machine: ptr, %initial: i64) -> ptr cc c {
 entry:
@@ -42,10 +41,4 @@ swap:
 
 unchanged:
   return 1
-}
-
-export func @aihc_mutvar_same(%left: ptr, %right: ptr) -> i64 cc c {
-entry:
-  %same = call @aihc_array_same(%left, %right)
-  return %same
 }

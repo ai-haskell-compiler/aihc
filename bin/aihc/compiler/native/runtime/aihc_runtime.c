@@ -193,8 +193,8 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
   return array->fields + 1;
 }
 
-/* aihc_array_new, aihc_array_index, aihc_array_write, aihc_array_same, and
-   the info table they share live in compiler/native/runtime/aihc_array.lir.
+/* aihc_array_new, aihc_array_index, aihc_array_write, and the info table
+   they share live in compiler/native/runtime/aihc_array.lir.
    aihc_array_length and aihc_array_elements stay here: the collector walks
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */

@@ -566,10 +566,11 @@ The units are:
   the executable halt flag.
 
 - `aihc_array.lir` holds the info table of a boxed array and the functions
-  `aihc_array_new`, `aihc_array_index`, `aihc_array_write`, and
-  `aihc_array_same`. The collector keeps `aihc_array_length` and
-  `aihc_array_elements` in C, and the unit calls `aihc_array_length` for the
-  object-kind check.
+  `aihc_array_new`, `aihc_array_index`, and `aihc_array_write`. The identity
+  test of two arrays is a pointer comparison that the lowering emits inline,
+  so the unit has no function for it. The collector keeps `aihc_array_length`
+  and `aihc_array_elements` in C, and the unit calls `aihc_array_length` for
+  the object-kind check.
 - `aihc_mutvar.lir` holds the `MutVar#` primitives. A mutable reference is a
   boxed array of one element, so every one of them calls the array unit.
 - `aihc_stable_name.lir` holds the stable-name table: the lookup, the
