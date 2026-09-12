@@ -242,7 +242,7 @@ executable aihc
     -Wall
     -threaded
     -rtsopts
-    "-with-rtsopts=-N -A64m"
+    "-with-rtsopts=-N -A16m"
 
   default-language: GHC2021
 
