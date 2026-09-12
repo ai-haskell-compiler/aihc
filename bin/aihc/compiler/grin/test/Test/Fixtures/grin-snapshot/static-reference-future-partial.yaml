@@ -1,0 +1,29 @@
+entry: $entry
+program: |
+  constructor Box/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  global caf = (F$caf)
+
+  $caf -> BoxedRep Lifted =
+    store (CBox (42 :: IntRep))
+
+  $later (argument%3 :: IntRep) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) global-ref caf
+
+  $entry -> BoxedRep Lifted =
+    (first%1 :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) global-ref caf
+    () <- ensure-heap (1048576 :: WordRep)
+    () <- ensure-heap (2097152 :: WordRep)
+    (thunk%2 :: BoxedRep Lifted) <- store (P$later/[[IntRep]])
+    (second%4 :: BoxedRep Lifted) <- apply @(BoxedRep Lifted) (thunk%2 :: BoxedRep Lifted) (0 :: IntRep)
+    store (CPair (first%1 :: BoxedRep Lifted) (second%4 :: BoxedRep Lifted))
+return: "@0"
+heap: |
+  @0 = CPair @1 @1
+  @1 = CBox 42
+allocations:
+  macos-arm64: 11
+  linux-amd64: 11
+status: pass
+reason: A future partial application must retain the static objects that its code can reach before allocation.

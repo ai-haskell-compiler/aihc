@@ -28,20 +28,15 @@ tests =
       runtimeProgramTest
         "Lir runtime units parse the RTS options"
         RuntimeGcSemispace
-        ["+RTS", "-M2k", "-Zs", "-RTS", "kept", "--RTS", "+RTS", "-M1X"]
+        ["+RTS", "-M2k", "-RTS", "kept", "--RTS", "+RTS", "-M1X"]
         runtimeOptionsSource,
       runtimeProgramTest "semispace grows when live data exceeds the initial space" RuntimeGcSemispace [] growthSource,
       runtimeProgramTest "semispace stops at the heap limit" RuntimeGcSemispace ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
         "static reference roots collect a static object no table names"
         RuntimeGcSemispace
-        ["+RTS", "-Zs", "-RTS"]
-        (staticReferenceSource CollectsUnreachableCaf),
-      runtimeProgramTest
-        "every evaluated static object stays alive by default"
-        RuntimeGcSemispace
         []
-        (staticReferenceSource KeepsEveryCaf),
+        staticReferenceSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the machine halts" True EndsWithReturn,
       runtimeStatisticsTest "no statistics file is written without AIHC_RTS_STATS" False EndsWithProcessExit
@@ -150,7 +145,6 @@ runtimeOptionsSource =
       "  aihc_program_arguments_initialize(argc, argv);",
       "  AihcMachine *machine = aihc_machine_new(0);",
       "  if (!machine->heap_limit_enabled || machine->heap_max_bytes != 2048) return 1;",
-      "  if (!aihc_rts_static_reference_roots()) return 19;",
       "  size_t name_length = strlen(argv[0]) + 1;",
       "  int64_t size = aihc_program_arguments_size();",
       "  if (size != (int64_t)(name_length + sizeof(kept))) return 2;",
@@ -273,18 +267,9 @@ growthSource =
       "}"
     ]
 
--- | Which behaviour one run of 'staticReferenceSource' expects.
-data StaticReferenceExpectation
-  = CollectsUnreachableCaf
-  | KeepsEveryCaf
-
--- | Evaluate two static thunks, then collect with a table that names only one
--- of them. Under @-Zs@ the named thunk must still reach its list and the list
--- behind the unnamed thunk must be gone. By default the collector ignores
--- tables and both lists survive. No code and no section lists the two
--- thunks: the runtime records them when they become indirections.
-staticReferenceSource :: StaticReferenceExpectation -> String
-staticReferenceSource expectation =
+-- | The table retains one CAF. The other CAF must become unreachable.
+staticReferenceSource :: String
+staticReferenceSource =
   unlines
     ( [ "#include \"aihc_runtime.h\"",
         "static const uint8_t cell_is_pointer[] = {1};",
@@ -333,22 +318,11 @@ staticReferenceSource expectation =
         "  uint64_t live = (uint64_t)(machine->heap_next - machine->heap_start);",
         "  if (list_length((AihcValue *)aihc_value_fields((AihcValue *)&named_caf)[0]) != 200) return 1;"
       ]
-        <> expectationLines
+        <> ["  if (live > 4800) return 2;"]
         <> [ "  return 0;",
              "}"
            ]
     )
-  where
-    -- One 200-cell list plus its terminator occupies 200 * 16 + 8 bytes. The
-    -- bound sits between one and two of them, so it distinguishes the two
-    -- behaviours without depending on the exact object layout.
-    expectationLines =
-      case expectation of
-        CollectsUnreachableCaf -> ["  if (live > 4800) return 2;"]
-        KeepsEveryCaf ->
-          [ "  if (live < 6400) return 2;",
-            "  if (list_length((AihcValue *)aihc_value_fields((AihcValue *)&unnamed_caf)[0]) != 200) return 3;"
-          ]
 
 -- | Keep more live data than the 256-byte heap limit allows. The runtime must
 -- stop with the heap limit diagnostic, which the program reports as success.

@@ -11,8 +11,8 @@
 ;   --RTS  ends option processing; every later argument is a program argument
 ;
 ; The first argument is the program name and never an option. The recognized
-; options are -M<size>, a heap limit with an optional K, M, G, or T suffix,
-; and -Zs, which decides static object liveness from the reference tables.
+; option is -M<size>, a heap limit with an optional K, M, G, or T suffix.
+; Static reference tables always determine static object liveness.
 ;
 ; The environment arrives the same way: one buffer of NAME=VALUE strings,
 ; each ended by a zero byte. The one recognized variable is AIHC_RTS_STATS,
@@ -36,7 +36,6 @@ global @aihc_program_argument_bytes: i64
 ; initializes the arguments, so a program without options gets the defaults.
 global @aihc_rts_option_heap_max_bytes: i64
 global @aihc_rts_option_heap_limit_enabled: i64
-global @aihc_rts_option_static_reference_roots: i64
 ; The zero-terminated path of the statistics file, or null when the
 ; environment does not request one.
 global @aihc_rts_option_stats_path: ptr
@@ -44,7 +43,6 @@ global @aihc_rts_option_stats_path: ptr
 data @aihc_rts_start_marker align 1 = { bytes "+RTS", zero 1 }
 data @aihc_rts_end_marker align 1 = { bytes "-RTS", zero 1 }
 data @aihc_rts_stop_marker align 1 = { bytes "--RTS", zero 1 }
-data @aihc_rts_static_roots_option align 1 = { bytes "-Zs", zero 1 }
 data @aihc_rts_stats_variable align 1 = { bytes "AIHC_RTS_STATS=", zero 1 }
 
 data @aihc_rts_missing_size_message align 1 = {
@@ -72,12 +70,6 @@ entry:
 export func @aihc_rts_heap_limit_enabled() -> i64 cc c {
 entry:
   %value = global.get @aihc_rts_option_heap_limit_enabled
-  return %value
-}
-
-export func @aihc_rts_static_reference_roots() -> i64 cc c {
-entry:
-  %value = global.get @aihc_rts_option_static_reference_roots
   return %value
 }
 
@@ -233,17 +225,6 @@ invalid:
 ; Apply one argument that sits between +RTS and -RTS.
 func @aihc_rts_parse_option(%argument: ptr) {
 entry:
-  %static_roots = call @aihc_rts_text_is(%argument, @aihc_rts_static_roots_option)
-  %is_static_roots = ne i64 %static_roots, 0
-  br %is_static_roots, enable_static_roots, dash
-
-enable_static_roots:
-  global.set @aihc_rts_option_static_reference_roots, 1
-  return
-
-; The second byte is read only after the first is known to be a dash, so the
-; read never leaves the argument.
-dash:
   %first = load i8 [%argument] align 1
   %is_dash = eq i8 %first, '-'
   br %is_dash, letter, unknown
@@ -318,7 +299,6 @@ rejected:
 reset:
   global.set @aihc_rts_option_heap_max_bytes, 0
   global.set @aihc_rts_option_heap_limit_enabled, 0
-  global.set @aihc_rts_option_static_reference_roots, 0
   ; An empty argument list still owns one byte, so the buffer is never null.
   %empty = eq i64 %length, 0
   %capacity = select i64 %empty, 1, %length

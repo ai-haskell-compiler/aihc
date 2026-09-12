@@ -12,9 +12,9 @@
 -- computes one, every reference stays an ordinary relocation, and the analysis
 -- does not need the whole program.
 --
--- A node stored on the heap contributes no child. The stored object carries
--- its own info table, and that table carries the target function's static
--- reference table, so the collector reaches it only while the object lives.
+-- A function also needs the tables of objects that it can create.
+-- A collection can occur before allocation, when no object carries those tables.
+-- This rule also applies to continuation closures from CPS conversion.
 module Aihc.Grin.Srt
   ( StaticObject (..),
     StaticReferenceTable (..),
@@ -46,7 +46,7 @@ data StaticObject = StaticObject
   deriving (Eq, Show, Read)
 
 -- | The static objects one function reaches directly, and the tables of the
--- functions it calls directly.
+-- functions it calls or uses as object entries.
 data StaticReferenceTable = StaticReferenceTable
   { srtObjects :: ![Text],
     srtChildren :: ![FunctionName]
@@ -144,7 +144,7 @@ programStaticReferences program =
         | function <- grinFunctions program,
           let callees =
                 Set.delete (grinFunctionName function) $
-                  Set.intersection definedNames (bodyCalls (grinFunctionBody function)),
+                  Set.intersection definedNames (bodyReferences (grinFunctionBody function)),
           not (Set.null callees)
         ]
     -- A function reaches a traced static object when it mentions one or when
@@ -186,20 +186,21 @@ functionDirectObjects untracedNames function =
         Set.difference (freeExprVars body) (Set.fromList (grinFunctionParameters function))
     mentioned = Set.union freeNames (Set.fromList (grinExprGlobalReferences body))
 
--- | Every function an expression calls by name. Calls through heap objects
--- are absent on purpose: the entered object carries the callee's table.
-bodyCalls :: GrinExpr -> Set FunctionName
-bodyCalls expression =
+-- | Code references include calls and the entry functions of future objects.
+-- Existing objects carry their own tables. Future objects need an edge from
+-- the active function before an allocation can cause a collection.
+bodyReferences :: GrinExpr -> Set FunctionName
+bodyReferences expression =
   case expression of
     GrinCall _ name _ -> Set.singleton name
-    GrinBind _ valueExpression body -> bodyCalls valueExpression <> bodyCalls body
-    GrinStoreRec _ body -> bodyCalls body
-    GrinStoreRecUnchecked _ body -> bodyCalls body
-    GrinCase _ _ alternatives -> foldMap (bodyCalls . grinAltRhs) alternatives
+    GrinBind _ valueExpression body -> bodyReferences valueExpression <> bodyReferences body
+    GrinStoreRec bindings body -> foldMap (nodeReferences . snd) bindings <> bodyReferences body
+    GrinStoreRecUnchecked bindings body -> foldMap (nodeReferences . snd) bindings <> bodyReferences body
+    GrinCase _ _ alternatives -> foldMap (bodyReferences . grinAltRhs) alternatives
     GrinConstant {} -> Set.empty
-    GrinStore {} -> Set.empty
+    GrinStore node -> nodeReferences node
     GrinEnsureHeap {} -> Set.empty
-    GrinStoreUnchecked {} -> Set.empty
+    GrinStoreUnchecked node -> nodeReferences node
     GrinUpdate {} -> Set.empty
     GrinEval {} -> Set.empty
     GrinCpsEval {} -> Set.empty
@@ -215,3 +216,11 @@ bodyCalls expression =
     GrinThrow {} -> Set.empty
     GrinCatch {} -> Set.empty
     GrinForeignCallExpr {} -> Set.empty
+
+-- | Constructor nodes have no entry function.
+nodeReferences :: GrinNode -> Set FunctionName
+nodeReferences node =
+  case grinNodeTag node of
+    GrinThunk name -> Set.singleton name
+    GrinClosure name _ -> Set.singleton name
+    GrinConstructor {} -> Set.empty

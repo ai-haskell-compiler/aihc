@@ -29,11 +29,7 @@ typedef struct {
    collection records the objects it marks in an open-addressed hash set and
    scans each one once through its info table, so an evaluated CAF gets its
    target forwarded like any heap field.
-
-   An evaluated CAF that only code references is reachable through no pointer.
-   aihc_update therefore records every object outside the heap that becomes an
-   indirection in a second set that lives for the whole program. By default a
-   collection marks all of them. Under -Zs the reference tables decide. */
+ */
 typedef struct {
   AihcValue **slots;
   size_t capacity;
@@ -53,8 +49,6 @@ typedef struct {
 } AihcSrtWorklist;
 
 static AihcAddressSet aihc_marked_statics;
-static AihcAddressSet aihc_updated_statics;
-static AihcMachine *aihc_gc_machine;
 static AihcStaticWorklist aihc_static_worklist;
 static AihcSrtWorklist aihc_srt_worklist;
 /* Terminates the list of tables this collection has walked. Tables form a
@@ -391,20 +385,8 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
   aihc_address_set_clear(&aihc_marked_statics);
   aihc_static_worklist.count = 0;
   aihc_srt_worklist.count = 0;
-  if (aihc_rts_static_reference_roots()) {
-    /* The running function has no heap object of its own to carry its table,
-       so it publishes one on entry. Suspended code is a continuation closure
-       and reaches its table through its info table like any other object. */
-    aihc_walk_srt(aihc_current_srt);
-  } else {
-    /* Every evaluated static object stays alive. The tables do not yet name
-       everything a running program reaches, so this remains the default. */
-    for (size_t slot = 0; slot < aihc_updated_statics.capacity; ++slot) {
-      if (aihc_updated_statics.slots[slot] != NULL) {
-        aihc_mark_static(aihc_updated_statics.slots[slot]);
-      }
-    }
-  }
+  /* The active function publishes its table at entry. */
+  aihc_walk_srt(aihc_current_srt);
   aihc_visit_roots(machine, root_count, roots, aihc_forward_root, &context);
   aihc_trace(&context);
   aihc_clear_srt_stamps();
@@ -420,7 +402,6 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 }
 
 void aihc_gc_init(AihcMachine *machine) {
-  aihc_gc_machine = machine;
   machine->semispace_bytes = AIHC_SEMISPACE_BYTES;
   if (machine->heap_limit_enabled &&
       machine->semispace_bytes > machine->heap_max_bytes) {
@@ -431,16 +412,6 @@ void aihc_gc_init(AihcMachine *machine) {
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
   machine->other_space = NULL;
   machine->other_space_bytes = 0;
-}
-
-void aihc_gc_note_update(AihcValue *object) {
-  AihcMachine *machine = aihc_gc_machine;
-  if (machine != NULL &&
-      aihc_in_space(machine->heap_start, aihc_semispace_capacity(machine),
-                    object)) {
-    return;
-  }
-  (void)aihc_address_set_insert(&aihc_updated_statics, object);
 }
 
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
