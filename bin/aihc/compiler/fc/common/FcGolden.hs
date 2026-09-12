@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig, FcDesugarResult (..), desugarModuleFc, lintProgram, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..), InlineConfig (..), InlineMode (..), Program, desugarModuleFc, inlineProgram, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -91,7 +91,10 @@ data FcCase = FcCase
     caseExpected :: !(Maybe String),
     caseStatus :: !ExpectedStatus,
     caseLint :: !LintExpectation,
-    caseReason :: !String
+    caseReason :: !String,
+    -- | Run the inliner on the merged program of the modules, and pin its
+    -- output instead of the desugared modules.
+    caseInline :: !(Maybe InlineMode)
   }
   deriving (Eq, Show)
 
@@ -164,7 +167,7 @@ loadFcCase path = do
 
 parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
 parseFcFixture path value = do
-  (extNames, modules, expectedText, statusText, lintText, reasonText) <-
+  (extNames, modules, expectedText, statusText, lintText, reasonText, inline) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -173,7 +176,8 @@ parseFcFixture path value = do
           status <- obj .: "status"
           lint <- obj .:? "lint" .!= "pass"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, mods, expected, status, lint, reason)
+          inline <- obj .:? "inline" >>= traverse parseInlineMode
+          pure (exts, mods, expected, status, lint, reason, inline)
       )
       value
   exts <- validateExtensions path extNames
@@ -193,8 +197,23 @@ parseFcFixture path value = do
         caseExpected = expected,
         caseStatus = status,
         caseLint = lint,
-        caseReason = reason
+        caseReason = reason,
+        caseInline = inline
       }
+
+-- | The @inline@ key: @shrink@, or @budget@ with the size limit that the
+-- inliner may fill.
+parseInlineMode :: Y.Value -> Y.Parser InlineMode
+parseInlineMode value =
+  case value of
+    Y.String "shrink" -> pure InlineShrink
+    Y.Object obj -> do
+      mode <- obj .: "mode"
+      case mode :: Text of
+        "shrink" -> pure InlineShrink
+        "budget" -> InlineBudget <$> obj .: "limit"
+        _ -> fail "inline mode must be shrink or budget"
+    _ -> fail "inline must be shrink, or an object with mode and limit"
 
 parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->
@@ -238,7 +257,9 @@ renderFcCase tc =
                               (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings fixtureWiring checked) availableInterface checked)
                               fixtureTcResults
                       if all dsSuccess fixtureResults
-                        then lintAndRenderResults fixtureResults
+                        then case caseInline tc of
+                          Nothing -> lintAndRenderResults fixtureResults
+                          Just mode -> lintAndRenderInlined mode (map dsProgram fixtureResults)
                         else Left (unlines (concatMap dsErrors fixtureResults))
                     else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
@@ -247,6 +268,26 @@ renderFcCase tc =
     fixtureModules = modulesInPackage fixturePackage . map withPragmaExtensions
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
+    -- The modules merge into one program, as a whole-program build merges
+    -- them, and the inliner runs on it with every public value as a root.
+    lintAndRenderInlined mode programs =
+      let merged = mergePrograms programs
+          config =
+            InlineConfig
+              { inlineMode = mode,
+                inlineRoots = Nothing,
+                inlineSiteLimit = 100,
+                inlineRounds = 4
+              }
+          (inlined, _) = inlineProgram config merged
+       in case renderResult inlined of
+            Left renderError -> Left renderError
+            Right rendered ->
+              case (caseLint tc, lintProgram inlined) of
+                (LintPass, []) -> Right rendered
+                (LintPass, lintErrors) -> Left (lintReport lintErrors rendered)
+                (LintXFail, []) -> Left ("System FC lint now accepts this program; drop the lint: xfail key.\nreason was: " <> caseReason tc <> "\nSystem FC output:\n" <> rendered)
+                (LintXFail, _) -> Right rendered
     lintAndRenderResults fixtureResults =
       case renderResults fixtureResults of
         Left renderError -> Left renderError
@@ -270,9 +311,10 @@ renderFcCase tc =
         <> "\nSystem FC output:\n"
         <> rendered
     renderResults results =
-      unlines <$> traverse renderResult results
-    renderResult result =
-      let rendered = renderProgram (dsProgram result)
+      unlines <$> traverse (renderResult . dsProgram) results
+    renderResult :: Program -> Either String String
+    renderResult program =
+      let rendered = renderProgram program
        in case parseProgram rendered of
             Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> T.unpack rendered)
             Right parsed ->

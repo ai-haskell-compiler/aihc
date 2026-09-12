@@ -1,0 +1,60 @@
+---
+extensions: []
+modules:
+- |
+  module Lib (pick) where
+  import GHC.Types (Bool (..))
+
+  pick :: Bool -> Bool -> Bool
+  pick a b = case a of
+    True -> b
+    False -> a
+- |
+  module Test (use) where
+  import GHC.Types (Bool (..))
+  import Lib (pick)
+
+  use :: Bool -> Bool
+  use x = pick x True
+inline: shrink
+expected: |-
+  scope 1 = "" Lib
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tBool :: 3.tType;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vFalse :: 3.tBool;
+    3.vLifted :: 3.tLevity;
+    3.vTrue :: 3.tBool
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
+  pub val 1.vpick :: 3.tBool 3.→ 3.tBool 3.→ 3.tBool
+   = λ(x : 3.tBool).
+    λ(y : 3.tBool).
+      case x as (_scrut : 3.tBool) return (3.tBool) of {
+          3.vTrue →
+              y;
+          3.vFalse →
+              x
+      }
+
+  pub val 2.vuse :: 3.tBool 3.→ 3.tBool
+   = λ(x : 3.tBool).
+    case x as (_scrut : 3.tBool) return (3.tBool) of {
+        3.vTrue →
+            3.vTrue;
+        3.vFalse →
+            x
+    }
+status: pass
+reason: A value of another module moves to its use in the merged program, and stays because it is public.

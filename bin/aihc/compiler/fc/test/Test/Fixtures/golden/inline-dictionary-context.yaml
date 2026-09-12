@@ -1,0 +1,110 @@
+---
+extensions: []
+modules:
+- |
+  module Test (eqPair) where
+  import GHC.Types (Bool (..))
+
+  class MyEq a where
+    eq :: a -> a -> Bool
+
+  data Pair a = Pair a a
+
+  instance MyEq Bool where
+    eq True True = True
+    eq False False = True
+    eq _ _ = False
+
+  instance MyEq a => MyEq (Pair a) where
+    eq (Pair a b) (Pair c d) = case eq a c of
+      True -> eq b d
+      False -> False
+
+  eqPair :: Pair Bool -> Pair Bool -> Bool
+  eqPair x y = eq x y
+inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.tType;
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vFalse :: 2.tBool;
+    2.vLifted :: 2.tLevity;
+    2.vTrue :: 2.tBool
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  type 1.t$Dict$MyEq (a : 2.tType) :: 2.tType {
+      1.v$Dict$MyEq :: ∀(a : 2.tType). (a 2.→ a 2.→ 2.tBool) 2.→ 1.t$Dict$MyEq a
+  }
+
+  type 1.tPair (a : 2.tType) :: 2.tType {
+      1.vPair :: ∀(a : 2.tType). a 2.→ a 2.→ 1.tPair a
+  }
+
+  pub val 1.v$fMyEqBool :: 1.t$Dict$MyEq 2.tBool
+   = 1.v$Dict$MyEq @2.tBool 1.v$fMyEqBool$m0
+
+  val 1.v$fMyEqBool$m0 :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    λ(y : 2.tBool).
+      case x as (_scrut : 2.tBool) return (2.tBool) of {
+          2.vTrue →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.vTrue →
+                      2.vTrue;
+                  _ →
+                      2.vFalse
+              };
+          2.vFalse →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.vFalse →
+                      2.vTrue;
+                  _ →
+                      2.vFalse
+              };
+          _ →
+              2.vFalse
+      }
+
+  pub val 1.v$fMyEqPaira :: ∀(a : 2.tType). 1.t$Dict$MyEq a 2.→ 1.t$Dict$MyEq (1.tPair a)
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$MyEq a).
+      1.v$Dict$MyEq @(1.tPair a) (1.v$fMyEqPaira$m0 @a $d0)
+
+  val 1.v$fMyEqPaira$m0 :: ∀(a : 2.tType). 1.t$Dict$MyEq a 2.→ 1.tPair a 2.→ 1.tPair a 2.→ 2.tBool
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$MyEq a).
+      λ(x : 1.tPair a).
+        λ(y : 1.tPair a).
+          case x as (_scrut : 1.tPair a) return (2.tBool) of {
+              1.vPair (a{1} : a) (b : a) →
+                  case y as (_scrut{1} : 1.tPair a) return (2.tBool) of {
+                      1.vPair (c : a) (d : a) →
+                          case $d0 as ($dict : 1.t$Dict$MyEq a) return (2.tBool) of {
+                              1.v$Dict$MyEq ($method0 : a 2.→ a 2.→ 2.tBool) →
+                                  case $method0 a{1} c as (_scrut{2} : 2.tBool) return (2.tBool) of {
+                                      2.vTrue →
+                                          $method0 b d;
+                                      2.vFalse →
+                                          2.vFalse
+                                  }
+                          }
+                  }
+          }
+
+  pub val 1.veqPair :: 1.tPair 2.tBool 2.→ 1.tPair 2.tBool 2.→ 2.tBool
+   = λ(x : 1.tPair 2.tBool).
+    λ(y : 1.tPair 2.tBool).
+      1.v$fMyEqPaira$m0 @2.tBool 1.v$fMyEqBool x y
+status: pass
+reason: The helper of a dictionary with a context takes the context, and a method of an applied dictionary becomes a call of the helper.

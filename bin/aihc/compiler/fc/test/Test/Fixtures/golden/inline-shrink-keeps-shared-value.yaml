@@ -1,0 +1,56 @@
+---
+extensions: []
+modules:
+- |
+  module Test (first, second) where
+  import GHC.Types (Bool (..))
+
+  helper :: Bool -> Bool
+  helper x = case x of
+    True -> False
+    False -> True
+
+  first :: Bool -> Bool
+  first y = helper y
+
+  second :: Bool -> Bool
+  second y = helper y
+inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.tType;
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vFalse :: 2.tBool;
+    2.vLifted :: 2.tLevity;
+    2.vTrue :: 2.tBool
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  val 1.vhelper :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    case x as (_scrut : 2.tBool) return (2.tBool) of {
+        2.vTrue →
+            2.vFalse;
+        2.vFalse →
+            2.vTrue
+    }
+
+  pub val 1.vfirst :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    1.vhelper x
+
+  pub val 1.vsecond :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    1.vhelper x
+status: pass
+reason: In shrink mode a value with two uses stays when a copy is larger than the call.

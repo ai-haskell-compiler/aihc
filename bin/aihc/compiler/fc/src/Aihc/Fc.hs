@@ -11,6 +11,11 @@ module Aihc.Fc
     tidyProgram,
     mergePrograms,
     pruneProgram,
+    inlineProgram,
+    InlineConfig (..),
+    InlineMode (..),
+    InlineReport (..),
+    programSize,
     desugarModuleFc,
     DesugarConfig (..),
     moduleDesugarConfig,
@@ -25,6 +30,7 @@ module Aihc.Fc
 where
 
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
+import Aihc.Fc.Inline (InlineConfig (..), InlineMode (..), InlineReport (..), inlineProgram, programSize)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name

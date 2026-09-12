@@ -11,6 +11,8 @@ module Aihc.Cli.Install
     cabalPlatformForTarget,
     capiStubOptions,
     compileFcModules,
+    optimizeFcProgram,
+    inlineConfigFor,
     compileModules,
     compilePackageCFiles,
     moduleOutputPaths,
@@ -2052,7 +2054,12 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
   (grinNs, nativeNs) <-
     if lto
       then pure (0, 0)
-      else compileFcModules config verbose outputPaths fcModules
+      else do
+        -- Each module is inlined on its own: the program is not known here.
+        optimized <- forM fcModules $ \fcModule -> do
+          program <- optimizeFcProgram config verbose Nothing (fcModuleName fcModule) (fcProgram fcModule)
+          pure fcModule {fcProgram = program}
+        compileFcModules config verbose outputPaths optimized
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
   (capiOutputs, capiNs) <- measureTime (concat <$> mapM buildCapiStub moduleNames)
@@ -2111,6 +2118,56 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
           output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       TIO.writeFile path output
+
+-- | The inliner configuration of a level. @-O0@ has none. @-Os@ inlines
+-- only where the program gets smaller. @-O1@ and @-O2@ inline until the
+-- program has grown by half.
+inlineConfigFor :: OptimizationLevel -> Maybe [Fc.Name] -> Fc.Program -> Maybe Fc.InlineConfig
+inlineConfigFor level roots program =
+  case level of
+    O0 -> Nothing
+    Os -> Just (config Fc.InlineShrink)
+    O1 -> Just (config (Fc.InlineBudget budget))
+    O2 -> Just (config (Fc.InlineBudget budget))
+  where
+    size = Fc.programSize program
+    budget = size + size `div` 2
+    config mode =
+      Fc.InlineConfig
+        { Fc.inlineMode = mode,
+          Fc.inlineRoots = roots,
+          Fc.inlineSiteLimit = 100,
+          Fc.inlineRounds = 4
+        }
+
+-- | Run the System FC inliner of the level of the build on a program. The
+-- roots are the values the program must keep, or 'Nothing' to keep every
+-- public value.
+optimizeFcProgram :: ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
+optimizeFcProgram config verbose roots name program =
+  case inlineConfigFor (compileOptimization config) roots program of
+    Nothing -> pure program
+    Just inlineConfig -> do
+      let (optimized, report) = Fc.inlineProgram inlineConfig program
+      verbose
+        ( "Inline FC: "
+            <> T.unpack name
+            <> ", size "
+            <> show (Fc.reportSizeBefore report)
+            <> " -> "
+            <> show (Fc.reportSizeAfter report)
+            <> ", "
+            <> show (Fc.reportInlinedSites report)
+            <> " sites, "
+            <> show (Fc.reportDroppedValues report)
+            <> " values dropped, "
+            <> show (Fc.reportHelpers report)
+            <> " method helpers"
+        )
+      when (compileLint config) $ do
+        let errors = Fc.lintProgram optimized
+        unless (null errors) (ioError (userError ("FC lint failed after inlining " <> T.unpack name <> ":\n" <> unlines (map (("    " <>) . show) errors))))
+      pure optimized
 
 -- | Lower System FC modules to objects: GRIN, then Lir, then the object of
 -- the target. A module with no declarations gets an empty object. Returns

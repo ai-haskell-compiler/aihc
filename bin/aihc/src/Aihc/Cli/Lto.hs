@@ -11,7 +11,7 @@ module Aihc.Cli.Lto
 where
 
 import Aihc.Cli.ArtifactCache (hashChunks, sourceFilesHash)
-import Aihc.Cli.Install (FcModule (..), ModuleCompileConfig (..), ModuleOutputPaths (..), backendOptionsKey, compileFcModules, moduleOutputPaths)
+import Aihc.Cli.Install (FcModule (..), ModuleCompileConfig (..), ModuleOutputPaths (..), backendOptionsKey, compileFcModules, moduleOutputPaths, optimizeFcProgram)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget, executableEntryParts)
 import Aihc.Resolve (PackageId (..))
@@ -54,8 +54,11 @@ compileLtoProgram config buildRoot corePaths = do
       -- not reach is dropped before it is lowered.
       let merged = Fc.pruneProgram [entryName] (Fc.mergePrograms programs)
       verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
+      -- The whole program is known here, so the inliner keeps only the
+      -- entry and what it reaches.
+      optimized <- optimizeFcProgram config verbose (Just [entryName]) "program" merged
       createDirectoryIfMissing True (takeDirectory object)
-      _ <- compileFcModules config verbose (const paths) [FcModule "program" merged]
+      _ <- compileFcModules config verbose (const paths) [FcModule "program" optimized]
       writeFile stampPath current
   pure object
 
