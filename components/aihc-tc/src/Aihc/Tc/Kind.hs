@@ -16,6 +16,7 @@ module Aihc.Tc.Kind
     makeParamEnv,
     makeParamEnvWith,
     sigToScheme,
+    hasWildcardType,
     explicitForallNames,
     scopedSigTyVars,
     standaloneKindSigToScheme,
@@ -81,8 +82,7 @@ data ParamInfo = ParamInfo
 sigToScheme :: Type -> TcM TypeScheme
 sigToScheme ty = do
   scoped <- getScopedTyVars
-  let (explicitBinders, qualifiedBody) = splitForalls ty
-      (context, body) = splitContext qualifiedBody
+  let (explicitBinders, context, body) = splitSigma ty
       freeVars = filter (`Map.notMember` scoped) (freeTypeVars ty)
   rawTvs <- mapM freshSkolemTv freeVars
   kinds <- mapM (const freshKindMeta) freeVars
@@ -99,6 +99,21 @@ sigToScheme ty = do
   tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
   pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
+
+-- | Whether a signature contains a partial-signature wildcard.
+hasWildcardType :: Type -> Bool
+hasWildcardType ty =
+  case ty of
+    TWildcard -> True
+    TApp f a -> hasWildcardType f || hasWildcardType a
+    TFun _ a b -> hasWildcardType a || hasWildcardType b
+    TParen inner -> hasWildcardType inner
+    TAnn _ inner -> hasWildcardType inner
+    TContext preds inner -> any hasWildcardType preds || hasWildcardType inner
+    TForall _ inner -> hasWildcardType inner
+    TTuple _ _ args -> any hasWildcardType args
+    TList _ args -> any hasWildcardType args
+    _ -> False
 
 -- | The names of the variables of the explicit outer @forall@ of a
 -- signature.
@@ -273,6 +288,14 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       predicates <- mapM (surfacePredToPred tvEnv) preds
       (innerType, innerKind) <- convertSurfaceTypeWithKinds tvEnv inner
       pure (TcQualTy predicates innerType, innerKind)
+    TWildcard -> do
+      -- A partial-signature wildcard stands for a type the checked body
+      -- determines. Its representation stays open so an unlifted body
+      -- (text's @Char# -> _@ case mappings) can fill it in.
+      representation <- freshMetaTvOfKind (runtimeRepKind kinds)
+      let kind = mkTYPEKind kinds representation
+      meta <- freshMetaTvOfKind kind
+      pure (meta, kind)
     TImplicitParam name payload -> do
       payloadType <- checkSurfaceType tvEnv payload (typeKind kinds)
       constraintType <- implicitParamType name payloadType
@@ -976,6 +999,18 @@ splitContext :: Type -> ([Type], Type)
 splitContext (TAnn _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
 splitContext ty = ([], ty)
+
+-- | Peel the @forall@ binders and context of a signature, continuing
+-- through a @forall@ that follows the context, so @C a => forall s. body@
+-- yields the same scheme as @forall s. C a => body@. A second context
+-- stays in the body: a pattern synonym signature reads
+-- @required => provided => body@.
+splitSigma :: Type -> ([TyVarBinder], [Type], Type)
+splitSigma ty =
+  let (binders, qualifiedBody) = splitForalls ty
+      (context, body) = splitContext qualifiedBody
+      (innerBinders, innerBody) = splitForalls body
+   in (binders <> innerBinders, context, innerBody)
 
 splitForalls :: Type -> ([TyVarBinder], Type)
 splitForalls ty =

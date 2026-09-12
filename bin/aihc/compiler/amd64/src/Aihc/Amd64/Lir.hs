@@ -141,6 +141,9 @@ amd64Backend =
       nbQuadSymbolAddend = amd64QuadSymbolAddend,
       nbAsCode = amd64AsCode,
       nbRenderTraps = renderTraps,
+      -- A conditional jump takes a 32-bit displacement, which reaches the
+      -- stub from anywhere in the object.
+      nbTrapTrampoline = Nothing,
       nbPrologueFrame = prologueFrame,
       nbLeaveFrame = leaveFrame,
       nbSaveReg = storeSlot,

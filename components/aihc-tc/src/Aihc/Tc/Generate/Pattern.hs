@@ -133,8 +133,12 @@ checkFunctionPatternsWith gadtHandling sp arguments = do
 
 checkFunctionArgument :: SourceSpan -> (Pattern, TcType) -> TcM ()
 checkFunctionArgument ambient (pat, ty) = do
-  kind <- tcTypeKind ty
+  kind <- tcTypeKind ty >>= zonkType
   case runtimeRepFromKind kind of
+    -- A representation that is still a meta-variable comes from a
+    -- partial-signature wildcard; the checked body fixes it, and
+    -- generalization defaults whatever the body leaves open.
+    Right (TcMetaTv _) -> pure ()
     Right representation
       | not (isFixedRuntimeRep representation) ->
           emitError

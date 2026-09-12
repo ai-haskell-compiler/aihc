@@ -54,11 +54,13 @@ _indirect:
 	and x16, x16, #0xffffffff
 	mov x1, x16
 	mov x14, x0
-	cbz x14, .Llir_trap_0
+	cbz x14, .Llir_trap_3_0
 	ldr x16, =0x40600000
 	fmov s0, x16
 	mov x0, #19
 	br x14
+.Llir_trap_3_0:
+	b .Llir_trap_0
 	.text
 	.p2align 2
 _main:

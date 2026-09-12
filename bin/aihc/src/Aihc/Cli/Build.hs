@@ -18,7 +18,8 @@ module Aihc.Cli.Build
 where
 
 import Aihc.Cli.BuildModule
-  ( InstalledPackage (..),
+  ( ExecutableInputs (..),
+    InstalledPackage (..),
     dependencyConstraint,
     finishExecutable,
     generatedEntryText,
@@ -33,7 +34,6 @@ import Aihc.Cli.Install
   ( InstallLocations (..),
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
-    ModuleCompileResult (..),
     buildEnvironmentIdentity,
     cabalPlatformForTarget,
     capiStubOptions,
@@ -50,7 +50,7 @@ import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory, wholeProgramLevel)
 import Aihc.PackagePlan
   ( PackagePlan (..),
     PlanOrigin (..),
@@ -116,6 +116,7 @@ buildPackage options = do
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildLint options,
+            compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
             compileNoCode = False,
             compileOptimization = buildOptimization options,
             compileTarget = target,
@@ -171,7 +172,18 @@ buildPackage options = do
     compiled <- compileModules compileConfig compileRequest
     cObjects <- compilePackageCFiles target (buildOptimization options) verbose root outputRoot cCompileInfo
     let output = outputDirectory </> executableFileName target name
-    finishExecutable storeRoot target (buildGarbageCollector options) (buildNoLink options) output (compileObjectPaths compiled <> cObjects) selected
+    finishExecutable
+      compileConfig
+      ExecutableInputs
+        { executableStoreRoot = storeRoot,
+          executableGarbageCollector = buildGarbageCollector options,
+          executableNoLink = buildNoLink options,
+          executableOutput = output,
+          executableBuildRoot = outputRoot,
+          executableModules = compiled,
+          executableExtraObjects = cObjects,
+          executablePackages = selected
+        }
     pure output
 
 -- | Give the plan of the package being built the origin the user asked for.

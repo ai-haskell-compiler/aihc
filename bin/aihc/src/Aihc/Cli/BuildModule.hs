@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Cli.BuildModule
-  ( InstalledPackage (..),
+  ( ExecutableInputs (..),
+    InstalledPackage (..),
     LinkBundle (..),
     PackageConstraint (..),
     dependencyConstraint,
@@ -31,13 +32,14 @@ import Aihc.Cli.Install
     networkDependencyResolver,
   )
 import Aihc.Cli.Install qualified as Install
+import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.Options (BuildOptions (..), GarbageCollector, LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -134,6 +136,7 @@ runBuildModule options = do
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildLint options,
+            compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
             compileNoCode = False,
             compileOptimization = buildOptimization options,
             compileTarget = target,
@@ -175,23 +178,75 @@ runBuildModule options = do
             compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest
-  finishExecutable storeRoot target (buildGarbageCollector options) (buildNoLink options) output (compileObjectPaths compiled) selected
+  finishExecutable
+    compileConfig
+    ExecutableInputs
+      { executableStoreRoot = storeRoot,
+        executableGarbageCollector = buildGarbageCollector options,
+        executableNoLink = buildNoLink options,
+        executableOutput = output,
+        executableBuildRoot = buildRoot,
+        executableModules = compiled,
+        executableExtraObjects = [],
+        executablePackages = selected
+      }
   pure output
+
+-- | What the final step of an executable takes: the compiled modules, the
+-- objects that join them, the installed packages, and where the result
+-- goes.
+data ExecutableInputs = ExecutableInputs
+  { executableStoreRoot :: !FilePath,
+    executableGarbageCollector :: !GarbageCollector,
+    -- | Write a link bundle instead of linking.
+    executableNoLink :: !Bool,
+    -- | The executable, or the bundle directory.
+    executableOutput :: !FilePath,
+    -- | Where the modules of the executable were compiled, and where a
+    -- @--lto@ build writes the program object.
+    executableBuildRoot :: !FilePath,
+    executableModules :: !ModuleCompileResult,
+    -- | Objects of the executable beyond its modules, such as its own C
+    -- sources.
+    executableExtraObjects :: ![FilePath],
+    executablePackages :: ![InstalledPackage]
+  }
 
 -- | Turn the objects of the modules of an executable and its installed
 -- packages into the executable, or into a link bundle when the link is
 -- deferred. The entry and runtime archives of the target are prepared when
 -- the store lacks them.
-finishExecutable :: FilePath -> NativeTarget -> GarbageCollector -> Bool -> FilePath -> [FilePath] -> [InstalledPackage] -> IO ()
-finishExecutable storeRoot target garbageCollector noLink output moduleObjects packages = do
-  runtime <- ensureRuntime storeRoot target garbageCollector
+finishExecutable :: ModuleCompileConfig -> ExecutableInputs -> IO ()
+finishExecutable compileConfig inputs = do
+  let target = compileTarget compileConfig
+      storeRoot = executableStoreRoot inputs
+      output = executableOutput inputs
+      buildRoot = executableBuildRoot inputs
+      compiled = executableModules inputs
+      packages = executablePackages inputs
+  runtime <- ensureRuntime storeRoot target (executableGarbageCollector inputs)
   entry <- ensureEntry storeRoot target
+  -- A @--lto@ build compiles the System FC of every module of the program,
+  -- from the packages and the executable alike, into one object. The
+  -- package archives then hold only their C and capi wrapper objects.
+  programObjects <-
+    if compileLto compileConfig
+      then do
+        let corePaths =
+              [ moduleCorePath target (installedRoot package) name
+              | package <- packages,
+                name <- packageManifestCompiledModules (installedManifest package)
+              ]
+                <> [moduleCorePath target buildRoot name | name <- compileModuleNames compiled]
+        object <- compileLtoProgram compileConfig buildRoot corePaths
+        pure [object]
+      else pure []
   createDirectoryIfMissing True (takeDirectory output)
   let orderedPackages = linkOrderedPackages packages
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
-  let objects = moduleObjects <> cObjects
+  let objects = programObjects <> compileObjectPaths compiled <> executableExtraObjects inputs <> cObjects
       archives = map packageArchive orderedPackages
-  if noLink
+  if executableNoLink inputs
     then writeLinkBundle target output objects archives entry runtime
     else linkExecutable target output objects archives entry runtime
 

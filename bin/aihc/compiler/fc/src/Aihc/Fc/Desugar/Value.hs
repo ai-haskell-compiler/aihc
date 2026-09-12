@@ -2474,7 +2474,7 @@ desugarAnnotatedExpr annotation inner = do
         Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
-        Syn.EDo statements _ -> desugarDo statements
+        Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
         Syn.EIf condition thenExpression elseExpression ->
           desugarIf (tcAnnType annotation) condition thenExpression elseExpression
         -- A multi-way if is a guarded right-hand side. A failed last guard
@@ -3254,8 +3254,13 @@ tupleConstructorName annotation flavor arity = do
         TcFunTy _ result -> sectionResultType result
         _ -> ty
 
-desugarDo :: [Syn.DoStmt Syn.Expr] -> ValueM Expr
-desugarDo statements =
+-- | Desugar the statements of a @do@ block whose type the type checker
+-- annotated on the block. The type of the block is the type of every
+-- statement suffix, so a @let@ statement takes it as the type of its body.
+-- Inferring that type from the final statement instead would look up locals
+-- that later statements bind and that are not in scope yet.
+desugarDo :: TcType -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
+desugarDo resultType statements =
   case statements of
     [] -> failValue "do block has no statements"
     [statement] ->
@@ -3265,40 +3270,31 @@ desugarDo statements =
     statement : rest ->
       case peelDoStatement statement of
         Syn.DoLetDecls declarations -> do
-          desugarLocalDecls declarations (doResultType rest) (desugarDo rest)
+          desugarLocalDecls declarations (pure resultType) (desugarDo resultType rest)
         Syn.DoBind pattern' action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
           bind <- desugarResolvedOccurrence annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDoPatternContinuation annotation pattern' rest
+          continuation <- desugarDoPatternContinuation resultType annotation pattern' rest
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
           method <- desugarResolvedOccurrence annotation resolution
           action' <- desugarExpr action
-          continuation <- desugarDo rest
+          continuation <- desugarDo resultType rest
           pure (ExApp (ExApp method action') continuation)
         other -> failValue ("unsupported do statement: " <> take 80 (show other))
 
-doResultType :: [Syn.DoStmt Syn.Expr] -> ValueM TcType
-doResultType statements =
-  case reverse statements of
-    statement : _ ->
-      case peelDoStatement statement of
-        Syn.DoExpr body -> requiredExprType body
-        other -> failValue ("invalid final do statement: " <> take 80 (show other))
-    [] -> failValue "do block has no statements"
-
-desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
-desugarDoPatternContinuation annotation pattern' rest = do
+desugarDoPatternContinuation :: TcType -> TcAnnotation -> Syn.Pattern -> [Syn.DoStmt Syn.Expr] -> ValueM Expr
+desugarDoPatternContinuation doType annotation pattern' rest = do
   ty <- requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
   case locals of
-    Just bindings -> ExLam binder <$> withLocals bindings (desugarDo rest)
+    Just bindings -> ExLam binder <$> withLocals bindings (desugarDo doType rest)
     Nothing -> do
       resultType <- doBindResultType annotation
-      body <- desugarDoPattern resultType binder ty pattern' (desugarDo rest)
+      body <- desugarDoPattern resultType binder ty pattern' (desugarDo doType rest)
       pure (ExLam binder body)
 
 desugarDoPattern :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> ValueM Expr

@@ -1,0 +1,23 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE RankNTypes #-}
+    module Test where
+
+    data Box s = Box Int
+
+    unbox :: Box s -> Int -> Int
+    unbox (Box n) k = n + k
+
+    posDecimal :: (Num a) => forall s. Box s -> Int -> a -> Int
+    posDecimal marr off0 _ = go off0
+      where go off = unbox marr off
+
+    result :: Int
+    result = posDecimal (Box 3 :: Box ()) 4 (5 :: Int)
+output: |
+  I# 7
+expression: result
+status: pass
+reason: a signature with a context before a nested forall keeps its argument binders in scope, as in text's posDecimal
