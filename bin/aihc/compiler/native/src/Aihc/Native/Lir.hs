@@ -22,6 +22,8 @@ module Aihc.Native.Lir
     calleeSignature,
     classify,
     compileNativeStatements,
+    compileNativeStatementsWith,
+    compileNativeChunksWith,
     displaceSource,
     elideSlotReloadsWith,
     frameBytes,
@@ -45,10 +47,10 @@ import Aihc.Lir.RegAlloc (Allocation (..), Registers, allocateRegistersFor, read
 import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedConstant)
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
-import Aihc.Native.Object (SectionRole (..))
-import Control.Monad (forM, when, zipWithM)
+import Aihc.Native.Object (Name (..), SectionRole (..))
+import Control.Monad (forM, when)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, modify, put)
+import Control.Monad.Trans.State.Strict (StateT, get, modify, put, runStateT)
 import Data.ByteString qualified as BS
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
@@ -65,7 +67,10 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
 -- | Trap messages of one object, and the next private label index.
 data ObjectState = ObjectState
   { objectTraps :: !(Map Text Int),
+    -- | The number of the next fresh label, which names it.
     objectNextLabel :: !Int,
+    -- | The number of the next private label of any kind.
+    objectNextId :: !Int,
     -- | Whether a trap branch goes to a trampoline of the function rather
     -- than to the stub of the object. A backend whose conditional branch
     -- has a short reach keeps the stub within reach this way.
@@ -73,7 +78,7 @@ data ObjectState = ObjectState
     -- | The index of the function being compiled, and the traps it has
     -- referenced so far, by message.
     objectFunctionIndex :: !Int,
-    objectFunctionTraps :: !(Map Text Int)
+    objectFunctionTraps :: !(Map Text (Int, Name))
   }
 
 type NativeM error = StateT ObjectState (Either error)
@@ -101,7 +106,7 @@ data NativeBackend statement register error = NativeBackend
     nbSection :: SectionRole -> statement,
     nbAlign :: Int -> statement,
     nbGlobal :: Text -> statement,
-    nbLabel :: Text -> statement,
+    nbLabel :: Name -> statement,
     nbBytes :: BS.ByteString -> statement,
     nbWord :: Int -> Word64 -> statement,
     nbQuad :: Word64 -> statement,
@@ -112,7 +117,7 @@ data NativeBackend statement register error = NativeBackend
     -- | A trampoline of one function: its local label and an unconditional
     -- branch to the trap stub with the given label. A backend whose
     -- conditional branch reaches the whole object gives 'Nothing'.
-    nbTrapTrampoline :: !(Maybe (Text -> Text -> [statement])),
+    nbTrapTrampoline :: !(Maybe (Name -> Text -> [statement])),
     nbPrologueFrame :: Bool -> Int -> [statement],
     nbLeaveFrame :: Ctx register -> Int -> [statement],
     nbSaveReg :: register -> Int -> statement,
@@ -127,10 +132,10 @@ data NativeBackend statement register error = NativeBackend
     nbFloatFromVec :: Type -> Int -> register -> [statement],
     nbFloatToVec :: Type -> register -> Int -> [statement],
     nbCCallExtra :: Int -> [statement],
-    nbJump :: Text -> statement,
+    nbJump :: Name -> statement,
     nbCanFuseFloatCompare :: CompareOp -> Bool,
     nbConditionTest :: Ctx register -> Maybe Fused -> Operand -> NativeM error ([statement], BranchTest statement error),
-    nbCompareAndBranchEqual :: Ctx register -> Type -> register -> Integer -> Text -> [statement],
+    nbCompareAndBranchEqual :: Ctx register -> Type -> register -> Integer -> Name -> [statement],
     nbCReturnFloat :: CallingConvention -> [Type] -> [statement],
     nbBinary :: Ctx register -> BinaryOp -> Type -> register -> register -> Operand -> NativeM error [statement],
     nbUnary :: UnaryOp -> Type -> register -> register -> [statement],
@@ -153,8 +158,8 @@ data NativeBackend statement register error = NativeBackend
 
 -- | How a branch tests a condition.
 data BranchTest statement error = BranchTest
-  { btWhen :: Text -> NativeM error [statement],
-    btUnless :: Text -> NativeM error [statement]
+  { btWhen :: Name -> NativeM error [statement],
+    btUnless :: Name -> NativeM error [statement]
   }
 
 -- | The frame of one function. Offsets are bytes above the stack pointer
@@ -178,7 +183,7 @@ frameBytes backend layout
 data Ctx register = Ctx
   { ctxFunction :: !Function,
     ctxLayout :: !(Layout register),
-    ctxLabels :: !(Map Label Text),
+    ctxLabels :: !(Map Label Name),
     ctxBlockParameters :: !(Map Label [(Var, Type)]),
     ctxSignatures :: !(Map Symbol Signature),
     ctxIncomingOverflow :: Int,
@@ -226,28 +231,38 @@ data SlotEffect
 unsupported :: NativeBackend statement register error -> Text -> NativeM error value
 unsupported backend = lift . Left . nbUnsupported backend
 
-freshLabel :: Text -> NativeM error Text
+-- | The next number for a label private to the object.
+nextLabelId :: NativeM error Int
+nextLabelId = do
+  state <- get
+  let identifier = objectNextId state
+  put state {objectNextId = identifier + 1}
+  pure identifier
+
+freshLabel :: Text -> NativeM error Name
 freshLabel kind = do
   state <- get
   let index = objectNextLabel state
   put state {objectNextLabel = index + 1}
-  pure (".Llir_" <> kind <> "_" <> tshow index)
+  identifier <- nextLabelId
+  pure (LocalName identifier (".Llir_" <> kind <> "_" <> tshow index))
 
--- | The label of the stub that reports one trap message.
-trapLabel :: Text -> NativeM error Text
+-- | The label of the stub that reports one trap message, or of the
+-- trampoline of the function to it.
+trapLabel :: Text -> NativeM error Name
 trapLabel message = do
   state <- get
   let index = Map.findWithDefault (Map.size (objectTraps state)) message (objectTraps state)
-  put
-    state
-      { objectTraps = Map.insert message index (objectTraps state),
-        objectFunctionTraps = Map.insert message index (objectFunctionTraps state)
-      }
-  pure
-    ( if objectLocalTraps state
-        then functionTrapLabel (objectFunctionIndex state) index
-        else trapStubLabel index
-    )
+  put state {objectTraps = Map.insert message index (objectTraps state)}
+  if objectLocalTraps state
+    then case Map.lookup message (objectFunctionTraps state) of
+      Just (_, name) -> pure name
+      Nothing -> do
+        identifier <- nextLabelId
+        let name = LocalName identifier (functionTrapLabel (objectFunctionIndex state) index)
+        modify (\current -> current {objectFunctionTraps = Map.insert message (index, name) (objectFunctionTraps current)})
+        pure name
+    else pure (SymbolName (trapStubLabel index))
 
 trapStubLabel :: Int -> Text
 trapStubLabel index = ".Llir_trap_" <> tshow index
@@ -266,24 +281,51 @@ functionTrapTrampolines backend = do
     ( case nbTrapTrampoline backend of
         Just render ->
           concat
-            [ render (functionTrapLabel (objectFunctionIndex state) index) (trapStubLabel index)
-            | (_, index) <- Map.toAscList (objectFunctionTraps state)
+            [ render name (trapStubLabel index)
+            | (_, (index, name)) <- Map.toAscList (objectFunctionTraps state)
             ]
         Nothing -> []
     )
 
 -- | Lint the module, then walk its items.
 compileNativeStatements :: (Ord register) => NativeBackend statement register error -> Module -> Either error [statement]
-compileNativeStatements backend lirModule =
-  case lintModule lirModule of
-    [] -> evalStateT compileItems initialState
-    errors -> Left (nbLintErrors backend errors)
+compileNativeStatements = compileNativeStatementsWith True
+
+-- | Walk the items of the module, after linting it when asked to. The
+-- compiler lowers Lir it generated itself and lints it only under
+-- @--lint@; a hand-written unit is always linted.
+compileNativeStatementsWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> Either error [statement]
+compileNativeStatementsWith lint backend lirModule = concat <$> sequence (compileNativeChunksWith lint backend lirModule)
+
+-- | The statements of the module in chunks: one per function, in order,
+-- and one for the traps, the data and the globals. A chunk is produced
+-- only when the consumer asks for it, so an assembler that folds each
+-- chunk in before taking the next keeps one function's statements alive
+-- rather than the whole module's. A failed chunk is the last one.
+compileNativeChunksWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> [Either error [statement]]
+compileNativeChunksWith lint backend lirModule =
+  case if lint then lintModule lirModule else [] of
+    [] -> functionChunks initialState (zip [0 ..] [function | ItemFunction function <- items])
+    errors -> [Left (nbLintErrors backend errors)]
   where
+    functionChunks state remaining =
+      case remaining of
+        (index, function) : rest ->
+          case runStateT (compileFunction backend signatures index function) state of
+            Left err -> [Left err]
+            Right (statements, next) -> Right statements : functionChunks next rest
+        [] ->
+          case runStateT (renderTraps backend) state of
+            Left err -> [Left err]
+            Right (trapStatements, _) -> [Right (trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)]
+    dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
+    globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
     Module items = resolveConstants lirModule
     initialState =
       ObjectState
         { objectTraps = Map.empty,
           objectNextLabel = 0,
+          objectNextId = 0,
           objectLocalTraps = isJust (nbTrapTrampoline backend),
           objectFunctionIndex = 0,
           objectFunctionTraps = Map.empty
@@ -293,12 +335,6 @@ compileNativeStatements backend lirModule =
         ( [(functionName function, functionSignature function) | ItemFunction function <- items]
             <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items]
         )
-    compileItems = do
-      functionStatements <- concat <$> zipWithM (compileFunction backend signatures) [0 ..] [function | ItemFunction function <- items]
-      let dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
-          globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
-      trapStatements <- renderTraps backend
-      pure (functionStatements <> trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)
 
 renderTraps :: NativeBackend statement register error -> NativeM error [statement]
 renderTraps backend = do
@@ -313,7 +349,7 @@ compileData backend dataItem =
     nbAlign backend (log2 (dataAlignment dataItem))
   ]
     <> [nbGlobal backend symbol | dataLinkage dataItem == Export]
-    <> [nbLabel backend symbol]
+    <> [nbLabel backend (SymbolName symbol)]
     <> concatMap field (dataFields dataItem)
   where
     symbol = nbSymbol backend (dataName dataItem)
@@ -338,7 +374,7 @@ compileGlobal :: NativeBackend statement register error -> Global -> [statement]
 compileGlobal backend global =
   [ nbSection backend DataSection,
     nbAlign backend 3,
-    nbLabel backend (nbSymbol backend (globalName global)),
+    nbLabel backend (SymbolName (nbSymbol backend (globalName global))),
     nbQuad backend 0
   ]
 
@@ -367,8 +403,15 @@ compileFunction backend signatures index function = do
   modify (\state -> state {objectFunctionIndex = index, objectFunctionTraps = Map.empty})
   layout <- functionLayout backend signatures function
   let blocks = functionBlocks function
-      labels = Map.fromList [(blockLabel block, ".Llir_" <> tshow index <> "_" <> tshow position) | (position, block) <- zip [0 :: Int ..] blocks]
-      ctx =
+  labels <-
+    Map.fromList
+      <$> forM
+        (zip [0 :: Int ..] blocks)
+        ( \(position, block) -> do
+            identifier <- nextLabelId
+            pure (blockLabel block, LocalName identifier (".Llir_" <> tshow index <> "_" <> tshow position))
+        )
+  let ctx =
         Ctx
           { ctxFunction = function,
             ctxLayout = layout,
@@ -394,7 +437,7 @@ compileFunction backend signatures index function = do
   pure
     ( [nbSection backend TextSection, nbAlign backend (nbCodeAlign backend)]
         <> [nbGlobal backend symbol | functionLinkage function == Export]
-        <> [nbLabel backend symbol]
+        <> [nbLabel backend (SymbolName symbol)]
         <> elideSlotReloadsWith (nbAsCode backend) (prologue <> body)
         <> trampolines
     )

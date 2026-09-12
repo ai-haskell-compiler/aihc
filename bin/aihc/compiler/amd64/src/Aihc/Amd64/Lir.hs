@@ -29,6 +29,7 @@
 module Aihc.Amd64.Lir
   ( Amd64LirError (..),
     compileLirObject,
+    compileLirObjectWith,
     compileLirStatements,
     elideSlotReloads,
     lirSymbol,
@@ -68,9 +69,12 @@ lirSymbol = unSymbol
 
 -- | Lint the module, then assemble it.
 compileLirObject :: Module -> Either Amd64LirError BL.ByteString
-compileLirObject lirModule = do
-  statements <- compileLirStatements lirModule
-  either (Left . Amd64LirObjectError . T.pack . show) pure (assembleElf statements)
+compileLirObject = compileLirObjectWith True
+
+-- | Assemble the module, linting it first when asked to.
+compileLirObjectWith :: Bool -> Module -> Either Amd64LirError BL.ByteString
+compileLirObjectWith lint lirModule =
+  either (either Left (Left . Amd64LirObjectError . T.pack . show)) pure (assembleElfChunks (compileNativeChunksWith lint amd64Backend lirModule))
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
 compileLirStatements = compileNativeStatements amd64Backend
@@ -133,7 +137,7 @@ amd64Backend =
       nbSection = amd64Section,
       nbAlign = amd64Align,
       nbGlobal = amd64Global,
-      nbLabel = amd64Label,
+      nbLabel = Amd64Label,
       nbBytes = amd64Bytes,
       nbWord = \width value -> amd64Bytes (littleEndian width value),
       nbQuad = amd64Quad,
@@ -204,7 +208,7 @@ renderTraps traps =
               amd64Label (trapStubLabel index),
               amd64Instruction (AmdLea RSI (Amd64RipAddress (messageLabel index))),
               amd64Instruction (AmdMov EDX (Amd64MoveImmediate (toInteger (BS.length bytes)))),
-              amd64Instruction (AmdJmp (Amd64JumpLabel ".Llir_trap"))
+              amd64Instruction (AmdJmp (Amd64JumpLabel (SymbolName ".Llir_trap")))
             ]
           | (message, index) <- traps,
             let bytes = Text.encodeUtf8 (message <> "\n")
@@ -549,7 +553,7 @@ compareWith ctx ty signed left right =
           (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
        in loads <> extend <> [amd64Instruction (AmdCmp (Amd64RmRegister left) (Amd64BinaryRegister rightRegister))]
 
-branchUnless :: Test -> Text -> M [Amd64Statement]
+branchUnless :: Test -> Name -> M [Amd64Statement]
 branchUnless test label =
   case test of
     TestNonZero register -> pure [testZero register, amd64Instruction (AmdJe label)]
@@ -558,9 +562,9 @@ branchUnless test label =
     TestFloatEqual -> pure [amd64Instruction (AmdJne label), amd64Instruction (AmdJcc AmdParity label)]
     TestFloatNotEqual -> do
       over <- freshLabel "unordered"
-      pure [amd64Instruction (AmdJcc AmdParity over), amd64Instruction (AmdJe label), amd64Label over]
+      pure [amd64Instruction (AmdJcc AmdParity over), amd64Instruction (AmdJe label), Amd64Label over]
 
-branchWhen :: Test -> Text -> M [Amd64Statement]
+branchWhen :: Test -> Name -> M [Amd64Statement]
 branchWhen test label =
   case test of
     TestNonZero register -> pure [testZero register, amd64Instruction (AmdJne label)]
@@ -568,7 +572,7 @@ branchWhen test label =
     TestFlags condition -> pure [amd64Instruction (AmdJcc condition label)]
     TestFloatEqual -> do
       over <- freshLabel "unordered"
-      pure [amd64Instruction (AmdJcc AmdParity over), amd64Instruction (AmdJe label), amd64Label over]
+      pure [amd64Instruction (AmdJcc AmdParity over), amd64Instruction (AmdJe label), Amd64Label over]
     TestFloatNotEqual -> pure [amd64Instruction (AmdJne label), amd64Instruction (AmdJcc AmdParity label)]
 
 data RightOperand
@@ -696,7 +700,7 @@ amd64Binary ctx op ty dst a right =
                  amd64Instruction (AmdJne skip)
                ]
             <> minusOne
-            <> [amd64Label skip]
+            <> [Amd64Label skip]
         )
     narrow operandTy dest body = body <> narrowRegister operandTy dest
 
@@ -836,7 +840,7 @@ unsignedToFloat to dst a = do
         amd64Instruction (AmdJcc AmdSign large),
         amd64Instruction (AmdCvtsi2s (to == F64) 0 a),
         amd64Instruction (AmdJmp (Amd64JumpLabel done)),
-        amd64Label large
+        Amd64Label large
       ]
         <> move scratchRight a
         <> [amd64Instruction (AmdShrImmediate (Amd64RmRegister scratchRight) 1)]
@@ -845,7 +849,7 @@ unsignedToFloat to dst a = do
              amd64Instruction (AmdOr (Amd64RmRegister scratchRight) (Amd64BinaryRegister scratchLeft)),
              amd64Instruction (AmdCvtsi2s (to == F64) 0 scratchRight),
              amd64Instruction (AmdSse SseAdd (to == F64) 0 0),
-             amd64Label done,
+             Amd64Label done,
              fromFloat to dst 0
            ]
     )
@@ -872,12 +876,12 @@ floatToInteger signed from to dst a = do
             amd64Instruction (AmdJcc AmdAboveOrEqual large),
             amd64Instruction (AmdCvtts2si True dst 0),
             amd64Instruction (AmdJmp (Amd64JumpLabel done)),
-            amd64Label large,
+            Amd64Label large,
             amd64Instruction (AmdSse SseSub True 0 1),
             amd64Instruction (AmdCvtts2si True dst 0),
             immediate scratchRight (signBit F64),
             amd64Instruction (AmdXor (Amd64RmRegister dst) (Amd64BinaryRegister scratchRight)),
-            amd64Label done
+            Amd64Label done
           ]
   pure
     ( widen
@@ -982,7 +986,7 @@ amd64TailCall ctx callee convention parameterTypes arguments =
       pure (targetLoad <> argumentMoves <> leaveFrame ctx 0 <> [branch])
   where
     layout = ctxLayout ctx
-    jump label = amd64Instruction (AmdJmp (Amd64JumpLabel label))
+    jump label = amd64Instruction (AmdJmp (Amd64JumpLabel (SymbolName label)))
     aihcTailCall = do
       let outgoing = overflowBytes' (length arguments)
           incoming = ctxIncomingOverflow ctx

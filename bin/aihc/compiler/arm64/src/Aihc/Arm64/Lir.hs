@@ -25,7 +25,9 @@
 module Aihc.Arm64.Lir
   ( Arm64LirError (..),
     compileLirObject,
+    compileLirObjectWith,
     compileLirStatements,
+    arm64Backend,
     elideSlotReloads,
     lirSymbol,
   )
@@ -59,9 +61,12 @@ lirSymbol :: Symbol -> Text
 lirSymbol (Symbol name) = "_" <> name
 
 compileLirObject :: Module -> Either Arm64LirError BL.ByteString
-compileLirObject lirModule = do
-  statements <- compileLirStatements lirModule
-  either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
+compileLirObject = compileLirObjectWith True
+
+-- | Assemble the module, linting it first when asked to.
+compileLirObjectWith :: Bool -> Module -> Either Arm64LirError BL.ByteString
+compileLirObjectWith lint lirModule =
+  either (either Left (Left . Arm64LirObjectError . T.pack . show)) pure (assembleMachOChunks (compileNativeChunksWith lint arm64Backend lirModule))
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
 compileLirStatements = compileNativeStatements arm64Backend
@@ -119,7 +124,7 @@ arm64Backend =
       nbSection = arm64Section,
       nbAlign = arm64Align,
       nbGlobal = arm64Global,
-      nbLabel = arm64Label,
+      nbLabel = Arm64Label,
       nbBytes = arm64Bytes,
       nbWord = arm64Word,
       nbQuad = arm64Quad,
@@ -130,7 +135,7 @@ arm64Backend =
       -- A conditional branch reaches 1 MB. A whole-program object is
       -- larger, so each function branches to its own trampoline and the
       -- trampoline takes the 128 MB reach of an unconditional branch.
-      nbTrapTrampoline = Just (\local stub -> [arm64Label local, arm64Instruction (ArmB stub)]),
+      nbTrapTrampoline = Just (\local stub -> [Arm64Label local, arm64Instruction (ArmB (SymbolName stub))]),
       nbPrologueFrame = prologueFrame,
       nbLeaveFrame = leaveFrame,
       nbSaveReg = storeSlot,
@@ -211,7 +216,7 @@ renderTraps traps =
         concat
           [ [arm64Align 2, arm64Label (trapStubLabel index)]
               <> address X0 (messageLabel index)
-              <> [immediate X1 (BS.length bytes), arm64Instruction (ArmB ".Llir_trap")]
+              <> [immediate X1 (BS.length bytes), arm64Instruction (ArmB (SymbolName ".Llir_trap"))]
           | (message, index) <- traps,
             let bytes = Text.encodeUtf8 (message <> "\n")
           ]
@@ -469,7 +474,7 @@ compareWith ctx ty signed left right =
           (extend, rightRegister) = if signed then signExtendInto ty scratchRight register else ([], register)
        in loads <> extend <> [arm64Instruction (ArmCmp left (Arm64RegisterValue rightRegister))]
 
-branchUnless, branchWhen :: Test -> Text -> Arm64Statement
+branchUnless, branchWhen :: Test -> Name -> Arm64Statement
 branchUnless test label =
   case test of
     TestNonZero register -> arm64Instruction (ArmCbz register label)
@@ -511,7 +516,7 @@ arm64Binary ctx op ty dst a right =
                  immediate scratchExtra (minimumSigned ty),
                  arm64Instruction (ArmCmp a' (Arm64RegisterValue scratchExtra)),
                  arm64Instruction (ArmBCond ArmEq overflow),
-                 arm64Label skip
+                 Arm64Label skip
                ]
             <> narrow ty dst [arm64Instruction (ArmSdiv dst a' b')]
         )
@@ -795,7 +800,7 @@ arm64TailCall ctx callee convention parameterTypes arguments =
           let (loads, register) = operandIn' ctx 0 Code scratchTarget operand
           pure (loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget stub)])
       let branch = case callee of
-            Left label -> arm64Instruction (ArmB label)
+            Left label -> arm64Instruction (ArmB (SymbolName label))
             Right _ -> arm64Instruction (ArmBr scratchTarget)
       pure (targetLoad <> argumentMoves <> leaveFrame ctx 0 <> [branch])
   where
@@ -817,7 +822,7 @@ arm64TailCall ctx callee convention parameterTypes arguments =
                 let (loads, register) = operandIn' ctx displacement ty scratchLeft argument
               ]
           branch = case callee of
-            Left label -> arm64Instruction (ArmB label)
+            Left label -> arm64Instruction (ArmB (SymbolName label))
             Right _ -> arm64Instruction (ArmBr scratchTarget)
           operandSource ctx' ty operand =
             case operand of

@@ -9,6 +9,8 @@ module Aihc.Arm64.Assemble
     Arm64Condition (..),
     Arm64FloatOp (..),
     assembleMachO,
+    assembleMachOChunks,
+    applyStatement,
     arm64Align,
     arm64Bytes,
     arm64Global,
@@ -19,8 +21,11 @@ module Aihc.Arm64.Assemble
     arm64Word,
     arm64QuadSymbolAddend,
     arm64Section,
-    -- | Re-exported so that a caller can name the section of a statement.
+    -- | Re-exported so that a caller can name the section of a statement
+    -- and a label.
     SectionRole (..),
+    Name (..),
+    nameText,
   )
 where
 
@@ -38,7 +43,7 @@ data Arm64Statement
   = Arm64Section !SectionRole
   | Arm64Align !Int
   | Arm64Global !Text
-  | Arm64Label !Text
+  | Arm64Label !Name
   | Arm64Quad !Word64
   | -- | A little-endian value of the given byte width.
     Arm64Word !Int !Word64
@@ -167,12 +172,12 @@ data Arm64Instruction
   = ArmRet
   | ArmBrk !Word32
   | ArmBr !Arm64Register
-  | ArmB !Text
+  | ArmB !Name
   | ArmBl !Text
-  | ArmBCond !Arm64Condition !Text
-  | ArmCbz !Arm64Register !Text
-  | ArmCbnz !Arm64Register !Text
-  | ArmAdr !Arm64Register !Text
+  | ArmBCond !Arm64Condition !Name
+  | ArmCbz !Arm64Register !Name
+  | ArmCbnz !Arm64Register !Name
+  | ArmAdr !Arm64Register !Name
   | ArmAdrp !Arm64Register !Text
   | ArmMov !Arm64Register !Arm64Value
   | ArmLdr !Arm64Register !Arm64Address
@@ -242,7 +247,59 @@ data Arm64Instruction
   deriving (Eq, Show)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
-assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
+assembleMachO statements = applyStatements emptyDraft statements >>= layoutDraft >>= writeArm64MachO
+
+-- | Apply a list of statements. A run of statements that only add items to
+-- the current section is appended in one pass.
+applyStatements :: Draft -> [Arm64Statement] -> Either ObjectError Draft
+applyStatements draft statements =
+  case statements of
+    [] -> pure draft
+    Arm64Section role : rest -> applyStatements (selectSection role draft) rest
+    Arm64Global symbol : rest -> applyStatements (addGlobal symbol draft) rest
+    Arm64Align alignment : rest -> addItem (Align alignment (alignmentFill draft)) draft >>= \next -> applyStatements next rest
+    _ ->
+      let (run, rest) = span plain statements
+       in addItems (concatMap statementItems run) draft >>= \next -> applyStatements next rest
+  where
+    plain statement =
+      case statement of
+        Arm64Section _ -> False
+        Arm64Global _ -> False
+        Arm64Align _ -> False
+        _ -> True
+
+-- | The items of a statement that adds to the current section.
+statementItems :: Arm64Statement -> [Item]
+statementItems statement =
+  case statement of
+    Arm64Label name -> [Label name]
+    Arm64Quad value -> [Word 8 value]
+    Arm64Word width value -> [Word width value]
+    Arm64QuadSymbol symbol -> [Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)]
+    Arm64QuadSymbolAddend symbol addend -> [Apply (Fixup Absolute64 (SymbolName symbol) 0 8 (fromIntegral addend))]
+    Arm64Bytes value
+      | BS.null value -> []
+      | otherwise -> [Bytes value]
+    Arm64Code instruction -> encodeInstruction instruction
+    Arm64Section _ -> []
+    Arm64Global _ -> []
+    Arm64Align _ -> []
+
+-- | Assemble statements that arrive in chunks, folding each one in before
+-- the next is produced. A failed chunk ends the assembly with its error;
+-- an object error is the other side.
+assembleMachOChunks :: [Either error [Arm64Statement]] -> Either (Either error ObjectError) BL.ByteString
+assembleMachOChunks = go emptyDraft
+  where
+    go draft chunks =
+      case chunks of
+        [] -> either (Left . Right) Right (layoutDraft draft >>= writeArm64MachO)
+        Left err : _ -> Left (Left err)
+        Right statements : rest ->
+          case applyStatements draft statements of
+            Left err -> Left (Right err)
+            Right next -> next `seq` go next rest
 
 arm64Section :: SectionRole -> Arm64Statement
 arm64Section = Arm64Section
@@ -253,8 +310,9 @@ arm64Align = Arm64Align
 arm64Global :: Text -> Arm64Statement
 arm64Global = Arm64Global
 
+-- | A label that names a symbol.
 arm64Label :: Text -> Arm64Statement
-arm64Label = Arm64Label
+arm64Label = Arm64Label . SymbolName
 
 arm64Quad :: Word64 -> Arm64Statement
 arm64Quad = Arm64Quad
@@ -284,9 +342,9 @@ applyStatement result statement = do
     Arm64Label symbol -> addItem (Label symbol) draft
     Arm64Quad value -> addItem (Word 8 value) draft
     Arm64Word width value -> addItem (Word width value) draft
-    Arm64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 8 0)) draft
+    Arm64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)) draft
     -- Mach-O keeps the addend of an absolute relocation in the section bytes.
-    Arm64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol 0 8 (fromIntegral addend))) draft
+    Arm64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 (fromIntegral addend))) draft
     Arm64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
@@ -325,12 +383,12 @@ encodeInstruction instruction =
     ArmBrk value -> words32 [0xd4200000 .|. (value .&. 0xffff) `shiftL` 5]
     ArmBr source -> words32 [0xd61f0000 .|. registerNumber (registerInfo source) `shiftL` 5]
     ArmB target -> branchItem 0x14000000 Arm64Branch26 target
-    ArmBl target -> branchItem 0x94000000 Arm64Branch26 target
+    ArmBl target -> branchItem 0x94000000 Arm64Branch26 (SymbolName target)
     ArmBCond condition target -> branchItem (0x54000000 .|. conditionCode condition) Arm64Branch19 target
     ArmCbz source target -> compareBranch 0x34000000 source target
     ArmCbnz source target -> compareBranch 0x35000000 source target
     ArmAdr destination target -> fixupItem (0x10000000 .|. registerNumber (registerInfo destination)) Arm64Adr21 target
-    ArmAdrp destination symbol -> fixupItem (0x90000000 .|. registerNumber (registerInfo destination)) Arm64Page21 symbol
+    ArmAdrp destination symbol -> fixupItem (0x90000000 .|. registerNumber (registerInfo destination)) Arm64Page21 (SymbolName symbol)
     ArmMov destination source -> encodeMove (registerInfo destination) source
     ArmLdr destination address -> encodeLoadStore True destination address
     ArmLdrImmediate destination value -> words32 (loadImmediate (registerInfo destination) value)
@@ -340,7 +398,7 @@ encodeInstruction instruction =
     ArmAddPageOffset destination source symbol ->
       let rd = registerInfo destination
           rn = registerInfo source
-       in fixupItem (0x91000000 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd) Arm64PageOffset12 symbol
+       in fixupItem (0x91000000 .|. registerNumber rn `shiftL` 5 .|. registerNumber rd) Arm64PageOffset12 (SymbolName symbol)
     ArmAdd destination source value -> encodeAddSub False False destination source value
     ArmAdds destination source value -> encodeAddSub False True destination source value
     ArmSub destination source value -> encodeAddSub True False destination source value
@@ -609,16 +667,16 @@ encodePair load first second address =
         | otherwise = 0xa9000000
    in words32 [base .|. fromIntegral ((offset `div` 8) .&. 0x7f) `shiftL` 15 .|. registerNumber rt2 `shiftL` 10 .|. registerNumber rn `shiftL` 5 .|. registerNumber rt]
 
-compareBranch :: Word32 -> Arm64Register -> Text -> [Item]
+compareBranch :: Word32 -> Arm64Register -> Name -> [Item]
 compareBranch base source target =
   let register = registerInfo source
       width = if registerWidth register == 64 then 0x80000000 else 0
    in branchItem (base .|. width .|. registerNumber register) Arm64Branch19 target
 
-branchItem :: Word32 -> FixupKind -> Text -> [Item]
+branchItem :: Word32 -> FixupKind -> Name -> [Item]
 branchItem = fixupItem
 
-fixupItem :: Word32 -> FixupKind -> Text -> [Item]
+fixupItem :: Word32 -> FixupKind -> Name -> [Item]
 fixupItem instruction kind target = [Apply (Fixup kind target 0 4 (fromIntegral instruction))]
 
 conditionCode :: Arm64Condition -> Word32
