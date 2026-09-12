@@ -628,18 +628,6 @@ They use the common <code>AihcInfo</code> layout from the native run-time system
 <td>Identifies the function or the saturated constructor.</td>
 </tr>
 <tr>
-<td><code>entry</code></td>
-<td>Gives the portable run-time entry address.</td>
-</tr>
-<tr>
-<td><code>field_count</code></td>
-<td>Gives the number of payload fields in the object.</td>
-</tr>
-<tr>
-<td><code>remaining_arity</code></td>
-<td>Gives the number of arguments that the object still requires.</td>
-</tr>
-<tr>
 <td><code>field_is_pointer</code></td>
 <td>Points to a byte map that identifies managed pointers.</td>
 </tr>
@@ -650,6 +638,18 @@ They use the common <code>AihcInfo</code> layout from the native run-time system
 <tr>
 <td><code>backend_entry</code></td>
 <td>Gives the entry address that has the backend calling convention.</td>
+</tr>
+<tr>
+<td><code>srt</code></td>
+<td>Points to the static reference table of the code, or is null.</td>
+</tr>
+<tr>
+<td><code>field_count</code></td>
+<td>Gives the number of payload fields in the object. One byte: an object has at most 255 fields.</td>
+</tr>
+<tr>
+<td><code>remaining_arity</code></td>
+<td>Gives the number of arguments that the object still requires. One byte: a function takes at most 255 arguments.</td>
 </tr>
 <tr>
 <td><code>frame_kind</code></td>
@@ -663,7 +663,7 @@ They use the common <code>AihcInfo</code> layout from the native run-time system
 </table>
 <p>The garbage collector uses <code>field_count</code> and <code>field_is_pointer</code> to find managed pointers.
 The application code uses <code>remaining_arity</code> and <code>next</code> to apply one source argument.
-The evaluation code uses <code>object_kind</code> and an entry field to enter an object.
+The evaluation code uses <code>object_kind</code> and <code>backend_entry</code> to enter an object.
 Exception code uses <code>frame_kind</code> to identify continuation frames.</p>
 <p>One source argument can use more than one machine field.
 For this reason, two adjacent tables can have field counts that differ by more than one.
@@ -712,18 +712,6 @@ Its table has the following logical values:</p>
 <td>The generated <code>total</code> function.</td>
 </tr>
 <tr>
-<td><code>entry</code></td>
-<td>The portable entry for <code>total</code>.</td>
-</tr>
-<tr>
-<td><code>field_count</code></td>
-<td><code>2</code></td>
-</tr>
-<tr>
-<td><code>remaining_arity</code></td>
-<td><code>0</code></td>
-</tr>
-<tr>
 <td><code>field_is_pointer</code></td>
 <td>One byte for <code>x</code> and one byte for <code>y</code>.</td>
 </tr>
@@ -733,7 +721,19 @@ Its table has the following logical values:</p>
 </tr>
 <tr>
 <td><code>backend_entry</code></td>
-<td>The backend entry adapter for <code>total</code>.</td>
+<td>The backend entry for <code>total</code>.</td>
+</tr>
+<tr>
+<td><code>srt</code></td>
+<td>Null.</td>
+</tr>
+<tr>
+<td><code>field_count</code></td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>remaining_arity</code></td>
+<td><code>0</code></td>
 </tr>
 <tr>
 <td><code>frame_kind</code></td>
@@ -825,9 +825,10 @@ The backend also makes an implicit static object for each nullary constructor.</
 <p>The backends do not change the field meanings or the application sequence.
 They change the table encoding and the backend entry implementation.</p>
 <h3 id="amd64">AMD64<a class="headerlink" href="#amd64" title="Permanent link">&para;</a></h3>
-<p>The AMD64 backend emits each table in read-only assembly data.
-It emits a small entry adapter for each directly enterable object.
-The <code>backend_entry</code> field points to this adapter.
+<p>The AMD64 backend emits each table in read-only data.
+The <code>backend_entry</code> field points to an entry adapter.
+The run-time system provides shared adapters for objects whose fields and supplied values are all pointers, with up to eight fields and one supplied value.
+The compiler emits a small adapter for each other directly enterable object.
 Generated control code reads this field and jumps to the adapter.</p>
 <h3 id="arm64">ARM64<a class="headerlink" href="#arm64" title="Permanent link">&para;</a></h3>
 <p>The ARM64 backend uses the same table contents as the AMD64 backend.
@@ -839,13 +840,12 @@ It emits only the constructor tables that the current compilation unit requires.
 Linked constructor table names keep constructor identities equal across compilation units.</p>
 <h3 id="webassembly">WebAssembly<a class="headerlink" href="#webassembly" title="Permanent link">&para;</a></h3>
 <p>The WebAssembly backend emits the same fields in WebAssembly assembly data.
-Its pointers are 32 bits, but its counts and kind values stay 64 bits.
-Thus, its table is 56 bytes instead of the 72-byte table on 64-bit native targets.</p>
+Its pointers are 32 bits and its counts and kind values are one byte each.
+Thus, its table is 24 bytes instead of the 48-byte table on 64-bit native targets.</p>
 <p>WebAssembly calls require a compatible function type.
 Its run-time adapter converts <code>backend_entry</code> to the required function type.
 The adapter then transfers control through the WebAssembly trampoline.</p>
-<p>The portable <code>entry</code> field remains available for common run-time operations.
-The backend entry gives the fast path for generated code.</p>
+<p>The backend entry gives the fast path for generated code.</p>
 
 
 
