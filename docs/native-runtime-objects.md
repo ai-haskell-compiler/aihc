@@ -96,13 +96,16 @@ table. Consequently every managed object pays only for its tagged header and
 payload; arity, tracing metadata, and apply code consume no per-object shape
 word.
 
-The Lir lowering gives saturated closure stages a generated apply entry, the
+The Lir lowering gives saturated closure stages an apply entry, the
 `backend_entry` of the info table. Apply sites pass the machine, the closure,
 the continuation, and the supplied values in the `aihc` convention and
-tail-call that entry. The stage stub loads captured fields directly from the
+tail-call that entry. The entry loads captured fields directly from the
 closure, takes the supplied values as parameters, and tail-calls the target
-function. Non-saturating closures, partial constructors, and invalid
-applications leave the apply entry empty and use the shared C slow path.
+function. A stage whose fields and supplied values are all pointers shares
+one of the runtime's enter functions, which reaches the target through the
+identity field of the table; any other stage gets a generated stub.
+Non-saturating closures, partial constructors, and invalid applications
+leave the apply entry empty and use the shared C slow path.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
 lowered to an ordinary closure whose generated entry makes the saturated

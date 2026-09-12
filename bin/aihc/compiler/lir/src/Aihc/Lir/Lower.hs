@@ -634,16 +634,14 @@ storeSlot ty value object offset = do
       word <- emitValue "slot" I64 (PtrToInt value)
       emit [] (Store I64 (typedOperand word) (Address object offset) 8)
 
--- | Field @index@ of an info table as an @i64@.
-loadInfoWord :: Text -> Operand -> Int -> LowerM Typed
-loadInfoWord base header index = do
+-- | Byte field @index@ of an info table as an @i64@. The byte fields follow
+-- the word fields.
+loadInfoByte :: Text -> Operand -> Int -> LowerM Typed
+loadInfoByte base header index = do
   target <- targetM
-  let offset = toInteger (lowerWordSize target * index)
-  case wordType target of
-    I64 -> emitValue base I64 (Load I64 (Address header offset) 8)
-    narrow -> do
-      value <- emitValue base narrow (Load narrow (Address header offset) 4)
-      emitValue base I64 (Convert ZExt narrow (typedOperand value) I64)
+  let offset = toInteger (lowerWordSize target * infoWordFieldCount + index)
+  value <- emitValue base I8 (Load I8 (Address header offset) 1)
+  emitValue base I64 (Convert ZExt I8 (typedOperand value) I64)
 
 -- | A @code@ field of an info table.
 loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
@@ -761,11 +759,14 @@ internBitmap bytes
 lowerInfo :: RuntimeInfo -> LowerM ()
 lowerInfo info = do
   target <- targetM
-  let stub = Symbol (unSymbol (infoSymbol info) <> "_e")
-      fields = infoFields info
-      word = wordField target
+  let fields = infoFields info
+      byte = DataInt I8 . toInteger
+  when (length fields > infoByteFieldLimit) $
+    failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> unSymbol (infoSymbol info)))
+  when (infoRemainingArity info > infoByteFieldLimit) $
+    failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
-  forM_ (infoEnter info) (lowerEnterStub stub)
+  entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
     ( ItemData
         DataItem
@@ -775,18 +776,61 @@ lowerInfo info = do
             dataAlignment = toInteger (lowerWordSize target),
             dataFields =
               [ infoIdentity info,
-                DataCode Nothing,
-                word (toInteger (length fields)),
-                word (toInteger (infoRemainingArity info)),
                 maybe DataNull (`DataSymbol` 0) bitmap,
                 maybe DataNull (`DataSymbol` 0) (infoNext info),
-                DataCode (stub <$ infoEnter info),
-                word (toInteger (continuationFrameKindCode (infoFrameKind info))),
-                word (toInteger (infoObjectKind info)),
-                maybe DataNull (`DataSymbol` 0) (infoSrt info)
+                DataCode entry,
+                maybe DataNull (`DataSymbol` 0) (infoSrt info),
+                byte (length fields),
+                byte (infoRemainingArity info),
+                byte (continuationFrameKindCode (infoFrameKind info)),
+                byte (infoObjectKind info)
               ]
           }
     )
+
+-- | The function that enters one object: a shared runtime function when the
+-- object has one of the shapes the runtime defines, and otherwise a stub of
+-- this module.
+enterFunction :: Symbol -> RuntimeEnter -> LowerM Symbol
+enterFunction info enter =
+  case sharedEnterSymbol enter of
+    Just symbol -> do
+      let signature = Signature ([Ptr, Ptr, Ptr] <> enterSupplied enter) [] AihcConvention
+      modify' (\state -> state {stateExterns = Map.insert symbol signature (stateExterns state)})
+      pure symbol
+    Nothing -> do
+      let stub = Symbol (unSymbol info <> "_e")
+      lowerEnterStub stub enter
+      pure stub
+
+-- | The shared enter function of the runtime for one object shape, when the
+-- runtime defines one. @aihc_enter.lir@ defines @aihc_lir_enter_S_V@ and
+-- @aihc_lir_enter_S_V_k@ for @S@ stored pointers up to 'sharedEnterMaxStored'
+-- and @V@ supplied pointers up to 'sharedEnterMaxSupplied'; the @_k@ form
+-- passes the continuation to the code. Those functions load the stored
+-- fields and tail-call the code through the identity field of the info
+-- table, which is what a generated stub does for the same shape. Any value
+-- that is not a pointer keeps a generated stub, since WebAssembly checks the
+-- signature of an indirect call and a stub coerces such values.
+sharedEnterSymbol :: RuntimeEnter -> Maybe Symbol
+sharedEnterSymbol enter
+  | all (== Ptr) (enterStored enter),
+    all (== Ptr) (enterSupplied enter),
+    all (== Ptr) (enterTargetParameters enter),
+    length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
+    stored <= sharedEnterMaxStored,
+    supplied <= sharedEnterMaxSupplied =
+      Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> (if passesContinuation then "_k" else ""))))
+  | otherwise = Nothing
+  where
+    stored = length (enterStored enter)
+    supplied = length (enterSupplied enter)
+    passesContinuation = enterPassesContinuation enter
+
+-- | The shapes @aihc_enter.lir@ defines.
+sharedEnterMaxStored, sharedEnterMaxSupplied :: Int
+sharedEnterMaxStored = 8
+sharedEnterMaxSupplied = 1
 
 -- | The dynamic entry of one enterable object. It loads the stored fields,
 -- takes the supplied values as parameters, and tail-calls the code.
@@ -2350,7 +2394,7 @@ generateHelper env helper =
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
       header <- loadHeader (OperandVar current)
-      kind <- loadInfoWord "kind" header infoObjectKindIndex
+      kind <- loadInfoByte "kind" header infoObjectKindByte
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
       terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "enter") []))
       beginBlock (Label "indirection") []
@@ -2379,14 +2423,14 @@ generateHelper env helper =
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
       header <- loadHeader (OperandVar current)
-      kind <- loadInfoWord "kind" header infoObjectKindIndex
+      kind <- loadInfoByte "kind" header infoObjectKindByte
       isIndirection <- emitValue "indirection" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt runtimeObjectIndirection)))
       terminate (Branch (typedOperand isIndirection) (Target (Label "indirection") []) (Target (Label "apply") []))
       beginBlock (Label "indirection") []
       next <- loadSlot "next" Ptr (OperandVar current) 8
       terminate (Jump (Target (Label "loop") [typedOperand next]))
       beginBlock (Label "apply") []
-      arity <- loadInfoWord "arity" header infoRemainingArityIndex
+      arity <- loadInfoByte "arity" header infoRemainingArityByte
       isClosure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
       isSaturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt 1)))
       isFast <- emitValue "fast" I1 (Binary And I1 (typedOperand isClosure) (typedOperand isSaturated))
@@ -2414,10 +2458,20 @@ generateHelper env helper =
     symbol = helperSymbol helper
     loadHeader object = typedOperand <$> loadSlot "header" Ptr object 0
 
-infoRemainingArityIndex, infoBackendEntryIndex, infoObjectKindIndex :: Int
-infoRemainingArityIndex = 3
-infoBackendEntryIndex = 6
-infoObjectKindIndex = 8
+-- | The word fields of an info table precede its byte fields. See the
+-- "Info tables" section of @docs/lir.md@.
+infoWordFieldCount, infoBackendEntryIndex :: Int
+infoWordFieldCount = 5
+infoBackendEntryIndex = 3
+
+-- | The byte fields of an info table, as indices from the first byte field.
+infoRemainingArityByte, infoObjectKindByte :: Int
+infoRemainingArityByte = 1
+infoObjectKindByte = 3
+
+-- | The largest count a byte field of an info table holds.
+infoByteFieldLimit :: Int
+infoByteFieldLimit = 255
 
 runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk, runtimeObjectPartialConstructor :: Int
 runtimeObjectNode = 0
