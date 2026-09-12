@@ -1,0 +1,86 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Control.Exception
+    import Control.Exception.Context
+    import Control.Exception.Annotation
+    import GHC.IO (IO (..))
+    import GHC.Prim (State#, RealWorld, realWorld#)
+
+    data Note = Note
+    instance ExceptionAnnotation Note where
+      displayExceptionAnnotation _ = "note"
+
+    data OtherNote = OtherNote
+    instance Show OtherNote where
+      show _ = "other"
+    instance ExceptionAnnotation OtherNote
+
+    context :: ExceptionContext
+    context = addExceptionAnnotation Note emptyExceptionContext
+
+    hasNote :: ExceptionContext -> Bool
+    hasNote value = case getExceptionAnnotations value of
+      [Note] -> True
+      _ -> False
+
+    annotationsWork :: Bool
+    annotationsWork =
+      let value = addExceptionAnnotation OtherNote context
+      in hasNote value
+        && displayExceptionContext value == "other\nnote"
+        && case getAllExceptionAnnotations value of
+          [_, _] -> True
+          _ -> False
+
+    inspect :: ExceptionWithContext ArithException -> IO Bool
+    inspect (ExceptionWithContext value DivideByZero) = pure (hasNote value)
+    inspect _ = pure False
+
+    inspectRoot :: SomeException -> IO Bool
+    inspectRoot exception@(SomeException _) =
+      pure (hasNote (someExceptionContext exception))
+
+    select :: ExceptionWithContext ArithException -> IO Bool
+    select _ = pure True
+
+    reject :: ExceptionWithContext ErrorCall -> IO Bool
+    reject _ = pure False
+
+    rethrow :: ExceptionWithContext ArithException -> IO Bool
+    rethrow = rethrowIO
+
+    ordinary :: ArithException -> IO Bool
+    ordinary DivideByZero = pure True
+    ordinary _ = pure False
+
+    runTests :: IO Bool
+    runTests = do
+      selected <- catchNoPropagate (throwIO DivideByZero) select
+      unmatched <- catchNoPropagate
+        (catchNoPropagate (throwIO DivideByZero) reject) select
+      repeated <- catch
+        (catchNoPropagate (throwIO DivideByZero) rethrow) ordinary
+      success <- catchNoPropagate (pure True) reject
+      preserved <- catchNoPropagate
+        (catchNoPropagate
+          (rethrowIO (ExceptionWithContext context DivideByZero)) rethrow) inspect
+      root <- catch
+        (rethrowIO (ExceptionWithContext context DivideByZero)) inspectRoot
+      defaultHandler <- catch
+        (rethrowIO (ExceptionWithContext context DivideByZero)) inspect
+      pure (selected && unmatched && repeated && success && preserved && root && defaultHandler && annotationsWork)
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+expression: |
+  case runIO runTests realWorld# of
+    (# _, result #) -> result
+output: |
+  True
+status: pass
+reason: Context handlers select exception types and preserve the exception on rethrow.

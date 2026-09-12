@@ -1,0 +1,47 @@
+extensions:
+  - RankNTypes
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import Control.Exception qualified as Exception
+    import GHC.Stack (withFrozenCallStack)
+    import GHC.IO (IO (..))
+    import GHC.Prim (State#, RealWorld, realWorld#)
+
+    class Mask m where
+      maskM :: ((forall a. m a -> m a) -> m b) -> m b
+
+    instance Mask IO where
+      maskM = Exception.mask
+
+    newtype IdentityT m a = IdentityT (m a)
+    runIdentityT :: IdentityT m a -> m a
+    runIdentityT (IdentityT action) = action
+
+    instance Mask m => Mask (IdentityT m) where
+      maskM action = IdentityT $ maskM $ \restore -> runIdentityT (action $ adapt restore)
+        where
+          adapt :: (m a -> m a) -> IdentityT m a -> IdentityT m a
+          adapt restore = IdentityT . restore . runIdentityT
+
+    frozen :: Mask m => m a -> m a
+    frozen action = withFrozenCallStack (\f -> maskM (\restore -> f restore)) (\_ -> action)
+
+    runTests :: IO Bool
+    runTests = do
+      direct <- maskM (\restore -> restore (pure True))
+      transformed <- runIdentityT (maskM (\restore -> restore (IdentityT (pure True))))
+      stacked <- frozen (pure True)
+      pure (direct && transformed && stacked)
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+expression: |
+  case runIO runTests realWorld# of
+    (# _, result #) -> result
+output: |
+  True
+status: pass
+reason: Mask callbacks retain their polymorphic parameter types through lambdas and application operators.

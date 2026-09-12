@@ -59,6 +59,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (when)
+import Data.Bifunctor qualified as Bifunctor
 import Data.Either (fromRight)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
@@ -463,6 +464,7 @@ checkExpr expected expression = case expression of
   EPragma pragma inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EPragma pragma inner', ty, constraints)
+  ELambdaPats patterns body -> checkLambda expected (exprSpan expression) patterns body
   ECase scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
     prepareScrutinee constraints
@@ -477,6 +479,31 @@ checkExpr expected expression = case expression of
     (declarations', body', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected body)
     pure (ELetDecls declarations' body', ty, constraints)
   _ -> inferExpr expression
+
+-- | Give lambda parameters their expected types before the body check.
+checkLambda :: TcType -> SourceSpan -> [Pattern] -> Expr -> TcM (Expr, TcType, [Ct])
+checkLambda expected sp patterns body = do
+  expectedParts <- splitExpected expected patterns
+  case expectedParts of
+    Nothing -> inferLambda sp patterns body
+    Just (argumentTypes, resultType) -> do
+      patternCheck <- checkFunctionPatterns sp (zip patterns argumentTypes)
+      (body', bodyType, bodyConstraints) <-
+        withPatternBindings (pcBindings patternCheck) (checkExpr resultType body)
+      constraints <- solvePatternBranch sp patternCheck bodyType bodyConstraints
+      let functionType = foldr TcFunTy bodyType argumentTypes
+          patterns' = zipWith (annotateLambdaPattern (pcBindings patternCheck)) argumentTypes (pcPatterns patternCheck)
+          lambda = annotatePendingExprAt sp (pendingAnnotation functionType [] [] []) (ELambdaPats patterns' body')
+      pure (lambda, functionType, constraints)
+  where
+    splitExpected ty [] = pure (Just ([], ty))
+    splitExpected ty (_ : rest) = do
+      zonked <- zonkType ty
+      case zonked of
+        TcFunTy argument result -> do
+          remaining <- splitExpected result rest
+          pure (fmap (Bifunctor.first (argument :)) remaining)
+        _ -> pure Nothing
 
 checkRhs :: TcType -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 checkRhs expected rhs = case rhs of
@@ -505,6 +532,7 @@ checksExpectedResult expression = case expression of
   ECase {} -> True
   ELetDecls {} -> True
   EDo _ DoPlain -> True
+  ELambdaPats {} -> True
   _ -> False
 
 -- | Connect application results before constructor patterns refine their indices.
@@ -754,11 +782,11 @@ planSpine = go
         SpineParen -> continue StepParen instantiationVariables remainingTypeArgs funTy frames
         SpinePragma pragma -> continue (StepPragma pragma) instantiationVariables remainingTypeArgs funTy frames
         SpineTypeArg sp tyArg -> do
-          kinds <- getKinds
           scoped <- getScopedTyVars
-          explicitTy <- checkSurfaceType scoped tyArg (typeKind kinds)
           case remainingTypeArgs of
             inferredTy : rest -> do
+              expectedKind <- tcTypeKind inferredTy
+              explicitTy <- checkSurfaceType scoped tyArg expectedKind
               -- The explicit type may be a polytype. The quick look binds
               -- the instantiation variable to it; the wanted equality
               -- then checks the two agree.
@@ -860,7 +888,7 @@ checkSpineSteps = go
               else do
                 (arg', argTy, cts) <-
                   case argPlanArgument plan of
-                    ArgDeferred arg -> inferExpr arg
+                    ArgDeferred arg -> checkExpr expectedArgTy arg
                     ArgInferred _ arg' argTy cts -> pure (arg', argTy, cts)
                 ev <- freshEvVar
                 let eqCt = mkWantedCt (EqPred expectedArgTy argTy) ev (AppOrigin sp) sp
