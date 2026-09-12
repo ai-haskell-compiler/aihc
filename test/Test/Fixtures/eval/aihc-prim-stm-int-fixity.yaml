@@ -1,0 +1,16 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+    import GHC.Exts
+
+    test :: Bool
+    test = isTrue# (1# ==# 2# -# 1#)
+      && isTrue# (1# +# 2# *# 3# ==# 7#)
+      && isTrue# (9# -# 3# -# 2# ==# 4#)
+expression: test
+output: |
+  True
+status: pass
+reason: Integer primitive fixities give arithmetic precedence over comparisons.

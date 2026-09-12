@@ -875,6 +875,15 @@ settleKindMetas defer kind =
         Nothing -> do
           kinds <- getKinds
           writeMetaTv representation (liftedRep kinds) >> pure (typeKind kinds)
+    BoxedRep (TcMetaTv levity) -> do
+      -- An open boxed levity defaults to Lifted at a kind boundary.
+      solution <- readMetaTv levity
+      case solution of
+        Just {} -> recur =<< zonkKind kind
+        Nothing -> do
+          kinds <- getKinds
+          writeMetaTv levity (TcTyCon (kindsDataCon kinds "Lifted" 0) [])
+          pure (liftedRep kinds)
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM recur arguments
     TcFunTy argument result -> TcFunTy <$> recur argument <*> recur result
     TcForAllTy tyVar body -> do

@@ -763,9 +763,12 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
     numbered = zip [0 :: Int ..] declarations
     owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration]
     nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
+    signatures = collectStandaloneKindSignatures (map snd declarations)
+    kindAnnotations declaration =
+      concat [annotationList kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
     dependencies declaration =
       [ owner
-      | annotation <- annotationList declaration,
+      | annotation <- annotationList declaration <> kindAnnotations declaration,
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
         resolutionNamespace resolution == ResolutionNamespaceType,
         ResolvedTopLevel package name <- [resolutionTarget resolution],

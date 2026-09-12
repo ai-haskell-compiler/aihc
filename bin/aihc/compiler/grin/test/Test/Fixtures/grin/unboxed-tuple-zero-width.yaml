@@ -3,15 +3,19 @@ expected: |-
 
   constructor 1.Box [IntRep]
 
+  primitive realWorld# :: TupleRep []/0
+
   global 1.value = (F$value_thunk)
 
   $value_thunk -> BoxedRep Lifted =
+    () <-
+      primitive-call @(TupleRep []) realWorld#
     store (C1.Box (42 :: IntRep))
 extensions:
 - EmptyDataDecls
 - MagicHash
 - UnboxedTuples
-reason: omits zero-width State# components from unboxed-tuple returns and binds
+reason: Evaluates State# expressions and omits their runtime values.
 source: |
   module Test where
   import GHC.Prim

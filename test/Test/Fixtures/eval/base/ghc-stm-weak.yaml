@@ -1,0 +1,33 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Conc
+    import GHC.Weak
+    import GHC.Prim
+    import GHC.IO (IO(..))
+    import Data.IORef
+
+    make :: TVar a -> IO () -> IO (Weak (TVar a))
+    make value@(TVar variable) (IO finalizer) = IO $ \state ->
+      case mkWeak# variable value finalizer state of
+        (# next, weak #) -> (# next, Weak weak #)
+
+    test :: IO Bool
+    test = do
+      value <- newTVarIO (42 :: Int)
+      count <- newIORef (0 :: Int)
+      weak <- make value (modifyIORef count (+ 1))
+      before <- deRefWeak weak
+      finalize weak
+      finalize weak
+      after <- deRefWeak weak
+      total <- readIORef count
+      pure (before == Just value && after == Nothing && total == 1)
+expression: test
+output: |
+  True
+status: pass
+reason: Weak TVar pointers permit reads and explicit finalization once.

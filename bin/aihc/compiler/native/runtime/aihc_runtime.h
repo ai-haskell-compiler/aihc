@@ -26,6 +26,8 @@ typedef uintptr_t AihcObjectKind;
 
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
+typedef struct AihcTransaction AihcTransaction;
+typedef struct AihcTransactionTimer AihcTransactionTimer;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
@@ -167,6 +169,7 @@ struct AihcMachine {
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;
+  AihcTransactionTimer *transaction_timers;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -287,6 +290,18 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
    compiler/native/runtime. See the "Runtime units" section of docs/lir.md. */
 AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
                           AihcSlot initial);
+AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
+                           AihcSlot initial, AihcSlot final);
+AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable);
+void *aihc_stm_wait_request(AihcMachine *machine);
+int64_t aihc_stm_wait_result(AihcMachine *machine, void *request);
+uint64_t aihc_stm_begin(AihcMachine *machine);
+uint64_t aihc_stm_commit(AihcMachine *machine);
+uint64_t aihc_stm_abort(AihcMachine *machine);
+uint64_t aihc_stm_active(AihcMachine *machine);
+uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
+                         AihcSlot value);
+
 AihcSlot aihc_array_copy(AihcValue *source, int64_t source_offset,
                          AihcValue *target, int64_t target_offset,
                          int64_t count);

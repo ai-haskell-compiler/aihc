@@ -1,0 +1,28 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Conc
+    import GHC.Prim
+    import GHC.IO (IO(..))
+
+    test :: IO Int
+    test = atomically $ STM $ \state ->
+      case newTVar# (10 :: Int) state of
+        (# state1, first #) -> case newArray# 2# first state1 of
+          (# state2, array #) ->
+            let fill token = case newTVar# (32 :: Int) token of
+                  (# next, second #) -> writeArray# array 1# second next
+            in case unsafeFreezeArray# array (fill state2) of
+              (# state3, frozen #) -> case indexArray# frozen 0# of
+                (# left #) -> case indexArray# frozen 1# of
+                  (# right #) -> case readTVar# left state3 of
+                    (# state4, a #) -> case readTVar# right state4 of
+                      (# state5, b #) -> (# state5, a + b #)
+expression: test
+output: |
+  I# 42
+status: pass
+reason: Arrays retain unlifted TVar pointers and evaluate state arguments.

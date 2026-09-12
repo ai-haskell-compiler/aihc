@@ -1769,6 +1769,7 @@ addressComparisonPrimitives =
     ("sameMutableArray#", Eq),
     ("sameSmallMutableArray#", Eq),
     ("sameMutVar#", Eq),
+    ("sameTVar#", Eq),
     ("sameMVar#", Eq),
     ("eqStableName#", Eq),
     ("eqAddr#", Eq),

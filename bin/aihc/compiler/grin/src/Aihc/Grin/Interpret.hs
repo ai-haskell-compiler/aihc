@@ -11,6 +11,7 @@ module Aihc.Grin.Interpret
 where
 
 import Aihc.Grin.Syntax
+import Control.Concurrent qualified as Host
 import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
 import Control.Monad (when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
@@ -38,6 +39,7 @@ import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, nullPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
+import GHC.Clock qualified as Host
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile)
 import System.Mem.StableName qualified as Host
@@ -136,6 +138,7 @@ data GrinIOOperation
   = GrinRead !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinWrite !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinOpen !Text !Integer
+  | GrinWaitUntil !Word64
   deriving (Eq, Show)
 
 data GrinIOResult
@@ -173,6 +176,8 @@ data Machine = Machine
     machineNextLocation :: !Int,
     machineMVars :: !(IntMap GrinMVarState),
     machineNextMVar :: !Int,
+    machineTimers :: ![(Word64, GrinMutVar, RuntimeValue)],
+    machineTransactions :: ![[(GrinMutVar, RuntimeValue)]],
     machineRunQueue :: !(Seq ThreadAction),
     machineStreams :: !ProgramStreams,
     machineAllocations :: !(IORef [Ptr ()])
@@ -274,6 +279,8 @@ initialMachine streams program allocations =
       machineNextLocation = length globalNodes,
       machineMVars = IntMap.empty,
       machineNextMVar = 0,
+      machineTransactions = [],
+      machineTimers = [],
       machineRunQueue = Seq.empty
     }
   where
@@ -971,6 +978,67 @@ evalPrimitive "keepAlive#" [_kept, continuation] =
   applyValue continuation []
 evalPrimitive "seq#" [value] =
   (: []) <$> forceValue value
+evalPrimitive "newTVar#" arguments = evalPrimitive "newMutVar#" arguments
+evalPrimitive "readTVar#" arguments = evalPrimitive "readTVarIO#" arguments
+evalPrimitive "readTVarIO#" arguments = do
+  transactions <- lift (gets machineTransactions)
+  when (null transactions) expireTransactionTimers
+  evalPrimitive "readMutVar#" arguments
+evalPrimitive "sameTVar#" arguments = evalPrimitive "sameMutVar#" arguments
+evalPrimitive "stmBegin#" [] = do
+  transactions <- lift (gets machineTransactions)
+  when (null transactions) expireTransactionTimers
+  lift $ modify' (\machine -> machine {machineTransactions = [] : machineTransactions machine})
+  pure []
+evalPrimitive "newDelayTVar#" [delayValue, initialValue, finalValue] = do
+  delay <- expectIntPrimitiveArgument "newDelayTVar#" delayValue
+  reference <- GrinMutVar <$> liftEvalIO (newIORef (if delay <= 0 then finalValue else initialValue))
+  when (delay > 0) $ do
+    now <- liftEvalIO Host.getMonotonicTimeNSec
+    let deadline = fromInteger (min (toInteger (maxBound :: Word64)) (toInteger now + delay * 1000))
+    lift $ modify' (\machine -> machine {machineTimers = (deadline, reference, finalValue) : machineTimers machine})
+  pure [RuntimeMutVar reference]
+evalPrimitive "stmWaitRequest#" [] = do
+  timers <- lift (gets machineTimers)
+  let state = case timers of
+        [] -> GrinIOCompleted (GrinIOInt 0)
+        _ -> GrinIOSubmitted (GrinWaitUntil (minimum [time | (time, _, _) <- timers]))
+  (: []) . RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef state)
+evalPrimitive "stmWaitResult#" [request] = do
+  result <- takeIOResult "stmWaitResult#" request
+  expireTransactionTimers
+  pure [result]
+evalPrimitive "stmActive#" [] = do
+  transactions <- lift (gets machineTransactions)
+  pure [intRuntimeValue (if null transactions then 0 else 1)]
+evalPrimitive "stmAbort#" [] = do
+  transactions <- lift (gets machineTransactions)
+  case transactions of
+    writes : parents -> do
+      mapM_ (\(GrinMutVar reference, previous) -> liftEvalIO (writeIORef reference previous)) writes
+      lift $ modify' (\machine -> machine {machineTransactions = parents})
+      pure []
+    [] -> throwInterpret (InterpretPrimitiveArity "stmAbort#" 0)
+evalPrimitive "stmCommit#" [] = do
+  transactions <- lift (gets machineTransactions)
+  case transactions of
+    writes : parent : parents -> do
+      lift $ modify' (\machine -> machine {machineTransactions = (writes <> parent) : parents})
+      pure []
+    [_] -> do
+      lift $ modify' (\machine -> machine {machineTransactions = []})
+      pure []
+    [] -> throwInterpret (InterpretPrimitiveArity "stmCommit#" 0)
+evalPrimitive "writeTVar#" [variable, value] = do
+  reference@(GrinMutVar cell) <- expectMutVarPrimitiveArgument "writeTVar#" variable
+  previous <- liftEvalIO (readIORef cell)
+  transactions <- lift (gets machineTransactions)
+  case transactions of
+    writes : parents -> do
+      lift $ modify' (\machine -> machine {machineTransactions = ((reference, previous) : writes) : parents})
+      liftEvalIO (writeIORef cell value)
+      pure []
+    [] -> throwInterpret (InterpretPrimitiveArity "writeTVar#" 2)
 evalPrimitive "newMutVar#" [initialValue] = do
   mutVar <- GrinMutVar <$> liftEvalIO (newIORef initialValue)
   pure [RuntimeMutVar mutVar]
@@ -2132,6 +2200,10 @@ completeIORequest (GrinIORequest reference) = do
 performIOOperation :: GrinIOOperation -> EvalM GrinIOResult
 performIOOperation operation =
   case operation of
+    GrinWaitUntil deadline -> do
+      now <- liftEvalIO Host.getMonotonicTimeNSec
+      when (deadline > now) (liftEvalIO (Host.threadDelay (fromIntegral ((deadline - now) `div` 1000 + 1))))
+      pure (GrinIOInt 1)
     GrinRead (GrinIOHandle _ handle) buffer offset byteCount -> do
       result <- liftEvalIO (tryForeign (BS.hGet handle byteCount))
       case result of
@@ -2363,3 +2435,13 @@ getsMachine = lift . gets
 
 modifyMachine :: (Machine -> Machine) -> EvalM ()
 modifyMachine = lift . modify'
+
+expireTransactionTimers :: EvalM ()
+expireTransactionTimers = do
+  now <- liftEvalIO Host.getMonotonicTimeNSec
+  timers <- lift (gets machineTimers)
+  mapM_ (expire now) timers
+  lift $ modify' (\machine -> machine {machineTimers = filter (\(deadline, _, _) -> deadline > now) timers})
+  where
+    expire now (deadline, GrinMutVar reference, value) =
+      when (deadline <= now) (liftEvalIO (writeIORef reference value))

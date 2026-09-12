@@ -1,0 +1,30 @@
+modules:
+  - |
+    module Test where
+    import GHC.Conc
+
+    test :: IO Bool
+    test = do
+      immediate <- registerDelay 0
+      first <- readTVarIO immediate
+      delayed <- registerDelay 1000
+      second <- atomically $ do
+        ready <- readTVar delayed
+        if ready then pure ready else retry
+      later <- registerDelay 2000
+      earlier <- registerDelay 1000
+      value <- newTVarIO (7 :: Int)
+      atomically $
+        (writeTVar value 99 >> retry) `orElse` (do
+          a <- readTVar earlier
+          b <- readTVar later
+          if a && b then pure () else retry)
+      restored <- readTVarIO value
+      negative <- registerDelay (-1)
+      third <- readTVarIO negative
+      pure (first && second && third && restored == 7)
+expression: test
+output: |
+  True
+status: pass
+reason: Delay variables become true and permit a transaction to resume.
