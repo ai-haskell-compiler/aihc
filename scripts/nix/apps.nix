@@ -1,8 +1,13 @@
 {
   projectHsPackages,
   mkHsPkgs,
+  mkWasiSysroot,
 }: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
+  wasmSysroot = mkWasiSysroot pkgs;
+  wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
+    exec ${pkgs.lld}/bin/wasm-ld "$@"
+  '';
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-extension-progress";
   fixtureExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-testing "fixture-extension-progress";
@@ -158,6 +163,11 @@ in {
       pkgs.gnused
       pkgs.llvmPackages.bintools
       pkgs.llvmPackages.clang
+      pkgs.llvmPackages.clang-unwrapped
+      pkgs.wasm-tools
+      pkgs.wit-bindgen
+      wasmLd
+      pkgs.haskellPackages.hsc2hs
     ] ''
       set -euo pipefail
       ${repoRootGuard}
@@ -165,6 +175,10 @@ in {
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC=${aihcExe}
+      # The wasm32-wasip3 target compiles its C runtime with an unwrapped
+      # clang against the WASI sysroot, the same way the Nix checks do.
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_SYSROOT=${wasmSysroot}
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
       exec bash ./scripts/install-hackage-packages.sh "$@"
     '';
