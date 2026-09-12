@@ -19,7 +19,7 @@ import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
-import Aihc.Fc.Wired (equalityRep, ghcTypesModule)
+import Aihc.Fc.Wired (equalityRep, ghcTypesModule, typeConstructor)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -84,6 +84,7 @@ import Aihc.Tc.Types
     typeSchemeBody,
     pattern KConstraint,
     pattern KFun,
+    pattern KTYPE,
   )
 import Control.Monad (zipWithM)
 import Data.List (nub, sort)
@@ -952,7 +953,9 @@ convertSynonym env info =
               bodyKind = synonymResultKind (tciKindScheme info) (tsiParams synonym)
           binders <- withConversionContext "binders" (mapM (tyVarBinder bindersEnv) tyVars)
           result <- withConversionContext "result" (synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym))
-          convertedBody <- withConversionContext "body" (convertTypeWithExpectedKind bindersEnv (Just bodyKind) body)
+          convertedBody <- withConversionContext "body" $ case body of
+            KTYPE representation -> TyApp (TyCon (typeConstructor (cePrimPackage env))) <$> convertRep bindersEnv representation
+            _ -> convertTypeWithExpectedKind bindersEnv (Just bodyKind) body
           pure
             [ DeclSynonym
                 SynonymDecl

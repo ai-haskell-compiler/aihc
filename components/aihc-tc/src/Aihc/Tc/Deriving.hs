@@ -89,21 +89,28 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
         rawParams
         (takeVisibleArgumentKinds (length rawParams) (typeSchemeBody (tciKindScheme info)))
       params <- mapM defaultParam rawParams
-      let tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
       dataType <- lookupDataType (tciTyCon info)
-      concat <$> mapM (checkClause info dataType params tvEnv) clauses
+      concat <$> mapM (checkClause info dataType params) clauses
   where
     defaultParam param = do
       tyVar <- defaultTyVarKinds (paramTyVar param)
       pure param {paramTyVar = tyVar, paramKind = tvKind tyVar}
 
-    checkClause targetInfo dataType params tvEnv clause = do
+    checkClause targetInfo dataType params clause = do
       classHeads <- attachedDerivingClassHeads clause
-      catMaybes <$> mapM (checkOne targetInfo dataType params tvEnv (derivingStrategy clause)) classHeads
+      catMaybes <$> mapM (checkOne targetInfo dataType params (derivingStrategy clause)) classHeads
 
-    checkOne targetInfo dataType params tvEnv strategy classHead = do
+    checkOne targetInfo dataType params strategy classHead = do
+      let ForAll kindVariables _ _ = tciKindScheme targetInfo
+      kindArguments <- mapM (const freshKindMeta) kindVariables
+      let substitution = Map.fromList (zip (map tvUnique kindVariables) kindArguments)
+          specialize param =
+            let kind = applySubst substitution (paramKind param)
+             in param {paramKind = kind, paramTyVar = setTyVarKind kind (paramTyVar param)}
+          specializedParams = map specialize params
+          tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- specializedParams]
       (plan, hadErrors) <-
-        withErrorTracking (checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvEnv strategy classHead)
+        withErrorTracking (checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType specializedParams tvEnv strategy classHead)
       pure (if hadErrors then Nothing else plan)
 
 data AttachedDerivingClassHead = AttachedDerivingClassHead
@@ -199,7 +206,12 @@ attachedTargetType sourceSpan targetInfo params expectedKind = do
         ]
   matching <- filterM (fmap (kindAccepts expectedKind) . tcTypeKind) candidates
   case matching of
-    target : _ -> pure target
+    target : _ -> do
+      actualKind <- tcTypeKind target
+      case expectedKind of
+        KTYPE (TcTyVar _) -> pure ()
+        _ -> unifyKinds expectedKind actualKind
+      pure target
     [] -> do
       emitError sourceSpan (KindMismatch expectedKind (typeSchemeBody (tciKindScheme targetInfo)))
       pure (TcTyCon tyCon arguments)
@@ -211,6 +223,8 @@ kindAccepts :: TcType -> TcType -> Bool
 kindAccepts expected actual =
   expected == actual
     || case (expected, actual) of
+      (_, TcMetaTv _) -> True
+      (TcFunTy left right, TcFunTy left' right') -> kindAccepts left left' && kindAccepts right right'
       (KTYPE (TcTyVar _), KTYPE _) -> True
       (KTYPE (TcMetaTv _), KTYPE _) -> True
       _ -> False

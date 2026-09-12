@@ -55,7 +55,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Instantiate (instantiate)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
@@ -385,9 +385,19 @@ expandTypeSynonym tvEnv ty =
   case typeApplicationSpine ty of
     (TCon name _, arguments) -> do
       maybeInfo <- lookupResolvedTyCon name
-      case maybeInfo >>= tciTypeSynonym of
-        Just synonym
-          | Just {} <- tsiBody synonym -> Just <$> instantiateTypeSynonym tvEnv (nameText name) synonym arguments
+      case maybeInfo of
+        Just info
+          | Just synonym <- tciTypeSynonym info,
+            Just {} <- tsiBody synonym -> do
+              let ForAll variables _ _ = tciKindScheme info
+              instantiation <- instantiateWithArgs (tciKindScheme info)
+              let substitution = Map.fromList (zip (map tvUnique variables) (instTypeArgs instantiation))
+                  specialize variable = do
+                    kind <- zonkKind (tvKind variable)
+                    pure (setTyVarKind (applySubst substitution kind) variable)
+              parameters <- mapM specialize (tsiParams synonym)
+              let specialized = synonym {tsiParams = parameters, tsiBody = applySubst substitution <$> tsiBody synonym}
+              Just <$> instantiateTypeSynonym tvEnv (nameText name) specialized arguments
         _ -> pure Nothing
     _ -> pure Nothing
 

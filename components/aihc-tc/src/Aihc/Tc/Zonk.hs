@@ -97,7 +97,7 @@ defaultPredKinds predicate =
 
 defaultTyVarKinds :: TyVarId -> TcM TyVarId
 defaultTyVarKinds tv = do
-  kind <- defaultKindMetas (tvKind tv)
+  kind <- defaultKindMetas (tvKind tv) >>= zonkKind
   pure (setTyVarKind kind tv)
 
 -- | Zonk the types in one error kind.
