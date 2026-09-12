@@ -29,15 +29,14 @@ extern func @aihc_memory_move(ptr, ptr, i64) cc c
 ; does for the C table this replaces.
 data @aihc_array_info align 8 = {
   ptr null,   ; identity
-  code null,  ; entry
-  word 1,     ; field_count
-  word 0,     ; remaining_arity
   ptr null,   ; field_is_pointer
   ptr null,   ; next
   code null,  ; backend_entry
-  word @AIHC_FRAME_NONE,    ; frame_kind
-  word @AIHC_OBJECT_ARRAY,  ; object_kind
-  ptr null    ; srt
+  ptr null,   ; srt
+  i8 1,       ; field_count
+  i8 0,       ; remaining_arity
+  i8 @AIHC_FRAME_NONE,   ; frame_kind
+  i8 @AIHC_OBJECT_ARRAY  ; object_kind
 }
 
 data @aihc_array_size_message align 1 = {

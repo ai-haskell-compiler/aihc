@@ -485,7 +485,7 @@ static void print_object(AihcValue *object) {
   }
   const AihcSlot *fields = entry_fields(entry);
   printf("obj %" PRIuPTR " %s %" PRIuPTR, identity,
-         kind_name(info->object_kind), info->field_count);
+         kind_name(info->object_kind), (uintptr_t)info->field_count);
   for (uint64_t index = 0; index < info->field_count; ++index) {
     if (entry->pointers[index]) {
       print_pointer(fields[index]);

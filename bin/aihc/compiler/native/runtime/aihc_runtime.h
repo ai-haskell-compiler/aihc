@@ -22,7 +22,7 @@ enum {
      moves and holds no heap pointers the collector has to update. */
   AIHC_OBJECT_RUNTIME,
 };
-typedef uintptr_t AihcObjectKind;
+typedef uint8_t AihcObjectKind;
 
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
@@ -70,7 +70,7 @@ enum {
   AIHC_FRAME_RESTORE_MASK = 4,
   AIHC_FRAME_STOP = 5,
 };
-typedef uintptr_t AihcFrameKind;
+typedef uint8_t AihcFrameKind;
 
 /* A static reference table names the static objects one function reaches
    without going through a heap object. Tables are chained: a table names the
@@ -92,18 +92,11 @@ struct AihcSrt {
   uintptr_t entries[];
 };
 
-/* Every field of an info table is one word wide, so Lir addresses field k
-   at offset k words on every target. See the "Info tables" section of
-   docs/lir.md. */
+/* Five word-wide fields followed by four byte-wide ones, so Lir addresses
+   word field k at offset k words and byte field j at offset 5 words + j on
+   every target. See the "Info tables" section of docs/lir.md. */
 struct AihcInfo {
   uintptr_t identity;
-  AihcEntry entry;
-  /* The slots an object of this info table holds. A partial constructor is
-     the exception: every stage of one constructor shares a single info table,
-     so the count of the slots filled so far lives in the object and this word
-     is zero. See aihc_value_count. */
-  uintptr_t field_count;
-  uintptr_t remaining_arity;
   /* One byte per slot of the saturated object. A partial constructor indexes
      the same array as the finished one: the slots it has filled are a prefix
      of the slots the saturated constructor holds. */
@@ -114,13 +107,21 @@ struct AihcInfo {
   /* Backend-owned dynamic entry. Lir gives this word its own callable
      type. */
   AihcBackendEntry backend_entry;
+  /* The static objects this object's code reaches, or null when it reaches
+     none. The collector marks them whenever it traces the object. */
+  const AihcSrt *srt;
+  /* The slots an object of this info table holds. A partial constructor is
+     the exception: every stage of one constructor shares a single info table,
+     so the count of the slots filled so far lives in the object and this byte
+     is zero. See aihc_value_count. The lowering rejects an object with more
+     than 255 slots. */
+  uint8_t field_count;
+  /* The lowering rejects a function that takes more than 255 arguments. */
+  uint8_t remaining_arity;
   /* Continuation closures have their parent in field zero. This kind is
      backend-independent so the runtime can unwind them uniformly. */
   AihcFrameKind frame_kind;
   AihcObjectKind object_kind;
-  /* The static objects this object's code reaches, or null when it reaches
-     none. The collector marks them whenever it traces the object. */
-  const AihcSrt *srt;
 };
 
 struct AihcValue {
@@ -194,10 +195,6 @@ static inline AihcObjectKind aihc_value_kind(const AihcValue *value) {
 
 static inline uintptr_t aihc_value_info(const AihcValue *value) {
   return aihc_value_info_table(value)->identity;
-}
-
-static inline AihcEntry aihc_value_entry(const AihcValue *value) {
-  return aihc_value_info_table(value)->entry;
 }
 
 static inline uint64_t aihc_value_arity(const AihcValue *value) {

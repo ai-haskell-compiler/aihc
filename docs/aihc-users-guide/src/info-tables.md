@@ -18,18 +18,18 @@ Each info table contains these fields:
 | Field | Purpose |
 | --- | --- |
 | `identity` | Identifies the function or the saturated constructor. |
-| `entry` | Gives the portable run-time entry address. |
-| `field_count` | Gives the number of payload fields in the object. |
-| `remaining_arity` | Gives the number of arguments that the object still requires. |
 | `field_is_pointer` | Points to a byte map that identifies managed pointers. |
 | `next` | Points to the table for the next application stage. |
 | `backend_entry` | Gives the entry address that has the backend calling convention. |
+| `srt` | Points to the static reference table of the code, or is null. |
+| `field_count` | Gives the number of payload fields in the object. One byte: an object has at most 255 fields. |
+| `remaining_arity` | Gives the number of arguments that the object still requires. One byte: a function takes at most 255 arguments. |
 | `frame_kind` | Identifies a continuation frame for stack unwind operations. |
 | `object_kind` | Identifies a node, closure, thunk, partial constructor, or special run-time object. |
 
 The garbage collector uses `field_count` and `field_is_pointer` to find managed pointers.
 The application code uses `remaining_arity` and `next` to apply one source argument.
-The evaluation code uses `object_kind` and an entry field to enter an object.
+The evaluation code uses `object_kind` and `backend_entry` to enter an object.
 Exception code uses `frame_kind` to identify continuation frames.
 
 One source argument can use more than one machine field.
@@ -82,12 +82,12 @@ Its table has the following logical values:
 | Field | Value |
 | --- | --- |
 | `identity` | The generated `total` function. |
-| `entry` | The portable entry for `total`. |
-| `field_count` | `2` |
-| `remaining_arity` | `0` |
 | `field_is_pointer` | One byte for `x` and one byte for `y`. |
 | `next` | Null. |
-| `backend_entry` | The backend entry adapter for `total`. |
+| `backend_entry` | The backend entry for `total`. |
+| `srt` | Null. |
+| `field_count` | `2` |
+| `remaining_arity` | `0` |
 | `frame_kind` | No frame. |
 | `object_kind` | Thunk. |
 
@@ -146,9 +146,10 @@ They change the table encoding and the backend entry implementation.
 
 ### AMD64
 
-The AMD64 backend emits each table in read-only assembly data.
-It emits a small entry adapter for each directly enterable object.
-The `backend_entry` field points to this adapter.
+The AMD64 backend emits each table in read-only data.
+The `backend_entry` field points to an entry adapter.
+The run-time system provides shared adapters for objects whose fields and supplied values are all pointers, with up to eight fields and one supplied value.
+The compiler emits a small adapter for each other directly enterable object.
 Generated control code reads this field and jumps to the adapter.
 
 ### ARM64
@@ -166,12 +167,11 @@ Linked constructor table names keep constructor identities equal across compilat
 ### WebAssembly
 
 The WebAssembly backend emits the same fields in WebAssembly assembly data.
-Its pointers are 32 bits, but its counts and kind values stay 64 bits.
-Thus, its table is 56 bytes instead of the 72-byte table on 64-bit native targets.
+Its pointers are 32 bits and its counts and kind values are one byte each.
+Thus, its table is 24 bytes instead of the 48-byte table on 64-bit native targets.
 
 WebAssembly calls require a compatible function type.
 Its run-time adapter converts `backend_entry` to the required function type.
 The adapter then transfers control through the WebAssembly trampoline.
 
-The portable `entry` field remains available for common run-time operations.
 The backend entry gives the fast path for generated code.

@@ -234,41 +234,42 @@ is the address of its info table. GC-GRIN emits one info table per object kind
 as a read-only data object, so every backend receives the same layout and emits
 it as bytes. No backend computes an info table of its own.
 
-Every field of an info table is one word wide. A pointer field is `ptr`, a
-code field is `code`, and a count or a kind is an integer of the word width:
-`i64` on a 64-bit target and `i32` on a 32-bit target. The lowering knows its
-target and emits that type; a hand-written module writes `word` instead and
-suits every target. Field `k` starts at offset `k` words, and the table is
-aligned to the word size. A field without a value is `ptr null`, `code null`,
+An info table is five word-wide fields followed by four byte-wide fields. A
+pointer field is `ptr` and a code field is `code`; a count or a kind is an
+`i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
+five words plus `j`, and the table is aligned to the word size, so the same
+text suits every target. A field without a value is `ptr null`, `code null`,
 or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `identity` | `ptr` | The saturated constructor table of a constructor. Case code compares this field. A closure or a thunk stores the `code` of its function here, and the heap snapshot tool maps that address to a name. |
-| `entry` | `code` | The portable entry. Reserved: the lowering stores null until the runtime moves to Lir. |
-| `field_count` | integer | The number of payload words. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. |
-| `remaining_arity` | integer | The number of arguments the object still requires. |
+| `identity` | `ptr` | The saturated constructor table of a constructor. Case code compares this field. A closure or a thunk stores the `code` of its function here: the shared enter functions tail-call it, and the heap snapshot tool maps that address to a name. |
 | `field_is_pointer` | `ptr` | A `bytes` data object with one byte per payload word: `1` for a managed pointer, `0` otherwise. Null when `field_count` is `0`. |
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
-| `frame_kind` | integer | The continuation frame kind for stack unwinding. |
-| `object_kind` | integer | Node, closure, thunk, partial constructor, or a runtime object kind. |
 | `srt` | `ptr` | The static reference table, or null. |
+| `field_count` | `i8` | The number of payload words. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. The lowering rejects an object with more than 255 payload words. |
+| `remaining_arity` | `i8` | The number of arguments the object still requires. The lowering rejects a function with more than 255 arguments. |
+| `frame_kind` | `i8` | The continuation frame kind for stack unwinding. |
+| `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
 
 The `backend_entry` field has the signature `(ptr, ptr, ptr, T...) -> ()`
 with the machine, the object, the continuation, and the supplied values. The
 types `T...` are the Lir types of the supplied values, so a call site with
 `n` supplied values states a signature with `n` value parameters. A
-continuation object ignores the continuation parameter. The lowering
-generates one function with this signature for each enterable object. That
-function loads the stored fields, takes the supplied values as parameters,
-and tail-calls the code of the object.
+continuation object ignores the continuation parameter. The function loads
+the stored fields, takes the supplied values as parameters, and tail-calls
+the code of the object. When every stored field and every supplied value is
+a `ptr`, with at most eight stored fields and at most one supplied value,
+the field names a shared function of the runtime unit `aihc_enter.lir`,
+which reaches the code through the `identity` field. Every other shape gets
+one generated function per enterable object.
 
 The runtime's `AihcInfo` structure has the layout of this section on every
-target: its counts and kinds are `uintptr_t`. On WebAssembly `call.indirect`
+target: its counts and kinds are `uint8_t`. On WebAssembly `call.indirect`
 checks the type of the callee, and the lowering states the signature with the
-types of the supplied values at every call site, so the same enter stubs work
-there.
+types of the supplied values at every call site, so the same enter functions
+work there.
 
 ## Functions and blocks
 
@@ -565,6 +566,10 @@ The units are:
   The executable entry retains its exit helper because that helper updates
   the executable halt flag.
 
+- `aihc_enter.lir` defines the shared enter functions `aihc_lir_enter_S_V`
+  and `aihc_lir_enter_S_V_k` for `S` stored pointers up to eight and `V`
+  supplied pointers up to one; the `_k` form passes the continuation to the
+  code. See "Info tables".
 - `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
   and the bulk operations: copy, clone, shrink, and resize. The lowering
   emits the rest of the boxed-array primitives inline: the identity test is

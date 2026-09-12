@@ -12,16 +12,21 @@ _Static_assert(offsetof(AihcMachine, heap_next) == 24, "machine heap-next ABI");
 _Static_assert(offsetof(AihcMachine, heap_limit) == 32,
                "machine heap-limit ABI");
 _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 24,
-               "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, backend_entry) == 48,
+_Static_assert(offsetof(AihcInfo, field_is_pointer) == 8,
+               "info-table bitmap ABI");
+_Static_assert(offsetof(AihcInfo, next) == 16, "info-table next ABI");
+_Static_assert(offsetof(AihcInfo, backend_entry) == 24,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 56,
+_Static_assert(offsetof(AihcInfo, srt) == 32, "info-table SRT ABI");
+_Static_assert(offsetof(AihcInfo, field_count) == 40,
+               "info-table field-count ABI");
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 41,
+               "info-table remaining-arity ABI");
+_Static_assert(offsetof(AihcInfo, frame_kind) == 42,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 64,
+_Static_assert(offsetof(AihcInfo, object_kind) == 43,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 72, "info-table SRT ABI");
-_Static_assert(sizeof(AihcInfo) == 80, "info-table size ABI");
+_Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 24, "SRT entries ABI");
@@ -39,16 +44,21 @@ _Static_assert(offsetof(AihcMVar, full) == 8, "MVar full-flag ABI");
 _Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 #elif UINTPTR_MAX == UINT32_MAX
 _Static_assert(offsetof(AihcMachine, exit_code) == 16, "machine exit-code ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 12,
-               "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, backend_entry) == 24,
+_Static_assert(offsetof(AihcInfo, field_is_pointer) == 4,
+               "info-table bitmap ABI");
+_Static_assert(offsetof(AihcInfo, next) == 8, "info-table next ABI");
+_Static_assert(offsetof(AihcInfo, backend_entry) == 12,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 28,
+_Static_assert(offsetof(AihcInfo, srt) == 16, "info-table SRT ABI");
+_Static_assert(offsetof(AihcInfo, field_count) == 20,
+               "info-table field-count ABI");
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 21,
+               "info-table remaining-arity ABI");
+_Static_assert(offsetof(AihcInfo, frame_kind) == 22,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 32,
+_Static_assert(offsetof(AihcInfo, object_kind) == 23,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 36, "info-table SRT ABI");
-_Static_assert(sizeof(AihcInfo) == 40, "info-table size ABI");
+_Static_assert(sizeof(AihcInfo) == 24, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");

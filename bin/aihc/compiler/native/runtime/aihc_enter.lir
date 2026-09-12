@@ -1,0 +1,593 @@
+; The shared enter functions. An info table names one of these in its
+; backend_entry field when every stored field and every supplied value of
+; the object is a pointer: the lowering then emits no stub of its own for
+; the object. See "Info tables" in docs/lir.md and sharedEnterSymbol in
+; Aihc.Lir.Lower.
+;
+; aihc_lir_enter_S_V takes the machine, the object, the continuation, and V
+; supplied values. It loads the S stored fields of the object and
+; tail-calls the code in the identity field of the info table with the
+; machine, the stored fields, and the supplied values. aihc_lir_enter_S_V_k
+; passes the continuation after them. A continuation object ignores the
+; continuation parameter, so it uses the form without the suffix.
+;
+; The identity field is one word, so its load is aligned to the 32-bit
+; word: the wider alignment of a 64-bit target follows from that. A stored
+; field is one eight-byte slot on every target, which is why it is loaded
+; as i64 and converted.
+
+export func @aihc_lir_enter_0_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  tailcall.indirect %code(%machine) : (ptr)
+}
+
+export func @aihc_lir_enter_0_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  tailcall.indirect %code(%machine, %continuation) : (ptr, ptr)
+}
+
+export func @aihc_lir_enter_0_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  tailcall.indirect %code(%machine, %supplied0) : (ptr, ptr)
+}
+
+export func @aihc_lir_enter_0_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  tailcall.indirect %code(%machine, %supplied0, %continuation) : (ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_1_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%machine, %stored0) : (ptr, ptr)
+}
+
+export func @aihc_lir_enter_1_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%machine, %stored0, %continuation) : (ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_1_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%machine, %stored0, %supplied0) : (ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_1_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  tailcall.indirect %code(%machine, %stored0, %supplied0, %continuation) : (ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_2_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  tailcall.indirect %code(%machine, %stored0, %stored1) : (ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_2_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %continuation) : (ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_2_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %supplied0) : (ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_2_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_3_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2) : (ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_3_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %continuation) : (ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_3_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %supplied0) : (ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_3_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_4_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3) : (ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_4_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_4_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %supplied0) : (ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_4_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_5_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4) : (ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_5_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_5_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %supplied0) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_5_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_6_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_6_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_6_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %supplied0) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_6_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_7_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_7_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_7_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %supplied0) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_7_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_8_0(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  %stored7_word = load i64 [%object + 64] align 8
+  %stored7 = ptr.from_int %stored7_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_8_0_k(%machine: ptr, %object: ptr, %continuation: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  %stored7_word = load i64 [%object + 64] align 8
+  %stored7 = ptr.from_int %stored7_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_8_1(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  %stored7_word = load i64 [%object + 64] align 8
+  %stored7 = ptr.from_int %stored7_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7, %supplied0) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
+
+export func @aihc_lir_enter_8_1_k(%machine: ptr, %object: ptr, %continuation: ptr, %supplied0: ptr) {
+entry:
+  %header_word = load i64 [%object] align 8
+  %header = ptr.from_int %header_word
+  %code = load code [%header] align 4
+  %stored0_word = load i64 [%object + 8] align 8
+  %stored0 = ptr.from_int %stored0_word
+  %stored1_word = load i64 [%object + 16] align 8
+  %stored1 = ptr.from_int %stored1_word
+  %stored2_word = load i64 [%object + 24] align 8
+  %stored2 = ptr.from_int %stored2_word
+  %stored3_word = load i64 [%object + 32] align 8
+  %stored3 = ptr.from_int %stored3_word
+  %stored4_word = load i64 [%object + 40] align 8
+  %stored4 = ptr.from_int %stored4_word
+  %stored5_word = load i64 [%object + 48] align 8
+  %stored5 = ptr.from_int %stored5_word
+  %stored6_word = load i64 [%object + 56] align 8
+  %stored6 = ptr.from_int %stored6_word
+  %stored7_word = load i64 [%object + 64] align 8
+  %stored7 = ptr.from_int %stored7_word
+  tailcall.indirect %code(%machine, %stored0, %stored1, %stored2, %stored3, %stored4, %stored5, %stored6, %stored7, %supplied0, %continuation) : (ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr, ptr)
+}
