@@ -426,6 +426,15 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, bytes, root_count, roots);
   }
+  /* The allocation statistics are kept here, once per reservation: compiled
+     code bumps the heap pointer itself and reports nothing. */
+  if (bytes != 0) {
+    if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
+      aihc_fail("allocated byte counter overflow");
+    }
+    machine->heap_allocated_bytes += bytes;
+    aihc_record_allocation(machine);
+  }
 }
 
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
@@ -436,10 +445,6 @@ AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_fail("unchecked allocation exceeded reserved heap");
   }
-  if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
-    aihc_fail("allocated byte counter overflow");
-  }
-  machine->heap_allocated_bytes += bytes;
   AihcValue *value = (AihcValue *)machine->heap_next;
   machine->heap_next += bytes;
   memset(value, 0, bytes);

@@ -20,7 +20,6 @@ include "aihc_constants.lir"
 
 extern func @aihc_fail(ptr) cc c
 extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
-extern func @aihc_record_allocation(ptr) cc c
 extern func @aihc_array_length(ptr) -> i64 cc c
 extern func @aihc_memory_move(ptr, ptr, i64) cc c
 
@@ -66,7 +65,6 @@ invalid_size:
 allocate:
   %words = add i64 %count, 2
   %array = call @aihc_gc_allocate(%machine, %words)
-  call @aihc_record_allocation(%machine)
   %header = ptr.to_int @aihc_array_info
   store i64 %header, [%array] align 8
   store i64 %count, [%array + 8] align 8

@@ -293,7 +293,7 @@ staticReferenceSource =
         "  AihcMachine *held = machine;",
         "  for (int index = 0; index < length; ++index) {",
         "    aihc_ensure_heap(held, 2, 1, &head);",
-        "    AihcValue *cell = aihc_make_node_unchecked(held, &cell_info);",
+        "    AihcValue *cell = aihc_make_node(held, &cell_info);",
         "    aihc_set_field(cell, 0, head);",
         "    head = (AihcSlot)cell;",
         "  }",
