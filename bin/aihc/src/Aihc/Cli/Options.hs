@@ -46,6 +46,7 @@ data BuildOptions = BuildOptions
     buildBuildRoot :: !(Maybe FilePath),
     buildWorkspace :: !(Maybe FilePath),
     buildLint :: !Bool,
+    buildCheckPrimBounds :: !Bool,
     buildLto :: !Bool,
     buildOptimization :: !OptimizationLevel,
     buildNoLink :: !Bool,
@@ -80,6 +81,7 @@ data InstallOptions = InstallOptions
     installKeepGrin :: !Bool,
     installKeepNative :: !Bool,
     installLint :: !Bool,
+    installCheckPrimBounds :: !Bool,
     installLto :: !Bool,
     installOptimization :: !OptimizationLevel,
     installReinstall :: !Bool,
@@ -172,6 +174,7 @@ buildOptionsParser =
           )
       )
     <*> lintOption
+    <*> checkPrimBoundsOption
     <*> ltoOption
     <*> optimizationOption
     <*> OA.switch
@@ -226,6 +229,16 @@ lintOption =
   OA.switch
     ( OA.long "lint"
         <> OA.help "Run compiler intermediate-language lint checks"
+    )
+
+-- | Check the index of every array primitive, as GHC does under
+-- @-fcheck-prim-bounds@. The checks change the generated code, so the flag
+-- is part of the identity of an installed package.
+checkPrimBoundsOption :: OA.Parser Bool
+checkPrimBoundsOption =
+  OA.switch
+    ( OA.long "check-prim-bounds"
+        <> OA.help "Check the index of every array primitive against the array length and abort on an out-of-bounds access (GHC -fcheck-prim-bounds)"
     )
 
 -- | Compile each module to System FC only. @build@ merges the System FC of
@@ -334,6 +347,7 @@ installOptionsParser =
           <> OA.help "Retain native output files"
       )
     <*> lintOption
+    <*> checkPrimBoundsOption
     <*> ltoOption
     <*> optimizationOption
     <*> OA.switch

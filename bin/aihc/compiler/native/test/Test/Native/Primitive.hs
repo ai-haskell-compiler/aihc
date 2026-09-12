@@ -47,6 +47,14 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           addressIndexInlineNames,
+      testCase "keeps the runtime object accesses out of the runtime ABI" $
+        mapM_
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
+          objectInlineNames,
+      testCase "accepts the runtime object accesses in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          objectInlineNames,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
         mapM_
           ( \(primitive, symbol) ->
@@ -102,20 +110,6 @@ tests =
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           ["unsafeFreezeByteArray#", "unsafeThawByteArray#", "unsafeFreezeArray#", "unsafeThawArray#"],
-      testCase "keeps the element-strided and byte-offset byte-array families apart" $
-        mapM_
-          ( \(elementStrided, byteOffset) ->
-              assertEqual
-                ("runtime call for " <> show elementStrided <> " and " <> show byteOffset)
-                False
-                ( (runtimeCallSymbol <$> nativeRuntimePrimitiveCall elementStrided)
-                    == (runtimeCallSymbol <$> nativeRuntimePrimitiveCall byteOffset)
-                )
-          )
-          [ ("indexWord16Array#", "indexWord8ArrayAsWord16#"),
-            ("indexWord32Array#", "indexWord8ArrayAsWord32#"),
-            ("indexWord64Array#", "indexWord8ArrayAsWord64#")
-          ],
       testCase "accepts the complete byte-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -123,15 +117,15 @@ tests =
       testCase "accepts the complete boxed-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst arrayRuntimeSymbols <> ["newArray#", "unsafeFreezeArray#", "unsafeThawArray#"]),
+          (map fst arrayRuntimeSymbols <> ["unsafeFreezeArray#", "unsafeThawArray#"]),
       testCase "accepts the complete mutable-reference API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ("newMutVar#" : map fst mutVarRuntimeSymbols),
+          ["newMutVar#", "readMutVar#", "writeMutVar#", "casMutVar#", "sameMutVar#"],
       testCase "accepts the complete stable-name API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ("makeStableName#" : map fst stableNameRuntimeSymbols),
+          ["makeStableName#", "eqStableName#", "stableNameToInt#"],
       testCase "accepts the Integer arithmetic primitive API" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -186,30 +180,15 @@ runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
 byteArrayRuntimeSymbols =
-  [ ("indexCharArray#", "aihc_byte_array_index_byte_word8"),
-    ("indexWord8ArrayAsWord16#", "aihc_byte_array_index_byte_word16"),
-    ("indexWord8ArrayAsWord32#", "aihc_byte_array_index_byte_word32"),
-    ("indexWord8ArrayAsWord64#", "aihc_byte_array_index_byte_word64"),
-    ("newByteArray#", "aihc_byte_array_new"),
+  [ ("newByteArray#", "aihc_byte_array_new"),
     ("newPinnedByteArray#", "aihc_byte_array_new_pinned"),
     ("newAlignedPinnedByteArray#", "aihc_byte_array_new_aligned_pinned"),
-    ("isMutableByteArrayPinned#", "aihc_byte_array_is_pinned"),
-    ("isByteArrayPinned#", "aihc_byte_array_is_pinned"),
-    ("byteArrayContents#", "aihc_byte_array_contents"),
-    ("mutableByteArrayContents#", "aihc_byte_array_contents"),
     ("shrinkMutableByteArray#", "aihc_byte_array_shrink"),
     ("resizeMutableByteArray#", "aihc_byte_array_resize"),
-    ("sizeofByteArray#", "aihc_byte_array_get_size"),
-    ("getSizeofMutableByteArray#", "aihc_byte_array_get_size"),
     ("copyAddrToByteArray#", "aihc_byte_array_copy_from_addr"),
-    ("indexWordArray#", "aihc_byte_array_index_word"),
-    ("readWordArray#", "aihc_byte_array_read_word"),
-    ("writeWordArray#", "aihc_byte_array_write_word"),
     ("copyByteArray#", "aihc_byte_array_copy"),
     ("copyMutableByteArray#", "aihc_byte_array_copy"),
     ("copyMutableByteArrayNonOverlapping#", "aihc_byte_array_copy"),
-    ("atomicReadIntArray#", "aihc_byte_array_read_word"),
-    ("atomicWriteIntArray#", "aihc_byte_array_write_word"),
     ("fetchAddIntArray#", "aihc_byte_array_fetch_add_word"),
     ("fetchSubIntArray#", "aihc_byte_array_fetch_sub_word"),
     ("fetchAndIntArray#", "aihc_byte_array_fetch_and_word"),
@@ -217,25 +196,10 @@ byteArrayRuntimeSymbols =
     ("fetchOrIntArray#", "aihc_byte_array_fetch_or_word"),
     ("fetchXorIntArray#", "aihc_byte_array_fetch_xor_word"),
     ("casIntArray#", "aihc_byte_array_compare_and_swap_word"),
-    ("sizeofMutableByteArray#", "aihc_byte_array_get_size"),
-    ("readCharArray#", "aihc_byte_array_read_word8"),
-    ("writeCharArray#", "aihc_byte_array_write_word8"),
     ("copyByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
     ("copyMutableByteArrayToAddr#", "aihc_byte_array_copy_to_addr"),
     ("compareByteArrays#", "aihc_byte_array_compare"),
-    ("setByteArray#", "aihc_byte_array_set"),
-    ("indexWord8Array#", "aihc_byte_array_index_word8"),
-    ("readWord8Array#", "aihc_byte_array_read_word8"),
-    ("writeWord8Array#", "aihc_byte_array_write_word8"),
-    ("indexWord16Array#", "aihc_byte_array_index_word16"),
-    ("readWord16Array#", "aihc_byte_array_read_word16"),
-    ("writeWord16Array#", "aihc_byte_array_write_word16"),
-    ("indexWord32Array#", "aihc_byte_array_index_word32"),
-    ("readWord32Array#", "aihc_byte_array_read_word32"),
-    ("writeWord32Array#", "aihc_byte_array_write_word32"),
-    ("indexWord64Array#", "aihc_byte_array_index_word64"),
-    ("readWord64Array#", "aihc_byte_array_read_word64"),
-    ("writeWord64Array#", "aihc_byte_array_write_word64")
+    ("setByteArray#", "aihc_byte_array_set")
   ]
 
 bitPatternCastNames :: [Text]
@@ -244,20 +208,79 @@ bitPatternCastNames =
 
 arrayRuntimeSymbols :: [(Text, Text)]
 arrayRuntimeSymbols =
-  [ ("indexArray#", "aihc_array_index"),
-    ("readArray#", "aihc_array_index"),
-    ("writeArray#", "aihc_array_write"),
-    ("sameMutableArray#", "aihc_array_same"),
-    ("sizeofArray#", "aihc_array_length"),
-    ("sizeofMutableArray#", "aihc_array_length")
+  [ ("newArray#", "aihc_array_new"),
+    ("copyArray#", "aihc_array_copy"),
+    ("copyMutableArray#", "aihc_array_copy"),
+    ("cloneArray#", "aihc_array_clone"),
+    ("cloneMutableArray#", "aihc_array_clone"),
+    ("freezeArray#", "aihc_array_clone"),
+    ("thawArray#", "aihc_array_clone"),
+    ("shrinkSmallMutableArray#", "aihc_array_shrink"),
+    ("resizeSmallMutableArray#", "aihc_array_resize")
   ]
 
 mutVarRuntimeSymbols :: [(Text, Text)]
 mutVarRuntimeSymbols =
-  [ ("readMutVar#", "aihc_mutvar_read"),
-    ("writeMutVar#", "aihc_mutvar_write"),
-    ("casMutVar#", "aihc_mutvar_compare_and_swap"),
-    ("sameMutVar#", "aihc_mutvar_same")
+  [("newMutVar#", "aihc_mutvar_new")]
+
+-- | Accesses of runtime objects that the Lir lowering gives as Lir
+-- operations: identity tests, field reads, and element accesses of boxed
+-- arrays, mutable references, byte arrays, MVars, and stable names. None
+-- has an entry in the runtime ABI.
+objectInlineNames :: [Text]
+objectInlineNames =
+  [ "sameMutableArray#",
+    "sameSmallMutableArray#",
+    "sameMutVar#",
+    "readMutVar#",
+    "writeMutVar#",
+    "casMutVar#",
+    "eqStableName#",
+    "stableNameToInt#",
+    "indexArray#",
+    "readArray#",
+    "writeArray#",
+    "sizeofArray#",
+    "sizeofMutableArray#",
+    "indexSmallArray#",
+    "readSmallArray#",
+    "writeSmallArray#",
+    "sizeofSmallArray#",
+    "sizeofSmallMutableArray#",
+    "getSizeofSmallMutableArray#",
+    "sameMVar#",
+    "isEmptyMVar#",
+    "tryReadMVar#",
+    "isMutableByteArrayPinned#",
+    "isByteArrayPinned#",
+    "byteArrayContents#",
+    "mutableByteArrayContents#",
+    "sizeofByteArray#",
+    "getSizeofMutableByteArray#",
+    "sizeofMutableByteArray#",
+    "indexWordArray#",
+    "readWordArray#",
+    "writeWordArray#",
+    "atomicReadIntArray#",
+    "atomicWriteIntArray#",
+    "indexCharArray#",
+    "readCharArray#",
+    "writeCharArray#",
+    "indexWord8ArrayAsWord16#",
+    "indexWord8ArrayAsWord32#",
+    "indexWord8ArrayAsWord64#",
+    "indexWord8Array#",
+    "readWord8Array#",
+    "writeWord8Array#",
+    "indexWord16Array#",
+    "readWord16Array#",
+    "writeWord16Array#",
+    "indexWord32Array#",
+    "readWord32Array#",
+    "writeWord32Array#",
+    "indexWord64Array#",
+    "readWord64Array#",
+    "writeWord64Array#"
   ]
 
 -- | Primitives that the Lir lowering gives as Lir operations. They have no
@@ -385,9 +408,7 @@ numericInlineNames =
 
 stableNameRuntimeSymbols :: [(Text, Text)]
 stableNameRuntimeSymbols =
-  [ ("eqStableName#", "aihc_stable_name_equal"),
-    ("stableNameToInt#", "aihc_stable_name_hash")
-  ]
+  [("makeStableName#", "aihc_stable_name_make")]
 
 integerPrimitiveNames :: [Text]
 integerPrimitiveNames =
