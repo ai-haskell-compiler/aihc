@@ -116,9 +116,19 @@ allocateRegistersFor target signatures function =
     pool = volatile <> registersPreserved target
     poolSize = length pool
     registerArray = listArray (0, poolSize - 1) pool
-    -- The pool is small, so a hint finds its index by a walk.
+    -- The pool is small, so a register finds its index by a walk, once
+    -- per argument or result position.
     indexed = zip pool [0 ..]
-    indexesOf = mapMaybe (`lookup` indexed)
+    indexOf register = lookup register indexed
+    carriers =
+      Carriers
+        { carrierArgument = memoIndex (registersArgument target),
+          carrierResult = memoIndex (registersResult target)
+        }
+    memoIndex carrier =
+      let table = listArray (0, memoLimit) [carrier index >>= indexOf | index <- [0 .. memoLimit]] :: Array Int (Maybe Int)
+       in \index -> if index <= memoLimit then table ! index else carrier index >>= indexOf
+    memoLimit = 15
     config =
       Config
         { configPoolSize = poolSize,
@@ -128,7 +138,7 @@ allocateRegistersFor target signatures function =
     counts = accessCounts encoded
     exits = exitCount encoded
     calls = callPositions encoded
-    (fixedHints, partners) = hints target encoded
+    (fixedHints, partners) = hints carriers encoded
     operandsOf = resultOperands encoded
     spans = functionSpans encoded
     starts = IntMap.fromList [(spanValue s, spanStart s) | s <- spans]
@@ -137,9 +147,9 @@ allocateRegistersFor target signatures function =
           { candidateSpan = s,
             candidateReach = reach calls s,
             candidateEarnsPreserved = not (registersPreservedCost target) || profitable counts exits s,
-            candidateHints = indexesOf direct,
+            candidateHints = direct,
             candidatePartners = ours,
-            candidateWeakHints = indexesOf (nub (concatMap (\partner -> IntMap.findWithDefault [] partner fixedHints) ours)),
+            candidateWeakHints = nub (concatMap (\partner -> IntMap.findWithDefault [] partner fixedHints) ours),
             candidateOperands = IntMap.findWithDefault [] value operandsOf,
             -- A value with a hint of its own, or with a partner placed
             -- before it, has a claim on a register; it goes before the
@@ -328,21 +338,28 @@ reach calls s
 
 -- Hints
 
--- | The registers the convention suggests for each value, and the values
+-- | The pool index of the register that carries argument or result number
+-- @i@, when one does.
+data Carriers = Carriers
+  { carrierArgument :: Int -> Maybe Int,
+    carrierResult :: Int -> Maybe Int
+  }
+
+-- | The pool indexes the convention suggests for each value, and the values
 -- each value is copied to or from by a jump.
-hints :: Registers register -> Encoded -> (IntMap [register], IntMap [Int])
-hints target encoded = (fixed, partners)
+hints :: Carriers -> Encoded -> (IntMap [Int], IntMap [Int])
+hints carriers encoded = (fixed, partners)
   where
     blocks = encodedBlocks encoded
     parameters = IntMap.fromList [(ebIndex block, ebParameters block) | block <- blocks]
     placed hint =
       case hint of
-        ArgumentHint index value -> [(value, [register]) | Just register <- [registersArgument target index]]
-        ResultHint index value -> [(value, [register]) | Just register <- [registersResult target index]]
+        ArgumentHint index value -> [(value, [register]) | Just register <- [carrierArgument carriers index]]
+        ResultHint index value -> [(value, [register]) | Just register <- [carrierResult carriers index]]
     fixed =
       IntMap.fromListWith
         (flip (<>))
-        ( [(value, [register]) | (index, value) <- zip [0 ..] (encodedParameters encoded), Just register <- [registersArgument target index]]
+        ( [(value, [register]) | (index, value) <- zip [0 ..] (encodedParameters encoded), Just register <- [carrierArgument carriers index]]
             <> concat [placed hint | block <- blocks, instruction <- ebInstructions block, hint <- eiHints instruction]
             <> concat [placed hint | block <- blocks, hint <- ebTerminatorHints block]
         )
@@ -488,7 +505,13 @@ blockFlow block =
         (foldr IntSet.delete live (eiResults instruction))
 
 liveness :: Encoded -> IntMap (IntSet, IntSet)
-liveness encoded = converge initial
+liveness encoded
+  -- A function whose blocks jump nowhere has nothing live across a block
+  -- boundary: a block parameter is a definition, and a use of something a
+  -- block does not define is a parameter, which is defined before the
+  -- first block.
+  | all (null . ebTargets) blocks = initial
+  | otherwise = converge initial
   where
     blocks = encodedBlocks encoded
     flows = IntMap.fromList [(ebIndex block, blockFlow block) | block <- blocks]

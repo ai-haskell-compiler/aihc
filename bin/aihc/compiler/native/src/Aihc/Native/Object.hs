@@ -38,6 +38,7 @@ import Data.ByteString.Unsafe qualified as BSU
 import Foreign.Ptr (castPtr, plusPtr)
 import Foreign.Storable (pokeByteOff)
 import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Builder.Extra qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
@@ -120,10 +121,16 @@ data Item
   deriving (Eq, Show)
 
 -- | The bytes of one section and the offsets recorded inside them.
+-- | The bytes gather in a builder that is flushed into a strict chunk every
+-- 'chunkBytes', so that no long chain of pending appends stays alive.
 data SectionDraft = SectionDraft
   { sectionSize :: !Word64,
     sectionAlignment :: !Int,
-    sectionBytes :: !Builder.Builder,
+    -- | The flushed chunks, latest first.
+    sectionChunksRev :: ![ByteString],
+    -- | The bytes appended since the last flush, and how many.
+    sectionPending :: !Builder.Builder,
+    sectionPendingSize :: !Int,
     sectionLabelsRev :: ![(Text, Word64)],
     sectionLocalsRev :: ![(Int, Word64)],
     sectionFixupsRev :: ![(Word64, Fixup)]
@@ -196,7 +203,7 @@ emptyDraft :: Draft
 emptyDraft = Draft Nothing emptySection [] Map.empty Set.empty
 
 emptySection :: SectionDraft
-emptySection = SectionDraft 0 0 mempty [] [] []
+emptySection = SectionDraft 0 0 [] mempty 0 [] [] []
 
 selectSection :: SectionRole -> Draft -> Draft
 selectSection role draft
@@ -257,11 +264,35 @@ appendItem item section =
                 )
 
 appendBytes :: Word64 -> Builder.Builder -> SectionDraft -> SectionDraft
-appendBytes width bytes section =
-  section
-    { sectionSize = sectionSize section + width,
-      sectionBytes = sectionBytes section <> bytes
-    }
+appendBytes width bytes section
+  | pendingSize >= chunkBytes = flushSection appended
+  | otherwise = appended
+  where
+    pendingSize = sectionPendingSize section + fromIntegral width
+    appended =
+      section
+        { sectionSize = sectionSize section + width,
+          sectionPending = sectionPending section <> bytes,
+          sectionPendingSize = pendingSize
+        }
+
+chunkBytes :: Int
+chunkBytes = 65536
+
+-- | Turn the pending bytes into a chunk.
+flushSection :: SectionDraft -> SectionDraft
+flushSection section
+  | sectionPendingSize section == 0 = section
+  | otherwise =
+      section
+        { sectionChunksRev = BL.toStrict (Builder.toLazyByteStringWith (Builder.untrimmedStrategy (sectionPendingSize section) (sectionPendingSize section)) mempty (sectionPending section)) : sectionChunksRev section,
+          sectionPending = mempty,
+          sectionPendingSize = 0
+        }
+
+-- | Every byte of the section.
+sectionBytes :: SectionDraft -> ByteString
+sectionBytes section = BS.concat (reverse (sectionChunksRev (flushSection section)))
 
 littleEndian :: Int -> Word64 -> Builder.Builder
 littleEndian width value =
@@ -323,7 +354,7 @@ layoutDraft draft = do
        in LaidSection
             { laidRole = role,
               laidAlignment = sectionAlignment section,
-              laidBytes = BL.toStrict (Builder.toLazyByteString (sectionBytes section)),
+              laidBytes = sectionBytes section,
               laidLabels = reverse (sectionLabelsRev section),
               laidLocals = reverse (sectionLocalsRev section),
               laidFixups = reverse (sectionFixupsRev section)
