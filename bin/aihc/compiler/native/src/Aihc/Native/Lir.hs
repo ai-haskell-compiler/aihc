@@ -67,7 +67,10 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
 -- | Trap messages of one object, and the next private label index.
 data ObjectState = ObjectState
   { objectTraps :: !(Map Text Int),
+    -- | The number of the next fresh label, which names it.
     objectNextLabel :: !Int,
+    -- | The number of the next private label of any kind.
+    objectNextId :: !Int,
     -- | Whether a trap branch goes to a trampoline of the function rather
     -- than to the stub of the object. A backend whose conditional branch
     -- has a short reach keeps the stub within reach this way.
@@ -232,14 +235,17 @@ unsupported backend = lift . Left . nbUnsupported backend
 nextLabelId :: NativeM error Int
 nextLabelId = do
   state <- get
-  let index = objectNextLabel state
-  put state {objectNextLabel = index + 1}
-  pure index
+  let identifier = objectNextId state
+  put state {objectNextId = identifier + 1}
+  pure identifier
 
 freshLabel :: Text -> NativeM error Name
 freshLabel kind = do
-  index <- nextLabelId
-  pure (LocalName index (".Llir_" <> kind <> "_" <> tshow index))
+  state <- get
+  let index = objectNextLabel state
+  put state {objectNextLabel = index + 1}
+  identifier <- nextLabelId
+  pure (LocalName identifier (".Llir_" <> kind <> "_" <> tshow index))
 
 -- | The label of the stub that reports one trap message, or of the
 -- trampoline of the function to it.
@@ -319,6 +325,7 @@ compileNativeChunksWith lint backend lirModule =
       ObjectState
         { objectTraps = Map.empty,
           objectNextLabel = 0,
+          objectNextId = 0,
           objectLocalTraps = isJust (nbTrapTrampoline backend),
           objectFunctionIndex = 0,
           objectFunctionTraps = Map.empty
