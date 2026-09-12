@@ -33,7 +33,7 @@ statement value =
     Amd64Section role -> section role
     Amd64Align alignment -> indent (".p2align " <> show alignment)
     Amd64Global symbol -> indent (".globl " <> T.unpack symbol)
-    Amd64Label symbol -> T.unpack symbol <> ":"
+    Amd64Label symbol -> T.unpack (nameText symbol) <> ":"
     Amd64Quad word -> indent (".quad " <> hex (toInteger word))
     Amd64QuadSymbol symbol -> indent (".quad " <> T.unpack symbol)
     Amd64QuadSymbolAddend symbol addend -> indent (".quad " <> T.unpack symbol <> signed (toInteger addend))
@@ -62,9 +62,9 @@ instruction code =
     AmdCall target -> "call " <> T.unpack target
     AmdCallRegister register -> "call " <> reg register
     AmdJmp target -> "jmp " <> jump target
-    AmdJe target -> "je " <> T.unpack target
-    AmdJne target -> "jne " <> T.unpack target
-    AmdJcc condition target -> "j" <> cond condition <> " " <> T.unpack target
+    AmdJe target -> "je " <> T.unpack (nameText target)
+    AmdJne target -> "jne " <> T.unpack (nameText target)
+    AmdJcc condition target -> "j" <> cond condition <> " " <> T.unpack (nameText target)
     AmdMov destination source -> "mov " <> reg destination <> ", " <> moveSource source
     AmdStore destination source -> "mov " <> memory destination <> ", " <> storeSource source
     AmdMovsxd destination source -> two "movsxd" destination source
@@ -179,7 +179,7 @@ binarySource source =
 jump :: Amd64JumpTarget -> String
 jump target =
   case target of
-    Amd64JumpLabel label -> T.unpack label
+    Amd64JumpLabel label -> T.unpack (nameText label)
     Amd64JumpRegister register -> reg register
 
 offsetText :: Int64 -> String

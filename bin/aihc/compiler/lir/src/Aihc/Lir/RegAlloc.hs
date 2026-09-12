@@ -112,15 +112,18 @@ allocateRegistersFor target signatures function =
     }
   where
     encoded = encodeFunction signatures function
-    pool = registersVolatile target <> registersPreserved target
-    registerArray = listArray (0, length pool - 1) pool
-    poolIndex = Map.fromList (zip pool [0 ..])
-    indexesOf = mapMaybe (`Map.lookup` poolIndex)
-    preservedIndexes = IntSet.fromList (indexesOf (registersPreserved target))
+    volatile = registersVolatile target
+    pool = volatile <> registersPreserved target
+    poolSize = length pool
+    registerArray = listArray (0, poolSize - 1) pool
+    -- The pool is small, so a hint finds its index by a walk.
+    indexed = zip pool [0 ..]
+    indexesOf = mapMaybe (`lookup` indexed)
     config =
       Config
-        { configPoolSize = length pool,
-          configPreserved = preservedIndexes
+        { configPoolSize = poolSize,
+          -- The preserved registers follow the volatile ones.
+          configPreserved = IntSet.fromDistinctAscList [length volatile .. poolSize - 1]
         }
     counts = accessCounts encoded
     exits = exitCount encoded

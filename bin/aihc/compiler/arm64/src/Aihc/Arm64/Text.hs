@@ -30,7 +30,7 @@ statement value =
     Arm64Section role -> section role
     Arm64Align alignment -> indent (".p2align " <> show alignment)
     Arm64Global symbol -> indent (".globl " <> T.unpack symbol)
-    Arm64Label symbol -> T.unpack symbol <> ":"
+    Arm64Label symbol -> T.unpack (nameText symbol) <> ":"
     Arm64Quad word -> indent (".quad " <> hex (toInteger word))
     Arm64Word width word -> indent ("." <> widthDirective width <> " " <> hex (toInteger word))
     Arm64QuadSymbol symbol -> indent (".quad " <> T.unpack symbol)
@@ -65,12 +65,12 @@ instruction code =
     ArmBrk value -> "brk #" <> show value
     ArmBr register -> "br " <> reg register
     ArmBlr register -> "blr " <> reg register
-    ArmB target -> "b " <> T.unpack target
+    ArmB target -> "b " <> T.unpack (nameText target)
     ArmBl target -> "bl " <> T.unpack target
-    ArmBCond condition target -> "b." <> cond condition <> " " <> T.unpack target
-    ArmCbz register target -> "cbz " <> reg register <> ", " <> T.unpack target
-    ArmCbnz register target -> "cbnz " <> reg register <> ", " <> T.unpack target
-    ArmAdr register target -> "adr " <> reg register <> ", " <> T.unpack target
+    ArmBCond condition target -> "b." <> cond condition <> " " <> T.unpack (nameText target)
+    ArmCbz register target -> "cbz " <> reg register <> ", " <> T.unpack (nameText target)
+    ArmCbnz register target -> "cbnz " <> reg register <> ", " <> T.unpack (nameText target)
+    ArmAdr register target -> "adr " <> reg register <> ", " <> T.unpack (nameText target)
     ArmAdrp register target -> "adrp " <> reg register <> ", " <> T.unpack target <> "@PAGE"
     ArmAddPageOffset destination source target ->
       "add " <> reg destination <> ", " <> reg source <> ", " <> T.unpack target <> "@PAGEOFF"

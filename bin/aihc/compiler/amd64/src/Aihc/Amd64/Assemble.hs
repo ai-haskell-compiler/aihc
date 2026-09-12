@@ -19,6 +19,8 @@ module Aihc.Amd64.Assemble
     amd64Global,
     amd64Instruction,
     amd64Label,
+    Name (..),
+    nameText,
     amd64Quad,
     amd64QuadSymbol,
     amd64QuadSymbolAddend,
@@ -42,7 +44,7 @@ data Amd64Statement
   = Amd64Section !SectionRole
   | Amd64Align !Int
   | Amd64Global !Text
-  | Amd64Label !Text
+  | Amd64Label !Name
   | Amd64Quad !Word64
   | Amd64QuadSymbol !Text
   | Amd64QuadSymbolAddend !Text !Int64
@@ -130,7 +132,7 @@ data Amd64BinarySource
   deriving (Eq, Show)
 
 data Amd64JumpTarget
-  = Amd64JumpLabel !Text
+  = Amd64JumpLabel !Name
   | Amd64JumpRegister !Amd64Register
   deriving (Eq, Show)
 
@@ -176,8 +178,8 @@ data Amd64Instruction
   | AmdPop !Amd64Register
   | AmdCall !Text
   | AmdJmp !Amd64JumpTarget
-  | AmdJe !Text
-  | AmdJne !Text
+  | AmdJe !Name
+  | AmdJne !Name
   | AmdMov !Amd64Register !Amd64MoveSource
   | AmdStore !Amd64Memory !Amd64StoreSource
   | AmdMovsxd !Amd64Register !Amd64Rm
@@ -210,7 +212,7 @@ data Amd64Instruction
   | -- | @ret imm16@: pop the return address and the given number of bytes.
     AmdRetImm !Int
   | AmdCallRegister !Amd64Register
-  | AmdJcc !Amd64Condition !Text
+  | AmdJcc !Amd64Condition !Name
   | -- | @cmovcc r64, r/m64@.
     AmdCmov !Amd64Condition !Amd64Register !Amd64Rm
   | AmdNeg !Amd64Rm
@@ -258,8 +260,9 @@ amd64Align = Amd64Align
 amd64Global :: Text -> Amd64Statement
 amd64Global = Amd64Global
 
+-- | A label that names a symbol.
 amd64Label :: Text -> Amd64Statement
-amd64Label = Amd64Label
+amd64Label = Amd64Label . SymbolName
 
 amd64Quad :: Word64 -> Amd64Statement
 amd64Quad = Amd64Quad
@@ -285,8 +288,8 @@ applyStatement result statement = do
     Amd64Global symbol -> pure (addGlobal symbol draft)
     Amd64Label symbol -> addItem (Label symbol) draft
     Amd64Quad value -> addItem (Word 8 value) draft
-    Amd64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 symbol 0 8 0)) draft
-    Amd64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 symbol addend 8 0)) draft
+    Amd64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)) draft
+    Amd64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) addend 8 0)) draft
     Amd64Bytes value
       | BS.null value -> pure draft
       | otherwise -> addItem (Bytes value) draft
@@ -380,7 +383,7 @@ encodeInstruction instruction =
     AmdUd2 -> bytes [0x0f, 0x0b]
     AmdPush register -> encodePushPop False register
     AmdPop register -> encodePushPop True register
-    AmdCall target -> relativeBranch [0xe8] X86Plt32 target
+    AmdCall target -> relativeBranch [0xe8] X86Plt32 (SymbolName target)
     AmdJmp (Amd64JumpLabel target) -> relativeBranch [0xe9] X86Pc32 target
     AmdJmp (Amd64JumpRegister register) -> encodeGroup True [0xff] 4 (RegisterOperand (registerInfo register)) []
     AmdJe target -> relativeBranch [0x0f, 0x84] X86Pc32 target
@@ -498,7 +501,7 @@ encodeLea destinationSource source =
     Amd64RipAddress target ->
       let prefix = rex True (registerNumber destination >= 8) False False
           modrm = ((registerNumber destination .&. 7) `shiftL` 3) .|. 5
-       in [Bytes (BS.pack [prefix, 0x8d, modrm]), Apply (Fixup X86Pc32 target (-4) 4 0)]
+       in [Bytes (BS.pack [prefix, 0x8d, modrm]), Apply (Fixup X86Pc32 (SymbolName target) (-4) 4 0)]
     Amd64MemoryAddress memory -> encodeRm True [0x8d] (registerNumber destination) (memoryOperand memory) False []
   where
     destination = registerInfo destinationSource
@@ -555,7 +558,7 @@ encodeRm width64 opcode regField operand forceByteRex suffix =
           rexByte = rex width64 (regField >= 8) False (baseNumber >= 8)
        in bytes ([rexByte | width64 || regField >= 8 || baseNumber >= 8 || (forceByteRex && regField >= 4)] <> opcode <> [modrm] <> sib <> actualDisplacement <> suffix)
 
-relativeBranch :: [Word8] -> FixupKind -> Text -> [Item]
+relativeBranch :: [Word8] -> FixupKind -> Name -> [Item]
 relativeBranch opcode kind target = [Bytes (BS.pack opcode), Apply (Fixup kind target (-4) 4 0)]
 
 conditionCode :: Amd64Condition -> Word8
