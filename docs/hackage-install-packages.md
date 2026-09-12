@@ -6,6 +6,13 @@ The packages below are installed from Hackage by the daily
 fails. `scripts/install-hackage-packages.sh` reads this file, so the table is
 the list the workflow installs; edit it to add, remove, or bump a package.
 
+The workflow installs every package nine times, once per configuration: for
+the `linux-amd64`, `llvm`, and `wasm32-wasip3` targets, each at `-O0`, `-O2`,
+and `-Os`. Every configuration is its own job, with a three-hour timeout. A
+package that fails in any of them gets one issue, with a section per failing
+configuration, so a failure that only shows for one backend or only under
+whole-program compilation is still found.
+
 Order matters. Packages are installed from top to bottom into one store, and a
 package may only depend on packages above it: the installs share a workspace, so
 a dependency is taken from the pinned source next to it rather than resolved
@@ -39,6 +46,10 @@ $ nix run .#install-hackage-packages
 ```
 
 The app takes the same options as the script: `--target TARGET` (default
-`llvm`), `--store DIR` for the package store, `--list FILE` to read a different
-table, and `--report-dir DIR` to write the per-package Markdown the workflow
-puts in its issues.
+`llvm`), `-O LEVEL` (default `0`), `--store DIR` for the package store,
+`--list FILE` to read a different table, and `--report-dir DIR` to write the
+per-package Markdown the workflow puts in its issues. One store holds the
+entries of every target and level, so the configurations can share `--store`.
+`scripts/merge-hackage-install-reports.sh` joins the report directories of
+several configurations into the one-report-per-package form the workflow
+opens issues from.

@@ -10,6 +10,8 @@ Usage: scripts/install-hackage-packages.sh [OPTION]...
   --list FILE     Read the package table from FILE
                   (default: docs/hackage-install-packages.md)
   --target TARGET Install for TARGET (default: llvm)
+  -O LEVEL        Install at optimization level LEVEL: 0, 1, 2 or s
+                  (default: 0)
   --store DIR     Use DIR as the package store (default: a temporary directory)
   --report-dir DIR
                   Write a Markdown report per failed package to DIR, plus a
@@ -23,6 +25,7 @@ USAGE
 
 list_file=""
 target="llvm"
+level="0"
 store=""
 report_dir=""
 
@@ -35,6 +38,14 @@ while [ "$#" -gt 0 ]; do
 	--target)
 		target="${2:?--target needs a target}"
 		shift 2
+		;;
+	-O)
+		level="${2:?-O needs a level}"
+		shift 2
+		;;
+	-O?*)
+		level="${1#-O}"
+		shift
 		;;
 	--store)
 		store="${2:?--store needs a directory}"
@@ -128,9 +139,12 @@ while read -r name version; do
 	mv "$work_directory/$name-$version" "$workspace/$name"
 done <<<"$packages"
 
-echo "Preparing the $target toolchain in $store"
+# The level is part of the identity of an installed package, so aihc-base is
+# installed at the level the packages are, next to any entry of another level.
+echo "Preparing the $target toolchain at -O$level in $store"
 "$aihc" prepare-runtime --target "$target" --store "$store"
-"$aihc" install core-libs/aihc-base --store "$store" --immutable --lint --target "$target"
+"$aihc" install core-libs/aihc-base \
+	--store "$store" --immutable --lint --target "$target" -O "$level"
 
 while read -r name version; do
 	case " $failed " in
@@ -142,7 +156,8 @@ while read -r name version; do
 	echo "Installing $name-$version"
 	log="$logs/$name.log"
 	if "$aihc" install "$workspace/$name" \
-		--store "$store" --immutable --lint --target "$target" >"$log" 2>&1; then
+		--store "$store" --immutable --lint --target "$target" -O "$level" \
+		>"$log" 2>&1; then
 		echo "  ok"
 	else
 		failed="$failed $name-$version"
@@ -161,12 +176,12 @@ if [ -n "$report_dir" ]; then
 		esac
 		echo "$name-$version" >>"$report_dir/failed.txt"
 		{
-			echo "\`aihc install $name-$version --lint\` failed for target \`$target\`."
+			echo "\`aihc install $name-$version --lint -O$level\` failed for target \`$target\`."
 			echo
 			echo "Reproduce it with:"
 			echo
 			echo '```console'
-			echo "\$ nix run .#install-hackage-packages"
+			echo "\$ nix run .#install-hackage-packages -- --target $target -O$level"
 			echo '```'
 			echo
 			echo "The package list is in \`$list_file\`."

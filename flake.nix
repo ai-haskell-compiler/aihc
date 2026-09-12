@@ -24,6 +24,7 @@
     mkApps = import ./scripts/nix/apps.nix {
       inherit (core) projectHsPackages;
       inherit (haskell) mkHsPkgs;
+      inherit mkWasiSysroot;
     };
     mkChecks = import ./scripts/nix/checks.nix {
       inherit (core) projectHsPackages;
