@@ -322,7 +322,7 @@ programTest tools expected program = do
           }
   assertEqual "direct GRIN lint" [] (lintProgram linkedProgram)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin linkedProgram)
-  moduleLir <- either (assertFailure . show) pure (lowerModule wasip3Target gc)
+  moduleLir <- either (assertFailure . show) pure (lowerModule wasip3Target False gc)
   entryLir <- either (assertFailure . show) pure (lowerEntry wasip3Target)
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))

@@ -88,7 +88,7 @@ entry:
 }
 
 ; One when the zero-terminated string at %text equals the one at %expected.
-func @aihc_rts_text_is(%text: ptr, %expected: ptr) -> i64 cc c {
+func @aihc_rts_text_is(%text: ptr, %expected: ptr) -> i64 {
 entry:
   jump compare(0)
 
@@ -115,7 +115,7 @@ equal:
 ; One when the zero-terminated string at %text starts with the one at
 ; %prefix. The scan stops at the end of the prefix, so it never reads past
 ; the terminator of a shorter text.
-func @aihc_rts_text_starts_with(%text: ptr, %prefix: ptr) -> i64 cc c {
+func @aihc_rts_text_starts_with(%text: ptr, %prefix: ptr) -> i64 {
 entry:
   jump compare(0)
 
@@ -140,7 +140,7 @@ matched:
 }
 
 ; The number of bytes before the terminator of the string at %text.
-func @aihc_rts_text_length(%text: ptr) -> i64 cc c {
+func @aihc_rts_text_length(%text: ptr) -> i64 {
 entry:
   jump scan(0)
 
@@ -157,7 +157,7 @@ done:
 
 ; The size after -M: a decimal number and an optional unit suffix. The
 ; product must fit 64 bits, so every step checks before it multiplies.
-func @aihc_rts_parse_heap_size(%text: ptr) -> i64 cc c {
+func @aihc_rts_parse_heap_size(%text: ptr) -> i64 {
 entry:
   %first = load i8 [%text] align 1
   %below = lt.u i8 %first, '0'
@@ -231,7 +231,7 @@ invalid:
 }
 
 ; Apply one argument that sits between +RTS and -RTS.
-func @aihc_rts_parse_option(%argument: ptr) cc c {
+func @aihc_rts_parse_option(%argument: ptr) {
 entry:
   %static_roots = call @aihc_rts_text_is(%argument, @aihc_rts_static_roots_option)
   %is_static_roots = ne i64 %static_roots, 0
@@ -268,7 +268,7 @@ unknown:
 ; One when %length bytes at %buffer are a well-formed argument buffer: a
 ; non-negative length, a buffer when the length is not zero, and a zero as
 ; the last byte.
-func @aihc_rts_buffer_is_valid(%buffer: ptr, %length: i64) -> i64 cc c {
+func @aihc_rts_buffer_is_valid(%buffer: ptr, %length: i64) -> i64 {
 entry:
   %negative = lt.s i64 %length, 0
   %nonempty = ne i64 %length, 0
@@ -295,7 +295,7 @@ accepted:
 }
 
 ; Make %arguments the program arguments and release the previous ones.
-func @aihc_rts_install(%arguments: ptr, %length: i64) cc c {
+func @aihc_rts_install(%arguments: ptr, %length: i64) {
 entry:
   %previous = global.get @aihc_program_argument_buffer
   call @aihc_memory_free(%previous)
@@ -384,7 +384,7 @@ install:
 }
 
 ; Make %path the statistics file and release the previous one.
-func @aihc_rts_set_stats_path(%path: ptr) cc c {
+func @aihc_rts_set_stats_path(%path: ptr) {
 entry:
   %previous = global.get @aihc_rts_option_stats_path
   call @aihc_memory_free(%previous)

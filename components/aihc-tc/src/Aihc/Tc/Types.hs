@@ -419,24 +419,37 @@ typeKindInEnv kinds kindEnv = go
 
     applyKindWith quantified (TcFunTy formal result) argument = do
       actual <- go argument
-      substitution <- matchKinds quantified formal actual
+      substitution <- matchKinds quantified (argumentKindVariables argument) formal actual
       Right (applySubst substitution result)
     applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
 
-    matchKinds quantified formal actual =
+    argumentKindVariables argument =
+      case argument of
+        TcTyCon tyCon _ ->
+          case Map.lookup (tyConKey tyCon) kindEnv of
+            Just (ForAll variables _ _) -> map tvUnique variables
+            Nothing -> []
+        TcAppTy function _ -> argumentKindVariables function
+        _ -> []
+
+    matchKinds quantified argumentQuantified formal actual =
       case (formal, actual) of
         (TcTyVar tyVar, _)
           | tvUnique tyVar `elem` quantified -> Right (Map.singleton (tvUnique tyVar) actual)
-        (KTYPE formalRep, KTYPE actualRep) -> matchKinds quantified formalRep actualRep
+        (_, TcTyVar tyVar)
+          | tvUnique tyVar `elem` argumentQuantified -> Right Map.empty
+        (KTYPE formalRep, KTYPE actualRep) -> recur formalRep actualRep
         (TcFunTy left right, TcFunTy left' right') ->
-          Map.union <$> matchKinds quantified left left' <*> matchKinds quantified right right'
+          Map.union <$> recur left left' <*> recur right right'
         (TcTyCon left leftArguments, TcTyCon right rightArguments)
           | left == right,
             length leftArguments == length rightArguments ->
-              Map.unions <$> zipWithM (matchKinds quantified) leftArguments rightArguments
+              Map.unions <$> zipWithM recur leftArguments rightArguments
         _
           | formal == actual -> Right Map.empty
           | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
+      where
+        recur = matchKinds quantified argumentQuantified
 
 runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
 runtimeRepOfTypeInEnv kinds kindEnv ty = typeKindInEnv kinds kindEnv ty >>= runtimeRepFromKind

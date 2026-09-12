@@ -325,6 +325,9 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileKeepGrin :: !Bool,
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
+    -- | Check the index of every array primitive, as @--check-prim-bounds@
+    -- asks. The checks are part of the generated code of a package.
+    compileCheckPrimBounds :: !Bool,
     -- | Stop each module at System FC. @build@ merges the System FC of
     -- the whole program and compiles it once. @--lto@ sets this, and so
     -- does a level that optimizes.
@@ -445,6 +448,7 @@ installWith output options = do
             compileKeepGrin = installKeepGrin options,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
+            compileCheckPrimBounds = installCheckPrimBounds options,
             compileLto = installLto options || wholeProgramLevel (installOptimization options),
             compileNoCode = installNoCode options,
             compileOptimization = installOptimization options,
@@ -770,6 +774,7 @@ compileFlagNames config =
         (compileKeepGrin config, "keep-grin"),
         (compileKeepNative config, "keep-native"),
         (compileLint config, "lint"),
+        (compileCheckPrimBounds config, "check-prim-bounds"),
         (compileLto config, "lto"),
         (compileNoCode config, "no-code"),
         (compileOptimization config /= defaultOptimizationLevel, optimizationFlagName (compileOptimization config))
@@ -1018,12 +1023,12 @@ buildEnvironmentIdentity target = do
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
--- compiler, the target, the optimization level, and whether the package
--- stops at System FC. Flags that add or drop outputs, such as
--- @--keep-core@, or that only check, such as @--lint@, are recorded in the
--- manifest instead.
+-- compiler, the target, the optimization level, whether the package stops
+-- at System FC, and whether its array primitives check their bounds. Flags
+-- that add or drop outputs, such as @--keep-core@, or that only check,
+-- such as @--lint@, are recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config)
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -1053,6 +1058,12 @@ optimizationFlagName level = "O" <> T.pack (renderOptimizationLevel level)
 ltoKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
 ltoKeyParts config = ["lto" | compileLto config]
 
+-- | The key part of a @--check-prim-bounds@ build. A build without the
+-- flag adds nothing, so its keys stay the keys of a build before the flag
+-- existed.
+checkPrimBoundsKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+checkPrimBoundsKeyParts config = ["check-prim-bounds" | compileCheckPrimBounds config]
+
 -- | The part of the configuration the type interfaces depend on. The level
 -- changes only C and LLVM objects, so a local package that changes its
 -- level keeps its interfaces.
@@ -1069,6 +1080,7 @@ backendOptionsKey config =
       ]
         <> optimizationKeyParts config
         <> ltoKeyParts config
+        <> checkPrimBoundsKeyParts config
     )
 
 createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
@@ -2178,7 +2190,7 @@ compileFcModules config verbose outputPaths fcModules = do
     generateNativeModule selectedTarget grinModule = do
       let name = grinModuleName grinModule
           gcProgram = gcGrinProgram grinModule
-      lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) gcProgram)
+      lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) (compileCheckPrimBounds config) gcProgram)
       output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLirWith (compileLint config) selectedTarget lirModule)
       pure $ case output of
         BackendObject object -> NativeModule name (if keepNative then Just (Lir.renderModule lirModule) else Nothing) (Just object)

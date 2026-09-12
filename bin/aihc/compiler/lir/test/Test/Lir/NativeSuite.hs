@@ -333,7 +333,7 @@ compileProgramUnits backend program = do
           }
   assertEqual "direct GRIN lint" [] (lintProgram linkedProgram)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin linkedProgram)
-  moduleLir <- either (assertFailure . show) pure (lowerModule (backendLowerTarget backend) gc)
+  moduleLir <- either (assertFailure . show) pure (lowerModule (backendLowerTarget backend) False gc)
   entryLir <- either (assertFailure . show) pure (lowerEntry (backendLowerTarget backend))
   assertEqual "module Lir lint" [] (map renderLintError (lintModule moduleLir))
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))

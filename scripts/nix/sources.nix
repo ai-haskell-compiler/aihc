@@ -239,6 +239,30 @@ in rec {
         type == "directory" || isHlintConfig || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell) && (isCabal || (isHaskell && !isFixture)));
     };
 
+  # Each package has a separate cache entry for format and lint checks.
+  haskellCheckSources = pkgs: let
+    packageRoots = pkgs.lib.concatMap (parent:
+      map (name: "${parent}/${name}/")
+      (builtins.attrNames (pkgs.lib.filterAttrs (_name: type: type == "directory")
+          (builtins.readDir (root + "/${parent}")))))
+    ["components" "tooling" "bin" "core-libs"];
+    source = haskellSrc pkgs;
+    inPackage = prefix: path: pkgs.lib.hasPrefix prefix path;
+    select = prefix:
+      pkgs.lib.cleanSourceWith {
+        src = source;
+        filter = path: type: let
+          relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+          selected =
+            if prefix == "other"
+            then !builtins.any (entry: inPackage entry relPath) packageRoots
+            else inPackage prefix relPath;
+        in
+          type == "directory" || baseNameOf path == ".hlint.yaml" || selected;
+      };
+  in
+    pkgs.lib.genAttrs (packageRoots ++ ["other"]) select;
+
   # Cabal formatting should not be invalidated by ordinary Haskell changes.
   cabalSrc = pkgs:
     pkgs.lib.cleanSourceWith {

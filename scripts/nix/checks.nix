@@ -10,6 +10,9 @@
   '';
   wasmSysroot = mkWasiSysroot pkgs;
   examplesSource = sources.examplesSrc pkgs;
+  # Reuse each source value across the target and package matrices.
+  coreLibrariesSource = sources.coreLibrariesSrc pkgs;
+  exampleSources = pkgs.lib.genAttrs allExampleNames (name: sources.exampleSrc name pkgs);
   exampleEntries = builtins.readDir "${examplesSource}/examples";
   allExampleNames = builtins.filter (
     name:
@@ -366,12 +369,18 @@
     alejandra --check .
   '';
 
-  haskellLint = mkSourceCheck "aihc-haskell-lint" (sources.haskellSrc pkgs) [pkgs.hlint pkgs.findutils] ''
+  mkHaskellSourceCheck = name: inputs: script:
+    pkgs.linkFarm name (pkgs.lib.mapAttrsToList (scope: src: {
+      name = pkgs.lib.replaceStrings ["/"] ["-"] scope;
+      path = mkSourceCheck "${name}-${pkgs.lib.replaceStrings ["/"] ["-"] scope}" src inputs script;
+    }) (sources.haskellCheckSources pkgs));
+
+  haskellLint = mkHaskellSourceCheck "aihc-haskell-lint" [pkgs.hlint pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r hlint
   '';
 
-  haskellFormat = mkSourceCheck "aihc-haskell-format" (sources.haskellSrc pkgs) [pkgs.ormolu pkgs.findutils] ''
+  haskellFormat = mkHaskellSourceCheck "aihc-haskell-format" [pkgs.ormolu pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r ormolu --mode check
   '';
@@ -410,7 +419,7 @@
 
   coreLibrariesInstall =
     pkgs.runCommand "aihc-core-libraries-install" {
-      src = sources.coreLibrariesSrc pkgs;
+      src = coreLibrariesSource;
       nativeBuildInputs = [
         pkgs.findutils
         pkgs.llvmPackages.bintools
@@ -453,7 +462,7 @@
   # install it again.
   specSeedStore =
     pkgs.runCommand "aihc-spec-seed-store" {
-      src = sources.coreLibrariesSrc pkgs;
+      src = coreLibrariesSource;
       nativeBuildInputs = [
         pkgs.llvmPackages.bintools
         pkgs.llvmPackages.clang
@@ -518,7 +527,7 @@
 
   exampleToolchainWith = extraSetup: target:
     pkgs.runCommand "aihc-example-toolchain-${target}" {
-      src = sources.coreLibrariesSrc pkgs;
+      src = coreLibrariesSource;
       nativeBuildInputs = [
         pkgs.llvmPackages.bintools
         pkgs.llvmPackages.clang
@@ -628,7 +637,7 @@
       ${extraSetup}
       coreLibsRoot="$TMPDIR/aihc-core-libs-root"
       mkdir -p "$coreLibsRoot"
-      ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+      ln -sfn ${coreLibrariesSource}/core-libs "$coreLibsRoot/core-libs"
       export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
       cp -R --no-preserve=mode ${exampleToolchainWith extraSetup target} "$out"
       # Every dependency store is itself layered on this same toolchain
@@ -718,7 +727,7 @@
   exportCoreLibsRoot = ''
     coreLibsRoot="$TMPDIR/aihc-core-libs-root"
     mkdir -p "$coreLibsRoot"
-    ln -sfn ${sources.coreLibrariesSrc pkgs}/core-libs "$coreLibsRoot/core-libs"
+    ln -sfn ${coreLibrariesSource}/core-libs "$coreLibsRoot/core-libs"
     export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
   '';
 
@@ -731,7 +740,7 @@
   ];
 
   mkExampleTest = exampleName: target:
-    mkSourceCheck "aihc-example-${exampleName}-${target}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
+    mkSourceCheck "aihc-example-${exampleName}-${target}" (exampleSources.${exampleName}) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N
       export LANG=C.UTF-8
@@ -764,7 +773,7 @@
   exampleNames;
 
   mkGhcExampleTest = exampleName:
-    mkSourceCheck "aihc-ghc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) [pkgs.coreutils pkgs.diffutils (projectHsPackages pkgs).ghc] ''
+    mkSourceCheck "aihc-ghc-example-${exampleName}" (exampleSources.${exampleName}) [pkgs.coreutils pkgs.diffutils (projectHsPackages pkgs).ghc] ''
       set -euo pipefail
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
@@ -888,7 +897,7 @@
   ];
 
   mkWasip3ExampleTest = exampleName:
-    mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
+    mkSourceCheck "aihc-wasip3-example-${exampleName}" (exampleSources.${exampleName}) wasip3ExampleInputs ''
       set -euo pipefail
       export GHCRTS=-N
       export LANG=C.UTF-8
