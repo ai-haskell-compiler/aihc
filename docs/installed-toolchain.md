@@ -134,12 +134,31 @@ reconfigures when one of them changes.
 The level is 0, 1, 2 or s, and the default is 0.
 `-O0`, `-O1`, `-O2` and `-Os` are also accepted.
 
-The level is the level Clang receives.
+The level selects the System FC inliner, and it is the level Clang receives.
 Clang gets it for the C sources of a package, for the `CFLAGS` of a configure script, and for the LLVM output of the `llvm` target.
 The GRIN passes, the Lir lowering, and the object backends of `apple-arm64` and `linux-amd64` do not read the level.
 `-O2` and `-Os` also compile the whole program at once, as `--lto` does.
 `-O0` and `-O1` compile each module to its own object.
 See "Whole-program compilation" below.
+
+### The System FC inliner
+
+`-O0` runs no inliner.
+The other levels run the System FC inliner on each program that they lower.
+`-O1` runs it on each module alone, so it sees only the values of that module.
+`-O2` and `-Os` run it on the merged program, after the values that the entry does not reach are dropped.
+
+The inliner walks the values from the leaves of the call graph to its roots.
+At a call that gives every parameter of a non-recursive value, it puts a copy of the body in place and reduces the copy.
+A copy of a constructor application is never made: a case on a known constructor selects the field instead.
+`-Os` keeps a copy only when the program does not get larger.
+`-O1` and `-O2` also keep a copy that makes the program larger, until the program has grown by half.
+A value that nothing uses after the walk is dropped, unless it is a root.
+A public value of a module is a root at `-O1`, and the entry of the program is the root at `-O2` and `-Os`.
+
+Before the walk, each method body of a dictionary becomes a top-level helper.
+A dictionary is then a small constructor application, and a method of a known dictionary becomes a direct call of the helper.
+The size the inliner measures follows the code that the CPS conversion of GRIN makes, which copies the continuation of a case in bind position into each alternative.
 The runtime and entry archives are compiled once for each target at `-O2`, whatever level a program names.
 
 The level is part of the identity of an installed package.

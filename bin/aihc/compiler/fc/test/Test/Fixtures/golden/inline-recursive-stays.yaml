@@ -1,0 +1,59 @@
+---
+extensions: []
+modules:
+- |
+  module Test (allTrue) where
+  import GHC.Types (Bool (..))
+
+  go :: [Bool] -> Bool
+  go xs = case xs of
+    [] -> True
+    (b : rest) -> case b of
+      True -> go rest
+      False -> False
+
+  allTrue :: [Bool] -> Bool
+  allTrue xs = go xs
+inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.tType;
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.t[] :: ∀(a : 2.tType). 2.tType;
+    2.v: :: ∀(a : 2.tType). a 2.→ 2.t[] a 2.→ 2.t[] a;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vFalse :: 2.tBool;
+    2.vLifted :: 2.tLevity;
+    2.vTrue :: 2.tBool;
+    2.v[] :: ∀(a : 2.tType). 2.t[] a
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
+
+  val 1.vgo :: 2.t[] 2.tBool 2.→ 2.tBool
+   = λ(x : 2.t[] 2.tBool).
+    case x as (_scrut : 2.t[] 2.tBool) return (2.tBool) of {
+        2.v[] →
+            2.vTrue;
+        2.v: (b : 2.tBool) (rest : 2.t[] 2.tBool) →
+            case b as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                2.vTrue →
+                    1.vgo rest;
+                2.vFalse →
+                    2.vFalse
+            }
+    }
+
+  pub val 1.vallTrue :: 2.t[] 2.tBool 2.→ 2.tBool
+   = λ(x : 2.t[] 2.tBool).
+    1.vgo x
+status: pass
+reason: A recursive value is not inlined, even at its only use.

@@ -253,10 +253,11 @@ nativeTargetStoreDirectory target =
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
 
--- | The @-O@ level of a build. aihc has no optimization pass of its own,
--- so the level is the level Clang receives for the C sources of a package
--- and for the LLVM output of the @llvm@ target. The object backends do not
--- read it.
+-- | The @-O@ level of a build. The level selects the System FC inliner:
+-- none at @-O0@, one that only makes the program smaller at @-Os@, and one
+-- that fills a size budget at @-O1@ and @-O2@. It is also the level Clang
+-- receives for the C sources of a package and for the LLVM output of the
+-- @llvm@ target. The object backends do not read it.
 data OptimizationLevel
   = O0
   | O1

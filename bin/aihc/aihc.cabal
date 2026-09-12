@@ -127,6 +127,7 @@ library
     Aihc.Fc.Convert
     Aihc.Fc.Desugar
     Aihc.Fc.Imports
+    Aihc.Fc.Inline
     Aihc.Fc.Lint
     Aihc.Fc.Merge
     Aihc.Fc.Name
