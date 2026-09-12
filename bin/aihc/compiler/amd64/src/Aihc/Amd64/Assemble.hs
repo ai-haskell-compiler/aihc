@@ -331,22 +331,6 @@ amd64Bytes = Amd64Bytes
 amd64Instruction :: Amd64Instruction -> Amd64Statement
 amd64Instruction = Amd64Code
 
-applyStatement :: Either ObjectError Draft -> Amd64Statement -> Either ObjectError Draft
-applyStatement result statement = do
-  draft <- result
-  case statement of
-    Amd64Section role -> pure (selectSection role draft)
-    Amd64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
-    Amd64Global symbol -> pure (addGlobal symbol draft)
-    Amd64Label symbol -> addItem (Label symbol) draft
-    Amd64Quad value -> addItem (Word 8 value) draft
-    Amd64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)) draft
-    Amd64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) addend 8 0)) draft
-    Amd64Bytes value
-      | BS.null value -> pure draft
-      | otherwise -> addItem (Bytes value) draft
-    Amd64Code instruction -> foldl' (>>=) (pure draft) [addItem item | item <- encodeInstruction instruction]
-
 alignmentFill :: Draft -> ByteString
 alignmentFill draft
   | draftCurrentSection draft == Just TextSection = BS.singleton 0x90

@@ -51,6 +51,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64, Word8)
+import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr (castPtr, plusPtr)
 import Foreign.Storable (pokeByteOff)
 
@@ -406,8 +407,8 @@ layoutDraft draft = do
       ordered = sortOn fst [(emitted name, name) | name <- names]
       symbols = [makeSymbol definitions label name | (label, name) <- ordered]
       table = Map.fromList (zip (map snd ordered) [0 ..])
-  sections <- mapM (resolveSection globals definitions locals table) firstPass
-  pure Image {imageSections = sections, imageSymbols = symbols}
+  resolved <- mapM (resolveSection globals definitions locals table) firstPass
+  pure Image {imageSections = resolved, imageSymbols = symbols}
   where
     sections = draftSections draft
     layoutSection role =
@@ -562,7 +563,7 @@ applyPatches bytes patches = do
   pure
     ( BL.fromStrict
         ( BSI.unsafeCreate size $ \destination -> do
-            BSU.unsafeUseAsCString bytes $ \source -> BSI.memcpy destination (castPtr source) size
+            BSU.unsafeUseAsCString bytes $ \source -> copyBytes destination (castPtr source) size
             mapM_ (\(offset, value) -> pokeWord32LE (destination `plusPtr` fromIntegral offset) value) patches
         )
     )

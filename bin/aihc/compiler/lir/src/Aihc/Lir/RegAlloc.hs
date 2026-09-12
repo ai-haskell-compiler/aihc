@@ -53,7 +53,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.List (foldl', nub, sortOn)
+import Data.List (nub, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
@@ -243,8 +243,8 @@ encodeFunction signatures function =
         OperandVar var -> Just (valueOf var)
         OperandLiteral _ -> Nothing
     blockIndex = Map.fromList (zip (map blockLabel blocks) [0 ..])
-    argumentHints operands = [ArgumentHint index (valueOf var) | (index, OperandVar var) <- zip [0 ..] operands]
-    resultHints vars = [ResultHint index (valueOf var) | (index, var) <- zip [0 ..] vars]
+    argumentHints arguments = [ArgumentHint position (valueOf var) | (position, OperandVar var) <- zip [0 ..] arguments]
+    resultHints vars = [ResultHint position (valueOf var) | (position, var) <- zip [0 ..] vars]
     go _ _ [] = []
     go index start (block : rest) =
       let instructions = zipWith encodeInstruction [start + 1 ..] (blockInstructions block)
