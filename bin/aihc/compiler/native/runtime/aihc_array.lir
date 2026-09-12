@@ -22,6 +22,7 @@ extern func @aihc_fail(ptr) cc c
 extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
 extern func @aihc_record_allocation(ptr) cc c
 extern func @aihc_array_length(ptr) -> i64 cc c
+extern func @aihc_memory_move(ptr, ptr, i64) cc c
 
 ; The info table of every array. The collector reaches an array's elements
 ; from the length rather than from field_is_pointer, which stays null as it
@@ -96,81 +97,43 @@ entry:
   trap "boxed-array index is out of bounds"
 }
 
-; The address of element %index, after the bounds check. aihc_array_length
-; rejects a value that is not an array before the comparison runs.
-func @aihc_array_element(%array: ptr, %index: i64) -> ptr {
+data @aihc_array_copy_message align 1 = {
+  bytes "boxed-array copy range is invalid", zero 1
+}
+
+; The address of the run of %count elements at %offset, after one check that
+; the run lies inside the array. aihc_array_length rejects a value that is
+; not an array. A negative offset or count is a huge unsigned one, so the
+; unsigned comparisons reject both, and no sum overflows.
+func @aihc_array_run(%array: ptr, %offset: i64, %count: i64) -> ptr {
 entry:
-  %count = call @aihc_array_length(%array)
-  %negative = lt.s i64 %index, 0
-  %past_end = ge.u i64 %index, %count
-  %invalid = or i1 %negative, %past_end
-  br %invalid, out_of_bounds, element
+  %length = call @aihc_array_length(%array)
+  %past_end = gt.u i64 %offset, %length
+  %remaining = sub i64 %length, %offset
+  %too_long = gt.u i64 %count, %remaining
+  %invalid = or i1 %past_end, %too_long
+  br %invalid, out_of_bounds, run
 
 out_of_bounds:
-  call @aihc_fail(@aihc_array_bounds_message)
-  trap "boxed-array index is out of bounds"
+  call @aihc_fail(@aihc_array_copy_message)
+  trap "boxed-array copy range is invalid"
 
-element:
-  %offset = mul i64 %index, 8
-  %slot = ptr.add %array, %offset
+run:
+  %bytes = mul i64 %offset, 8
+  %slot = ptr.add %array, %bytes
   %address = ptr.add %slot, 16
   return %address
 }
 
-data @aihc_array_copy_message align 1 = {
-  bytes "boxed-array copy length is invalid", zero 1
-}
-
-; Copy one element between two arrays. Both accesses go through
-; aihc_array_element, so each one is bounds checked on its own array.
-func @aihc_array_copy_element(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %index: i64) {
-entry:
-  %from = add i64 %source_offset, %index
-  %to = add i64 %target_offset, %index
-  %source_address = call @aihc_array_element(%source, %from)
-  %value = load i64 [%source_address] align 8
-  %target_address = call @aihc_array_element(%target, %to)
-  store i64 %value, [%target_address] align 8
-  return
-}
-
-; Copy %count elements from one array to another. The source and the target
-; may be the same array, so a copy that moves a run towards a higher index
-; within one array runs backwards and leaves the overlap intact.
+; Copy %count elements from one array to another. Each run is checked once
+; against its own array, and the move is one memmove, which leaves the
+; overlap intact when the source and the target are the same array.
 export func @aihc_array_copy(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %count: i64) -> i64 cc c {
 entry:
-  %negative = lt.s i64 %count, 0
-  br %negative, invalid_length, choose
-
-invalid_length:
-  call @aihc_fail(@aihc_array_copy_message)
-  trap "boxed-array copy length is invalid"
-
-choose:
-  %same = eq ptr %source, %target
-  %after = gt.u i64 %target_offset, %source_offset
-  %backwards = and i1 %same, %after
-  br %backwards, backward(%count), forward(0)
-
-forward(%index: i64):
-  %reached_end = ge.u i64 %index, %count
-  br %reached_end, done, forward_step
-
-forward_step:
-  call @aihc_array_copy_element(%source, %source_offset, %target, %target_offset, %index)
-  %next = add i64 %index, 1
-  jump forward(%next)
-
-backward(%remaining: i64):
-  %empty = eq i64 %remaining, 0
-  br %empty, done, backward_step
-
-backward_step:
-  %previous = sub i64 %remaining, 1
-  call @aihc_array_copy_element(%source, %source_offset, %target, %target_offset, %previous)
-  jump backward(%previous)
-
-done:
+  %from = call @aihc_array_run(%source, %source_offset, %count)
+  %to = call @aihc_array_run(%target, %target_offset, %count)
+  %bytes = mul i64 %count, 8
+  call @aihc_memory_move(%to, %from, %bytes)
   return 0
 }
 
