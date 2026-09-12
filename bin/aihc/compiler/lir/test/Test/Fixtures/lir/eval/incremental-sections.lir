@@ -1,0 +1,32 @@
+; expect: 42, 42
+; Absolute addresses are adjacent to the section buffer boundary.
+; A later function supplies the target of an earlier call.
+; Data alignment exceeds the section buffer capacity.
+
+data @table align 8 = { zero 65528, ptr @values + 8, code @answer }
+data mut @result align 8 = { zero 65536, i64 0 }
+
+func @main() -> (i64, i64) {
+entry:
+  %direct = call @answer()
+  %address = load ptr [@table + 65528] align 8
+  %value = load i64 [%address] align 8
+  store i64 %value, [@result + 65536] align 8
+  %stored = load i64 [@result + 65536] align 8
+  return %direct, %stored
+}
+
+data @values align 1048576 = { i64 10, i64 42 }
+
+func @answer() -> i64 {
+entry:
+  jump loop(0)
+loop(%value: i64):
+  %done = eq i64 %value, 42
+  br %done, exit(%value), next(%value)
+next(%previous: i64):
+  %value2 = add i64 %previous, 1
+  jump loop(%value2)
+exit(%answer: i64):
+  return %answer
+}

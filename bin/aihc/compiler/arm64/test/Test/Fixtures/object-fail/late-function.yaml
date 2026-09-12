@@ -1,0 +1,12 @@
+language: lir
+error: more than eight integer C parameters
+source: |
+  func @first() -> i64 {
+  entry:
+    return 42
+  }
+
+  func @later(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64, %g: i64, %h: i64, %i: i64) -> i64 cc c {
+  entry:
+    return %i
+  }

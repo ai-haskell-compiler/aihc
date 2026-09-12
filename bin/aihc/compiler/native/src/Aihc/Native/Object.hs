@@ -28,7 +28,10 @@ module Aihc.Native.Object
     addItems,
     emptyDraft,
     layoutDraft,
+    layoutDraftWith,
+    sectionBytes,
     selectSection,
+    sealFunction,
   )
 where
 
@@ -37,9 +40,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Builder.Extra qualified as Builder
-import Data.ByteString.Internal qualified as BSI
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Unsafe qualified as BSU
 import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -51,9 +52,6 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64, Word8)
-import Foreign.Marshal.Utils (copyBytes)
-import Foreign.Ptr (castPtr, plusPtr)
-import Foreign.Storable (pokeByteOff)
 
 data SectionRole
   = TextSection
@@ -136,7 +134,9 @@ data SectionDraft = SectionDraft
     sectionPendingSize :: !Int,
     sectionLabelsRev :: ![(Text, Word64)],
     sectionLocalsRev :: ![(Int, Word64)],
-    sectionFixupsRev :: ![(Word64, Fixup)]
+    sectionFixupsRev :: ![(Word64, Fixup)],
+    sectionPatchesRev :: ![(Word64, Word32)],
+    sectionFunctionStart :: !Word64
   }
 
 -- | The section being written is kept apart from the others, so that an
@@ -178,6 +178,7 @@ data Relocation = Relocation
 data ImageSection = ImageSection
   { imageSectionRole :: !SectionRole,
     imageSectionAlignment :: !Int,
+    imageSectionSize :: !Word64,
     imageSectionBytes :: !BL.ByteString,
     imageSectionRelocations :: ![Relocation]
   }
@@ -206,7 +207,31 @@ emptyDraft :: Draft
 emptyDraft = Draft Nothing emptySection [] Map.empty Set.empty
 
 emptySection :: SectionDraft
-emptySection = SectionDraft 0 0 [] mempty 0 [] [] []
+emptySection = SectionDraft 0 0 [] mempty 0 [] [] [] [] 0
+
+-- | Resolve function labels and release their names before the next function.
+sealFunction :: Draft -> Either ObjectError Draft
+sealFunction draft = do
+  locals <- foldl' addLocal (Right IntMap.empty) (sectionLocalsRev section)
+  (fixups, patches) <- foldl' (resolve locals) (Right ([], sectionPatchesRev section)) current
+  pure draft {draftCurrent = section {sectionLocalsRev = [], sectionFixupsRev = reverse fixups <> earlier, sectionPatchesRev = patches, sectionFunctionStart = sectionSize section}}
+  where
+    section = draftCurrent draft
+    (current, earlier) = span ((>= sectionFunctionStart section) . fst) (sectionFixupsRev section)
+    addLocal result (identifier, offset) = do
+      locals <- result
+      if IntMap.member identifier locals
+        then Left (ObjectDuplicateSymbol (T.pack (".L" <> show identifier)))
+        else pure (IntMap.insert identifier offset locals)
+    resolve locals result entry@(offset, fixup) = do
+      (fixups, patches) <- result
+      case fixupTarget fixup of
+        LocalName identifier _ -> case IntMap.lookup identifier locals of
+          Nothing -> Left (ObjectMissingSymbol (nameText (fixupTarget fixup)))
+          Just target -> do
+            value <- patchLocal offset target fixup
+            pure (fixups, (offset, value) : patches)
+        SymbolName _ -> pure (entry : fixups, patches)
 
 selectSection :: SectionRole -> Draft -> Draft
 selectSection role draft
@@ -353,8 +378,8 @@ flushPending pending pendingSize =
   BL.toStrict (Builder.toLazyByteStringWith (Builder.untrimmedStrategy pendingSize pendingSize) mempty pending)
 
 -- | Every byte of the section.
-sectionBytes :: SectionDraft -> ByteString
-sectionBytes section = BS.concat (reverse (sectionChunksRev (flushSection section)))
+sectionBytes :: SectionDraft -> BL.ByteString
+sectionBytes section = BL.fromChunks (reverse (sectionChunksRev (flushSection section)))
 
 littleEndian :: Int -> Word64 -> Builder.Builder
 littleEndian width value =
@@ -368,7 +393,11 @@ littleEndian width value =
     byteAt index = fromIntegral (value `shiftR` (8 * index)) :: Word8
 
 layoutDraft :: Draft -> Either ObjectError Image
-layoutDraft draft = do
+layoutDraft = layoutDraftWith (const sectionBytes)
+
+-- | Layout uses explicit sizes. It does not traverse section payloads.
+layoutDraftWith :: (SectionRole -> SectionDraft -> BL.ByteString) -> Draft -> Either ObjectError Image
+layoutDraftWith payload draft = do
   let firstPass = map layoutSection (draftSectionOrder draft)
   definitions <- collectDefinitions firstPass
   locals <- collectLocals firstPass
@@ -416,10 +445,12 @@ layoutDraft draft = do
        in LaidSection
             { laidRole = role,
               laidAlignment = sectionAlignment section,
-              laidBytes = sectionBytes section,
+              laidBytes = payload role section,
+              laidSize = sectionSize section,
               laidLabels = reverse (sectionLabelsRev section),
               laidLocals = reverse (sectionLocalsRev section),
-              laidFixups = reverse (sectionFixupsRev section)
+              laidFixups = reverse (sectionFixupsRev section),
+              laidPatches = sectionPatchesRev section
             }
     makeSymbol definitions label name =
       case Map.lookup name definitions of
@@ -429,10 +460,12 @@ layoutDraft draft = do
 data LaidSection = LaidSection
   { laidRole :: !SectionRole,
     laidAlignment :: !Int,
-    laidBytes :: !ByteString,
+    laidBytes :: BL.ByteString,
+    laidSize :: !Word64,
     laidLabels :: ![(Text, Word64)],
     laidLocals :: ![(Int, Word64)],
-    laidFixups :: ![(Word64, Fixup)]
+    laidFixups :: ![(Word64, Fixup)],
+    laidPatches :: ![(Word64, Word32)]
   }
 
 collectDefinitions :: [LaidSection] -> Either ObjectError (Map Text (SectionRole, Word64))
@@ -477,11 +510,12 @@ collectLocals = foldl' addSection (Right IntMap.empty)
 resolveSection :: Set Text -> Map Text (SectionRole, Word64) -> IntMap (SectionRole, Word64) -> Map Text Int -> LaidSection -> Either ObjectError ImageSection
 resolveSection globals definitions locals table section = do
   (patches, relocations) <- foldl' resolve (Right ([], [])) (laidFixups section)
-  bytes <- applyPatches (laidBytes section) (reverse patches)
+  bytes <- applyPatches (laidSize section) (laidBytes section) (sortOn fst (laidPatches section <> patches))
   pure
     ImageSection
       { imageSectionRole = laidRole section,
         imageSectionAlignment = laidAlignment section,
+        imageSectionSize = laidSize section,
         imageSectionBytes = bytes,
         imageSectionRelocations = reverse relocations
       }
@@ -555,33 +589,24 @@ patchLocal offset target fixup =
         then pure (fromIntegral displacement)
         else Left (ObjectDisplacementOutOfRange (nameText (fixupTarget fixup)))
 
--- | Write the patched words into a copy of the section. The patches
--- ascend and do not overlap.
-applyPatches :: ByteString -> [(Word64, Word32)] -> Either ObjectError BL.ByteString
-applyPatches bytes patches = do
+-- | Apply ordered patches as the consumer reads the section chunks.
+applyPatches :: Word64 -> BL.ByteString -> [(Word64, Word32)] -> Either ObjectError BL.ByteString
+applyPatches size bytes patches = do
   check 0 patches
-  pure
-    ( BL.fromStrict
-        ( BSI.unsafeCreate size $ \destination -> do
-            BSU.unsafeUseAsCString bytes $ \source -> copyBytes destination (castPtr source) size
-            mapM_ (\(offset, value) -> pokeWord32LE (destination `plusPtr` fromIntegral offset) value) patches
-        )
-    )
+  pure (Builder.toLazyByteString (patch 0 bytes patches))
   where
-    size = BS.length bytes
     check start remaining =
       case remaining of
         [] -> pure ()
         (offset, _) : rest ->
-          let index = fromIntegral offset
-           in if index < start || index + 4 > size
+          let index = offset
+           in if index < start || index > size || size - index < 4
                 then Left (ObjectSizeOverflow "fixup offset")
                 else check (index + 4) rest
-    pokeWord32LE pointer value = do
-      pokeByteOff pointer 0 (fromIntegral value :: Word8)
-      pokeByteOff pointer 1 (fromIntegral (value `shiftR` 8) :: Word8)
-      pokeByteOff pointer 2 (fromIntegral (value `shiftR` 16) :: Word8)
-      pokeByteOff pointer 3 (fromIntegral (value `shiftR` 24) :: Word8)
+    patch _ remaining [] = Builder.lazyByteString remaining
+    patch start remaining ((offset, value) : rest) =
+      let (prefix, suffix) = BL.splitAt (fromIntegral (offset - start)) remaining
+       in Builder.lazyByteString prefix <> Builder.word32LE value <> patch (offset + 4) (BL.drop 4 suffix) rest
 
 signedDifference :: Word64 -> Word64 -> Int64
 signedDifference left right = fromIntegral left - fromIntegral right

@@ -1,0 +1,5 @@
+language: lir
+error: Lir constant @missing reached a backend unresolved
+source: |
+  data @first align 8 = { zero 131072 }
+  data @later align 8 = { word @missing }

@@ -15,7 +15,7 @@ module Aihc.Cli.Runtime
   )
 where
 
-import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
+import Aihc.Cli.Backend (compileLirTo, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Lir.Lower qualified as Lir
@@ -37,7 +37,6 @@ import Aihc.Native
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM)
-import Data.ByteString.Lazy qualified as BL
 import Data.Maybe (fromMaybe)
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectory, createDirectoryIfMissing, removeDirectoryRecursive, removeFile, renameFile)
@@ -153,10 +152,10 @@ buildLirRuntimeObjects target plan directory =
 -- lets the compiler driver of the target assemble it.
 compileLirObject :: NativeTarget -> String -> Module -> FilePath -> FilePath -> IO ()
 compileLirObject target name lirModule directory object = do
-  output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir target lirModule)
+  output <- compileLirTo True target lirModule object
   case output of
-    BackendObject bytes -> BL.writeFile object bytes
-    BackendSource source -> do
+    Nothing -> pure ()
+    Just source -> do
       let sourcePath = directory </> name <> nativeSourceExtension target
       TIO.writeFile sourcePath source
       (compiler, arguments) <- backendCompiler target

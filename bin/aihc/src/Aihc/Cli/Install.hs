@@ -31,7 +31,7 @@ where
 
 import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
-import Aihc.Cli.Backend (BackendOutput (..), compileLirWith, lowerTargetFor, nativeSourceExtension)
+import Aihc.Cli.Backend (compileGrinTo, nativeSourceExtension)
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
     FileStamp (..),
@@ -71,8 +71,6 @@ import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVari
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
-import Aihc.Lir qualified as Lir
-import Aihc.Lir.Lower qualified as Lir
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
@@ -148,7 +146,7 @@ import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
 import Control.DeepSeq (rnf)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
-import Control.Monad (filterM, forM, forM_, unless, void, when, zipWithM)
+import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
@@ -245,19 +243,6 @@ data ModuleOutputPaths = ModuleOutputPaths
 data FcModule = FcModule
   { fcModuleName :: !Text,
     fcProgram :: !Fc.Program
-  }
-
-data GrinModule = GrinModule
-  { grinModuleName :: !Text,
-    plainGrinProgram :: !Grin.GrinProgram,
-    cpsGrinProgram :: !Grin.CpsGrinProgram,
-    gcGrinProgram :: !Grin.GcGrinProgram
-  }
-
-data NativeModule = NativeModule
-  { nativeModuleName :: !Text,
-    nativeSource :: !(Maybe Text),
-    nativeObject :: !(Maybe BL.ByteString)
   }
 
 data PendingCompile = PendingCompile
@@ -2173,28 +2158,37 @@ optimizeFcProgram config verbose roots name program =
 -- the target. A module with no declarations gets an empty object. Returns
 -- the time the GRIN phase and the native phase took.
 compileFcModules :: ModuleCompileConfig -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [FcModule] -> IO (Word64, Word64)
-compileFcModules config verbose outputPaths fcModules = do
-  let (emptyFcModules, nonemptyFcModules) = spanEmptyModules fcModules
-  (grinModules, grinNs) <- measureTime $ do
-    grinModules <- mapM lowerGrinModule nonemptyFcModules
-    when keepGrin (mapM_ writeGrinModule grinModules)
-    pure grinModules
-  (_, nativeNs) <- measureTime $ do
-    mapM_ writeEmptyModule emptyFcModules
-    nativeModules <- mapM (generateNativeModule target) grinModules
-    mapM_ writeNativeSourceFile nativeModules
-    mapM_ compileNativeSourceFile nativeModules
-    unless keepNative (mapM_ removeNativeSourceFile nativeModules)
-  pure (grinNs, nativeNs)
+compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
   where
     keepGrin = compileKeepGrin config
     keepNative = compileKeepNative config
     target = compileTarget config
-    spanEmptyModules = foldr split ([], [])
-      where
-        split fcModule (emptyModules, nonemptyModules)
-          | null (Fc.programDecls (fcProgram fcModule)) = (fcModule : emptyModules, nonemptyModules)
-          | otherwise = (emptyModules, fcModule : nonemptyModules)
+    compileOne (grinTotal, nativeTotal) fcModule = do
+      (grinNs, nativeNs) <-
+        if null (Fc.programDecls (fcProgram fcModule))
+          then do
+            (_, elapsed) <- measureTime (writeEmptyModule fcModule)
+            pure (0, elapsed)
+          else do
+            (gcProgram, grinElapsed) <- measureTime (lowerGrinModule fcModule)
+            (_, nativeElapsed) <- measureTime (writeModule (fcModuleName fcModule) gcProgram)
+            pure (grinElapsed, nativeElapsed)
+      let nextGrin = grinTotal + grinNs
+          nextNative = nativeTotal + nativeNs
+      nextGrin `seq` nextNative `seq` pure (nextGrin, nextNative)
+
+    writeModule name gcProgram = do
+      let paths = outputPaths name
+      createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
+      source <- compileGrinTo (compileLint config) (compileCheckPrimBounds config) target (if keepNative then Just (outputNativePath paths) else Nothing) gcProgram (outputObjectPath paths)
+      mapM_ (TIO.writeFile (outputNativePath paths)) source
+      when (keepNative || isJust source) (verbose ("Write native source: " <> T.unpack name))
+      when (isJust source) $ do
+        (compiler, arguments) <- backendCompiler target
+        let levelArguments = [optimizationArgument (compileOptimization config) | target == Llvm]
+        runTool compiler (arguments <> levelArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
+        unless keepNative (removeFile (outputNativePath paths))
+      verbose ("Write object: " <> T.unpack name)
 
     writeEmptyModule fcModule = do
       let name = fcModuleName fcModule
@@ -2209,77 +2203,32 @@ compileFcModules config verbose outputPaths fcModules = do
       verbose ("Write empty object: " <> T.unpack name)
 
     lowerGrinModule fcModule = do
+      let name = fcModuleName fcModule
+          paths = outputPaths name
       verbose ("Lower GRIN: " <> T.unpack (fcModuleName fcModule))
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
       when (compileLint config) $ do
         let plainErrors = Grin.lintProgram plainProgram
         unless (null plainErrors) (ioError (userError ("GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show plainErrors)))
+      when keepGrin $ do
+        writeGrinFile (outputGrinPath paths) plainProgram
+        verbose ("Write GRIN: " <> T.unpack name)
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
+      when keepGrin $ do
+        writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram cpsProgram)
+        verbose ("Write CPS-GRIN: " <> T.unpack name)
       let gcProgram = Grin.lowerGc cpsProgram
       when (compileLint config) $ do
         let gcErrors = Grin.lintGcProgram gcProgram
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show gcErrors)))
-      pure
-        GrinModule
-          { grinModuleName = fcModuleName fcModule,
-            plainGrinProgram = plainProgram,
-            cpsGrinProgram = cpsProgram,
-            gcGrinProgram = gcProgram
-          }
-
-    writeGrinModule grinModule = do
-      let name = grinModuleName grinModule
-          paths = outputPaths name
-      writeGrinFile (outputGrinPath paths) (plainGrinProgram grinModule)
-      verbose ("Write GRIN: " <> T.unpack name)
-      writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram (cpsGrinProgram grinModule))
-      verbose ("Write CPS-GRIN: " <> T.unpack name)
-      writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram (gcGrinProgram grinModule))
-      verbose ("Write GC-GRIN: " <> T.unpack name)
+      when keepGrin $ do
+        writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram gcProgram)
+        verbose ("Write GC-GRIN: " <> T.unpack name)
+      pure gcProgram
 
     writeGrinFile path program = do
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path (withFinalNewline (renderString (layoutPretty defaultLayoutOptions (Grin.prettyProgram program))))
-
-    -- Every target goes through Lir. An object target keeps the Lir text
-    -- as its source; a text target keeps the backend output that the
-    -- compiler driver consumes.
-    generateNativeModule selectedTarget grinModule = do
-      let name = grinModuleName grinModule
-          gcProgram = gcGrinProgram grinModule
-      lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) (compileCheckPrimBounds config) gcProgram)
-      output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLirWith (compileLint config) selectedTarget lirModule)
-      pure $ case output of
-        BackendObject object -> NativeModule name (if keepNative then Just (Lir.renderModule lirModule) else Nothing) (Just object)
-        BackendSource source -> NativeModule name (Just source) Nothing
-
-    writeNativeSourceFile nativeModule = do
-      case nativeSource nativeModule of
-        Nothing -> pure ()
-        Just source -> do
-          let name = nativeModuleName nativeModule
-              path = outputNativePath (outputPaths name)
-          createDirectoryIfMissing True (takeDirectory path)
-          TIO.writeFile path source
-          verbose ("Write native source: " <> T.unpack name)
-
-    compileNativeSourceFile nativeModule = do
-      let name = nativeModuleName nativeModule
-          paths = outputPaths name
-      case nativeObject nativeModule of
-        Just object -> BL.writeFile (outputObjectPath paths) object
-        Nothing -> do
-          (compiler, compilerArguments) <- backendCompiler (compileTarget config)
-          -- LLVM output takes the level of the build. Assembly does not
-          -- change with it.
-          let levelArguments = [optimizationArgument (compileOptimization config) | compileTarget config == Llvm]
-          runTool compiler (compilerArguments <> levelArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
-      verbose ("Write object: " <> T.unpack name)
-
-    removeNativeSourceFile nativeModule =
-      case nativeSource nativeModule of
-        Nothing -> pure ()
-        Just _ -> removeFile (outputNativePath (outputPaths (nativeModuleName nativeModule)))
 
 moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =

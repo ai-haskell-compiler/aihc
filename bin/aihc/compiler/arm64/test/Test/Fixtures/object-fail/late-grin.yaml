@@ -1,0 +1,8 @@
+language: grin
+error: LowerMissingFunction
+source: |
+  $first -> IntRep =
+    constant (42 :: IntRep)
+
+  $later (value%2 :: IntRep) -> IntRep =
+    call @IntRep $missing (value%2 :: IntRep)

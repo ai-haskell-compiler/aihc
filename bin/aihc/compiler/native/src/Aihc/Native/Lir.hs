@@ -24,6 +24,10 @@ module Aihc.Native.Lir
     compileNativeStatements,
     compileNativeStatementsWith,
     compileNativeChunksWith,
+    compileNativeTo,
+    compileNativeItemTo,
+    finishNativeTo,
+    initialObjectState,
     displaceSource,
     elideSlotReloadsWith,
     frameBytes,
@@ -48,9 +52,10 @@ import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedCo
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
 import Aihc.Native.Object (Name (..), SectionRole (..))
-import Control.Monad (forM, when)
+import Control.Monad (forM, forM_, when)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify, put, runStateT)
+import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
+import Control.Monad.Trans.State.Strict (StateT (..), evalStateT, execStateT, get, mapStateT, modify, modify', put, runState, runStateT)
 import Data.ByteString qualified as BS
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
@@ -321,20 +326,64 @@ compileNativeChunksWith lint backend lirModule =
     dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
     globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
     Module items = resolveConstants lirModule
-    initialState =
-      ObjectState
-        { objectTraps = Map.empty,
-          objectNextLabel = 0,
-          objectNextId = 0,
-          objectLocalTraps = isJust (nbTrapTrampoline backend),
-          objectFunctionIndex = 0,
-          objectFunctionTraps = Map.empty
-        }
+    initialState = initialObjectState backend
     signatures =
       Map.fromList
         ( [(functionName function, functionSignature function) | ItemFunction function <- items]
             <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items]
         )
+
+initialObjectState :: NativeBackend statement register error -> ObjectState
+initialObjectState backend =
+  ObjectState
+    { objectTraps = Map.empty,
+      objectNextLabel = 0,
+      objectNextId = 0,
+      objectLocalTraps = isJust (nbTrapTrampoline backend),
+      objectFunctionIndex = 0,
+      objectFunctionTraps = Map.empty
+    }
+
+-- | Consume each statement before selection proceeds to the next instruction.
+compileNativeTo :: (Monad m, Ord register) => Bool -> NativeBackend statement register error -> (statement -> m ()) -> m () -> Module -> m (Either error ())
+{-# INLINEABLE compileNativeTo #-}
+compileNativeTo lint backend output endFunction lirModule =
+  case if lint then lintModule lirModule else [] of
+    errors@(_ : _) -> pure (Left (nbLintErrors backend errors))
+    [] -> go (initialObjectState backend) functions
+  where
+    Module items = resolveConstants lirModule
+    functions = [item | item@ItemFunction {} <- items]
+    signatures = Map.fromList ([(functionName function, functionSignature function) | ItemFunction function <- items] <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items])
+    go state remaining = case remaining of
+      [] -> do
+        result <- finishNativeTo backend output state
+        case result of
+          Left err -> pure (Left err)
+          Right () -> do
+            mapM_ (mapM_ output . compileData backend) [value | ItemData value <- items]
+            mapM_ (mapM_ output . compileGlobal backend) [value | ItemGlobal value <- items]
+            mapM_ output (nbAfterObject backend)
+            pure (Right ())
+      item : rest -> do
+        result <- compileNativeItemTo backend output signatures item state
+        either (pure . Left) (\next -> endFunction >> go next rest) result
+
+-- | Compile one item with the declarations available at its boundary.
+compileNativeItemTo :: (Monad m, Ord register) => NativeBackend statement register error -> (statement -> m ()) -> Map Symbol Signature -> Item -> ObjectState -> m (Either error ObjectState)
+{-# INLINEABLE compileNativeItemTo #-}
+compileNativeItemTo backend output signatures item state = case item of
+  ItemFunction function -> do
+    result <- compileFunctionTo backend output signatures (objectFunctionIndex state) function state
+    pure (fmap (\next -> next {objectFunctionIndex = objectFunctionIndex state + 1}) result)
+  ItemData value -> mapM_ output (compileData backend value) >> pure (Right state)
+  ItemGlobal value -> mapM_ output (compileGlobal backend value) >> pure (Right state)
+  _ -> pure (Right state)
+
+finishNativeTo :: (Monad m) => NativeBackend statement register error -> (statement -> m ()) -> ObjectState -> m (Either error ())
+finishNativeTo backend output state = case runStateT (renderTraps backend) state of
+  Left err -> pure (Left err)
+  Right (statements, _) -> mapM_ output statements >> pure (Right ())
 
 renderTraps :: NativeBackend statement register error -> NativeM error [statement]
 renderTraps backend = do
@@ -367,7 +416,10 @@ compileData backend dataItem =
         DataCode Nothing -> [nbQuad backend 0]
         DataCode (Just target) -> [nbQuadSymbol backend (nbSymbol backend target)]
         DataBytes bytes -> [nbBytes backend bytes]
-        DataZero count -> [nbBytes backend (BS.replicate (fromInteger count) 0)]
+        DataZero count -> zeroBytes count
+    zeroBytes count
+      | count <= 0 = []
+      | otherwise = nbBytes backend (BS.replicate (fromInteger (min 65536 count)) 0) : zeroBytes (count - 65536)
 
 -- | A global is one word in the data section of its module.
 compileGlobal :: NativeBackend statement register error -> Global -> [statement]
@@ -399,7 +451,37 @@ overflowBytes backend count =
 -- Functions
 
 compileFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error [statement]
-compileFunction backend signatures index function = do
+compileFunction backend signatures index function = StateT $ \state ->
+  let (result, statements) = runState (compileFunctionTo backend (\statement -> modify' (statement :)) signatures index function state) []
+   in fmap (reverse statements,) result
+
+-- | Keep allocation state for one function and emit its instructions directly.
+compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register error -> (statement -> m ()) -> Map Symbol Signature -> Int -> Function -> ObjectState -> m (Either error ObjectState)
+{-# INLINEABLE compileFunctionTo #-}
+compileFunctionTo backend output signatures index function state =
+  evalStateT (runExceptT (execStateT action state)) IntMap.empty
+  where
+    native :: (Monad n) => NativeM err value -> StateT ObjectState (ExceptT err n) value
+    native = mapStateT (ExceptT . pure)
+    emitStatement statement = do
+      held <- get
+      let (keep, next) = slotStep held (nbAsCode backend statement)
+      put next
+      when keep (lift (output statement))
+    emitStatements = mapM_ (lift . lift . emitStatement)
+    action = do
+      (ctx, prefix) <- native (prepareFunction backend signatures index function)
+      emitStatements prefix
+      let blocks = functionBlocks function
+      forM_ (zip3 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing])) $ \(entry, block, next) -> do
+        let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
+        emitStatements [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
+        forM_ instructions $ \instruction -> native (compileInstruction backend ctx instruction) >>= emitStatements
+        native (compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
+      native (functionTrapTrampolines backend) >>= emitStatements
+
+prepareFunction :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Int -> Function -> NativeM error (Ctx register, [statement])
+prepareFunction backend signatures index function = do
   modify (\state -> state {objectFunctionIndex = index, objectFunctionTraps = Map.empty})
   layout <- functionLayout backend signatures function
   let blocks = functionBlocks function
@@ -430,16 +512,12 @@ compileFunction backend signatures index function = do
     when (length floats > nbFloatArgCount backend) $
       unsupported backend ("function " <> unSymbol (functionName function) <> " has more than eight float C parameters")
   prologue <- functionPrologue backend ctx
-  body <- concat <$> mapM (compileBlock backend ctx) (zip3 (True : repeat False) blocks (map Just (drop 1 blocks) <> [Nothing]))
-  -- The trampolines follow the last block, which ends in a transfer, so
-  -- nothing falls into them.
-  trampolines <- functionTrapTrampolines backend
   pure
-    ( [nbSection backend TextSection, nbAlign backend (nbCodeAlign backend)]
+    ( ctx,
+      [nbSection backend TextSection, nbAlign backend (nbCodeAlign backend)]
         <> [nbGlobal backend symbol | functionLinkage function == Export]
         <> [nbLabel backend (SymbolName symbol)]
-        <> elideSlotReloadsWith (nbAsCode backend) (prologue <> body)
-        <> trampolines
+        <> prologue
     )
   where
     symbol = nbSymbol backend (functionName function)
@@ -449,29 +527,29 @@ compileFunction backend signatures index function = do
 elideSlotReloadsWith :: (statement -> Maybe SlotEffect) -> [statement] -> [statement]
 elideSlotReloadsWith asCode = go IntMap.empty
   where
-    go held statements =
-      case statements of
-        [] -> []
-        statement : rest ->
-          case asCode statement of
-            Nothing -> statement : go IntMap.empty rest
-            Just effect ->
-              case effect of
-                LoadsSlot register offset -> reads' statement rest held register (FromSlot offset)
-                MovesRegister destination source
-                  | IntMap.lookup source held == Just (FromRegister destination) -> go held rest
-                  | otherwise -> reads' statement rest held destination (FromRegister source)
-                StoresSlot register offset
-                  | IntMap.lookup register held == Just (FromSlot offset) -> go held rest
-                  | otherwise ->
-                      statement : go (IntMap.insert register (FromSlot offset) (IntMap.filter (/= FromSlot offset) held)) rest
-                WritesSlot offset -> statement : go (IntMap.filter (/= FromSlot offset) held) rest
-                Writes registers -> statement : go (foldr invalidate held registers) rest
-                Forgets -> statement : go IntMap.empty rest
-    reads' statement rest held register source
-      | IntMap.lookup register held == Just source = go held rest
-      | otherwise = statement : go (IntMap.insert register source (invalidate register held)) rest
-    invalidate register held = IntMap.filter (/= FromRegister register) (IntMap.delete register held)
+    go _ [] = []
+    go held (statement : rest) =
+      let (keep, next) = slotStep held (asCode statement)
+       in if keep then statement : go next rest else go next rest
+
+slotStep :: IntMap.IntMap Source -> Maybe SlotEffect -> (Bool, IntMap.IntMap Source)
+slotStep held effect = case effect of
+  Nothing -> (True, IntMap.empty)
+  Just Forgets -> (True, IntMap.empty)
+  Just (LoadsSlot register offset) -> reads' register (FromSlot offset)
+  Just (MovesRegister destination source)
+    | IntMap.lookup source held == Just (FromRegister destination) -> (False, held)
+    | otherwise -> reads' destination (FromRegister source)
+  Just (StoresSlot register offset)
+    | IntMap.lookup register held == Just (FromSlot offset) -> (False, held)
+    | otherwise -> (True, IntMap.insert register (FromSlot offset) (IntMap.filter (/= FromSlot offset) held))
+  Just (WritesSlot offset) -> (True, IntMap.filter (/= FromSlot offset) held)
+  Just (Writes registers) -> (True, foldr invalidate held registers)
+  where
+    reads' register source
+      | IntMap.lookup register held == Just source = (False, held)
+      | otherwise = (True, IntMap.insert register source (invalidate register held))
+    invalidate register = IntMap.filter (/= FromRegister register) . IntMap.delete register
 
 functionLayout :: (Ord register) => NativeBackend statement register error -> Map Symbol Signature -> Function -> NativeM error (Layout register)
 functionLayout backend signatures function = do
@@ -661,13 +739,6 @@ displaceSource displacement source =
     _ -> source
 
 -- Blocks
-
-compileBlock :: (Eq register) => NativeBackend statement register error -> Ctx register -> (Bool, Block, Maybe Block) -> NativeM error [statement]
-compileBlock backend ctx (entry, block, next) = do
-  let (instructions, fused) = fuseCompare backend ctx (blockInstructions block) (blockTerminator block)
-  lines' <- concat <$> mapM (compileInstruction backend ctx) instructions
-  terminator <- compileTerminator backend ctx (blockLabel <$> next) fused (blockTerminator block)
-  pure ([nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry] <> lines' <> terminator)
 
 fuseCompare :: NativeBackend statement register error -> Ctx register -> [Instruction] -> Terminator -> ([Instruction], Maybe Fused)
 fuseCompare backend ctx instructions terminator =

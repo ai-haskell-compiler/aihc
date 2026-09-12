@@ -3,6 +3,9 @@
 module Aihc.Lir.Lint
   ( LintError (..),
     lintModule,
+    Symbols,
+    moduleSymbols,
+    lintItem,
     renderLintError,
   )
 where
@@ -51,7 +54,12 @@ lintModule :: Module -> [LintError]
 lintModule (Module items) =
   duplicateErrors <> concatMap (lintItem symbols) items
   where
-    (symbols, duplicateErrors) = foldl' addSymbol (Map.empty, []) items
+    (symbols, duplicateErrors) = moduleSymbols (Module items)
+
+-- | Collect declarations without retention of function bodies.
+moduleSymbols :: Module -> (Symbols, [LintError])
+moduleSymbols (Module items) = foldl' addSymbol (Map.empty, []) items
+  where
     addSymbol (table, errors) item =
       case itemSymbol item of
         Nothing -> (table, errors)

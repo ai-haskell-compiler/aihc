@@ -23,6 +23,7 @@ module Aihc.Lir.Lower
     wasip3Target,
     lowerEntry,
     lowerModule,
+    lowerModuleTo,
     lowerProgramWith,
 
     -- * Building blocks for harnesses
@@ -154,14 +155,35 @@ lowerEntry target = do
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
-  Module . snd <$> runLower options gcProgram unit
+  Module . snd <$> runLower options gcProgram (lowerProgramItems options gcProgram)
+
+-- | Supply each complete item to the consumer before conversion proceeds.
+lowerModuleTo :: (Monad m) => LowerTarget -> Bool -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
+lowerModuleTo target checkPrimBounds output gcProgram =
+  consume (initialLowerState options gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
   where
-    unit env = do
-      lowerUnitItems env
-      when (lowerUnitKind options == ExecutableUnit) $
-        case lowerHost (lowerTarget options) of
-          PosixHost -> lowerExecutableMain gcProgram
-          Wasip3Host -> lowerWasip3Entry gcProgram
+    options = LowerOptions LibraryUnit False target checkPrimBounds
+    env = lowerEnvironment options gcProgram
+    consume state done actions = case actions of
+      action : rest -> case runStateT action state of
+        Left err -> pure (Left err)
+        Right ((), next) -> do
+          let signatures = stateSignatures next <> stateExterns next
+          mapM_ (output signatures) (reverse (stateItemsRev next))
+          consume next {stateItemsRev = []} done rest
+      [] ->
+        let pending = stateHelpers state `Set.difference` done
+         in if Set.null pending
+              then mapM_ (output (stateSignatures state <> stateExterns state)) (externItems state) >> pure (Right ())
+              else consume state (done <> pending) (map (generateHelper env) (Set.toAscList pending))
+
+lowerProgramItems :: LowerOptions -> GcGrinProgram -> LowerUnit -> LowerM ()
+lowerProgramItems options gcProgram env = do
+  lowerUnitItems env
+  when (lowerUnitKind options == ExecutableUnit) $
+    case lowerHost (lowerTarget options) of
+      PosixHost -> lowerExecutableMain gcProgram
+      Wasip3Host -> lowerWasip3Entry gcProgram
 
 -- Types
 
@@ -226,9 +248,11 @@ data RuntimeInfo = RuntimeInfo
     infoSrt :: !(Maybe Symbol)
   }
 
+-- | Function bodies are separate from the shared conversion metadata.
+data LowerUnit = LowerUnit !LowerEnv !GrinProgram
+
 data LowerEnv = LowerEnv
-  { envProgram :: !GrinProgram,
-    envOptions :: !LowerOptions,
+  { envOptions :: !LowerOptions,
     envFunctionSymbols :: !(Map FunctionName Symbol),
     envFunctionParameters :: !(Map FunctionName [Type]),
     envContinuationFunctions :: !(Set FunctionName),
@@ -287,6 +311,9 @@ data LowerState = LowerState
     stateHelpers :: !(Set Helper),
     -- | The pointer-bitmap array emitted for each distinct bitmap so far.
     stateBitmaps :: !(Map BS.ByteString Symbol),
+    stateDefined :: !(Set Symbol),
+    stateSignatures :: !(Map Symbol Signature),
+    -- | Items of the current conversion action. The consumer drains this list.
     stateItemsRev :: ![Item],
     stateBlocksRev :: ![Block],
     stateOpen :: !(Maybe OpenBlock)
@@ -299,41 +326,37 @@ failWith = lift . Left
 
 -- | Run a lowering action for one program and collect the emitted items, the
 -- shared helpers, and the extern declarations.
-runLower :: LowerOptions -> GcGrinProgram -> (LowerEnv -> LowerM value) -> Either LowerError (value, [Item])
+runLower :: LowerOptions -> GcGrinProgram -> (LowerUnit -> LowerM value) -> Either LowerError (value, [Item])
 runLower options gcProgram action = do
   let env = lowerEnvironment options gcProgram
-      initial =
-        LowerState
-          { stateNext = 0,
-            stateTarget = lowerTarget options,
-            stateExterns = Map.empty,
-            stateExternData = Set.empty,
-            stateHelpers = Set.empty,
-            stateBitmaps = Map.empty,
-            stateItemsRev = [],
-            stateBlocksRev = [],
-            stateOpen = Nothing
-          }
-  (value, final) <- runStateT (action env <* generateHelpers env Set.empty) initial
-  let defined =
-        Set.fromList
-          [ symbol
-          | item <- stateItemsRev final,
-            symbol <- case item of
-              ItemFunction function -> [functionName function]
-              ItemData dataItem -> [dataName dataItem]
-              _ -> []
-          ]
-      externs =
-        [ItemExternFunction (ExternFunction symbol signature) | (symbol, signature) <- Map.toAscList (stateExterns final), symbol `Set.notMember` defined]
-          <> [ItemExternData symbol | symbol <- Set.toAscList (stateExternData final), symbol `Set.notMember` defined]
-  pure (value, externs <> reverse (stateItemsRev final))
+  (value, final) <- runStateT (action (LowerUnit env (gcGrinProgram gcProgram)) <* generateHelpers env Set.empty) (initialLowerState options gcProgram)
+  pure (value, externItems final <> reverse (stateItemsRev final))
+
+initialLowerState :: LowerOptions -> GcGrinProgram -> LowerState
+initialLowerState options gcProgram =
+  LowerState
+    { stateNext = 0,
+      stateTarget = lowerTarget options,
+      stateExterns = Map.empty,
+      stateExternData = Set.empty,
+      stateHelpers = Set.empty,
+      stateBitmaps = Map.empty,
+      stateDefined = Set.empty,
+      stateSignatures = Map.fromList [(functionSymbol (grinFunctionName function), Signature (Ptr : map (repType . grinVarRuntimeRep) (grinFunctionParameters function)) [] AihcConvention) | function <- grinFunctions (gcGrinProgram gcProgram)],
+      stateItemsRev = [],
+      stateBlocksRev = [],
+      stateOpen = Nothing
+    }
+
+externItems :: LowerState -> [Item]
+externItems state =
+  [ItemExternFunction (ExternFunction symbol signature) | (symbol, signature) <- Map.toAscList (stateExterns state), symbol `Set.notMember` stateDefined state]
+    <> [ItemExternData symbol | symbol <- Set.toAscList (stateExternData state), symbol `Set.notMember` stateDefined state]
 
 lowerEnvironment :: LowerOptions -> GcGrinProgram -> LowerEnv
 lowerEnvironment options gcProgram =
   LowerEnv
-    { envProgram = program,
-      envOptions = options,
+    { envOptions = options,
       envFunctionSymbols = functionSymbols,
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
@@ -493,28 +516,42 @@ requireHelper helper = do
     Just signature ->
       modify' $ \state -> state {stateExterns = Map.insert symbol signature (stateExterns state)}
     Nothing ->
-      modify' $ \state -> state {stateHelpers = Set.insert helper (stateHelpers state)}
+      modify' $ \state -> state {stateHelpers = Set.insert helper (stateHelpers state), stateSignatures = Map.insert symbol (helperSignature helper) (stateSignatures state)}
   pure symbol
+
+helperSignature :: Helper -> Signature
+helperSignature helper = case helper of
+  HelperEval -> signature [Ptr, Ptr, Ptr, Ptr] []
+  HelperResume -> signature [Ptr, Ptr] []
+  HelperContinue shape -> signature (Ptr : Ptr : shape) []
+  HelperApply shape -> signature (Ptr : Ptr : Ptr : shape) []
+  HelperExit -> signature [Ptr] []
+  HelperContinueSlot -> signature [Ptr, Ptr, I64] []
+  HelperApplySlot -> signature [Ptr, Ptr, Ptr, I64] []
+  HelperQuotRem2 -> signature [I64, I64, I64] [I64, I64]
+  HelperCStringLength -> signature [Ptr] [I64]
+  where
+    signature parameters results = Signature parameters results AihcConvention
 
 -- | The runtime Lir unit defines these fixed signatures.
 sharedHelperSignature :: Helper -> Maybe Signature
 sharedHelperSignature helper =
   case helper of
-    HelperEval -> shared [Ptr, Ptr, Ptr, Ptr] []
-    HelperResume -> shared [Ptr, Ptr] []
-    HelperContinue shape | common shape -> shared (Ptr : Ptr : shape) []
-    HelperApply shape | common shape -> shared (Ptr : Ptr : Ptr : shape) []
-    HelperContinueSlot -> shared [Ptr, Ptr, I64] []
-    HelperApplySlot -> shared [Ptr, Ptr, Ptr, I64] []
-    HelperQuotRem2 -> shared [I64, I64, I64] [I64, I64]
-    HelperCStringLength -> shared [Ptr] [I64]
-    _ -> Nothing
+    HelperExit -> Nothing
+    HelperContinue shape | not (common shape) -> Nothing
+    HelperApply shape | not (common shape) -> Nothing
+    _ -> Just (helperSignature helper)
   where
     common shape = shape `elem` [[], [Ptr], [I64]]
-    shared parameters results = Just (Signature parameters results AihcConvention)
 
 emitItem :: Item -> LowerM ()
-emitItem item = modify' $ \state -> state {stateItemsRev = item : stateItemsRev state}
+emitItem item = do
+  state <- get
+  let next = case item of
+        ItemFunction function -> state {stateDefined = Set.insert (functionName function) (stateDefined state), stateSignatures = Map.insert (functionName function) (functionSignature function) (stateSignatures state)}
+        ItemData value -> state {stateDefined = Set.insert (dataName value) (stateDefined state)}
+        _ -> state
+  put next {stateItemsRev = item : stateItemsRev state}
 
 beginBlock :: Label -> [(Var, Type)] -> LowerM ()
 beginBlock label parameters = do
@@ -674,17 +711,18 @@ coerceTo ty typed = (`Typed` ty) <$> coerce ty typed
 -- | Lower the functions, the static objects, the info tables, the enter
 -- stubs, the static reference tables, and the address literals of the
 -- program.
-lowerUnitItems :: LowerEnv -> LowerM ()
-lowerUnitItems env = do
-  mapM_ validateRuntimeRep (programRuntimeReps program)
-  mapM_ (lowerFunction env) (grinFunctions program)
-  mapM_ (lowerStaticObject env) (programStaticObjects program)
-  mapM_ lowerInfo (envInfos env)
-  lowerStaticReferenceTables env
-  forM_ (Map.toAscList (envAddrLiterals env)) $ \(bytes, symbol) ->
-    emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0]))
-  where
-    program = envProgram env
+lowerUnitItems :: LowerUnit -> LowerM ()
+lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program)
+
+-- | Each action produces one function or data item, or an info table and stub.
+lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
+lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
+  [mapM_ validateRuntimeRep (programRuntimeReps program)]
+    <> map (lowerFunction env) functions
+    <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
+    <> map lowerInfo (envInfos env)
+    <> [lowerStaticReferenceTables env]
+    <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
 
 validateRuntimeRep :: GrinRep -> LowerM ()
 validateRuntimeRep runtimeRep =

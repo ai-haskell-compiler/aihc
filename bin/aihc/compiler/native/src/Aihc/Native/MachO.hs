@@ -25,7 +25,11 @@ import Data.Text.Encoding qualified as Text
 import Data.Word (Word32, Word64)
 
 writeArm64MachO :: Image -> Either ObjectError BL.ByteString
-writeArm64MachO image = do
+writeArm64MachO image =
+  writeImage image {imageSections = map (\section -> section {imageSectionBytes = BL.empty}) (imageSections image)} (map imageSectionBytes (imageSections image))
+
+writeImage :: Image -> [BL.ByteString] -> Either ObjectError BL.ByteString
+writeImage image payloads = do
   sectionDescriptions <- mapM describeSection (imageSections image)
   let sectionCount = length sectionDescriptions
       segmentCommandSize = 72 + 80 * sectionCount
@@ -73,7 +77,7 @@ writeArm64MachO image = do
     putBuildVersion
     putSymbolCommand symbolTableOffset (length orderedSymbols) stringOffset stringSize
     putDynamicSymbolCommand locals definitions undefinedCount
-    _ <- putSectionContents localTargets (fromIntegral headerSize) sectionsWithRelocations
+    _ <- putSectionContents localTargets (fromIntegral headerSize) (zip sectionsWithRelocations payloads)
     putPadding (relocationStart - fst contentEnd)
     mapM_ (putSectionRelocations localTargets symbolIndexes) sectionsWithRelocations
     putPadding (symbolTableOffset - relocationEnd)
@@ -114,7 +118,7 @@ placeSection (fileOffset, address) description =
       alignment = 1 `shiftL` imageSectionAlignment section
       placedFile = alignUp alignment fileOffset
       placedAddress' = alignUp alignment address
-      size = fromIntegral (BL.length (imageSectionBytes section))
+      size = imageSectionSize section
    in ( (placedFile + size, placedAddress' + size),
         PlacedSection description placedFile placedAddress' 0
       )
@@ -172,7 +176,7 @@ putSection section = do
   putFixedName (descriptionSectionName description)
   putFixedName (descriptionSegmentName description)
   putWord64le (placedAddress section)
-  putWord64le (fromIntegral (BL.length (imageSectionBytes imageSection)))
+  putWord64le (imageSectionSize imageSection)
   putWord32le (fromIntegral (placedFileOffset section))
   putWord32le (fromIntegral (imageSectionAlignment imageSection))
   putWord32le (fromIntegral (placedRelocationOffset section))
@@ -317,15 +321,14 @@ buildStringTable symbols =
 putFixedName :: ByteString -> Put
 putFixedName name = putByteString (BS.take 16 name) >> replicateM_ (16 - min 16 (BS.length name)) (putWord8 0)
 
-putSectionContents :: IntMap (Word32, Word64) -> Word64 -> [PlacedSection] -> PutM Word64
+putSectionContents :: IntMap (Word32, Word64) -> Word64 -> [(PlacedSection, BL.ByteString)] -> PutM Word64
 putSectionContents localTargets offset sections =
   case sections of
     [] -> pure offset
-    section : rest -> do
+    (section, bytes) : rest -> do
       putPadding (placedFileOffset section - offset)
       let imageSection = placedImageSection section
-          bytes = imageSectionBytes imageSection
-          next = placedFileOffset section + fromIntegral (BL.length bytes)
+          next = placedFileOffset section + imageSectionSize imageSection
           patches =
             sortOn
               fst
