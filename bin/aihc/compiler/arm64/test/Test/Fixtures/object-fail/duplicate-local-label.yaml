@@ -1,0 +1,11 @@
+language: lir
+error: ObjectDuplicateSymbol
+source: |
+  func @main() -> i64 {
+  entry:
+    jump repeated
+  repeated:
+    return 1
+  repeated:
+    return 2
+  }

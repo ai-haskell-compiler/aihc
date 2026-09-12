@@ -11,6 +11,7 @@ module Aihc.Arm64.Assemble
     assembleMachO,
     assembleMachOChunks,
     applyStatement,
+    alignmentFill,
     arm64Align,
     arm64Bytes,
     arm64Global,

@@ -10,6 +10,7 @@ category: Development
 synopsis: The AIHC compiler and its command-line tools
 description: The AIHC package contains the compiler and its production and development command-line tools.
 extra-source-files:
+  compiler/arm64/test/Test/Fixtures/object-fail/*.yaml
   compiler/fc/test/Test/Fixtures/fc-lint/fail/*.fc
   compiler/fc/test/Test/Fixtures/fc-lint/mutual/*.fc
   compiler/fc/test/Test/Fixtures/fc-lint/pass/*.fc
@@ -181,6 +182,7 @@ library
     Aihc.Native.MachO
     Aihc.Native.Move
     Aihc.Native.Object
+    Aihc.Native.ObjectWriter
     Paths_aihc
 
   autogen-modules:
