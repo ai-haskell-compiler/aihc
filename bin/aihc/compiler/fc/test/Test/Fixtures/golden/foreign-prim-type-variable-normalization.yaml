@@ -19,33 +19,33 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    2.tMutVar# :: ∀(d : 3.tType) (a : 3.tType). 3.tTYPE 3.tUnliftedRep;
-    3.tRuntimeRep :: 3.tType;
-    2.tState# :: ∀(s : 3.tType). 3.tTYPE (3.vTupleRep (3.v[] 3.tRuntimeRep));
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v: 3.tRuntimeRep r2 (3.v[] 3.tRuntimeRep))));
-    3.tType :: 3.tType;
-    3.tUnliftedRep :: 3.tRuntimeRep;
-    3.t[] :: ∀(a : 3.tType). 3.tType;
-    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity;
-    3.vTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.vUnlifted :: 3.tLevity;
-    3.v[] :: ∀(a : 3.tType). 3.t[] a
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    2.tMutVar# :: ∀(d : 3.sType) (a : 3.sType). 3.tTYPE 3.sUnliftedRep;
+    3.tRuntimeRep :: 3.sType;
+    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep))));
+    3.sType :: 3.sType;
+    3.sUnliftedRep :: 3.tRuntimeRep;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.cUnlifted :: 3.tLevity;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep;
-    3.tUnliftedRep = 3.vBoxedRep 3.vUnlifted
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep;
+    3.sUnliftedRep = 3.cBoxedRep 3.cUnlifted
 
-  pub val 1.vnew :: ∀(a : 3.tType) (b : 3.tType). a 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# b) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# b) (2.tMutVar# b a))
-   = Λ(a : 3.tType).
-    Λ(b : 3.tType).
+  pub val 1.vnew :: ∀(a : 3.sType) (b : 3.sType). a 3.→ FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.sUnliftedRep (3.c[] 3.tRuntimeRep)))) (2.tState# b) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# b) (2.tMutVar# b a))
+   = Λ(a : 3.sType).
+    Λ(b : 3.sType).
       λ(x : a).
         λ(y : 2.tState# b).
-          foreign {prim 1.vnewMutVar# :: ∀(a{1} : 3.tType) (d : 3.tType). a{1} 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (2.tMutVar# d a{1}))} @a @b x y
+          foreign {prim 1.vnewMutVar# :: ∀(a{1} : 3.sType) (d : 3.sType). a{1} 3.→ FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.sUnliftedRep (3.c[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sUnliftedRep (2.tState# d) (2.tMutVar# d a{1}))} @a @b x y
 status: pass
 reason:

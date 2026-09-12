@@ -18,34 +18,34 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tAddr# :: 3.tTYPE 3.vAddrRep;
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vAddrRep :: 3.tRuntimeRep;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    2.tAddr# :: 3.tTYPE 3.cAddrRep;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cAddrRep :: 3.tRuntimeRep;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tBoxInt :: 3.tType {
-      pub 1.vBoxInt :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tBoxInt
+  pub type 1.tBoxInt :: 3.sType {
+      pub 1.cBoxInt :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tBoxInt
   }
 
-  pub type 1.tBoxAddr :: 3.tType {
-      pub 1.vBoxAddr :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tBoxAddr
+  pub type 1.tBoxAddr :: 3.sType {
+      pub 1.cBoxAddr :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tBoxAddr
   }
 
   pub val 1.vintValue :: 1.tBoxInt
-   = 1.vBoxInt 1#3.vIntRep
+   = 1.cBoxInt 1#3.cIntRep
 
   pub val 1.vaddrValue :: 1.tBoxAddr
-   = 1.vBoxAddr "test"#3.vAddrRep
+   = 1.cBoxAddr "test"#3.cAddrRep
 status: pass
 reason: keeps checked GHC.Prim identities on primitive Core literals

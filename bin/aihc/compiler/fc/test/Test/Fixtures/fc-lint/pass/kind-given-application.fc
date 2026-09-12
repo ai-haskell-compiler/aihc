@@ -2,39 +2,39 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: 2.tType;
-  2.tLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.tType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-  2.tType :: 2.tType;
-  2.t[] :: ∀(a : 2.tType). 2.tType;
-  2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.vLifted :: 2.tLevity;
-  2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
-  2.v[] :: ∀(a : 2.tType). 2.t[] a
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.t[] :: ∀(a : 2.sType). 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+  2.c[] :: ∀(a : 2.sType). 2.t[] a
 
 import synonyms
-  2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-  2.tType = 2.tTYPE 2.tLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 1.tProxy (k : 2.tType) (a : k) :: 2.tType {
-    pub 1.vProxy :: ∀(k : 2.tType) (a : k). 1.tProxy k a
+pub type 1.tProxy (k : 2.sType) (a : k) :: 2.sType {
+    pub 1.cProxy :: ∀(k : 2.sType) (a : k). 1.tProxy k a
 }
 
-pub type 1.tSome :: 2.tType {
-    pub 1.vSome :: ∀(k : 2.tType) (a : k). 1.tProxy k a 2.→ 1.tSome
+pub type 1.tSome :: 2.sType {
+    pub 1.cSome :: ∀(k : 2.sType) (a : k). 1.tProxy k a 2.→ 1.tSome
 }
 
-pub type 1.tIsFun (k : 2.tType) :: 2.tType {
-    pub 1.vIsFun :: ∀(k : 2.tType). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (k ~ (2.tType 2.→ 2.tType)) (1.tIsFun k)
+pub type 1.tIsFun (k : 2.sType) :: 2.sType {
+    pub 1.cIsFun :: ∀(k : 2.sType). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (k ~ (2.sType 2.→ 2.sType)) (1.tIsFun k)
 }
 
-val 1.vrebuild :: ∀(k : 2.tType) (f : k) (x : 2.tType). 1.tIsFun k 2.→ 1.tSome
- = Λ(k : 2.tType).
+val 1.vrebuild :: ∀(k : 2.sType) (f : k) (x : 2.sType). 1.tIsFun k 2.→ 1.tSome
+ = Λ(k : 2.sType).
   Λ(f : k).
-    Λ(x : 2.tType).
+    Λ(x : 2.sType).
       λ(evidence : 1.tIsFun k).
         case evidence as (scrut : 1.tIsFun k) return (1.tSome) of {
-            1.vIsFun (given : k ~ (2.tType 2.→ 2.tType)) →
-                1.vSome @2.tType @(f x) (1.vProxy @2.tType @(f x))
+            1.cIsFun (given : k ~ (2.sType 2.→ 2.sType)) →
+                1.cSome @2.sType @(f x) (1.cProxy @2.sType @(f x))
         }

@@ -145,10 +145,9 @@ inlineProgram config program =
     Nothing -> (program, InlineReport size0 size0 0 0 0)
     Just primPackage ->
       let env = typeEnvFromProgram primPackage program
-          constructors = programConstructors program
           supply0 = maxLocalUnique program + 1
-          (lifted, helperCount) = liftDictionaryMethods env constructors (programDecls program)
-          state0 = initialInliner config env constructors lifted supply0
+          (lifted, helperCount) = liftDictionaryMethods env (programDecls program)
+          state0 = initialInliner config env lifted supply0
           final = runRounds config (inlineRounds config) state0
           decls = rebuildDecls lifted final
           result =
@@ -168,21 +167,15 @@ inlineProgram config program =
   where
     size0 = programSize program
 
--- | The data constructors a program knows: those of its type declarations,
--- and those its imports mark. A parsed program marks no constructor in a
--- use, so a use is checked against this set.
-programConstructors :: Program -> Set Name
-programConstructors program =
-  Set.fromList
-    ( [conName constructor | DeclType declaration <- programDecls program, constructor <- typeCons declaration]
-        <> [name | name <- Map.keys (importHeaders (programImports program)), nameSort name == SortDataConstructor]
-    )
+-- | Whether a use names a data constructor. The sort of a name is exact,
+-- in the desugarer's output and in a parsed program alike.
+isConstructorName :: Name -> Bool
+isConstructorName name = nameSort name == SortDataConstructor
 
 -- * Driver
 
 data Inliner = Inliner
   { inEnv :: !TypeEnv,
-    inConstructors :: !(Set Name),
     inDecls :: !(Map Name ValDecl),
     inBodies :: !(Map Name Expr),
     -- | The values each body references.
@@ -193,11 +186,10 @@ data Inliner = Inliner
     inRoots :: !(Set Name)
   }
 
-initialInliner :: InlineConfig -> TypeEnv -> Set Name -> [Decl] -> Int -> Inliner
-initialInliner config env constructors decls supply =
+initialInliner :: InlineConfig -> TypeEnv -> [Decl] -> Int -> Inliner
+initialInliner config env decls supply =
   Inliner
     { inEnv = env,
-      inConstructors = constructors,
       inDecls = declarations,
       inBodies = bodies,
       inRefs = Map.map (valueReferences declarations) bodies,
@@ -273,7 +265,6 @@ simplifyValue config counts known recursive st name =
               let simpl =
                     Simpl
                       { spEnv = inEnv st,
-                        spConstructors = inConstructors st,
                         spInline = candidates,
                         spKnown = known,
                         spArity = arities,
@@ -355,19 +346,19 @@ countTopUses = go
 -- | The values whose body is a cheap constructor application under
 -- lambdas. A case on such a value selects a field without the case.
 knownValues :: Inliner -> Map Name Expr
-knownValues st = Map.filter (isKnownConstructor (inConstructors st) arities) (inBodies st)
+knownValues st = Map.filter (isKnownConstructor arities) (inBodies st)
   where
     arities = Map.map functionArity (inBodies st)
 
-isKnownConstructor :: Set Name -> Map Name Int -> Expr -> Bool
-isKnownConstructor constructors arities expr =
+isKnownConstructor :: Map Name Int -> Expr -> Bool
+isKnownConstructor arities expr =
   case expr of
-    ExTyLam _ body -> isKnownConstructor constructors arities body
-    ExLam _ body -> isKnownConstructor constructors arities body
+    ExTyLam _ body -> isKnownConstructor arities body
+    ExLam _ body -> isKnownConstructor arities body
     _ ->
       case collectSpine expr of
         (ExVar name, args)
-          | Set.member name constructors -> all (either (const True) (isCheapValue constructors arities)) args
+          | isConstructorName name -> all (either (const True) (isCheapValue arities)) args
         _ -> False
 
 -- | A body that can be inlined: a function, which is inlined at a call
@@ -381,25 +372,25 @@ isInlinable body = functionArity body > 0 || isTrivial body
 -- | An expression that does no work when it is evaluated: a literal, a
 -- variable, a lambda, or a constructor or partial application of cheap
 -- arguments.
-isCheapValue :: Set Name -> Map Name Int -> Expr -> Bool
-isCheapValue constructors arities expr =
+isCheapValue :: Map Name Int -> Expr -> Bool
+isCheapValue arities expr =
   case expr of
     ExLit {} -> True
     ExVar {} -> True
     ExCoercion {} -> True
     ExLam {} -> True
-    ExTyLam _ body -> isCheapValue constructors arities body
-    ExCast body _ -> isCheapValue constructors arities body
-    ExTyApp body _ -> isCheapValue constructors arities body
+    ExTyLam _ body -> isCheapValue arities body
+    ExCast body _ -> isCheapValue arities body
+    ExTyApp body _ -> isCheapValue arities body
     ExApp {} ->
       case collectSpine expr of
         (ExVar name, args)
-          | Set.member name constructors -> cheapArgs args
+          | isConstructorName name -> cheapArgs args
           | Just arity <- Map.lookup name arities -> length [() | Right _ <- args] < arity && cheapArgs args
         _ -> False
     _ -> False
   where
-    cheapArgs = all (either (const True) (isCheapValue constructors arities))
+    cheapArgs = all (either (const True) (isCheapValue arities))
 
 functionArity :: Expr -> Int
 functionArity expr =
@@ -418,7 +409,6 @@ data Candidate = Candidate
 
 data Simpl = Simpl
   { spEnv :: !TypeEnv,
-    spConstructors :: !(Set Name),
     spInline :: !(Map Name Candidate),
     spKnown :: !(Map Name Expr),
     spArity :: !(Map Name Int),
@@ -456,7 +446,7 @@ simplifyExpr env expr =
         then simplifyExpr env (substExpr (Map.singleton (binderName binder) rhs) body)
         else do
           let bodyEnv
-                | isKnownConstructor (spConstructors env) (spArity env) rhs = env {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
+                | isKnownConstructor (spArity env) rhs = env {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
                 | otherwise = env
           body' <- simplifyExpr bodyEnv body
           mkLet env (Bind binder rhs) body'
@@ -588,7 +578,7 @@ betaReduce env expr args =
       | isTrivial argument -> betaReduce env (substExpr (Map.singleton (binderName binder) argument) body) rest
       | otherwise -> do
           let bodyEnv
-                | isKnownConstructor (spConstructors env) (spArity env) argument = env {spLocals = Map.insert (binderName binder) argument (spLocals env)}
+                | isKnownConstructor (spArity env) argument = env {spLocals = Map.insert (binderName binder) argument (spLocals env)}
                 | otherwise = env
           body' <- betaReduce bodyEnv body rest
           mkLet env (Bind binder argument) body'
@@ -732,7 +722,7 @@ knownConstructor :: Simpl -> Expr -> SimplM (Maybe ([Bind], Name, [Type], [Expr]
 knownConstructor env expr =
   case collectSpine expr of
     (ExVar name, args)
-      | Set.member name (spConstructors env) -> pure (Just ([], name, lefts args, rights args))
+      | isConstructorName name -> pure (Just ([], name, lefts args, rights args))
       | Just body <- Map.lookup name (spLocals env) -> unfold body args
       | Just body <- Map.lookup name (spKnown env) -> unfold body args
     _ -> pure Nothing
@@ -751,7 +741,7 @@ knownConstructor env expr =
         _ ->
           case collectSpine body of
             (ExVar con, conArgs)
-              | Set.member con (spConstructors env),
+              | isConstructorName con,
                 null args ->
                   Just (reverse binds, con, lefts conArgs, rights conArgs)
             _ -> Nothing
@@ -1144,21 +1134,21 @@ exprBinderNames = go
 -- the constructor becomes a helper that takes the lambda parameters of the
 -- dictionary. Returns the declarations with the helpers, and the number of
 -- helpers.
-liftDictionaryMethods :: TypeEnv -> Set Name -> [Decl] -> ([Decl], Int)
-liftDictionaryMethods env constructors decls = (concat lifted, sum (map (subtract 1 . length) lifted))
+liftDictionaryMethods :: TypeEnv -> [Decl] -> ([Decl], Int)
+liftDictionaryMethods env decls = (concat lifted, sum (map (subtract 1 . length) lifted))
   where
     lifted = map liftDecl decls
     liftDecl decl =
       case decl of
         DeclVal declaration
-          | Just (declaration', helpers) <- liftDictionary env constructors declaration -> DeclVal declaration' : map DeclVal helpers
+          | Just (declaration', helpers) <- liftDictionary env declaration -> DeclVal declaration' : map DeclVal helpers
         _ -> [decl]
 
-liftDictionary :: TypeEnv -> Set Name -> ValDecl -> Maybe (ValDecl, [ValDecl])
-liftDictionary env constructors declaration = do
+liftDictionary :: TypeEnv -> ValDecl -> Maybe (ValDecl, [ValDecl])
+liftDictionary env declaration = do
   let (outer, inner) = splitLambdas (valBody declaration)
   (ExVar con, args) <- Just (collectSpine inner)
-  if Set.member con constructors && "$Dict$" `T.isPrefixOf` nameText con && any needsHelper args
+  if isConstructorName con && "$Dict$" `T.isPrefixOf` nameText con && any needsHelper args
     then do
       conType <- lookupHeaderType env con
       let (foralls, fields) = splitConstructorType env conType

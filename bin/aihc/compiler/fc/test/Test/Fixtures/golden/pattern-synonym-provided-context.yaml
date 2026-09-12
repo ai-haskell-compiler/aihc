@@ -22,62 +22,62 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tBool :: 2.tType {
-      pub 1.vTrue :: 1.tBool;
-      pub 1.vFalse :: 1.tBool
+  pub type 1.tBool :: 2.sType {
+      pub 1.cTrue :: 1.tBool;
+      pub 1.cFalse :: 1.tBool
   }
 
-  pub type 1.tMark :: 2.tType {
-      pub 1.vMarked :: 1.tMark;
-      pub 1.vPlain :: 1.tMark
+  pub type 1.tMark :: 2.sType {
+      pub 1.cMarked :: 1.tMark;
+      pub 1.cPlain :: 1.tMark
   }
 
-  pub type 1.t$Dict$Markable (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Markable :: ∀(a : 2.tType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
+  pub type 1.t$Dict$Markable (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$Markable :: ∀(a : 2.sType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
   }
 
-  pub type 1.tBox :: 2.tType {
-      pub 1.vBox :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ 1.tBool 2.→ a 2.→ 1.tBox
+  pub type 1.tBox :: 2.sType {
+      pub 1.cBox :: ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ 1.tBool 2.→ a 2.→ 1.tBox
   }
 
-  pub val 1.vmark :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tMark
-   = Λ(a : 2.tType).
+  pub val 1.vmark :: ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tMark
+   = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Markable a).
       case $d0 as ($dict : 1.t$Dict$Markable a) return (a 2.→ 1.tMark) of {
-          1.v$Dict$Markable ($method0 : a 2.→ 1.tMark) →
+          1.c$Dict$Markable ($method0 : a 2.→ 1.tMark) →
               $method0
       }
 
   pub val 1.v$fMarkableBool :: 1.t$Dict$Markable 1.tBool
-   = 1.v$Dict$Markable @1.tBool (λ(x : 1.tBool).
+   = 1.c$Dict$Markable @1.tBool (λ(x : 1.tBool).
     case x as (_scrut : 1.tBool) return (1.tMark) of {
-        1.vTrue →
-            1.vMarked;
-        1.vFalse →
-            1.vPlain
+        1.cTrue →
+            1.cMarked;
+        1.cFalse →
+            1.cPlain
     })
 
-  pub val 1.v$mTagged :: ∀(r : 2.tType). 1.tBox 2.→ (∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ r) 2.→ r 2.→ r
-   = Λ(r : 2.tType).
+  pub val 1.v$mTagged :: ∀(r : 2.sType). 1.tBox 2.→ (∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ r) 2.→ r 2.→ r
+   = Λ(r : 2.sType).
     λ(x : 1.tBox).
-      λ(y : ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ r).
+      λ(y : ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ r).
         λ(z : r).
           case x as (_scrut : 1.tBox) return (r) of {
-              1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable a) (_pat : 1.tBool) (x{1} : a) →
+              1.cBox @(a : 2.sType) ($pattern_d0 : 1.t$Dict$Markable a) (_pat : 1.tBool) (x{1} : a) →
                   case _pat as (_scrut{1} : 1.tBool) return (r) of {
-                      1.vTrue →
+                      1.cTrue →
                           y @a $pattern_d0 x{1};
                       _ →
                           z
@@ -88,9 +88,9 @@ expected: |-
 
   pub val 1.vinspect :: 1.tBox 2.→ 1.tMark
    = λ(x : 1.tBox).
-    1.v$mTagged @1.tMark x (Λ(a : 2.tType).
+    1.v$mTagged @1.tMark x (Λ(a : 2.sType).
       λ($pattern_d0 : 1.t$Dict$Markable a).
         λ(x{1} : a).
-          1.vmark @a $pattern_d0 x{1}) 1.vPlain
+          1.vmark @a $pattern_d0 x{1}) 1.cPlain
 status: pass
 reason: The matcher of a pattern synonym over an existential constructor takes a continuation that binds the type variable and the dictionary.

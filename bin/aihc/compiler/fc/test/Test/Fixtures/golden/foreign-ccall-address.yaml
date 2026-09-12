@@ -21,29 +21,29 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tAddr# :: 3.tTYPE 3.vAddrRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vAddrRep :: 3.tRuntimeRep;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    2.tAddr# :: 3.tTYPE 3.cAddrRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cAddrRep :: 3.tRuntimeRep;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tUnit :: 3.tType {
-      pub 1.vUnit :: 1.tUnit
+  pub type 1.tUnit :: 3.sType {
+      pub 1.cUnit :: 1.tUnit
   }
 
-  pub type 1.tPtr (a : 3.tType) :: 3.tType {
-      pub 1.vPtr :: ∀(a : 3.tType). FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (1.tPtr a)
+  pub type 1.tPtr (a : 3.sType) :: 3.sType {
+      pub 1.cPtr :: ∀(a : 3.sType). FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# (1.tPtr a)
   }
 
   pub val 1.vaddress :: 1.tPtr 1.tUnit
-   = foreign {ccall address safe "puts" [ → Addr; pure] using [constructor 1.vPtr] 1.vputsAddress :: 1.tPtr 1.tUnit}
+   = foreign {ccall address safe "puts" [ → Addr; pure] using [constructor 1.cPtr] 1.vputsAddress :: 1.tPtr 1.tUnit}
 status: pass
 reason: an address entity keeps the symbol and marks the call as taking its address

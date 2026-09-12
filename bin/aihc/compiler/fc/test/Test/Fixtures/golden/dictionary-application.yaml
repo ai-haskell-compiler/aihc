@@ -18,30 +18,30 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.t$Dict$Eq :: ∀(a : 3.tType). 3.tType;
-    3.tBool :: 3.tType;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    2.v$Dict$Eq :: ∀(a : 3.tType). (a 3.→ a 3.→ 3.tBool) 3.→ (a 3.→ a 3.→ 3.tBool) 3.→ 2.t$Dict$Eq a;
-    2.v== :: ∀(a : 3.tType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 3.tBool;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vFalse :: 3.tBool;
-    3.vLifted :: 3.tLevity;
-    3.vTrue :: 3.tBool
+    2.t$Dict$Eq :: ∀(a : 3.sType). 3.sType;
+    3.tBool :: 3.sType;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.c$Dict$Eq :: ∀(a : 3.sType). (a 3.→ a 3.→ 3.tBool) 3.→ (a 3.→ a 3.→ 3.tBool) 3.→ 2.t$Dict$Eq a;
+    2.v== :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ a 3.→ a 3.→ 3.tBool;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cFalse :: 3.tBool;
+    3.cLifted :: 3.tLevity;
+    3.cTrue :: 3.tBool
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
   pub val 1.v$fEqBool :: 2.t$Dict$Eq 3.tBool
-   = 2.v$Dict$Eq @3.tBool (λ(x : 3.tBool).
+   = 2.c$Dict$Eq @3.tBool (λ(x : 3.tBool).
     λ(y : 3.tBool).
-      3.vTrue) (λ(x : 3.tBool).
+      3.cTrue) (λ(x : 3.tBool).
     λ(y : 3.tBool).
-      3.vFalse)
+      3.cFalse)
 
   pub val 1.veqBool :: 3.tBool 3.→ 3.tBool 3.→ 3.tBool
    = 2.v== @3.tBool 1.v$fEqBool

@@ -16,42 +16,42 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tMark :: 2.tType {
-      pub 1.vMarked :: 1.tMark
+  pub type 1.tMark :: 2.sType {
+      pub 1.cMarked :: 1.tMark
   }
 
-  pub type 1.t$Dict$Markable (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Markable :: ∀(a : 2.tType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
+  pub type 1.t$Dict$Markable (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$Markable :: ∀(a : 2.sType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
   }
 
-  pub type 1.tBox :: 2.tType {
-      pub 1.vBox :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tBox
+  pub type 1.tBox :: 2.sType {
+      pub 1.cBox :: ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tBox
   }
 
-  pub val 1.vmark :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tMark
-   = Λ(a : 2.tType).
+  pub val 1.vmark :: ∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tMark
+   = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Markable a).
       case $d0 as ($dict : 1.t$Dict$Markable a) return (a 2.→ 1.tMark) of {
-          1.v$Dict$Markable ($method0 : a 2.→ 1.tMark) →
+          1.c$Dict$Markable ($method0 : a 2.→ 1.tMark) →
               $method0
       }
 
   pub val 1.vinspect :: 1.tBox 2.→ 1.tMark
    = λ(x : 1.tBox).
     case x as (_scrut : 1.tBox) return (1.tMark) of {
-        1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable a) (value : a) →
+        1.cBox @(a : 2.sType) ($pattern_d0 : 1.t$Dict$Markable a) (value : a) →
             1.vmark @a $pattern_d0 value
     }
 status: pass

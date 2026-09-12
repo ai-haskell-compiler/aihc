@@ -2658,7 +2658,7 @@ patSynBuilderName variable =
       patSyns <- gets vsPatSyns
       pure $
         case Map.lookup (TcTermGlobal package moduleName' (nameText variable)) patSyns of
-          Just info -> variable {nameText = patSynHelperName "$b" info}
+          Just info -> variable {nameText = patSynHelperName "$b" info, nameSort = SortValue}
           Nothing -> variable
     _ -> pure variable
 

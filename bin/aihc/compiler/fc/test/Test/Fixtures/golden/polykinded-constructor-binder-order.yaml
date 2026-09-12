@@ -15,37 +15,37 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tBool :: 2.tType {
-      pub 1.vTrue :: 1.tBool;
-      pub 1.vFalse :: 1.tBool
+  pub type 1.tBool :: 2.sType {
+      pub 1.cTrue :: 1.tBool;
+      pub 1.cFalse :: 1.tBool
   }
 
-  pub type 1.tMaybe (a : 2.tType) :: 2.tType {
-      pub 1.vNothing :: ∀(a : 2.tType). 1.tMaybe a;
-      pub 1.vJust :: ∀(a : 2.tType). a 2.→ 1.tMaybe a
+  pub type 1.tMaybe (a : 2.sType) :: 2.sType {
+      pub 1.cNothing :: ∀(a : 2.sType). 1.tMaybe a;
+      pub 1.cJust :: ∀(a : 2.sType). a 2.→ 1.tMaybe a
   }
 
-  pub type 1.tProxy (k : 2.tType) (a : k) :: 2.tType {
-      pub 1.vProxy :: ∀(k : 2.tType) (a : k). 1.tProxy k a
+  pub type 1.tProxy (k : 2.sType) (a : k) :: 2.sType {
+      pub 1.cProxy :: ∀(k : 2.sType) (a : k). 1.tProxy k a
   }
 
-  pub type 1.tBox (k : 2.tType) (a : k) :: 2.tType {
-      pub 1.vBox :: ∀(k : 2.tType) (a : k) (j : 2.tType) (b : j). 1.tProxy j b 2.→ 1.tBox k a
+  pub type 1.tBox (k : 2.sType) (a : k) :: 2.sType {
+      pub 1.cBox :: ∀(k : 2.sType) (a : k) (j : 2.sType) (b : j). 1.tProxy j b 2.→ 1.tBox k a
   }
 
-  pub val 1.vresult :: 1.tBox (2.tTYPE (2.vBoxedRep 2.vLifted)) 1.tBool
-   = 1.vBox @(2.tTYPE (2.vBoxedRep 2.vLifted)) @1.tBool @(2.tTYPE (2.vBoxedRep 2.vLifted) 2.→ 2.tTYPE (2.vBoxedRep 2.vLifted)) @1.tMaybe (1.vProxy @(2.tTYPE (2.vBoxedRep 2.vLifted) 2.→ 2.tTYPE (2.vBoxedRep 2.vLifted)) @1.tMaybe)
+  pub val 1.vresult :: 1.tBox (2.tTYPE (2.cBoxedRep 2.cLifted)) 1.tBool
+   = 1.cBox @(2.tTYPE (2.cBoxedRep 2.cLifted)) @1.tBool @(2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.tTYPE (2.cBoxedRep 2.cLifted)) @1.tMaybe (1.cProxy @(2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.tTYPE (2.cBoxedRep 2.cLifted)) @1.tMaybe)
 status: pass
 reason: Constructor calls use the same type binder order as their declarations.

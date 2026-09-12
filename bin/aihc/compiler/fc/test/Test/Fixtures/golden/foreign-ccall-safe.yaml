@@ -20,26 +20,26 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tInt :: 3.tType {
-      pub 1.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInt
+  pub type 1.tInt :: 3.sType {
+      pub 1.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tInt
   }
 
   pub val 1.vrun :: 1.tInt 3.→ 1.tInt
    = λ(x : 1.tInt).
-    foreign {ccall safe "identity" [Int → Int; pure] using [constructor 1.vI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt} x
+    foreign {ccall safe "identity" [Int → Int; pure] using [constructor 1.cI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt} x
 status: pass
 reason: a safe ccall lowers like an unsafe ccall

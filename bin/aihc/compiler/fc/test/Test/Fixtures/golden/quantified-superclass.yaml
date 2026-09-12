@@ -27,56 +27,56 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.t$Dict$NFData (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$NFData :: ∀(a : 2.tType). (a 2.→ a) 2.→ 1.t$Dict$NFData a
+  pub type 1.t$Dict$NFData (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$NFData :: ∀(a : 2.sType). (a 2.→ a) 2.→ 1.t$Dict$NFData a
   }
 
-  pub type 1.t$Dict$NFData1 (f : 2.tType 2.→ 2.tType) :: 2.tType {
-      pub 1.v$Dict$NFData1 :: ∀(f : 2.tType 2.→ 2.tType). (∀(a : 2.tType). 1.t$Dict$NFData a 2.→ 1.t$Dict$NFData (f a)) 2.→ 1.t$Dict$NFData1 f
+  pub type 1.t$Dict$NFData1 (f : 2.sType 2.→ 2.sType) :: 2.sType {
+      pub 1.c$Dict$NFData1 :: ∀(f : 2.sType 2.→ 2.sType). (∀(a : 2.sType). 1.t$Dict$NFData a 2.→ 1.t$Dict$NFData (f a)) 2.→ 1.t$Dict$NFData1 f
   }
 
-  pub type 1.tProxy (a : 2.tType) :: 2.tType {
-      pub 1.vProxy :: ∀(a : 2.tType). 1.tProxy a
+  pub type 1.tProxy (a : 2.sType) :: 2.sType {
+      pub 1.cProxy :: ∀(a : 2.sType). 1.tProxy a
   }
 
-  pub val 1.vrnf :: ∀(a : 2.tType). 1.t$Dict$NFData a 2.→ a 2.→ a
-   = Λ(a : 2.tType).
+  pub val 1.vrnf :: ∀(a : 2.sType). 1.t$Dict$NFData a 2.→ a 2.→ a
+   = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$NFData a).
       case $d0 as ($dict : 1.t$Dict$NFData a) return (a 2.→ a) of {
-          1.v$Dict$NFData ($method0 : a 2.→ a) →
+          1.c$Dict$NFData ($method0 : a 2.→ a) →
               $method0
       }
 
-  pub val 1.v$fNFDataProxya :: ∀(a : 2.tType). 1.t$Dict$NFData (1.tProxy a)
-   = Λ(a : 2.tType).
-    1.v$Dict$NFData @(1.tProxy a) (λ(x : 1.tProxy a).
+  pub val 1.v$fNFDataProxya :: ∀(a : 2.sType). 1.t$Dict$NFData (1.tProxy a)
+   = Λ(a : 2.sType).
+    1.c$Dict$NFData @(1.tProxy a) (λ(x : 1.tProxy a).
       x)
 
   pub val 1.v$fNFData1Proxy :: 1.t$Dict$NFData1 1.tProxy
-   = 1.v$Dict$NFData1 @1.tProxy (Λ(a : 2.tType).
+   = 1.c$Dict$NFData1 @1.tProxy (Λ(a : 2.sType).
     λ($quantified_d : 1.t$Dict$NFData a).
       1.v$fNFDataProxya @a)
 
-  pub val 1.vuse :: ∀(f : 2.tType 2.→ 2.tType) (a : 2.tType). 1.t$Dict$NFData1 f 2.→ 1.t$Dict$NFData a 2.→ f a 2.→ f a
-   = Λ(f : 2.tType 2.→ 2.tType).
-    Λ(a : 2.tType).
+  pub val 1.vuse :: ∀(f : 2.sType 2.→ 2.sType) (a : 2.sType). 1.t$Dict$NFData1 f 2.→ 1.t$Dict$NFData a 2.→ f a 2.→ f a
+   = Λ(f : 2.sType 2.→ 2.sType).
+    Λ(a : 2.sType).
       λ($d0 : 1.t$Dict$NFData1 f).
         λ($d1 : 1.t$Dict$NFData a).
           λ(x : f a).
-            1.vrnf @(f a) ((case $d0 as ($super_source : 1.t$Dict$NFData1 f) return (∀(a{1} : 2.tType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) of {
-                1.v$Dict$NFData1 ($super_field0 : ∀(a{1} : 2.tType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) →
+            1.vrnf @(f a) ((case $d0 as ($super_source : 1.t$Dict$NFData1 f) return (∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) of {
+                1.c$Dict$NFData1 ($super_field0 : ∀(a{1} : 2.sType). 1.t$Dict$NFData a{1} 2.→ 1.t$Dict$NFData (f a{1})) →
                     $super_field0
             }) @a $d1) x
 status: pass

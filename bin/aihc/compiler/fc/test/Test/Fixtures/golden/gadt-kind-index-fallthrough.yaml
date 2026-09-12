@@ -39,99 +39,99 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.t[] :: ∀(a : 2.tType). 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity;
-    2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
-    2.v[] :: ∀(a : 2.tType). 2.t[] a
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.t[] :: ∀(a : 2.sType). 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity;
+    2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+    2.c[] :: ∀(a : 2.sType). 2.t[] a
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.t:~~: (k1 : 2.tType) (k2 : 2.tType) (a : k1) (b : k2) :: 2.tType {
-      pub 1.vHRefl :: ∀(k : 2.tType) (a : k) (k2 : 2.tType) (b : k2). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (k2 ~ k) (FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (b ~ a) (1.t:~~: k k2 a b))
+  pub type 1.t:~~: (k1 : 2.sType) (k2 : 2.sType) (a : k1) (b : k2) :: 2.sType {
+      pub 1.cHRefl :: ∀(k : 2.sType) (a : k) (k2 : 2.sType) (b : k2). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (k2 ~ k) (FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (b ~ a) (1.t:~~: k k2 a b))
   }
 
-  pub type 1.tMaybe (a : 2.tType) :: 2.tType {
-      pub 1.vNothing :: ∀(a : 2.tType). 1.tMaybe a;
-      pub 1.vJust :: ∀(a : 2.tType). a 2.→ 1.tMaybe a
+  pub type 1.tMaybe (a : 2.sType) :: 2.sType {
+      pub 1.cNothing :: ∀(a : 2.sType). 1.tMaybe a;
+      pub 1.cJust :: ∀(a : 2.sType). a 2.→ 1.tMaybe a
   }
 
-  pub type 1.tUnit :: 2.tType {
-      pub 1.vUnit :: 1.tUnit
+  pub type 1.tUnit :: 2.sType {
+      pub 1.cUnit :: 1.tUnit
   }
 
-  pub type 1.tTypeRep (k : 2.tType) (a : k) :: 2.tType {
-      pub 1.vTypeRep :: ∀(k : 2.tType) (a : k). 1.tTypeRep k a
+  pub type 1.tTypeRep (k : 2.sType) (a : k) :: 2.sType {
+      pub 1.cTypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a
   }
 
-  pub type 1.tAppView (k : 2.tType) (a : k) :: 2.tType {
-      pub 1.vIsCon :: ∀(k : 2.tType) (a : k). 1.tUnit 2.→ 1.tAppView k a;
-      pub 1.vIsApp :: ∀(k2 : 2.tType) (t : k2) (k1 : 2.tType) (f : k1 2.→ k2) (x : k1). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (t ~ f x) (1.tTypeRep (k1 2.→ k2) f 2.→ 1.tTypeRep k1 x 2.→ 1.tAppView k2 t)
+  pub type 1.tAppView (k : 2.sType) (a : k) :: 2.sType {
+      pub 1.cIsCon :: ∀(k : 2.sType) (a : k). 1.tUnit 2.→ 1.tAppView k a;
+      pub 1.cIsApp :: ∀(k2 : 2.sType) (t : k2) (k1 : 2.sType) (f : k1 2.→ k2) (x : k1). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (t ~ f x) (1.tTypeRep (k1 2.→ k2) f 2.→ 1.tTypeRep k1 x 2.→ 1.tAppView k2 t)
   }
 
-  pub val 1.v$mCon' :: ∀(k : 2.tType) (a : k) (r : 2.tType). 1.tTypeRep k a 2.→ (1.tUnit 2.→ r) 2.→ r 2.→ r
-   = Λ(k : 2.tType).
+  pub val 1.v$mCon' :: ∀(k : 2.sType) (a : k) (r : 2.sType). 1.tTypeRep k a 2.→ (1.tUnit 2.→ r) 2.→ r 2.→ r
+   = Λ(k : 2.sType).
     Λ(a : k).
-      Λ(r : 2.tType).
+      Λ(r : 2.sType).
         λ(x : 1.tTypeRep k a).
           λ(y : 1.tUnit 2.→ r).
             λ(z : r).
               case 1.vsplitApp @k @a x as (_scrut : 1.tAppView k a) return (r) of {
-                  1.vIsCon (con : 1.tUnit) →
+                  1.cIsCon (con : 1.tUnit) →
                       y con;
                   _ →
                       z
               }
 
-  pub val 1.v$mApp :: ∀(k2 : 2.tType) (t : k2) (r : 2.tType). 1.tTypeRep k2 t 2.→ (∀(k1 : 2.tType) (f : k1 2.→ k2) (x : k1). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (t ~ f x) (1.tTypeRep (k1 2.→ k2) f 2.→ 1.tTypeRep k1 x 2.→ r)) 2.→ r 2.→ r
-   = Λ(k2 : 2.tType).
+  pub val 1.v$mApp :: ∀(k2 : 2.sType) (t : k2) (r : 2.sType). 1.tTypeRep k2 t 2.→ (∀(k1 : 2.sType) (f : k1 2.→ k2) (x : k1). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (t ~ f x) (1.tTypeRep (k1 2.→ k2) f 2.→ 1.tTypeRep k1 x 2.→ r)) 2.→ r 2.→ r
+   = Λ(k2 : 2.sType).
     Λ(t : k2).
-      Λ(r : 2.tType).
+      Λ(r : 2.sType).
         λ(x : 1.tTypeRep k2 t).
-          λ(y : ∀(k1 : 2.tType) (f : k1 2.→ k2) (x{1} : k1). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (t ~ f x{1}) (1.tTypeRep (k1 2.→ k2) f 2.→ 1.tTypeRep k1 x{1} 2.→ r)).
+          λ(y : ∀(k1 : 2.sType) (f : k1 2.→ k2) (x{1} : k1). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (t ~ f x{1}) (1.tTypeRep (k1 2.→ k2) f 2.→ 1.tTypeRep k1 x{1} 2.→ r)).
             λ(z : r).
               case 1.vsplitApp @k2 @t x as (_scrut : 1.tAppView k2 t) return (r) of {
-                  1.vIsApp @(k1 : 2.tType) @(f : k1 2.→ k2) @(x{1} : k1) ($pattern_d0 : t ~ f x{1}) (f{1} : 1.tTypeRep (k1 2.→ k2) f) (x{2} : 1.tTypeRep k1 x{1}) →
+                  1.cIsApp @(k1 : 2.sType) @(f : k1 2.→ k2) @(x{1} : k1) ($pattern_d0 : t ~ f x{1}) (f{1} : 1.tTypeRep (k1 2.→ k2) f) (x{2} : 1.tTypeRep k1 x{1}) →
                       y @k1 @f @x{1} (coercion ($pattern_d0)) f{1} x{2};
                   _ →
                       z
               }
 
-  pub val 1.vtypeRep :: ∀(k : 2.tType) (a : k). 1.tTypeRep k a
-   = Λ(k : 2.tType).
+  pub val 1.vtypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a
+   = Λ(k : 2.sType).
     Λ(a : k).
-      1.vTypeRep @k @a
+      1.cTypeRep @k @a
 
-  pub val 1.veqTypeRep :: ∀(k1 : 2.tType) (k2 : 2.tType) (a : k1) (b : k2). 1.tTypeRep k1 a 2.→ 1.tTypeRep k2 b 2.→ 1.tMaybe (1.t:~~: k1 k2 a b)
-   = Λ(k1 : 2.tType).
-    Λ(k2 : 2.tType).
+  pub val 1.veqTypeRep :: ∀(k1 : 2.sType) (k2 : 2.sType) (a : k1) (b : k2). 1.tTypeRep k1 a 2.→ 1.tTypeRep k2 b 2.→ 1.tMaybe (1.t:~~: k1 k2 a b)
+   = Λ(k1 : 2.sType).
+    Λ(k2 : 2.sType).
       Λ(a : k1).
         Λ(b : k2).
           λ(x : 1.tTypeRep k1 a).
             λ(y : 1.tTypeRep k2 b).
-              1.vNothing @(1.t:~~: k1 k2 a b)
+              1.cNothing @(1.t:~~: k1 k2 a b)
 
-  pub val 1.vsplitApp :: ∀(k : 2.tType) (a : k). 1.tTypeRep k a 2.→ 1.tAppView k a
-   = Λ(k : 2.tType).
+  pub val 1.vsplitApp :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a 2.→ 1.tAppView k a
+   = Λ(k : 2.sType).
     Λ(a : k).
       λ(x : 1.tTypeRep k a).
-        1.vIsCon @k @a 1.vUnit
+        1.cIsCon @k @a 1.cUnit
 
-  pub val 1.vputTypeRep :: ∀(k : 2.tType) (a : k). 1.tTypeRep k a 2.→ 1.tUnit
-   = Λ(k : 2.tType).
+  pub val 1.vputTypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a 2.→ 1.tUnit
+   = Λ(k : 2.sType).
     Λ(a : k).
       λ(x : 1.tTypeRep k a).
         let {
             _fail : 1.tUnit =
                 1.v$mCon' @k @a @1.tUnit x (λ(con : 1.tUnit).
-                  con) (1.v$mApp @k @a @1.tUnit x (Λ(k1 : 2.tType).
+                  con) (1.v$mApp @k @a @1.tUnit x (Λ(k1 : 2.sType).
                   Λ(f : k1 2.→ k).
                     Λ(x{1} : k1).
                       λ($pattern_d0 : a ~ f x{1}).
@@ -141,11 +141,11 @@ expected: |-
 
                 }))
         } in
-            case 1.veqTypeRep @k @(2.tTYPE (2.vBoxedRep 2.vLifted)) @a @(2.tTYPE (2.vBoxedRep 2.vLifted)) x (1.vtypeRep @(2.tTYPE (2.vBoxedRep 2.vLifted)) @(2.tTYPE (2.vBoxedRep 2.vLifted))) as (_do_scrut : 1.tMaybe (1.t:~~: k (2.tTYPE (2.vBoxedRep 2.vLifted)) a (2.tTYPE (2.vBoxedRep 2.vLifted)))) return (1.tUnit) of {
-                1.vJust (_pat : 1.t:~~: k (2.tTYPE (2.vBoxedRep 2.vLifted)) a (2.tTYPE (2.vBoxedRep 2.vLifted))) →
-                    case _pat as (_do_scrut{1} : 1.t:~~: k (2.tTYPE (2.vBoxedRep 2.vLifted)) a (2.tTYPE (2.vBoxedRep 2.vLifted))) return (1.tUnit) of {
-                        1.vHRefl ($pattern_d0 : 2.tTYPE (2.vBoxedRep 2.vLifted) ~ k) ($pattern_d1 : 2.tTYPE (2.vBoxedRep 2.vLifted) ~ a) →
-                            1.vUnit;
+            case 1.veqTypeRep @k @(2.tTYPE (2.cBoxedRep 2.cLifted)) @a @(2.tTYPE (2.cBoxedRep 2.cLifted)) x (1.vtypeRep @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted))) as (_do_scrut : 1.tMaybe (1.t:~~: k (2.tTYPE (2.cBoxedRep 2.cLifted)) a (2.tTYPE (2.cBoxedRep 2.cLifted)))) return (1.tUnit) of {
+                1.cJust (_pat : 1.t:~~: k (2.tTYPE (2.cBoxedRep 2.cLifted)) a (2.tTYPE (2.cBoxedRep 2.cLifted))) →
+                    case _pat as (_do_scrut{1} : 1.t:~~: k (2.tTYPE (2.cBoxedRep 2.cLifted)) a (2.tTYPE (2.cBoxedRep 2.cLifted))) return (1.tUnit) of {
+                        1.cHRefl ($pattern_d0 : 2.tTYPE (2.cBoxedRep 2.cLifted) ~ k) ($pattern_d1 : 2.tTYPE (2.cBoxedRep 2.cLifted) ~ a) →
+                            1.cUnit;
                         _ →
                             _fail
                     };

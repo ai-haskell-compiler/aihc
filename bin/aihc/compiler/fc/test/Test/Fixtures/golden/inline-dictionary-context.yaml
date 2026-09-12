@@ -28,75 +28,75 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tBool :: 2.tType;
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vFalse :: 2.tBool;
-    2.vLifted :: 2.tLevity;
-    2.vTrue :: 2.tBool
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cFalse :: 2.tBool;
+    2.cLifted :: 2.tLevity;
+    2.cTrue :: 2.tBool
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  type 1.t$Dict$MyEq (a : 2.tType) :: 2.tType {
-      1.v$Dict$MyEq :: ∀(a : 2.tType). (a 2.→ a 2.→ 2.tBool) 2.→ 1.t$Dict$MyEq a
+  type 1.t$Dict$MyEq (a : 2.sType) :: 2.sType {
+      1.c$Dict$MyEq :: ∀(a : 2.sType). (a 2.→ a 2.→ 2.tBool) 2.→ 1.t$Dict$MyEq a
   }
 
-  type 1.tPair (a : 2.tType) :: 2.tType {
-      1.vPair :: ∀(a : 2.tType). a 2.→ a 2.→ 1.tPair a
+  type 1.tPair (a : 2.sType) :: 2.sType {
+      1.cPair :: ∀(a : 2.sType). a 2.→ a 2.→ 1.tPair a
   }
 
   pub val 1.v$fMyEqBool :: 1.t$Dict$MyEq 2.tBool
-   = 1.v$Dict$MyEq @2.tBool 1.v$fMyEqBool$m0
+   = 1.c$Dict$MyEq @2.tBool 1.v$fMyEqBool$m0
 
   val 1.v$fMyEqBool$m0 :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
       case x as (_scrut : 2.tBool) return (2.tBool) of {
-          2.vTrue →
+          2.cTrue →
               case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
-                  2.vTrue →
-                      2.vTrue;
+                  2.cTrue →
+                      2.cTrue;
                   _ →
-                      2.vFalse
+                      2.cFalse
               };
-          2.vFalse →
+          2.cFalse →
               case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
-                  2.vFalse →
-                      2.vTrue;
+                  2.cFalse →
+                      2.cTrue;
                   _ →
-                      2.vFalse
+                      2.cFalse
               };
           _ →
-              2.vFalse
+              2.cFalse
       }
 
-  pub val 1.v$fMyEqPaira :: ∀(a : 2.tType). 1.t$Dict$MyEq a 2.→ 1.t$Dict$MyEq (1.tPair a)
-   = Λ(a : 2.tType).
+  pub val 1.v$fMyEqPaira :: ∀(a : 2.sType). 1.t$Dict$MyEq a 2.→ 1.t$Dict$MyEq (1.tPair a)
+   = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$MyEq a).
-      1.v$Dict$MyEq @(1.tPair a) (1.v$fMyEqPaira$m0 @a $d0)
+      1.c$Dict$MyEq @(1.tPair a) (1.v$fMyEqPaira$m0 @a $d0)
 
-  val 1.v$fMyEqPaira$m0 :: ∀(a : 2.tType). 1.t$Dict$MyEq a 2.→ 1.tPair a 2.→ 1.tPair a 2.→ 2.tBool
-   = Λ(a : 2.tType).
+  val 1.v$fMyEqPaira$m0 :: ∀(a : 2.sType). 1.t$Dict$MyEq a 2.→ 1.tPair a 2.→ 1.tPair a 2.→ 2.tBool
+   = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$MyEq a).
       λ(x : 1.tPair a).
         λ(y : 1.tPair a).
           case x as (_scrut : 1.tPair a) return (2.tBool) of {
-              1.vPair (a{1} : a) (b : a) →
+              1.cPair (a{1} : a) (b : a) →
                   case y as (_scrut{1} : 1.tPair a) return (2.tBool) of {
-                      1.vPair (c : a) (d : a) →
+                      1.cPair (c : a) (d : a) →
                           case $d0 as ($dict : 1.t$Dict$MyEq a) return (2.tBool) of {
-                              1.v$Dict$MyEq ($method0 : a 2.→ a 2.→ 2.tBool) →
+                              1.c$Dict$MyEq ($method0 : a 2.→ a 2.→ 2.tBool) →
                                   case $method0 a{1} c as (_scrut{2} : 2.tBool) return (2.tBool) of {
-                                      2.vTrue →
+                                      2.cTrue →
                                           $method0 b d;
-                                      2.vFalse →
-                                          2.vFalse
+                                      2.cFalse →
+                                          2.cFalse
                                   }
                           }
                   }

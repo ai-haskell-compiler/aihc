@@ -27,47 +27,47 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tItem :: 2.tType {
-      pub 1.vFirstItem :: 1.tItem
+  pub type 1.tItem :: 2.sType {
+      pub 1.cFirstItem :: 1.tItem
   }
 
-  pub type 1.tValue :: 2.tType {
-      pub 1.vShared :: 1.tItem 2.→ 1.tValue
+  pub type 1.tValue :: 2.sType {
+      pub 1.cShared :: 1.tItem 2.→ 1.tValue
   }
   scope 1 = "" Second
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tItem :: 2.tType {
-      pub 1.vSecondItem :: 1.tItem
+  pub type 1.tItem :: 2.sType {
+      pub 1.cSecondItem :: 1.tItem
   }
 
-  pub type 1.tValue :: 2.tType {
-      pub 1.vShared :: 1.tItem 2.→ 1.tValue
+  pub type 1.tValue :: 2.sType {
+      pub 1.cShared :: 1.tItem 2.→ 1.tValue
   }
   scope 1 = "" First
   scope 2 = "" Second
@@ -75,35 +75,35 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    1.tItem :: 4.tType;
-    2.tItem :: 4.tType;
-    4.tLevity :: 4.tType;
-    4.tLiftedRep :: 4.tRuntimeRep;
-    4.tRuntimeRep :: 4.tType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
-    4.tType :: 4.tType;
-    1.tValue :: 4.tType;
-    2.tValue :: 4.tType;
-    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.vLifted :: 4.tLevity;
-    1.vShared :: 1.tItem 4.→ 1.tValue;
-    2.vShared :: 2.tItem 4.→ 2.tValue
+    1.tItem :: 4.sType;
+    2.tItem :: 4.sType;
+    4.tLevity :: 4.sType;
+    4.sLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.sType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
+    4.sType :: 4.sType;
+    1.tValue :: 4.sType;
+    2.tValue :: 4.sType;
+    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.cLifted :: 4.tLevity;
+    1.cShared :: 1.tItem 4.→ 1.tValue;
+    2.cShared :: 2.tItem 4.→ 2.tValue
 
   import synonyms
-    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
-    4.tType = 4.tTYPE 4.tLiftedRep
+    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
+    4.sType = 4.tTYPE 4.sLiftedRep
 
   pub val 3.vfirst :: 1.tValue 4.→ 1.tItem
    = λ(x : 1.tValue).
     case x as (_scrut : 1.tValue) return (1.tItem) of {
-        1.vShared (value : 1.tItem) →
+        1.cShared (value : 1.tItem) →
             value
     }
 
   pub val 3.vsecond :: 2.tValue 4.→ 2.tItem
    = λ(x : 2.tValue).
     case x as (_scrut : 2.tValue) return (2.tItem) of {
-        2.vShared (value : 2.tItem) →
+        2.cShared (value : 2.tItem) →
             value
     }
 status: pass

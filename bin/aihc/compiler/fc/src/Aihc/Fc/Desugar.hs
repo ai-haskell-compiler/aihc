@@ -175,7 +175,10 @@ interfaceConvertEnv config interface =
     (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
     ( withClassTyCons
         (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
-        (withExportedNames (exportedNames config) (emptyConvertEnv (desugarKinds config) (primPackageId config)))
+        ( withSynonymTyCons
+            [tyConKey (tciTyCon info) | info <- tcInterfaceTyCons interface, tciFlavor info == SynonymTyCon]
+            (withExportedNames (exportedNames config) (emptyConvertEnv (desugarKinds config) (primPackageId config)))
+        )
     )
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)

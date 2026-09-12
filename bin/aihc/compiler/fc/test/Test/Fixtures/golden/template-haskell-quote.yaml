@@ -13,30 +13,30 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    3.tAddr# :: 4.tTYPE 4.vAddrRep;
-    4.tChar :: 4.tType;
-    4.tLevity :: 4.tType;
-    4.tLiftedRep :: 4.tRuntimeRep;
-    4.tRuntimeRep :: 4.tType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
-    4.tType :: 4.tType;
-    4.t[] :: ∀(a : 4.tType). 4.tType;
-    4.vAddrRep :: 4.tRuntimeRep;
-    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.vLifted :: 4.tLevity;
-    3.vraise# :: ∀(r : 4.tRuntimeRep) (a : 4.tType) (b : 4.tTYPE r). FUN @4.tLiftedRep @r a b;
-    2.vunpackCString# :: FUN @4.vAddrRep @4.tLiftedRep 3.tAddr# (4.t[] 4.tChar)
+    3.tAddr# :: 4.tTYPE 4.cAddrRep;
+    4.tChar :: 4.sType;
+    4.tLevity :: 4.sType;
+    4.sLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.sType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
+    4.sType :: 4.sType;
+    4.t[] :: ∀(a : 4.sType). 4.sType;
+    4.cAddrRep :: 4.tRuntimeRep;
+    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.cLifted :: 4.tLevity;
+    3.vraise# :: ∀(r : 4.tRuntimeRep) (a : 4.sType) (b : 4.tTYPE r). FUN @4.sLiftedRep @r a b;
+    2.vunpackCString# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar)
 
   import synonyms
-    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
-    4.tType = 4.tTYPE 4.tLiftedRep
+    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
+    4.sType = 4.tTYPE 4.sLiftedRep
 
-  pub type 1.tBox :: 4.tType {
-      pub 1.vBox :: 1.tBox
+  pub type 1.tBox :: 4.sType {
+      pub 1.cBox :: 1.tBox
   }
 
   pub val 1.vquoted :: 1.tBox 4.→ 1.tBox
    = λ(x : 1.tBox).
-    3.vraise# @4.tLiftedRep @(4.t[] 4.tChar) @1.tBox (2.vunpackCString# "TH is unsupported"#4.vAddrRep)
+    3.vraise# @4.sLiftedRep @(4.t[] 4.tChar) @1.tBox (2.vunpackCString# "TH is unsupported"#4.cAddrRep)
 status: pass
 reason: A Template Haskell quote desugars to a raise# call with a message.
