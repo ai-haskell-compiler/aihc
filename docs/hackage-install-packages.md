@@ -30,6 +30,7 @@ would no longer point at a change in aihc.
 | bytestring | 0.12.2.0 |
 | binary | 0.8.9.3 |
 | transformers | 0.6.3.0 |
+| mtl | 2.3.2 |
 | split | 0.2.5.1 |
 | pretty | 1.1.3.6 |
 | base64-bytestring | 1.2.1.0 |
