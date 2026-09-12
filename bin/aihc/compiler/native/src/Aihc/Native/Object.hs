@@ -35,13 +35,11 @@ where
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Internal qualified as BSI
-import Data.ByteString.Unsafe qualified as BSU
-import Foreign.Ptr (castPtr, plusPtr)
-import Foreign.Storable (pokeByteOff)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Builder.Extra qualified as Builder
+import Data.ByteString.Internal qualified as BSI
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Unsafe qualified as BSU
 import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -53,6 +51,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word32, Word64, Word8)
+import Foreign.Ptr (castPtr, plusPtr)
+import Foreign.Storable (pokeByteOff)
 
 data SectionRole
   = TextSection
@@ -382,8 +382,8 @@ layoutDraft draft = do
           [ name
           | section <- firstPass,
             (_, fixup) <- laidFixups section,
-            SymbolName name <- [fixupTarget fixup],
-            not (isLocalPatch globals definitions (laidRole section) fixup)
+            not (isLocalPatch globals definitions (laidRole section) fixup),
+            SymbolName name <- [fixupTarget fixup]
           ]
       kept = Map.keysSet (Map.filterWithKey (\name _ -> name `Set.member` globals || name `Set.member` relocated) definitions)
       names = Set.toAscList (kept <> relocated <> globals)
