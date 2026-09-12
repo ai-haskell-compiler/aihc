@@ -21,8 +21,10 @@ module Aihc.PackagePlan
     coreProviderSourcePath,
     CoreProvider (..),
     localDependencyResolverWithFallback,
+    lookupCoreProvider,
     workspaceDependencyResolver,
     packageSpecFromSource,
+    parseSourcePackageDescription,
   )
 where
 
@@ -194,6 +196,8 @@ sourcePathForSpec resolver spec =
     Just provider -> (`ResolvedSource` PlanCore) <$> coreProviderSourcePath provider
     Nothing -> resolverSourcePath resolver spec
 
+-- | The standin that provides a package name, under either the name of the
+-- boot library or the name of the standin itself.
 lookupCoreProvider :: String -> Maybe CoreProvider
 lookupCoreProvider name =
   case name of

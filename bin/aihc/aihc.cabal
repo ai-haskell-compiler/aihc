@@ -26,12 +26,18 @@ extra-source-files:
   compiler/lir/test/Test/Fixtures/lir/lower/*.yaml
   compiler/native/test/Test/Runtime/aihc_snapshot.c
   compiler/native/test/Test/Runtime/aihc_snapshot.h
-  test/Test/Fixtures/build-exe/generated-entry-collision/Aihc/Entry.hs
-  test/Test/Fixtures/build-exe/generated-entry-collision/Main.hs
-  test/Test/Fixtures/build-exe/source-directories/Cycle.hs
-  test/Test/Fixtures/build-exe/source-directories/Main.hs
-  test/Test/Fixtures/build-exe/source-directories/Message.hs
-  test/Test/Fixtures/build-exe/source-directories/PrimitiveChecks.hs
+  test/Test/Fixtures/build/executables/app/Greet.hs
+  test/Test/Fixtures/build/executables/app/Shout.hs
+  test/Test/Fixtures/build/executables/executables.cabal
+  test/Test/Fixtures/build/executables/src/Words.hs
+  test/Test/Fixtures/build/generated-entry-collision/Aihc/Entry.hs
+  test/Test/Fixtures/build/generated-entry-collision/Main.hs
+  test/Test/Fixtures/build/source-directories/Cycle.hs
+  test/Test/Fixtures/build/source-directories/Main.hs
+  test/Test/Fixtures/build/source-directories/Message.hs
+  test/Test/Fixtures/build/source-directories/PrimitiveChecks.hs
+  test/Test/Fixtures/build/workspace/duplicate/System/IO.hs
+  test/Test/Fixtures/build/workspace/duplicate/duplicate.cabal
   test/Test/Fixtures/install/c-sources/cbits/helper.c
   test/Test/Fixtures/install/c-sources/demo.cabal
   test/Test/Fixtures/install/c-sources/src/Demo.hs
@@ -104,7 +110,8 @@ library
     Aihc.Cli
     Aihc.Cli.ArtifactCache
     Aihc.Cli.Backend
-    Aihc.Cli.BuildExe
+    Aihc.Cli.Build
+    Aihc.Cli.BuildModule
     Aihc.Cli.BuildStamp
     Aihc.Cli.CapiStub
     Aihc.Cli.Install

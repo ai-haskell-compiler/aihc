@@ -1,6 +1,6 @@
 module Aihc.Cli.Options
   ( Command (..),
-    BuildExeOptions (..),
+    BuildOptions (..),
     GarbageCollector (..),
     InstallErrorFormat (..),
     InstallOptions (..),
@@ -16,7 +16,7 @@ import Aihc.Native (NativeTarget, OptimizationLevel, defaultOptimizationLevel, p
 import Options.Applicative qualified as OA
 
 data Command
-  = CmdBuildExe !BuildExeOptions
+  = CmdBuild !BuildOptions
   | CmdInstall !InstallOptions
   | CmdLinkExe !LinkExeOptions
   | CmdPrepareRuntime !PrepareRuntimeOptions
@@ -26,24 +26,38 @@ data GarbageCollector
   = GcSemispace
   deriving (Eq, Show)
 
-data BuildExeOptions = BuildExeOptions
-  { buildExeSourceFile :: !FilePath,
-    buildExeSourceDirectories :: ![FilePath],
-    buildExePackageConstraints :: ![String],
-    buildExeTarget :: !NativeTarget,
-    buildExeGarbageCollector :: !GarbageCollector,
-    buildExeStoreRoot :: !(Maybe FilePath),
-    buildExeBuildRoot :: !(Maybe FilePath),
-    buildExeWorkspace :: !(Maybe FilePath),
-    buildExeLint :: !Bool,
-    buildExeLto :: !Bool,
-    buildExeOptimization :: !OptimizationLevel,
-    buildExeNoLink :: !Bool,
-    buildExeOutputFile :: !(Maybe FilePath)
+-- | Build an executable, or every executable of a Cabal package.
+--
+-- What is built follows from the input: a Haskell source file is the main
+-- module of one executable, a directory is a local Cabal package, and
+-- anything else is the name of a Hackage package with an optional version,
+-- as @install@ takes it.
+data BuildOptions = BuildOptions
+  { buildInput :: !String,
+    -- | Where the imports of a main module are found. A Cabal package
+    -- names its own source directories.
+    buildSourceDirectories :: ![FilePath],
+    -- | The installed packages a main module is built against. A Cabal
+    -- package names its own in @build-depends@.
+    buildPackageConstraints :: ![String],
+    buildTarget :: !NativeTarget,
+    buildGarbageCollector :: !GarbageCollector,
+    buildStoreRoot :: !(Maybe FilePath),
+    buildBuildRoot :: !(Maybe FilePath),
+    buildWorkspace :: !(Maybe FilePath),
+    buildLint :: !Bool,
+    buildLto :: !Bool,
+    buildOptimization :: !OptimizationLevel,
+    buildNoLink :: !Bool,
+    buildVerbose :: !Bool,
+    -- | The executable of a main module, or the directory the executables
+    -- of a package go under; a link bundle takes the place of an executable
+    -- with @--no-link@.
+    buildOutput :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
--- | Link an executable from a bundle that @build-exe --no-link@ wrote.
+-- | Link an executable from a bundle that @build --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
   { linkExeBundle :: !FilePath,
     linkExeOutputFile :: !FilePath
@@ -105,10 +119,10 @@ commandParser :: OA.Parser Command
 commandParser =
   OA.subparser
     ( OA.command
-        "build-exe"
+        "build"
         ( OA.info
-            (CmdBuildExe <$> buildExeOptionsParser OA.<**> OA.helper)
-            (OA.progDesc "Build one Haskell executable")
+            (CmdBuild <$> buildOptionsParser OA.<**> OA.helper)
+            (OA.progDesc "Build one Haskell executable from a main module, or every executable of a Cabal package from a local directory or Hackage")
         )
         <> OA.command
           "install"
@@ -120,7 +134,7 @@ commandParser =
           "link-exe"
           ( OA.info
               (CmdLinkExe <$> linkExeOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Link one Haskell executable from a bundle written by build-exe --no-link")
+              (OA.progDesc "Link one Haskell executable from a bundle written by build --no-link")
           )
         <> OA.command
           "prepare-runtime"
@@ -130,12 +144,12 @@ commandParser =
           )
     )
 
-buildExeOptionsParser :: OA.Parser BuildExeOptions
-buildExeOptionsParser =
-  BuildExeOptions
+buildOptionsParser :: OA.Parser BuildOptions
+buildOptionsParser =
+  BuildOptions
     <$> OA.strArgument
-      ( OA.metavar "MODULE"
-          <> OA.help "Main Haskell module"
+      ( OA.metavar "INPUT"
+          <> OA.help "Main Haskell module, local Cabal package directory, or a Hackage package name with an optional version (NAME[-VERSION])"
       )
     <*> sourceDirectoryOptions
     <*> OA.many
@@ -143,18 +157,18 @@ buildExeOptionsParser =
           ( OA.long "package"
               <> OA.short 'p'
               <> OA.metavar "CONSTRAINT"
-              <> OA.help "Add an installed package constraint"
+              <> OA.help "Add an installed package constraint for a main module"
           )
       )
     <*> nativeTargetOption
     <*> garbageCollectorOption
     <*> storeRootOption "Override the aihc store root"
-    <*> buildRootOption "Write the executable's module artifacts under DIR instead of .aihc-target"
+    <*> buildRootOption "Write the module artifacts under DIR instead of .aihc-target"
     <*> OA.optional
       ( OA.strOption
           ( OA.long "workspace"
               <> OA.metavar "DIR"
-              <> OA.help "Take the sources of a package constraint from DIR/NAME before Hackage"
+              <> OA.help "Take the sources of a dependency from DIR/NAME before Hackage"
           )
       )
     <*> lintOption
@@ -162,14 +176,19 @@ buildExeOptionsParser =
     <*> optimizationOption
     <*> OA.switch
       ( OA.long "no-link"
-          <> OA.help "Compile only: write the objects, archives, and a link.json manifest to the output directory instead of linking"
+          <> OA.help "Compile only: write the objects, archives, and a link.json manifest to a bundle directory instead of linking"
+      )
+    <*> OA.switch
+      ( OA.long "verbose"
+          <> OA.short 'v'
+          <> OA.help "Print each build step"
       )
     <*> OA.optional
       ( OA.strOption
           ( OA.long "output"
               <> OA.short 'o'
-              <> OA.metavar "FILE"
-              <> OA.help "Write the executable to FILE, or the link bundle to the directory FILE with --no-link"
+              <> OA.metavar "PATH"
+              <> OA.help "Write the executable of a main module to PATH, or the executables of a package under the directory PATH; with --no-link, the link bundles take their place"
           )
       )
 
@@ -178,7 +197,7 @@ linkExeOptionsParser =
   LinkExeOptions
     <$> OA.strArgument
       ( OA.metavar "BUNDLE"
-          <> OA.help "Directory holding the link.json manifest written by build-exe --no-link"
+          <> OA.help "Directory holding the link.json manifest written by build --no-link"
       )
     <*> OA.strOption
       ( OA.long "output"
@@ -209,8 +228,8 @@ lintOption =
         <> OA.help "Run compiler intermediate-language lint checks"
     )
 
--- | Compile each module to System FC only. @build-exe@ merges the System
--- FC of every module of the program and compiles the merged program once.
+-- | Compile each module to System FC only. @build@ merges the System FC of
+-- every module of the program and compiles the merged program once.
 -- @-O2@ and @-Os@ imply the flag, which selects the same build at @-O0@
 -- and @-O1@. The build is part of the identity of an installed package, so
 -- its packages are separate store entries.

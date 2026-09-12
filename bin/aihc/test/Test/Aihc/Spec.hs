@@ -3,9 +3,10 @@
 module Test.Aihc.Spec (tests) where
 
 import Aihc.Capi (parseDependencyFile)
-import Aihc.Cli.BuildExe (LinkBundle (..), linkBundleManifestPath, runBuildExe, runLinkExe)
+import Aihc.Cli.Build (build)
+import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
-import Aihc.Cli.Options (BuildExeOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
+import Aihc.Cli.Options (BuildOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.Store (installedEntryArchivePath)
@@ -62,7 +63,7 @@ import Test.Aihc.SeedStore
     acquireCoreStore,
     acquireLtoStore,
     acquirePrimStore,
-    buildExeHostTarget,
+    buildHostTarget,
     installTestTargets,
     releaseSeedStore,
     seededPackagePath,
@@ -80,23 +81,26 @@ tests =
     testGroup
       "aihc"
       [ withResource (acquireCoreStore primStore) releaseSeedStore $ \coreStore ->
-          -- These run one at a time: build-exe resolves its cache directory
+          -- These run one at a time: build resolves its build directory
           -- against the working directory, and the process has only one.
           dependentTestGroup
-            "build-exe"
+            "build"
             AllFinish
-            [ testCase "builds imported source modules and runs the executable" (test_buildExeSourceDirectories coreStore),
-              testCase "reports the ambiguous installed module" (test_buildExeAmbiguousModule coreStore),
-              testCase "reports the generated entry collision" (test_buildExeEntryCollision coreStore),
-              testCase "writes a link bundle that link-exe turns into the executable" (test_buildExeLinkBundle coreStore),
-              testCase "parses the optimization level" test_buildExeOptimizationOption,
+            [ testCase "builds imported source modules and runs the executable" (test_buildModuleSourceDirectories coreStore),
+              testCase "reports the ambiguous installed module" (test_buildModuleAmbiguousModule coreStore),
+              testCase "reports the generated entry collision" (test_buildModuleEntryCollision coreStore),
+              testCase "writes a link bundle that link-exe turns into the executable" (test_buildModuleLinkBundle coreStore),
+              testCase "parses the optimization level" test_buildModuleOptimizationOption,
+              testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+              testCase "parses the package build options" test_buildCommandOptions,
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
               withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
                 dependentTestGroup
                   "lto"
                   AllFinish
-                  [ testCase "compiles the merged program of the executable once" (test_buildExeLto ltoStore),
+                  [ testCase "compiles the merged program of the executable once" (test_buildLto ltoStore),
+                    testCase "compiles the merged program of each executable of a package" (test_buildPackageLto ltoStore),
                     testCase "installs a package as System FC only" (test_installLto ltoStore)
                   ]
             ],
@@ -223,7 +227,7 @@ testInstallFixtures getStore = do
     assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
     withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
       store <- sandboxStore sandbox "store"
-      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False O0 False True False False buildExeHostTarget))
+      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False O0 False True False False buildHostTarget))
       case outcome :: Either IOException InstallResult of
         Left err -> do
           assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
@@ -246,55 +250,56 @@ test_parsePackageTarget = do
   assertEqual "path" Nothing (parsePackageTarget "core-libs/aihc-base")
   assertEqual "spaces" Nothing (parsePackageTarget "not a package")
 
--- | Give a @build-exe@ test a sandbox holding a seeded store, the fixture that
+-- | Give a @build@ test a sandbox holding a seeded store, the fixture that
 -- the default options compile, and those options. The options build at the
 -- default level, which compiles each module to its own object; the seeded
 -- core libraries are built at that level. @-O2@ compiles the whole program
 -- at once and needs the @lto@ seed store.
-withBuildExeSandbox ::
+withBuildModuleSandbox ::
   IO SeedStore ->
   String ->
-  (Sandbox -> FilePath -> FilePath -> BuildExeOptions -> Assertion) ->
+  (Sandbox -> FilePath -> FilePath -> BuildOptions -> Assertion) ->
   Assertion
-withBuildExeSandbox getStore prefix action = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
+withBuildModuleSandbox getStore prefix action = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/source-directories"
   withSandbox getStore prefix $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     let options =
-          BuildExeOptions
-            { buildExeSourceFile = fixtureRoot </> "Main.hs",
-              buildExeSourceDirectories = [fixtureRoot],
-              buildExePackageConstraints = ["aihc-base == 4.21.2.0"],
-              buildExeTarget = buildExeHostTarget,
-              buildExeGarbageCollector = GcSemispace,
-              buildExeStoreRoot = Just storeRoot,
-              buildExeBuildRoot = Nothing,
-              buildExeWorkspace = Nothing,
-              buildExeLint = False,
-              buildExeLto = False,
-              buildExeOptimization = O0,
-              buildExeNoLink = False,
-              buildExeOutputFile = Just (sandboxRoot sandbox </> "program")
+          BuildOptions
+            { buildInput = fixtureRoot </> "Main.hs",
+              buildSourceDirectories = [fixtureRoot],
+              buildPackageConstraints = ["aihc-base == 4.21.2.0"],
+              buildTarget = buildHostTarget,
+              buildGarbageCollector = GcSemispace,
+              buildStoreRoot = Just storeRoot,
+              buildBuildRoot = Nothing,
+              buildWorkspace = Nothing,
+              buildLint = False,
+              buildLto = False,
+              buildOptimization = O0,
+              buildNoLink = False,
+              buildVerbose = False,
+              buildOutput = Just (sandboxRoot sandbox </> "program")
             }
     action sandbox fixtureRoot storeRoot options
 
--- | Run @build-exe@ and return the error it reports, failing the test when it
+-- | Run @build@ and return the error it reports, failing the test when it
 -- succeeds instead.
-buildExeError :: FilePath -> BuildExeOptions -> String -> IO String
-buildExeError workingDirectory options expectation = do
+buildModuleError :: FilePath -> BuildOptions -> String -> IO String
+buildModuleError workingDirectory options expectation = do
   result <-
-    try (withCurrentDirectory workingDirectory (runBuildExe options)) ::
-      IO (Either IOException ())
+    try (withCurrentDirectory workingDirectory (build options)) ::
+      IO (Either IOException [FilePath])
   case result of
     Left err -> pure (ioeGetErrorString err)
-    Right () -> assertFailure expectation
+    Right _ -> assertFailure expectation
 
-test_buildExeSourceDirectories :: IO SeedStore -> Assertion
-test_buildExeSourceDirectories getStore =
-  withBuildExeSandbox getStore "aihc-build-exe" $ \sandbox fixtureRoot storeRoot options -> do
+test_buildModuleSourceDirectories :: IO SeedStore -> Assertion
+test_buildModuleSourceDirectories getStore =
+  withBuildModuleSandbox getStore "aihc-build" $ \sandbox fixtureRoot storeRoot options -> do
     let root = sandboxRoot sandbox
         output = sandboxRoot sandbox </> "program"
-        target = buildExeTarget options
+        target = buildTarget options
     basePackage <- seededPackagePath storeRoot target "aihc-base"
     manifestResult <- readPackageManifest (packageManifestPath basePackage)
     manifest <- either assertFailure pure manifestResult
@@ -308,29 +313,29 @@ test_buildExeSourceDirectories getStore =
     let strayPackage = storeRoot </> nativeTargetStoreDirectory target </> "aihc-base-9999-0123456789abcdef"
     createDirectoryIfMissing True strayPackage
     writePackageManifest (packageManifestPath strayPackage) manifest {packageManifestVersion = "9999"}
-    withCurrentDirectory root (runBuildExe options)
+    void (withCurrentDirectory root (build options))
     let mainObject = root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "Main" </> "Main.o"
     assertFileExists mainObject
     assertFileDoesNotExist (root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "GHC" </> "Base" </> "GHC.Base.o")
     -- The second build finds every module of the executable unchanged.
     mainTime <- getModificationTime mainObject
-    withCurrentDirectory root (runBuildExe options)
+    void (withCurrentDirectory root (build options))
     rebuiltTime <- getModificationTime mainObject
     assertEqual "unchanged executable modules are reused" mainTime rebuiltTime
     let customBuildRoot = root </> "custom-build-root"
-    withCurrentDirectory fixtureRoot (runBuildExe options {buildExeBuildRoot = Just customBuildRoot})
+    void (withCurrentDirectory fixtureRoot (build options {buildBuildRoot = Just customBuildRoot}))
     assertFileExists (customBuildRoot </> nativeTargetStoreDirectory target </> "Main" </> "Main.o")
     BS.writeFile unusedResolve resolveBytes
     typeBytes <- BS.readFile unusedType
     BS.writeFile unusedType "invalid unused type interface"
-    withCurrentDirectory root (runBuildExe options)
+    void (withCurrentDirectory root (build options))
     BS.writeFile unusedType typeBytes
-    withCurrentDirectory root (runBuildExe options {buildExeLint = True})
+    void (withCurrentDirectory root (build options {buildLint = True}))
     entryExists <- doesFileExist (installedEntryArchivePath storeRoot target)
     assertBool "target entry archive exists" entryExists
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "executable exit status" ExitSuccess status
-    assertEqual "executable stdout" "build-exe works\n" stdout
+    assertEqual "executable stdout" "build works\n" stdout
     assertEqual "executable stderr" "" stderr
     (rtsStatus, rtsStdout, rtsStderr) <-
       readProcessWithExitCode output ["first", "+RTS", "-M1G", "-RTS", "second"] ""
@@ -353,18 +358,18 @@ test_buildExeSourceDirectories getStore =
     assertEqual "invalid heap size stdout" "" invalidStdout
     assertEqual "invalid heap size diagnostic" "aihc runtime: invalid size for RTS option -M\n" invalidStderr
 
--- | The @-O@ option of @build-exe@ and @install@ takes level 0, 1, 2 or s,
+-- | The @-O@ option of @build@ and @install@ takes level 0, 1, 2 or s,
 -- and the default is 0. The help text names the option as @-O LEVEL@, which is the
 -- form the benchmark runner detects.
 --
 -- The essential property is the command line, which no Haskell source text
 -- can trigger. This test is a hand-written exception to the fixture rule.
-test_buildExeOptimizationOption :: Assertion
-test_buildExeOptimizationOption = do
-  let arguments extra = ["build-exe", "Main.hs", "--target", "apple-arm64"] <> extra
+test_buildModuleOptimizationOption :: Assertion
+test_buildModuleOptimizationOption = do
+  let arguments extra = ["build", "Main.hs", "--target", "apple-arm64"] <> extra
       levelOf parsed =
         case parsed of
-          Right (CmdBuildExe options) -> pure (buildExeOptimization options)
+          Right (CmdBuild options) -> pure (buildOptimization options)
           Right other -> assertFailure ("unexpected command: " <> show other)
           Left err -> assertFailure ("parse error: " <> err)
   assertEqual "default level" O0 =<< levelOf (parseCommandPure (arguments []))
@@ -381,24 +386,24 @@ test_buildExeOptimizationOption = do
       Right (CmdInstall options) -> pure (installOptimization options)
       other -> assertFailure ("install parse: " <> show other)
   assertEqual "install -O0" O0 installLevel
-  help <- either pure (assertFailure . ("help is not a failure: " <>) . show) (parseCommandPure ["build-exe", "--help"])
+  help <- either pure (assertFailure . ("help is not a failure: " <>) . show) (parseCommandPure ["build", "--help"])
   assertBool ("help names -O LEVEL:\n" <> help) ("[-O LEVEL]" `isInfixOf` help)
 
 -- | @--no-link@ leaves no executable behind. The bundle it writes instead is
 -- self-contained: linking it from another directory, with the store gone,
 -- still produces the program.
-test_buildExeLinkBundle :: IO SeedStore -> Assertion
-test_buildExeLinkBundle getStore =
-  withBuildExeSandbox getStore "aihc-link-bundle" $ \sandbox _fixtureRoot storeRoot options -> do
+test_buildModuleLinkBundle :: IO SeedStore -> Assertion
+test_buildModuleLinkBundle getStore =
+  withBuildModuleSandbox getStore "aihc-link-bundle" $ \sandbox _fixtureRoot storeRoot options -> do
     let root = sandboxRoot sandbox
         bundle = root </> "bundle"
         output = root </> "linked" </> "program"
-    withCurrentDirectory root (runBuildExe options {buildExeNoLink = True, buildExeOutputFile = Just bundle})
+    void (withCurrentDirectory root (build options {buildNoLink = True, buildOutput = Just bundle}))
     assertFileDoesNotExist (root </> "program")
     assertFileExists (linkBundleManifestPath bundle)
     decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
     manifest <- either assertFailure pure decoded
-    assertEqual "bundle target" (buildExeTarget options) (linkBundleTarget manifest)
+    assertEqual "bundle target" (buildTarget options) (linkBundleTarget manifest)
     assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArchives manifest))
     forM_ (linkBundleObjects manifest <> linkBundleArchives manifest <> [linkBundleEntry manifest, linkBundleRuntime manifest]) $ \input -> do
@@ -409,7 +414,7 @@ test_buildExeLinkBundle getStore =
       runLinkExe LinkExeOptions {linkExeBundle = bundle, linkExeOutputFile = output}
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "linked executable exit status" ExitSuccess status
-    assertEqual "linked executable stdout" "build-exe works\n" stdout
+    assertEqual "linked executable stdout" "build works\n" stdout
     assertEqual "linked executable stderr" "" stderr
 
 -- | @-O2@ implies @--lto@: every module stops at System FC and the merged
@@ -417,14 +422,14 @@ test_buildExeLinkBundle getStore =
 -- the values the entry does not reach. The package archives hold no Haskell
 -- object, the executable links the one program object, and an unchanged
 -- program keeps that object.
-test_buildExeLto :: IO SeedStore -> Assertion
-test_buildExeLto getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-lto" $ \sandbox _fixtureRoot storeRoot options -> do
-    buildExeFlag <-
-      case parseCommandPure ["build-exe", "Main.hs", "--target", "apple-arm64", "--lto"] of
-        Right (CmdBuildExe parsed) -> pure (buildExeLto parsed)
-        other -> assertFailure ("build-exe parse: " <> show other)
-    assertBool "build-exe parses --lto" buildExeFlag
+test_buildLto :: IO SeedStore -> Assertion
+test_buildLto getStore =
+  withBuildModuleSandbox getStore "aihc-build-lto" $ \sandbox _fixtureRoot storeRoot options -> do
+    ltoFlag <-
+      case parseCommandPure ["build", "Main.hs", "--target", "apple-arm64", "--lto"] of
+        Right (CmdBuild parsed) -> pure (buildLto parsed)
+        other -> assertFailure ("build parse: " <> show other)
+    assertBool "build parses --lto" ltoFlag
     installFlag <-
       case parseCommandPure ["install", "demo", "--target", "apple-arm64", "--lto"] of
         Right (CmdInstall parsed) -> pure (installLto parsed)
@@ -432,11 +437,11 @@ test_buildExeLto getStore =
     assertBool "install parses --lto" installFlag
     let root = sandboxRoot sandbox
         output = root </> "program"
-        target = buildExeTarget options
+        target = buildTarget options
         targetRoot = root </> ".aihc-target" </> nativeTargetStoreDirectory target
         programObject = targetRoot </> "lto" </> "program" </> "program.o"
-        ltoOptions = options {buildExeOptimization = O2}
-    withCurrentDirectory root (runBuildExe ltoOptions)
+        ltoOptions = options {buildOptimization = O2}
+    void (withCurrentDirectory root (build ltoOptions))
     -- The modules of the executable stop at System FC.
     assertCoreFile (targetRoot </> "Main" </> "core")
     assertFileDoesNotExist (targetRoot </> "Main" </> "Main.o")
@@ -459,16 +464,16 @@ test_buildExeLto getStore =
     assertBool ("base archive holds no module object: " <> show members) (all (`notElem` moduleObjects) members)
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "executable exit status" ExitSuccess status
-    assertEqual "executable stdout" "build-exe works\n" stdout
+    assertEqual "executable stdout" "build works\n" stdout
     assertEqual "executable stderr" "" stderr
     -- The second build finds the program object current.
     objectTime <- getModificationTime programObject
-    withCurrentDirectory root (runBuildExe ltoOptions)
+    void (withCurrentDirectory root (build ltoOptions))
     rebuiltTime <- getModificationTime programObject
     assertEqual "an unchanged program keeps its object" objectTime rebuiltTime
     -- A link bundle carries the program object in place of the module objects.
     let bundle = root </> "bundle"
-    withCurrentDirectory root (runBuildExe ltoOptions {buildExeNoLink = True, buildExeOutputFile = Just bundle})
+    void (withCurrentDirectory root (build ltoOptions {buildNoLink = True, buildOutput = Just bundle}))
     decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
     linkManifest <- either assertFailure pure decoded
     assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects linkManifest))
@@ -483,7 +488,7 @@ test_installLto getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
   withSandbox getStore "aihc-install-lto" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False True O2 False False False False buildExeHostTarget
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False True O2 False False False False buildHostTarget
     result <- install options
     let packageRoot = installStorePath result
     assertEqual "lto install writes the module" ["Demo"] (installWrittenModules result)
@@ -502,35 +507,154 @@ test_installLto getStore = do
 
 -- | A workspace package that exposes a module of aihc-base makes an import
 -- of that module ambiguous.
-test_buildExeAmbiguousModule :: IO SeedStore -> Assertion
-test_buildExeAmbiguousModule getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-ambiguous-module" $ \sandbox _ _ options -> do
-    workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/workspace"
+test_buildModuleAmbiguousModule :: IO SeedStore -> Assertion
+test_buildModuleAmbiguousModule getStore =
+  withBuildModuleSandbox getStore "aihc-build-ambiguous-module" $ \sandbox _ _ options -> do
+    workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
     err <-
-      buildExeError
+      buildModuleError
         (sandboxRoot sandbox)
         options
-          { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"],
-            buildExeWorkspace = Just workspace
+          { buildPackageConstraints = buildPackageConstraints options <> ["duplicate == 1.0.0"],
+            buildWorkspace = Just workspace
           }
         "expected the installed module import to be ambiguous"
     assertBool "reports the ambiguous installed module" ("Ambiguous installed module: System.IO" `isInfixOf` err)
 
-test_buildExeEntryCollision :: IO SeedStore -> Assertion
-test_buildExeEntryCollision getStore =
-  withBuildExeSandbox getStore "aihc-build-exe-entry-collision" $ \sandbox _ _ options -> do
-    entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/generated-entry-collision"
+test_buildModuleEntryCollision :: IO SeedStore -> Assertion
+test_buildModuleEntryCollision getStore =
+  withBuildModuleSandbox getStore "aihc-build-entry-collision" $ \sandbox _ _ options -> do
+    entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/generated-entry-collision"
     err <-
-      buildExeError
+      buildModuleError
         (sandboxRoot sandbox)
         options
-          { buildExeSourceFile = entryCollisionRoot </> "Main.hs",
-            buildExeSourceDirectories = [entryCollisionRoot]
+          { buildInput = entryCollisionRoot </> "Main.hs",
+            buildSourceDirectories = [entryCollisionRoot]
           }
         "expected the generated entry module to conflict"
     assertBool
       "reports the generated entry collision"
       ("Source module conflicts with generated module Aihc.Entry" `isInfixOf` err)
+
+-- | @build@ takes a Cabal package and builds each of its buildable
+-- executables from the sources and dependencies of its own stanza. The
+-- library of the package is a dependency like any other, built in place
+-- under the build root.
+-- | Give a package @build@ test a sandbox holding a seeded store, a build
+-- root, and the options that build the executables fixture there.
+withBuildPackageSandbox ::
+  IO SeedStore ->
+  String ->
+  (Sandbox -> FilePath -> BuildOptions -> Assertion) ->
+  Assertion
+withBuildPackageSandbox getStore prefix action = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/executables"
+  withSandbox getStore prefix $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let buildRoot = sandboxRoot sandbox </> "build"
+        options =
+          BuildOptions
+            { buildInput = fixtureRoot,
+              buildSourceDirectories = [],
+              buildPackageConstraints = [],
+              buildTarget = buildHostTarget,
+              buildGarbageCollector = GcSemispace,
+              buildStoreRoot = Just storeRoot,
+              buildBuildRoot = Just buildRoot,
+              buildWorkspace = Nothing,
+              buildLint = False,
+              buildLto = False,
+              buildOptimization = O0,
+              buildNoLink = False,
+              buildVerbose = False,
+              buildOutput = Nothing
+            }
+    action sandbox buildRoot options
+
+test_buildExecutables :: IO SeedStore -> Assertion
+test_buildExecutables getStore =
+  withBuildPackageSandbox getStore "aihc-build" $ \sandbox buildRoot options -> do
+    let root = sandboxRoot sandbox
+        targetDirectory = nativeTargetStoreDirectory (buildTarget options)
+    let binDirectory = buildRoot </> targetDirectory </> "bin"
+    outputs <- withCurrentDirectory root (build options)
+    assertEqual "built executables" [binDirectory </> "greet", binDirectory </> "shout"] outputs
+    forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
+      (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> name) [] ""
+      assertEqual (name <> " exit status") ExitSuccess status
+      assertEqual (name <> " stdout") expected stdout
+      assertEqual (name <> " stderr") "" stderr
+    assertFileDoesNotExist (binDirectory </> "skipped")
+    assertFileExists (buildRoot </> targetDirectory </> "executables-0.1.0.0" </> "Words" </> "Words.o")
+    let greetObject = buildRoot </> targetDirectory </> "exe" </> "greet" </> "Main" </> "Main.o"
+    assertFileExists greetObject
+    -- The second build finds every module of the executables unchanged.
+    builtTime <- getModificationTime greetObject
+    _ <- withCurrentDirectory root (build options)
+    rebuiltTime <- getModificationTime greetObject
+    assertEqual "unchanged executable modules are reused" builtTime rebuiltTime
+    -- Without the link, each executable becomes a bundle in the chosen directory.
+    let bundles = root </> "bundles"
+    bundleOutputs <- withCurrentDirectory root (build options {buildNoLink = True, buildOutput = Just bundles})
+    assertEqual "written bundles" [bundles </> "greet", bundles </> "shout"] bundleOutputs
+    forM_ ["greet", "shout"] $ \name -> do
+      assertFileExists (linkBundleManifestPath (bundles </> name))
+      decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath (bundles </> name))
+      manifest <- either assertFailure pure decoded
+      assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
+    bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
+
+-- | @-O2@ on a package build compiles the merged program of each
+-- executable once, under the executable's own build directory, and links
+-- no module object.
+test_buildPackageLto :: IO SeedStore -> Assertion
+test_buildPackageLto getStore =
+  withBuildPackageSandbox getStore "aihc-build-package-lto" $ \sandbox buildRoot options -> do
+    let root = sandboxRoot sandbox
+        targetRoot = buildRoot </> nativeTargetStoreDirectory (buildTarget options)
+        ltoOptions = options {buildOptimization = O2}
+    outputs <- withCurrentDirectory root (build ltoOptions)
+    assertEqual "built executables" [targetRoot </> "bin" </> "greet", targetRoot </> "bin" </> "shout"] outputs
+    forM_ [("greet", "hello, build\n"), ("shout", "build!\n")] $ \(name, expected) -> do
+      assertFileExists (targetRoot </> "exe" </> name </> "lto" </> "program" </> "program.o")
+      assertCoreFile (targetRoot </> "exe" </> name </> "Main" </> "core")
+      assertFileDoesNotExist (targetRoot </> "exe" </> name </> "Main" </> "Main.o")
+      (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> name) [] ""
+      assertEqual (name <> " exit status") ExitSuccess status
+      assertEqual (name <> " stdout") expected stdout
+      assertEqual (name <> " stderr") "" stderr
+    -- The library of the package stops at System FC as well.
+    assertCoreFile (targetRoot </> "executables-0.1.0.0" </> "Words" </> "core")
+    assertFileDoesNotExist (targetRoot </> "executables-0.1.0.0" </> "Words" </> "Words.o")
+    -- The bundle of an executable carries its program object.
+    let bundles = root </> "bundles"
+    _ <- withCurrentDirectory root (build ltoOptions {buildNoLink = True, buildOutput = Just bundles})
+    manifest <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
+    assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects manifest))
+    assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest)))
+
+-- | The command line of @build@ with a package input: the shared options
+-- and the output directory. The old @build-exe@ and @build-module@ names
+-- are gone.
+test_buildCommandOptions :: Assertion
+test_buildCommandOptions = do
+  case parseCommandPure ["build", "demo", "--target", "apple-arm64", "-O0", "--no-link", "-o", "out"] of
+    Right (CmdBuild options) -> do
+      assertEqual "input" "demo" (buildInput options)
+      assertEqual "target" AppleArm64 (buildTarget options)
+      assertEqual "level" O0 (buildOptimization options)
+      assertBool "no-link" (buildNoLink options)
+      assertEqual "output" (Just "out") (buildOutput options)
+    other -> assertFailure ("build parse: " <> show other)
+  case parseCommandPure ["build", "demo", "--target", "apple-arm64"] of
+    Right (CmdBuild options) -> assertEqual "default output" Nothing (buildOutput options)
+    other -> assertFailure ("build parse: " <> show other)
+  forM_ ["build-exe", "build-module"] $ \old ->
+    case parseCommandPure [old, "Main.hs", "--target", "apple-arm64"] of
+      Left _ -> pure ()
+      Right command -> assertFailure (old <> " is still a command: " <> show command)
 
 test_installIncremental :: IO SeedStore -> Assertion
 test_installIncremental getStore = do

@@ -22,4 +22,4 @@ messageText
   | not (keep True $ (1208925819614629174706176 :: Integer) == 1208925819614629174706176) = "large integer failed"
   | read "Setting {label = \"on\", level = 3}" /= Setting "on" 3 = "derived Read failed"
   | read "42" /= (42 :: Int) = "Prelude read failed"
-  | otherwise = "build-exe works"
+  | otherwise = "build works"

@@ -1,0 +1,33 @@
+cabal-version: 3.0
+name: executables
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Words
+  hs-source-dirs: src
+  build-depends: base
+  default-language: Haskell2010
+
+executable greet
+  main-is: Greet.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    executables,
+
+  default-language: Haskell2010
+
+executable shout
+  main-is: Shout.hs
+  hs-source-dirs: app
+  build-depends: base
+  default-language: Haskell2010
+  default-extensions: LambdaCase
+
+executable skipped
+  main-is: Skipped.hs
+  hs-source-dirs: app
+  build-depends: base
+  buildable: False
+  default-language: Haskell2010

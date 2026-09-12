@@ -1,10 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Aihc.Cli.BuildExe
-  ( LinkBundle (..),
+module Aihc.Cli.BuildModule
+  ( ExecutableInputs (..),
+    InstalledPackage (..),
+    LinkBundle (..),
+    PackageConstraint (..),
+    dependencyConstraint,
+    finishExecutable,
+    generatedEntryText,
+    implicitConstraint,
+    installedPackage,
     linkBundleManifestPath,
-    runBuildExe,
+    planConstraint,
+    requirePackageArchive,
+    runBuildModule,
     runLinkExe,
+    validateSelectedPackageNames,
   )
 where
 
@@ -22,14 +33,14 @@ import Aihc.Cli.Install
   )
 import Aihc.Cli.Install qualified as Install
 import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
-import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector, LinkExeOptions (..))
+import Aihc.Cli.Options (BuildOptions (..), GarbageCollector, LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot, wholeProgramLevel)
-import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, coreProviders, workspaceDependencyResolver)
+import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -105,16 +116,18 @@ data InstalledModule = InstalledModule
 
 type InstalledModuleIndex = Map.Map Text [InstalledModule]
 
-runBuildExe :: BuildExeOptions -> IO ()
-runBuildExe options = do
-  storeRoot <- maybe defaultStoreRoot pure (buildExeStoreRoot options)
+-- | Build one executable from its main module and return the path of the
+-- executable, or of its link bundle.
+runBuildModule :: BuildOptions -> IO FilePath
+runBuildModule options = do
+  storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
-  let target = buildExeTarget options
+  let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
-      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildExeBuildRoot options)
+      localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
       buildRoot = localBuildRoot </> targetDirectory
-      sourceDirectories = case buildExeSourceDirectories options of [] -> ["."]; values -> values
-      output = fromMaybe (dropExtension (buildExeSourceFile options)) (buildExeOutputFile options)
+      sourceDirectories = case buildSourceDirectories options of [] -> ["."]; values -> values
+      output = fromMaybe (dropExtension (buildInput options)) (buildOutput options)
   buildIdentity <- buildEnvironmentIdentity target
   let compileConfig =
         ModuleCompileConfig
@@ -122,20 +135,20 @@ runBuildExe options = do
             compileKeepCore = False,
             compileKeepGrin = False,
             compileKeepNative = False,
-            compileLint = buildExeLint options,
-            compileLto = buildExeLto options || wholeProgramLevel (buildExeOptimization options),
+            compileLint = buildLint options,
+            compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
             compileNoCode = False,
-            compileOptimization = buildExeOptimization options,
+            compileOptimization = buildOptimization options,
             compileTarget = target,
-            compileVerbose = const (pure ()),
+            compileVerbose = when (buildVerbose options) . putStrLn,
             compilePrintTimings = const (pure ()),
             compileUseColor = False
           }
-  constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
+  constraints <- mapM parsePackageConstraint (buildPackageConstraints options)
   -- The packages of an executable are installed like any other: the plan
   -- names them, their fingerprints name the store directories, and a
   -- directory that is absent is built. Nothing lists the store.
-  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildExeWorkspace options)
+  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildWorkspace options)
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,
@@ -149,24 +162,70 @@ runBuildExe options = do
   validateSelectedPackageNames selected
   mapM_ requirePackageArchive selected
   let moduleIndex = buildInstalledModuleIndex selected
-  sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
+  sources <- discoverSources sourceDirectories moduleIndex (buildInput options)
   validateInstalledDependencies moduleIndex sources
   sourceFiles <- materializeSourceFiles buildRoot selected sources
-  runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
-  entry <- ensureEntry storeRoot target
   let compileRequest =
         ModuleCompileRequest
           { compileOutputRoot = buildRoot,
             compilePackageRoot = currentDirectory,
             compilePackage = Package "exe" (PackageId "exe"),
             compileSourceFiles = sourceFiles,
-            compileDependencyRoots = map installedRoot selected,
+            compileDependencies = installed,
             -- An executable built from loose sources has no Cabal file, so
             -- its capi wrappers see only the headers the compiler finds by
             -- itself.
             compileCapiStubOptions = noCapiStubOptions
           }
   compiled <- compileModules compileConfig compileRequest
+  finishExecutable
+    compileConfig
+    ExecutableInputs
+      { executableStoreRoot = storeRoot,
+        executableGarbageCollector = buildGarbageCollector options,
+        executableNoLink = buildNoLink options,
+        executableOutput = output,
+        executableBuildRoot = buildRoot,
+        executableModules = compiled,
+        executableExtraObjects = [],
+        executablePackages = selected
+      }
+  pure output
+
+-- | What the final step of an executable takes: the compiled modules, the
+-- objects that join them, the installed packages, and where the result
+-- goes.
+data ExecutableInputs = ExecutableInputs
+  { executableStoreRoot :: !FilePath,
+    executableGarbageCollector :: !GarbageCollector,
+    -- | Write a link bundle instead of linking.
+    executableNoLink :: !Bool,
+    -- | The executable, or the bundle directory.
+    executableOutput :: !FilePath,
+    -- | Where the modules of the executable were compiled, and where a
+    -- @--lto@ build writes the program object.
+    executableBuildRoot :: !FilePath,
+    executableModules :: !ModuleCompileResult,
+    -- | Objects of the executable beyond its modules, such as its own C
+    -- sources.
+    executableExtraObjects :: ![FilePath],
+    executablePackages :: ![InstalledPackage]
+  }
+
+-- | Turn the objects of the modules of an executable and its installed
+-- packages into the executable, or into a link bundle when the link is
+-- deferred. The entry and runtime archives of the target are prepared when
+-- the store lacks them.
+finishExecutable :: ModuleCompileConfig -> ExecutableInputs -> IO ()
+finishExecutable compileConfig inputs = do
+  let target = compileTarget compileConfig
+      storeRoot = executableStoreRoot inputs
+      output = executableOutput inputs
+      buildRoot = executableBuildRoot inputs
+      compiled = executableModules inputs
+      packages = executablePackages inputs
+  runtime <- ensureRuntime storeRoot target (executableGarbageCollector inputs)
+  entry <- ensureEntry storeRoot target
   -- A @--lto@ build compiles the System FC of every module of the program,
   -- from the packages and the executable alike, into one object. The
   -- package archives then hold only their C and capi wrapper objects.
@@ -175,7 +234,7 @@ runBuildExe options = do
       then do
         let corePaths =
               [ moduleCorePath target (installedRoot package) name
-              | package <- selected,
+              | package <- packages,
                 name <- packageManifestCompiledModules (installedManifest package)
               ]
                 <> [moduleCorePath target buildRoot name | name <- compileModuleNames compiled]
@@ -183,31 +242,34 @@ runBuildExe options = do
         pure [object]
       else pure []
   createDirectoryIfMissing True (takeDirectory output)
-  let orderedPackages = linkOrderedPackages selected
+  let orderedPackages = linkOrderedPackages packages
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
-  let objects = programObjects <> compileObjectPaths compiled <> cObjects
+  let objects = programObjects <> compileObjectPaths compiled <> executableExtraObjects inputs <> cObjects
       archives = map packageArchive orderedPackages
-  if buildExeNoLink options
+  if executableNoLink inputs
     then writeLinkBundle target output objects archives entry runtime
     else linkExecutable target output objects archives entry runtime
 
 -- | The plan of one package constraint. A core library has the version it
--- ships with; any other package takes the version the resolver selects,
--- which the constraint must accept.
+-- ships with, under the name of the boot library it replaces as well as its
+-- own; any other package takes the version the resolver selects, which the
+-- constraint must accept.
 planConstraint :: DependencyResolver -> PackageConstraint -> IO PackagePlan
 planConstraint resolver constraint = do
-  let name = T.unpack (constraintName constraint)
+  let requested = T.unpack (constraintName constraint)
+      provider = lookupCoreProvider requested
+      name = maybe requested coreProviderName provider
   versionText <-
-    case [coreProviderVersion provider | provider <- coreProviders, coreProviderName provider == name] of
-      version : _ -> pure version
-      [] -> resolverResolveVersion resolver name
+    case provider of
+      Just core -> pure (coreProviderVersion core)
+      Nothing -> resolverResolveVersion resolver name
   version <-
     maybe
       (ioError (userError ("Invalid version " <> versionText <> " for package " <> name)))
       pure
       (simpleParsec versionText)
   unless (version `withinRange` constraintRange constraint) $
-    ioError (userError ("The selected version " <> versionText <> " of " <> name <> " does not fulfill the constraint"))
+    ioError (userError ("The selected version " <> versionText <> " of " <> name <> " does not fulfill the constraint on " <> requested))
   buildPackagePlanWithResolver resolver (PackageSpec name versionText)
 
 installedPackage :: Install.InstalledPackage -> InstalledPackage
@@ -350,8 +412,13 @@ implicitConstraint name =
 parsePackageConstraint :: String -> IO PackageConstraint
 parsePackageConstraint input =
   case simpleParsec input of
-    Just (Dependency name versionRange _) -> pure (PackageConstraint (T.pack (unPackageName name)) versionRange)
+    Just dependency -> pure (dependencyConstraint dependency)
     Nothing -> ioError (userError ("Invalid package constraint: " <> input))
+
+-- | The constraint a Cabal @build-depends@ entry states.
+dependencyConstraint :: Dependency -> PackageConstraint
+dependencyConstraint (Dependency name versionRange _) =
+  PackageConstraint (T.pack (unPackageName name)) versionRange
 
 packageCObjects :: InstalledPackage -> IO [FilePath]
 packageCObjects package = do

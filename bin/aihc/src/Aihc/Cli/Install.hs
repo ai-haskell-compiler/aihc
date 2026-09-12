@@ -8,8 +8,11 @@ module Aihc.Cli.Install
     ModuleCompileResult (..),
     ModuleOutputPaths (..),
     backendOptionsKey,
+    cabalPlatformForTarget,
+    capiStubOptions,
     compileFcModules,
     compileModules,
+    compilePackageCFiles,
     moduleOutputPaths,
     buildEnvironmentIdentity,
     defaultBuildRoot,
@@ -18,6 +21,7 @@ module Aihc.Cli.Install
     installPlanPackages,
     networkDependencyResolver,
     parsePackageTarget,
+    resolveInstallTarget,
     resolvePreferredVersion,
     runInstall,
   )
@@ -321,7 +325,7 @@ data ModuleCompileConfig = ModuleCompileConfig
     compileKeepGrin :: !Bool,
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
-    -- | Stop each module at System FC. @build-exe@ merges the System FC of
+    -- | Stop each module at System FC. @build@ merges the System FC of
     -- the whole program and compiles it once. @--lto@ sets this, and so
     -- does a level that optimizes.
     compileLto :: !Bool,
@@ -339,7 +343,9 @@ data ModuleCompileRequest = ModuleCompileRequest
     compilePackageRoot :: !FilePath,
     compilePackage :: !Package,
     compileSourceFiles :: ![HackageCabal.FileInfo],
-    compileDependencyRoots :: ![FilePath],
+    -- | The installed packages the modules are compiled against. Only the
+    -- modules the sources import are read from them.
+    compileDependencies :: ![InstalledPackage],
     -- | Where the capi wrappers of these modules look for their headers.
     compileCapiStubOptions :: !CapiStubOptions
   }
@@ -773,7 +779,6 @@ compileFlagNames config =
 
 compileModules :: ModuleCompileConfig -> ModuleCompileRequest -> IO ModuleCompileResult
 compileModules config request = do
-  dependencies <- mapM (loadInstalledPackage Set.empty True) (compileDependencyRoots request)
   compiled <-
     compileModulesWithDependencies
       config
@@ -782,7 +787,7 @@ compileModules config request = do
       (compilePackageRoot request)
       (compilePackage request)
       (compileSourceFiles request)
-      dependencies
+      (compileDependencies request)
   let names = map sourceName (compiledSources compiled)
   objects <- moduleObjectPaths (not (compileLto config)) (compileOutputRoot request) (compileTarget config) names
   pure ModuleCompileResult {compileObjectPaths = objects, compileModuleNames = names}

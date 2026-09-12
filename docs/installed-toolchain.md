@@ -69,15 +69,15 @@ for that target, in `preprocess/`, next to the `configure/` directory of a
 
 ## Linking on another host
 
-`aihc build-exe --no-link` stops before the link and writes a bundle
-directory instead of an executable. The bundle holds a copy of every link
+`aihc build --no-link` stops before the link and writes a bundle directory
+instead of an executable. The bundle holds a copy of every link
 input, so it is complete on its own: the module objects, the C objects and
 archives of the installed packages, and the entry and runtime archives. A
 `link.json` manifest lists them in link order with paths relative to the
 bundle.
 
 ```console
-aihc build-exe Main.hs \
+aihc build Main.hs \
   --store "$AIHC_STORE" \
   --target apple-arm64 \
   --gc semispace \
@@ -130,7 +130,7 @@ reconfigures when one of them changes.
 
 ## Optimization level
 
-`aihc build-exe` and `aihc install` take `-O LEVEL`.
+`aihc build` and `aihc install` take `-O LEVEL`.
 The level is 0, 1, 2 or s, and the default is 0.
 `-O0`, `-O1`, `-O2` and `-Os` are also accepted.
 
@@ -144,11 +144,11 @@ The runtime and entry archives are compiled once for each target at `-O2`, whate
 
 The level is part of the identity of an installed package.
 `aihc install -O2` writes a store entry next to the entry of the default level, and its manifest records the flag `O2`; `-O1` and `-Os` record `O1` and `Os`.
-`aihc build-exe -O2` builds its modules and its packages at level 2, so the first optimized build of a store also builds `aihc-base` at level 2.
+`aihc build -O2` builds its modules and its packages at level 2, so the first optimized build of a store also builds `aihc-base` at level 2.
 
 ## Whole-program compilation
 
-`aihc build-exe --lto` and `aihc install --lto` stop each module at System FC.
+`aihc build --lto` and `aihc install --lto` stop each module at System FC.
 `-O2` and `-Os` imply the flag.
 The flag selects the same build at `-O0` and `-O1`, which is the default.
 An install with the flag writes the System FC of each module to its `core` file.
@@ -157,13 +157,14 @@ The library archive then holds only the C objects of the package and the C wrapp
 The manifest records the flag `lto`.
 It also lists every module the package compiled, exposed or hidden, under `compiledModules`.
 
-`aihc build-exe --lto` installs its packages with the flag and compiles its own modules to System FC in the same way.
+`aihc build --lto` installs its packages with the flag and compiles its own modules to System FC in the same way.
 It then reads the System FC of every module of the program, from the packages and the executable alike.
 It merges them into one program and drops each value declaration that the entry of the executable does not reach.
 Type, synonym, and axiom declarations stay.
 It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
 The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
 A `--no-link` bundle carries the program object in place of the module objects.
+A package build gives each of its executables a program object of its own, under `exe/<name>/lto`.
 
 The program object follows the System FC files and the backend options.
 A build whose inputs are unchanged reuses it.
@@ -194,10 +195,18 @@ Everything else is rebuilt in place.
 No interface is encoded to learn its digest: source digests come from parsing, and artifact digests are taken from the bytes as they are written.
 Each package writes `digests.json` next to its manifest, from which consumers take the digests of its interfaces.
 
-`aihc build-exe` resolves its `--package` constraints through the same plan.
+`aihc build` takes a main module, a local Cabal package directory, or a Hackage package name with an optional version, as `aihc install` takes it.
+An existing file is a main module; anything else is a package.
+
+For a main module, `--package` constraints resolve through the same plan.
 The plan reads the Cabal files of the packages, from the Hackage download cache or from `--workspace DIR`, which holds a package source under `DIR/NAME`.
 A package that is absent from the store is built.
 The modules of the executable build under `.aihc-target` in the working directory, or under `--build-root`, with the same stamps as a local package.
+
+For a package, every executable whose `buildable` flag is set is built, each from the `main-is`, `other-modules`, `default-extensions`, and `build-depends` of its own stanza.
+The `build-depends` resolve through the same plan, with the package itself and its siblings found before `--workspace` and Hackage, so an executable that depends on the library of its package builds that library first.
+A local package and its executables build under `<directory>/.aihc-target/<target>`; the executables of a Hackage release build under `.aihc-target` in the working directory, since its source tree is the shared download cache.
+The executables are written to `bin` under that directory, or under `--output DIR`, and `--no-link` writes a link bundle directory named after each executable there instead.
 
 The Cabal build hook uses the current Git commit hash as the compiler identity.
 If Git or a commit is absent, the compiler identity is empty.

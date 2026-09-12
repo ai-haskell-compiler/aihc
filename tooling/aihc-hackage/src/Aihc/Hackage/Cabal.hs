@@ -7,7 +7,9 @@ module Aihc.Hackage.Cabal
     CCompileInfo (..),
 
     -- * Component file discovery
+    ExecutableInfo (..),
     collectComponentFiles,
+    collectExecutablesFor,
     collectLibraryCCompileInfo,
     collectLibraryCCompileInfoFor,
     collectLibraryExposedModules,
@@ -122,7 +124,7 @@ import Distribution.Types.CondTree
   )
 import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.Dependency (depPkgName)
+import Distribution.Types.Dependency (Dependency, depPkgName)
 import Distribution.Types.ExeDependency (ExeDependency (..))
 import Distribution.Types.ForeignLib (foreignLibBuildInfo)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
@@ -301,6 +303,41 @@ collectExecutableFiles gpd packageRoot = do
 
   executableFiles <- fmap concat (mapM (uncurry (executableFilesFor pkgDescr evalCond packageRoot)) executableTrees)
   pure (dedupeFiles executableFiles)
+
+-- | One buildable executable of a package, as the active conditions of one
+-- platform select it.
+data ExecutableInfo = ExecutableInfo
+  { executableInfoName :: String,
+    -- | The sources of the executable: its @main-is@ file, its
+    -- @other-modules@, and the generated @Paths_@ module when it lists one.
+    executableInfoFiles :: [FileInfo],
+    -- | The @build-depends@ of the executable, with their version ranges.
+    executableInfoDependencies :: [Dependency],
+    -- | The @c-sources@, @include-dirs@, and @cc-options@ of the executable.
+    executableInfoCCompileInfo :: CCompileInfo
+  }
+  deriving (Show)
+
+-- | The buildable executables of a package for one platform, in the order
+-- the Cabal file declares them.
+collectExecutablesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [ExecutableInfo]
+collectExecutablesFor os arch gpd packageRoot =
+  concat <$> mapM executableInfo (condExecutables gpd)
+  where
+    evalCond = conditionEvaluatorFor gpd os arch
+    pkgDescr = packageDescription gpd
+    executableInfo (exeName, tree) = do
+      let build = collectMergedBuildInfo evalCond buildInfo tree
+      files <- executableFilesFor pkgDescr evalCond packageRoot exeName tree
+      pure
+        [ ExecutableInfo
+            { executableInfoName = unUnqualComponentName exeName,
+              executableInfoFiles = files,
+              executableInfoDependencies = targetBuildDepends build,
+              executableInfoCCompileInfo = cCompileInfoFromBuild packageRoot build
+            }
+        | buildable build
+        ]
 
 first :: (a -> c) -> (a, b) -> (c, b)
 first f (a, b) = (f a, b)

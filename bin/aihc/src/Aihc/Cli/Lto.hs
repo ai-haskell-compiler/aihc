@@ -1,6 +1,6 @@
 -- | Whole-program compilation for @--lto@ builds.
 --
--- A @--lto@ install stops each module at System FC. @build-exe@ reads the
+-- A @--lto@ install stops each module at System FC. @build@ reads the
 -- System FC of every module of the program, from the installed packages and
 -- the executable alike, merges it into one program, and lowers that program
 -- through GRIN and Lir to one object.
