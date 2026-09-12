@@ -133,6 +133,7 @@ module Aihc.Tc.Monad
     emitDiagnostic,
     emitError,
     emitWarning,
+    withAmbientSpan,
     getDiagnostics,
     withErrorTracking,
     currentErrorCount,
@@ -234,6 +235,10 @@ data TcEnv = TcEnv
     -- them over the bodies it covers.
     tcEnvGivenPredicates :: ![Pred],
     tcEnvScopedTyVars :: !(Map Text (TyVarId, TcType)),
+    -- | The span of the declaration being checked. A diagnostic that is
+    -- emitted without a span of its own, as the checks of internal types
+    -- do, reports here instead of nowhere.
+    tcEnvAmbientSpan :: !SourceSpan,
     tcEnvVisibleTerms :: !(Set.Set TcTermKey)
   }
   deriving (Show)
@@ -410,6 +415,7 @@ emptyTcEnv config =
       tcEnvComponentTyCons = Set.empty,
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
+      tcEnvAmbientSpan = NoSourceSpan,
       tcEnvVisibleTerms = Set.empty
     }
 
@@ -1019,29 +1025,42 @@ emitDiagnostic :: TcDiagnostic -> TcM ()
 emitDiagnostic d = lift $ modify' $ \s ->
   s {tcsDiagnostics = d : tcsDiagnostics s}
 
--- | Emit an error diagnostic.
+-- | Emit an error diagnostic. Without a span it reports at the
+-- declaration being checked, when one is known.
 emitError :: SourceSpan -> TcErrorKind -> TcM ()
-emitError loc kind =
+emitError loc kind = do
+  location <- diagnosticLoc loc
   emitDiagnostic
     TcDiagnostic
-      { diagLoc = diagnosticLoc loc,
+      { diagLoc = location,
         diagSeverity = TcError,
         diagKind = kind
       }
 
--- | Emit a warning diagnostic.
+-- | Emit a warning diagnostic. Without a span it reports at the
+-- declaration being checked, when one is known.
 emitWarning :: SourceSpan -> TcErrorKind -> TcM ()
-emitWarning loc kind =
+emitWarning loc kind = do
+  location <- diagnosticLoc loc
   emitDiagnostic
     TcDiagnostic
-      { diagLoc = diagnosticLoc loc,
+      { diagLoc = location,
         diagSeverity = TcWarning,
         diagKind = kind
       }
 
-diagnosticLoc :: SourceSpan -> Maybe SourceSpan
-diagnosticLoc NoSourceSpan = Nothing
-diagnosticLoc sp = Just sp
+diagnosticLoc :: SourceSpan -> TcM (Maybe SourceSpan)
+diagnosticLoc NoSourceSpan = do
+  ambient <- asks tcEnvAmbientSpan
+  pure (case ambient of NoSourceSpan -> Nothing; sp -> Just sp)
+diagnosticLoc sp = pure (Just sp)
+
+-- | Run an action with the span of the declaration it checks, so its
+-- span-less diagnostics report there. 'NoSourceSpan' keeps the span of
+-- the enclosing declaration.
+withAmbientSpan :: SourceSpan -> TcM a -> TcM a
+withAmbientSpan NoSourceSpan action = action
+withAmbientSpan sp action = local (\env -> env {tcEnvAmbientSpan = sp}) action
 
 -- | Get all diagnostics collected so far.
 getDiagnostics :: TcM [TcDiagnostic]

@@ -524,24 +524,24 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
       moduleExtensions = map moduleUnitExtensions units
       declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
-  mapM_ predeclareTypeConstructor declarations
-  mapM_ predeclareTypeLevelDataConstructors declarations
+  mapM_ (atDecl predeclareTypeConstructor) declarations
+  mapM_ (atDecl predeclareTypeLevelDataConstructors) declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
-  mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
+  mapM_ (atDecl (registerTypeDeclHeader standaloneKindSchemes)) declarations
   let structuralDeclarations =
         [ (resolvedModuleOrigin modu, declaration)
         | modu <- modules,
           declaration <- moduleDecls modu
         ]
   forM_ (structuralDeclGroups (filter (not . isInstanceDecl . snd) structuralDeclarations)) $ \group -> do
-    mapM_ (registerTypeSynonymBody . snd) group
-    mapM_ (checkTypeSynonymBody . snd) group
-    mapM_ (uncurry registerStructuralDecl) group
+    mapM_ (atDecl registerTypeSynonymBody . snd) group
+    mapM_ (atDecl checkTypeSynonymBody . snd) group
+    mapM_ (atDeclOf registerStructuralDecl) group
     generalizeDeclarationKinds polyKindOrigins (Set.fromList (concatMap (declarationTypeKeys . snd) group))
-  mapM_ registerNominalRoles declarations
+  mapM_ (atDecl registerNominalRoles) declarations
   componentTyCons <- componentTyConKeys initialKeys
   withComponentTyCons componentTyCons $
-    mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
+    mapM_ (atDeclOf registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
@@ -564,6 +564,12 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   mapM finalizeModuleTc annotated
   where
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
+    atDeclOf check (origin, declaration) = atDecl (check origin) declaration
+
+-- | Check a declaration with its span as the ambient span, so a diagnostic
+-- the check emits without a span of its own reports at the declaration.
+atDecl :: (Decl -> TcM a) -> Decl -> TcM a
+atDecl check declaration = withAmbientSpan (peelDeclSpan NoSourceSpan declaration) (check declaration)
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -669,7 +675,7 @@ tcModuleBodyWithDefaults schemes m = do
   -- Phase 3: group and type-check value bindings using signatures.
   let sourceGroups = zip [0 :: Int ..] (groupValueDecls (moduleDecls m))
   grouped <- sortDeclGroups sourceGroups
-  groupResults <- mapM (tcDeclGroup schemes) grouped
+  groupResults <- mapM (\group -> withAmbientSpan (declGroupSourceSpan (snd group)) (tcDeclGroup schemes group)) grouped
   let valueResults = concatMap tcGroupBindingResults groupResults
       checkedGroups =
         Map.fromList
@@ -682,9 +688,9 @@ tcModuleBodyWithDefaults schemes m = do
   -- Phase 4: type-check instance method bodies. They are not top-level
   -- value bindings, but their occurrences still need the same instantiation
   -- and evidence records as ordinary expressions.
-  classDecls <- mapM tcClassDeclBodies (moduleDecls valueAnnotatedModule)
-  instanceHeaders <- mapM (annotateInstanceHeaderTc (resolvedModuleOrigin m) False) classDecls
-  instanceDecls <- mapM tcInstanceDeclBodies instanceHeaders
+  classDecls <- mapM (atDecl tcClassDeclBodies) (moduleDecls valueAnnotatedModule)
+  instanceHeaders <- mapM (atDecl (annotateInstanceHeaderTc (resolvedModuleOrigin m) False)) classDecls
+  instanceDecls <- mapM (atDecl tcInstanceDeclBodies) instanceHeaders
   let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
   -- Phase 5: reject source top-level values whose finalized types are
   -- unlifted. Generated declarations without source spans are permitted so

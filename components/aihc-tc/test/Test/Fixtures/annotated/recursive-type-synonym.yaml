@@ -1,10 +1,10 @@
 annotated:
 - |-
   module Test where
-  └─ error: recursive type synonym: Loop
-  └─ error: recursive type synonym: Loop
   type Loop a = Loop a
-       └─ type: Type → Type
+  ││    └─ type: Type → Type
+  └─ error: recursive type synonym: Loop
+  └─ error: recursive type synonym: Loop
 extensions: []
 modules:
 - |

@@ -208,9 +208,9 @@ The `build-depends` resolve through the same plan, with the package itself and i
 A local package and its executables build under `<directory>/.aihc-target/<target>`; the executables of a Hackage release build under `.aihc-target` in the working directory, since its source tree is the shared download cache.
 The executables are written to `bin` under that directory, or under `--output DIR`, and `--no-link` writes a link bundle directory named after each executable there instead.
 
-The Cabal build hook uses the current Git commit hash as the compiler identity.
+The Cabal build hook uses the Git tree hash of the working tree as the compiler identity: the committed sources together with every uncommitted change and every untracked file that is not ignored.
+Two checkouts with the same sources share an identity, and a checkout with an uncommitted change has its own, so two compilers built from one commit never share a store entry.
 If Git or a commit is absent, the compiler identity is empty.
-Uncommitted compiler changes do not change this identity.
 The compiled program contains this identity as a pure constant.
 Host compiler and archiver identities use hashes of their resolved paths.
 After a tool update at the same path, users must remove obsolete store entries.
