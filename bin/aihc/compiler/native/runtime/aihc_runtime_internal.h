@@ -46,6 +46,27 @@ struct AihcThread {
   AihcSlot resume_value;
   uint64_t resume_count;
   AihcThread *next;
+  AihcTransaction *transaction;
+};
+
+typedef struct AihcTransactionWrite AihcTransactionWrite;
+
+struct AihcTransactionWrite {
+  AihcValue *variable;
+  AihcSlot previous;
+  AihcTransactionWrite *next;
+};
+
+struct AihcTransactionTimer {
+  AihcValue *variable;
+  AihcSlot final;
+  uint64_t deadline;
+  AihcTransactionTimer *next;
+};
+
+struct AihcTransaction {
+  AihcTransactionWrite *writes;
+  AihcTransaction *parent;
 };
 
 struct AihcBlackholeWaiter {
@@ -185,6 +206,7 @@ _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);
 /* A monotonic clock in nanoseconds, or zero on a host without one. */
 uint64_t aihc_host_monotonic_ns(void);
+void aihc_host_sleep_ns(uint64_t duration);
 /* Replace the file at path with the given bytes. The result is zero, or an
    errno value when the host cannot write the file. */
 int aihc_host_write_file(const char *path, const void *bytes, size_t length);

@@ -289,3 +289,13 @@ _Noreturn int64_t aihc_io_raise_error(int64_t error) {
   fprintf(stderr, "aihc runtime: IO error %" PRId64 "\n", error);
   abort();
 }
+
+void aihc_host_sleep_ns(uint64_t duration) {
+  struct timespec remaining = {.tv_sec = (time_t)(duration / 1000000000),
+                               .tv_nsec = (long)(duration % 1000000000)};
+  while (nanosleep(&remaining, &remaining) != 0) {
+    if (errno != EINTR) {
+      aihc_fail("STM timer wait failed");
+    }
+  }
+}

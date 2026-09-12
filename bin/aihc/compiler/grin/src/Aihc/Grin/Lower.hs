@@ -848,12 +848,11 @@ lowerCatch resultRep action handler stateValues = do
 lowerArgument :: LowerEnv -> Fc.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgument env expression continuation = do
   representation <- expressionRuntimeRep env expression
-  if null (runtimeRepComponents representation)
-    then continuation []
-    else
-      if isLiftedRuntimeRep representation
-        then lowerLazy env "argument" expression (continuation . (: []))
-        else bindExpression env "argument" expression continuation
+  -- An empty representation still requires evaluation. A state argument can
+  -- perform writes before it returns its zero-width token.
+  if isLiftedRuntimeRep representation
+    then lowerLazy env "argument" expression (continuation . (: []))
+    else bindExpression env "argument" expression continuation
 
 -- | Name the value of a lifted expression without evaluating it.
 --

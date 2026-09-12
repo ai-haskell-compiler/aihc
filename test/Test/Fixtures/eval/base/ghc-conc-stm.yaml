@@ -1,0 +1,38 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Conc
+    import Control.Exception
+    import GHC.IO (IO(..))
+
+    test :: IO Bool
+    test = do
+      var <- newTVarIO (1 :: Int)
+      other <- newTVarIO (1 :: Int)
+      first <- atomically $ do
+        writeTVar var 2
+        readTVar var
+      second <- atomically $
+        (writeTVar var 3 >> retry) `orElse` readTVar var
+      third <- atomically $ do
+        writeTVar var 4
+        catchSTM (writeTVar var 5 >> throwSTM Overflow)
+          (\Overflow -> readTVar var)
+      catch (atomically (writeTVar var 6 >> throwSTM Overflow))
+        (\Overflow -> pure ())
+      fourth <- readTVarIO var
+      fifth <- atomically $
+        catchSTM (writeTVar var 7 >> retry) (\Overflow -> pure 0)
+          `orElse` readTVar var
+      sixth <- catch (atomically (retry :: STM Bool))
+        (\BlockedIndefinitelyOnSTM -> pure True)
+      pure (first == 2 && second == 2 && third == 4 && fourth == 4
+        && fifth == 4 && sixth && var == var && var /= other)
+output: |
+  True
+expression: test
+status: pass
+reason: STM commits writes and restores writes after exceptions and retry.

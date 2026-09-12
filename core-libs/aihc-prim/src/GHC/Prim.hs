@@ -4,6 +4,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
@@ -135,6 +136,23 @@ module GHC.Prim
     MutableByteArray#,
     mutableByteArrayContents#,
     MutVar#,
+    TVar#,
+    Weak#,
+    mkWeak#,
+    mkWeakNoFinalizer#,
+    deRefWeak#,
+    finalizeWeak#,
+    newTVar#,
+    readTVar#,
+    readTVarIO#,
+    writeTVar#,
+    sameTVar#,
+    stmBegin#,
+    stmCommit#,
+    stmAbort#,
+    stmActive#,
+    stmWait#,
+    newDelayTVar#,
     newAlignedPinnedByteArray#,
     newArray#,
     newByteArray#,
@@ -452,13 +470,13 @@ data State# s
 type Addr# :: TYPE 'AddrRep
 data Addr#
 
-type Array# :: Type -> UnliftedType
+type Array# :: forall (l :: Levity). TYPE ('BoxedRep l) -> UnliftedType
 data Array# a
 
 type ByteArray# :: UnliftedType
 data ByteArray#
 
-type MutableArray# :: Type -> Type -> UnliftedType
+type MutableArray# :: forall (l :: Levity). Type -> TYPE ('BoxedRep l) -> UnliftedType
 data MutableArray# d a
 
 type SmallArray# :: Type -> UnliftedType
@@ -475,6 +493,9 @@ data MVar# d a
 
 type MutVar# :: Type -> Type -> UnliftedType
 data MutVar# d a
+
+type TVar# :: Type -> Type -> UnliftedType
+data TVar# d a
 
 type ThreadId# :: UnliftedType
 data ThreadId#
@@ -530,6 +551,12 @@ foreign import prim divInt# :: Int# -> Int# -> Int#
 foreign import prim quotInt# :: Int# -> Int# -> Int#
 
 foreign import prim remInt# :: Int# -> Int# -> Int#
+
+infixl 6 +#, -#
+
+infixl 7 *#
+
+infix 4 <#, <=#, >#, >=#, ==#, /=#
 
 foreign import prim (+#) :: Int# -> Int# -> Int#
 
@@ -817,31 +844,31 @@ foreign import prim casMutVar# :: MutVar# d a -> a -> a -> State# d -> (# State#
 
 foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
 
-foreign import prim newArray# :: Int# -> a -> State# d -> (# State# d, MutableArray# d a #)
+foreign import prim newArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Int# -> a -> State# d -> (# State# d, MutableArray# d a #)
 
-foreign import prim indexArray# :: Array# a -> Int# -> (# a #)
+foreign import prim indexArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). Array# a -> Int# -> (# a #)
 
-foreign import prim readArray# :: MutableArray# d a -> Int# -> State# d -> (# State# d, a #)
+foreign import prim readArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> State# d -> (# State# d, a #)
 
-foreign import prim writeArray# :: MutableArray# d a -> Int# -> a -> State# d -> State# d
+foreign import prim writeArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> a -> State# d -> State# d
 
-foreign import prim unsafeFreezeArray# :: MutableArray# d a -> State# d -> (# State# d, Array# a #)
+foreign import prim unsafeFreezeArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> State# d -> (# State# d, Array# a #)
 
-foreign import prim unsafeThawArray# :: Array# a -> State# d -> (# State# d, MutableArray# d a #)
+foreign import prim unsafeThawArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Array# a -> State# d -> (# State# d, MutableArray# d a #)
 
-foreign import prim sameMutableArray# :: MutableArray# d a -> MutableArray# d a -> Int#
+foreign import prim sameMutableArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> MutableArray# d a -> Int#
 
-foreign import prim copyArray# :: Array# a -> Int# -> MutableArray# d a -> Int# -> Int# -> State# d -> State# d
+foreign import prim copyArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Array# a -> Int# -> MutableArray# d a -> Int# -> Int# -> State# d -> State# d
 
-foreign import prim copyMutableArray# :: MutableArray# d a -> Int# -> MutableArray# d a -> Int# -> Int# -> State# d -> State# d
+foreign import prim copyMutableArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> MutableArray# d a -> Int# -> Int# -> State# d -> State# d
 
-foreign import prim cloneArray# :: Array# a -> Int# -> Int# -> Array# a
+foreign import prim cloneArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). Array# a -> Int# -> Int# -> Array# a
 
-foreign import prim cloneMutableArray# :: MutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, MutableArray# d a #)
+foreign import prim cloneMutableArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, MutableArray# d a #)
 
-foreign import prim freezeArray# :: MutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, Array# a #)
+foreign import prim freezeArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int# -> Int# -> State# d -> (# State# d, Array# a #)
 
-foreign import prim thawArray# :: Array# a -> Int# -> Int# -> State# d -> (# State# d, MutableArray# d a #)
+foreign import prim thawArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. Array# a -> Int# -> Int# -> State# d -> (# State# d, MutableArray# d a #)
 
 -- | The small-array family shares the boxed-array representation. GHC keeps
 -- the two apart because a large 'MutableArray#' carries a card table for the
@@ -994,9 +1021,9 @@ foreign import prim indexWord32OffAddr# :: Addr# -> Int# -> Word32#
 
 foreign import prim indexWord64OffAddr# :: Addr# -> Int# -> Word64#
 
-foreign import prim sizeofArray# :: Array# a -> Int#
+foreign import prim sizeofArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)). Array# a -> Int#
 
-foreign import prim sizeofMutableArray# :: MutableArray# d a -> Int#
+foreign import prim sizeofMutableArray# :: forall {l :: Levity} (a :: TYPE ('BoxedRep l)) d. MutableArray# d a -> Int#
 
 foreign import prim fetchAddIntArray# :: MutableByteArray# d -> Int# -> Int# -> State# d -> (# State# d, Int# #)
 
@@ -1259,3 +1286,66 @@ foreign import prim
     (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
     State# RealWorld ->
     (# State# RealWorld, a #)
+
+foreign import prim newTVar# :: a -> State# d -> (# State# d, TVar# d a #)
+
+foreign import prim readTVar# :: TVar# d a -> State# d -> (# State# d, a #)
+
+foreign import prim readTVarIO# :: TVar# d a -> State# d -> (# State# d, a #)
+
+foreign import prim writeTVar# :: TVar# d a -> a -> State# d -> State# d
+
+foreign import prim sameTVar# :: TVar# d a -> TVar# d a -> Int#
+
+-- | Save or restore the transaction write log for the current thread.
+foreign import prim stmBegin# :: State# RealWorld -> State# RealWorld
+
+foreign import prim stmCommit# :: State# RealWorld -> State# RealWorld
+
+foreign import prim stmAbort# :: State# RealWorld -> State# RealWorld
+
+foreign import prim stmActive# :: State# RealWorld -> (# State# RealWorld, Int# #)
+
+-- | Weak pointers retain their value until explicit finalization.
+-- The collector does not schedule automatic finalizers.
+type Weak# :: Type -> UnliftedType
+type Weak# a = MutVar# RealWorld (WeakState a)
+
+type WeakUnit :: Type
+data WeakUnit = WeakUnit
+
+type WeakState :: Type -> Type
+data WeakState a
+  = WeakLive a (State# RealWorld -> (# State# RealWorld, WeakUnit #))
+  | WeakWithoutFinalizer a
+  | WeakDead
+
+mkWeak# :: forall {l :: Levity} (k :: TYPE ('BoxedRep l)) a b. k -> a -> (State# RealWorld -> (# State# RealWorld, b #)) -> State# RealWorld -> (# State# RealWorld, Weak# a #)
+mkWeak# = unsafeCoerce# (mkWeakLifted :: WeakUnit -> WeakUnit -> (State# RealWorld -> (# State# RealWorld, WeakUnit #)) -> State# RealWorld -> (# State# RealWorld, Weak# WeakUnit #))
+
+mkWeakLifted :: k -> a -> (State# RealWorld -> (# State# RealWorld, WeakUnit #)) -> State# RealWorld -> (# State# RealWorld, Weak# a #)
+mkWeakLifted _ value finalizer = newMutVar# (WeakLive value finalizer)
+
+mkWeakNoFinalizer# :: forall {l :: Levity} (k :: TYPE ('BoxedRep l)) a. k -> a -> State# RealWorld -> (# State# RealWorld, Weak# a #)
+mkWeakNoFinalizer# = unsafeCoerce# (mkWeakNoFinalizerLifted :: WeakUnit -> WeakUnit -> State# RealWorld -> (# State# RealWorld, Weak# WeakUnit #))
+
+mkWeakNoFinalizerLifted :: k -> a -> State# RealWorld -> (# State# RealWorld, Weak# a #)
+mkWeakNoFinalizerLifted _ value = newMutVar# (WeakWithoutFinalizer value)
+
+deRefWeak# :: Weak# a -> State# RealWorld -> (# State# RealWorld, Int#, a #)
+deRefWeak# weak state = case readMutVar# weak state of
+  (# next, content #) -> case content of
+    WeakLive value _ -> (# next, 1#, value #)
+    WeakWithoutFinalizer value -> (# next, 1#, value #)
+    WeakDead -> (# next, 0#, unsafeCoerce# WeakUnit #)
+
+finalizeWeak# :: Weak# a -> State# RealWorld -> (# State# RealWorld, Int#, State# RealWorld -> (# State# RealWorld, b #) #)
+finalizeWeak# weak state = case readMutVar# weak state of
+  (# next, content #) -> case writeMutVar# weak WeakDead next of
+    finalState -> case content of
+      WeakLive _ finalizer -> (# finalState, 1#, unsafeCoerce# finalizer #)
+      _ -> (# finalState, 0#, (# ,unsafeCoerce# WeakUnit #) #)
+
+foreign import prim stmWait# :: State# RealWorld -> (# State# RealWorld, Int# #)
+
+foreign import prim newDelayTVar# :: Int# -> a -> a -> State# RealWorld -> (# State# RealWorld, TVar# RealWorld a #)

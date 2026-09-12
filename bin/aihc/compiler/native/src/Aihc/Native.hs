@@ -748,6 +748,17 @@ nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 nativeRuntimePrimitiveCalls :: [(Text, NativeRuntimeCall)]
 nativeRuntimePrimitiveCalls =
   [ machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "newTVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
+    machineCall "readTVar#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
+    machineCall "readTVarIO#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
+    call "sameTVar#" "aihc_mutvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
+    runtimeCall True 0 "writeTVar#" "aihc_tvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    runtimeCall True 0 "stmBegin#" "aihc_stm_begin" [] GrinForeignWord64,
+    runtimeCall True 0 "stmCommit#" "aihc_stm_commit" [] GrinForeignWord64,
+    runtimeCall True 0 "stmAbort#" "aihc_stm_abort" [] GrinForeignWord64,
+    machineCall "stmWait#" "aihc_stm_wait" [] GrinForeignWord64,
+    machineCall "newDelayTVar#" "aihc_tvar_delay" [GrinForeignInt64, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "stmActive#" "aihc_stm_active" [] GrinForeignWord64,
     machineCall "newMutVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
     call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,

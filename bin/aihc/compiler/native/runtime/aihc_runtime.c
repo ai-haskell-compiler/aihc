@@ -348,6 +348,14 @@ static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
   if (thread == NULL) {
     return;
   }
+  for (AihcTransaction *transaction = thread->transaction; transaction != NULL;
+       transaction = transaction->parent) {
+    for (AihcTransactionWrite *write = transaction->writes; write != NULL;
+         write = write->next) {
+      aihc_visit_value(&write->variable, visitor, context);
+      write->previous = visitor(write->previous, context);
+    }
+  }
   aihc_visit_value(&thread->resume_function, visitor, context);
   aihc_visit_value(&thread->resume_continuation, visitor, context);
   if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
@@ -367,6 +375,11 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   }
   for (uint64_t index = 0; index < root_count; ++index) {
     roots[index] = visitor(roots[index], context);
+  }
+  for (AihcTransactionTimer *timer = machine->transaction_timers; timer != NULL;
+       timer = timer->next) {
+    aihc_visit_value(&timer->variable, visitor, context);
+    timer->final = visitor(timer->final, context);
   }
   aihc_visit_value(&machine->thread_done_continuation, visitor, context);
   aihc_visit_value(&machine->selected_resume.function, visitor, context);
@@ -1322,3 +1335,136 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
 }
 
 AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
+
+static void aihc_stm_expire_timers(AihcMachine *machine);
+
+/* Each nested transaction keeps its own reverse write log. */
+uint64_t aihc_stm_begin(AihcMachine *machine) {
+  if (machine->current_thread->transaction == NULL) {
+    aihc_stm_expire_timers(machine);
+  }
+  AihcTransaction *transaction = aihc_allocate_zeroed(sizeof(*transaction));
+  transaction->parent = machine->current_thread->transaction;
+  machine->current_thread->transaction = transaction;
+  return 0;
+}
+
+uint64_t aihc_stm_active(AihcMachine *machine) {
+  return machine->current_thread->transaction != NULL;
+}
+
+uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
+                         AihcSlot value) {
+  AihcTransaction *transaction = machine->current_thread->transaction;
+  if (transaction == NULL) {
+    aihc_fail("TVar write outside a transaction");
+  }
+  AihcTransactionWrite *write = aihc_allocate_zeroed(sizeof(*write));
+  write->variable = variable;
+  write->previous = aihc_mutvar_read(variable);
+  write->next = transaction->writes;
+  transaction->writes = write;
+  return aihc_mutvar_write(variable, value);
+}
+
+uint64_t aihc_stm_abort(AihcMachine *machine) {
+  AihcTransaction *transaction = machine->current_thread->transaction;
+  if (transaction == NULL) {
+    aihc_fail("STM abort outside a transaction");
+  }
+  AihcTransactionWrite *write = transaction->writes;
+  while (write != NULL) {
+    AihcTransactionWrite *next = write->next;
+    aihc_mutvar_write(write->variable, write->previous);
+    free(write);
+    write = next;
+  }
+  machine->current_thread->transaction = transaction->parent;
+  free(transaction);
+  return 0;
+}
+
+uint64_t aihc_stm_commit(AihcMachine *machine) {
+  AihcTransaction *transaction = machine->current_thread->transaction;
+  if (transaction == NULL) {
+    aihc_fail("STM commit outside a transaction");
+  }
+  AihcTransactionWrite *write = transaction->writes;
+  if (transaction->parent != NULL && write != NULL) {
+    AihcTransactionWrite *last = write;
+    while (last->next != NULL) {
+      last = last->next;
+    }
+    last->next = transaction->parent->writes;
+    transaction->parent->writes = write;
+  } else {
+    while (write != NULL) {
+      AihcTransactionWrite *next = write->next;
+      free(write);
+      write = next;
+    }
+  }
+  machine->current_thread->transaction = transaction->parent;
+  free(transaction);
+  return 0;
+}
+
+AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
+                           AihcSlot initial, AihcSlot final) {
+  AihcValue *variable = aihc_mutvar_new(machine, delay <= 0 ? final : initial);
+  if (delay > 0) {
+    AihcTransactionTimer *timer = aihc_allocate_zeroed(sizeof(*timer));
+    timer->variable = variable;
+    timer->final = final;
+    uint64_t now = aihc_host_monotonic_ns();
+    uint64_t maximum = UINT64_MAX - now;
+    timer->deadline = (uint64_t)delay > maximum / 1000
+                          ? UINT64_MAX
+                          : now + (uint64_t)delay * 1000;
+    timer->next = machine->transaction_timers;
+    machine->transaction_timers = timer;
+  }
+  return variable;
+}
+
+static void aihc_stm_expire_timers(AihcMachine *machine) {
+  uint64_t now = aihc_host_monotonic_ns();
+  AihcTransactionTimer **link = &machine->transaction_timers;
+  while (*link != NULL) {
+    AihcTransactionTimer *timer = *link;
+    if (timer->deadline <= now) {
+      aihc_mutvar_write(timer->variable, timer->final);
+      *link = timer->next;
+      free(timer);
+    } else {
+      link = &timer->next;
+    }
+  }
+}
+
+AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable) {
+  /* A transaction observes one timer state until it commits or retries. */
+  if (!aihc_stm_active(machine)) {
+    aihc_stm_expire_timers(machine);
+  }
+  return aihc_mutvar_read(variable);
+}
+
+uint64_t aihc_stm_wait(AihcMachine *machine) {
+  if (machine->transaction_timers == NULL) {
+    return 0;
+  }
+  uint64_t deadline = UINT64_MAX;
+  for (AihcTransactionTimer *timer = machine->transaction_timers; timer != NULL;
+       timer = timer->next) {
+    if (timer->deadline < deadline) {
+      deadline = timer->deadline;
+    }
+  }
+  uint64_t now = aihc_host_monotonic_ns();
+  if (now < deadline) {
+    aihc_host_sleep_ns(deadline - now);
+  }
+  aihc_stm_expire_timers(machine);
+  return 1;
+}

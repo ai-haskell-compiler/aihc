@@ -26,6 +26,8 @@ typedef uintptr_t AihcObjectKind;
 
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
+typedef struct AihcTransaction AihcTransaction;
+typedef struct AihcTransactionTimer AihcTransactionTimer;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
@@ -167,6 +169,7 @@ struct AihcMachine {
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;
+  AihcTransactionTimer *transaction_timers;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -290,6 +293,17 @@ AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
 AihcSlot aihc_array_index(AihcValue *array, int64_t index);
 AihcSlot aihc_array_write(AihcValue *array, int64_t index, AihcSlot value);
 uint64_t aihc_array_same(AihcValue *left, AihcValue *right);
+AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
+                           AihcSlot initial, AihcSlot final);
+AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable);
+uint64_t aihc_stm_wait(AihcMachine *machine);
+uint64_t aihc_stm_begin(AihcMachine *machine);
+uint64_t aihc_stm_commit(AihcMachine *machine);
+uint64_t aihc_stm_abort(AihcMachine *machine);
+uint64_t aihc_stm_active(AihcMachine *machine);
+uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
+                         AihcSlot value);
+
 AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial);
 AihcSlot aihc_mutvar_read(AihcValue *mutvar);
 AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value);

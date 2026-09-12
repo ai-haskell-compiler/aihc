@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+    import GHC.Conc
+
+    test :: IO Bool
+    test = do
+      immediate <- registerDelay 0
+      first <- readTVarIO immediate
+      delayed <- registerDelay 1000
+      second <- atomically $ do
+        ready <- readTVar delayed
+        if ready then pure ready else retry
+      pure (first && second)
+expression: test
+output: |
+  True
+status: pass
+reason: Delay variables become true and permit a transaction to resume.

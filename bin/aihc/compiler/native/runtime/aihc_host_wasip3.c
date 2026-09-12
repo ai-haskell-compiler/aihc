@@ -154,3 +154,8 @@ _Noreturn int64_t aihc_io_raise_error(int64_t error) {
   (void)error;
   __builtin_trap();
 }
+
+void aihc_host_sleep_ns(uint64_t duration) {
+  (void)duration;
+  aihc_fail("STM timers need a host clock");
+}

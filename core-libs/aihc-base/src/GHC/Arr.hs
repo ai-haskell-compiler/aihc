@@ -1,3 +1,4 @@
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -71,15 +72,16 @@ import GHC.Prim
     writeArray#,
   )
 import GHC.ST (ST (..), STRep, runST)
+import GHC.Types (Type)
 import Prelude
 
 infixl 9 !, //
 
 -- | An immutable, non-strict boxed array.
-data Array i e = Array i i Int (Array# e)
+data Array i (e :: Type) = Array i i Int (Array# e)
 
 -- | A mutable, non-strict boxed array in an 'ST' state thread.
-data STArray s i e = STArray i i Int (MutableArray# s e)
+data STArray s i (e :: Type) = STArray i i Int (MutableArray# s e)
 
 instance Eq (STArray s i e) where
   STArray _ _ _ left == STArray _ _ _ right =
