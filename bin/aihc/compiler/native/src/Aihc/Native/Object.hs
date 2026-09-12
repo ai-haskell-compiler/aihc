@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared data for direct native object generation.
@@ -24,6 +25,7 @@ module Aihc.Native.Object
     Symbol (..),
     addGlobal,
     addItem,
+    addItems,
     emptyDraft,
     layoutDraft,
     selectSection,
@@ -232,6 +234,61 @@ addItem item draft =
       next <- appendItem item (draftCurrent draft)
       pure draft {draftCurrent = next}
 
+-- | Append a run of items to the current section.
+addItems :: [Item] -> Draft -> Either ObjectError Draft
+addItems items draft =
+  case draftCurrentSection draft of
+    Nothing -> Left ObjectNoSection
+    Just _ -> do
+      next <- appendItems items (draftCurrent draft)
+      pure draft {draftCurrent = next}
+
+-- | Append a run of items, carrying the section in loop variables so that
+-- an item costs no record. An alignment goes through 'appendItem'.
+appendItems :: [Item] -> SectionDraft -> Either ObjectError SectionDraft
+appendItems items0 section0 =
+  go
+    (sectionSize section0)
+    (sectionChunksRev section0)
+    (sectionPending section0)
+    (sectionPendingSize section0)
+    (sectionLabelsRev section0)
+    (sectionLocalsRev section0)
+    (sectionFixupsRev section0)
+    items0
+  where
+    go !size chunks pending !pendingSize labels locals fixups items =
+      case items of
+        [] -> pure (rebuild size chunks pending pendingSize labels locals fixups)
+        item : rest ->
+          case item of
+            Word width value ->
+              append size chunks (pending <> littleEndian width value) (pendingSize + width) (fromIntegral width) labels locals fixups rest
+            Bytes value ->
+              append size chunks (pending <> Builder.byteString value) (pendingSize + BS.length value) (fromIntegral (BS.length value)) labels locals fixups rest
+            Label (SymbolName name) -> go size chunks pending pendingSize ((name, size) : labels) locals fixups rest
+            Label (LocalName identifier _) -> go size chunks pending pendingSize labels ((identifier, size) : locals) fixups rest
+            Apply fixup ->
+              let width = fixupWidth fixup
+               in append size chunks (pending <> littleEndian width (fixupWord fixup)) (pendingSize + width) (fromIntegral width) labels locals ((size, fixup) : fixups) rest
+            Align _ _ -> do
+              next <- appendItem item (rebuild size chunks pending pendingSize labels locals fixups)
+              appendItems rest next
+    append size chunks pending pendingSize width labels locals fixups rest
+      | pendingSize >= chunkBytes =
+          go (size + width) (flushPending pending pendingSize : chunks) mempty 0 labels locals fixups rest
+      | otherwise = go (size + width) chunks pending pendingSize labels locals fixups rest
+    rebuild size chunks pending pendingSize labels locals fixups =
+      section0
+        { sectionSize = size,
+          sectionChunksRev = chunks,
+          sectionPending = pending,
+          sectionPendingSize = pendingSize,
+          sectionLabelsRev = labels,
+          sectionLocalsRev = locals,
+          sectionFixupsRev = fixups
+        }
+
 appendItem :: Item -> SectionDraft -> Either ObjectError SectionDraft
 appendItem item section =
   case item of
@@ -285,10 +342,14 @@ flushSection section
   | sectionPendingSize section == 0 = section
   | otherwise =
       section
-        { sectionChunksRev = BL.toStrict (Builder.toLazyByteStringWith (Builder.untrimmedStrategy (sectionPendingSize section) (sectionPendingSize section)) mempty (sectionPending section)) : sectionChunksRev section,
+        { sectionChunksRev = flushPending (sectionPending section) (sectionPendingSize section) : sectionChunksRev section,
           sectionPending = mempty,
           sectionPendingSize = 0
         }
+
+flushPending :: Builder.Builder -> Int -> ByteString
+flushPending pending pendingSize =
+  BL.toStrict (Builder.toLazyByteStringWith (Builder.untrimmedStrategy pendingSize pendingSize) mempty pending)
 
 -- | Every byte of the section.
 sectionBytes :: SectionDraft -> ByteString

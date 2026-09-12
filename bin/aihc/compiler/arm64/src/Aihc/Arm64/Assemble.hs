@@ -247,7 +247,44 @@ data Arm64Instruction
   deriving (Eq, Show)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
-assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
+assembleMachO statements = applyStatements emptyDraft statements >>= layoutDraft >>= writeArm64MachO
+
+-- | Apply a list of statements. A run of statements that only add items to
+-- the current section is appended in one pass.
+applyStatements :: Draft -> [Arm64Statement] -> Either ObjectError Draft
+applyStatements draft statements =
+  case statements of
+    [] -> pure draft
+    Arm64Section role : rest -> applyStatements (selectSection role draft) rest
+    Arm64Global symbol : rest -> applyStatements (addGlobal symbol draft) rest
+    Arm64Align alignment : rest -> addItem (Align alignment (alignmentFill draft)) draft >>= \next -> applyStatements next rest
+    _ ->
+      let (run, rest) = span plain statements
+       in addItems (concatMap statementItems run) draft >>= \next -> applyStatements next rest
+  where
+    plain statement =
+      case statement of
+        Arm64Section _ -> False
+        Arm64Global _ -> False
+        Arm64Align _ -> False
+        _ -> True
+
+-- | The items of a statement that adds to the current section.
+statementItems :: Arm64Statement -> [Item]
+statementItems statement =
+  case statement of
+    Arm64Label name -> [Label name]
+    Arm64Quad value -> [Word 8 value]
+    Arm64Word width value -> [Word width value]
+    Arm64QuadSymbol symbol -> [Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)]
+    Arm64QuadSymbolAddend symbol addend -> [Apply (Fixup Absolute64 (SymbolName symbol) 0 8 (fromIntegral addend))]
+    Arm64Bytes value
+      | BS.null value -> []
+      | otherwise -> [Bytes value]
+    Arm64Code instruction -> encodeInstruction instruction
+    Arm64Section _ -> []
+    Arm64Global _ -> []
+    Arm64Align _ -> []
 
 -- | Assemble statements that arrive in chunks, folding each one in before
 -- the next is produced. A failed chunk ends the assembly with its error;
@@ -260,7 +297,7 @@ assembleMachOChunks = go emptyDraft
         [] -> either (Left . Right) Right (layoutDraft draft >>= writeArm64MachO)
         Left err : _ -> Left (Left err)
         Right statements : rest ->
-          case foldl' applyStatement (Right draft) statements of
+          case applyStatements draft statements of
             Left err -> Left (Right err)
             Right next -> next `seq` go next rest
 
