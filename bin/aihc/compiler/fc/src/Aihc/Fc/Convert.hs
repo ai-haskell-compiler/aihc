@@ -9,6 +9,7 @@ module Aihc.Fc.Convert
     withTyVars,
     withKindEnv,
     withClassTyCons,
+    withSynonymTyCons,
     withExportedNames,
     exportedVis,
     convertKind,
@@ -99,6 +100,9 @@ data ConvertEnv = ConvertEnv
     ceTyVars :: Map Unique TyVarId,
     ceKindEnv :: TcKindEnv,
     ceClassTyCons :: Set TcTypeKey,
+    -- | The type synonyms. A reference to one is a synonym name, which the
+    -- lint unfolds, and not a type constructor name.
+    ceSynonymTyCons :: Set TcTypeKey,
     -- | The visible top-level names of the module, as
     -- 'Aihc.Resolve.exportedLocalNames' gives them. 'Nothing' comes from a
     -- caller that knows of no export list, and keeps every name public.
@@ -113,12 +117,17 @@ emptyConvertEnv kinds package =
       ceTyVars = Map.empty,
       ceKindEnv = Map.empty,
       ceClassTyCons = Set.empty,
+      ceSynonymTyCons = Set.empty,
       ceExportedNames = Nothing
     }
 
 withClassTyCons :: [TcTypeKey] -> ConvertEnv -> ConvertEnv
 withClassTyCons keys env =
   env {ceClassTyCons = Set.fromList keys <> ceClassTyCons env}
+
+withSynonymTyCons :: [TcTypeKey] -> ConvertEnv -> ConvertEnv
+withSynonymTyCons keys env =
+  env {ceSynonymTyCons = Set.fromList keys <> ceSynonymTyCons env}
 
 withExportedNames :: Maybe (Set (ResolutionNamespace, Text)) -> ConvertEnv -> ConvertEnv
 withExportedNames names env = env {ceExportedNames = names}
@@ -330,15 +339,17 @@ tyVarType :: TyVarId -> Type
 tyVarType tyVar = TyVar (tyVarName tyVar)
 
 tyConNameFc :: ConvertEnv -> TyCon -> Name
-tyConNameFc env tyCon =
-  if Set.member (tyConKey tyCon) (ceClassTyCons env)
-    then classDictTypeName tyCon
-    else
+tyConNameFc env tyCon
+  | Set.member (tyConKey tyCon) (ceClassTyCons env) = classDictTypeName tyCon
+  | otherwise =
       Name
         (tyConName tyCon)
-        (namespaceSort (tyConNamespace tyCon))
+        sort
         (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
   where
+    sort
+      | Set.member (tyConKey tyCon) (ceSynonymTyCons env) = SortSynonym
+      | otherwise = namespaceSort (tyConNamespace tyCon)
     namespaceSort ResolutionNamespaceTerm = SortDataConstructor
     namespaceSort ResolutionNamespaceType = SortTypeConstructor
     namespaceSort ResolutionNamespaceModule = SortTypeConstructor

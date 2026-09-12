@@ -21,32 +21,32 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tAddr# :: 3.tTYPE 3.vAddrRep;
-    2.tInt32# :: 3.tTYPE 3.vInt32Rep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vAddrRep :: 3.tRuntimeRep;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vInt32Rep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    2.tAddr# :: 3.tTYPE 3.cAddrRep;
+    2.tInt32# :: 3.tTYPE 3.cInt32Rep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cAddrRep :: 3.tRuntimeRep;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cInt32Rep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tInt32 :: 3.tType {
-      pub 1.vI32# :: FUN @3.vInt32Rep @3.tLiftedRep 2.tInt32# 1.tInt32
+  pub type 1.tInt32 :: 3.sType {
+      pub 1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
   }
 
-  pub type 1.tCInt :: 3.tType {}
+  pub type 1.tCInt :: 3.sType {}
 
   axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
 
-  pub val 1.vrun :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tCInt
+  pub val 1.vrun :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tCInt
    = λ(x : 2.tAddr#).
-    foreign {ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.vI32#] 1.vputs :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tCInt} x
+    foreign {ccall safe "puts" [Addr → Int32; pure] using [axiom 1.$ax$CInt, constructor 1.cI32#] 1.vputs :: FUN @3.cAddrRep @3.sLiftedRep 2.tAddr# 1.tCInt} x
 status: pass
 reason: an omitted safety mark means safe

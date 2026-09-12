@@ -17,21 +17,21 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tBool :: 2.tType {
-      pub 1.vTrue :: 1.tBool;
-      pub 1.vFalse :: 1.tBool
+  pub type 1.tBool :: 2.sType {
+      pub 1.cTrue :: 1.tBool;
+      pub 1.cFalse :: 1.tBool
   }
 
   pub val 1.vuseParam :: 1.tBool 2.→ 1.tBool
@@ -39,6 +39,6 @@ expected: |-
     $d0
 
   pub val 1.vcallUse :: 1.tBool
-   = 1.vuseParam 1.vTrue
+   = 1.vuseParam 1.cTrue
 status: pass
 reason: an implicit parameter is a plain value argument, and a let binding supplies it

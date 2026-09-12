@@ -10,25 +10,25 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tNat :: 2.tType {
-      pub 1.vZ :: 1.tNat;
-      pub 1.vS :: 1.tNat 2.→ 1.tNat
+  pub type 1.tNat :: 2.sType {
+      pub 1.cZ :: 1.tNat;
+      pub 1.cS :: 1.tNat 2.→ 1.tNat
   }
 
   pub val 1.vdouble :: 1.tNat 2.→ 1.tNat
    = λ(x : 1.tNat).
-    1.vS x
+    1.cS x
 status: pass
 reason: An SCC pragma on an expression desugars to the wrapped expression.

@@ -18,38 +18,38 @@ expected: |-
   scope 6 = "aihc-prim" GHC.Types
 
   import headers
-    4.t$Dict$Num :: ∀(a : 6.tType). 6.tType;
-    6.tInt :: 6.tType;
-    2.tInt# :: 6.tTYPE 6.vIntRep;
-    3.tInteger :: 6.tType;
-    6.tLevity :: 6.tType;
-    6.tLiftedRep :: 6.tRuntimeRep;
-    6.tRuntimeRep :: 6.tType;
-    6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.tType;
-    6.tType :: 6.tType;
-    5.tUnit :: 6.tType;
+    4.t$Dict$Num :: ∀(a : 6.sType). 6.sType;
+    6.tInt :: 6.sType;
+    2.tInt# :: 6.tTYPE 6.cIntRep;
+    3.tInteger :: 6.sType;
+    6.tLevity :: 6.sType;
+    6.sLiftedRep :: 6.tRuntimeRep;
+    6.tRuntimeRep :: 6.sType;
+    6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.sType;
+    6.sType :: 6.sType;
+    5.tUnit :: 6.sType;
     4.v$fNumInt :: 4.t$Dict$Num 6.tInt;
-    5.v() :: 5.tUnit;
-    6.vBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;
-    6.vI# :: FUN @6.vIntRep @6.tLiftedRep 2.tInt# 6.tInt;
-    3.vIS :: FUN @6.vIntRep @6.tLiftedRep 2.tInt# 3.tInteger;
-    6.vIntRep :: 6.tRuntimeRep;
-    6.vLifted :: 6.tLevity;
-    4.vfromInteger :: ∀(a : 6.tType). 4.t$Dict$Num a 6.→ 3.tInteger 6.→ a
+    5.c() :: 5.tUnit;
+    6.cBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep;
+    6.cI# :: FUN @6.cIntRep @6.sLiftedRep 2.tInt# 6.tInt;
+    3.cIS :: FUN @6.cIntRep @6.sLiftedRep 2.tInt# 3.tInteger;
+    6.cIntRep :: 6.tRuntimeRep;
+    6.cLifted :: 6.tLevity;
+    4.vfromInteger :: ∀(a : 6.sType). 4.t$Dict$Num a 6.→ 3.tInteger 6.→ a
 
   import synonyms
-    6.tLiftedRep = 6.vBoxedRep 6.vLifted;
-    6.tType = 6.tTYPE 6.tLiftedRep
+    6.sLiftedRep = 6.cBoxedRep 6.cLifted;
+    6.sType = 6.tTYPE 6.sLiftedRep
 
   pub val 1.vunit :: 5.tUnit
    = let {
       n# : 2.tInt# =
-          case 4.vfromInteger @6.tInt 4.v$fNumInt (3.vIS 10#6.vIntRep) as (_do_scrut : 6.tInt) return (2.tInt#) of {
-              6.vI# (n# : 2.tInt#) →
+          case 4.vfromInteger @6.tInt 4.v$fNumInt (3.cIS 10#6.cIntRep) as (_do_scrut : 6.tInt) return (2.tInt#) of {
+              6.cI# (n# : 2.tInt#) →
                   n#
           }
   } in
-      5.v()
+      5.c()
 
 status: pass
 reason: a local constructor pattern binding lowers its bound field

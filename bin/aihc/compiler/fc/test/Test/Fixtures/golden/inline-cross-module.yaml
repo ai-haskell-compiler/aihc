@@ -23,37 +23,37 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    3.tBool :: 3.tType;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vFalse :: 3.tBool;
-    3.vLifted :: 3.tLevity;
-    3.vTrue :: 3.tBool
+    3.tBool :: 3.sType;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cFalse :: 3.tBool;
+    3.cLifted :: 3.tLevity;
+    3.cTrue :: 3.tBool
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
   pub val 1.vpick :: 3.tBool 3.→ 3.tBool 3.→ 3.tBool
    = λ(x : 3.tBool).
     λ(y : 3.tBool).
       case x as (_scrut : 3.tBool) return (3.tBool) of {
-          3.vTrue →
+          3.cTrue →
               y;
-          3.vFalse →
+          3.cFalse →
               x
       }
 
   pub val 2.vuse :: 3.tBool 3.→ 3.tBool
    = λ(x : 3.tBool).
     case x as (_scrut : 3.tBool) return (3.tBool) of {
-        3.vTrue →
-            3.vTrue;
-        3.vFalse →
+        3.cTrue →
+            3.cTrue;
+        3.cFalse →
             x
     }
 status: pass

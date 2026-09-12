@@ -24,32 +24,32 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tTypeRep (k : 2.tType) (a : k) :: 2.tType {
-      pub 1.vTypeRep :: ∀(k : 2.tType) (a : k). 1.tTypeRep k a
+  pub type 1.tTypeRep (k : 2.sType) (a : k) :: 2.sType {
+      pub 1.cTypeRep :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a
   }
 
-  pub type 1.t$Dict$Typeable (k : 2.tType) (a : k) :: 2.tType {
-      pub 1.v$Dict$Typeable :: ∀(k : 2.tType) (a : k). 1.tTypeRep k a 2.→ 1.t$Dict$Typeable k a
+  pub type 1.t$Dict$Typeable (k : 2.sType) (a : k) :: 2.sType {
+      pub 1.c$Dict$Typeable :: ∀(k : 2.sType) (a : k). 1.tTypeRep k a 2.→ 1.t$Dict$Typeable k a
   }
 
-  pub val 1.vtypeRep :: ∀(k : 2.tType) (a : k). 1.t$Dict$Typeable k a 2.→ 1.tTypeRep k a
-   = Λ(k : 2.tType).
+  pub val 1.vtypeRep :: ∀(k : 2.sType) (a : k). 1.t$Dict$Typeable k a 2.→ 1.tTypeRep k a
+   = Λ(k : 2.sType).
     Λ(a : k).
       λ($d0 : 1.t$Dict$Typeable k a).
         case $d0 as ($dict : 1.t$Dict$Typeable k a) return (1.tTypeRep k a) of {
-            1.v$Dict$Typeable ($method0 : 1.tTypeRep k a) →
+            1.c$Dict$Typeable ($method0 : 1.tTypeRep k a) →
                 $method0
         }
   scope 1 = "" Test
@@ -57,41 +57,41 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.t$Dict$Typeable :: ∀(k : 3.tType) (a : k). 3.tType;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    2.tTypeRep :: ∀(k : 3.tType) (a : k). 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    2.t$Dict$Typeable :: ∀(k : 3.sType) (a : k). 3.sType;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tTypeRep :: ∀(k : 3.sType) (a : k). 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tUnit :: 3.tType {
-      pub 1.vUnit :: 1.tUnit
+  pub type 1.tUnit :: 3.sType {
+      pub 1.cUnit :: 1.tUnit
   }
 
-  pub type 1.t$Dict$Binary (a : 3.tType) :: 3.tType {
-      pub 1.v$Dict$Binary :: ∀(a : 3.tType). (a 3.→ 1.tUnit) 3.→ 1.t$Dict$Binary a
+  pub type 1.t$Dict$Binary (a : 3.sType) :: 3.sType {
+      pub 1.c$Dict$Binary :: ∀(a : 3.sType). (a 3.→ 1.tUnit) 3.→ 1.t$Dict$Binary a
   }
 
-  pub val 1.vput :: ∀(a : 3.tType). 1.t$Dict$Binary a 3.→ a 3.→ 1.tUnit
-   = Λ(a : 3.tType).
+  pub val 1.vput :: ∀(a : 3.sType). 1.t$Dict$Binary a 3.→ a 3.→ 1.tUnit
+   = Λ(a : 3.sType).
     λ($d0 : 1.t$Dict$Binary a).
       case $d0 as ($dict : 1.t$Dict$Binary a) return (a 3.→ 1.tUnit) of {
-          1.v$Dict$Binary ($method0 : a 3.→ 1.tUnit) →
+          1.c$Dict$Binary ($method0 : a 3.→ 1.tUnit) →
               $method0
       }
 
-  pub val 1.v$fBinaryTypeRepa :: ∀(k : 3.tType) (a : k). 2.t$Dict$Typeable k a 3.→ 1.t$Dict$Binary (2.tTypeRep k a)
-   = Λ(k : 3.tType).
+  pub val 1.v$fBinaryTypeRepa :: ∀(k : 3.sType) (a : k). 2.t$Dict$Typeable k a 3.→ 1.t$Dict$Binary (2.tTypeRep k a)
+   = Λ(k : 3.sType).
     Λ(a : k).
       λ($d0 : 2.t$Dict$Typeable k a).
-        1.v$Dict$Binary @(2.tTypeRep k a) (λ(x : 2.tTypeRep k a).
-          1.vUnit)
+        1.c$Dict$Binary @(2.tTypeRep k a) (λ(x : 2.tTypeRep k a).
+          1.cUnit)
 status: pass
 reason: an instance head that gives a parameter an implicit kind variable quantifies the kind variable before the parameter, so the dictionary type is well scoped.

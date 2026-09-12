@@ -2,24 +2,24 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: 2.tType;
-  2.tLiftedRep :: 2.tRuntimeRep;
-  2.tRuntimeRep :: 2.tType;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-  2.tType :: 2.tType;
-  2.t[] :: ∀(a : 2.tType). 2.tType;
-  2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.vLifted :: 2.tLevity;
-  2.vTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
-  2.v[] :: ∀(a : 2.tType). 2.t[] a
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.t[] :: ∀(a : 2.sType). 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
+  2.c[] :: ∀(a : 2.sType). 2.t[] a
 
 import synonyms
-  2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-  2.tType = 2.tTYPE 2.tLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-val 1.vbad :: ∀(a : 2.tType) (b : 2.tType). FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @2.tLiftedRep (a ~ b) (a 2.→ b)
- = Λ(a : 2.tType).
-  Λ(b : 2.tType).
+val 1.vbad :: ∀(a : 2.sType) (b : 2.sType). FUN @(2.cTupleRep (2.c[] 2.tRuntimeRep)) @2.sLiftedRep (a ~ b) (a 2.→ b)
+ = Λ(a : 2.sType).
+  Λ(b : 2.sType).
     λ(proof : a ~ b).
       λ(value : a).
         value

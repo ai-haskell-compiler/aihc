@@ -4,7 +4,7 @@ scope 2 = "aihc-prim" GHC.Types
 pub type 1.tBox :: 2.tTYPE 2.tUnliftedRep {}
 
 pub type 1.tFlag :: 2.tType {
-    pub 1.vOff :: 1.tFlag
+    pub 1.cOff :: 1.tFlag
 }
 
 pub val 1.vput :: FUN @2.tUnliftedRep @2.tLiftedRep 1.tBox (1.tFlag 2.→ 1.tBox)

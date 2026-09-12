@@ -13,28 +13,28 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    2.tTuple2 :: ∀(a1 : 3.tType) (a2 : 3.tType). 3.tType;
-    3.tType :: 3.tType;
-    2.tUnit :: 3.tType;
-    2.v() :: 2.tUnit;
-    2.v(,) :: ∀(a1 : 3.tType) (a2 : 3.tType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    2.tTuple2 :: ∀(a1 : 3.sType) (a2 : 3.sType). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    2.c() :: 2.tUnit;
+    2.c(,) :: ∀(a1 : 3.sType) (a2 : 3.sType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tBool :: 3.tType {
-      pub 1.vTrue :: 1.tBool;
-      pub 1.vFalse :: 1.tBool
+  pub type 1.tBool :: 3.sType {
+      pub 1.cTrue :: 1.tBool;
+      pub 1.cFalse :: 1.tBool
   }
 
   pub val 1.vpair :: 2.tTuple2 1.tBool 2.tUnit
-   = 2.v(,) @1.tBool @2.tUnit 1.vTrue 2.v()
+   = 2.c(,) @1.tBool @2.tUnit 1.cTrue 2.c()
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

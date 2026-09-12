@@ -111,13 +111,7 @@ importedAxiom = do
   pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
 
 importedHeaderName :: Parser Name
-importedHeaderName =
-  MP.choice
-    [ MP.try (topName SortTypeConstructor),
-      MP.try (topName SortDataConstructor),
-      MP.try (topName SortSynonym),
-      topName SortValue
-    ]
+importedHeaderName = topNameWithSort
 
 declaration :: Parser Decl
 declaration =
@@ -477,30 +471,24 @@ scopeReference = do
     Just scope -> pure scope
     Nothing -> fail ("unknown scope " <> show scopeId)
 
+-- | A printed top name. The letter before the name says its sort; see
+-- 'Aihc.Fc.Pretty.prettyPrintedName'. An axiom name has no letter, and a
+-- name with neither takes the sort of its position.
 printedName :: Sort -> Parser (Text, Sort)
-printedName defaultSort =
-  MP.choice
-    [ do
-        prefix <- MP.optional (MP.satisfy (\character -> character == 't' || character == 'v'))
-        -- The class prefix sets a top name apart from a keyword, so a
-        -- reserved word is a name after it.
-        raw <- rawNameWith (isJust prefix)
-        let printedClass =
-              case prefix of
-                Just 't' -> Just NameClassType
-                Just 'v' -> Just NameClassValue
-                _ | "$ax$" `T.isPrefixOf` raw -> Just NameClassAxiom
-                _ -> Nothing
-            sort =
-              case printedClass of
-                Just class'
-                  | class' == nameClass defaultSort -> defaultSort
-                  | class' == NameClassType -> SortTypeConstructor
-                  | class' == NameClassValue -> SortValue
-                  | class' == NameClassAxiom -> SortAxiom
-                _ -> defaultSort
-        pure (raw, sort)
-    ]
+printedName defaultSort = do
+  prefix <- MP.optional (MP.satisfy (`elem` ("tsvc" :: String)))
+  -- The sort prefix sets a top name apart from a keyword, so a reserved
+  -- word is a name after it.
+  raw <- rawNameWith (isJust prefix)
+  let sort =
+        case prefix of
+          Just 't' -> SortTypeConstructor
+          Just 's' -> SortSynonym
+          Just 'v' -> SortValue
+          Just 'c' -> SortDataConstructor
+          _ | "$ax$" `T.isPrefixOf` raw -> SortAxiom
+          _ -> defaultSort
+  pure (raw, sort)
 
 rawName :: Parser Text
 rawName = rawNameWith False

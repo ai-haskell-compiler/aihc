@@ -12,27 +12,27 @@ expected: |-
   scope 5 = "aihc-prim" GHC.Types
 
   import headers
-    4.t$Dict$Num :: ∀(a : 5.tType). 5.tType;
-    2.tInt# :: 5.tTYPE 5.vIntRep;
-    3.tInteger :: 5.tType;
-    5.tLevity :: 5.tType;
-    5.tLiftedRep :: 5.tRuntimeRep;
-    5.tRuntimeRep :: 5.tType;
-    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.tType;
-    5.tType :: 5.tType;
-    5.vBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
-    3.vIS :: FUN @5.vIntRep @5.tLiftedRep 2.tInt# 3.tInteger;
-    5.vIntRep :: 5.tRuntimeRep;
-    5.vLifted :: 5.tLevity;
-    4.vfromInteger :: ∀(a : 5.tType). 4.t$Dict$Num a 5.→ 3.tInteger 5.→ a
+    4.t$Dict$Num :: ∀(a : 5.sType). 5.sType;
+    2.tInt# :: 5.tTYPE 5.cIntRep;
+    3.tInteger :: 5.sType;
+    5.tLevity :: 5.sType;
+    5.sLiftedRep :: 5.tRuntimeRep;
+    5.tRuntimeRep :: 5.sType;
+    5.tTYPE :: ∀(rep : 5.tRuntimeRep). 5.sType;
+    5.sType :: 5.sType;
+    5.cBoxedRep :: 5.tLevity 5.→ 5.tRuntimeRep;
+    3.cIS :: FUN @5.cIntRep @5.sLiftedRep 2.tInt# 3.tInteger;
+    5.cIntRep :: 5.tRuntimeRep;
+    5.cLifted :: 5.tLevity;
+    4.vfromInteger :: ∀(a : 5.sType). 4.t$Dict$Num a 5.→ 3.tInteger 5.→ a
 
   import synonyms
-    5.tLiftedRep = 5.vBoxedRep 5.vLifted;
-    5.tType = 5.tTYPE 5.tLiftedRep
+    5.sLiftedRep = 5.cBoxedRep 5.cLifted;
+    5.sType = 5.tTYPE 5.sLiftedRep
 
-  pub val 1.vone :: ∀(a : 5.tType). 4.t$Dict$Num a 5.→ a
-   = Λ(a : 5.tType).
+  pub val 1.vone :: ∀(a : 5.sType). 4.t$Dict$Num a 5.→ a
+   = Λ(a : 5.sType).
     λ($d0 : 4.t$Dict$Num a).
-      4.vfromInteger @a $d0 (3.vIS 1#5.vIntRep)
+      4.vfromInteger @a $d0 (3.cIS 1#5.cIntRep)
 status: pass
 reason: desugars default integer literals through GHC.Prim.Num.fromInteger

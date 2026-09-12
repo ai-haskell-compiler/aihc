@@ -128,16 +128,16 @@ GRIN lowering is temporarily disabled.
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
-pub type 1.tBool :: 2.tType {
-    pub 1.vFalse :: 1.tBool
-    pub 1.vTrue :: 1.tBool
+pub type 1.tBool :: 2.sType {
+    pub 1.cFalse :: 1.tBool
+    pub 1.cTrue :: 1.tBool
 }
 
 pub val 1.vnot :: 1.tBool → 1.tBool
  = λ(x : 1.tBool).
      case x as (w{1} : 1.tBool) return (1.tBool) of {
-       1.vTrue → 1.vFalse;
-       1.vFalse → 1.vTrue
+       1.cTrue → 1.cFalse;
+       1.cFalse → 1.cTrue
      }
 ```
 
@@ -159,8 +159,8 @@ Use `foreign {convention deps name :: type} @t... e...` for a foreign call.
 | Sort | Prefix | Example print | Real name |
 | --- | --- | --- | --- |
 | Type constructor | `t` | `1.tBool` | `Bool` |
-| Synonym | `t` | `2.tType` | `Type` |
-| Data constructor | `v` | `1.vFalse` | `False` |
+| Synonym | `s` | `2.sType` | `Type` |
+| Data constructor | `c` | `1.cFalse` | `False` |
 | Value | `v` | `1.vnot` | `not` |
 | Type variable | none | `a`, `x{12}` | `a`, `x` |
 | Axiom | none | `1.$ax$Age` | `$ax$Age` |

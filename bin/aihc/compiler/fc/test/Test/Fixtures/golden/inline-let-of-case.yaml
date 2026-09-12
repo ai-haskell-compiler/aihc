@@ -23,33 +23,33 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    3.tInt :: 3.tType;
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
   pub val 1.vpick :: 3.tInt 3.→ 3.tInt
    = λ(x : 3.tInt).
     case x as (_scrut : 3.tInt) return (3.tInt) of {
-        3.vI# (n : 2.tInt#) →
+        3.cI# (n : 2.tInt#) →
             let {
                 _case : 2.tInt# =
-                    foreign {prim 2.v==# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# (FUN @3.vIntRep @3.vIntRep 2.tInt# 2.tInt#)} n 0#3.vIntRep
+                    foreign {prim 2.v==# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} n 0#3.cIntRep
             } in
                 case _case as (_scrut{1} : 2.tInt#) return (3.tInt) of {
-                    1#3.vIntRep →
-                        3.vI# 1#3.vIntRep;
+                    1#3.cIntRep →
+                        3.cI# 1#3.cIntRep;
                     _ →
                         x
                 }

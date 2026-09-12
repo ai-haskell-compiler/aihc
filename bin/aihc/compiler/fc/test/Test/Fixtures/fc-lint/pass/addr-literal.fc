@@ -2,22 +2,22 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 import headers
-  2.tLevity :: 2.tType;
-  2.tLiftedRep :: 2.tRuntimeRep;
-  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-  2.tType :: 2.tType;
-  2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-  2.vLifted :: 2.tLevity
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity
 
 import synonyms
-  2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-  2.tType = 2.tTYPE 2.tLiftedRep
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
 
-pub type 2.tRuntimeRep :: 2.tType {
-    pub 2.vAddrRep :: 2.tRuntimeRep
+pub type 2.tRuntimeRep :: 2.sType {
+    pub 2.cAddrRep :: 2.tRuntimeRep
 }
 
-pub type 1.tAddr# :: 2.tTYPE 2.vAddrRep {}
+pub type 1.tAddr# :: 2.tTYPE 2.cAddrRep {}
 
 val 1.vtable :: 1.tAddr#
- = "\x00\x1fA"#2.vAddrRep
+ = "\x00\x1fA"#2.cAddrRep

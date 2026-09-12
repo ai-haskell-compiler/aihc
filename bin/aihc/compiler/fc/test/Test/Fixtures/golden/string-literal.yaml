@@ -28,42 +28,42 @@ expected: |-
   scope 4 = "aihc-prim" GHC.Types
 
   import headers
-    3.tAddr# :: 4.tTYPE 4.vAddrRep;
-    4.tChar :: 4.tType;
-    3.tChar# :: 4.tTYPE 4.vWordRep;
-    4.tLevity :: 4.tType;
-    4.tLiftedRep :: 4.tRuntimeRep;
-    4.tRuntimeRep :: 4.tType;
-    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
-    4.tType :: 4.tType;
-    4.t[] :: ∀(a : 4.tType). 4.tType;
-    4.v: :: ∀(a : 4.tType). a 4.→ 4.t[] a 4.→ 4.t[] a;
-    4.vAddrRep :: 4.tRuntimeRep;
-    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
-    4.vC# :: FUN @4.vWordRep @4.tLiftedRep 3.tChar# 4.tChar;
-    4.vLifted :: 4.tLevity;
-    4.vWordRep :: 4.tRuntimeRep;
-    4.v[] :: ∀(a : 4.tType). 4.t[] a;
-    2.vunpackCString# :: FUN @4.vAddrRep @4.tLiftedRep 3.tAddr# (4.t[] 4.tChar);
-    2.vunpackCStringUtf8# :: FUN @4.vAddrRep @4.tLiftedRep 3.tAddr# (4.t[] 4.tChar)
+    3.tAddr# :: 4.tTYPE 4.cAddrRep;
+    4.tChar :: 4.sType;
+    3.tChar# :: 4.tTYPE 4.cWordRep;
+    4.tLevity :: 4.sType;
+    4.sLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.sType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.sType;
+    4.sType :: 4.sType;
+    4.t[] :: ∀(a : 4.sType). 4.sType;
+    4.c: :: ∀(a : 4.sType). a 4.→ 4.t[] a 4.→ 4.t[] a;
+    4.cAddrRep :: 4.tRuntimeRep;
+    4.cBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.cC# :: FUN @4.cWordRep @4.sLiftedRep 3.tChar# 4.tChar;
+    4.cLifted :: 4.tLevity;
+    4.cWordRep :: 4.tRuntimeRep;
+    4.c[] :: ∀(a : 4.sType). 4.t[] a;
+    2.vunpackCString# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar);
+    2.vunpackCStringUtf8# :: FUN @4.cAddrRep @4.sLiftedRep 3.tAddr# (4.t[] 4.tChar)
 
   import synonyms
-    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
-    4.tType = 4.tTYPE 4.tLiftedRep
+    4.sLiftedRep = 4.cBoxedRep 4.cLifted;
+    4.sType = 4.tTYPE 4.sLiftedRep
 
   pub val 1.vtext :: 4.t[] 4.tChar
-   = 2.vunpackCString# "ab"#4.vAddrRep
+   = 2.vunpackCString# "ab"#4.cAddrRep
 
   pub val 1.vempty :: 4.t[] 4.tChar
-   = 4.v[] @4.tChar
+   = 4.c[] @4.tChar
 
   pub val 1.vsingle :: 4.t[] 4.tChar
-   = 4.v: @4.tChar (4.vC# 'x'#4.vWordRep) (4.v[] @4.tChar)
+   = 4.c: @4.tChar (4.cC# 'x'#4.cWordRep) (4.c[] @4.tChar)
 
   pub val 1.vnul :: 4.t[] 4.tChar
-   = 2.vunpackCStringUtf8# "a\xc0\x80b"#4.vAddrRep
+   = 2.vunpackCStringUtf8# "a\xc0\x80b"#4.cAddrRep
 
   pub val 1.vunicode :: 4.t[] 4.tChar
-   = 2.vunpackCStringUtf8# "\xce\xbb\xe2\x86\x92"#4.vAddrRep
+   = 2.vunpackCStringUtf8# "\xce\xbb\xe2\x86\x92"#4.cAddrRep
 status: pass
 reason: A string literal of at most one character is a spelled-out list; a longer one unpacks an Addr# literal, stored as Latin-1 when every character is between 1 and 127 and as modified UTF-8 with NUL encoded as C0 80 otherwise.

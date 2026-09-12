@@ -15,34 +15,34 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tType :: 3.tType;
-    2.tUnit :: 3.tType;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tBool :: 3.tType {
-      pub 1.vTrue :: 1.tBool;
-      pub 1.vFalse :: 1.tBool
+  pub type 1.tBool :: 3.sType {
+      pub 1.cTrue :: 1.tBool;
+      pub 1.cFalse :: 1.tBool
   }
 
-  pub type 1.tProxy (k : 3.tType) (a : k) :: 3.tType {
-      pub 1.vProxy :: ∀(k : 3.tType) (a : k). 1.tProxy k a
+  pub type 1.tProxy (k : 3.sType) (a : k) :: 3.sType {
+      pub 1.cProxy :: ∀(k : 3.sType) (a : k). 1.tProxy k a
   }
 
-  pub val 1.vignore :: ∀(k : 3.tType) (a : k). 1.tBool
-   = Λ(k : 3.tType).
+  pub val 1.vignore :: ∀(k : 3.sType) (a : k). 1.tBool
+   = Λ(k : 3.sType).
     Λ(a : k).
-      1.vTrue
+      1.cTrue
 
   pub val 1.vresult :: 1.tBool
-   = 1.vignore @(3.tTYPE (3.vBoxedRep 3.vLifted)) @2.tUnit
+   = 1.vignore @(3.tTYPE (3.cBoxedRep 3.cLifted)) @2.tUnit
 status: pass
 reason: Annotation defaulting resolves an argument kind before its type.

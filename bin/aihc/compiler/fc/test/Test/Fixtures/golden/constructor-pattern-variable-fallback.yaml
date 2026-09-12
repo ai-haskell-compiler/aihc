@@ -10,28 +10,28 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tValue :: 2.tType {
-      pub 1.vNegative :: 1.tValue;
-      pub 1.vPositive :: 1.tValue
+  pub type 1.tValue :: 2.sType {
+      pub 1.cNegative :: 1.tValue;
+      pub 1.cPositive :: 1.tValue
   }
 
   pub val 1.vabsolute :: 1.tValue 2.→ 1.tValue
    = λ(x : 1.tValue).
     case x as (_scrut : 1.tValue) return (1.tValue) of {
-        1.vNegative →
-            1.vPositive;
+        1.cNegative →
+            1.cPositive;
         _ →
             _scrut
     }

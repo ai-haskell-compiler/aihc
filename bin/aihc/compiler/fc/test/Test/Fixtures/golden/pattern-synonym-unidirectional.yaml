@@ -12,38 +12,38 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tL (a : 2.tType) :: 2.tType {
-      pub 1.vN :: ∀(a : 2.tType). 1.tL a;
-      pub 1.vC :: ∀(a : 2.tType). a 2.→ 1.tL a 2.→ 1.tL a
+  pub type 1.tL (a : 2.sType) :: 2.sType {
+      pub 1.cN :: ∀(a : 2.sType). 1.tL a;
+      pub 1.cC :: ∀(a : 2.sType). a 2.→ 1.tL a 2.→ 1.tL a
   }
 
-  pub val 1.v$mHead :: ∀(a : 2.tType) (r : 2.tType). 1.tL a 2.→ (a 2.→ r) 2.→ r 2.→ r
-   = Λ(a : 2.tType).
-    Λ(r : 2.tType).
+  pub val 1.v$mHead :: ∀(a : 2.sType) (r : 2.sType). 1.tL a 2.→ (a 2.→ r) 2.→ r 2.→ r
+   = Λ(a : 2.sType).
+    Λ(r : 2.sType).
       λ(x : 1.tL a).
         λ(y : a 2.→ r).
           λ(z : r).
             case x as (_scrut : 1.tL a) return (r) of {
-                1.vC (x{1} : a) (_pat : 1.tL a) →
+                1.cC (x{1} : a) (_pat : 1.tL a) →
                     y x{1};
                 _ →
                     z
             }
 
-  pub val 1.vfirst :: ∀(a : 2.tType). 1.tL a 2.→ a
-   = Λ(a : 2.tType).
+  pub val 1.vfirst :: ∀(a : 2.sType). 1.tL a 2.→ a
+   = Λ(a : 2.sType).
     λ(x : 1.tL a).
       1.v$mHead @a @a x (λ(x{1} : a).
         x{1}) (case x as (_case_nomatch : 1.tL a) return (a) of {

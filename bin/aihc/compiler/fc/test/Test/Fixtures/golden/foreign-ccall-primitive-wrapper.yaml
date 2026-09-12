@@ -23,41 +23,41 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tInt32# :: 3.tTYPE 3.vInt32Rep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    2.tRealWorld :: 3.tType;
-    3.tRuntimeRep :: 3.tType;
-    2.tState# :: ∀(s : 3.tType). 3.tTYPE (3.vTupleRep (3.v[] 3.tRuntimeRep));
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v: 3.tRuntimeRep r2 (3.v[] 3.tRuntimeRep))));
-    3.tType :: 3.tType;
-    3.t[] :: ∀(a : 3.tType). 3.tType;
-    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vInt32Rep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity;
-    3.vTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.v[] :: ∀(a : 3.tType). 3.t[] a
+    2.tInt32# :: 3.tTYPE 3.cInt32Rep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    2.tRealWorld :: 3.sType;
+    3.tRuntimeRep :: 3.sType;
+    2.tState# :: ∀(s : 3.sType). 3.tTYPE (3.cTupleRep (3.c[] 3.tRuntimeRep));
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep))));
+    3.sType :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cInt32Rep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tInt32 :: 3.tType {
-      pub 1.vI32# :: FUN @3.vInt32Rep @3.tLiftedRep 2.tInt32# 1.tInt32
+  pub type 1.tInt32 :: 3.sType {
+      pub 1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
   }
 
-  pub type 1.tCInt :: 3.tType {}
+  pub type 1.tCInt :: 3.sType {}
 
   axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
 
-  pub type 1.tIO (a : 3.tType) :: 3.tType {}
+  pub type 1.tIO (a : 3.sType) :: 3.sType {}
 
-  axiom 1.$ax$IO (a : 3.tType) : 1.tIO a ~R FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tLiftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tLiftedRep (2.tState# 2.tRealWorld) a)
+  axiom 1.$ax$IO (a : 3.sType) : 1.tIO a ~R FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @(3.cTupleRep (3.c: 3.tRuntimeRep (3.cTupleRep (3.c[] 3.tRuntimeRep)) (3.c: 3.tRuntimeRep 3.sLiftedRep (3.c[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.cTupleRep (3.c[] 3.tRuntimeRep)) 3.sLiftedRep (2.tState# 2.tRealWorld) a)
 
   pub val 1.vrun :: 1.tCInt 3.→ 1.tIO 1.tCInt
    = λ(x : 1.tCInt).
-    foreign {ccall unsafe "putchar" [Int32 → Int32; real-world] using [axiom 1.$ax$CInt, axiom 1.$ax$IO, constructor 1.vI32#] 1.vputchar :: 1.tCInt 3.→ 1.tIO 1.tCInt} x
+    foreign {ccall unsafe "putchar" [Int32 → Int32; real-world] using [axiom 1.$ax$CInt, axiom 1.$ax$IO, constructor 1.cI32#] 1.vputchar :: 1.tCInt 3.→ 1.tIO 1.tCInt} x
 status: pass
 reason: The real primitive modules provide Int32Rep and Tuple2# for lint.

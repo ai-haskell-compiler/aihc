@@ -15,6 +15,7 @@ import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr, isAscii, isPrint, ord)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -65,15 +66,24 @@ prettyImports scopes imports =
     <> prettyImportGroup "value-binders" valueBinderEntries
   where
     headerEntries =
-      map (\(name, ty) -> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (Map.toAscList (importHeaders imports))
+      map (\(name, ty) -> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
     synonymEntries =
-      map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith scopes PrecForAll ty) (Map.toAscList (importSynonyms imports))
+      map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importSynonyms imports))
     axiomEntries =
-      map (\(name, axiom) -> prettyTopName scopes name <> prettyForAllBinders scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith scopes PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith scopes PrecEq (axiomRight axiom)) (Map.toAscList (importAxioms imports))
+      map (\(name, axiom) -> prettyTopName scopes name <> prettyForAllBinders scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith scopes PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith scopes PrecEq (axiomRight axiom)) (importEntries (importAxioms imports))
     typeBinderEntries = map prettyBinderEntry (filter ((== SortTypeVariable) . nameSort . fst) binderEntries)
     valueBinderEntries = map prettyBinderEntry (filter ((/= SortTypeVariable) . nameSort . fst) binderEntries)
-    binderEntries = Map.toAscList (importBinders imports)
+    binderEntries = importEntries (importBinders imports)
     prettyBinderEntry (name, ty) = prettyName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty
+
+-- | The entries of an import group, with the type names before the value
+-- names and each class in text order. The order is a presentation choice:
+-- a map orders its keys by every field of the name, which would interleave
+-- the classes.
+importEntries :: Map.Map Name entry -> [(Name, entry)]
+importEntries = List.sortOn (importEntryKey . fst) . Map.toAscList
+  where
+    importEntryKey name = (nameClass (nameSort name), nameText name, nameOrigin name)
 
 prettyImportGroup :: Doc ann -> [Doc ann] -> [Doc ann]
 prettyImportGroup _ [] = []
@@ -506,13 +516,19 @@ prettyScopePrefix scopes package moduleName =
 lookupScopeId :: ScopeIndex -> PackageId -> Text -> Maybe Int
 lookupScopeId index package moduleName = Map.lookup (package, moduleName) index
 
+-- | A top name prints behind a letter that says its sort, so the parser
+-- reads back the same name: @t@ for a type constructor, @s@ for a synonym,
+-- @v@ for a value, and @c@ for a data constructor. An axiom name starts
+-- with @$ax$@ and a type variable is local, so neither needs a letter.
 prettyPrintedName :: Name -> Doc ann
 prettyPrintedName name =
-  case nameClass (nameSort name) of
-    NameClassType -> "t" <> prettyRawPrinted (nameText name)
-    NameClassValue -> "v" <> prettyRawPrinted (nameText name)
-    NameClassAxiom -> pretty (nameText name)
-    NameClassTypeVar -> pretty (nameText name)
+  case nameSort name of
+    SortTypeConstructor -> "t" <> prettyRawPrinted (nameText name)
+    SortSynonym -> "s" <> prettyRawPrinted (nameText name)
+    SortValue -> "v" <> prettyRawPrinted (nameText name)
+    SortDataConstructor -> "c" <> prettyRawPrinted (nameText name)
+    SortAxiom -> pretty (nameText name)
+    SortTypeVariable -> pretty (nameText name)
 
 prettyRawPrinted :: Text -> Doc ann
 prettyRawPrinted = pretty

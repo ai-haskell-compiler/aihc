@@ -55,28 +55,15 @@ data Origin
   | OriginTop PackageId Text
   deriving (Eq, Ord, Show, Read)
 
--- | A name. Equality uses origin, text, and name class.
+-- | A name. Equality is structural: two names are equal only when their
+-- text, sort, and origin all agree, so a type constructor never equals a
+-- synonym and a value never equals a data constructor of the same name.
 data Name = Name
   { nameText :: Text,
     nameSort :: Sort,
     nameOrigin :: Origin
   }
-  deriving (Show, Read)
-
-instance Eq Name where
-  left == right = nameEquals left right
-
-instance Ord Name where
-  compare left right =
-    compare
-      (nameClass (nameSort left), nameText left, nameOrigin left)
-      (nameClass (nameSort right), nameText right, nameOrigin right)
-
-nameEquals :: Name -> Name -> Bool
-nameEquals left right =
-  nameClass (nameSort left) == nameClass (nameSort right)
-    && nameText left == nameText right
-    && nameOrigin left == nameOrigin right
+  deriving (Eq, Ord, Show, Read)
 
 newtype ScopeTable = ScopeTable (Map Int (PackageId, Text))
   deriving (Eq, Ord, Show, Read)

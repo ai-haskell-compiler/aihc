@@ -24,54 +24,54 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.tType;
-    2.tLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.tType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
-    2.tType :: 2.tType;
-    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.vLifted :: 2.tLevity
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
 
   import synonyms
-    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
-    2.tType = 2.tTYPE 2.tLiftedRep
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
 
-  pub type 1.tBool :: 2.tType {
-      pub 1.vTrue :: 1.tBool;
-      pub 1.vFalse :: 1.tBool
+  pub type 1.tBool :: 2.sType {
+      pub 1.cTrue :: 1.tBool;
+      pub 1.cFalse :: 1.tBool
   }
 
-  pub type 1.tShape :: 2.tType {
-      pub 1.vCircle :: 1.tBool 2.→ 1.tShape;
-      pub 1.vSquare :: 1.tBool 2.→ 1.tShape
+  pub type 1.tShape :: 2.sType {
+      pub 1.cCircle :: 1.tBool 2.→ 1.tShape;
+      pub 1.cSquare :: 1.tBool 2.→ 1.tShape
   }
 
-  pub type 1.tLabel :: 2.tType {
-      pub 1.vA :: 1.tLabel;
-      pub 1.vB :: 1.tLabel;
-      pub 1.vC :: 1.tLabel;
-      pub 1.vD :: 1.tLabel
+  pub type 1.tLabel :: 2.sType {
+      pub 1.cA :: 1.tLabel;
+      pub 1.cB :: 1.tLabel;
+      pub 1.cC :: 1.tLabel;
+      pub 1.cD :: 1.tLabel
   }
 
-  pub type 1.tFour :: 2.tType {
-      pub 1.vFour :: 1.tLabel 2.→ 1.tLabel 2.→ 1.tLabel 2.→ 1.tLabel 2.→ 1.tFour
+  pub type 1.tFour :: 2.sType {
+      pub 1.cFour :: 1.tLabel 2.→ 1.tLabel 2.→ 1.tLabel 2.→ 1.tLabel 2.→ 1.tFour
   }
 
   pub val 1.visRound :: 1.tShape 2.→ 1.tBool
    = λ(x : 1.tShape).
     case x as (_scrut : 1.tShape) return (1.tBool) of {
-        1.vCircle (_pat : 1.tBool) →
-            1.vTrue;
+        1.cCircle (_pat : 1.tBool) →
+            1.cTrue;
         _ →
-            1.vFalse
+            1.cFalse
     }
 
   pub val 1.vflag :: 1.tShape 2.→ 1.tBool
    = λ(x : 1.tShape).
     case x as (_scrut : 1.tShape) return (1.tBool) of {
-        1.vCircle (b : 1.tBool) →
+        1.cCircle (b : 1.tBool) →
             b;
-        1.vSquare (b : 1.tBool) →
+        1.cSquare (b : 1.tBool) →
             b
     }
 
@@ -80,22 +80,22 @@ expected: |-
     let {
         _fail : 1.tLabel =
             case 1.visRound x as (_scrut : 1.tBool) return (1.tLabel) of {
-                1.vTrue →
-                    1.vB;
+                1.cTrue →
+                    1.cB;
                 _ →
                     case 1.vflag x as (_scrut{1} : 1.tBool) return (1.tLabel) of {
-                        1.vTrue →
-                            1.vC;
+                        1.cTrue →
+                            1.cC;
                         _ →
-                            1.vD
+                            1.cD
                     }
             }
     } in
         case x as (_scrut : 1.tShape) return (1.tLabel) of {
-            1.vCircle (_pat : 1.tBool) →
+            1.cCircle (_pat : 1.tBool) →
                 case _pat as (_scrut{1} : 1.tBool) return (1.tLabel) of {
-                    1.vTrue →
-                        1.vA;
+                    1.cTrue →
+                        1.cA;
                     _ →
                         _fail
                 };
@@ -106,10 +106,10 @@ expected: |-
   pub val 1.vguarded :: 1.tShape 2.→ 1.tLabel
    = λ(x : 1.tShape).
     case 1.vflag x as (_do_scrut : 1.tBool) return (1.tLabel) of {
-        1.vTrue →
-            1.vA;
+        1.cTrue →
+            1.cA;
         _ →
-            1.vB
+            1.cB
     }
 status: pass
 reason: View pattern rows between constructor rows share one failure binding.

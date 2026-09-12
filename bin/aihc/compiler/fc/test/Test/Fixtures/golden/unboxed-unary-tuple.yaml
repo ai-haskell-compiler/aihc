@@ -14,27 +14,27 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tInt# :: 3.tTYPE 3.vIntRep;
-    3.tLevity :: 3.tType;
-    3.tLiftedRep :: 3.tRuntimeRep;
-    3.tRuntimeRep :: 3.tType;
-    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
-    3.tTuple1# :: ∀(r1 : 3.tRuntimeRep) (a1 : 3.tTYPE r1). 3.tTYPE (3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v[] 3.tRuntimeRep)));
-    3.tType :: 3.tType;
-    3.t[] :: ∀(a : 3.tType). 3.tType;
-    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
-    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
-    3.vIntRep :: 3.tRuntimeRep;
-    3.vLifted :: 3.tLevity;
-    3.vTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
-    3.v[] :: ∀(a : 3.tType). 3.t[] a
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.tTuple1# :: ∀(r1 : 3.tRuntimeRep) (a1 : 3.tTYPE r1). 3.tTYPE (3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c[] 3.tRuntimeRep)));
+    3.sType :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    3.c: :: ∀(a : 3.sType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
 
   import synonyms
-    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
-    3.tType = 3.tTYPE 3.tLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub val 1.vunary :: FUN @(3.vTupleRep (3.v: 3.tRuntimeRep 3.vIntRep (3.v[] 3.tRuntimeRep))) @(3.vTupleRep (3.v: 3.tRuntimeRep 3.vIntRep (3.v[] 3.tRuntimeRep))) (3.tTuple1# 3.vIntRep 2.tInt#) (3.tTuple1# 3.vIntRep 2.tInt#)
-   = λ(x : 3.tTuple1# 3.vIntRep 2.tInt#).
+  pub val 1.vunary :: FUN @(3.cTupleRep (3.c: 3.tRuntimeRep 3.cIntRep (3.c[] 3.tRuntimeRep))) @(3.cTupleRep (3.c: 3.tRuntimeRep 3.cIntRep (3.c[] 3.tRuntimeRep))) (3.tTuple1# 3.cIntRep 2.tInt#) (3.tTuple1# 3.cIntRep 2.tInt#)
+   = λ(x : 3.tTuple1# 3.cIntRep 2.tInt#).
     x
 status: pass
 reason: The one-element unboxed tuple travels through FC as GHC.Types.Tuple1#, taking its element's runtime representation as its first argument, exactly as the wider tuples do.
