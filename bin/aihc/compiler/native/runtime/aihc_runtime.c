@@ -455,19 +455,13 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
 }
 
 /* Place one object in heap the caller has already reserved. Compiled code
-   inlines the same three steps - load the heap pointer, bump it, write the
-   header - so this serves the runtime's own allocations. */
+   inlines the same two steps - bump the heap pointer, write the header - and
+   the slow apply path below is the only caller left in the runtime. */
 static AihcValue *aihc_place_node(AihcMachine *machine, const AihcInfo *info,
                                   uint64_t words) {
   AihcValue *value = aihc_gc_allocate(machine, words);
   value->header = aihc_make_header(info);
   return value;
-}
-
-AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info) {
-  uint64_t words = aihc_object_words(info);
-  aihc_ensure_heap(machine, words, 0, NULL);
-  return aihc_place_node(machine, info, words);
 }
 
 /* One stage of a constructor that is not saturated yet. Its width is not in
@@ -478,12 +472,6 @@ static AihcValue *aihc_place_partial(AihcMachine *machine, const AihcInfo *info,
   AihcValue *value = aihc_place_node(machine, info, 2 + applied);
   value->fields[0] = applied;
   return value;
-}
-
-AihcValue *aihc_make_partial(AihcMachine *machine, const AihcInfo *info,
-                             uint64_t applied) {
-  aihc_ensure_heap(machine, 2 + applied, 0, NULL);
-  return aihc_place_partial(machine, info, applied);
 }
 
 uint64_t aihc_allocation_count(const AihcMachine *machine) {

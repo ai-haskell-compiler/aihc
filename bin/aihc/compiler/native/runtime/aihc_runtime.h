@@ -247,11 +247,9 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
    heap objects whose info tables carry their tables. */
 extern const AihcSrt *aihc_current_srt;
 
-/* Compiled code reserves heap with aihc_ensure_heap and then bumps the heap
-   pointer itself, so these allocate only for the runtime's own objects. */
-AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info);
-AihcValue *aihc_make_partial(AihcMachine *machine, const AihcInfo *info,
-                             uint64_t applied);
+/* Reserve heap for the objects that follow. Compiled code then takes each
+   object by bumping the heap pointer itself, so the runtime exports no
+   allocator. */
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);

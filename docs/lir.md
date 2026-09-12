@@ -516,6 +516,9 @@ The lowering keeps the control model of CPS-GRIN:
   it with the constructor tables. A case on a scalar is a `switch`.
 - A heap reservation stores the live roots in a `stack.alloc` array, calls
   `aihc_ensure_heap`, and reloads the relocated roots.
+- A store takes its object from that reservation itself: it loads the heap
+  pointer of the machine, advances it by the words of the object, and writes
+  the header and the fields. The runtime exports no allocator.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
   `[i64]`. The compiler emits local helpers for all other argument shapes.
