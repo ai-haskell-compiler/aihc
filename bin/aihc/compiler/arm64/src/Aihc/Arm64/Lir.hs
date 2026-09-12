@@ -65,9 +65,8 @@ compileLirObject = compileLirObjectWith True
 
 -- | Assemble the module, linting it first when asked to.
 compileLirObjectWith :: Bool -> Module -> Either Arm64LirError BL.ByteString
-compileLirObjectWith lint lirModule = do
-  statements <- compileNativeStatementsWith lint arm64Backend lirModule
-  either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
+compileLirObjectWith lint lirModule =
+  either (either Left (Left . Arm64LirObjectError . T.pack . show)) pure (assembleMachOChunks (compileNativeChunksWith lint arm64Backend lirModule))
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]
 compileLirStatements = compileNativeStatements arm64Backend

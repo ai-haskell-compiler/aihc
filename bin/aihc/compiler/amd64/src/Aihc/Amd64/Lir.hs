@@ -73,9 +73,8 @@ compileLirObject = compileLirObjectWith True
 
 -- | Assemble the module, linting it first when asked to.
 compileLirObjectWith :: Bool -> Module -> Either Amd64LirError BL.ByteString
-compileLirObjectWith lint lirModule = do
-  statements <- compileNativeStatementsWith lint amd64Backend lirModule
-  either (Left . Amd64LirObjectError . T.pack . show) pure (assembleElf statements)
+compileLirObjectWith lint lirModule =
+  either (either Left (Left . Amd64LirObjectError . T.pack . show)) pure (assembleElfChunks (compileNativeChunksWith lint amd64Backend lirModule))
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
 compileLirStatements = compileNativeStatements amd64Backend

@@ -9,6 +9,7 @@ module Aihc.Arm64.Assemble
     Arm64Condition (..),
     Arm64FloatOp (..),
     assembleMachO,
+    assembleMachOChunks,
     applyStatement,
     arm64Align,
     arm64Bytes,
@@ -247,6 +248,21 @@ data Arm64Instruction
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
 assembleMachO statements = foldl' applyStatement (Right emptyDraft) statements >>= layoutDraft >>= writeArm64MachO
+
+-- | Assemble statements that arrive in chunks, folding each one in before
+-- the next is produced. A failed chunk ends the assembly with its error;
+-- an object error is the other side.
+assembleMachOChunks :: [Either error [Arm64Statement]] -> Either (Either error ObjectError) BL.ByteString
+assembleMachOChunks = go emptyDraft
+  where
+    go draft chunks =
+      case chunks of
+        [] -> either (Left . Right) Right (layoutDraft draft >>= writeArm64MachO)
+        Left err : _ -> Left (Left err)
+        Right statements : rest ->
+          case foldl' applyStatement (Right draft) statements of
+            Left err -> Left (Right err)
+            Right next -> next `seq` go next rest
 
 arm64Section :: SectionRole -> Arm64Statement
 arm64Section = Arm64Section

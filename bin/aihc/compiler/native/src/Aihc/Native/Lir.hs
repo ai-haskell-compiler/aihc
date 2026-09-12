@@ -23,6 +23,7 @@ module Aihc.Native.Lir
     classify,
     compileNativeStatements,
     compileNativeStatementsWith,
+    compileNativeChunksWith,
     displaceSource,
     elideSlotReloadsWith,
     frameBytes,
@@ -47,9 +48,9 @@ import Aihc.Lir.Resolve (resolveConstants, resolvedSwitchCaseValue, unresolvedCo
 import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
 import Aihc.Native.Object (Name (..), SectionRole (..))
-import Control.Monad (forM, when, zipWithM)
+import Control.Monad (forM, when)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, modify, put)
+import Control.Monad.Trans.State.Strict (StateT, get, modify, put, runStateT)
 import Data.ByteString qualified as BS
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
@@ -288,11 +289,31 @@ compileNativeStatements = compileNativeStatementsWith True
 -- compiler lowers Lir it generated itself and lints it only under
 -- @--lint@; a hand-written unit is always linted.
 compileNativeStatementsWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> Either error [statement]
-compileNativeStatementsWith lint backend lirModule =
+compileNativeStatementsWith lint backend lirModule = concat <$> sequence (compileNativeChunksWith lint backend lirModule)
+
+-- | The statements of the module in chunks: one per function, in order,
+-- and one for the traps, the data and the globals. A chunk is produced
+-- only when the consumer asks for it, so an assembler that folds each
+-- chunk in before taking the next keeps one function's statements alive
+-- rather than the whole module's. A failed chunk is the last one.
+compileNativeChunksWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> [Either error [statement]]
+compileNativeChunksWith lint backend lirModule =
   case if lint then lintModule lirModule else [] of
-    [] -> evalStateT compileItems initialState
-    errors -> Left (nbLintErrors backend errors)
+    [] -> functionChunks initialState (zip [0 ..] [function | ItemFunction function <- items])
+    errors -> [Left (nbLintErrors backend errors)]
   where
+    functionChunks state remaining =
+      case remaining of
+        (index, function) : rest ->
+          case runStateT (compileFunction backend signatures index function) state of
+            Left err -> [Left err]
+            Right (statements, next) -> Right statements : functionChunks next rest
+        [] ->
+          case runStateT (renderTraps backend) state of
+            Left err -> [Left err]
+            Right (trapStatements, _) -> [Right (trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)]
+    dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
+    globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
     Module items = resolveConstants lirModule
     initialState =
       ObjectState
@@ -307,12 +328,6 @@ compileNativeStatementsWith lint backend lirModule =
         ( [(functionName function, functionSignature function) | ItemFunction function <- items]
             <> [(externFunctionName external, externFunctionSignature external) | ItemExternFunction external <- items]
         )
-    compileItems = do
-      functionStatements <- concat <$> zipWithM (compileFunction backend signatures) [0 ..] [function | ItemFunction function <- items]
-      let dataStatements = concatMap (compileData backend) [dataItem | ItemData dataItem <- items]
-          globalStatements = concatMap (compileGlobal backend) [global | ItemGlobal global <- items]
-      trapStatements <- renderTraps backend
-      pure (functionStatements <> trapStatements <> dataStatements <> globalStatements <> nbAfterObject backend)
 
 renderTraps :: NativeBackend statement register error -> NativeM error [statement]
 renderTraps backend = do
