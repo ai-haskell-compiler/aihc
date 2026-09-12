@@ -5,6 +5,7 @@
 module Aihc.Cli.Backend
   ( BackendOutput (..),
     compileLir,
+    compileLirWith,
     lowerTargetFor,
     nativeSourceExtension,
   )
@@ -33,12 +34,17 @@ lowerTargetFor target =
     Wasm32Wasip3 -> wasip3Target
     _ -> posixTarget64
 
--- | Compile one Lir module for the target.
+-- | Compile one Lir module for the target, linting it first.
 compileLir :: NativeTarget -> Module -> Either String BackendOutput
-compileLir target lirModule =
+compileLir = compileLirWith True
+
+-- | Compile one Lir module for the target. The object backends lint the
+-- module only when asked to; the text backends always do.
+compileLirWith :: Bool -> NativeTarget -> Module -> Either String BackendOutput
+compileLirWith lint target lirModule =
   case target of
-    AppleArm64 -> either (Left . show) (Right . BackendObject) (Arm64.compileLirObject lirModule)
-    LinuxAmd64 -> either (Left . show) (Right . BackendObject) (Amd64.compileLirObject lirModule)
+    AppleArm64 -> either (Left . show) (Right . BackendObject) (Arm64.compileLirObjectWith lint lirModule)
+    LinuxAmd64 -> either (Left . show) (Right . BackendObject) (Amd64.compileLirObjectWith lint lirModule)
     Llvm -> either (Left . show) (Right . BackendSource) (Llvm.compileLirModule lirModule)
     Wasm32Wasip3 -> either (Left . show) (Right . BackendSource) (Wasm.compileLirModule lirModule)
 

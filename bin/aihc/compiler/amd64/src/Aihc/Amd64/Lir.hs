@@ -29,6 +29,7 @@
 module Aihc.Amd64.Lir
   ( Amd64LirError (..),
     compileLirObject,
+    compileLirObjectWith,
     compileLirStatements,
     elideSlotReloads,
     lirSymbol,
@@ -68,8 +69,12 @@ lirSymbol = unSymbol
 
 -- | Lint the module, then assemble it.
 compileLirObject :: Module -> Either Amd64LirError BL.ByteString
-compileLirObject lirModule = do
-  statements <- compileLirStatements lirModule
+compileLirObject = compileLirObjectWith True
+
+-- | Assemble the module, linting it first when asked to.
+compileLirObjectWith :: Bool -> Module -> Either Amd64LirError BL.ByteString
+compileLirObjectWith lint lirModule = do
+  statements <- compileNativeStatementsWith lint amd64Backend lirModule
   either (Left . Amd64LirObjectError . T.pack . show) pure (assembleElf statements)
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]

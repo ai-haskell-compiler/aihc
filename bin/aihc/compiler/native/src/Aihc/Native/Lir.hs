@@ -22,6 +22,7 @@ module Aihc.Native.Lir
     calleeSignature,
     classify,
     compileNativeStatements,
+    compileNativeStatementsWith,
     displaceSource,
     elideSlotReloadsWith,
     frameBytes,
@@ -274,8 +275,14 @@ functionTrapTrampolines backend = do
 
 -- | Lint the module, then walk its items.
 compileNativeStatements :: (Ord register) => NativeBackend statement register error -> Module -> Either error [statement]
-compileNativeStatements backend lirModule =
-  case lintModule lirModule of
+compileNativeStatements = compileNativeStatementsWith True
+
+-- | Walk the items of the module, after linting it when asked to. The
+-- compiler lowers Lir it generated itself and lints it only under
+-- @--lint@; a hand-written unit is always linted.
+compileNativeStatementsWith :: (Ord register) => Bool -> NativeBackend statement register error -> Module -> Either error [statement]
+compileNativeStatementsWith lint backend lirModule =
+  case if lint then lintModule lirModule else [] of
     [] -> evalStateT compileItems initialState
     errors -> Left (nbLintErrors backend errors)
   where

@@ -25,6 +25,7 @@
 module Aihc.Arm64.Lir
   ( Arm64LirError (..),
     compileLirObject,
+    compileLirObjectWith,
     compileLirStatements,
     elideSlotReloads,
     lirSymbol,
@@ -59,8 +60,12 @@ lirSymbol :: Symbol -> Text
 lirSymbol (Symbol name) = "_" <> name
 
 compileLirObject :: Module -> Either Arm64LirError BL.ByteString
-compileLirObject lirModule = do
-  statements <- compileLirStatements lirModule
+compileLirObject = compileLirObjectWith True
+
+-- | Assemble the module, linting it first when asked to.
+compileLirObjectWith :: Bool -> Module -> Either Arm64LirError BL.ByteString
+compileLirObjectWith lint lirModule = do
+  statements <- compileNativeStatementsWith lint arm64Backend lirModule
   either (Left . Arm64LirObjectError . T.pack . show) pure (assembleMachO statements)
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]

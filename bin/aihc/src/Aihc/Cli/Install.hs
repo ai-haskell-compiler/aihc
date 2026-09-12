@@ -29,7 +29,7 @@ where
 
 import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
-import Aihc.Cli.Backend (BackendOutput (..), compileLir, lowerTargetFor, nativeSourceExtension)
+import Aihc.Cli.Backend (BackendOutput (..), compileLirWith, lowerTargetFor, nativeSourceExtension)
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
     FileStamp (..),
@@ -2179,7 +2179,7 @@ compileFcModules config verbose outputPaths fcModules = do
       let name = grinModuleName grinModule
           gcProgram = gcGrinProgram grinModule
       lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lir.lowerModule (lowerTargetFor selectedTarget) gcProgram)
-      output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLir selectedTarget lirModule)
+      output <- either (ioError . userError . ("Lir backend failed: " <>)) pure (compileLirWith (compileLint config) selectedTarget lirModule)
       pure $ case output of
         BackendObject object -> NativeModule name (if keepNative then Just (Lir.renderModule lirModule) else Nothing) (Just object)
         BackendSource source -> NativeModule name (Just source) Nothing
