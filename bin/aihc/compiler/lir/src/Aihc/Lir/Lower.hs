@@ -132,19 +132,25 @@ data LowerOptions = LowerOptions
   { lowerUnitKind :: !UnitKind,
     -- | Export every function symbol. Test harnesses use the symbols.
     lowerExposeFunctions :: !Bool,
-    lowerTarget :: !LowerTarget
+    lowerTarget :: !LowerTarget,
+    -- | Check the index of every array primitive against the length, as
+    -- GHC does under @-fcheck-prim-bounds@. Off, an access is an unchecked
+    -- load or store, as in GHC by default.
+    lowerCheckPrimBounds :: !Bool
   }
   deriving (Eq, Show)
 
--- | Lower one library module.
-lowerModule :: LowerTarget -> GcGrinProgram -> Either LowerError Module
-lowerModule target = lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target}
+-- | Lower one library module. The flag selects the bounds checks of
+-- 'lowerCheckPrimBounds'.
+lowerModule :: LowerTarget -> Bool -> GcGrinProgram -> Either LowerError Module
+lowerModule target checkPrimBounds =
+  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds}
 
 -- | Lower the fixed executable entry unit.
 lowerEntry :: LowerTarget -> Either LowerError Module
 lowerEntry target = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -1566,6 +1572,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env mvar
       value <- emitValue "value" I64 (Load I64 (Address base mvarValueOffset) 8)
       emitValue "contents" I64 (Select I64 full (typedOperand value) (OperandLiteral (LitInt 0)))
+    checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
     -- Leave the current block for one whose entry means the bounds check
     -- passed. The other successor reports the failure and never returns.
     boundsCheck invalid failure message = do
@@ -1576,50 +1583,52 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       _ <- callRuntime failure [] [] []
       terminate (Trap message)
       beginBlock inside []
-    -- The slot of element @index@ of a boxed array, after the bounds check.
-    -- A negative index is a huge unsigned one, thus one comparison rejects
-    -- both it and an index at or beyond the length.
+    -- The slot of element @index@ of a boxed array. As in GHC, the index
+    -- is unchecked unless the bounds checks are on; then a negative index
+    -- is a huge unsigned one, thus one comparison rejects both it and an
+    -- index at or beyond the length.
     arrayElement array index = do
       base <- pointerValue ctx env array
       offset <- word index
-      count <- emitValue "count" I64 (Load I64 (Address base arrayLengthOffset) 8)
-      invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand count))
-      boundsCheck (typedOperand invalid) "aihc_array_bounds_fail" "boxed-array index is out of bounds"
+      when checkPrimBounds $ do
+        count <- emitValue "count" I64 (Load I64 (Address base arrayLengthOffset) 8)
+        invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand count))
+        boundsCheck (typedOperand invalid) "aihc_array_bounds_fail" "boxed-array index is out of bounds"
       scaled <- emitValue "offset" I64 (Binary Mul I64 offset (OperandLiteral (LitInt 8)))
       typedOperand <$> emitValue "slot" Ptr (PtrAdd base (typedOperand scaled))
-    -- The address of an element of a byte array, after the bounds check.
-    -- An element index counts elements of the width of @ty@, so it is in
-    -- bounds below the size divided by that width; a byte offset is in
-    -- bounds when the element it starts fits before the size. The
-    -- contents are a separate allocation, so the address is read last.
+    -- The address of an element of a byte array. An element index counts
+    -- elements of the width of @ty@, so it scales by that width; a byte
+    -- offset is used as it is. As in GHC, neither is checked unless the
+    -- bounds checks are on; then an element index is in bounds below the
+    -- size divided by the width, and a byte offset when the element it
+    -- starts fits before the size. The contents are a separate allocation,
+    -- so the address is read last.
     byteArrayElement array index ty indexing = do
       base <- pointerValue ctx env array
       offset <- word index
-      size <- emitValue "size" I64 (Load I64 (Address base byteArraySizeOffset) 8)
       let width = typeWidth ty
           literal = OperandLiteral . LitInt
-      (invalid, byteOffset) <-
-        case indexing of
-          ElementIndex
-            | width == 1 -> do
-                invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand size))
-                pure (invalid, offset)
-            | otherwise -> do
-                limit <- emitValue "limit" I64 (Binary ShrU I64 (typedOperand size) (literal (typeShift ty)))
-                invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand limit))
-                scaled <- emitValue "offset" I64 (Binary Mul I64 offset (literal width))
-                pure (invalid, typedOperand scaled)
-          ByteOffset
-            | width == 1 -> do
-                invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand size))
-                pure (invalid, offset)
-            | otherwise -> do
-                pastEnd <- emitValue "past_end" I1 (Compare GtU I64 offset (typedOperand size))
-                remaining <- emitValue "remaining" I64 (Binary Sub I64 (typedOperand size) offset)
-                tooLong <- emitValue "too_long" I1 (Compare GtU I64 (literal width) (typedOperand remaining))
-                invalid <- emitValue "invalid" I1 (Binary Or I1 (typedOperand pastEnd) (typedOperand tooLong))
-                pure (invalid, offset)
-      boundsCheck (typedOperand invalid) "aihc_byte_array_bounds_fail" "byte array access is out of bounds"
+      when checkPrimBounds $ do
+        size <- emitValue "size" I64 (Load I64 (Address base byteArraySizeOffset) 8)
+        invalid <-
+          case indexing of
+            ElementIndex
+              | width == 1 -> emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand size))
+              | otherwise -> do
+                  limit <- emitValue "limit" I64 (Binary DivU I64 (typedOperand size) (literal width))
+                  emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand limit))
+            ByteOffset
+              | width == 1 -> emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand size))
+              | otherwise -> do
+                  pastEnd <- emitValue "past_end" I1 (Compare GtU I64 offset (typedOperand size))
+                  remaining <- emitValue "remaining" I64 (Binary Sub I64 (typedOperand size) offset)
+                  tooLong <- emitValue "too_long" I1 (Compare GtU I64 (literal width) (typedOperand remaining))
+                  emitValue "invalid" I1 (Binary Or I1 (typedOperand pastEnd) (typedOperand tooLong))
+        boundsCheck (typedOperand invalid) "aihc_byte_array_bounds_fail" "byte array access is out of bounds"
+      byteOffset <-
+        if indexing == ByteOffset || width == 1
+          then pure offset
+          else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (literal width))
       contents <- emitValue "contents" Ptr (Load Ptr (Address base byteArrayContentsOffset) 8)
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) byteOffset)
     -- The address of element @index@ of the given width. Every access uses
@@ -1862,20 +1871,14 @@ byteArrayStorePrimitives =
     ("writeCharArray#", (I8, ByteOffset))
   ]
 
--- | The width in bytes of an integer element, and its base-two logarithm.
-typeWidth, typeShift :: Type -> Integer
+-- | The width in bytes of an integer element.
+typeWidth :: Type -> Integer
 typeWidth ty =
   case ty of
     I8 -> 1
     I16 -> 2
     I32 -> 4
     _ -> 8
-typeShift ty =
-  case ty of
-    I8 -> 0
-    I16 -> 1
-    I32 -> 2
-    _ -> 3
 
 -- | Reads of memory at an address. Each entry gives the width of the value,
 -- the size of one index step in bytes, and how the value widens to a word:

@@ -569,8 +569,9 @@ The units are:
   and the bulk operations: copy, clone, shrink, and resize. The lowering
   emits the rest of the boxed-array primitives inline: the identity test is
   a pointer comparison, the length is a load, and an element access is a
-  bounds check and a load or store. A failed check calls
-  `aihc_array_bounds_fail`. The collector keeps `aihc_array_length` and
+  load or store. As in GHC the access is unchecked, unless the build passes
+  `--check-prim-bounds`; then the lowering emits a bounds check that calls
+  `aihc_array_bounds_fail` when it fails. The collector keeps `aihc_array_length` and
   `aihc_array_elements` in C, and the unit calls `aihc_array_length` for
   the object-kind check.
 - `aihc_mutvar.lir` holds `aihc_mutvar_new`. A mutable reference is a boxed
@@ -588,8 +589,8 @@ The units are:
   it. The unit holds the allocations, the bulk operations, and the atomic
   operations; the lowering emits the size, contents, and pinned reads and
   the element accesses of the index, read, and write primitives inline,
-  with a bounds check that calls `aihc_byte_array_bounds_fail` when it
-  fails. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which
+  unchecked as in GHC unless the build passes `--check-prim-bounds`, when a
+  failed check calls `aihc_byte_array_bounds_fail`. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which
   are `memcpy` and `memmove` behind a signature that states its length as
   an `i64`.
 - `aihc_runtime_options.lir` holds the RTS option parser, the environment

@@ -192,7 +192,7 @@ installCoreLibrary = installCoreLibraryWith O0
 -- | Install a core library into the store at a level.
 installCoreLibraryWith :: OptimizationLevel -> FilePath -> FilePath -> NativeTarget -> IO ()
 installCoreLibraryWith level source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False level False False False False target)
+  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False False level False False False False target)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

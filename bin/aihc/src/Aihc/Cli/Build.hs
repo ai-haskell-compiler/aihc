@@ -116,6 +116,7 @@ buildPackage options = do
             compileKeepGrin = False,
             compileKeepNative = False,
             compileLint = buildLint options,
+            compileCheckPrimBounds = buildCheckPrimBounds options,
             compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
             compileNoCode = False,
             compileOptimization = buildOptimization options,

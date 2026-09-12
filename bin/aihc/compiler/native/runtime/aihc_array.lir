@@ -10,9 +10,9 @@
 ;   offset 16 + 8i  elements[i]
 ;
 ; Compiled code reads the length and reaches the elements itself: the Lir
-; lowering emits the element accesses of the boxed-array primitives with
-; their bounds check, so this unit holds the allocation and the bulk
-; operations. The collector keeps aihc_array_length and aihc_array_elements in C: it
+; lowering emits the element accesses of the boxed-array primitives as
+; loads and stores, unchecked as in GHC unless --check-prim-bounds is on,
+; so this unit holds the allocation and the bulk operations. The collector keeps aihc_array_length and aihc_array_elements in C: it
 ; walks arrays that the GC fuzz harness builds with info tables of its own,
 ; so the object-kind check stays where the collector can share it.
 
@@ -87,9 +87,9 @@ done:
   return %array
 }
 
-; The failure of an element access that compiled code checks itself: the
-; Lir lowering emits the bounds check of indexArray# and its relatives, and
-; calls this when it fails.
+; The failure of an element access that compiled code checks itself: under
+; --check-prim-bounds the Lir lowering emits the bounds check of indexArray#
+; and its relatives, and calls this when it fails.
 export func @aihc_array_bounds_fail() cc c {
 entry:
   call @aihc_fail(@aihc_array_bounds_message)

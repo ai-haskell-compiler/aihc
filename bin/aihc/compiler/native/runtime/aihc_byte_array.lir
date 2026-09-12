@@ -15,8 +15,9 @@
 ; unpinned array is still free to hold pinned contents. Compiled code reads
 ; the size, the contents address, and the pinned flag itself, and the Lir
 ; lowering emits the element accesses of the index, read, and write
-; primitives with their bounds check; this unit holds the allocation, the
-; bulk operations, and the atomic operations. Bulk moves call the memory
+; primitives as loads and stores, unchecked as in GHC unless
+; --check-prim-bounds is on; this unit holds the allocation, the bulk
+; operations, and the atomic operations. Bulk moves call the memory
 ; helpers of the C runtime rather than looping here, so a copy stays as fast
 ; as the platform memcpy. The three accessors after the allocations serve C
 ; callers such as the runtime tests.
@@ -363,9 +364,9 @@ equal:
   return 0
 }
 
-; The failure of an element access that compiled code checks itself: the
-; Lir lowering emits the bounds check of the index, read, and write
-; primitives, and calls this when it fails.
+; The failure of an element access that compiled code checks itself: under
+; --check-prim-bounds the Lir lowering emits the bounds check of the index,
+; read, and write primitives, and calls this when it fails.
 export func @aihc_byte_array_bounds_fail() cc c {
 entry:
   call @aihc_fail(@aihc_byte_array_bounds_message)
