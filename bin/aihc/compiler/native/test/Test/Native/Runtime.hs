@@ -98,9 +98,8 @@ stableNameSource =
       "  AihcValue *second = aihc_make_node(machine, &leaf_info);",
       "  machine->globals[1] = (AihcSlot)second;",
       "  void *second_name = aihc_stable_name_make(machine, second);",
-      "  if (!aihc_stable_name_equal(first_name, first_again)) return 1;",
-      "  if (aihc_stable_name_hash(first_name) != aihc_stable_name_hash(first_again)) return 2;",
-      "  if (aihc_stable_name_equal(first_name, second_name)) return 3;",
+      "  if (first_name != first_again) return 1;",
+      "  if (first_name == second_name) return 3;",
       "  for (int index = 0; index < 100; ++index) (void)aihc_make_node(machine, &leaf_info);",
       "  first = (AihcValue *)machine->globals[0];",
       "  second = (AihcValue *)machine->globals[1];",
@@ -111,22 +110,25 @@ stableNameSource =
     ]
 
 -- | Mutable references are boxed arrays of one element, and both live in
--- aihc_mutvar.lir and aihc_array.lir. See the "Runtime units" section of
--- docs/lir.md.
+-- aihc_mutvar.lir and aihc_array.lir. Compiled code reads and writes the
+-- element itself, so this checks the allocation through the array accessors
+-- of the C runtime. See the "Runtime units" section of docs/lir.md.
 mutVarSource :: String
 mutVarSource =
   unlines
     [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
       "int main(void) {",
       "  AihcMachine *machine = aihc_machine_new(0);",
       "  AihcValue *mutvar = aihc_mutvar_new(machine, 7);",
-      "  if (aihc_mutvar_read(mutvar) != 7) return 1;",
-      "  aihc_mutvar_write(mutvar, 9);",
-      "  if (aihc_mutvar_read(mutvar) != 9) return 2;",
-      "  if (aihc_mutvar_compare_and_swap(mutvar, 8, 10) != 1) return 3;",
-      "  if (aihc_mutvar_read(mutvar) != 9) return 4;",
-      "  if (aihc_mutvar_compare_and_swap(mutvar, 9, 10) != 0) return 5;",
-      "  if (aihc_mutvar_read(mutvar) != 10) return 6;",
+      "  if (aihc_array_length(mutvar) != 1) return 1;",
+      "  if (aihc_array_elements(mutvar)[0] != 7) return 2;",
+      "  AihcValue *array = aihc_array_new(machine, 3, 9);",
+      "  if (aihc_array_length(array) != 3) return 3;",
+      "  if (aihc_array_elements(array)[2] != 9) return 4;",
+      "  aihc_array_copy(mutvar, 0, array, 1, 1);",
+      "  if (aihc_array_elements(array)[1] != 7) return 5;",
+      "  if (aihc_array_elements(array)[0] != 9) return 6;",
       "  return 0;",
       "}"
     ]
@@ -175,12 +177,21 @@ runtimeOptionsSource =
 
 -- | Byte arrays live entirely in aihc_byte_array.lir: the C runtime keeps no
 -- description of their layout, so this exercises the whole unit through the
--- header it exports.
+-- header it exports. Compiled code reads and writes the elements itself, so
+-- the program reaches them through the contents address.
 byteArraySource :: String
 byteArraySource =
   unlines
     [ "#include \"aihc_runtime.h\"",
       "#include <string.h>",
+      "static uint64_t word_at(void *array, int64_t offset) {",
+      "  uint64_t value;",
+      "  memcpy(&value, (char *)aihc_byte_array_contents(array) + offset, 8);",
+      "  return value;",
+      "}",
+      "static void put_word(void *array, int64_t offset, uint64_t value) {",
+      "  memcpy((char *)aihc_byte_array_contents(array) + offset, &value, 8);",
+      "}",
       "int main(void) {",
       "  void *bytes = aihc_byte_array_new(16);",
       "  if (aihc_byte_array_get_size(bytes) != 16) return 1;",
@@ -188,14 +199,10 @@ byteArraySource =
       "  if (!aihc_byte_array_is_pinned(aihc_byte_array_new_pinned(8))) return 3;",
       "  void *aligned = aihc_byte_array_new_aligned_pinned(8, 64);",
       "  if ((uintptr_t)aihc_byte_array_contents(aligned) % 64 != 0) return 4;",
-      "  aihc_byte_array_write_word(bytes, 0, 0x0102030405060708ULL);",
-      "  aihc_byte_array_write_word(bytes, 1, UINT64_MAX);",
-      "  if (aihc_byte_array_index_word(bytes, 0) != 0x0102030405060708ULL) return 5;",
-      "  if (aihc_byte_array_read_word(bytes, 1) != UINT64_MAX) return 6;",
-      "  if (aihc_byte_array_index_byte_word8(bytes, 0) != 0x08) return 7;",
-      "  if (aihc_byte_array_index_byte_word16(bytes, 0) != 0x0708) return 8;",
-      "  if (aihc_byte_array_index_byte_word32(bytes, 1) != 0x04050607) return 9;",
-      "  if (aihc_byte_array_index_byte_word64(bytes, 8) != UINT64_MAX) return 10;",
+      "  put_word(bytes, 0, 0x0102030405060708ULL);",
+      "  put_word(bytes, 8, UINT64_MAX);",
+      "  if (word_at(bytes, 0) != 0x0102030405060708ULL) return 5;",
+      "  if (word_at(bytes, 8) != UINT64_MAX) return 6;",
       "  const char *source = \"hello world!!!!!\";",
       "  char out[17] = {0};",
       "  aihc_byte_array_copy_from_addr((void *)source, bytes, 0, 16);",
@@ -204,7 +211,7 @@ byteArraySource =
       "  void *other = aihc_byte_array_new(16);",
       "  aihc_byte_array_copy(bytes, 0, other, 0, 16);",
       "  if (aihc_byte_array_compare(bytes, 0, other, 0, 16) != 0) return 12;",
-      "  aihc_byte_array_write_word(other, 0, 0);",
+      "  put_word(other, 0, 0);",
       "  if ((int64_t)aihc_byte_array_compare(bytes, 0, other, 0, 16) != 1) return 13;",
       "  if ((int64_t)aihc_byte_array_compare(other, 0, bytes, 0, 16) != -1) return 14;",
       "  /* Ranges of one array may overlap, so a copy has to move. */",
@@ -219,26 +226,19 @@ byteArraySource =
       "  void *empty = aihc_byte_array_new(0);",
       "  if (aihc_byte_array_get_size(empty) != 0) return 19;",
       "  aihc_byte_array_copy_from_addr(NULL, empty, 0, 0);",
-      "  /* The sized element families index by element, so element n of the",
-      "     32-bit family starts at byte offset 4n. */",
+      "  /* The atomic operations index by word and give the old value. */",
       "  void *sized = aihc_byte_array_new(32);",
       "  aihc_byte_array_set(sized, 0, 32, 0);",
-      "  aihc_byte_array_write_word8(sized, 3, 0xab);",
-      "  aihc_byte_array_write_word16(sized, 2, 0x1234);",
-      "  aihc_byte_array_write_word32(sized, 2, 0xdeadbeefU);",
-      "  aihc_byte_array_write_word64(sized, 2, 0x0102030405060708ULL);",
       "  aihc_byte_array_set(sized, 24, 8, 0xff);",
-      "  if (aihc_byte_array_index_word8(sized, 3) != 0xab) return 20;",
-      "  if (aihc_byte_array_read_word8(sized, 2) != 0) return 21;",
-      "  if (aihc_byte_array_index_word16(sized, 2) != 0x1234) return 22;",
-      "  if (aihc_byte_array_read_word16(sized, 2) != 0x1234) return 23;",
-      "  if (aihc_byte_array_index_word32(sized, 2) != 0xdeadbeefU) return 24;",
-      "  if (aihc_byte_array_read_word32(sized, 2) != 0xdeadbeefU) return 25;",
-      "  if (aihc_byte_array_index_word64(sized, 2) != 0x0102030405060708ULL) return 26;",
-      "  if (aihc_byte_array_read_word64(sized, 2) != 0x0102030405060708ULL) return 27;",
-      "  if (aihc_byte_array_index_byte_word32(sized, 8) != 0xdeadbeefU) return 28;",
-      "  if (aihc_byte_array_index_word8(sized, 24) != 0xff) return 29;",
-      "  if (aihc_byte_array_index_word64(sized, 3) != UINT64_MAX) return 30;",
+      "  if (aihc_byte_array_fetch_add_word(sized, 1, 5) != 0) return 20;",
+      "  if (aihc_byte_array_fetch_add_word(sized, 1, 5) != 5) return 21;",
+      "  if (word_at(sized, 8) != 10) return 22;",
+      "  if (aihc_byte_array_fetch_or_word(sized, 1, 1) != 10) return 23;",
+      "  if (aihc_byte_array_compare_and_swap_word(sized, 1, 11, 12) != 11) return 24;",
+      "  if (aihc_byte_array_compare_and_swap_word(sized, 1, 11, 13) != 12) return 25;",
+      "  if (word_at(sized, 8) != 12) return 26;",
+      "  if (word_at(sized, 0) != 0) return 27;",
+      "  if (word_at(sized, 24) != UINT64_MAX) return 28;",
       "  return 0;",
       "}"
     ]

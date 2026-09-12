@@ -9,7 +9,10 @@
 ;   offset 8        fields[0]   = length
 ;   offset 16 + 8i  elements[i]
 ;
-; The collector keeps aihc_array_length and aihc_array_elements in C: it
+; Compiled code reads the length and reaches the elements itself: the Lir
+; lowering emits the element accesses of the boxed-array primitives with
+; their bounds check, so this unit holds the allocation and the bulk
+; operations. The collector keeps aihc_array_length and aihc_array_elements in C: it
 ; walks arrays that the GC fuzz harness builds with info tables of its own,
 ; so the object-kind check stays where the collector can share it.
 
@@ -84,9 +87,18 @@ done:
   return %array
 }
 
+; The failure of an element access that compiled code checks itself: the
+; Lir lowering emits the bounds check of indexArray# and its relatives, and
+; calls this when it fails.
+export func @aihc_array_bounds_fail() cc c {
+entry:
+  call @aihc_fail(@aihc_array_bounds_message)
+  trap "boxed-array index is out of bounds"
+}
+
 ; The address of element %index, after the bounds check. aihc_array_length
 ; rejects a value that is not an array before the comparison runs.
-func @aihc_array_element(%array: ptr, %index: i64) -> ptr cc c {
+func @aihc_array_element(%array: ptr, %index: i64) -> ptr {
 entry:
   %count = call @aihc_array_length(%array)
   %negative = lt.s i64 %index, 0
@@ -105,27 +117,13 @@ element:
   return %address
 }
 
-export func @aihc_array_index(%array: ptr, %index: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_array_element(%array, %index)
-  %value = load i64 [%address] align 8
-  return %value
-}
-
-export func @aihc_array_write(%array: ptr, %index: i64, %value: i64) -> i64 cc c {
-entry:
-  %address = call @aihc_array_element(%array, %index)
-  store i64 %value, [%address] align 8
-  return 0
-}
-
 data @aihc_array_copy_message align 1 = {
   bytes "boxed-array copy length is invalid", zero 1
 }
 
 ; Copy one element between two arrays. Both accesses go through
 ; aihc_array_element, so each one is bounds checked on its own array.
-func @aihc_array_copy_element(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %index: i64) cc c {
+func @aihc_array_copy_element(%source: ptr, %source_offset: i64, %target: ptr, %target_offset: i64, %index: i64) {
 entry:
   %from = add i64 %source_offset, %index
   %to = add i64 %target_offset, %index

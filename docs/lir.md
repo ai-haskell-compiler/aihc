@@ -565,24 +565,33 @@ The units are:
   The executable entry retains its exit helper because that helper updates
   the executable halt flag.
 
-- `aihc_array.lir` holds the info table of a boxed array and the functions
-  `aihc_array_new`, `aihc_array_index`, and `aihc_array_write`. The identity
-  test of two arrays is a pointer comparison that the lowering emits inline,
-  so the unit has no function for it. The collector keeps `aihc_array_length`
-  and `aihc_array_elements` in C, and the unit calls `aihc_array_length` for
+- `aihc_array.lir` holds the info table of a boxed array, `aihc_array_new`,
+  and the bulk operations: copy, clone, shrink, and resize. The lowering
+  emits the rest of the boxed-array primitives inline: the identity test is
+  a pointer comparison, the length is a load, and an element access is a
+  bounds check and a load or store. A failed check calls
+  `aihc_array_bounds_fail`. The collector keeps `aihc_array_length` and
+  `aihc_array_elements` in C, and the unit calls `aihc_array_length` for
   the object-kind check.
-- `aihc_mutvar.lir` holds the `MutVar#` primitives. A mutable reference is a
-  boxed array of one element, so every one of them calls the array unit.
+- `aihc_mutvar.lir` holds `aihc_mutvar_new`. A mutable reference is a boxed
+  array of one element, so compiled code reads and writes it as it does an
+  array element, and the compare-and-swap is a load, a select, and a store.
 - `aihc_stable_name.lir` holds the stable-name table: the lookup, the
-  allocation, and the layout of one entry. The list head and the hash counter
+  allocation, and the layout of one entry. Two names are equal when they
+  are one pointer, and the hash is the third slot of the name, so the
+  lowering emits both inline. The list head and the hash counter
   are machine fields whose offsets follow the target word size, so C keeps
   `aihc_stable_names` and `aihc_stable_name_take_hash` as accessors and the
   collector still walks the list itself.
 - `aihc_byte_array.lir` holds the byte arrays. The collector never traces one,
   so this unit owns the whole layout and the C runtime keeps no description of
-  it. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which are
-  `memcpy` and `memmove` behind a signature that states its length as an
-  `i64`.
+  it. The unit holds the allocations, the bulk operations, and the atomic
+  operations; the lowering emits the size, contents, and pinned reads and
+  the element accesses of the index, read, and write primitives inline,
+  with a bounds check that calls `aihc_byte_array_bounds_fail` when it
+  fails. Bulk moves call `aihc_memory_copy` and `aihc_memory_move`, which
+  are `memcpy` and `memmove` behind a signature that states its length as
+  an `i64`.
 - `aihc_runtime_options.lir` holds the RTS option parser, the environment
   parser, and the program arguments. The host flattens `argv` into one buffer
   of zero-terminated strings in C, because the width of a C pointer is the

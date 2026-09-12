@@ -24,7 +24,6 @@ module Aihc.Native
     nativeTargetStoreDirectory,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
-    mvarPeekPseudoPrimitive,
     optimizationArgument,
     parseNativeTarget,
     parseOptimizationLevel,
@@ -563,11 +562,62 @@ supportedNativePrimitiveNames =
     "castDoubleToWord64#",
     "castWord64ToDouble#",
     "timesInt2#",
-    -- The identity tests of mutable heap objects are pointer comparisons,
-    -- so each backend compares the two addresses itself.
+    -- The runtime objects keep the layouts that docs/lir.md fixes, so the
+    -- Lir lowering gives their identity tests, field reads, and element
+    -- accesses as Lir operations. None of them has an entry in the runtime
+    -- ABI.
     "sameMutableArray#",
     "sameSmallMutableArray#",
     "sameMutVar#",
+    "sameMVar#",
+    "eqStableName#",
+    "stableNameToInt#",
+    "readMutVar#",
+    "writeMutVar#",
+    "casMutVar#",
+    "isEmptyMVar#",
+    "tryReadMVar#",
+    "indexArray#",
+    "readArray#",
+    "writeArray#",
+    "sizeofArray#",
+    "sizeofMutableArray#",
+    "indexSmallArray#",
+    "readSmallArray#",
+    "writeSmallArray#",
+    "sizeofSmallArray#",
+    "sizeofSmallMutableArray#",
+    "getSizeofSmallMutableArray#",
+    "sizeofByteArray#",
+    "sizeofMutableByteArray#",
+    "getSizeofMutableByteArray#",
+    "byteArrayContents#",
+    "mutableByteArrayContents#",
+    "isByteArrayPinned#",
+    "isMutableByteArrayPinned#",
+    "indexWordArray#",
+    "readWordArray#",
+    "writeWordArray#",
+    "atomicReadIntArray#",
+    "atomicWriteIntArray#",
+    "indexWord8Array#",
+    "readWord8Array#",
+    "writeWord8Array#",
+    "indexWord16Array#",
+    "readWord16Array#",
+    "writeWord16Array#",
+    "indexWord32Array#",
+    "readWord32Array#",
+    "writeWord32Array#",
+    "indexWord64Array#",
+    "readWord64Array#",
+    "writeWord64Array#",
+    "indexCharArray#",
+    "readCharArray#",
+    "writeCharArray#",
+    "indexWord8ArrayAsWord16#",
+    "indexWord8ArrayAsWord32#",
+    "indexWord8ArrayAsWord64#",
     -- Address arithmetic, address memory access, and C string length.
     "plusAddr#",
     "minusAddr#",
@@ -737,14 +787,6 @@ nativeCpsPrimitiveCalls =
     resumes primitive symbol operands =
       (primitive, NativeCpsCall symbol operands True NativeCpsResumeScheduler)
 
--- | The name under which the runtime ABI carries @aihc_mvar_peek@. It reads
--- the contents of an MVar without changing it, and no primitive maps to it on
--- its own: the lowering of tryTakeMVar# and tryReadMVar# uses it for the value
--- field those primitives return beside their flag. A leading @$@ keeps it out
--- of the primitive namespace.
-mvarPeekPseudoPrimitive :: Text
-mvarPeekPseudoPrimitive = "$mvarPeek"
-
 -- | Runtime calls shared by native backends. Representation-preserving
 -- primitives such as freeze and thaw deliberately have no entry here.
 nativeRuntimePrimitiveCall :: Text -> Maybe NativeRuntimeCall
@@ -755,16 +797,6 @@ nativeRuntimePrimitiveCalls =
   [ machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "newMutVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
-    call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,
-    procedure "writeMutVar#" "aihc_mutvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    pairCall "casMutVar#" "aihc_mutvar_compare_and_swap" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "eqStableName#" "aihc_stable_name_equal" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
-    call "stableNameToInt#" "aihc_stable_name_hash" [GrinForeignAddr] GrinForeignWord64,
-    call "indexArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "sizeofArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
-    call "sizeofMutableArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
     procedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     procedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
@@ -774,12 +806,6 @@ nativeRuntimePrimitiveCalls =
     -- The small-array family shares the boxed-array representation, so every
     -- entry below names the boxed-array runtime function of the same shape.
     machineCall "newSmallArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
-    call "indexSmallArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readSmallArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeSmallArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "sizeofSmallArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
-    call "sizeofSmallMutableArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
-    call "getSizeofSmallMutableArray#" "aihc_array_length" [GrinForeignAddr] GrinForeignWord64,
     procedure "copySmallArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     procedure "copySmallMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneSmallArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
@@ -789,34 +815,17 @@ nativeRuntimePrimitiveCalls =
     procedure "shrinkSmallMutableArray#" "aihc_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     machineCall "resizeSmallMutableArray#" "aihc_array_resize" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     -- The MVar operations that never block, so they are runtime calls rather
-    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# and
-    -- tryReadMVar# each give a flag and the contents; the lowering reads the
-    -- contents with the pseudo-primitive below before the operation runs,
-    -- which is safe because a runtime call never yields.
-    call "sameMVar#" "aihc_mvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
-    call "isEmptyMVar#" "aihc_mvar_is_empty" [GrinForeignAddr] GrinForeignWord64,
-    call mvarPeekPseudoPrimitive "aihc_mvar_peek" [GrinForeignAddr] GrinForeignWord64,
+    -- than the CPS calls that takeMVar# and putMVar# need. tryTakeMVar# gives
+    -- a flag and the contents; the runtime function returns the flag, and
+    -- the lowering reads the contents before the operation runs.
     machineCall "tryTakeMVar#" "aihc_mvar_try_take" [GrinForeignAddr] GrinForeignWord64,
-    call "tryReadMVar#" "aihc_mvar_is_full" [GrinForeignAddr] GrinForeignWord64,
     machineCall "tryPutMVar#" "aihc_mvar_try_put" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
     call "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
     call "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
-    call "isMutableByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,
-    call "isByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,
-    call "byteArrayContents#" "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr,
-    call "mutableByteArrayContents#" "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr,
     procedure "shrinkMutableByteArray#" "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "resizeMutableByteArray#" "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
-    call "sizeofByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
-    call "getSizeofMutableByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
-    call "sizeofMutableByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
     procedure "copyAddrToByteArray#" "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "indexWordArray#" "aihc_byte_array_index_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readWordArray#" "aihc_byte_array_read_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeWordArray#" "aihc_byte_array_write_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "atomicReadIntArray#" "aihc_byte_array_read_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "atomicWriteIntArray#" "aihc_byte_array_write_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchAddIntArray#" "aihc_byte_array_fetch_add_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchSubIntArray#" "aihc_byte_array_fetch_sub_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "fetchAndIntArray#" "aihc_byte_array_fetch_and_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
@@ -860,34 +869,10 @@ nativeRuntimePrimitiveCalls =
     call "acoshFloat#" "acoshf" [GrinForeignFloat] GrinForeignFloat,
     call "atanhFloat#" "atanhf" [GrinForeignFloat] GrinForeignFloat,
     call "powerFloat#" "powf" [GrinForeignFloat, GrinForeignFloat] GrinForeignFloat,
-    call "indexCharArray#" "aihc_byte_array_index_byte_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readCharArray#" "aihc_byte_array_read_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeCharArray#" "aihc_byte_array_write_word8" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord8ArrayAsWord16#" "aihc_byte_array_index_byte_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord8ArrayAsWord32#" "aihc_byte_array_index_byte_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord8ArrayAsWord64#" "aihc_byte_array_index_byte_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "setByteArray#" "aihc_byte_array_set" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    -- The sized element families index by element rather than by byte, so the
-    -- runtime scales the index by the element width.
-    call "indexWord8Array#" "aihc_byte_array_index_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readWord8Array#" "aihc_byte_array_read_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeWord8Array#" "aihc_byte_array_write_word8" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord16Array#" "aihc_byte_array_index_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readWord16Array#" "aihc_byte_array_read_word16" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeWord16Array#" "aihc_byte_array_write_word16" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord32Array#" "aihc_byte_array_index_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readWord32Array#" "aihc_byte_array_read_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeWord32Array#" "aihc_byte_array_write_word32" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "indexWord64Array#" "aihc_byte_array_index_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "readWord64Array#" "aihc_byte_array_read_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    procedure "writeWord64Array#" "aihc_byte_array_write_word64" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    procedure "setByteArray#" "aihc_byte_array_set" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
   ]
   where
     call = runtimeCall False 1
-    -- casMutVar# returns a failure flag and the final contents. The runtime
-    -- function returns only the flag. Runtime calls do not yield, so each
-    -- backend reads the final contents with readMutVar# directly after the swap.
-    pairCall = runtimeCall False 2
     procedure = runtimeCall False 0
     machineCall = runtimeCall True 1
 
