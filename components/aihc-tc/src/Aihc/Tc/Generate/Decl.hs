@@ -95,6 +95,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameAnns,
   )
 import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
+import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -527,17 +528,17 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   mapM_ predeclareTypeLevelDataConstructors declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
   mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
-  mapM_ registerTypeSynonymBody declarations
-  mapM_ checkTypeSynonymBody declarations
   let structuralDeclarations =
         [ (resolvedModuleOrigin modu, declaration)
         | modu <- modules,
           declaration <- moduleDecls modu
         ]
-  mapM_ (uncurry registerStructuralDecl) (filter (not . isInstanceDecl . snd) structuralDeclarations)
+  forM_ (structuralDeclGroups (filter (not . isInstanceDecl . snd) structuralDeclarations)) $ \group -> do
+    mapM_ (registerTypeSynonymBody . snd) group
+    mapM_ (checkTypeSynonymBody . snd) group
+    mapM_ (uncurry registerStructuralDecl) group
+    generalizeDeclarationKinds polyKindOrigins (Set.fromList (concatMap (declarationTypeKeys . snd) group))
   mapM_ registerNominalRoles declarations
-  -- Generalize data kinds before instances use them.
-  generalizeDataKinds polyKindOrigins initialKeys
   componentTyCons <- componentTyConKeys initialKeys
   withComponentTyCons componentTyCons $
     mapM_ (uncurry registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
@@ -749,12 +750,47 @@ reservedKindMetas = do
   kinds <- mapM (zonkKind . typeSchemeBody . tciKindScheme) (Map.elems owned)
   pure (IntSet.fromList [key | Unique key <- concatMap collectMetaVars kinds])
 
--- | Generalize each data kind in its own module extension scope.
-generalizeDataKinds :: [(Text, Text)] -> GlobalStateKeys -> TcM ()
-generalizeDataKinds polyKindOrigins initialKeys = do
+-- | Complete each type declaration group before its users constrain its kinds.
+structuralDeclGroups :: [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
+structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
+  where
+    numbered = zip [0 :: Int ..] declarations
+    owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration]
+    nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
+    signatures = collectStandaloneKindSignatures (map snd declarations)
+    kindAnnotations declaration =
+      concat [annotationList kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
+    dependencies declaration =
+      [ owner
+      | annotation <- annotationList declaration <> kindAnnotations declaration,
+        Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
+        resolutionNamespace resolution == ResolutionNamespaceType,
+        ResolvedTopLevel package name <- [resolutionTarget resolution],
+        Just moduleName' <- [nameQualifier name],
+        Just owner <- [Map.lookup (package, moduleName', ResolutionNamespaceType, nameText name) owners]
+      ]
+    flatten (AcyclicSCC declaration) = [declaration]
+    flatten (CyclicSCC group) = group
+
+declarationTypeKeys :: Decl -> [TcTypeKey]
+declarationTypeKeys declaration =
+  case peelDeclAnn declaration of
+    DeclData info -> key (binderHeadName (dataDeclHead info))
+    DeclNewtype info -> key (binderHeadName (newtypeDeclHead info))
+    DeclTypeSyn info -> key (binderHeadName (typeSynHead info))
+    DeclDataFamilyDecl info -> key (binderHeadName (dataFamilyDeclHead info))
+    DeclTypeFamilyDecl info -> maybe [] key (typeFamilyHeadName (typeFamilyDeclHead info))
+    DeclClass info -> key (binderHeadName (classDeclHead info)) <> concatMap (declarationTypeKeys . DeclTypeFamilyDecl) (classDeclTypeFamilies info)
+    _ -> []
+  where
+    key = maybeToList . resolvedTypeKey
+
+-- | Generalize data, newtype, and synonym kinds in their module extension scope.
+generalizeDeclarationKinds :: [(Text, Text)] -> Set.Set TcTypeKey -> TcM ()
+generalizeDeclarationKinds polyKindOrigins keys = do
   state <- lift get
-  let newDataTypes = Map.filterWithKey (\(_, _, namespace, _) info -> namespace == ResolutionNamespaceType && tciFlavor info == DataTyCon && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.withoutKeys (tcsGlobalTyCons state) (globalTyConKeys initialKeys))
-  generalized <- traverse generalizeDataKindInfo newDataTypes
+  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
+  generalized <- traverse generalizeDataKindInfo constructors
   lift $ modify' (\current -> current {tcsGlobalTyCons = generalized `Map.union` tcsGlobalTyCons current})
 
 generalizeDataKindInfo :: TyConInfo -> TcM TyConInfo

@@ -1,0 +1,18 @@
+extensions:
+- StandaloneKindSignatures
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  module Test where
+  import GHC.Types (Type)
+
+  type Cell :: ElementKind -> Type
+  data Cell a = Cell a
+
+  type ElementKind = Type
+
+  cell :: a -> Cell a
+  cell = Cell
+status: pass
+reason: Type declarations depend on the aliases in their standalone kind signatures.

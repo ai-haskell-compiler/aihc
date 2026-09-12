@@ -1,5 +1,9 @@
 name: Hackage Install
 
+# Install the pinned Hackage packages of docs/hackage-install-packages.md for
+# every backend at every optimization level, one job per configuration, then
+# open one issue per package that failed in any of them.
+
 on:
   schedule:
     - cron: "41 2 * * *"
@@ -14,11 +18,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  install-hackage-packages:
+  install:
+    name: Install for ${{ matrix.target }} at -O${{ matrix.level }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        # linux-amd64 is the native backend of the runner; llvm goes through
+        # Clang, and wasm32-wasip3 is a cross target.
+        target: [linux-amd64, llvm, wasm32-wasip3]
+        # -O2 and -Os compile the whole program at once, -O0 one module at a
+        # time, so the three levels exercise both paths of the compiler.
+        level: ["0", "2", s]
     env:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
-      REPORT_DIR: ${{ github.workspace }}/hackage-install-report
+      CONFIGURATION: ${{ matrix.target }}-O${{ matrix.level }}
+      REPORT_DIR: ${{ github.workspace }}/hackage-install-report-${{ matrix.target }}-O${{ matrix.level }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -34,7 +50,66 @@ jobs:
       - name: Install the pinned Hackage packages
         id: install
         continue-on-error: true
-        run: nix run .#install-hackage-packages -- --report-dir "$REPORT_DIR"
+        run: |
+          nix run .#install-hackage-packages -- \
+            --target "${{ matrix.target }}" \
+            -O "${{ matrix.level }}" \
+            --report-dir "$REPORT_DIR"
+
+      - name: Summarize the run
+        run: |
+          set -euo pipefail
+          {
+            echo "### Hackage install for \`$CONFIGURATION\`"
+            echo
+            if [ -s "$REPORT_DIR/failed.txt" ]; then
+              echo "Failed to install:"
+              echo
+              while read -r package; do
+                echo "- \`$package\`"
+              done <"$REPORT_DIR/failed.txt"
+            elif [ "${{ steps.install.outcome }}" != "success" ]; then
+              echo "The install step failed before any package was attempted."
+            else
+              echo "Every package of \`docs/hackage-install-packages.md\` installed."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # The report job merges these; a configuration that failed before any
+      # package was attempted has no report and fails its own job instead.
+      - name: Upload the report
+        if: steps.install.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: hackage-install-report-${{ matrix.target }}-O${{ matrix.level }}
+          path: ${{ env.REPORT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Fail when a package failed to install
+        if: steps.install.outcome == 'failure'
+        run: exit 1
+
+  report:
+    name: Open an issue for each failed package
+    needs: install
+    if: always() && needs.install.result != 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      REPORT_DIR: ${{ github.workspace }}/hackage-install-report
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: hackage-install-report-*
+          path: reports
+
+      - name: Merge the reports
+        run: scripts/merge-hackage-install-reports.sh reports "$REPORT_DIR"
 
       - name: Summarize the run
         run: |
@@ -43,18 +118,17 @@ jobs:
             echo "### Hackage install"
             echo
             if [ -s "$REPORT_DIR/failed.txt" ]; then
-              echo "Failed to install:"
+              echo "Failed to install in at least one configuration:"
               echo
               while read -r package; do
                 echo "- \`$package\`"
               done <"$REPORT_DIR/failed.txt"
             else
-              echo "Every package of \`docs/hackage-install-packages.md\` installed."
+              echo "No package failed, but an install job did; see its log."
             fi
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Open an issue for each failed package
-        if: steps.install.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -67,12 +141,13 @@ jobs:
             --color B60205 >/dev/null 2>&1 || true
 
           if [ ! -s "$REPORT_DIR/failed.txt" ]; then
-            echo "The install step failed before any package was attempted." >&2
+            echo "An install job failed before any package was attempted." >&2
             exit 1
           fi
 
           # One issue per package, titled after the exact release, so a rerun
           # that still fails finds its own issue rather than opening another.
+          # The body has a section per configuration the package failed in.
           open_titles="$(gh issue list --state open --label "$label" --limit 200 --json title --jq '.[].title')"
 
           while read -r package; do
@@ -91,5 +166,4 @@ jobs:
           done <"$REPORT_DIR/failed.txt"
 
       - name: Fail when a package failed to install
-        if: steps.install.outcome == 'failure'
         run: exit 1

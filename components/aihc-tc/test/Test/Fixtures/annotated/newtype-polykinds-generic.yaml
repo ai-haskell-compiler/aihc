@@ -1,0 +1,19 @@
+extensions:
+- StarIsType
+- DeriveGeneric
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE StarIsType, KindSignatures, NoImplicitPrelude #-}
+  module GHC.Generics where
+  class Generic (a :: *)
+  class Generic1 (f :: * -> *)
+- |
+  {-# LANGUAGE StarIsType, DeriveGeneric, NoImplicitPrelude, PolyKinds #-}
+  module Test where
+  import GHC.Generics (Generic, Generic1)
+  newtype Wrapper f a = Wrapper (f a) deriving (Generic, Generic1)
+  newtype Constant a b = Constant a deriving (Generic, Generic1)
+status: pass
+reason: Generic1 must specialize the kind of a polymorphic newtype.

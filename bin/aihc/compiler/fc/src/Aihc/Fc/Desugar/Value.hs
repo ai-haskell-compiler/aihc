@@ -2550,6 +2550,10 @@ convertOccurrenceTypeArguments :: Syn.Name -> [TcType] -> ValueM [Type]
 convertOccurrenceTypeArguments _ [] = pure []
 convertOccurrenceTypeArguments name arguments = do
   declaredType <- lookupBindingType =<< requiredNameTermKey name
+  convertCheckedTypeArguments declaredType arguments
+
+convertCheckedTypeArguments :: TcType -> [TcType] -> ValueM [Type]
+convertCheckedTypeArguments declaredType arguments = do
   env <- gets vsConvertEnv
   liftEither (convertArguments env declaredType arguments)
   where
@@ -2836,13 +2840,9 @@ desugarNewtypeConstructor annotation dataType = do
         case resultType of
           TcTyCon _ arguments -> arguments
           _ -> []
-      typeArguments =
-        case tcAnnTypeArgs annotation of
-          [] -> resultArguments
-          arguments -> arguments
       tyCon = dtiTyCon dataType
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-  convertedArguments <- convertNewtypeAxiomArguments dataType typeArguments
+  convertedArguments <- convertNewtypeAxiomArguments dataType resultArguments
   pure (ExLam argument (ExCast (ExVar (binderName argument)) (CoSym (CoAxiom axiom convertedArguments))))
 
 convertNewtypeAxiomArguments :: DataTypeInfo -> [TcType] -> ValueM [Type]
@@ -3689,11 +3689,12 @@ desugarEvidence evidence =
         Just binder -> pure (ExVar (binderName binder))
         Nothing -> failValue ("missing given dictionary for " <> show predicate)
     Ev.EvDict origin dictionaryName types subEvidence -> do
-      convertedTypes <- mapM convertCheckedType types
-      evidenceArguments <- mapM desugarEvidence subEvidence
       let (packageName, moduleName') = origin
           package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
+      declaredType <- lookupBindingType (TcTermGlobal package moduleName' dictionaryName)
+      convertedTypes <- convertCheckedTypeArguments declaredType types
+      evidenceArguments <- mapM desugarEvidence subEvidence
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercible constructor left right -> do
       arguments <- mapM convertCheckedType [left, right]
@@ -4072,8 +4073,20 @@ convertCoercion coercion =
       converted <- mapM convertCoercion arguments
       pure (CoTyConApp (tyConNameFc env tyCon) (map CoRefl kinds <> map fst converted), concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
-      converted <- mapM convertCheckedType arguments
-      pure (CoAxiom (lookupAxiomName key) converted, [])
+      let name = lookupAxiomName key
+      newtypes <- gets vsNewtypeConstructors
+      let matches info =
+            let tyCon = dtiTyCon info
+             in name == Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+      converted <- case filter matches (Map.elems newtypes) of
+        info : _ -> do
+          env <- gets vsConvertEnv
+          kindVariables <- liftEither (extraKindVars env (dtiTyCon info) (dtiTyVars info))
+          let variables = kindVariables <> dtiTyVars info
+              result = TcTyCon (dtiTyCon info) (map TcTyVar (dtiTyVars info))
+          convertCheckedTypeArguments (foldr TcForAllTy result variables) arguments
+        [] -> mapM convertCheckedType arguments
+      pure (CoAxiom name converted, [])
   where
     unary constructor proof = do
       (converted, bindings) <- convertCoercion proof
