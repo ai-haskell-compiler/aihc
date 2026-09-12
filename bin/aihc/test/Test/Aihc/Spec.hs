@@ -466,11 +466,13 @@ test_buildLto getStore =
     assertFileDoesNotExist (targetRoot </> "Main" </> "Main.o")
     assertFileExists programObject
     -- The program object holds the entry and no value the entry does not
-    -- reach: the fixture never uses the Data.Complex instances. The
-    -- constructor tables of the type stay, because types are not pruned.
+    -- reach: the fixture never uses the Data.Complex instances. Nor does it
+    -- hold a constructor that no value it keeps names, so the info tables of
+    -- @:+@ go the same way as the instances.
     symbols <- readProcess "nm" [programObject] ""
     assertBool "program object defines the entry" ("Aihc__dEntry_entry" `isInfixOf` symbols)
     assertBool "program object drops unreached values" (not ("Data__dComplex___sfEqComplex" `isInfixOf` symbols))
+    assertBool "program object drops unreached constructors" (not ("Data__dComplex___o__t" `isInfixOf` symbols))
     -- So do the modules of aihc-base, whose archive holds no module object.
     basePackage <- seededPackagePath storeRoot target "aihc-base"
     manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath basePackage)

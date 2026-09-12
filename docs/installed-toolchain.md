@@ -178,8 +178,10 @@ It also lists every module the package compiled, exposed or hidden, under `compi
 
 `aihc build --lto` installs its packages with the flag and compiles its own modules to System FC in the same way.
 It then reads the System FC of every module of the program, from the packages and the executable alike.
-It merges them into one program and drops each value declaration that the entry of the executable does not reach.
-Type, synonym, and axiom declarations stay.
+It merges them into one program and drops each declaration that the entry of the executable does not reach.
+A type keeps its header where a type the program keeps mentions it, because the kind in that header decides the runtime representation, and keeps only the constructors that an expression builds or a case alternative matches.
+A type family keeps every equation of the family, because an equation is found by the head of its left side and never by name.
+The program is pruned again after it is inlined, so that a constructor whose last use inlining removed emits no info table.
 It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
 The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
 A `--no-link` bundle carries the program object in place of the module objects.

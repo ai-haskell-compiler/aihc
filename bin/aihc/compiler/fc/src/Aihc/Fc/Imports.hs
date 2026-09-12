@@ -1,8 +1,11 @@
 -- | Select and check the facts that a System FC program imports.
 module Aihc.Fc.Imports
-  ( declReferences,
+  ( axiomReferences,
+    declReferences,
     emptyImports,
     importsForProgramLookup,
+    referencesFromImports,
+    typeReferences,
     unusedImports,
   )
 where
