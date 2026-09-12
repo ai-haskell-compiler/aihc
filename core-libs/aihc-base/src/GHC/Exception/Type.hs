@@ -1,5 +1,3 @@
-{-# LANGUAGE ExistentialQuantification #-}
-
 module GHC.Exception.Type
   ( Exception (..),
     SomeException (..),
@@ -11,32 +9,12 @@ module GHC.Exception.Type
   )
 where
 
-import Data.Typeable (Typeable, cast)
-import GHC.Base (Maybe (..), String, (++))
+import GHC.Base (String, (++))
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Internal.Exception.Type (Exception (..), SomeException (..))
 import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Types (Bool (..))
-
-class (Typeable e, Show e) => Exception e where
-  toException :: e -> SomeException
-  toException = SomeException
-
-  fromException :: SomeException -> Maybe e
-  fromException (SomeException exception) = cast exception
-
-  displayException :: e -> String
-  displayException = show
-
-data SomeException = forall e. (Exception e) => SomeException e
-
-instance Show SomeException where
-  showsPrec precedence (SomeException exception) = showsPrec precedence exception
-
-instance Exception SomeException where
-  toException exception = exception
-  fromException = Just
-  displayException (SomeException exception) = displayException exception
 
 -- | The exceptions that arithmetic operations raise.
 data ArithException

@@ -1,0 +1,19 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+  - TypeApplications
+  - StarIsType
+modules:
+  - |
+    module Test where
+    data Box a = Box a
+    data Flag = Flag
+    apply :: forall (f :: * -> *) a. (a -> f a) -> a -> f a
+    apply constructor value = constructor value
+    result :: Box Flag
+    result = apply @Box Box Flag
+expression: result
+output: |
+  Box Flag
+status: pass
+reason: A visible type argument has the kind of its quantified parameter.
