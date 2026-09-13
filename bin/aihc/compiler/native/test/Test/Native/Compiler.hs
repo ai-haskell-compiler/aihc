@@ -7,6 +7,7 @@ where
 
 import Aihc.Native (NativeTarget (Llvm), OptimizationLevel (O0, O1, Os), backendCompiler, handwrittenCArguments, optimizationArgument, renderLinkedFunctionSymbol, runtimeOptimizationLevel)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Char (digitToInt, isDigit, isHexDigit, ord)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -75,7 +76,7 @@ prop_symbolRoundTrip = property $ do
   components <- forAll (Gen.list (Range.linear 2 4) genComponent)
   let logicalName = T.intercalate "\0" components
       rendered = renderLinkedFunctionSymbol logicalName
-  annotate (T.unpack rendered)
+  annotate (BS8.unpack rendered)
   case decodeLinkedSymbol rendered of
     Left problem -> annotate problem >> failure
     Right decoded -> decoded === Text.encodeUtf8 logicalName
@@ -102,8 +103,8 @@ symbolPunctuation = "_,.-()$#'<=>*:/+[]\t\200"
 
 -- | The inverse of the rendering, spelled out independently so that the test
 -- pins the on-disk encoding rather than restating the renderer.
-decodeLinkedSymbol :: Text -> Either String BS.ByteString
-decodeLinkedSymbol rendered = BS.pack <$> go (T.unpack rendered)
+decodeLinkedSymbol :: BS.ByteString -> Either String BS.ByteString
+decodeLinkedSymbol rendered = BS.pack <$> go (BS8.unpack rendered)
   where
     go [] = Right []
     -- A separator that runs into an escape gives @___@, so read the whole run

@@ -37,8 +37,8 @@ import Aihc.Native
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM)
+import Data.ByteString qualified as BS
 import Data.Maybe (fromMaybe)
-import Data.Text.IO qualified as TIO
 import System.Directory (createDirectory, createDirectoryIfMissing, removeDirectoryRecursive, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -157,7 +157,7 @@ compileLirObject target name lirModule directory object = do
     Nothing -> pure ()
     Just source -> do
       let sourcePath = directory </> name <> nativeSourceExtension target
-      TIO.writeFile sourcePath source
+      BS.writeFile sourcePath source
       (compiler, arguments) <- backendCompiler target
       runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
 

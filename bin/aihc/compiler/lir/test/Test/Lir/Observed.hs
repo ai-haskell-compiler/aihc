@@ -31,8 +31,8 @@ lowerObservedProgram target entryName gcProgram = do
   metadata <-
     renderObservedMetadata
       LowerUnsupportedRuntimeRep
-      (pure . unSymbol . functionSymbol)
-      (\name -> unSymbol (constructorInfoSymbol name 0))
+      (pure . symbolText . functionSymbol)
+      (\name -> symbolText (constructorInfoSymbol name 0))
       id
       program
       resultReps

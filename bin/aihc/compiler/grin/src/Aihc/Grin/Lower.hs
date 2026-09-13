@@ -27,6 +27,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Text.Read (readMaybe)
 
 data LowerEnv = LowerEnv
@@ -1414,7 +1415,9 @@ lowerForeignCall :: Fc.Name -> Fc.CCallSpec -> GrinForeignCall
 lowerForeignCall name specification =
   GrinForeignCall
     { grinForeignCallName = stableGlobalName name,
-      grinForeignCallSymbol = Fc.ccallSymbol specification,
+      -- The one place a C symbol stops being source text and becomes a
+      -- linker name.
+      grinForeignCallSymbol = TE.encodeUtf8 (Fc.ccallSymbol specification),
       grinForeignCallTarget = lowerForeignTarget (Fc.ccallTarget specification),
       grinForeignCallSignature =
         GrinForeignSignature

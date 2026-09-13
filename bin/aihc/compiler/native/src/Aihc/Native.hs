@@ -28,6 +28,7 @@ module Aihc.Native
     parseNativeTarget,
     parseOptimizationLevel,
     renderLinkedFunctionSymbol,
+    renderLinkedPrefixedSymbol,
     renderLinkedConstructorInfoSymbol,
     renderLinkedPartialConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
@@ -46,6 +47,7 @@ import Data.Bits (shiftR, (.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Builder.Extra qualified as BuilderExtra
 import Data.ByteString.Lazy qualified as BL
 import Data.List (intercalate, intersperse)
 import Data.Maybe (catMaybes, fromMaybe)
@@ -128,9 +130,31 @@ parseNativeTarget value =
 -- 'Aihc.Grin.Syntax.grinScopedName' guarantees by always supplying a package,
 -- a module, and a base name. An empty one would put two separators in a row,
 -- and a run of underscores cannot say how it was split.
-renderLinkedFunctionSymbol :: Text -> Text
-renderLinkedFunctionSymbol logicalName =
-  Text.decodeUtf8 (BL.toStrict (Builder.toLazyByteString rendered))
+-- A symbol is bytes: it is written to an object file and read by a linker,
+-- and nothing between here and the string table wants characters. The
+-- renderers below hand back the bytes, and the one buffer they render into
+-- is the only allocation a symbol costs.
+renderLinkedFunctionSymbol :: Text -> ByteString
+renderLinkedFunctionSymbol logicalName = renderSymbol mempty logicalName mempty
+
+-- | 'renderLinkedFunctionSymbol' with a prefix. The prefix shares the buffer
+-- the name renders into, so a prefixed symbol costs one allocation and not
+-- two.
+renderLinkedPrefixedSymbol :: ByteString -> Text -> ByteString
+renderLinkedPrefixedSymbol prefix logicalName = renderSymbol (Builder.byteString prefix) logicalName mempty
+
+-- | One symbol, rendered from its logical name with a prefix and a suffix
+-- that share the same buffer.
+--
+-- The builder runs against a buffer sized for a symbol rather than through
+-- 'Builder.toLazyByteString', whose 4 KiB first chunk dwarfs the 57 bytes an
+-- average name renders to. That one chunk per call made rendering symbols
+-- 6.6% of everything the compiler allocates. 160 bytes covers the longest
+-- name in aihc-base with room to spare; a longer one still renders, it just
+-- spills into a second chunk.
+renderSymbol :: Builder.Builder -> Text -> Builder.Builder -> ByteString
+renderSymbol prefix logicalName suffix =
+  BL.toStrict (BuilderExtra.toLazyByteStringWith symbolBufferStrategy BL.empty (prefix <> rendered <> suffix))
   where
     rendered =
       case BS.split 0 (Text.encodeUtf8 logicalName) of
@@ -153,12 +177,12 @@ renderLinkedFunctionSymbol logicalName =
         <> (if count == 1 then mempty else Builder.string7 (show count))
         <> renderCode byte
     renderCode byte =
-      case lookup byte escapeCodes of
-        Just code -> Builder.word8 code
-        Nothing ->
+      case BS.index escapeCodeTable (fromIntegral byte) of
+        0 ->
           Builder.word8 lowerX
             <> Builder.word8 (hexDigit (byte `shiftR` 4))
             <> Builder.word8 (hexDigit (byte .&. 0x0f))
+        code -> Builder.word8 code
     hexDigit nibble
       | nibble < 10 = 48 + nibble
       | otherwise = 87 + nibble
@@ -168,6 +192,12 @@ renderLinkedFunctionSymbol logicalName =
         || (byte >= 97 && byte <= 122)
     underscore = 95
     lowerX = 120
+
+-- | The buffer one symbol renders into. 'BuilderExtra.safeStrategy' trims the
+-- buffer down to the bytes used, so the rendered name is a single chunk and
+-- 'BL.toStrict' hands it back without copying.
+symbolBufferStrategy :: BuilderExtra.AllocationStrategy
+symbolBufferStrategy = BuilderExtra.safeStrategy 160 BuilderExtra.defaultChunkSize
 
 -- | Short escape codes for the bytes that Haskell names use most, measured
 -- over the installed store. A coded escape costs three bytes where the hex
@@ -202,22 +232,29 @@ escapeCodes = [(ascii source, ascii code) | (source, code) <- table]
         (']', 'j')
       ]
 
+-- | 'escapeCodes' indexed by the byte it escapes, because a name with an
+-- escape in it looks its code up once per escaped run and the compiler
+-- renders millions of them. A zero means the byte has no code and renders as
+-- hex; no code is zero, since every one of them is an ASCII letter.
+escapeCodeTable :: ByteString
+escapeCodeTable = BS.pack [fromMaybe 0 (lookup byte escapeCodes) | byte <- [minBound .. maxBound]]
+
 -- | Render the object symbol for one static Haskell value.
-renderLinkedGlobalSymbol :: Text -> Text
+renderLinkedGlobalSymbol :: Text -> ByteString
 renderLinkedGlobalSymbol = renderLinkedFunctionSymbol
 
 -- | Render the object symbol for the saturated form of one constructor.
-renderLinkedConstructorInfoSymbol :: Text -> Int -> Text
+renderLinkedConstructorInfoSymbol :: Text -> Int -> ByteString
 renderLinkedConstructorInfoSymbol name remaining =
-  "aihc_c_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
+  renderSymbol (Builder.string7 "aihc_c_") name (Builder.char7 '_' <> Builder.intDec remaining)
 
 -- | Render the object symbol for the unsaturated form of one constructor.
 -- Every stage between the bare constructor and the saturated one shares this
 -- info table and records its own width in the object, so one constructor
 -- needs one such symbol however many arguments it takes.
-renderLinkedPartialConstructorInfoSymbol :: Text -> Text
+renderLinkedPartialConstructorInfoSymbol :: Text -> ByteString
 renderLinkedPartialConstructorInfoSymbol name =
-  "aihc_constructor_" <> renderLinkedFunctionSymbol name <> "_partial"
+  renderSymbol (Builder.string7 "aihc_constructor_") name (Builder.string7 "_partial")
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
@@ -752,7 +789,7 @@ data NativeCpsTransfer
 
 -- | Architecture-neutral native ABI description for a CPS primitive.
 data NativeCpsCall = NativeCpsCall
-  { nativeCpsCallSymbol :: !Text,
+  { nativeCpsCallSymbol :: !ByteString,
     nativeCpsCallOperandCount :: !Int,
     nativeCpsCallPassContinuation :: !Bool,
     nativeCpsCallTransfer :: !NativeCpsTransfer
@@ -897,7 +934,7 @@ runtimeCall passMachine resultCount primitive symbol arguments result =
       { nativeRuntimeCallForeignCall =
           GrinForeignCall
             { grinForeignCallName = "$runtime$" <> symbol,
-              grinForeignCallSymbol = symbol,
+              grinForeignCallSymbol = Text.encodeUtf8 symbol,
               grinForeignCallTarget = GrinForeignFunction,
               grinForeignCallSignature =
                 GrinForeignSignature

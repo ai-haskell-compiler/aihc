@@ -52,6 +52,7 @@ import Aihc.Native.Lir qualified as Native
 import Control.Monad (when)
 import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.List (elemIndex)
@@ -70,7 +71,7 @@ data Amd64LirError
 
 -- | The object symbol of a Lir symbol. Linux uses the C symbol names as they
 -- are.
-lirSymbol :: Symbol -> Text
+lirSymbol :: Symbol -> BS.ByteString
 lirSymbol = unSymbol
 
 -- | Lint the module, then assemble it.
@@ -230,7 +231,7 @@ littleEndian count value = BS.pack [fromIntegral (value `shiftR` (8 * index)) | 
 -- with status one.
 renderTraps :: [(Text, Int)] -> [Amd64Statement]
 renderTraps traps =
-  let messageLabel index = ".Llir_trap_message_" <> tshow index
+  let messageLabel index = ".Llir_trap_message_" <> bshow index
       stubs =
         concat
           [ [ amd64Align 4,
@@ -259,8 +260,8 @@ renderTraps traps =
           ]
    in [amd64Section TextSection] <> stubs <> reporter <> (amd64Section ReadOnlySection : messages)
 
-trapStubLabel :: Int -> Text
-trapStubLabel index = ".Llir_trap_" <> tshow index
+trapStubLabel :: Int -> BS.ByteString
+trapStubLabel index = ".Llir_trap_" <> bshow index
 
 argumentRegisters :: [Amd64Register]
 argumentRegisters = [RDI, RSI, RDX, RCX, R8, R9]
@@ -505,7 +506,7 @@ canonicalInteger ty value
   | typeBits ty >= 64 = value `mod` (2 ^ (64 :: Int))
   | otherwise = value `mod` (2 ^ typeBits ty)
 
-address :: Amd64Register -> Text -> Amd64Statement
+address :: Amd64Register -> BS.ByteString -> Amd64Statement
 address register label = amd64Instruction (AmdLea register (Amd64RipAddress label))
 
 immediate :: (Integral value) => Amd64Register -> value -> Amd64Statement
@@ -520,8 +521,9 @@ move destination source
   | destination == source = []
   | otherwise = [amd64Instruction (AmdMov destination (Amd64MoveRegister source))]
 
-tshow :: (Show value) => value -> Text
-tshow = T.pack . show
+-- | A number inside a private label, which is bytes.
+bshow :: (Show value) => value -> BS.ByteString
+bshow = BS8.pack . show
 
 data Test
   = TestNonZero !Amd64Register
@@ -996,7 +998,7 @@ amd64CallIndirect ctx target arguments signature results = do
   body <- amd64Call ctx (Right signature) arguments results
   pure (operandTo' ctx Code scratchRight target <> [testZero scratchRight, amd64Instruction (AmdJe stub)] <> body)
 
-amd64TailCall :: Ctx Amd64Register -> Either Text Operand -> CallingConvention -> [Type] -> [Operand] -> M [Amd64Statement]
+amd64TailCall :: Ctx Amd64Register -> Either BS.ByteString Operand -> CallingConvention -> [Type] -> [Operand] -> M [Amd64Statement]
 amd64TailCall ctx callee convention parameterTypes arguments =
   case convention of
     AihcConvention -> aihcTailCall

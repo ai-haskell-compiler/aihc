@@ -8,6 +8,7 @@ module Aihc.Testing.SchedulerProgram
 where
 
 import Aihc.Grin.Syntax
+import Data.Text.Encoding qualified as TE
 
 schedulerProgram :: GrinProgram
 schedulerProgram =
@@ -119,7 +120,7 @@ stdioSchedulerProgram =
     runtimeIoCall symbol arguments result =
       GrinForeignCall
         { grinForeignCallName = "$ffi$" <> symbol,
-          grinForeignCallSymbol = symbol,
+          grinForeignCallSymbol = TE.encodeUtf8 symbol,
           grinForeignCallTarget = GrinForeignFunction,
           grinForeignCallSignature =
             GrinForeignSignature

@@ -22,14 +22,14 @@ import Aihc.Lir.Syntax (Module)
 import Aihc.Llvm.Lir qualified as Llvm
 import Aihc.Native (NativeTarget (..))
 import Aihc.Wasm.Lir qualified as Wasm
+import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
-import Data.Text (Text)
 
 data BackendOutput
   = -- | A finished object file.
     BackendObject !BL.ByteString
   | -- | A source file for the compiler driver of the target.
-    BackendSource !Text
+    BackendSource !ByteString
 
 -- | The lowering target of a native target.
 lowerTargetFor :: NativeTarget -> LowerTarget
@@ -53,7 +53,7 @@ compileLirWith lint target lirModule =
     Wasm32Wasip3 -> either (Left . show) (Right . BackendSource) (Wasm.compileLirModule lirModule)
 
 -- | Write a native object, or return source for an external compiler.
-compileLirTo :: Bool -> NativeTarget -> Module -> FilePath -> IO (Maybe Text)
+compileLirTo :: Bool -> NativeTarget -> Module -> FilePath -> IO (Maybe ByteString)
 compileLirTo lint target lirModule path = case target of
   AppleArm64 -> Arm64.writeLirObjectWith lint lirModule path >> pure Nothing
   LinuxAmd64 -> Amd64.writeLirObjectWith lint lirModule path >> pure Nothing
@@ -64,7 +64,7 @@ compileLirTo lint target lirModule path = case target of
       BackendSource source -> pure (Just source)
 
 -- | Use shared incremental conversion for both native object paths.
-compileGrinTo :: Bool -> Bool -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe Text)
+compileGrinTo :: Bool -> Bool -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe ByteString)
 compileGrinTo lint checkBounds target dumpPath gcProgram path = case target of
   AppleArm64 -> Arm64.writeGrinObjectWith lint checkBounds dumpPath gcProgram path >> pure Nothing
   LinuxAmd64 -> Amd64.writeGrinObjectWith lint checkBounds dumpPath gcProgram path >> pure Nothing

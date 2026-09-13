@@ -29,6 +29,7 @@ import Data.ByteString qualified as BS
 import Data.Char (isAlpha, isAlphaNum, isPrint, ord)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Numeric (showHex)
 import Prettyprinter (Doc, comma, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, pretty, punctuate, vsep, (<+>))
 import Prettyprinter.Render.Text (renderStrict)
@@ -260,7 +261,26 @@ prettyType ty =
     Code -> "code"
 
 prettySymbol :: Symbol -> Doc ann
-prettySymbol (Symbol name) = "@" <> prettyName name
+prettySymbol (Symbol name) = "@" <> prettySymbolName name
+
+-- | A symbol in the Lir text format. A symbol is a linker name, which is
+-- bytes and never characters, so it prints bare when every byte is a
+-- bare-name byte and otherwise takes the byte-escaped form 'prettyBytes'
+-- writes and 'Aihc.Lir.Parser.quotedBytes' reads. Spelling it as characters
+-- instead would decode on the way out and encode on the way back, which
+-- round-trips only bytes that happen to be valid UTF-8.
+prettySymbolName :: BS.ByteString -> Doc ann
+prettySymbolName name
+  | not (BS.null name) && BS.all isBareNameByte name = pretty (TE.decodeLatin1 name)
+  | otherwise = prettyBytes name
+  where
+    isBareNameByte byte =
+      byte >= 0x30 && byte <= 0x39
+        || byte >= 0x41 && byte <= 0x5a
+        || byte >= 0x61 && byte <= 0x7a
+        || byte == 0x5f
+        || byte == 0x2e
+        || byte == 0x24
 
 prettyVar :: Var -> Doc ann
 prettyVar (Var name) = "%" <> prettyName name

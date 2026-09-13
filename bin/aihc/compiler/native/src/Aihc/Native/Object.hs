@@ -18,7 +18,7 @@ module Aihc.Native.Object
     imageMetadata,
     Item (..),
     Name (..),
-    nameText,
+    nameBytes,
     ObjectError (..),
     Relocation (..),
     SectionDraft (..),
@@ -41,6 +41,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Builder.Extra qualified as Builder
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
@@ -52,6 +53,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as Text
 import Data.Word (Word32, Word64, Word8)
 
 data SectionRole
@@ -77,8 +79,8 @@ data FixupKind
 -- to the object, by a number. A private label carries its text only for
 -- rendering; the assembler never compares or stores it.
 data Name
-  = SymbolName !Text
-  | LocalName !Int Text
+  = SymbolName !ByteString
+  | LocalName !Int ByteString
 
 instance Eq Name where
   SymbolName left == SymbolName right = left == right
@@ -92,13 +94,18 @@ instance Ord Name where
   compare (SymbolName left) (SymbolName right) = compare left right
 
 instance Show Name where
-  showsPrec precedence name = showsPrec precedence (nameText name)
+  showsPrec precedence name = showsPrec precedence (nameBytes name)
 
-nameText :: Name -> Text
-nameText name =
+nameBytes :: Name -> ByteString
+nameBytes name =
   case name of
-    SymbolName text -> text
-    LocalName _ text -> text
+    SymbolName bytes -> bytes
+    LocalName _ bytes -> bytes
+
+-- | One name in a diagnostic. Names are ASCII, so this widens the bytes one
+-- character each rather than decoding them.
+nameMessage :: Name -> Text
+nameMessage = Text.decodeLatin1 . nameBytes
 
 -- | A place in a section whose bytes depend on the address of a symbol. The
 -- width is the number of bytes the fixup occupies and the word is the value
@@ -133,7 +140,7 @@ data SectionDraft = SectionDraft
     -- | The bytes appended since the last flush, and how many.
     sectionPending :: !Builder.Builder,
     sectionPendingSize :: !Int,
-    sectionLabelsRev :: ![(Text, Word64)],
+    sectionLabelsRev :: ![(ByteString, Word64)],
     sectionLocalsRev :: ![(Int, Word64)],
     sectionFixupsRev :: ![(Word64, Fixup)],
     sectionPatchesRev :: ![(Word64, Word32)],
@@ -148,7 +155,7 @@ data Draft = Draft
     draftSectionOrder :: ![SectionRole],
     -- | Every section other than the current one.
     draftOtherSections :: !(Map SectionRole SectionDraft),
-    draftGlobals :: !(Set Text)
+    draftGlobals :: !(Set ByteString)
   }
 
 -- | Every section of the draft.
@@ -163,7 +170,7 @@ imageMetadata :: Image -> Image
 imageMetadata image = image {imageSections = map (\section -> section {imageSectionBytes = BL.empty}) (imageSections image)}
 
 data Symbol = Symbol
-  { symbolName :: !Text,
+  { symbolName :: !ByteString,
     symbolGlobal :: !Bool,
     symbolSection :: !(Maybe SectionRole),
     symbolOffset :: !Word64
@@ -232,7 +239,7 @@ sealFunction draft = do
       (fixups, patches) <- result
       case fixupTarget fixup of
         LocalName identifier _ -> case IntMap.lookup identifier locals of
-          Nothing -> Left (ObjectMissingSymbol (nameText (fixupTarget fixup)))
+          Nothing -> Left (ObjectMissingSymbol (nameMessage (fixupTarget fixup)))
           Just target -> do
             value <- patchLocal offset target fixup
             pure (fixups, (offset, value) : patches)
@@ -253,7 +260,7 @@ selectSection role draft
               draftOtherSections = Map.delete role others
             }
 
-addGlobal :: Text -> Draft -> Draft
+addGlobal :: ByteString -> Draft -> Draft
 addGlobal name draft = draft {draftGlobals = Set.insert name (draftGlobals draft)}
 
 -- | Append one item to the current section.
@@ -433,7 +440,7 @@ layoutDraftWith payload draft = do
         Map.fromList
           ( zip
               [name | name <- names, name `Set.notMember` globals, name `Map.member` definitions]
-              [".L" <> T.pack (show index) | index <- [0 :: Int ..]]
+              [".L" <> BS8.pack (show index) | index <- [0 :: Int ..]]
           )
       emitted name = Map.findWithDefault name name privateLabels
       -- 'imageSymbols' ascends by the name each symbol is written under, so
@@ -467,13 +474,13 @@ data LaidSection = LaidSection
     laidAlignment :: !Int,
     laidBytes :: BL.ByteString,
     laidSize :: !Word64,
-    laidLabels :: ![(Text, Word64)],
+    laidLabels :: ![(ByteString, Word64)],
     laidLocals :: ![(Int, Word64)],
     laidFixups :: ![(Word64, Fixup)],
     laidPatches :: ![(Word64, Word32)]
   }
 
-collectDefinitions :: [LaidSection] -> Either ObjectError (Map Text (SectionRole, Word64))
+collectDefinitions :: [LaidSection] -> Either ObjectError (Map ByteString (SectionRole, Word64))
 collectDefinitions = foldl' addSection (Right Map.empty)
   where
     addSection result section = do
@@ -482,13 +489,13 @@ collectDefinitions = foldl' addSection (Right Map.empty)
     addLabel role result (name, offset) = do
       definitions <- result
       if Map.member name definitions
-        then Left (ObjectDuplicateSymbol name)
+        then Left (ObjectDuplicateSymbol (Text.decodeLatin1 name))
         else pure (Map.insert name (role, offset) definitions)
 
 -- | Whether this object can fill a fixup in without the linker. The target
 -- must sit in the same section, be private to this object, and have a kind
 -- that 'patchLocal' handles.
-isLocalPatch :: Set Text -> Map Text (SectionRole, Word64) -> SectionRole -> Fixup -> Bool
+isLocalPatch :: Set ByteString -> Map ByteString (SectionRole, Word64) -> SectionRole -> Fixup -> Bool
 isLocalPatch globals definitions role fixup =
   canResolve (fixupKind fixup)
     && case fixupTarget fixup of
@@ -512,7 +519,7 @@ collectLocals = foldl' addSection (Right IntMap.empty)
         then Left (ObjectDuplicateSymbol (T.pack (".L" <> show identifier)))
         else pure (IntMap.insert identifier (role, offset) locals)
 
-resolveSection :: Set Text -> Map Text (SectionRole, Word64) -> IntMap (SectionRole, Word64) -> Map Text Int -> LaidSection -> Either ObjectError ImageSection
+resolveSection :: Set ByteString -> Map ByteString (SectionRole, Word64) -> IntMap (SectionRole, Word64) -> Map ByteString Int -> LaidSection -> Either ObjectError ImageSection
 resolveSection globals definitions locals table section = do
   (patches, relocations) <- foldl' resolve (Right ([], [])) (laidFixups section)
   bytes <- applyPatches (laidSize section) (laidBytes section) (sortOn fst (laidPatches section <> patches))
@@ -537,17 +544,17 @@ resolveSection globals definitions locals table section = do
                   patched <- patchLocal offset targetOffset fixup
                   pure ((offset, patched) : patches, relocations)
               | otherwise -> Left (ObjectInvalidFixup (fixupKind fixup))
-            Nothing -> Left (ObjectMissingSymbol (nameText (fixupTarget fixup)))
+            Nothing -> Left (ObjectMissingSymbol (nameMessage (fixupTarget fixup)))
         SymbolName name
           | isLocalPatch globals definitions (laidRole section) fixup ->
               case Map.lookup name definitions of
-                Nothing -> Left (ObjectMissingSymbol name)
+                Nothing -> Left (ObjectMissingSymbol (Text.decodeLatin1 name))
                 Just (_, targetOffset) -> do
                   patched <- patchLocal offset targetOffset fixup
                   pure ((offset, patched) : patches, relocations)
           | otherwise ->
               case Map.lookup name table of
-                Nothing -> Left (ObjectMissingSymbol name)
+                Nothing -> Left (ObjectMissingSymbol (Text.decodeLatin1 name))
                 Just index ->
                   pure
                     ( patches,
@@ -569,15 +576,15 @@ patchLocal offset target fixup =
   case fixupKind fixup of
     Arm64Branch26 ->
       if displacement `mod` 4 /= 0 || not (fitsSigned 28 displacement)
-        then Left (ObjectDisplacementOutOfRange (nameText (fixupTarget fixup)))
+        then Left (ObjectDisplacementOutOfRange (nameMessage (fixupTarget fixup)))
         else pure (instruction .|. fromIntegral ((displacement `shiftR` 2) .&. 0x03ffffff))
     Arm64Branch19 ->
       if displacement `mod` 4 /= 0 || not (fitsSigned 21 displacement)
-        then Left (ObjectDisplacementOutOfRange (nameText (fixupTarget fixup)))
+        then Left (ObjectDisplacementOutOfRange (nameMessage (fixupTarget fixup)))
         else pure (instruction .|. fromIntegral (((displacement `shiftR` 2) .&. 0x7ffff) `shiftL` 5))
     Arm64Adr21 ->
       if not (fitsSigned 21 displacement)
-        then Left (ObjectDisplacementOutOfRange (nameText (fixupTarget fixup)))
+        then Left (ObjectDisplacementOutOfRange (nameMessage (fixupTarget fixup)))
         else
           let immediate = displacement .&. 0x1fffff
               low = fromIntegral ((immediate .&. 3) `shiftL` 29)
@@ -592,7 +599,7 @@ patchLocal offset target fixup =
     patchX86 =
       if fitsSigned 32 displacement
         then pure (fromIntegral displacement)
-        else Left (ObjectDisplacementOutOfRange (nameText (fixupTarget fixup)))
+        else Left (ObjectDisplacementOutOfRange (nameMessage (fixupTarget fixup)))
 
 -- | Apply ordered patches as the consumer reads the section chunks.
 applyPatches :: Word64 -> BL.ByteString -> [(Word64, Word32)] -> Either ObjectError BL.ByteString

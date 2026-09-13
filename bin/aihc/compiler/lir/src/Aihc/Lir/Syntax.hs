@@ -8,6 +8,7 @@ module Aihc.Lir.Syntax
   ( Module (..),
     Item (..),
     Symbol (..),
+    symbolText,
     Var (..),
     Label (..),
     Type (..),
@@ -46,6 +47,7 @@ where
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)
+import Data.Text.Encoding qualified as Text
 
 -- | A whole Lir module. Item order is preserved by the pretty-printer.
 newtype Module = Module
@@ -67,8 +69,24 @@ data Item
   deriving (Eq, Show)
 
 -- | A module-level name: a function, a global, or a data object.
-newtype Symbol = Symbol {unSymbol :: Text}
+--
+-- It is bytes, not text. A symbol exists to be written into an object file
+-- and read back by a linker, so it never leaves the byte world except to be
+-- printed, and carrying it as 'Text' meant decoding every name on the way in
+-- and encoding it again on the way out.
+newtype Symbol = Symbol {unSymbol :: ByteString}
   deriving (Eq, Ord, Show)
+
+-- | A symbol in a diagnostic.
+--
+-- Every symbol is ASCII: 'Aihc.Native.renderLinkedFunctionSymbol' escapes
+-- each byte that is not an ASCII alphanumeric, and the symbols the compiler
+-- builds itself are ASCII literals and decimal digits. So this widens the
+-- bytes rather than decoding them -- one character per byte, total, and
+-- never a replacement character. A message is text, which is why this
+-- exists; the Lir text format spells a symbol out as bytes instead.
+symbolText :: Symbol -> Text
+symbolText = Text.decodeLatin1 . unSymbol
 
 -- | A value name inside one function.
 newtype Var = Var {unVar :: Text}

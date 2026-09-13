@@ -21,7 +21,6 @@ import Data.IntSet qualified as IntSet
 import Data.List (mapAccumL, sortOn)
 import Data.Maybe (isJust, isNothing)
 import Data.Ord (Down (..))
-import Data.Text.Encoding qualified as Text
 import Data.Word (Word32, Word64)
 
 writeArm64MachO :: Image -> Either ObjectError BL.ByteString
@@ -315,7 +314,7 @@ buildStringTable symbols =
    in (map fst entries, table <> BS.replicate (paddedSize - BS.length table) 0)
   where
     add offset symbol =
-      let bytes = Text.encodeUtf8 (symbolName symbol)
+      let bytes = symbolName symbol
        in (offset + BS.length bytes + 1, (fromIntegral offset, bytes))
 
 putFixedName :: ByteString -> Put

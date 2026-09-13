@@ -70,14 +70,16 @@ import Aihc.Native
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
-    renderLinkedFunctionSymbol,
     renderLinkedGlobalSymbol,
     renderLinkedPartialConstructorInfoSymbol,
+    renderLinkedPrefixedSymbol,
   )
 import Control.Monad (foldM, forM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Char (ord)
 import Data.Foldable (for_)
 import Data.Map.Strict (Map)
@@ -279,6 +281,10 @@ data Helper
   | HelperApplySlot
   deriving (Eq, Ord, Show)
 
+-- | A symbol the lowering numbers, like @aihc_lir_info_12@.
+numberedSymbol :: ByteString -> Int -> Symbol
+numberedSymbol prefix index = Symbol (prefix <> BS8.pack (show index))
+
 helperSymbol :: Helper -> Symbol
 helperSymbol helper =
   Symbol $ case helper of
@@ -292,8 +298,8 @@ helperSymbol helper =
     HelperContinueSlot -> "aihc_lir_continue_slot"
     HelperApplySlot -> "aihc_lir_apply_slot"
 
-shapeName :: [Type] -> Text
-shapeName = T.pack . map letter
+shapeName :: [Type] -> ByteString
+shapeName = BS8.pack . map letter
   where
     letter ty = if ty == Ptr then 'p' else 'i'
 
@@ -365,7 +371,7 @@ lowerEnvironment options gcProgram =
       envInfos = map snd (constructorEntries <> functionEntries),
       envStaticReferences = staticReferences,
       envSrtSymbols = srtSymbols,
-      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)]
+      envAddrLiterals = Map.fromList [(bytes, numberedSymbol "aihc_lir_addr_" index) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)]
     }
   where
     program = gcGrinProgram gcProgram
@@ -376,7 +382,7 @@ lowerEnvironment options gcProgram =
     staticReferences = programStaticReferences program
     srtSymbols =
       Map.fromList
-        [ (name, Symbol ("aihc_lir_srt_" <> T.pack (show index)))
+        [ (name, numberedSymbol "aihc_lir_srt_" index)
         | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
         ]
     constructorLayouts = grinConstructors program
@@ -424,7 +430,7 @@ lowerEnvironment options gcProgram =
         Just name <- [runtimeInfoFunctionName key],
         name `Map.member` functionSymbols
       ]
-    infoSymbols = Map.fromList [(key, Symbol ("aihc_lir_info_" <> T.pack (show index))) | (index, key) <- zip [0 :: Int ..] infoKeys]
+    infoSymbols = Map.fromList [(key, numberedSymbol "aihc_lir_info_" index) | (index, key) <- zip [0 :: Int ..] infoKeys]
     functionEntries =
       [ ( key,
           RuntimeInfo
@@ -469,7 +475,7 @@ lowerEnvironment options gcProgram =
 
 -- | The Lir symbol of one GRIN function.
 functionSymbol :: FunctionName -> Symbol
-functionSymbol (FunctionName name) = Symbol ("aihc_f_" <> renderLinkedFunctionSymbol name)
+functionSymbol (FunctionName name) = Symbol (renderLinkedPrefixedSymbol "aihc_f_" name)
 
 constructorInfoSymbol :: Text -> Int -> Symbol
 constructorInfoSymbol name remaining = Symbol (renderLinkedConstructorInfoSymbol name remaining)
@@ -757,7 +763,7 @@ internBitmap bytes
       case Map.lookup bytes known of
         Just symbol -> pure (Just symbol)
         Nothing -> do
-          let symbol = Symbol ("aihc_lir_bitmap_" <> T.pack (show (Map.size known)))
+          let symbol = numberedSymbol "aihc_lir_bitmap_" (Map.size known)
           modify' (\state -> state {stateBitmaps = Map.insert bytes symbol (stateBitmaps state)})
           emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes]))
           pure (Just symbol)
@@ -768,9 +774,9 @@ lowerInfo info = do
   let fields = infoFields info
       byte = DataInt I8 . toInteger
   when (length fields > infoByteFieldLimit) $
-    failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> unSymbol (infoSymbol info)))
+    failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> symbolText (infoSymbol info)))
   when (infoRemainingArity info > infoByteFieldLimit) $
-    failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
+    failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> symbolText (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
   entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
@@ -826,7 +832,7 @@ sharedEnterSymbol enter
     length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
     stored <= sharedEnterMaxStored,
     supplied <= sharedEnterMaxSupplied =
-      Just (Symbol (T.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> (if passesContinuation then "_k" else ""))))
+      Just (Symbol (BS8.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> (if passesContinuation then "_k" else ""))))
   | otherwise = Nothing
   where
     stored = length (enterStored enter)
@@ -852,7 +858,7 @@ lowerEnterStub stub enter = do
   let values = stored <> [Typed (OperandVar var) ty | (var, ty) <- supplied] <> [Typed (OperandVar continuation) Ptr | enterPassesContinuation enter]
       parameters = enterTargetParameters enter
   when (length parameters /= length values) $
-    failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> unSymbol (enterTarget enter)))
+    failWith (LowerUnsupportedExpression ("enter stub arity mismatch for " <> symbolText (enterTarget enter)))
   arguments <- zipWithM coerce parameters values
   terminate (TailCall (enterTarget enter) (OperandVar machine : arguments))
   finishFunction stub Internal ((machine, Ptr) : (object, Ptr) : (continuation, Ptr) : supplied) [] AihcConvention
@@ -1121,7 +1127,7 @@ functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
 
 -- | The single result of one extern C call.
-callRuntime :: Text -> [Type] -> [Type] -> [Operand] -> LowerM Operand
+callRuntime :: ByteString -> [Type] -> [Type] -> [Operand] -> LowerM Operand
 callRuntime name parameters results arguments = do
   let symbol = Symbol name
   requireExtern symbol parameters results

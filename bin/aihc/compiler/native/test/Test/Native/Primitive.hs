@@ -15,6 +15,7 @@ import Aihc.Native
     supportedNativePrimitiveNames,
   )
 import Data.Text (Text)
+import Data.Text.Encoding qualified as TE
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 
@@ -176,7 +177,7 @@ tests =
     ]
 
 runtimeCallSymbol :: NativeRuntimeCall -> Text
-runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
+runtimeCallSymbol = TE.decodeUtf8 . grinForeignCallSymbol . nativeRuntimeCallForeignCall
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
 byteArrayRuntimeSymbols =

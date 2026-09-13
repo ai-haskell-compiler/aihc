@@ -19,6 +19,7 @@ import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Char qualified as Char
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int16, Int32, Int64, Int8)
@@ -2001,7 +2002,7 @@ callForeign foreignCall arguments
   | otherwise = do
       marshalledArguments <-
         zipWithM
-          (marshalForeignArgument (grinForeignCallSymbol foreignCall))
+          (marshalForeignArgument (foreignSymbolText foreignCall))
           (grinForeignArgumentTypes (grinForeignCallSignature foreignCall))
           arguments
       functionPointer <- lookupForeignFunction foreignCall
@@ -2033,7 +2034,7 @@ callForeign foreignCall arguments
           liftEvalIO (callFFI functionPointer retVoid marshalledArguments)
           pure []
   where
-    symbol = grinForeignCallSymbol foreignCall
+    symbol = foreignSymbolText foreignCall
 
 hostIOMode :: Integer -> IOMode
 hostIOMode mode =
@@ -2289,14 +2290,20 @@ expectForeignLiteral symbol expectedRep value =
     RuntimeLit (GrinLitInt actualRep intValue) | actualRep == expectedRep -> pure intValue
     other -> throwInterpret (InterpretForeignTypeError symbol other)
 
+-- | The C symbol of one foreign call, for a diagnostic. The call resolves
+-- the symbol as bytes; only the message needs characters, and a C linker
+-- name is ASCII, so this widens rather than decodes.
+foreignSymbolText :: GrinForeignCall -> Text
+foreignSymbolText = TE.decodeLatin1 . grinForeignCallSymbol
+
 lookupForeignFunction :: GrinForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
-  lookupResult <- liftEvalIO (tryForeign (dlsym Default (T.unpack (grinForeignCallSymbol foreignCall))))
+  lookupResult <- liftEvalIO (tryForeign (dlsym Default (BS8.unpack (grinForeignCallSymbol foreignCall))))
   case lookupResult of
     Left err ->
       throwInterpret
         ( InterpretForeignLookupError
-            (grinForeignCallSymbol foreignCall)
+            (foreignSymbolText foreignCall)
             (T.pack (displayException err))
         )
     Right pointer -> pure pointer

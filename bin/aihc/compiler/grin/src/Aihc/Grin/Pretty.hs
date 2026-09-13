@@ -6,6 +6,7 @@ where
 
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Char (chr, isPrint, isSpace)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -281,7 +282,7 @@ prettyForeignCall scopes foreignCall =
   prettyName scopes (grinForeignCallName foreignCall)
     <+> "="
     <+> prettyForeignTarget (grinForeignCallTarget foreignCall)
-    <> pretty (show (T.unpack (grinForeignCallSymbol foreignCall)))
+    <> pretty (show (BS8.unpack (grinForeignCallSymbol foreignCall)))
     <+> "::"
     <+> prettyForeignSignature (grinForeignCallSignature foreignCall)
 

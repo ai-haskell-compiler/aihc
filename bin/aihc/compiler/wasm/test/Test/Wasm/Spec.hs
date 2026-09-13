@@ -19,6 +19,8 @@ import Aihc.Wasm.Lir (compileLirModule)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_, unless)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.List (sort)
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
@@ -103,7 +105,7 @@ clangSupportsWasm clang = do
 skippedFixtures :: [FilePath]
 skippedFixtures = ["trap-misaligned.lir", "trap-read-only.lir", "indirect-call.lir", "info-table.lir"]
 
-compileText :: Module -> IO Text
+compileText :: Module -> IO ByteString
 compileText lirModule = either (assertFailure . ("WebAssembly backend failed: " <>) . show) pure (compileLirModule lirModule)
 
 fixtureTest :: Maybe WasmTools -> FilePath -> FilePath -> TestTree
@@ -114,7 +116,7 @@ fixtureTest tools directory name = testCase name $ do
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   assembly <- compileText wrapped
-  assertBool "declares the test entry" (".functype\taihc_lir_test_main (i32) -> (i64)" `T.isInfixOf` assembly)
+  assertBool "declares the test entry" (".functype\taihc_lir_test_main (i32) -> (i64)" `BS.isInfixOf` assembly)
   case tools of
     Just available | name `notElem` skippedFixtures -> do
       (exit, out, err) <- runFixture available assembly
@@ -222,7 +224,7 @@ driverSource =
       "}"
     ]
 
-runFixture :: WasmTools -> Text -> IO (ExitCode, String, String)
+runFixture :: WasmTools -> ByteString -> IO (ExitCode, String, String)
 runFixture tools assembly =
   withTempDirectory "aihc-wasm-fixture" $ \directory -> do
     let assemblyPath = directory </> "fixture.s"
@@ -230,7 +232,7 @@ runFixture tools assembly =
         driverPath = directory </> "driver.c"
         driverObject = directory </> "driver.o"
         moduleFile = directory </> "fixture.wasm"
-    TIO.writeFile assemblyPath assembly
+    BS.writeFile assemblyPath assembly
     writeFile driverPath driverSource
     (_, backendArguments) <- backendCompiler Wasm32Wasip3
     runTool (toolsClang tools) (backendArguments <> ["-c", assemblyPath, "-o", fixtureObject])
@@ -279,7 +281,7 @@ snapshotTest directory name = testCase name $ do
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   assembly <- compileText lirModule
-  assertBool "info tables have 4-byte words" ("\t.p2align\t2, 0x0" `T.isInfixOf` assembly)
+  assertBool "info tables have 4-byte words" ("\t.p2align\t2, 0x0" `BS.isInfixOf` assembly)
   forM_ (snapshotFixtureWasmIntegerFields fixture) $ \(globalName, expected) -> do
     let fields =
           [ [T.pack (show ty) | DataInt ty _ <- dataFields item]
@@ -328,7 +330,7 @@ programTest tools expected program = do
   assertEqual "entry Lir lint" [] (map renderLintError (lintModule entryLir))
   moduleAssembly <- compileText moduleLir
   entryAssembly <- compileText entryLir
-  assertBool "the entry exports the P3 start" ("aihc_lir_program_start" `T.isInfixOf` entryAssembly)
+  assertBool "the entry exports the P3 start" ("aihc_lir_program_start" `BS.isInfixOf` entryAssembly)
   case tools of
     Just available | toolsComponents available ->
       withTempDirectory "aihc-wasm-program" $ \directory -> do
@@ -341,7 +343,7 @@ programTest tools expected program = do
             component = directory </> "program.wasm"
         entry <- prepareEntryArchive storeRoot Wasm32Wasip3
         runtime <- prepareRuntimeArchive storeRoot Wasm32Wasip3 GcSemispace
-        TIO.writeFile assemblyPath moduleAssembly
+        BS.writeFile assemblyPath moduleAssembly
         writeFile stubPath (putcharStub expected)
         (_, backendArguments) <- backendCompiler Wasm32Wasip3
         runTool (toolsClang available) (backendArguments <> ["-c", assemblyPath, "-o", programObject])

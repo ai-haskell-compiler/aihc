@@ -113,11 +113,17 @@ stringUnit = (MPC.char '\\' *> escape) <|> (Right <$> MP.anySingle)
 nameAfterSigil :: Parser Text
 nameAfterSigil = bareName <|> quotedText
 
+-- | The bytes of a symbol after its sigil. A bare name is ASCII, so encoding
+-- it is exact; a quoted one is read byte by byte, which is what
+-- 'Aihc.Lir.Pretty.prettySymbolName' writes.
+nameBytesAfterSigil :: Parser BS.ByteString
+nameBytesAfterSigil = (TE.encodeUtf8 <$> bareName) <|> quotedBytes
+
 variable :: Parser Var
 variable = lexeme (Var <$> (MPC.char '%' *> nameAfterSigil))
 
 symbolName :: Parser Symbol
-symbolName = lexeme (Symbol <$> (MPC.char '@' *> nameAfterSigil))
+symbolName = lexeme (Symbol <$> (MPC.char '@' *> nameBytesAfterSigil))
 
 label :: Parser Label
 label = lexeme (Label <$> (bareName <|> quotedText))

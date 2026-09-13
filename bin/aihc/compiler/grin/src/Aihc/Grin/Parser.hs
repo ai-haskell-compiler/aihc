@@ -592,7 +592,7 @@ foreignCallDefinition = do
   _ <- MPC.char '='
   horizontal1
   target <- MP.option GrinForeignFunction (GrinForeignAddress <$ (keyword "address" <* horizontal1))
-  symbolName <- stringText
+  symbolName <- stringBytes
   horizontal1
   _ <- MPC.string "::"
   horizontal1
@@ -732,6 +732,17 @@ name = stringText <|> MP.takeWhile1P (Just "name") isBareNameCharacter
 
 stringText :: Parser Text
 stringText = T.pack <$> (MPC.char '"' *> MP.manyTill L.charLiteral (MPC.char '"'))
+
+-- | A string literal read as bytes, one character per byte. A C linker
+-- symbol is bytes, not characters, so the text format spells it out byte by
+-- byte and 'Aihc.Grin.Pretty' writes exactly this back. Encoding the
+-- characters instead would round-trip only what happens to be valid UTF-8.
+stringBytes :: Parser BS.ByteString
+stringBytes = do
+  characters <- MPC.char '"' *> MP.manyTill L.charLiteral (MPC.char '"')
+  case filter (> '\xff') characters of
+    character : _ -> fail ("a symbol byte must be below 256, but this one is " <> show (ord character))
+    [] -> pure (BS.pack (map (fromIntegral . ord) characters))
 
 haskellChar :: Parser Char
 haskellChar = MPC.char '\'' *> L.charLiteral <* MPC.char '\''

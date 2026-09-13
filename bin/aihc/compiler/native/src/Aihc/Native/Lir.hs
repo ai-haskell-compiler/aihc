@@ -56,7 +56,9 @@ import Control.Monad (forM, forM_, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Control.Monad.Trans.State.Strict (StateT (..), evalStateT, execStateT, get, mapStateT, modify, modify', put, runState, runStateT)
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -92,7 +94,7 @@ type NativeM error = StateT ObjectState (Either error)
 data NativeBackend statement register error = NativeBackend
   { nbLintErrors :: [LintError] -> error,
     nbUnsupported :: Text -> error,
-    nbSymbol :: Symbol -> Text,
+    nbSymbol :: Symbol -> ByteString,
     nbArgumentRegisters :: ![register],
     nbResultRegisters :: ![register],
     nbPreservedRegisters :: ![register],
@@ -110,19 +112,19 @@ data NativeBackend statement register error = NativeBackend
     nbRegistersFor :: CallingConvention -> Function -> Registers register,
     nbSection :: SectionRole -> statement,
     nbAlign :: Int -> statement,
-    nbGlobal :: Text -> statement,
+    nbGlobal :: ByteString -> statement,
     nbLabel :: Name -> statement,
     nbBytes :: BS.ByteString -> statement,
     nbWord :: Int -> Word64 -> statement,
     nbQuad :: Word64 -> statement,
-    nbQuadSymbol :: Text -> statement,
-    nbQuadSymbolAddend :: Text -> Int64 -> statement,
+    nbQuadSymbol :: ByteString -> statement,
+    nbQuadSymbolAddend :: ByteString -> Int64 -> statement,
     nbAsCode :: statement -> Maybe SlotEffect,
     nbRenderTraps :: [(Text, Int)] -> [statement],
     -- | A trampoline of one function: its local label and an unconditional
     -- branch to the trap stub with the given label. A backend whose
     -- conditional branch reaches the whole object gives 'Nothing'.
-    nbTrapTrampoline :: !(Maybe (Name -> Text -> [statement])),
+    nbTrapTrampoline :: !(Maybe (Name -> ByteString -> [statement])),
     nbPrologueFrame :: Bool -> Int -> [statement],
     nbLeaveFrame :: Ctx register -> Int -> [statement],
     nbSaveReg :: register -> Int -> statement,
@@ -154,11 +156,11 @@ data NativeBackend statement register error = NativeBackend
     nbStore :: Ctx register -> Type -> Operand -> Operand -> Integer -> [statement],
     nbPtrAdd :: Ctx register -> register -> Operand -> register -> [statement],
     nbStackAddr :: register -> Int -> [statement],
-    nbGlobalLoad :: register -> Text -> [statement],
-    nbGlobalStore :: register -> Text -> [statement],
+    nbGlobalLoad :: register -> ByteString -> [statement],
+    nbGlobalStore :: register -> ByteString -> [statement],
     nbCall :: Ctx register -> Either Symbol Signature -> [Operand] -> [Var] -> NativeM error [statement],
     nbCallIndirect :: Ctx register -> Operand -> [Operand] -> Signature -> [Var] -> NativeM error [statement],
-    nbTailCall :: Ctx register -> Either Text Operand -> CallingConvention -> [Type] -> [Operand] -> NativeM error [statement]
+    nbTailCall :: Ctx register -> Either ByteString Operand -> CallingConvention -> [Type] -> [Operand] -> NativeM error [statement]
   }
 
 -- | How a branch tests a condition.
@@ -244,13 +246,13 @@ nextLabelId = do
   put state {objectNextId = identifier + 1}
   pure identifier
 
-freshLabel :: Text -> NativeM error Name
+freshLabel :: ByteString -> NativeM error Name
 freshLabel kind = do
   state <- get
   let index = objectNextLabel state
   put state {objectNextLabel = index + 1}
   identifier <- nextLabelId
-  pure (LocalName identifier (".Llir_" <> kind <> "_" <> tshow index))
+  pure (LocalName identifier (".Llir_" <> kind <> "_" <> bshow index))
 
 -- | The label of the stub that reports one trap message, or of the
 -- trampoline of the function to it.
@@ -269,12 +271,12 @@ trapLabel message = do
         pure name
     else pure (SymbolName (trapStubLabel index))
 
-trapStubLabel :: Int -> Text
-trapStubLabel index = ".Llir_trap_" <> tshow index
+trapStubLabel :: Int -> ByteString
+trapStubLabel index = ".Llir_trap_" <> bshow index
 
 -- | The trampoline of one function to one trap stub.
-functionTrapLabel :: Int -> Int -> Text
-functionTrapLabel functionIndex index = ".Llir_trap_" <> tshow functionIndex <> "_" <> tshow index
+functionTrapLabel :: Int -> Int -> ByteString
+functionTrapLabel functionIndex index = ".Llir_trap_" <> bshow functionIndex <> "_" <> bshow index
 
 -- | The trampolines of the function being compiled, one for each trap it
 -- referenced, and clear them for the next function.
@@ -491,7 +493,7 @@ prepareFunction backend signatures index function = do
         (zip [0 :: Int ..] blocks)
         ( \(position, block) -> do
             identifier <- nextLabelId
-            pure (blockLabel block, LocalName identifier (".Llir_" <> tshow index <> "_" <> tshow position))
+            pure (blockLabel block, LocalName identifier (".Llir_" <> bshow index <> "_" <> bshow position))
         )
   let ctx =
         Ctx
@@ -508,9 +510,9 @@ prepareFunction backend signatures index function = do
   when (functionConvention function == CConvention) $ do
     let (integers, floats) = classify (map snd (functionParameters function))
     when (length integers > length (nbArgumentRegisters backend)) $
-      unsupported backend ("function " <> unSymbol (functionName function) <> " has more than " <> nbCIntegerLimitWord backend <> " integer C parameters")
+      unsupported backend ("function " <> symbolText (functionName function) <> " has more than " <> nbCIntegerLimitWord backend <> " integer C parameters")
     when (length floats > nbFloatArgCount backend) $
-      unsupported backend ("function " <> unSymbol (functionName function) <> " has more than eight float C parameters")
+      unsupported backend ("function " <> symbolText (functionName function) <> " has more than eight float C parameters")
   prologue <- functionPrologue backend ctx
   pure
     ( ctx,
@@ -575,7 +577,7 @@ functionLayout backend signatures function = do
         placed -> maximum [offset + allocated | (offset, allocated) <- placed]
       size = ((end + 15) `div` 16) * 16
   case nbMaxFrameBytes backend of
-    Just limit | size > limit -> unsupported backend ("function " <> unSymbol (functionName function) <> " needs a frame larger than 32000 bytes")
+    Just limit | size > limit -> unsupported backend ("function " <> symbolText (functionName function) <> " needs a frame larger than 32000 bytes")
     _ -> pure ()
   pure
     Layout
@@ -707,8 +709,9 @@ canonicalInteger ty value
   | typeBits ty >= 64 = value `mod` (2 ^ (64 :: Int))
   | otherwise = value `mod` (2 ^ typeBits ty)
 
-tshow :: (Show value) => value -> Text
-tshow = T.pack . show
+-- | A number inside a symbol or a private label, which are bytes.
+bshow :: (Show value) => value -> ByteString
+bshow = BS8.pack . show
 
 -- Parallel moves
 

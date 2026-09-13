@@ -23,7 +23,7 @@ module Aihc.Amd64.Assemble
     amd64Instruction,
     amd64Label,
     Name (..),
-    nameText,
+    nameBytes,
     amd64Quad,
     amd64QuadSymbol,
     amd64QuadSymbolAddend,
@@ -40,17 +40,16 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
-import Data.Text (Text)
 import Data.Word (Word32, Word64, Word8)
 
 data Amd64Statement
   = Amd64Section !SectionRole
   | Amd64Align !Int
-  | Amd64Global !Text
+  | Amd64Global !ByteString
   | Amd64Label !Name
   | Amd64Quad !Word64
-  | Amd64QuadSymbol !Text
-  | Amd64QuadSymbolAddend !Text !Int64
+  | Amd64QuadSymbol !ByteString
+  | Amd64QuadSymbolAddend !ByteString !Int64
   | Amd64Bytes !ByteString
   | Amd64Code !Amd64Instruction
 
@@ -110,7 +109,7 @@ data Amd64Memory = Amd64Memory !Amd64Register !Int64
 
 data Amd64Address
   = Amd64MemoryAddress !Amd64Memory
-  | Amd64RipAddress !Text
+  | Amd64RipAddress !ByteString
   deriving (Eq, Show)
 
 data Amd64Rm
@@ -179,7 +178,7 @@ data Amd64Instruction
   | AmdUd2
   | AmdPush !Amd64Register
   | AmdPop !Amd64Register
-  | AmdCall !Text
+  | AmdCall !ByteString
   | AmdJmp !Amd64JumpTarget
   | AmdJe !Name
   | AmdJne !Name
@@ -321,20 +320,20 @@ amd64Section = Amd64Section
 amd64Align :: Int -> Amd64Statement
 amd64Align = Amd64Align
 
-amd64Global :: Text -> Amd64Statement
+amd64Global :: ByteString -> Amd64Statement
 amd64Global = Amd64Global
 
 -- | A label that names a symbol.
-amd64Label :: Text -> Amd64Statement
+amd64Label :: ByteString -> Amd64Statement
 amd64Label = Amd64Label . SymbolName
 
 amd64Quad :: Word64 -> Amd64Statement
 amd64Quad = Amd64Quad
 
-amd64QuadSymbol :: Text -> Amd64Statement
+amd64QuadSymbol :: ByteString -> Amd64Statement
 amd64QuadSymbol = Amd64QuadSymbol
 
-amd64QuadSymbolAddend :: Text -> Int64 -> Amd64Statement
+amd64QuadSymbolAddend :: ByteString -> Int64 -> Amd64Statement
 amd64QuadSymbolAddend = Amd64QuadSymbolAddend
 
 amd64Bytes :: ByteString -> Amd64Statement

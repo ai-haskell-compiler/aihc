@@ -12,6 +12,7 @@ import Aihc.Lir.Syntax
 import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as Text
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -184,7 +185,7 @@ genConvention :: Gen CallingConvention
 genConvention = Gen.element [AihcConvention, CConvention]
 
 genSymbol :: Gen Symbol
-genSymbol = Symbol <$> genName
+genSymbol = Symbol . Text.encodeUtf8 <$> genName
 
 genVar :: Gen Var
 genVar = Var <$> genName

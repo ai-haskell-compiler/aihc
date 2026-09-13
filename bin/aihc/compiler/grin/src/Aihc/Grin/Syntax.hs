@@ -469,7 +469,14 @@ isPointerRuntimeRep runtimeRep =
 
 data GrinForeignCall = GrinForeignCall
   { grinForeignCallName :: !Text,
-    grinForeignCallSymbol :: !Text,
+    -- | The C linker symbol this call resolves to. It is bytes: every
+    -- consumer either lowers it to a Lir 'Symbol' or hands it to @dlsym@,
+    -- and neither wants characters.
+    --
+    -- Every producer encodes it from text or writes it as ASCII, so the
+    -- bytes are valid UTF-8 and the GRIN text format can spell the symbol
+    -- out as characters and read it back unchanged.
+    grinForeignCallSymbol :: !ByteString,
     grinForeignCallTarget :: !GrinForeignTarget,
     grinForeignCallSignature :: !GrinForeignSignature
   }

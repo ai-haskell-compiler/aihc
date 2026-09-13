@@ -48,6 +48,7 @@ import Aihc.Native.Lir qualified as Native
 import Aihc.Native.MachO (writeArm64MachO)
 import Control.Monad (when)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -63,7 +64,7 @@ data Arm64LirError
 
 -- | The object symbol of a Lir symbol. Darwin prefixes C symbols with an
 -- underscore, and the module boundary uses the C symbol names.
-lirSymbol :: Symbol -> Text
+lirSymbol :: Symbol -> BS.ByteString
 lirSymbol (Symbol name) = "_" <> name
 
 compileLirObject :: Module -> Either Arm64LirError BL.ByteString
@@ -240,7 +241,7 @@ registersFor convention =
 
 renderTraps :: [(Text, Int)] -> [Arm64Statement]
 renderTraps traps =
-  let messageLabel index = ".Llir_trap_message_" <> tshow index
+  let messageLabel index = ".Llir_trap_message_" <> bshow index
       stubs =
         concat
           [ [arm64Align 2, arm64Label (trapStubLabel index)]
@@ -267,8 +268,8 @@ renderTraps traps =
           ]
    in [arm64Section TextSection] <> stubs <> reporter <> [arm64Section ReadOnlySection] <> messages
 
-trapStubLabel :: Int -> Text
-trapStubLabel index = ".Llir_trap_" <> tshow index
+trapStubLabel :: Int -> BS.ByteString
+trapStubLabel index = ".Llir_trap_" <> bshow index
 
 instructionEffect :: Arm64Instruction -> SlotEffect
 instructionEffect instruction =
@@ -438,7 +439,7 @@ canonicalInteger ty value
   | typeBits ty >= 64 = value `mod` (2 ^ (64 :: Int))
   | otherwise = value `mod` (2 ^ typeBits ty)
 
-address :: Arm64Register -> Text -> [Arm64Statement]
+address :: Arm64Register -> BS.ByteString -> [Arm64Statement]
 address register label =
   [ arm64Instruction (ArmAdrp register label),
     arm64Instruction (ArmAddPageOffset register register label)
@@ -456,8 +457,9 @@ move destination source
   | destination == source = []
   | otherwise = [arm64Instruction (ArmMov destination (Arm64RegisterValue source))]
 
-tshow :: (Show value) => value -> Text
-tshow = T.pack . show
+-- | A number inside a private label, which is bytes.
+bshow :: (Show value) => value -> BS.ByteString
+bshow = BS8.pack . show
 
 data Test
   = TestNonZero !Arm64Register
@@ -814,7 +816,7 @@ arm64CallIndirect ctx target arguments signature results = do
   let (loads, register) = operandIn' ctx 0 Code scratchTarget target
   pure (loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget stub)] <> body)
 
-arm64TailCall :: Ctx Arm64Register -> Either Text Operand -> CallingConvention -> [Type] -> [Operand] -> M [Arm64Statement]
+arm64TailCall :: Ctx Arm64Register -> Either BS.ByteString Operand -> CallingConvention -> [Type] -> [Operand] -> M [Arm64Statement]
 arm64TailCall ctx callee convention parameterTypes arguments =
   case convention of
     AihcConvention -> aihcTailCall
