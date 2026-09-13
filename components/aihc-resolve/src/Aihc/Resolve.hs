@@ -116,7 +116,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
-import Aihc.Resolve.Traverse (HasAnnotations, annotationList)
+import Aihc.Resolve.Traverse (HasAnnotations, collectAnnotations)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM, (<=<))
@@ -130,7 +130,7 @@ import Data.Text qualified as T
 -- | Every resolution error of a piece of syntax, in source order. All
 -- errors live in resolution annotations, so one annotation walk finds them.
 collectResolveErrors :: (HasAnnotations a) => a -> [ResolveError]
-collectResolveErrors = mapMaybe (annotationResolveError <=< fromAnnotation) . annotationList
+collectResolveErrors = collectAnnotations (annotationResolveError <=< fromAnnotation)
 
 annotationResolveError :: ResolutionAnnotation -> Maybe ResolveError
 annotationResolveError resolution =
