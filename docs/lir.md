@@ -238,7 +238,9 @@ An info table is five word-wide fields followed by four byte-wide fields. A
 pointer field is `ptr` and a code field is `code`; a count or a kind is an
 `i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
 five words plus `j`, and the table is aligned to the word size, so the same
-text suits every target. A field without a value is `ptr null`, `code null`,
+text suits every target. A unit reads a field with a word-scaled address
+offset: `[%header + 3 words]` for `backend_entry` and `[%header + 5 words +
+3]` for `object_kind`. A field without a value is `ptr null`, `code null`,
 or `0`. The fields are, in order:
 
 | Field | Type | Meaning |
@@ -379,10 +381,29 @@ condition never traps.
 ### Memory
 
 ```text
-address ::= "[" value (("+" | "-") integer)? "]"
+address ::= "[" value (("+" | "-") integer ("word" | "words")?)* "]"
+align ::= "align" integer ("word" | "words")?
 ```
 
-The base of an address is a `ptr` value. The offset is a constant.
+The base of an address is a `ptr` value. The offset is a constant. A term
+followed by `word` or `words` counts target words instead of bytes, so
+`[%header + 5 words + 3]` names the same field of an info table on a 32-bit
+and on a 64-bit target. The terms accumulate, so one address may mix both
+units, and `word` and `words` are the same keyword. The `ptr`, `code`, and
+`word` data fields are the fields whose size follows the target word size, so
+they are what a word-scaled offset walks.
+
+An alignment scales the same way. `align 1 word` is the alignment of a
+word-sized field on every target, where a byte count either claims more than
+a 32-bit target gives or less than a 64-bit target gives. An alignment is a
+power of two, so a word-scaled one states a power-of-two count of words.
+
+An alignment is a statement about the address, not a request to the machine.
+The interpreter is the only consumer that enforces it: no native target
+faults on an unaligned access, and WebAssembly has no alignment requirement
+at all, so the wasm backend emits no alignment and an unaligned access there
+is defined and merely slower. A module that overstates an alignment is
+therefore wrong wherever it runs, and caught only by the interpreter.
 
 | Operation | Result | Semantics |
 | --- | --- | --- |
@@ -391,7 +412,7 @@ The base of an address is a `ptr` value. The offset is a constant.
 | `ptr.add %p, %i` | `ptr` | Add an `i64` to a pointer. The addition wraps at the target word size. |
 | `stack.alloc N align A` | `ptr` | Reserve `N` bytes of stack memory. The memory is zero. It lives until the function returns. Only the entry block may contain this operation. |
 
-`A` is a power of two. `T` is `i1` only for `load` and `store` of one byte. `T`
+`A` is a power of two, in bytes or in target words. `T` is `i1` only for `load` and `store` of one byte. `T`
 may be `code`. Loading a `code` value from bytes that are not the address of a
 function gives a value that traps in `call.indirect`.
 
@@ -620,7 +641,8 @@ with that shape today.
 A unit is one file for every target, so it states no word size of its own. A
 heap slot is eight bytes everywhere, so a header pointer travels through
 `ptr.to_int` and `ptr.from_int` and a payload offset is a constant. A
-word-shaped record uses `word` fields, which follow the target word size.
+word-shaped record uses `word` fields, which follow the target word size, and
+a word-scaled address offset reads them.
 
 ## Register allocation
 

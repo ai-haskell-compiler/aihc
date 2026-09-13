@@ -237,6 +237,11 @@ escapeBytes = T.concat . map escapeByte . BS.unpack
 log2 :: Integer -> Int
 log2 value = length (takeWhile (< value) (iterate (* 2) 1))
 
+-- | wasm32 has four-byte words, so a word-scaled address offset counts
+-- four bytes.
+wordBytes :: Integer
+wordBytes = 4
+
 typeBytes :: Type -> Int
 typeBytes ty = max 1 (typeBits ty `div` 8)
 
@@ -315,7 +320,7 @@ compileFunction ctx function = do
       blocks = functionBlocks function
       definitions = concat [map fst (blockParameters block) <> concatMap instructionResults (blockInstructions block) | block <- blocks]
       definitionTypes = Map.fromList (concat [blockParameters block | block <- blocks] <> concat [resultTypes ctx instruction | block <- blocks, instruction <- blockInstructions block])
-      allocations = [(var, size, alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
+      allocations = [(var, size, alignmentInBytes wordBytes alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
       (allocs, frameEnd) = placeAllocations allocations
       frameSize = ((frameEnd + 15) `div` 16) * 16
       hasFrame = not (null allocations)
@@ -806,8 +811,9 @@ compileInstruction fn (Instruction results operation) =
       narrow to
       single
 
-    effectiveAddress (Address base offset) = do
-      push fn Ptr base
+    effectiveAddress address = do
+      let offset = addressByteOffset wordBytes address
+      push fn Ptr (addressBase address)
       if offset >= 0
         then pure offset
         else do

@@ -158,6 +158,11 @@ fieldSize field =
     DataBytes bytes -> fromIntegral (BS.length bytes)
     DataZero count -> fromInteger count
 
+-- | The interpreter has a 64-bit word size, so a word-scaled address offset
+-- counts eight bytes.
+wordBytes :: Integer
+wordBytes = 8
+
 typeBytes :: Type -> Word64
 typeBytes ty = fromIntegral (max 8 (typeBits ty) `div` 8)
 
@@ -435,7 +440,7 @@ execOperation program locals operation =
       pure [VPtr (address + delta)]
     StackAlloc size alignment -> do
       machine <- get
-      let start = alignUp (fromInteger (max 1 alignment)) (machineStack machine)
+      let start = alignUp (fromInteger (max 1 (alignmentInBytes wordBytes alignment))) (machineStack machine)
           end = start + fromInteger size
       when (end > stackLimit) $ trap "stack overflow"
       put machine {machineMemory = writeBytes start (replicate (fromInteger size) 0) (machineMemory machine), machineStack = end}
@@ -472,10 +477,11 @@ execOperation program locals operation =
       case result of
         VPtr address -> pure address
         _ -> failure "expected a pointer value"
-    effectiveAddress (Address base offset) alignment = do
-      address <- ptrOperand base
-      let target = address + fromInteger offset
-      when (alignment > 1 && target `mod` fromInteger alignment /= 0) $ trap "misaligned memory access"
+    effectiveAddress location alignment = do
+      address <- ptrOperand (addressBase location)
+      let target = address + fromInteger (addressByteOffset wordBytes location)
+          bytes = alignmentInBytes wordBytes alignment
+      when (bytes > 1 && target `mod` fromInteger bytes /= 0) $ trap "misaligned memory access"
       pure target
 
 readBytes :: Word64 -> Word64 -> M [Word8]

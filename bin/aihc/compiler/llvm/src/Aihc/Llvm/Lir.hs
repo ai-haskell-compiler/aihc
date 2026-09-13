@@ -33,6 +33,11 @@ import Data.Word (Word8)
 import GHC.Float (castDoubleToWord64, double2Float, float2Double)
 import Numeric (showHex)
 
+-- | The LLVM backend targets 64-bit machines, so a word-scaled address
+-- offset counts eight bytes.
+wordBytes :: Integer
+wordBytes = 8
+
 data LlvmLirError
   = LlvmLirLintErrors ![LintError]
   | LlvmLirUnsupported !Text
@@ -564,26 +569,28 @@ compileInstruction ctx (Instruction results operation) =
     Select ty condition left right ->
       single ("select i1 " <> renderOperand I1 condition <> ", " <> typed ty left <> ", " <> typed ty right)
     Load ty address alignment -> do
+      let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address
       case ty of
         I1 -> do
           byte <- fresh
-          emit (byte <> " = load i8, ptr " <> pointer <> ", align " <> tshow alignment)
+          emit (byte <> " = load i8, ptr " <> pointer <> ", align " <> tshow alignBytes)
           single ("trunc i8 " <> byte <> " to i1")
-        _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> ", align " <> tshow alignment)
+        _ -> single ("load " <> renderType ty <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
     Store ty value address alignment -> do
+      let alignBytes = alignmentInBytes wordBytes alignment
       pointer <- effectiveAddress address
       case ty of
         I1 -> do
           byte <- fresh
           emit (byte <> " = zext i1 " <> renderOperand I1 value <> " to i8")
-          emit ("store i8 " <> byte <> ", ptr " <> pointer <> ", align " <> tshow alignment)
-        _ -> emit ("store " <> typed ty value <> ", ptr " <> pointer <> ", align " <> tshow alignment)
+          emit ("store i8 " <> byte <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
+        _ -> emit ("store " <> typed ty value <> ", ptr " <> pointer <> ", align " <> tshow alignBytes)
     PtrAdd base offset -> single ("getelementptr i8, ptr " <> renderOperand Ptr base <> ", i64 " <> renderOperand I64 offset)
     StackAlloc size alignment -> do
       case results of
         [var] -> do
-          emit (renderVar var <> " = alloca [" <> tshow size <> " x i8], align " <> tshow alignment)
+          emit (renderVar var <> " = alloca [" <> tshow size <> " x i8], align " <> tshow (alignmentInBytes wordBytes alignment))
           emit ("call void @llvm.memset.p0.i64(ptr " <> renderVar var <> ", i8 0, i64 " <> tshow size <> ", i1 false)")
         _ -> unsupported "stack.alloc result count"
     GlobalGet symbol -> single ("load " <> renderType (globalTypeOf symbol) <> ", ptr " <> renderSymbol symbol)
@@ -663,12 +670,14 @@ compileInstruction ctx (Instruction results operation) =
       emit (tooHigh <> " = fcmp oge " <> floatType <> " " <> operand <> ", " <> renderFloat from upper)
       trapWhen tooHigh "invalid float to integer conversion"
 
-    effectiveAddress (Address base offset)
-      | offset == 0 = pure (renderOperand Ptr base)
+    effectiveAddress address
+      | offset == 0 = pure (renderOperand Ptr (addressBase address))
       | otherwise = do
           pointer <- fresh
-          emit (pointer <> " = getelementptr i8, ptr " <> renderOperand Ptr base <> ", i64 " <> tshow offset)
+          emit (pointer <> " = getelementptr i8, ptr " <> renderOperand Ptr (addressBase address) <> ", i64 " <> tshow offset)
           pure pointer
+      where
+        offset = addressByteOffset wordBytes address
 
     call callee signature arguments = do
       let body = "call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"

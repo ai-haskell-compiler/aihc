@@ -11,16 +11,15 @@
 ; passes the continuation after them. A continuation object ignores the
 ; continuation parameter, so it uses the form without the suffix.
 ;
-; The identity field is one word, so its load is aligned to the 32-bit
-; word: the wider alignment of a 64-bit target follows from that. A stored
-; field is one eight-byte slot on every target, which is why it is loaded
-; as i64 and converted.
+; The identity field is one word, so its load states a word alignment and
+; is exact on every target. A stored field is one eight-byte slot on every
+; target, which is why it is loaded as i64 and converted.
 
 export func @aihc_lir_enter_0_0(%machine: ptr, %object: ptr, %continuation: ptr) {
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   tailcall.indirect %code(%machine) : (ptr)
 }
 
@@ -28,7 +27,7 @@ export func @aihc_lir_enter_0_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   tailcall.indirect %code(%machine, %continuation) : (ptr, ptr)
 }
 
@@ -36,7 +35,7 @@ export func @aihc_lir_enter_0_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   tailcall.indirect %code(%machine, %supplied0) : (ptr, ptr)
 }
 
@@ -44,7 +43,7 @@ export func @aihc_lir_enter_0_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   tailcall.indirect %code(%machine, %supplied0, %continuation) : (ptr, ptr, ptr)
 }
 
@@ -52,7 +51,7 @@ export func @aihc_lir_enter_1_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   tailcall.indirect %code(%machine, %stored0) : (ptr, ptr)
@@ -62,7 +61,7 @@ export func @aihc_lir_enter_1_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   tailcall.indirect %code(%machine, %stored0, %continuation) : (ptr, ptr, ptr)
@@ -72,7 +71,7 @@ export func @aihc_lir_enter_1_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   tailcall.indirect %code(%machine, %stored0, %supplied0) : (ptr, ptr, ptr)
@@ -82,7 +81,7 @@ export func @aihc_lir_enter_1_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   tailcall.indirect %code(%machine, %stored0, %supplied0, %continuation) : (ptr, ptr, ptr, ptr)
@@ -92,7 +91,7 @@ export func @aihc_lir_enter_2_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -104,7 +103,7 @@ export func @aihc_lir_enter_2_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -116,7 +115,7 @@ export func @aihc_lir_enter_2_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -128,7 +127,7 @@ export func @aihc_lir_enter_2_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -140,7 +139,7 @@ export func @aihc_lir_enter_3_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -154,7 +153,7 @@ export func @aihc_lir_enter_3_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -168,7 +167,7 @@ export func @aihc_lir_enter_3_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -182,7 +181,7 @@ export func @aihc_lir_enter_3_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -196,7 +195,7 @@ export func @aihc_lir_enter_4_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -212,7 +211,7 @@ export func @aihc_lir_enter_4_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -228,7 +227,7 @@ export func @aihc_lir_enter_4_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -244,7 +243,7 @@ export func @aihc_lir_enter_4_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -260,7 +259,7 @@ export func @aihc_lir_enter_5_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -278,7 +277,7 @@ export func @aihc_lir_enter_5_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -296,7 +295,7 @@ export func @aihc_lir_enter_5_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -314,7 +313,7 @@ export func @aihc_lir_enter_5_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -332,7 +331,7 @@ export func @aihc_lir_enter_6_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -352,7 +351,7 @@ export func @aihc_lir_enter_6_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -372,7 +371,7 @@ export func @aihc_lir_enter_6_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -392,7 +391,7 @@ export func @aihc_lir_enter_6_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -412,7 +411,7 @@ export func @aihc_lir_enter_7_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -434,7 +433,7 @@ export func @aihc_lir_enter_7_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -456,7 +455,7 @@ export func @aihc_lir_enter_7_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -478,7 +477,7 @@ export func @aihc_lir_enter_7_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -500,7 +499,7 @@ export func @aihc_lir_enter_8_0(%machine: ptr, %object: ptr, %continuation: ptr)
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -524,7 +523,7 @@ export func @aihc_lir_enter_8_0_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -548,7 +547,7 @@ export func @aihc_lir_enter_8_1(%machine: ptr, %object: ptr, %continuation: ptr,
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8
@@ -572,7 +571,7 @@ export func @aihc_lir_enter_8_1_k(%machine: ptr, %object: ptr, %continuation: pt
 entry:
   %header_word = load i64 [%object] align 8
   %header = ptr.from_int %header_word
-  %code = load code [%header] align 4
+  %code = load code [%header] align 1 word
   %stored0_word = load i64 [%object + 8] align 8
   %stored0 = ptr.from_int %stored0_word
   %stored1_word = load i64 [%object + 16] align 8

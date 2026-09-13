@@ -7,6 +7,7 @@
 module Test.Lir.NativeSuite
   ( NativeBackend (..),
     tests,
+    uncheckedTraps,
   )
 where
 
@@ -97,8 +98,10 @@ tests backend = do
         ]
     )
 
--- | The backends do not check memory alignment or read-only data, so these
--- interpreter traps have no native counterpart.
+-- | No backend checks memory alignment or read-only data: neither a native
+-- target nor WebAssembly faults on an unaligned access or on a store to a
+-- read-only section. These interpreter traps therefore have no counterpart
+-- in generated code, and every backend suite skips them.
 uncheckedTraps :: [FilePath]
 uncheckedTraps = ["trap-misaligned.lir", "trap-read-only.lir"]
 
@@ -197,7 +200,7 @@ testWrapper resultTypes =
               blockParameters = [],
               blockInstructions =
                 Instruction results (Call (Symbol "main") [])
-                  : [ Instruction [] (Store ty (OperandVar var) (Address (OperandVar (Var "out")) (8 * index)) 1)
+                  : [ Instruction [] (Store ty (OperandVar var) (byteAddress (OperandVar (Var "out")) (8 * index)) (byteAlignment 1))
                     | (index, var, ty) <- zip3 [0 ..] results resultTypes
                     ],
               blockTerminator = Return [OperandLiteral (LitInt (toInteger (length resultTypes)))]

@@ -85,10 +85,10 @@ genOperation =
       PtrToInt <$> genOperand,
       PtrFromInt <$> genOperand,
       Select <$> genType <*> genOperand <*> genOperand <*> genOperand,
-      Load <$> genType <*> genAddress <*> genNatural,
-      Store <$> genType <*> genOperand <*> genAddress <*> genNatural,
+      Load <$> genType <*> genAddress <*> genAlignment,
+      Store <$> genType <*> genOperand <*> genAddress <*> genAlignment,
       PtrAdd <$> genOperand <*> genOperand,
-      StackAlloc <$> genNatural <*> genNatural,
+      StackAlloc <$> genNatural <*> genAlignment,
       GlobalGet <$> genSymbol,
       GlobalSet <$> genSymbol <*> genOperand,
       Call <$> genSymbol <*> smallList genOperand,
@@ -110,8 +110,13 @@ genTerminator =
 genTarget :: Gen Target
 genTarget = Target <$> genLabel <*> smallList genOperand
 
+genAlignment :: Gen Alignment
+genAlignment = Gen.choice [byteAlignment <$> genPowerOfTwo, wordAlignment <$> genPowerOfTwo]
+  where
+    genPowerOfTwo = Gen.element [1, 2, 4, 8, 16]
+
 genAddress :: Gen Address
-genAddress = Address <$> genOperand <*> genInteger
+genAddress = Address <$> genOperand <*> genInteger <*> genInteger
 
 genData :: Gen DataItem
 genData =

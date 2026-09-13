@@ -31,17 +31,17 @@ entry:
   %args = stack.alloc 16 align 8
   store i64 40, [%args] align 8
   store i64 2, [%args + 8] align 8
-  %enter = load code [@info + 24] align 8
+  %enter = load code [@info + 3 words] align 1 word
   call.indirect %enter(%args) : (ptr)
   %r = load i64 [@result] align 8
-  %identity = load ptr [@info] align 8
+  %identity = load ptr [@info] align 1 word
   %none = eq ptr %identity, null
-  %bitmap = load ptr [@info + 8] align 8
+  %bitmap = load ptr [@info + 1 word] align 1 word
   %first = load i8 [%bitmap] align 1
   %pointer = eq i8 %first, 1
-  %next = load ptr [@info + 16] align 8
-  %count = load i8 [@info + 40] align 1
-  %kind = load i8 [@info + 43] align 1
+  %next = load ptr [@info + 2 words] align 1 word
+  %count = load i8 [@info + 5 words] align 1
+  %kind = load i8 [@info + 5 words + 3] align 1
   %countIsTwo = eq i8 %count, 2
   %kindIsThree = eq i8 %kind, 3
   %entryIsEntry = eq code %enter, @entry

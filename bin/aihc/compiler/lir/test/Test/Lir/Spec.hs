@@ -34,9 +34,47 @@ tests = do
           testGroup "evaluation fixtures" (map evalTest evalCases),
           testGroup "lint error fixtures" (map lintTest lintCases),
           testCase "emits the primitive bounds checks only when asked" test_primitiveBoundsChecks,
+          testCase "a word-scaled alignment is the word size, not four bytes" test_wordAlignment,
           regAlloc
         ]
     )
+
+-- | The interpreter is the only consumer that enforces an alignment: a
+-- native target does not fault on an unaligned access and WebAssembly has
+-- no alignment requirement at all. Its word is eight bytes, so an address
+-- four bytes into a data object satisfies @align 4@ and not @align 1 word@.
+test_wordAlignment :: Assertion
+test_wordAlignment = do
+  case runFunction (alignedLoad (byteAlignment 4)) (Symbol "main") [] of
+    Right _ -> pure ()
+    Left err -> assertFailure ("align 4 should hold: " <> T.unpack (renderInterpretError err))
+  case runFunction (alignedLoad (wordAlignment 1)) (Symbol "main") [] of
+    Left (InterpretTrap message) -> assertEqual "trap" "misaligned memory access" message
+    Left err -> assertFailure (T.unpack (renderInterpretError err))
+    Right _ -> assertFailure "align 1 word should trap four bytes into the object"
+
+-- | @main@ loads an @i64@ four bytes into an eight-byte-aligned object.
+alignedLoad :: Alignment -> Module
+alignedLoad alignment =
+  Module
+    [ ItemData (DataItem (Symbol "bytes") Internal False 8 [DataInt I64 0, DataInt I64 0]),
+      ItemFunction
+        Function
+          { functionName = Symbol "main",
+            functionParameters = [],
+            functionResults = [I64],
+            functionConvention = AihcConvention,
+            functionLinkage = Export,
+            functionBlocks =
+              [ Block
+                  { blockLabel = Label "entry",
+                    blockParameters = [],
+                    blockInstructions = [Instruction [Var "v"] (Load I64 (byteAddress (OperandLiteral (LitSymbol (Symbol "bytes"))) 4) alignment)],
+                    blockTerminator = Return [OperandVar (Var "v")]
+                  }
+              ]
+          }
+    ]
 
 -- | The array primitives are unchecked loads and stores, as in GHC. With
 -- the bounds checks on, an element access compares the index against the

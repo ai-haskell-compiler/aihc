@@ -621,19 +621,19 @@ loadSlot :: Text -> Type -> Operand -> Integer -> LowerM Typed
 loadSlot base ty object offset = do
   target <- targetM
   if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
-    then emitValue base ty (Load ty (Address object offset) 8)
+    then emitValue base ty (Load ty (byteAddress object offset) (byteAlignment 8))
     else do
-      word <- emitValue base I64 (Load I64 (Address object offset) 8)
+      word <- emitValue base I64 (Load I64 (byteAddress object offset) (byteAlignment 8))
       emitValue base ty (PtrFromInt (typedOperand word))
 
 storeSlot :: Type -> Operand -> Operand -> Integer -> LowerM ()
 storeSlot ty value object offset = do
   target <- targetM
   if lowerWordSize target == 8 || ty `notElem` [Ptr, Code]
-    then emit [] (Store ty value (Address object offset) 8)
+    then emit [] (Store ty value (byteAddress object offset) (byteAlignment 8))
     else do
       word <- emitValue "slot" I64 (PtrToInt value)
-      emit [] (Store I64 (typedOperand word) (Address object offset) 8)
+      emit [] (Store I64 (typedOperand word) (byteAddress object offset) (byteAlignment 8))
 
 -- | Byte field @index@ of an info table as an @i64@. The byte fields follow
 -- the word fields.
@@ -641,7 +641,7 @@ loadInfoByte :: Text -> Operand -> Int -> LowerM Typed
 loadInfoByte base header index = do
   target <- targetM
   let offset = toInteger (lowerWordSize target * infoWordFieldCount + index)
-  value <- emitValue base I8 (Load I8 (Address header offset) 1)
+  value <- emitValue base I8 (Load I8 (byteAddress header offset) (byteAlignment 1))
   emitValue base I64 (Convert ZExt I8 (typedOperand value) I64)
 
 -- | A @code@ field of an info table.
@@ -649,14 +649,14 @@ loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
 loadInfoCode base header index = do
   target <- targetM
   let width = lowerWordSize target
-  emitValue base Code (Load Code (Address header (toInteger (width * index))) (toInteger width))
+  emitValue base Code (Load Code (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
 -- | A @ptr@ field of an info table.
 loadInfoPointer :: Text -> Operand -> Int -> LowerM Typed
 loadInfoPointer base header index = do
   target <- targetM
   let width = lowerWordSize target
-  emitValue base Ptr (Load Ptr (Address header (toInteger (width * index))) (toInteger width))
+  emitValue base Ptr (Load Ptr (byteAddress header (toInteger (width * index))) (wordAlignment 1))
 
 -- | A word-sized integer field of a data object.
 wordField :: LowerTarget -> Integer -> DataField
@@ -1011,11 +1011,11 @@ lowerFunction env function = do
   -- table left behind by a function that has already transferred away.
   requireExternData currentSrtSymbol
   let srt = maybe (OperandLiteral LitNull) (OperandLiteral . LitSymbol) (Map.lookup (grinFunctionName function) (envSrtSymbols env))
-  emit [] (Store Ptr srt (Address (OperandLiteral (LitSymbol currentSrtSymbol)) 0) 8)
+  emit [] (Store Ptr srt (byteAddress (OperandLiteral (LitSymbol currentSrtSymbol)) 0) (byteAlignment 8))
   roots <-
     case maximumRoots (grinFunctionBody function) of
       0 -> pure Nothing
-      count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) 8)
+      count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
   let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxRoots = roots}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
@@ -1257,11 +1257,10 @@ allocateNode ctx node = do
 bumpAllocate :: Operand -> Int -> LowerM Typed
 bumpAllocate machine words' = do
   target <- targetM
-  let width = toInteger (lowerWordSize target)
-      address = Address machine (machineHeapNextOffset target)
-  object <- emitValue "object" Ptr (Load Ptr address width)
+  let address = byteAddress machine (machineHeapNextOffset target)
+  object <- emitValue "object" Ptr (Load Ptr address (wordAlignment 1))
   next <- emitValue "heap" Ptr (PtrAdd (typedOperand object) (OperandLiteral (LitInt (8 * toInteger words'))))
-  emit [] (Store Ptr (typedOperand next) address width)
+  emit [] (Store Ptr (typedOperand next) address (wordAlignment 1))
   pure object
 
 -- | An unsaturated constructor spends field zero on its applied count, so its
@@ -1521,7 +1520,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [address, index])
       | Just (ty, scale, extend) <- lookup name addressLoadPrimitives -> do
           target <- addressElement address index scale
-          value <- emitValue "value" ty (Load ty (Address target 0) 1)
+          value <- emitValue "value" ty (Load ty (byteAddress target 0) (byteAlignment 1))
           result <- if ty == I64 then pure value else emitValue "value" I64 (Convert extend ty (typedOperand value) I64)
           bind [result]
     (_, [address, index, value])
@@ -1529,7 +1528,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           target <- addressElement address index scale
           operand <- word value
           narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
-          emit [] (Store ty narrow (Address target 0) 1)
+          emit [] (Store ty narrow (byteAddress target 0) (byteAlignment 1))
           bind []
     (_, [value])
       | name `elem` identityPrimitives -> do
@@ -1569,12 +1568,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [object])
       | Just (ty, offset) <- lookup name objectFieldPrimitives -> do
           base <- pointerValue ctx env object
-          value <- emitValue "field" ty (Load ty (Address base offset) 8)
+          value <- emitValue "field" ty (Load ty (byteAddress base offset) (byteAlignment 8))
           bind [value]
     ("writeMutVar#", [reference, value]) -> do
       base <- pointerValue ctx env reference
       operand <- word value
-      emit [] (Store I64 operand (Address base mutVarContentsOffset) 8)
+      emit [] (Store I64 operand (byteAddress base mutVarContentsOffset) (byteAlignment 8))
       bind []
     -- casMutVar# gives a failure flag, one when the contents differed from
     -- the expected value, and the final contents. The runtime runs one
@@ -1583,10 +1582,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env reference
       expectedOperand <- word expected
       replacementOperand <- word replacement
-      current <- emitValue "current" I64 (Load I64 (Address base mutVarContentsOffset) 8)
+      current <- emitValue "current" I64 (Load I64 (byteAddress base mutVarContentsOffset) (byteAlignment 8))
       matches <- emitValue "matches" I1 (Compare Eq I64 (typedOperand current) expectedOperand)
       final <- emitValue "final" I64 (Select I64 (typedOperand matches) replacementOperand (typedOperand current))
-      emit [] (Store I64 (typedOperand final) (Address base mutVarContentsOffset) 8)
+      emit [] (Store I64 (typedOperand final) (byteAddress base mutVarContentsOffset) (byteAlignment 8))
       unchanged <- emitValue "unchanged" I1 (Compare Ne I64 (typedOperand current) expectedOperand) >>= widen
       bind [unchanged, final]
     ("isEmptyMVar#", [mvar]) -> do
@@ -1613,24 +1612,24 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [array, index])
       | name `elem` arrayLoadPrimitives -> do
           slot <- arrayElement array index
-          value <- emitValue "element" I64 (Load I64 (Address slot arrayElementsOffset) 8)
+          value <- emitValue "element" I64 (Load I64 (byteAddress slot arrayElementsOffset) (byteAlignment 8))
           bind [value]
       | Just (ty, indexing) <- lookup name byteArrayLoadPrimitives -> do
           address <- byteArrayElement array index ty indexing
-          value <- emitValue "value" ty (Load ty (Address address 0) 1)
+          value <- emitValue "value" ty (Load ty (byteAddress address 0) (byteAlignment 1))
           result <- if ty == I64 then pure value else emitValue "value" I64 (Convert ZExt ty (typedOperand value) I64)
           bind [result]
     (_, [array, index, value])
       | name `elem` arrayStorePrimitives -> do
           slot <- arrayElement array index
           operand <- word value
-          emit [] (Store I64 operand (Address slot arrayElementsOffset) 8)
+          emit [] (Store I64 operand (byteAddress slot arrayElementsOffset) (byteAlignment 8))
           bind []
       | Just (ty, indexing) <- lookup name byteArrayStorePrimitives -> do
           address <- byteArrayElement array index ty indexing
           operand <- word value
           narrow <- if ty == I64 then pure operand else typedOperand <$> emitValue "narrow" ty (Convert Trunc I64 operand ty)
-          emit [] (Store ty narrow (Address address 0) 1)
+          emit [] (Store ty narrow (byteAddress address 0) (byteAlignment 1))
           bind []
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
@@ -1651,12 +1650,12 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- Whether an MVar holds a value, as a word: its flag is one byte.
     mvarFull mvar = do
       base <- pointerValue ctx env mvar
-      flag <- emitValue "full" I8 (Load I8 (Address base mvarFullOffset) 1)
+      flag <- emitValue "full" I8 (Load I8 (byteAddress base mvarFullOffset) (byteAlignment 1))
       emitValue "full" I64 (Convert ZExt I8 (typedOperand flag) I64)
     -- The contents of an MVar when @full@ holds, and null otherwise.
     mvarContents mvar (Typed full _) = do
       base <- pointerValue ctx env mvar
-      value <- emitValue "value" I64 (Load I64 (Address base mvarValueOffset) 8)
+      value <- emitValue "value" I64 (Load I64 (byteAddress base mvarValueOffset) (byteAlignment 8))
       emitValue "contents" I64 (Select I64 full (typedOperand value) (OperandLiteral (LitInt 0)))
     checkPrimBounds = lowerCheckPrimBounds (envOptions (ctxEnv ctx))
     -- Leave the current block for one whose entry means the bounds check
@@ -1677,7 +1676,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       base <- pointerValue ctx env array
       offset <- word index
       when checkPrimBounds $ do
-        count <- emitValue "count" I64 (Load I64 (Address base arrayLengthOffset) 8)
+        count <- emitValue "count" I64 (Load I64 (byteAddress base arrayLengthOffset) (byteAlignment 8))
         invalid <- emitValue "invalid" I1 (Compare GeU I64 offset (typedOperand count))
         boundsCheck (typedOperand invalid) "aihc_array_bounds_fail" "boxed-array index is out of bounds"
       scaled <- emitValue "offset" I64 (Binary Mul I64 offset (OperandLiteral (LitInt 8)))
@@ -1695,7 +1694,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       let width = typeWidth ty
           literal = OperandLiteral . LitInt
       when checkPrimBounds $ do
-        size <- emitValue "size" I64 (Load I64 (Address base byteArraySizeOffset) 8)
+        size <- emitValue "size" I64 (Load I64 (byteAddress base byteArraySizeOffset) (byteAlignment 8))
         invalid <-
           case indexing of
             ElementIndex
@@ -1715,7 +1714,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
         if indexing == ByteOffset || width == 1
           then pure offset
           else typedOperand <$> emitValue "offset" I64 (Binary Mul I64 offset (literal width))
-      contents <- emitValue "contents" Ptr (Load Ptr (Address base byteArrayContentsOffset) 8)
+      contents <- emitValue "contents" Ptr (Load Ptr (byteAddress base byteArrayContentsOffset) (byteAlignment 8))
       typedOperand <$> emitValue "address" Ptr (PtrAdd (typedOperand contents) byteOffset)
     -- The address of element @index@ of the given width. Every access uses
     -- alignment one, because the source can give an unaligned address.
@@ -2263,14 +2262,14 @@ lowerWasip3Entry gcProgram = do
   do
     beginBlock (Label "entry") []
     machine <- startMachine
-    emit [] (Store Ptr machine (Address (OperandLiteral (LitSymbol wasmMachineSymbol)) 0) 4)
+    emit [] (Store Ptr machine (byteAddress (OperandLiteral (LitSymbol wasmMachineSymbol)) 0) (wordAlignment 1))
     finished <- loadFinished
     terminate (Return [finished])
     finishFunction (Symbol "aihc_lir_program_start") Export [] [I32] CConvention
   do
     resume <- fresh "resume"
     beginBlock (Label "entry") []
-    machine <- emitValue "machine" Ptr (Load Ptr (Address (OperandLiteral (LitSymbol wasmMachineSymbol)) 0) 4)
+    machine <- emitValue "machine" Ptr (Load Ptr (byteAddress (OperandLiteral (LitSymbol wasmMachineSymbol)) 0) (wordAlignment 1))
     helper <- requireHelper HelperResume
     emit [] (Call helper [typedOperand machine, OperandVar resume])
     finished <- loadFinished
@@ -2278,7 +2277,7 @@ lowerWasip3Entry gcProgram = do
     finishFunction (Symbol "aihc_lir_program_resume") Export [(resume, Ptr)] [I32] CConvention
   where
     loadFinished = do
-      flag <- emitValue "finished" I64 (Load I64 (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
+      flag <- emitValue "finished" I64 (Load I64 (byteAddress (OperandLiteral (LitSymbol finishedSymbol)) 0) (byteAlignment 8))
       typedOperand <$> emitValue "finished" I32 (Convert Trunc I64 (typedOperand flag) I32)
 
 wasmMachineSymbol :: Symbol
@@ -2333,7 +2332,6 @@ threadDoneInfo = Symbol "aihc_lir_thread_done_info"
 -- call returns when the machine halts or when every thread waits for IO.
 startMachine :: LowerM Operand
 startMachine = do
-  target <- targetM
   exit <- requireHelper HelperExit
   let entryGlobal = globalSymbol executableEntryName
   machine <- callRuntime "aihc_machine_new" [I64] [Ptr] [OperandLiteral (LitInt 0)]
@@ -2347,8 +2345,8 @@ startMachine = do
   threadDone <- allocateContinuation machine threadDoneInfo 1
   _ <- callRuntime "aihc_set_thread_done_continuation" [Ptr, Ptr] [] [machine, threadDone]
   -- The halt path returns through the exit function to the caller.
-  emit [] (Store Code (OperandLiteral (LitSymbol exit)) (Address machine machineExitCodeOffset) (toInteger (lowerWordSize target)))
-  emit [] (Store I64 (OperandLiteral (LitInt 0)) (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
+  emit [] (Store Code (OperandLiteral (LitSymbol exit)) (byteAddress machine machineExitCodeOffset) (wordAlignment 1))
+  emit [] (Store I64 (OperandLiteral (LitInt 0)) (byteAddress (OperandLiteral (LitSymbol finishedSymbol)) 0) (byteAlignment 8))
   eval <- requireHelper HelperEval
   emit [] (Call eval [machine, OperandLiteral (LitSymbol entryGlobal), top, update])
   pure machine
@@ -2395,7 +2393,7 @@ generateHelper env helper =
       machine <- fresh "machine"
       beginBlock (Label "entry") []
       when (lowerUnitKind (envOptions env) == ExecutableUnit) $
-        emit [] (Store I64 (OperandLiteral (LitInt 1)) (Address (OperandLiteral (LitSymbol finishedSymbol)) 0) 8)
+        emit [] (Store I64 (OperandLiteral (LitInt 1)) (byteAddress (OperandLiteral (LitSymbol finishedSymbol)) 0) (byteAlignment 8))
       terminate (Return [])
       finishFunction symbol Internal [(machine, Ptr)] [] AihcConvention
     HelperContinue shape -> do
@@ -2430,8 +2428,8 @@ generateHelper env helper =
       continuation <- fresh "continuation"
       values <- forM shape $ \ty -> (,ty) <$> fresh "value"
       beginBlock (Label "entry") []
-      arguments <- if null shape then pure (OperandLiteral LitNull) else typedOperand <$> emitValue "arguments" Ptr (StackAlloc (toInteger (8 * length shape)) 8)
-      continuationSlot <- typedOperand <$> emitValue "slot" Ptr (StackAlloc word word)
+      arguments <- if null shape then pure (OperandLiteral LitNull) else typedOperand <$> emitValue "arguments" Ptr (StackAlloc (toInteger (8 * length shape)) (byteAlignment 8))
+      continuationSlot <- typedOperand <$> emitValue "slot" Ptr (StackAlloc word (wordAlignment 1))
       terminate (Jump (Target (Label "loop") [OperandVar function]))
       current <- fresh "current"
       beginBlock (Label "loop") [(current, Ptr)]
@@ -2460,9 +2458,9 @@ generateHelper env helper =
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
         storeSlot ty (OperandVar var) arguments (toInteger (8 * index))
       -- The continuation slot is a C pointer variable, not a heap slot.
-      emit [] (Store Ptr (OperandVar continuation) (Address continuationSlot 0) word)
+      emit [] (Store Ptr (OperandVar continuation) (byteAddress continuationSlot 0) (wordAlignment 1))
       applied <- callRuntime "aihc_apply_slow" [Ptr, Ptr, I64, Ptr, Ptr] [Ptr] [OperandVar machine, OperandVar current, OperandLiteral (LitInt (toInteger (length shape))), arguments, continuationSlot]
-      adjusted <- emitValue "adjusted" Ptr (Load Ptr (Address continuationSlot 0) word)
+      adjusted <- emitValue "adjusted" Ptr (Load Ptr (byteAddress continuationSlot 0) (wordAlignment 1))
       continue <- requireHelper (HelperContinue [Ptr])
       terminate (TailCall continue [OperandVar machine, typedOperand adjusted, applied])
       finishFunction symbol Internal ((machine, Ptr) : (function, Ptr) : (continuation, Ptr) : values) [] AihcConvention

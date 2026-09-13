@@ -58,7 +58,7 @@ lowerObservedProgram target entryName gcProgram = do
       values <- forM resultTypes $ \ty -> (,ty) <$> fresh "value"
       beginBlock (Label "entry") []
       buffer <- fresh "buffer"
-      emit [buffer] (StackAlloc (toInteger (8 * max 1 (length resultTypes))) 8)
+      emit [buffer] (StackAlloc (toInteger (8 * max 1 (length resultTypes))) (byteAlignment 8))
       forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
         storeSlot ty (OperandVar var) (OperandVar buffer) (toInteger (8 * index))
       requireExtern (Symbol "aihc_snapshot_dump_result") [I64, Ptr, Ptr] []
