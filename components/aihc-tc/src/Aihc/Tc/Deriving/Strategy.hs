@@ -17,9 +17,8 @@ import Aihc.Parser.Syntax
     Extension (..),
     SourceSpan,
   )
-import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcDerivingStrategy (..))
-import Aihc.Tc.Deriving.References (DerivingReferences (..))
+import Aihc.Tc.Deriving.References (DerivingReferences (..), stockClassLocationMatches)
 import Aihc.Tc.Deriving.StockClass (NewtypeDefaulting (..), newtypeDefaultingOf, stockClassRequirement)
 import Aihc.Tc.Env (TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -123,12 +122,13 @@ isStockClass references className origin =
       Nothing -> False
 
 -- | Whether a class is one that the generator writes an instance body for.
--- The package must agree, so a class of another package is never stock.
+-- A location that names a package demands it, so a class of another package
+-- is never stock.
 isGeneratedStockClass :: DerivingReferences -> Text -> Maybe (Text, Text) -> Bool
 isGeneratedStockClass references className origin =
   case origin of
-    Just (packageIdentity, moduleName) ->
-      (PackageId packageIdentity, moduleName, className) `elem` derivingStockClasses references
+    Just classOrigin ->
+      any (\location -> stockClassLocationMatches classOrigin location className) (derivingStockClasses references)
     Nothing -> False
 
 requireDerivingExtension :: [Extension] -> Extension -> String -> SourceSpan -> TcM ()

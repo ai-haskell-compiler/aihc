@@ -35,6 +35,7 @@ module Aihc.Tc.Monad
     TcConfig (..),
     mkTcConfig,
     getDerivingReferences,
+    getPrimPackage,
     getWiring,
     getKinds,
     arrowType,
@@ -264,6 +265,11 @@ mkTcConfig primPackage references wiring =
 
 getDerivingReferences :: TcM DerivingReferences
 getDerivingReferences = asks (tcConfigDerivingReferences . tcEnvConfig)
+
+-- | The primitive package of the configuration, which a generated deriving
+-- body names its helpers from.
+getPrimPackage :: TcM PackageId
+getPrimPackage = asks (tcConfigPrimPackage . tcEnvConfig)
 
 getWiring :: TcM TcWiring
 getWiring = asks (tcConfigWiring . tcEnvConfig)
