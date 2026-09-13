@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+
 -- | System FC abstract syntax.
 module Aihc.Fc.Syntax
   ( Type (..),
@@ -29,9 +32,11 @@ module Aihc.Fc.Syntax
 where
 
 import Aihc.Fc.Name
+import Control.DeepSeq (NFData)
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 -- | A type. Kinds are types.
 data Type
@@ -42,13 +47,15 @@ data Type
     TyFun Type Type Type Type
   | TyForAll Binder Type
   | TyEq Type Type
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Binder = Binder
   { binderName :: Name,
     binderType :: Type
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Expr
   = ExVar Name
@@ -67,7 +74,8 @@ data Expr
     -- the leading binders of the foreign type. The value arguments fill every
     -- arrow of the foreign type.
     ExForeignCall ForeignCall [Type] [Expr]
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 -- | The foreign import that a call names, with the facts that lower it.
 data ForeignCall = ForeignCall
@@ -76,13 +84,15 @@ data ForeignCall = ForeignCall
     foreignCallDependencies :: [ForeignImportDependency],
     foreignCallType :: Type
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Bind = Bind
   { bindBinder :: Binder,
     bindRhs :: Expr
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Alt = Alt
   { altCon :: AltCon,
@@ -90,26 +100,30 @@ data Alt = Alt
     altBinders :: [Binder],
     altRhs :: Expr
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data AltCon
   = AltData Name
   | AltLit Literal
   | AltDefault
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 -- | A literal. Integer, character, and address store the representation type.
 data Literal
   = LitInt Type Integer
   | LitChar Type Char
   | LitAddr Type ByteString
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Role
   = Nominal
   | Representational
   | Phantom
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Coercion
   = CoVar Name
@@ -121,14 +135,16 @@ data Coercion
   | CoNth Int Coercion
   | CoTyConApp Name [Coercion]
   | CoAxiom Name [Type]
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Program = Program
   { programScopes :: ScopeTable,
     programImports :: Imports,
     programDecls :: [Decl]
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Imports = Imports
   { importHeaders :: Map Name Type,
@@ -136,14 +152,16 @@ data Imports = Imports
     importAxioms :: Map Name AxiomDecl,
     importBinders :: Map Name Type
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data Decl
   = DeclType TypeDecl
   | DeclSynonym SynonymDecl
   | DeclAxiom AxiomDecl
   | DeclVal ValDecl
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data TypeDecl = TypeDecl
   { typeVis :: Vis,
@@ -153,14 +171,16 @@ data TypeDecl = TypeDecl
     typeRoles :: [Role],
     typeCons :: [ConDecl]
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data ConDecl = ConDecl
   { conVis :: Vis,
     conName :: Name,
     conType :: Type
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data SynonymDecl = SynonymDecl
   { synVis :: Vis,
@@ -169,7 +189,8 @@ data SynonymDecl = SynonymDecl
     synResult :: Type,
     synBody :: Type
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data AxiomDecl = AxiomDecl
   { axiomVis :: Vis,
@@ -179,7 +200,8 @@ data AxiomDecl = AxiomDecl
     axiomLeft :: Type,
     axiomRight :: Type
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data ValDecl = ValDecl
   { valVis :: Vis,
@@ -187,17 +209,20 @@ data ValDecl = ValDecl
     valType :: Type,
     valBody :: Expr
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data ForeignImportDependency
   = ForeignAxiom Name
   | ForeignConstructor Name
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data CallingConvention
   = Prim
   | CCall CCallSpec
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data CCallSpec = CCallSpec
   { ccallSymbol :: Text,
@@ -207,14 +232,16 @@ data CCallSpec = CCallSpec
     ccallResultType :: CAbiType,
     ccallEffect :: ForeignEffect
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 -- | What a C entity string names: a function to call, or a static symbol
 -- whose address is the imported value (@foreign import ccall "&sym"@).
 data CCallTarget
   = CCallFunction
   | CCallAddress
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 data CAbiType
   = CAbiInt
@@ -232,16 +259,19 @@ data CAbiType
   | CAbiAddr
   | -- | The result of a C procedure, which has no value.
     CAbiVoid
-  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+  deriving stock (Eq, Ord, Show, Read, Enum, Bounded, Generic)
+  deriving anyclass (NFData)
 
 data ForeignEffect
   = ForeignPure
   | ForeignRealWorld
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 -- | Safety of a foreign call. The runtime is single-threaded, so safe and
 -- unsafe calls are lowered the same way; the mark is kept for fidelity.
 data ForeignSafety
   = ForeignUnsafe
   | ForeignSafe
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)

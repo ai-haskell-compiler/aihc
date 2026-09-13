@@ -7,10 +7,10 @@ module Aihc.Cli.ResolveArtifact
   )
 where
 
-import Aihc.Cli.Cbor (cborArray, cborText, cborWord, getArrayLength, getText, getWord)
+import Aihc.Cli.Cbor (cborArray, cborText, cborWord, getArrayLength, getText, getWord, (<*!>))
 import Aihc.Parser.Syntax (FixityAssoc (..), Name (..), NameType (..), UnqualifiedName (..))
 import Aihc.Resolve (OperatorFixity (..), PackageId (..), ResolvedName (..), Scope (..))
-import Control.Monad (replicateM, when)
+import Control.Monad (replicateM, when, (<$!>))
 import Data.Binary.Get qualified as Get
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
@@ -101,11 +101,11 @@ encodeScopeMap entries = cborArray (Map.size entries) <> foldMap encodeEntry (Ma
 getScopeMap :: Get.Get (Map.Map Text Scope)
 getScopeMap = do
   count <- getArrayLength
-  Map.fromList <$> replicateM count getEntry
+  Map.fromList <$!> replicateM count getEntry
   where
     getEntry = do
       2 <- getArrayLength
-      (,) <$> getText <*> getScope
+      (,) <$!> getText <*!> getScope
 
 encodeResolvedMap :: Map.Map Text ResolvedName -> Builder.Builder
 encodeResolvedMap entries = cborArray (Map.size entries) <> foldMap encodeEntry (Map.toAscList entries)
@@ -115,11 +115,11 @@ encodeResolvedMap entries = cborArray (Map.size entries) <> foldMap encodeEntry 
 getResolvedMap :: Get.Get (Map.Map Text ResolvedName)
 getResolvedMap = do
   count <- getArrayLength
-  Map.fromList <$> replicateM count getEntry
+  Map.fromList <$!> replicateM count getEntry
   where
     getEntry = do
       2 <- getArrayLength
-      (,) <$> getText <*> getResolvedName
+      (,) <$!> getText <*!> getResolvedName
 
 encodeResolvedName :: ResolvedName -> Builder.Builder
 encodeResolvedName resolved =
@@ -137,7 +137,7 @@ getResolvedName = do
   tag <- getWord
   case (length', tag) of
     (5, 0) -> do
-      packageId <- PackageId <$> getText
+      packageId <- PackageId <$!> getText
       qualifierText <- getText
       nameType' <- getNameType
       text <- getText
@@ -149,7 +149,7 @@ getResolvedName = do
       nameType' <- getNameType
       text <- getText
       pure (ResolvedLocal (fromIntegral unique) (UnqualifiedName nameType' text []))
-    (2, 3) -> ResolvedError . T.unpack <$> getText
+    (2, 3) -> ResolvedError . T.unpack <$!> getText
     _ -> fail "unsupported resolved name"
 
 nameTypeTag :: NameType -> Word64
@@ -177,7 +177,7 @@ encodeTextListMap entries = cborArray (Map.size entries) <> foldMap encodeEntry 
 getTextListMap :: Get.Get (Map.Map Text [Text])
 getTextListMap = do
   count <- getArrayLength
-  Map.fromList <$> replicateM count getEntry
+  Map.fromList <$!> replicateM count getEntry
   where
     getEntry = do
       2 <- getArrayLength
@@ -197,13 +197,13 @@ encodeFixities entries = cborArray (Map.size entries) <> foldMap encodeEntry (Ma
 getFixities :: Get.Get (Map.Map Text OperatorFixity)
 getFixities = do
   count <- getArrayLength
-  Map.fromList <$> replicateM count getEntry
+  Map.fromList <$!> replicateM count getEntry
   where
     getEntry = do
       3 <- getArrayLength
       name <- getText
       association <- getFixityAssoc
-      precedence <- fromIntegral <$> getWord
+      precedence <- fromIntegral <$!> getWord
       pure (name, OperatorFixity association precedence)
 
 getFixityAssoc :: Get.Get FixityAssoc

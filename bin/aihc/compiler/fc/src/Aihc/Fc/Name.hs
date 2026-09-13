@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+
 -- | Names, sorts, and scopes for System FC.
 module Aihc.Fc.Name
   ( Sort (..),
@@ -17,9 +20,11 @@ where
 
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
+import Control.DeepSeq (NFData (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 -- | The sort of one name in the single namespace.
 data Sort
@@ -29,7 +34,8 @@ data Sort
   | SortTypeVariable
   | SortAxiom
   | SortSynonym
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 -- | Equality class for a name. A free @t@ name may match a synonym.
 data NameClass
@@ -37,7 +43,8 @@ data NameClass
   | NameClassValue
   | NameClassAxiom
   | NameClassTypeVar
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 nameClass :: Sort -> NameClass
 nameClass sort =
@@ -53,7 +60,15 @@ nameClass sort =
 data Origin
   = OriginLocal Unique
   | OriginTop PackageId Text
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+
+-- A unique is an 'Int' and a package identifier is a strict 'Text', so
+-- weak head normal form is normal form for both.
+instance NFData Origin where
+  rnf origin =
+    case origin of
+      OriginLocal unique -> unique `seq` ()
+      OriginTop package name -> package `seq` rnf name
 
 -- | A name. Equality is structural: two names are equal only when their
 -- text, sort, and origin all agree, so a type constructor never equals a
@@ -63,10 +78,14 @@ data Name = Name
     nameSort :: Sort,
     nameOrigin :: Origin
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
 
 newtype ScopeTable = ScopeTable (Map Int (PackageId, Text))
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+
+instance NFData ScopeTable where
+  rnf (ScopeTable table) = rnf [package `seq` rnf name | (package, name) <- Map.elems table]
 
 emptyScopeTable :: ScopeTable
 emptyScopeTable = ScopeTable Map.empty
@@ -92,4 +111,5 @@ localUnique name =
 data Vis
   = Pub
   | Private
-  deriving (Eq, Ord, Show, Read)
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)

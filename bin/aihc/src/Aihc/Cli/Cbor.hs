@@ -14,10 +14,11 @@ module Aihc.Cli.Cbor
     getWord,
     getInt,
     getMajor,
+    (<*!>),
   )
 where
 
-import Control.Monad (unless)
+import Control.Monad (unless, (<$!>))
 import Data.Binary.Get qualified as Get
 import Data.Bits (shiftR)
 import Data.ByteString qualified as BS
@@ -51,12 +52,25 @@ cborMajor major value
   | otherwise = Builder.word8 (major * 32 + 27) <> Builder.word64BE value
 
 getArrayLength :: Get.Get Int
-getArrayLength = fromIntegral <$> getMajor 4
+getArrayLength = fromIntegral <$!> getMajor 4
 
 getText :: Get.Get Text
 getText = do
   length' <- getMajor 3
-  TE.decodeUtf8 <$> Get.getByteString (fromIntegral length')
+  -- Decoded here, so the text does not keep the artifact bytes alive.
+  TE.decodeUtf8 <$!> Get.getByteString (fromIntegral length')
+
+-- | Apply a decoded function to a decoded value and evaluate the result.
+-- 'Get' builds every '<$>' and '<*>' result lazily, so a decoder written
+-- with them returns a tree of thunks that lives as long as the decoded
+-- value does; the artifact decoders use this operator and '<$!>' instead.
+(<*!>) :: Get.Get (a -> b) -> Get.Get a -> Get.Get b
+getFunction <*!> getArgument = do
+  function <- getFunction
+  argument <- getArgument
+  pure $! function argument
+
+infixl 4 <*!>
 
 getWord :: Get.Get Word64
 getWord = getMajor 0
@@ -67,8 +81,8 @@ getInt = do
   let major = initial `shiftR` 5
   value <- getMajor major
   case major of
-    0 -> pure (fromIntegral value)
-    1 -> pure (-1 - fromIntegral value)
+    0 -> pure $! fromIntegral value
+    1 -> pure $! (-1 - fromIntegral value)
     _ -> fail "unexpected CBOR integer"
 
 getMajor :: Word8 -> Get.Get Word64
@@ -78,9 +92,9 @@ getMajor expected = do
       info = initial `mod` 32
   unless (major == expected) (fail "unexpected CBOR major type")
   case info of
-    value | value < 24 -> pure (fromIntegral value)
-    24 -> fromIntegral <$> Get.getWord8
-    25 -> fromIntegral <$> Get.getWord16be
-    26 -> fromIntegral <$> Get.getWord32be
+    value | value < 24 -> pure $! fromIntegral value
+    24 -> fromIntegral <$!> Get.getWord8
+    25 -> fromIntegral <$!> Get.getWord16be
+    26 -> fromIntegral <$!> Get.getWord32be
     27 -> Get.getWord64be
     _ -> fail "unsupported CBOR length"

@@ -143,8 +143,9 @@ import Aihc.Tc
   )
 import Aihc.Tc.Types (tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
-import Control.DeepSeq (rnf)
+import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
+import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar, takeTMVar)
+import Control.DeepSeq (NFData (..), force)
 import Control.Exception (IOException, bracket, evaluate, throwIO, try)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.Aeson (Value (..))
@@ -198,7 +199,16 @@ data SourceModule = SourceModule
     -- CPP, the headers it included and the dependency versions its
     -- @MIN_VERSION_*@ macros reported.
     sourceModuleHash :: !Text,
-    sourceModuleAst :: Module,
+    -- | The parsed module. The resolve task of its unit takes it, so the
+    -- parse tree dies once the unit is resolved (or, when the resolve
+    -- artifacts were reused, once the unit is type-checked). Everything the
+    -- later phases need from the header is precomputed in the fields below.
+    sourceModuleParsed :: !(MVar Module),
+    sourceModuleName :: !Text,
+    -- | The directory of the module's artifacts, relative to the package.
+    sourceModuleDirectory :: !FilePath,
+    -- | The package qualifier and name of each import.
+    sourceModuleImports :: ![(Maybe Text, Text)],
     sourceModuleExtensions :: ![Extension],
     sourceModuleSourceLines :: !(Map.Map FilePath (Map.Map Int Text)),
     sourceModuleParseDiagnostics :: [Value]
@@ -245,12 +255,23 @@ data FcModule = FcModule
     fcProgram :: !Fc.Program
   }
 
-data PendingCompile = PendingCompile
-  { pendingModules :: [Module],
-    -- | How to desugar each module of the unit, by module name. The
-    -- configuration carries the export list, which the desugarer turns into
-    -- the visibility of every top-level name.
-    pendingDesugarConfigs :: Map.Map Text DesugarConfig
+instance NFData FcModule where
+  rnf (FcModule name program) = rnf name `seq` rnf program
+
+-- | What the type-check task of a unit checks: the modules as the resolve
+-- task resolved them, or the parsed modules when the resolve artifacts were
+-- reused and the unit has to be resolved again before it can be checked.
+data TypeInput
+  = TypeInputResolved ResolveResult
+  | TypeInputParsed [ModuleUnit]
+
+-- | The System FC of a unit, as the backend task takes it from the
+-- type-check task. The Haskell AST is gone by the time this exists.
+data PendingBackend = PendingBackend
+  { pendingFcModules :: ![FcModule],
+    -- | The rendered C wrappers of each module's @capi@ imports, by module
+    -- name; 'Nothing' for a module without any.
+    pendingCapiStubs :: ![(Text, Maybe Text)]
   }
 
 newtype UnitId = UnitId Int
@@ -266,7 +287,6 @@ data SourceUnit = SourceUnit
 data ResolveUnitResult = ResolveUnitResult
   { resolveUnitExports :: !ModuleExports,
     resolveUnitScopeHashes :: !(Map.Map Text Text),
-    resolveUnitResolved :: !(Maybe ResolveResult),
     resolveUnitErrors :: ![ResolveError],
     resolveUnitSuccess :: !Bool
   }
@@ -285,8 +305,6 @@ data TypeUnitResult = TypeUnitResult
     typeUnitReused :: !(Set.Set Text),
     -- | The stamp the backend writes once the objects of the unit exist.
     typeUnitPendingStamp :: !(Maybe PendingStamp),
-    typeUnitPendingCompile :: !(Maybe PendingCompile),
-    typeUnitDesugarInterface :: !TcInterface,
     typeUnitSuccess :: !Bool
   }
 
@@ -300,10 +318,16 @@ data PendingStamp = PendingStamp
     pendingStampFrontendFiles :: ![FilePath]
   }
 
+-- | The channels between the tasks of one unit. The results are read by
+-- every dependent; the inputs are taken by the single task that consumes
+-- them, so the parse tree, the resolved modules, and the System FC each die
+-- as soon as the next phase has them.
 data UnitRuntime = UnitRuntime
   { runtimeUnit :: !SourceUnit,
     runtimeResolveResult :: !(TMVar ResolveUnitResult),
-    runtimeTypeResult :: !(TMVar TypeUnitResult)
+    runtimeTypeInput :: !(TMVar TypeInput),
+    runtimeTypeResult :: !(TMVar TypeUnitResult),
+    runtimeBackendInput :: !(TMVar (Maybe PendingBackend))
   }
 
 data ModuleCompileConfig = ModuleCompileConfig
@@ -1101,9 +1125,9 @@ loadRequiredDependencies sources = mapM loadDependency
 requiredDependencyModules :: [SourceModule] -> Set.Set (Maybe Text, Text)
 requiredDependencyModules sources =
   Set.fromList
-    ( [ (importDeclPackage importDecl, importDeclModule importDecl)
+    ( [ importDecl
       | source <- sources,
-        importDecl <- Syntax.moduleImports (sourceModuleAst source),
+        importDecl <- sourceModuleImports source,
         not (localImport importDecl)
       ]
         <> [(Nothing, "Prelude") | any moduleUsesImplicitPrelude sources]
@@ -1111,9 +1135,8 @@ requiredDependencyModules sources =
     )
   where
     localNames = Set.fromList (map sourceName sources)
-    localImport importDecl =
-      importDeclPackage importDecl == Just "this"
-        || (isNothing (importDeclPackage importDecl) && importDeclModule importDecl `Set.member` localNames)
+    localImport (package, name) =
+      package == Just "this" || (isNothing package && name `Set.member` localNames)
 
 loadInstalledPackage :: Set.Set (Maybe Text, Text) -> Bool -> FilePath -> IO InstalledPackage
 loadInstalledPackage requirements immutable storePath = do
@@ -1202,7 +1225,22 @@ parseSource root versions fileInfo = do
   -- the language edition and the module's own pragmas folded into one set.
   -- Name resolution and the type checker take that set as data, so neither
   -- reads the pragmas again.
-  pure (SourceModule path (BS.length bytes) (moduleDepsDigest deps) modu extensions sourceLines parseDiagnostics)
+  let name = fromMaybe "Main" (moduleName modu)
+      imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
+  parsed <- newMVar modu
+  pure
+    SourceModule
+      { sourceModulePath = path,
+        sourceModuleSize = BS.length bytes,
+        sourceModuleHash = moduleDepsDigest deps,
+        sourceModuleParsed = parsed,
+        sourceModuleName = name,
+        sourceModuleDirectory = moduleNameDirectory name,
+        sourceModuleImports = imports,
+        sourceModuleExtensions = extensions,
+        sourceModuleSourceLines = sourceLines,
+        sourceModuleParseDiagnostics = parseDiagnostics
+      }
 
 isCppWarning :: Value -> Bool
 isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
@@ -1222,12 +1260,9 @@ loadSourceModules workers root versions files = do
           taskKind = TaskParse,
           taskOrder = order,
           taskDependencies = Set.empty,
-          taskAction = do
-            source <- parseSource root versions fileInfo
-            let ast = sourceModuleAst source
-                imports = map importDeclModule (Syntax.moduleImports ast)
-            _ <- evaluate (rnf (moduleName ast, imports))
-            atomically (putTMVar result source)
+          -- The header fields of the module are strict, so the import
+          -- list is known once the source exists.
+          taskAction = parseSource root versions fileInfo >>= atomically . putTMVar result
         }
 
 sourceModuleUnits :: [SourceModule] -> [SourceUnit]
@@ -1412,7 +1447,7 @@ runPackageTasks :: PackageTaskContext -> Int -> [SourceUnit] -> IO ([UnitRuntime
 runPackageTasks context workers units = do
   runtimes <-
     forM units $ \unit ->
-      UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO
+      UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO
   let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
       tasks = concatMap (unitTasks runtimeMap) runtimes
   timings <- runTaskGraph workers tasks
@@ -1431,7 +1466,9 @@ runPackageTasks context workers units = do
           taskKind = TaskParse,
           taskOrder = sourceUnitOrder (runtimeUnit runtime),
           taskDependencies = Set.empty,
-          taskAction = evaluate (rnf (sourceModuleAst source, sourceModuleParseDiagnostics source))
+          taskAction = do
+            modu <- readMVar (sourceModuleParsed source)
+            evaluate (rnf (modu, sourceModuleParseDiagnostics source))
         }
 
     resolveTask runtimeMap runtime =
@@ -1494,20 +1531,20 @@ unitLabel :: SourceUnit -> Text
 unitLabel = T.intercalate "+" . map sourceName . sourceUnitSources
 
 sourceName :: SourceModule -> Text
-sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+sourceName = sourceModuleName
 
--- | The loaded modules of one package as the later phases take them: each
--- with the extension set that reading its source decided.
-packageModuleUnits :: Package -> [SourceModule] -> [ModuleUnit]
-packageModuleUnits package sources =
-  modulesInPackage package [(sourceModuleAst source, sourceModuleExtensions source) | source <- sources]
+-- | Take the parse trees of the modules of a unit, as the later phases take
+-- them: each with the extension set that reading its source decided. The
+-- resolve task of the unit calls this once.
+takePackageModuleUnits :: Package -> [SourceModule] -> IO [ModuleUnit]
+takePackageModuleUnits package sources = do
+  parsed <- mapM (takeMVar . sourceModuleParsed) sources
+  pure (modulesInPackage package (zip parsed (map sourceModuleExtensions sources)))
 
 sourceDependencyNames :: SourceModule -> [Text]
 sourceDependencyNames source =
-  map importDeclModule (Syntax.moduleImports modu)
+  map snd (sourceModuleImports source)
     <> ["Prelude" | moduleUsesImplicitPrelude source]
-  where
-    modu = sourceModuleAst source
 
 moduleUsesImplicitPrelude :: SourceModule -> Bool
 moduleUsesImplicitPrelude = elem ImplicitPrelude . sourceModuleExtensions
@@ -1530,7 +1567,6 @@ runResolveUnit context runtimes runtime = do
       dependencyScopeHashes = taskDependencyScopeHashes context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
-      packageModules = packageModuleUnits resolvePackage sources
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
@@ -1539,25 +1575,29 @@ runResolveUnit context runtimes runtime = do
       scopeInputs = [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
       inputs = sortOn fst (sourceHashes <> scopeInputs)
-      resolvePath source = moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
+      resolvePath source = sourceModuleDirectory source </> "resolve.cbor"
       stampPath = storePath </> unitResolveStampPath unit
       parseSuccess = all (null . sourceModuleParseDiagnostics) sources
       dependenciesSucceeded = all resolveUnitSuccess dependencyResults
+  -- This task owns the parse trees from here: they leave with the type
+  -- input, and nothing else holds them.
+  packageModules <- takePackageModuleUnits resolvePackage sources
   reused <-
     if parseSuccess && dependenciesSucceeded
       then reuseResolveUnit storePath stampPath inputs resolvePackage (map resolvePath sources)
       else pure Nothing
-  result <- case reused of
+  (result, typeInput) <- case reused of
     Just (unitExports, scopeHashes) -> do
       verbose ("Reuse resolve context: " <> T.unpack (unitLabel unit))
       pure
-        ResolveUnitResult
-          { resolveUnitExports = unitExports,
-            resolveUnitScopeHashes = scopeHashes,
-            resolveUnitResolved = Nothing,
-            resolveUnitErrors = [],
-            resolveUnitSuccess = True
-          }
+        ( ResolveUnitResult
+            { resolveUnitExports = unitExports,
+              resolveUnitScopeHashes = scopeHashes,
+              resolveUnitErrors = [],
+              resolveUnitSuccess = True
+            },
+          TypeInputParsed packageModules
+        )
     Nothing -> do
       let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
           resolved = resolveWithDeps builtinScope availableExports packageModules
@@ -1573,14 +1613,17 @@ runResolveUnit context runtimes runtime = do
             pure (Map.fromList digests)
           else pure Map.empty
       pure
-        ResolveUnitResult
-          { resolveUnitExports = unitExports,
-            resolveUnitScopeHashes = scopeHashes,
-            resolveUnitResolved = Just resolved,
-            resolveUnitErrors = errors,
-            resolveUnitSuccess = success
-          }
-  atomically (putTMVar (runtimeResolveResult runtime) result)
+        ( ResolveUnitResult
+            { resolveUnitExports = unitExports,
+              resolveUnitScopeHashes = scopeHashes,
+              resolveUnitErrors = errors,
+              resolveUnitSuccess = success
+            },
+          TypeInputResolved resolved
+        )
+  atomically $ do
+    putTMVar (runtimeResolveResult runtime) result
+    putTMVar (runtimeTypeInput runtime) typeInput
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
@@ -1612,6 +1655,8 @@ reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
 runTypeUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
 runTypeUnit context runtimes runtime = do
   resolvedOutput <- atomically (readTMVar (runtimeResolveResult runtime))
+  -- The modules of the unit are this task's to check and then drop.
+  typeInput <- atomically (takeTMVar (runtimeTypeInput runtime))
   dependencyResults <- readDependencyResults runtimeTypeResult runtimes (sourceUnitDependencies unit)
   dependencyResolveResults <- readDependencyResults runtimeResolveResult runtimes (sourceUnitDependencies unit)
   let storePath = taskStorePath context
@@ -1660,7 +1705,7 @@ runTypeUnit context runtimes runtime = do
             <> [ ("options:frontend", T.pack (frontendOptionsKey config)),
                  ("options:extensions", T.pack (show (map sourceModuleExtensions sources)))
                ]
-      typePath source = moduleDirectory (sourceModuleAst source) </> "type.cbor"
+      typePath source = sourceModuleDirectory source </> "type.cbor"
       factsPath = unitFactsPath unit
       stampPath = storePath </> unitStampPath unit
       frontendFiles = factsPath : map typePath sources
@@ -1686,14 +1731,13 @@ runTypeUnit context runtimes runtime = do
                 ]
           )
       checkUnit = do
-        resolved <-
-          case resolveUnitResolved resolvedOutput of
-            Just result -> pure result
-            Nothing ->
-              let packageModules = packageModuleUnits resolvePackage sources
-                  builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
-               in pure (resolveWithDeps builtinScope availableExports packageModules)
-        let checked =
+        let resolved =
+              case typeInput of
+                TypeInputResolved result -> result
+                TypeInputParsed packageModules ->
+                  let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
+                   in resolveWithDeps builtinScope availableExports packageModules
+            checked =
               typecheckModuleSccWithInterface
                 (primTcConfig primIdentity)
                 importedTypes
@@ -1712,9 +1756,8 @@ runTypeUnit context runtimes runtime = do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       ownFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
       let interfaces = map typeArtifactInterface artifacts
-          complete = mergeTcInterfaces (importedTypes : ownFacts : interfaces)
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
-      atomically $
+      atomically $ do
         putTMVar
           (runtimeTypeResult runtime)
           TypeUnitResult
@@ -1727,12 +1770,11 @@ runTypeUnit context runtimes runtime = do
               typeUnitWritten = Set.empty,
               typeUnitReused = Set.fromList unitNames,
               typeUnitPendingStamp = Nothing,
-              typeUnitPendingCompile = Nothing,
-              typeUnitDesugarInterface = complete,
               typeUnitSuccess = True
             }
+        putTMVar (runtimeBackendInput runtime) Nothing
     Nothing -> do
-      (initialChecked@(_, checkedInterface), diagnostics) <- checkUnit
+      ((checkedModules, checkedInterface), diagnostics) <- checkUnit
       let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
           unitTypes = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
           ownInstanceInterface = addReferencedFacts completeInterface (instanceFacts checkedInterface)
@@ -1750,17 +1792,31 @@ runTypeUnit context runtimes runtime = do
             -- this one, so it changes with any of them.
             pure (typeHashes, T.pack (stableHash [BL.toStrict factsBytes, BS8.pack (show (sortOn fst (factsInputs <> packageInputs)))]))
           else pure (Map.empty, "")
-      pendingCompile <-
+      -- The unit goes all the way to System FC here, so the checked AST
+      -- ends with this task: the backend takes the FC and nothing else.
+      pendingBackend <-
         if compileNoCode config || not success
           then pure Nothing
           else do
-            let (checkedModules, _) = initialChecked
-                desugarConfigs =
+            let desugarConfigs =
                   Map.fromList
                     [ (name, Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
                     | name <- unitNames
                     ]
-            pure (Just (PendingCompile checkedModules desugarConfigs))
+            (fcModules, desugarNs) <-
+              measureTime
+                ( desugarCheckedModules
+                    config
+                    verbose
+                    primIdentity
+                    completeInterface
+                    (moduleOutputPaths storePath (compileTarget config))
+                    desugarConfigs
+                    checkedModules
+                )
+            atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> mempty {backendDesugarNs = desugarNs}, ()))
+            capiStubs <- evaluate (force [(name, renderCapiStub name (moduleCapiWrappers name completeInterface)) | name <- unitNames])
+            pure (Just (PendingBackend fcModules capiStubs))
       let unitSet = Set.fromList unitNames
           -- A unit with warnings is not stamped, so the next build reports
           -- them again.
@@ -1788,14 +1844,14 @@ runTypeUnit context runtimes runtime = do
               typeUnitWritten = unitSet,
               typeUnitReused = Set.empty,
               typeUnitPendingStamp = pendingStamp,
-              typeUnitPendingCompile = pendingCompile,
-              typeUnitDesugarInterface = completeInterface,
               typeUnitSuccess = success
             }
       when (compileNoCode config) $
         forM_ pendingStamp $
           \pending -> writeUnitStamp storePath pending Nothing
-      atomically (putTMVar (runtimeTypeResult runtime) typeResult)
+      atomically $ do
+        putTMVar (runtimeTypeResult runtime) typeResult
+        putTMVar (runtimeBackendInput runtime) pendingBackend
   where
     config = taskModuleCompileConfig context
     unit = runtimeUnit runtime
@@ -1839,20 +1895,19 @@ runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
   started <- getMonotonicTimeNSec
   result <- atomically (readTMVar (runtimeTypeResult runtime))
-  case typeUnitPendingCompile result of
-    Just pending | typeUnitSuccess result -> do
+  -- The FC of the unit is this task's: once it is compiled it is gone.
+  pending <- atomically (takeTMVar (runtimeBackendInput runtime))
+  case pending of
+    Just backend | typeUnitSuccess result -> do
       let config = taskModuleCompileConfig context
           storePath = taskStorePath context
       (phaseTimings, capiOutputs) <-
-        compileCheckedModules
+        compileUnitFcModules
           config
           (taskCapiStubOptions context)
           (compileVerbose config)
-          (taskPrimIdentity context)
-          (typeUnitDesugarInterface result)
           (moduleOutputPaths storePath (compileTarget config))
-          (pendingDesugarConfigs pending)
-          (pendingModules pending)
+          backend
       capiHeaders <- stampFiles "" (sortOn id (nub (concatMap capiStubHeaders capiOutputs)))
       forM_ (typeUnitPendingStamp result) $ \stamp ->
         writeUnitStamp
@@ -1994,10 +2049,13 @@ renderBackendPhaseTotals timings =
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
 
-compileCheckedModules :: ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO (BackendPhaseTimings, [CapiStubOutput])
-compileCheckedModules config capiOptions verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
+-- | Desugar the checked modules of a unit to System FC, lint it when asked,
+-- and write it when a later build or a @--lto@ link reads it. This is the
+-- last phase that sees the Haskell AST.
+desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
+desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-  (fcModules, desugarNs) <- measureTime $ do
+  do
     let kinds = primKinds primIdentity
         bindings = concatMap (tcModuleBindings (primTcWiring primIdentity)) checkedModules
         -- A module the resolver did not report on keeps every name public.
@@ -2013,7 +2071,9 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
             err <- dsErrors result
           ]
     unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines desugarErrors)))
-    let fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
+    -- The FC waits in memory for the backend, so equal names and types
+    -- are made one object each before it is kept.
+    let fcModules = zipWith FcModule moduleNames (map (Fc.shareProgram . dsProgram) desugarResults)
     fcErrors <-
       fmap concat $
         forM fcModules $ \fcModule -> do
@@ -2035,22 +2095,46 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
     -- A @--lto@ build keeps the System FC of every module: it is what the
     -- executable compiles.
     when (keepCore || lto) (mapM_ writeFcModule fcModules)
-    pure fcModules
+    -- The FC is forced here so that no thunk into the checked AST leaves
+    -- with it.
+    evaluate (force fcModules)
+  where
+    keepCore = compileKeepCore config
+    lint = compileLint config
+    lto = compileLto config
+
+    writeFcModule fcModule = do
+      let name = fcModuleName fcModule
+          path = outputFcPath (outputPaths name)
+      writeFcFile path (fcProgram fcModule)
+      verbose ("Write FC: " <> T.unpack name)
+
+    writeFcFile path program = do
+      let rendered = Fc.renderProgram program
+          output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
+      createDirectoryIfMissing True (takeDirectory path)
+      TIO.writeFile path output
+
+-- | Compile the System FC of a unit to objects, and its capi wrappers
+-- beside them. Only the FC and the rendered wrappers come in: the frontend
+-- state of the unit is gone.
+compileUnitFcModules :: ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
+compileUnitFcModules config capiOptions verbose outputPaths pending = do
   (grinNs, nativeNs) <-
     if lto
       then pure (0, 0)
       else do
         -- Each module is inlined on its own: the program is not known here.
-        optimized <- forM fcModules $ \fcModule -> do
+        optimized <- forM (pendingFcModules pending) $ \fcModule -> do
           program <- optimizeFcProgram config verbose Nothing (fcModuleName fcModule) (fcProgram fcModule)
           pure fcModule {fcProgram = program}
         compileFcModules config verbose outputPaths optimized
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
-  (capiOutputs, capiNs) <- measureTime (concat <$> mapM buildCapiStub moduleNames)
+  (capiOutputs, capiNs) <- measureTime (concat <$> mapM (uncurry buildCapiStub) (pendingCapiStubs pending))
   pure
     ( BackendPhaseTimings
-        { backendDesugarNs = desugarNs,
+        { backendDesugarNs = 0,
           backendGrinNs = grinNs,
           backendNativeNs = nativeNs + capiNs,
           backendOtherNs = 0
@@ -2058,18 +2142,15 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
       capiOutputs
     )
   where
-    keepCore = compileKeepCore config
-    lint = compileLint config
     lto = compileLto config
     target = compileTarget config
 
     -- The C wrappers of a module's capi imports are compiled beside its
     -- object and archived with it, so a module that declares none must leave
     -- no wrapper object behind for the archive to pick up.
-    buildCapiStub name = do
+    buildCapiStub name stub = do
       let paths = outputPaths name
-          wrappers = moduleCapiWrappers name interface
-      case renderCapiStub name wrappers of
+      case stub of
         Nothing -> do
           mapM_ removeFileIfPresent [outputCapiSourcePath paths, outputCapiObjectPath paths, outputCapiDependencyPath paths]
           pure []
@@ -2091,18 +2172,6 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
           -- already recorded as an output of this unit.
           headers <- filter (/= source') <$> mapM canonicalizePath (parseDependencyFile recorded)
           pure [CapiStubOutput name (sortOn id (nub headers))]
-
-    writeFcModule fcModule = do
-      let name = fcModuleName fcModule
-          path = outputFcPath (outputPaths name)
-      writeFcFile path (fcProgram fcModule)
-      verbose ("Write FC: " <> T.unpack name)
-
-    writeFcFile path program = do
-      let rendered = Fc.renderProgram program
-          output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
-      createDirectoryIfMissing True (takeDirectory path)
-      TIO.writeFile path output
 
 -- | The inliner configuration of a level. @-O0@ has none. @-Os@ inlines
 -- only where the program gets smaller. @-O1@ and @-O2@ inline until the
@@ -2692,7 +2761,7 @@ moduleTypeInterface exports package interface source =
         tcInterfaceForeignImportMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceForeignImportMap interface)
       }
   where
-    name = fromMaybe "Main" (moduleName (sourceModuleAst source))
+    name = sourceModuleName source
     scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
     termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTerms scope)))
     typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
@@ -2793,15 +2862,12 @@ addReferencedFacts complete interface =
 writeTypeArtifact :: (String -> IO ()) -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
 writeTypeArtifact verbose artifactPath source interface = do
   let path = artifactPath source
-      name = fromMaybe "Main" (moduleName (sourceModuleAst source))
+      name = sourceModuleName source
       (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name Map.empty interface)
   createDirectoryIfMissing True (takeDirectory path)
   BL.writeFile path artifactBytes
   verbose ("Write type interface: " <> T.unpack name)
   pure (name, T.pack (stableHash [BL.toStrict interfaceBytes]))
-
-moduleDirectory :: Module -> FilePath
-moduleDirectory = moduleNameDirectory . fromMaybe "Main" . moduleName
 
 moduleNameDirectory :: Text -> FilePath
 moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
@@ -2811,7 +2877,7 @@ moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
 writeArtifact :: (String -> IO ()) -> ModuleExports -> Package -> FilePath -> SourceModule -> IO (Text, Text)
 writeArtifact verbose exports package path source = do
   createDirectoryIfMissing True (takeDirectory path)
-  let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
+  let name = sourceModuleName source
       scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
       (artifactBytes, scopeBytes) = encodeResolveArtifactParts (ResolveArtifact name scope)
   BL.writeFile path artifactBytes
