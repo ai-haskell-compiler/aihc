@@ -16,6 +16,8 @@ module Data.List
     maximum,
     minimum,
     unfoldr,
+    mapAccumL,
+    mapAccumR,
     stripPrefix,
     group,
     groupBy,
@@ -66,6 +68,7 @@ module Data.List
   )
 where
 
+import Data.Traversable (mapAccumL, mapAccumR)
 import GHC.List
 import Prelude
   ( Bool (..),

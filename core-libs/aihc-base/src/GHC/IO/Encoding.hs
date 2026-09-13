@@ -1,9 +1,22 @@
 module GHC.IO.Encoding
-  ( TextEncoding,
-    textEncodingName,
+  ( BufferCodec (..),
+    TextEncoding (..),
+    TextEncoder,
+    TextDecoder,
+    CodeBuffer,
+    EncodeBuffer,
+    DecodeBuffer,
+    CodingProgress (..),
+    latin1,
+    latin1_checked,
     utf8,
     utf8_bom,
-    latin1,
+    utf16,
+    utf16le,
+    utf16be,
+    utf32,
+    utf32le,
+    utf32be,
     char8,
     getLocaleEncoding,
     getFileSystemEncoding,
@@ -17,14 +30,24 @@ where
 
 import GHC.Base (Applicative (..), String)
 import GHC.IO (IO)
-import GHC.IO.Encoding.Types (TextEncoding (..))
+import GHC.IO.Encoding.Latin1 (latin1, latin1_checked)
+import GHC.IO.Encoding.Types
+  ( BufferCodec (..),
+    CodeBuffer,
+    CodingProgress (..),
+    DecodeBuffer,
+    EncodeBuffer,
+    TextDecoder,
+    TextEncoder,
+    TextEncoding (..),
+  )
+import GHC.IO.Encoding.UTF16 (utf16, utf16be, utf16le)
+import GHC.IO.Encoding.UTF32 (utf32, utf32be, utf32le)
 import GHC.IO.Encoding.UTF8 (utf8, utf8_bom)
-
-latin1 :: TextEncoding
-latin1 = TextEncoding "ISO-8859-1"
+import GHC.Internal.IO.Encoding.Codec (nameOnlyEncoding)
 
 char8 :: TextEncoding
-char8 = TextEncoding "char8"
+char8 = latin1
 
 getLocaleEncoding :: IO TextEncoding
 getLocaleEncoding = pure utf8
@@ -44,5 +67,7 @@ setFileSystemEncoding _ = pure ()
 setForeignEncoding :: TextEncoding -> IO ()
 setForeignEncoding _ = pure ()
 
+-- | The runtime only has UTF-8, so an encoding built by name carries that
+-- name and nothing else.
 mkTextEncoding :: String -> IO TextEncoding
-mkTextEncoding name = pure (TextEncoding name)
+mkTextEncoding name = pure (nameOnlyEncoding name)

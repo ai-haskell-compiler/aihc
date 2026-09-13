@@ -17,8 +17,8 @@ module Aihc.Haddock.Cli
 where
 
 import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model
@@ -117,12 +117,13 @@ runCommand cmd =
 
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
-  root <- resolveTarget (buildTarget options)
+  hackageIndex <- newHackageIndex defaultIndexOptions
+  root <- resolveTarget hackageIndex (buildTarget options)
   storeRoot' <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let store = Store storeRoot'
       say message = when (buildVerbose options) (hPutStrLn stderr message)
   spec <- packageSpecFromSource root
-  let resolver = localDependencyResolverWithFallback networkResolver root spec
+  let resolver = localDependencyResolverWithFallback (networkResolver hackageIndex) root spec
   plan <- buildPackagePlanWithResolver resolver spec
   package <- documentPlan store (buildUseCache options) (buildDependencies options) say plan
   forM_ (buildJsonOutput options) $ \path -> BL.writeFile path (encodePackageDoc package)
@@ -145,15 +146,15 @@ runBuild options = do
         hPutStrLn stderr (T.unpack (moduleDocName modu <> ": " <> diagnostic))
 
 -- | A directory is used as-is; anything else is a Hackage package.
-resolveTarget :: String -> IO FilePath
-resolveTarget target = do
+resolveTarget :: HackageIndex -> String -> IO FilePath
+resolveTarget index target = do
   isDirectory <- doesDirectoryExist target
   if isDirectory
     then pure target
     else case parsePackageTarget target of
       Nothing -> ioError (userError (target <> " is not a directory nor a Hackage package NAME[-VERSION]"))
       Just (name, requestedVersion) -> do
-        version <- maybe (resolvePreferredVersion name) pure requestedVersion
+        version <- maybe (resolvePreferredVersion index name) pure requestedVersion
         HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions (PackageSpec name version)
 
 parsePackageTarget :: String -> Maybe (String, Maybe String)
@@ -165,12 +166,12 @@ parsePackageTarget target = do
       if version == nullVersion then Nothing else Just (prettyShow version)
     )
 
-resolvePreferredVersion :: String -> IO String
-resolvePreferredVersion name = getLatestVersion Nothing name >>= either (ioError . userError) pure
+resolvePreferredVersion :: HackageIndex -> String -> IO String
+resolvePreferredVersion index name = indexPreferredVersion index name >>= either (ioError . userError) pure
 
-networkResolver :: DependencyResolver
-networkResolver =
+networkResolver :: HackageIndex -> DependencyResolver
+networkResolver index =
   DependencyResolver
-    { resolverResolveVersion = resolvePreferredVersion,
+    { resolverResolveVersion = resolvePreferredVersion index,
       resolverSourcePath = fmap (`ResolvedSource` PlanHackage) . HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
     }
