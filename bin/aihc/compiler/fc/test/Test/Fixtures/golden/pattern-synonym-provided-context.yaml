@@ -61,13 +61,16 @@ expected: |-
       }
 
   pub val 1.v$fMarkableBool :: 1.t$Dict$Markable 1.tBool
-   = 1.c$Dict$Markable @1.tBool (λ(x : 1.tBool).
+   = 1.c$Dict$Markable @1.tBool 1.v$fMarkableBool$cmark
+
+  val 1.v$fMarkableBool$cmark :: 1.tBool 2.→ 1.tMark
+   = λ(x : 1.tBool).
     case x as (_scrut : 1.tBool) return (1.tMark) of {
         1.cTrue →
             1.cMarked;
         1.cFalse →
             1.cPlain
-    })
+    }
 
   pub val 1.v$mTagged :: ∀(r : 2.sType). 1.tBox 2.→ (∀(a : 2.sType). 1.t$Dict$Markable a 2.→ a 2.→ r) 2.→ r 2.→ r
    = Λ(r : 2.sType).

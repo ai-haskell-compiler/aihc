@@ -44,8 +44,11 @@ expected: |-
         }
 
   pub val 1.v$fMapBox :: 1.t$Dict$Map 1.tBox
-   = 1.c$Dict$Map @1.tBox (Λ(a : 2.sType).
+   = 1.c$Dict$Map @1.tBox 1.v$fMapBox$cmapValue
+
+  val 1.v$fMapBox$cmapValue :: ∀(a : 2.sType). 1.tBox a 2.→ 1.tBox a
+   = Λ(a : 2.sType).
     λ(x : 1.tBox a).
-      x)
+      x
 status: pass
 reason: ''

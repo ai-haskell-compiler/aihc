@@ -57,13 +57,16 @@ expected: |-
       }
 
   pub val 1.v$fDescribeBool :: 1.t$Dict$Describe 1.tBool
-   = 1.c$Dict$Describe @1.tBool (λ(x : 1.tBool).
+   = 1.c$Dict$Describe @1.tBool 1.v$fDescribeBool$cisZero
+
+  val 1.v$fDescribeBool$cisZero :: 1.tBool 2.→ 1.tBool
+   = λ(x : 1.tBool).
     case x as (_scrut : 1.tBool) return (1.tBool) of {
         1.cFalse →
             1.cTrue;
         1.cTrue →
             1.cFalse
-    })
+    }
 
   pub val 1.v$mIsZero :: ∀(a : 2.sType) (r : 2.sType). 1.t$Dict$Describe a 2.→ a 2.→ r 2.→ r 2.→ r
    = Λ(a : 2.sType).

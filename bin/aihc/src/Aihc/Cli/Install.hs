@@ -2145,9 +2145,7 @@ optimizeFcProgram config verbose roots name program =
             <> show (Fc.reportInlinedSites report)
             <> " sites, "
             <> show (Fc.reportDroppedValues report)
-            <> " values dropped, "
-            <> show (Fc.reportHelpers report)
-            <> " method helpers"
+            <> " values dropped"
         )
       when (compileLint config) $ do
         let errors = Fc.lintProgram optimized

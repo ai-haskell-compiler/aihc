@@ -49,8 +49,11 @@ expected: |-
   axiom 1.$ax$Name : 1.tName ~R 5.t[] 5.tChar
 
   pub val 1.v$fIsStringName :: 4.t$Dict$IsString 1.tName
-   = 4.c$Dict$IsString @1.tName (λ(_newtype : 5.t[] 5.tChar).
-    _newtype ▷ sym (axiom-co 1.$ax$Name))
+   = 4.c$Dict$IsString @1.tName 1.v$fIsStringName$cfromString
+
+  val 1.v$fIsStringName$cfromString :: 5.t[] 5.tChar 5.→ 1.tName
+   = λ(_newtype : 5.t[] 5.tChar).
+    _newtype ▷ sym (axiom-co 1.$ax$Name)
 
   pub val 1.vgreeting :: 1.tName
    = 4.vfromString @1.tName 1.v$fIsStringName (2.vunpackCString# "hi"#5.cAddrRep)
