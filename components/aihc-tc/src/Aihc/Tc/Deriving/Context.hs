@@ -15,7 +15,6 @@ module Aihc.Tc.Deriving.Context
     derivingObligations,
     newtypeRepresentation,
     stockFieldTypes,
-    isSupportedStockClass,
     typeTyVars,
     moduleDerivingPlans,
     replaceModulePlans,
@@ -37,6 +36,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
   )
 import Aihc.Tc.Constraint (CtOrigin (..))
+import Aihc.Tc.Deriving.StockClass (generatesStockMethods)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
@@ -133,7 +133,7 @@ derivingObligations kinds plan =
   case tcDerivingStrategy plan of
     TcDerivingAnyclass -> Just (Right (anyClassObligations kinds plan))
     TcDerivingStock
-      | isSupportedStockClass (tcDerivingClassName plan) ->
+      | generatesStockMethods (tcDerivingClassName plan) ->
           Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan)
       | otherwise -> Nothing
     TcDerivingNewtype ->
@@ -163,10 +163,6 @@ coercedObligations kinds plan source = supers <> methods
     substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
     supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
     methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [source]) | not (null (tcDerivingClassMethods plan))]
-
--- | The stock classes that the generator can write an instance for.
-isSupportedStockClass :: Text -> Bool
-isSupportedStockClass className = className `elem` ["Eq", "Ord", "Show", "Read", "Bounded"]
 
 inferPlanContext :: TcKinds -> DerivingEnv -> TcDerivingPlan -> TcM TcDerivingPlan
 inferPlanContext kinds environment plan =
