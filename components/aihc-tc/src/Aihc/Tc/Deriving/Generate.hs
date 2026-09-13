@@ -56,8 +56,9 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (isSupportedStockClass, newtypeRepresentation, stockFieldTypes)
+import Aihc.Tc.Deriving.Context (newtypeRepresentation, stockFieldTypes)
 import Aihc.Tc.Deriving.References
+import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf)
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -173,7 +174,7 @@ generatePlan kinds references origin sourceDecl plan =
           -- generator must not write method bodies for it.
           | not (isGeneratedStockClass references (tcDerivingClassName plan) (tcDerivingClassOrigin plan)) ->
               Left ("stock deriving of " <> className <> " is not available for a class outside the core libraries")
-          | isSupportedStockClass (tcDerivingClassName plan) -> Right ()
+          | generatesStockMethods (tcDerivingClassName plan) -> Right ()
           | otherwise -> Left ("stock deriving of " <> className <> " is not supported yet; no instance is generated")
         TcDerivingVia {} -> Right ()
     -- A standalone declaration keeps the syntax the user wrote. An attached
@@ -202,13 +203,13 @@ generateItems gen =
         (Left message, _) -> failWith message
         (Right _, Just dataType) ->
           let constructors = dtiConstructors dataType
-           in case tcDerivingClassName plan of
-                "Eq" -> Just <$> eqItems gen constructors
-                "Ord" -> Just <$> ordItems gen constructors
-                "Show" -> Just <$> showItems gen constructors
-                "Read" -> Just <$> readItems gen constructors
-                "Bounded" -> boundedItems gen constructors
-                other -> failWith ("stock deriving of " <> T.unpack other <> " is not supported yet")
+           in case stockClassMethodsOf (tcDerivingClassName plan) of
+                Just StockEqMethods -> Just <$> eqItems gen constructors
+                Just StockOrdMethods -> Just <$> ordItems gen constructors
+                Just StockShowMethods -> Just <$> showItems gen constructors
+                Just StockReadMethods -> Just <$> readItems gen constructors
+                Just StockBoundedMethods -> boundedItems gen constructors
+                Nothing -> failWith ("stock deriving of " <> T.unpack (tcDerivingClassName plan) <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
     TcDerivingVia viaType -> associatedItems gen viaType
   where
@@ -227,29 +228,14 @@ referencesAvailable gen = do
   pure (listToMaybe [describe reference | (reference, Nothing) <- present])
   where
     references = genReferences gen
+    -- Only a stock body mentions a library name that is not a method of
+    -- the class being derived; the coercing strategies mention none.
     needed =
-      case (tcDerivingStrategy (genPlan gen), tcDerivingClassName (genPlan gen)) of
-        (TcDerivingStock, "Eq") -> [derivingTrue references, derivingFalse references]
-        (TcDerivingStock, "Ord") -> [derivingLT references, derivingEQ references, derivingGT references]
-        (TcDerivingStock, "Show") ->
-          [derivingIntCon references, derivingGreaterOrEqual references, derivingCons references]
-        (TcDerivingStock, "Read") ->
-          [ derivingIntCon references,
-            derivingBind references,
-            derivingThen references,
-            derivingReturn references,
-            derivingReadParens references,
-            derivingReadPrecContext references,
-            derivingReadStep references,
-            derivingReadReset references,
-            derivingReadAlternative references,
-            derivingReadFail references,
-            derivingReadExpect references,
-            derivingReadField references,
-            derivingReadSymField references,
-            derivingLexemeIdent references,
-            derivingLexemeSymbol references,
-            derivingLexemePunc references
+      case tcDerivingStrategy (genPlan gen) of
+        TcDerivingStock ->
+          [ select references
+          | Just stockClass <- [lookupStockClass (tcDerivingClassName (genPlan gen))],
+            select <- stockClassReferences stockClass
           ]
         _ -> []
     describe reference = T.unpack (referenceModule reference <> "." <> referenceName reference)

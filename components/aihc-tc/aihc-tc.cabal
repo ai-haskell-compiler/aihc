@@ -25,6 +25,7 @@ library
     Aihc.Tc.Deriving.Context
     Aihc.Tc.Deriving.Generate
     Aihc.Tc.Deriving.References
+    Aihc.Tc.Deriving.StockClass
     Aihc.Tc.Deriving.Strategy
     Aihc.Tc.Env
     Aihc.Tc.Error
@@ -117,6 +118,7 @@ test-suite spec
     TcAnnotatedRender
     Test.Tc.Interface
     Test.Tc.Properties
+    Test.Tc.StockClass
     Test.Tc.Suite
     Test.Tc.Traverse
 

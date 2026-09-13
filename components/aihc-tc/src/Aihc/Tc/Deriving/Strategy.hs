@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcDerivingStrategy (..))
 import Aihc.Tc.Deriving.References (DerivingReferences (..))
+import Aihc.Tc.Deriving.StockClass (NewtypeDefaulting (..), newtypeDefaultingOf, stockClassRequirement)
 import Aihc.Tc.Env (TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (TvKindEnv, checkSurfaceType)
@@ -67,13 +68,18 @@ isAutomaticTypeableClass className origin
 defaultStockFallback :: Text -> Maybe (Text, Text) -> Maybe DerivingStrategy -> TcDerivingStrategy -> TcM Bool
 defaultStockFallback className origin requested selected = do
   references <- getDerivingReferences
-  pure (isNothing requested && selected == TcDerivingNewtype && isStockClass references className origin && className `elem` ["Functor", "Foldable", "Enum"])
+  pure
+    ( isNothing requested
+        && selected == TcDerivingNewtype
+        && isStockClass references className origin
+        && newtypeDefaultingOf className == NewtypeWithGnd
+    )
 
 selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> SourceSpan -> TcM TcDerivingStrategy
 selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
-  | isStock, targetFlavor == NewtypeTyCon, className `elem` ["Eq", "Ord", "Ix", "Bounded"] = pure TcDerivingNewtype
-  | isStock, targetFlavor == NewtypeTyCon, GeneralizedNewtypeDeriving `elem` extensions, className `elem` ["Functor", "Foldable", "Enum"] = pure TcDerivingNewtype
-  | otherwise = case (isStock, stockDerivingRequirement className) of
+  | isStock, targetFlavor == NewtypeTyCon, defaulting == NewtypeAlways = pure TcDerivingNewtype
+  | isStock, targetFlavor == NewtypeTyCon, defaulting == NewtypeWithGnd, GeneralizedNewtypeDeriving `elem` extensions = pure TcDerivingNewtype
+  | otherwise = case (isStock, stockClassRequirement className) of
       (True, Just requiredExtension)
         | maybe True (`elem` extensions) requiredExtension -> pure TcDerivingStock
       _
@@ -87,13 +93,15 @@ selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSp
         | otherwise -> do
             emitError sourceSpan (OtherError (defaultStrategyError targetFlavor className))
             pure TcDerivingStock
+  where
+    defaulting = newtypeDefaultingOf className
 
 checkStockDeriving :: [Extension] -> Text -> Bool -> SourceSpan -> TcM ()
 checkStockDeriving extensions className isStock sourceSpan
   | not isStock =
       emitError sourceSpan (OtherError "stock deriving requires a standard class")
   | otherwise =
-      case stockDerivingRequirement className of
+      case stockClassRequirement className of
         Nothing ->
           emitError sourceSpan (OtherError ("stock deriving is not available for class " <> T.unpack className))
         Just Nothing -> pure ()
@@ -122,29 +130,6 @@ isGeneratedStockClass references className origin =
     Just (packageIdentity, moduleName) ->
       (PackageId packageIdentity, moduleName, className) `elem` derivingStockClasses references
     Nothing -> False
-
--- | Extensions required by GHC's stock deriving mechanisms. A @Nothing@
--- requirement denotes the six classes available for ordinary Haskell data
--- declarations without an extension.
-stockDerivingRequirement :: Text -> Maybe (Maybe Extension)
-stockDerivingRequirement className =
-  case className of
-    "Eq" -> Just Nothing
-    "Ord" -> Just Nothing
-    "Enum" -> Just Nothing
-    "Bounded" -> Just Nothing
-    "Ix" -> Just Nothing
-    "Show" -> Just Nothing
-    "Read" -> Just Nothing
-    "Data" -> Just (Just DeriveDataTypeable)
-    "Typeable" -> Just (Just DeriveDataTypeable)
-    "Foldable" -> Just (Just DeriveFoldable)
-    "Functor" -> Just (Just DeriveFunctor)
-    "Generic" -> Just (Just DeriveGeneric)
-    "Generic1" -> Just (Just DeriveGeneric)
-    "Lift" -> Just (Just DeriveLift)
-    "Traversable" -> Just (Just DeriveTraversable)
-    _ -> Nothing
 
 requireDerivingExtension :: [Extension] -> Extension -> String -> SourceSpan -> TcM ()
 requireDerivingExtension extensions extension mechanism sourceSpan =
