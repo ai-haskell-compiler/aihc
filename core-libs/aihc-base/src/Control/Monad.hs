@@ -156,20 +156,17 @@ forever action = action >> forever action
 join :: (Monad m) => m (m a) -> m a
 join action = action >>= id
 
-replicateM :: (Monad m) => Int -> m a -> m [a]
+replicateM :: (Applicative m) => Int -> m a -> m [a]
 replicateM count action =
   if count <= 0
-    then return []
-    else do
-      value <- action
-      values <- replicateM (count - 1) action
-      return (value : values)
+    then pure []
+    else liftA2 (:) action (replicateM (count - 1) action)
 
-replicateM_ :: (Monad m) => Int -> m a -> m ()
+replicateM_ :: (Applicative m) => Int -> m a -> m ()
 replicateM_ count action =
   if count <= 0
-    then return ()
-    else action >> replicateM_ (count - 1) action
+    then pure ()
+    else action *> replicateM_ (count - 1) action
 
 zipWithM :: (Monad m) => (a -> b -> m c) -> [a] -> [b] -> m [c]
 zipWithM combine (left : lefts) (right : rights) = do

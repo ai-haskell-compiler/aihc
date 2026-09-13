@@ -1,0 +1,26 @@
+extensions:
+  - ExistentialQuantification
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Test where
+
+    import Prelude
+
+    data Box a = forall z. Box z a
+
+    top :: (Show a) => Box a -> String
+    top box = go box
+      where
+        go :: (Show c) => Box c -> String
+        go (Box _ value) = show [value]
+
+    answer :: String
+    answer = top (Box 'c' (7 :: Int))
+output: |
+  : '[' (: '7' (: ']' []))
+expression: |
+  answer
+status: pass
+reason: the context of a local signature is a given inside a pattern-match branch
+  that binds an existential variable

@@ -1911,7 +1911,7 @@ instanceMethodScope signatures name givens (ForAll _ predicates expected) matche
       scheme@(ForAll variables signaturePredicates signatureType) <- sigToScheme signature
       withScopedTyVars (scopedSigTyVars (explicitForallNames signature) variables) $ do
         let (arguments, result) = splitFunTy signatureType (matchArity matches)
-        checked <- mapM (tcMatchEquation Nothing arguments result) matches
+        checked <- withGivenPredicates (givens <> signaturePredicates) (mapM (tcMatchEquation Nothing arguments result) matches)
         solveInstanceBodyConstraints (givens <> signaturePredicates) [(cts, impls) | (_, cts, impls) <- checked]
       instantiated <- instantiateWithArgs scheme
       evidence <- freshEvVar
@@ -1947,7 +1947,10 @@ tcInstanceItemBody classInfo givens headTys signatures item =
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       (results, failed) <-
         withErrorTracking $ withScopedTyVars scope $ do
-          results <- mapM (tcMatchEquation Nothing argTys resTy) matches
+          -- The instance context and the method's own context are givens for
+          -- the body, so a pattern-match implication inside it can discharge
+          -- a wanted against them.
+          results <- withGivenPredicates (givens <> methodGivens) (mapM (tcMatchEquation Nothing argTys resTy) matches)
           solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
           pure results
       -- A body with a type error keeps pending annotations that have no
@@ -1966,7 +1969,7 @@ tcInstanceItemBody classInfo givens headTys signatures item =
           scope <- instanceMethodScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
           (results, failed) <-
             withErrorTracking $ withScopedTyVars scope $ do
-              results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
+              results <- withGivenPredicates (givens <> methodGivens) (mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs])
               solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
               pure results
           case results of
