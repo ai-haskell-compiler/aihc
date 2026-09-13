@@ -607,15 +607,20 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
   (matches', ty, cts) <-
     case Map.lookup key sigs of
       Just scheme -> do
-        let sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
+        let ForAll _ sigPredicates _ = scheme
+            sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
             nArgs =
               case matches of
                 m : _ -> length (matchPats m)
                 [] -> 0
             (argTys, resTy) = splitFunTy sigTy nArgs
+        -- The signature's context is a given for the body, so a
+        -- pattern-match implication inside it can discharge a wanted
+        -- against it.
         results <-
           withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
-            mapM (tcMatchEquation inferExpr argTys resTy) matches
+            withGivenPredicates sigPredicates $
+              mapM (tcMatchEquation inferExpr argTys resTy) matches
         let matches' = map fst results
             matchCts = concatMap snd results
         residualCts <- solveWithSigGivens scheme matchCts

@@ -10,6 +10,7 @@ module Control.Applicative
     liftA,
     liftA2,
     liftA3,
+    optional,
     (<$>),
     (<**>),
   )
@@ -28,6 +29,10 @@ liftA3 f a b c = liftA2 f a b <*> c
 (<**>) = liftA2 (\value function -> function value)
 
 infixl 4 <**>
+
+-- | One occurrence of the action, or none.
+optional :: (Alternative f) => f a -> f (Maybe a)
+optional action = fmap Just action <|> pure Nothing
 
 newtype Const a b = Const {getConst :: a}
 
