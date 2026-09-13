@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile Lir modules to AArch64 Mach-O objects for Darwin.
@@ -87,14 +86,7 @@ objectBackend =
     { Emit.obNative = arm64Backend,
       Emit.obStatement = applyStatement,
       Emit.obImage = writeArm64MachO,
-      Emit.obError = Arm64LirObjectError . T.pack . show,
-      Emit.obAlign = \case
-        Arm64Align power -> Just power
-        _ -> Nothing,
-      Emit.obBytes = \case
-        Arm64Bytes bytes -> Just bytes
-        _ -> Nothing,
-      Emit.obFill = alignmentFill
+      Emit.obError = Arm64LirObjectError . T.pack . show
     }
 
 compileLirStatements :: Module -> Either Arm64LirError [Arm64Statement]

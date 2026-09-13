@@ -42,6 +42,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word32, Word64, Word8)
+import System.IO.Unsafe (unsafePerformIO)
 
 data Amd64Statement
   = Amd64Section !SectionRole
@@ -252,37 +253,34 @@ data Amd64Instruction
     AmdBitCount !Amd64BitCountOp !Amd64Register !Amd64Rm
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
-assembleElf statements = applyStatements emptyDraft statements >>= layoutDraft >>= writeAmd64Elf
+assembleElf statements = unsafePerformIO $ do
+  object <- newObject
+  result <- applyStatements object statements
+  case result of
+    Left err -> pure (Left err)
+    Right () -> (>>= writeAmd64Elf) <$> layoutObject object
 
 -- | Encode one statement before the producer selects the next instruction.
-applyStatement :: Either ObjectError Draft -> Amd64Statement -> Either ObjectError Draft
-applyStatement result statement = do
-  draft <- result
+applyStatement :: Object -> Amd64Statement -> IO (Either ObjectError ())
+applyStatement object statement =
   case statement of
-    Amd64Section role -> pure (selectSection role draft)
-    Amd64Global symbol -> pure (addGlobal symbol draft)
-    Amd64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
-    _ -> addItems (statementItems statement) draft
+    Amd64Section role -> selectSection role object >> pure (Right ())
+    Amd64Global symbol -> addGlobal symbol object >> pure (Right ())
+    Amd64Align alignment -> currentSectionRole object >>= emitAlign object alignment . alignmentFill
+    _ -> emitItems object (statementItems statement)
 
--- | Apply a list of statements. A run of statements that only add items to
--- the current section is appended in one pass.
-applyStatements :: Draft -> [Amd64Statement] -> Either ObjectError Draft
-applyStatements draft statements =
-  case statements of
-    [] -> pure draft
-    Amd64Section role : rest -> applyStatements (selectSection role draft) rest
-    Amd64Global symbol : rest -> applyStatements (addGlobal symbol draft) rest
-    Amd64Align alignment : rest -> addItem (Align alignment (alignmentFill draft)) draft >>= \next -> applyStatements next rest
-    _ ->
-      let (run, rest) = span plain statements
-       in addItems (concatMap statementItems run) draft >>= \next -> applyStatements next rest
+-- | Apply a list of statements to an object.
+applyStatements :: Object -> [Amd64Statement] -> IO (Either ObjectError ())
+applyStatements object = go
   where
-    plain statement =
-      case statement of
-        Amd64Section _ -> False
-        Amd64Global _ -> False
-        Amd64Align _ -> False
-        _ -> True
+    go statements =
+      case statements of
+        [] -> pure (Right ())
+        statement : rest -> do
+          result <- applyStatement object statement
+          case result of
+            Left err -> pure (Left err)
+            Right () -> go rest
 
 -- | The items of a statement that adds to the current section.
 statementItems :: Amd64Statement -> [Item]
@@ -302,18 +300,22 @@ statementItems statement =
 
 -- | Assemble statements that arrive in chunks, folding each one in before
 -- the next is produced. A failed chunk ends the assembly with its error;
--- an object error is the other side.
+-- an object error is the other side. The object is built in a private
+-- buffer that nothing else can reach, so the result is a pure function of
+-- the statements.
 assembleElfChunks :: [Either error [Amd64Statement]] -> Either (Either error ObjectError) BL.ByteString
-assembleElfChunks = go emptyDraft
-  where
-    go draft chunks =
-      case chunks of
-        [] -> either (Left . Right) Right (layoutDraft draft >>= writeAmd64Elf)
-        Left err : _ -> Left (Left err)
-        Right statements : rest ->
-          case applyStatements draft statements of
-            Left err -> Left (Right err)
-            Right next -> next `seq` go next rest
+assembleElfChunks chunks0 = unsafePerformIO $ do
+  object <- newObject
+  let go chunks =
+        case chunks of
+          [] -> either (Left . Right) Right . (>>= writeAmd64Elf) <$> layoutObject object
+          Left err : _ -> pure (Left (Left err))
+          Right statements : rest -> do
+            result <- applyStatements object statements
+            case result of
+              Left err -> pure (Left (Right err))
+              Right () -> go rest
+  go chunks0
 
 amd64Section :: SectionRole -> Amd64Statement
 amd64Section = Amd64Section
@@ -343,9 +345,10 @@ amd64Bytes = Amd64Bytes
 amd64Instruction :: Amd64Instruction -> Amd64Statement
 amd64Instruction = Amd64Code
 
-alignmentFill :: Draft -> ByteString
-alignmentFill draft
-  | draftCurrentSection draft == Just TextSection = BS.singleton 0x90
+-- | The bytes that pad a section: @nop@ in text, and zero elsewhere.
+alignmentFill :: Maybe SectionRole -> ByteString
+alignmentFill role
+  | role == Just TextSection = BS.singleton 0x90
   | otherwise = BS.singleton 0
 
 data Register = Register
