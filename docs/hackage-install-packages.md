@@ -40,6 +40,8 @@ would no longer point at a change in aihc.
 | data-array-byte | 0.1.0.2 |
 | primitive | 0.9.1.0 |
 | parser-combinators | 1.3.1 |
+| text | 2.1.4 |
+| prettyprinter | 1.7.2 |
 
 ## Running it locally
 

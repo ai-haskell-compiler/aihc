@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Test where
+  first, second :: a -> a
+  (first, second) = (idA, idA)
+  │││      │         ││    └─ type: b → b; type-args: b
+  │││      │         │└─ type: a → a; type-args: a
+  │││      │         └─ type: (a → a, b → b); type-args: a → a, b → b
+  │││      └─ type: b → b; type-args: (), b
+  │└─ type: a → a; type-args: a, ()
+  └─ type: ∀ a b. (a → a, b → b)
+  └─ type: (a → a, b → b)
+    where idA y = y
+          │   └─ type: a
+          └─ type: ∀ a. a → a
+extensions: []
+modules:
+- |
+  module Test where
+  first, second :: a -> a
+  (first, second) = (idA, idA)
+    where idA y = y
+reason: A pattern binding that binds several variables generalizes over the type
+  variables that no constraint mentions. Each binder records the type arguments
+  that instantiate the shared right-hand side; a type variable the binder does
+  not mention becomes the unit type, which is what GHC uses Any for.
+status: pass

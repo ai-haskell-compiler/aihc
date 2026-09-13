@@ -80,28 +80,56 @@ inferLocalDecls inferExpr decls body
 inferLocalDecls inferExpr decls body = do
   components <- localDeclComponents decls
   case components of
-    [_] -> inferLocalDeclGroup inferExpr decls body
+    [_] -> inferLocalDeclGroup inferExpr Set.empty decls body
     _ -> do
-      (annotated, result, ty, cts) <- inferComponents components
+      -- A component that the split moved before a binding with a signature
+      -- still uses that binding, so every signature of the group is in
+      -- scope for all of them. The component that owns such a binder then
+      -- leaves it alone, since this binding already gives it its scheme.
+      signatureBinders <- localSignatureBinders decls
+      signatureKeys <- Set.fromList <$> traverse (resolvedLocalTermKey . fst) signatureBinders
+      (annotated, result, ty, cts) <- withLocalBinders signatureBinders (inferComponents signatureKeys components)
       pure (Map.elems (Map.fromList annotated), result, ty, cts)
   where
     -- A component sees the generalized binders of the components it
     -- depends on, like a nested let.
-    inferComponents [] = do
+    inferComponents _ [] = do
       (result, ty, cts) <- body
       pure ([], result, ty, cts)
-    inferComponents ((indices, componentDecls) : rest) = do
+    inferComponents signatureKeys ((indices, componentDecls) : rest) = do
       (componentDecls', (restAnnotated, result), ty, cts) <-
-        inferLocalDeclGroup inferExpr componentDecls $ do
-          (restAnnotated, result, restTy, restCts) <- inferComponents rest
+        inferLocalDeclGroup inferExpr signatureKeys componentDecls $ do
+          (restAnnotated, result, restTy, restCts) <- inferComponents signatureKeys rest
           pure ((restAnnotated, result), restTy, restCts)
       pure (zip indices componentDecls' <> restAnnotated, result, ty, cts)
+
+-- | The binders of a local group that have a type signature, with the
+-- scheme that signature gives them.
+localSignatureBinders :: [Decl] -> TcM [(UnqualifiedName, TcBinder)]
+localSignatureBinders decls = do
+  binderKeys <- Set.fromList . concat <$> mapM declaredBinderKeys decls
+  concat <$> mapM (extract binderKeys) decls
+  where
+    extract binderKeys decl =
+      case peelDeclAnn decl of
+        DeclTypeSig names ty
+          | not (hasWildcardType ty) -> do
+              scheme <- sigToScheme ty
+              keyed <- mapM (\name -> (,name) <$> resolvedUnqualifiedTermKey name) names
+              pure [(name, TcIdBinder scheme Closed) | (key, name) <- keyed, Set.member key binderKeys]
+        _ -> pure []
 
 -- | Split the declarations of a local group into its strongly connected
 -- components, in dependency order. A binding is generalized before the
 -- bindings that use it, so a use gets a fresh instance. The equations of
 -- one binder stay together. A signature joins the component of each binder
 -- it names, so the result lists it more than once.
+--
+-- A reference to a binder with a type signature is not an edge: that binder
+-- has its type already, so the binding that uses it does not have to be
+-- inferred together with it. This is what makes a group like
+-- @go d = .. apply ..; apply :: .. ; apply f = .. go ..@ work, where @go@
+-- must be generalized for @apply@ to have its signature type.
 localDeclComponents :: [Decl] -> TcM [([Int], [Decl])]
 localDeclComponents decls = do
   let indexed = zip [0 :: Int ..] decls
@@ -111,8 +139,11 @@ localDeclComponents decls = do
       valueNodes = Map.fromListWith (flip (<>)) [(nodeOf info, [index]) | info@(index, _, keys, _) <- infos, not (null keys)]
       nodeDeps = Map.fromListWith (<>) [(nodeOf info, mapMaybe (`Map.lookup` owners) (Set.toList deps)) | info@(_, _, keys, deps) <- infos, not (null keys)]
   signatureNodes <- concat <$> mapM signatureOwners infos
-  let attached = Map.fromListWith (<>) [(node, [index]) | (index, key) <- signatureNodes, Just node <- [Map.lookup key owners]]
-      graph = [(node, node, Set.toList (Set.fromList (Map.findWithDefault [] node nodeDeps))) | node <- Map.keys valueNodes]
+  let attached = Map.fromListWith (<>) [(node, [index]) | (index, key, _) <- signatureNodes, Just node <- [Map.lookup key owners]]
+      -- A partial signature does not give a complete type, so its binder
+      -- stays in the component of the bindings it depends on.
+      signedNodes = Set.fromList [node | (_, key, True) <- signatureNodes, Just node <- [Map.lookup key owners]]
+      graph = [(node, node, [dep | dep <- Set.toList (Set.fromList (Map.findWithDefault [] node nodeDeps)), not (Set.member dep signedNodes)]) | node <- Map.keys valueNodes]
       componentIndices component =
         let nodes = Graph.flattenSCC component
             indices = Set.toList (Set.fromList (concat [Map.findWithDefault [] node valueNodes <> Map.findWithDefault [] node attached | node <- nodes]))
@@ -126,9 +157,9 @@ localDeclComponents decls = do
   where
     signatureOwners (index, decl, _, _) =
       case peelDeclAnn decl of
-        DeclTypeSig names _ -> do
+        DeclTypeSig names ty -> do
           keys <- mapM resolvedUnqualifiedTermKey names
-          pure [(index, key) | key <- keys]
+          pure [(index, key, not (hasWildcardType ty)) | key <- keys]
         _ -> pure []
 
 -- | Annotate each occurrence of a generalized binder inside its own group
@@ -199,9 +230,11 @@ declaredBinderKeys decl =
     _ -> pure []
 
 -- | Infer one dependency component of local declarations, then infer a body
--- under the resulting binders.
-inferLocalDeclGroup :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
-inferLocalDeclGroup inferExpr decls body = do
+-- under the resulting binders. The caller gives the binder keys it has
+-- already bound to their signature scheme; this group does not bind them
+-- again.
+inferLocalDeclGroup :: InferExpr -> Set.Set TcTermKey -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
   let groups = groupValueDecls decls
   binders <- distinctLocalBinders (concatMap groupBinders groups)
   rawSigs <- collectRawSigs decls
@@ -211,7 +244,7 @@ inferLocalDeclGroup inferExpr decls body = do
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders sigs placeholders $ do
+  withLocalPlaceholders sigs [placeholder | placeholder@(_, key, _) <- placeholders, not (Set.member key boundSignatureKeys)] $ do
     groupResults <- mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups
     let bindingCts = concatMap snd groupResults
     if shouldGen
