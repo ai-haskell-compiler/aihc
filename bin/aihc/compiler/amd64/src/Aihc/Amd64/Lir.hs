@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile Lir modules to AMD64 ELF objects for Linux.
@@ -95,14 +94,7 @@ objectBackend =
     { Emit.obNative = amd64Backend,
       Emit.obStatement = applyStatement,
       Emit.obImage = writeAmd64Elf,
-      Emit.obError = Amd64LirObjectError . T.pack . show,
-      Emit.obAlign = \case
-        Amd64Align power -> Just power
-        _ -> Nothing,
-      Emit.obBytes = \case
-        Amd64Bytes bytes -> Just bytes
-        _ -> Nothing,
-      Emit.obFill = alignmentFill
+      Emit.obError = Amd64LirObjectError . T.pack . show
     }
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
