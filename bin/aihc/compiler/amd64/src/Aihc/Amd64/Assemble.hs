@@ -41,7 +41,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Short (ShortByteString)
-import Data.ByteString.Short qualified as SBS
 import Data.Int (Int64)
 import Data.Word (Word32, Word64, Word8)
 
