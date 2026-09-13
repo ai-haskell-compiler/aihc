@@ -1,0 +1,30 @@
+extensions:
+  - ExistentialQuantification
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Test where
+
+    import Prelude
+
+    data Box = forall z. Box z
+
+    newtype Wrap a = Wrap [a]
+
+    class Describe a where
+      describe :: a -> Box -> String
+
+    instance (Show a) => Describe (Wrap a) where
+      describe (Wrap values) box =
+        case box of
+          Box _ -> show values
+
+    answer :: String
+    answer = describe (Wrap [1 :: Int, 2]) (Box 'c')
+output: |
+  : '[' (: '1' (: ',' (: '2' (: ']' []))))
+expression: |
+  answer
+status: pass
+reason: the context of an instance declaration is a given inside a pattern-match
+  branch that binds an existential variable
