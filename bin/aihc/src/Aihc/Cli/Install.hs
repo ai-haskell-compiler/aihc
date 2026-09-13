@@ -83,7 +83,7 @@ import Aihc.PackagePlan
     localDependencyResolverWithFallback,
     packageSpecFromSource,
   )
-import Aihc.PackagePlan.Diagnostic (renderHumanDiagnostic)
+import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, renderHumanDiagnostic)
 import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), moduleDepsDigest, parseInterfaceBytes)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -163,6 +163,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Text.Encoding.Error (lenientDecode)
 import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
@@ -210,7 +211,6 @@ data SourceModule = SourceModule
     -- | The package qualifier and name of each import.
     sourceModuleImports :: ![(Maybe Text, Text)],
     sourceModuleExtensions :: ![Extension],
-    sourceModuleSourceLines :: !(Map.Map FilePath (Map.Map Int Text)),
     sourceModuleParseDiagnostics :: [Value]
   }
 
@@ -881,7 +881,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
           [ [(unitLabel (runtimeUnit runtime), diagnostic) | diagnostic <- typeUnitDiagnostics result, diagSeverity diagnostic == TcError]
           | (runtime, result) <- zip runtimes typeResults
           ]
-      frontendFailure = renderFrontendFailure parsed parseDiagnostics resolveDiagnostics typeDiagnostics
+  frontendFailure <- renderFrontendFailure (excerptSourceLoader packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
   let localExports = Map.unions (map resolveUnitExports resolveResults)
       localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
@@ -1210,7 +1210,6 @@ parseSource root versions fileInfo = do
   ParsedInterfaceFile
     { parsedFilePath = path,
       parsedFileModule = modu,
-      parsedFileSourceLines = sourceLines,
       parsedFileParseDiagnostics = parseDiagnostics,
       parsedFileCppDiagnostics = cppDiagnostics,
       parsedFileExtensions = extensions,
@@ -1238,7 +1237,6 @@ parseSource root versions fileInfo = do
         sourceModuleDirectory = moduleNameDirectory name,
         sourceModuleImports = imports,
         sourceModuleExtensions = extensions,
-        sourceModuleSourceLines = sourceLines,
         sourceModuleParseDiagnostics = parseDiagnostics
       }
 
@@ -1323,15 +1321,13 @@ canonicalTopologicalOrder components dependencies label = go Set.empty []
             [] -> error "source component graph is cyclic"
             index : _ -> go (Set.insert index complete) (index : ordered)
 
-renderResolveErrors :: [SourceModule] -> [ResolveError] -> String
-renderResolveErrors sources errors =
+renderResolveErrors :: DiagnosticSourceMap -> [ResolveError] -> String
+renderResolveErrors sourceLines errors =
   "Name resolution failed:\n"
     <> intercalate "\n\n" (map (renderResolveError sourceLines) errors)
     <> "\n"
-  where
-    sourceLines = Map.unions (map sourceModuleSourceLines sources)
 
-renderResolveError :: Map.Map FilePath (Map.Map Int Text) -> ResolveError -> String
+renderResolveError :: DiagnosticSourceMap -> ResolveError -> String
 renderResolveError sourceLines resolveError =
   case resolveError of
     ResolveResolutionError sourceSpan name namespace message ->
@@ -1360,7 +1356,7 @@ renderResolveMessage message name namespace
         ResolutionNamespaceType -> "type"
         ResolutionNamespaceModule -> "module"
 
-renderResolveExcerpt :: Map.Map FilePath (Map.Map Int Text) -> SourceSpan -> String
+renderResolveExcerpt :: DiagnosticSourceMap -> SourceSpan -> String
 renderResolveExcerpt sourceLines sourceSpan =
   case sourceSpan of
     NoSourceSpan -> ""
@@ -1384,30 +1380,64 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-renderFrontendFailure :: [SourceModule] -> [Value] -> [ResolveError] -> [(Text, TcDiagnostic)] -> String
-renderFrontendFailure sources parseDiagnostics resolveDiagnostics typeDiagnostics =
-  case sections of
-    [] -> ""
-    _ -> intercalate "\n\n" (map dropFinalNewlines sections) <> "\n"
+-- | The report of a failed frontend. The excerpts load the source files
+-- again here: nothing keeps the lines of every module in memory for the
+-- rare build that needs a few of them.
+renderFrontendFailure :: (FilePath -> IO DiagnosticSourceMap) -> [Value] -> [ResolveError] -> [(Text, TcDiagnostic)] -> IO String
+renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnostics = do
+  sourceLines <-
+    loadExcerptSources
+      loadSource
+      ( [sourceSpan | ResolveResolutionError sourceSpan _ _ _ <- resolveDiagnostics]
+          <> [sourceSpan | (_, diagnostic) <- typeDiagnostics, Just sourceSpan <- [diagLoc diagnostic]]
+      )
+  let sections =
+        [renderParseDiagnostics parseDiagnostics | not (null parseDiagnostics)]
+          <> [renderResolveErrors sourceLines resolveDiagnostics | not (null resolveDiagnostics)]
+          <> [renderTypeErrors sourceLines typeDiagnostics | not (null typeDiagnostics)]
+  pure $
+    case sections of
+      [] -> ""
+      _ -> intercalate "\n\n" (map dropFinalNewlines sections) <> "\n"
   where
-    sections =
-      [renderParseDiagnostics parseDiagnostics | not (null parseDiagnostics)]
-        <> [renderResolveErrors sources resolveDiagnostics | not (null resolveDiagnostics)]
-        <> [renderTypeErrors sources typeDiagnostics | not (null typeDiagnostics)]
-
     dropFinalNewlines = reverse . dropWhile (== '\n') . reverse
+
+-- | The lines of the files that some spans point into, by file and line.
+loadExcerptSources :: (FilePath -> IO DiagnosticSourceMap) -> [SourceSpan] -> IO DiagnosticSourceMap
+loadExcerptSources loadSource spans =
+  Map.unionsWith Map.union <$> mapM loadSource (nub [path | SourceSpan path _ _ _ _ _ _ <- spans])
+
+-- | How the excerpts of a package's diagnostics find their lines. A module
+-- of the package is read through the preprocessor again, so an excerpt
+-- shows the line as the compiler saw it and maps included files back to
+-- their own paths, exactly as the parse did. Any other file (a header a
+-- span points into) is read as it is. A file that cannot be read gets no
+-- excerpt.
+excerptSourceLoader :: FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> FilePath -> IO DiagnosticSourceMap
+excerptSourceLoader root versions files path =
+  case Map.lookup path fileInfos of
+    Just fileInfo -> do
+      bytes <- BS.readFile path
+      parsedFileSourceLines <$> parseInterfaceBytes root versions fileInfo bytes
+    Nothing -> do
+      result <- try (BS.readFile path)
+      pure $
+        case result of
+          Left (_ :: IOException) -> Map.empty
+          Right bytes -> Map.singleton path (Map.fromList (zip [1 ..] (T.lines (TE.decodeUtf8With lenientDecode bytes))))
+  where
+    fileInfos = Map.fromList [(HackageCabal.fileInfoPath fileInfo, fileInfo) | fileInfo <- files]
 
 renderParseDiagnostics :: [Value] -> String
 renderParseDiagnostics diagnostics =
   "Parse failed:\n" <> intercalate "\n" (map (renderHumanDiagnostic "parse") diagnostics)
 
-renderTypeErrors :: [SourceModule] -> [(Text, TcDiagnostic)] -> String
-renderTypeErrors sources diagnostics =
+renderTypeErrors :: DiagnosticSourceMap -> [(Text, TcDiagnostic)] -> String
+renderTypeErrors sourceLines diagnostics =
   "Type check failed:\n"
     <> intercalate "\n\n" (map renderTypeError diagnostics)
     <> "\n"
   where
-    sourceLines = Map.unions (map sourceModuleSourceLines sources)
     renderTypeError (label, diagnostic) =
       case diagLoc diagnostic of
         Nothing -> "<unknown location in " <> T.unpack label <> ">: error: " <> renderTypeErrorKind (diagKind diagnostic)
