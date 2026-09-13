@@ -1,0 +1,59 @@
+annotated:
+- |-
+  module Test where
+  data Idx = Idx
+       │     └─ type: Idx
+       └─ type: Type
+  data Doc ann = Leaf ann | Fun (Idx -> Doc ann)
+       │         │          └─ type: ∀ ann. (Idx → Doc ann) → Doc ann
+       │         └─ type: ∀ ann. ann → Doc ann
+       └─ type: Type → Type
+  data Diag ann = DLeaf ann | DFun Idx (Diag ann)
+       │          │           └─ type: ∀ ann. Idx → Diag ann → Diag ann
+       │          └─ type: ∀ ann. ann → Diag ann
+       └─ type: Type → Type
+  diag :: Idx -> Doc ann -> Diag ann
+  diag n = go
+  │    │   └─ type: Doc ann → Diag ann; type-args: ann
+  │    └─ type: Idx
+  └─ type: ∀ ann. Idx → Doc ann → Diag ann
+    where
+      go d = case d of
+      │  │   └─ type: Diag a
+      │  └─ type: Doc a
+      └─ type: ∀ a. Doc a → Diag a
+        Leaf a -> DLeaf a
+        │    │    └─ type: a → Diag a; type-args: a
+        │    └─ type: a
+        └─ type: Doc a
+        Fun f -> apply f n
+        │   │    └─ type: (Idx → Doc a) → Idx → Diag a; type-args: a
+        │   └─ type: Idx → Doc a
+        └─ type: Doc a
+      apply :: (Idx -> Doc ann) -> Idx -> Diag ann
+      apply f x = DFun x (go (f x))
+      │     │ │   │       └─ type: Doc ann → Diag ann; type-args: ann
+      │     │ │   └─ type: Idx → Diag ann → Diag ann; type-args: ann
+      │     │ └─ type: Idx
+      │     └─ type: Idx → Doc ann
+      └─ type: ∀ ann. (Idx → Doc ann) → Idx → Diag ann
+extensions: []
+modules:
+- |
+  module Test where
+  data Idx = Idx
+  data Doc ann = Leaf ann | Fun (Idx -> Doc ann)
+  data Diag ann = DLeaf ann | DFun Idx (Diag ann)
+  diag :: Idx -> Doc ann -> Diag ann
+  diag n = go
+    where
+      go d = case d of
+        Leaf a -> DLeaf a
+        Fun f -> apply f n
+      apply :: (Idx -> Doc ann) -> Idx -> Diag ann
+      apply f x = DFun x (go (f x))
+reason: A reference to a local binding with a type signature is not a dependency
+  edge, so go is generalized before apply is checked against its signature. The
+  ann of the signature is its own type variable, not the one of the enclosing
+  binding.
+status: pass
