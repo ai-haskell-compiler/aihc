@@ -4,13 +4,25 @@
 -- A derived instance is ordinary surface syntax, so its method bodies
 -- mention library values and types such as @True@, @(:)@, or @Int#@. The
 -- type checker does not know where those live: the compiler that embeds it
--- says so through a 'DerivingReferences' table in its configuration. Every
--- name comes from the primitive package; class methods such as @(==)@ or
--- @showsPrec@ need no entry, because the class being derived says where
--- they are.
+-- says so through a 'DerivingReferences' table in its configuration. Class
+-- methods such as @(==)@ or @showsPrec@ need no entry, because the class
+-- being derived says where they are.
+--
+-- A reference names its module and gives the /source/ of its package rather
+-- than a package identity, because the configuration is written once and a
+-- package identity is only known while compiling: the primitive package is
+-- the one of the configuration, and a helper that belongs to a class comes
+-- from wherever that class was found. Only the first kind exists today, but
+-- the classes of GHC that aihc does not generate code for yet -- @Lift@ in
+-- the Template Haskell package, @Generic@ and @Data@ in the base one --
+-- have their helpers next to themselves, outside the primitive package.
 module Aihc.Tc.Deriving.References
   ( DerivingReference (..),
+    ReferencePackage (..),
     DerivingReferences (..),
+    StockClassLocation (..),
+    referenceIdentity,
+    stockClassLocationMatches,
     derivingReferenceList,
   )
 where
@@ -21,13 +33,59 @@ import Data.Text (Text)
 
 -- | The resolved identity of one library name.
 data DerivingReference = DerivingReference
-  { referencePackage :: !PackageId,
+  { referencePackage :: !ReferencePackage,
     referenceModule :: !Text,
     referenceName :: !Text,
     referenceNameType :: !NameType,
     referenceNamespace :: !ResolutionNamespace
   }
   deriving (Eq, Show)
+
+-- | Which package a reference comes from. A configuration cannot spell a
+-- package identity, which carries a version and a fingerprint that only the
+-- compilation knows, so it says where to take one from.
+data ReferencePackage
+  = -- | The primitive package of the configuration. Every module can see
+    -- it, so a generated body may always name one of these.
+    ReferencePrimPackage
+  | -- | The package that declares the class being derived. A body generated
+    -- for a class outside the primitive package reaches its helpers this
+    -- way; a module that derives the class has the class in scope, and the
+    -- helpers sit beside it.
+    ReferenceClassPackage
+  deriving (Eq, Show)
+
+-- | Where a class that stock deriving generates code for is declared.
+data StockClassLocation = StockClassLocation
+  { -- | The package the class must come from, or 'Nothing' for a class whose
+    -- package the configuration cannot name because it is not the primitive
+    -- one. A class matched without its package can be a user class of the
+    -- same module and name; the generated body then names helpers that the
+    -- user module does not have, which the generator reports before writing
+    -- anything.
+    stockLocationPackage :: !(Maybe PackageId),
+    stockLocationModule :: !Text,
+    stockLocationName :: !Text
+  }
+  deriving (Eq, Show)
+
+-- | The identity a reference denotes, given the primitive package of the
+-- configuration and the package of the class being derived.
+referenceIdentity :: PackageId -> PackageId -> DerivingReference -> (PackageId, Text, Text)
+referenceIdentity primPackage classPackage reference =
+  (package, referenceModule reference, referenceName reference)
+  where
+    package =
+      case referencePackage reference of
+        ReferencePrimPackage -> primPackage
+        ReferenceClassPackage -> classPackage
+
+-- | Whether a class declared in one package and module is the located one.
+stockClassLocationMatches :: (Text, Text) -> StockClassLocation -> Text -> Bool
+stockClassLocationMatches (packageIdentity, moduleName) location className =
+  maybe True (== PackageId packageIdentity) (stockLocationPackage location)
+    && moduleName == stockLocationModule location
+    && className == stockLocationName location
 
 -- | Every library name that a generated instance body may mention.
 data DerivingReferences = DerivingReferences
@@ -83,12 +141,11 @@ data DerivingReferences = DerivingReferences
     derivingLexemeSymbol :: !DerivingReference,
     -- | The @Punc@ lexeme constructor, for punctuation.
     derivingLexemePunc :: !DerivingReference,
-    -- | The classes that stock deriving writes code for, as the package
-    -- and module that define each and its name. All three must agree, so a
-    -- user module that repeats a core-library module name does not make
-    -- its own class stock. Every entry names the primitive package,
-    -- because each of these classes is declared there.
-    derivingStockClasses :: ![(PackageId, Text, Text)],
+    -- | The classes that stock deriving writes code for, and where each is
+    -- declared. A location that names a package makes all three agree, so a
+    -- user module that repeats a core-library module name does not make its
+    -- own class stock.
+    derivingStockClasses :: ![StockClassLocation],
     -- | The remaining stock classes of GHC, as the module that defines each
     -- and its name. The generator writes no code for them: it reports that
     -- stock deriving of the class is not supported and produces no
