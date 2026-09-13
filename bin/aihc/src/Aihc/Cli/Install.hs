@@ -67,6 +67,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.Headers (compilerHeaderDirectory)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
@@ -999,15 +1000,15 @@ buildEnvironmentIdentity target = do
   archiver <- backendArchiver target
   compilerHash <- executableIdentity compiler
   archiverHash <- executableIdentity archiver
-  headers <-
+  runtimeHeaders <-
     mapM
       getDataFileName
       [ "compiler/native/runtime/include/HsFFI.h",
         "compiler/native/runtime/include/MachDeps.h",
-        "compiler/native/runtime/include/ghcautoconf.h",
         "compiler/native/runtime/include/ghcplatform.h"
       ]
-  headerHash <- stableHash <$> mapM BS.readFile headers
+  headerDir <- compilerHeaderDirectory
+  headerHash <- stableHash <$> mapM BS.readFile (runtimeHeaders <> [headerDir </> "ghcautoconf.h"])
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
@@ -2300,12 +2301,13 @@ compilePackageCFiles target level verbose packageRoot storePath info
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
       ffiHeader <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
+      headerDir <- compilerHeaderDirectory
       sysrootIncludes <- wasmSysrootIncludeArguments target
       let ffiIncludeDir = takeDirectory ffiHeader
           includeArguments =
             sysrootIncludes
               <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
-              <> ["-I" <> ffiIncludeDir]
+              <> ["-I" <> ffiIncludeDir, "-I" <> headerDir]
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
       forM (HackageCabal.cCompileSources info) $ \source -> do
@@ -2516,7 +2518,8 @@ hsc2hsArguments config cInfo file output = do
       input = HackageCabal.fileInfoPath file
   (compiler, cflags) <- targetCCompiler target (compileOptimization config)
   runtimeInclude <- takeDirectory <$> getDataFileName "compiler/native/runtime/include/HsFFI.h"
-  let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [runtimeInclude])
+  headerDir <- compilerHeaderDirectory
+  let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [runtimeInclude, headerDir])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
     ( ["--cross-compile", "--cc=" <> compiler, "--ld=" <> compiler]

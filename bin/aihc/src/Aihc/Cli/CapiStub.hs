@@ -13,6 +13,7 @@ module Aihc.Cli.CapiStub
 where
 
 import Aihc.DataFiles (getDataFileName)
+import Aihc.Hackage.Headers (compilerHeaderDirectory)
 import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendCompiler, handwrittenCArguments, wasmSysroot)
 import System.FilePath (takeDirectory)
 
@@ -20,7 +21,7 @@ import System.FilePath (takeDirectory)
 --
 -- These are the include directories and options of the package, because a
 -- capi import names a header of the package it is declared in as readily as a
--- system one.
+-- system one.  The directories of the compiler headers come after them.
 data CapiStubOptions = CapiStubOptions
   { capiStubIncludeDirs :: ![FilePath],
     capiStubCcOptions :: ![String]
@@ -35,6 +36,7 @@ capiStubArguments :: NativeTarget -> OptimizationLevel -> CapiStubOptions -> IO 
 capiStubArguments target level options = do
   (_, targetArguments) <- backendCompiler target
   ffiHeader <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
+  headerDir <- compilerHeaderDirectory
   sysrootIncludes <-
     case target of
       Wasm32Wasip3 -> do
@@ -47,5 +49,5 @@ capiStubArguments target level options = do
         <> capiStubCcOptions options
         <> sysrootIncludes
         <> ["-I" <> directory | directory <- capiStubIncludeDirs options]
-        <> ["-I" <> takeDirectory ffiHeader]
+        <> ["-I" <> takeDirectory ffiHeader, "-I" <> headerDir]
     )

@@ -77,10 +77,13 @@ in rec {
     ".cabal"
   ];
 
+  # The compiler headers this package ships are data files, so the ".h" suffix
+  # must stay in this list.
   hackageSrc = mkComponentSrc "/tooling/aihc-hackage" [
     ".hs"
     ".hs-boot"
     ".cabal"
+    ".h"
   ];
 
   packagePlanSrc = mkComponentSrc "/tooling/aihc-package-plan" [

@@ -73,15 +73,17 @@ C code of a package expects the headers that a GHC installation gives. These
 are `HsFFI.h` and `MachDeps.h`. GHC also writes `ghcplatform.h` and
 `ghcautoconf.h` for its own host. aihc supplies all four headers. The
 `c-sources` of a package, the C wrappers of its `capi` imports, and `hsc2hs`
-all search the same include directory. Thus a header that one of them includes
+all get the same include directories. Thus a header that one of them includes
 also resolves for the others.
 
-aihc does not run a configure script. Thus `ghcautoconf.h` has no feature
-macros. C code of a package reads the word size and the byte order from that
-header. These come from `ghcplatform.h`. `ghcplatform.h` gets them from the
-target of the C compiler and not from the host that built aihc. The CPP pass
-over the Haskell sources answers the same includes from its own definitions.
-Those definitions describe the Haskell word and not the C word.
+The CPP pass over the Haskell sources answers most of these includes from its
+own definitions, because those definitions describe the Haskell word and not
+the C one. `ghcautoconf.h` is the exception. aihc runs no configure script, so
+that header has no feature macros, and one file in the headers directory of
+`aihc-hackage` serves the C compiler and the CPP pass together. The file
+includes `ghcplatform.h`, which gives the word size and the byte order. A C
+compile finds the header of the runtime there. The CPP pass finds the
+synthesized header.
 
 ## Linking on another host
 

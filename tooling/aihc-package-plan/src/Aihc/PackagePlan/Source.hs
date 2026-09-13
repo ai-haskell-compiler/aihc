@@ -18,6 +18,7 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, compilerCppHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Headers (compilerHeaderDirectory)
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -46,7 +47,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Numeric (showHex)
 import System.Directory (doesFileExist)
-import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
+import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
 
 -- | One loaded source file. 'parsedFileSource' is what the parser saw, so
 -- offsets in the module's spans index into it directly.
@@ -236,8 +237,23 @@ resolveInclude :: FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO
 resolveInclude packageRoot includeDirs currentFile req =
   findFirst (includeCandidates packageRoot includeDirs currentFile req)
   where
+    headerPath = normalise (Cpp.includePath req)
+    -- A header the compiler synthesizes comes first, because its definitions
+    -- describe the Haskell word and not the C one. The compiler also ships
+    -- headers as files, for the C compiler to read as well, and one of those
+    -- answers a name that no synthesized header covers.
     findFirst [] =
-      pure (maybe IncludeMissing (IncludeFromCompiler . TE.encodeUtf8) (compilerCppHeader (normalise (Cpp.includePath req))))
+      case compilerCppHeader headerPath of
+        Just text -> pure (IncludeFromCompiler (TE.encodeUtf8 text))
+        Nothing
+          | headerPath /= takeFileName headerPath -> pure IncludeMissing
+          | otherwise -> do
+              headerDir <- compilerHeaderDirectory
+              let shipped = headerDir </> headerPath
+              exists <- doesFileExist shipped
+              if exists
+                then IncludeFromCompiler <$> BS.readFile shipped
+                else pure IncludeMissing
     findFirst (candidate : rest) = do
       exists <- doesFileExist candidate
       if exists

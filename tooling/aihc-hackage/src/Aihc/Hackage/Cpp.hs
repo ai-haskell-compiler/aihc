@@ -47,8 +47,9 @@ builtinCppMacros =
 -- Native C compilation uses its separate target ABI headers.
 compilerCppHeader :: FilePath -> Maybe Text
 compilerCppHeader path = case path of
-  -- Haskell source does not receive host configuration features.
-  "ghcautoconf.h" -> Just (header "GHCAUTOCONF_H" [] [])
+  -- @ghcautoconf.h@ is not here.  The package ships that header as a file,
+  -- because the C compiler must read it too.  See 'Aihc.Hackage.Headers'.
+  --
   -- Modern GHC's base package reduces this legacy header to a redirect.
   "HsBaseConfig.h" -> Just (header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] [])
   "MachDeps.h" -> Just (header "MACHDEPS_H" ["#include \"ghcplatform.h\""] (M.toList machineCppMacros))
