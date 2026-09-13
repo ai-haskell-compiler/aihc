@@ -93,7 +93,20 @@ module System.IO
   )
 where
 
-import GHC.IO.Encoding (TextEncoding, char8, latin1, mkTextEncoding, utf8, utf8_bom)
+import GHC.IO.Encoding
+  ( TextEncoding,
+    char8,
+    latin1,
+    mkTextEncoding,
+    utf16,
+    utf16be,
+    utf16le,
+    utf32,
+    utf32be,
+    utf32le,
+    utf8,
+    utf8_bom,
+  )
 import GHC.IO.Handle
 import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
 import GHC.IO.IOMode (IOMode (..))
@@ -160,12 +173,6 @@ readIO text = return (read text)
 fixIO :: (a -> IO a) -> IO a
 fixIO _ = error "System.IO.fixIO: not available"
 
--- The runtime only has UTF-8. The other encodings carry their names.
-utf16, utf16le, utf16be, utf32, utf32le, utf32be, localeEncoding :: TextEncoding
-utf16 = utf8
-utf16le = utf8
-utf16be = utf8
-utf32 = utf8
-utf32le = utf8
-utf32be = utf8
+-- The runtime only has UTF-8, so the locale encoding is UTF-8.
+localeEncoding :: TextEncoding
 localeEncoding = utf8

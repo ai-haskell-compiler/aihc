@@ -261,6 +261,7 @@ library
     GHC.Internal.Exception.Context
     GHC.Internal.Exception.Type
     GHC.Internal.Foldable
+    GHC.Internal.IO.Encoding.Codec
     GHC.Internal.IO.Handle.Read
     GHC.Internal.IO.Types
     GHC.Internal.Integer
