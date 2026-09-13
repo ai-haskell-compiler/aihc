@@ -64,7 +64,6 @@ import Data.Primitive.ByteArray (ByteArray (..), MutableByteArray, copyByteArray
 import Data.Primitive.MutVar (MutVar, modifyMutVar', newMutVar, readMutVar, writeMutVar)
 import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, setPrimArray, writePrimArray)
 import Data.Text (Text)
-import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Vector.Generic.Mutable qualified as MG
 import Data.Vector.Mutable qualified as MV
@@ -116,11 +115,6 @@ nameBytes name =
   case name of
     SymbolName bytes -> bytes
     LocalName _ bytes -> bytes
-
--- | One name in a diagnostic. Names are ASCII, so this widens the bytes one
--- character each rather than decoding them.
-nameMessage :: Name -> Text
-nameMessage = Text.decodeLatin1 . nameBytes
 
 -- | A place in a section whose bytes depend on the address of a symbol. The
 -- width is the number of bytes the fixup occupies and the word is the value
