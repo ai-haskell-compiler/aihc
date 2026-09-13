@@ -32,11 +32,14 @@
 -- the time is dropped, so hints cost nothing in correctness and buy most of
 -- the moves that a convention would otherwise need.
 --
--- The allocator names every value and every block by a number while it
--- works: values by their rank among the names of the function, so that the
--- number order is the name order, and blocks by their position. Every pass
--- then runs on 'IntMap' and 'IntSet', and the names come back only in the
--- result.
+-- Memory is the constraint the design obeys, because the compiler runs the
+-- allocator on every function of every module. A pass that builds one small
+-- container for each instruction costs more than the scan itself. So
+-- 'encodeFunction' numbers the values and the blocks and flattens the
+-- function into unboxed arrays in one walk. After that no pass holds a list
+-- or a persistent map: a set of values is a row of bits, an interval is two
+-- positions in an array, and the scan keeps its state in mutable arrays.
+-- The names come back only in the result.
 module Aihc.Lir.RegAlloc
   ( Allocation (..),
     Registers (..),
@@ -47,17 +50,20 @@ module Aihc.Lir.RegAlloc
   )
 where
 
+import Aihc.Lir.Flat
 import Aihc.Lir.Syntax
-import Data.Array (Array, listArray, (!))
-import Data.IntMap.Strict (IntMap)
-import Data.IntMap.Strict qualified as IntMap
-import Data.IntSet (IntSet)
-import Data.IntSet qualified as IntSet
-import Data.List (nub, sortOn)
+import Control.Applicative (Const (..))
+import Control.Monad (when, (>=>))
+import Control.Monad.ST (ST, runST)
+import Data.Array.ST (STUArray, readArray, writeArray)
+import Data.Array.Unboxed (Array, UArray, elems, listArray, (!))
+import Data.Array.Unsafe (unsafeFreeze)
+import Data.Foldable (traverse_)
+import Data.List (elemIndex)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
-import Data.Set qualified as Set
+import Data.Maybe (fromMaybe)
+import Data.STRef (newSTRef, readSTRef, writeSTRef)
 
 -- | Where every value of one function lives.
 data Allocation register = Allocation
@@ -106,280 +112,586 @@ data Registers register = Registers
 allocateRegistersFor :: (Ord register) => Registers register -> Map Symbol Signature -> Function -> Allocation register
 allocateRegistersFor target signatures function =
   Allocation
-    { allocationRegisters = Map.mapMaybe (\value -> (registerArray !) <$> IntMap.lookup value assigned) (encodedValues encoded),
-      allocationSpills = [encodedNames encoded ! value | value <- definitionOrder encoded, not (IntMap.member value assigned)],
-      allocationUsed = [register | (index, register) <- zip [0 ..] pool, IntSet.member index used]
+    { allocationRegisters =
+        Map.fromDistinctAscList
+          [ (encNames encoded ! value, registers ! register)
+          | value <- [0 .. encValues encoded - 1],
+            let register = assigned ! value,
+            register >= 0
+          ],
+      allocationSpills = [encNames encoded ! value | value <- elems (encDefinitions encoded), assigned ! value < 0],
+      allocationUsed = [register | (index, register) <- zip [0 ..] pool, used ! index]
     }
   where
-    encoded = encodeFunction signatures function
-    volatile = registersVolatile target
-    pool = volatile <> registersPreserved target
-    poolSize = length pool
-    registerArray = listArray (0, poolSize - 1) pool
-    -- The pool is small, so a register finds its index by a walk, once
-    -- per argument or result position.
-    indexed = zip pool [0 ..]
-    indexOf register = lookup register indexed
-    carriers =
-      Carriers
-        { carrierArgument = memoIndex (registersArgument target),
-          carrierResult = memoIndex (registersResult target)
-        }
-    memoIndex carrier =
-      let table = listArray (0, memoLimit) [carrier index >>= indexOf | index <- [0 .. memoLimit]] :: Array Int (Maybe Int)
-       in \index -> if index <= memoLimit then table ! index else carrier index >>= indexOf
-    memoLimit = 15
-    config =
-      Config
-        { configPoolSize = poolSize,
-          -- The preserved registers follow the volatile ones.
-          configPreserved = IntSet.fromDistinctAscList [length volatile .. poolSize - 1]
-        }
-    counts = accessCounts encoded
-    exits = exitCount encoded
-    calls = callPositions encoded
-    (fixedHints, partners) = hints carriers encoded
-    operandsOf = resultOperands encoded
-    spans = functionSpans encoded
-    starts = IntMap.fromList [(spanValue s, spanStart s) | s <- spans]
-    candidates =
-      [ Candidate
-          { candidateSpan = s,
-            candidateReach = reach calls s,
-            candidateEarnsPreserved = not (registersPreservedCost target) || profitable counts exits s,
-            candidateHints = direct,
-            candidatePartners = ours,
-            candidateWeakHints = nub (concatMap (\partner -> IntMap.findWithDefault [] partner fixedHints) ours),
-            candidateOperands = IntMap.findWithDefault [] value operandsOf,
-            -- A value with a hint of its own, or with a partner placed
-            -- before it, has a claim on a register; it goes before the
-            -- values defined at the same position that have none.
-            candidateLeads = not (null direct) || any (\partner -> IntMap.lookup partner starts < Just (spanStart s)) ours
-          }
-      | s <- spans,
-        let value = spanValue s,
-        let direct = IntMap.findWithDefault [] value fixedHints,
-        let ours = IntMap.findWithDefault [] value partners
-      ]
-    assigned = linearScan config candidates
-    used = IntSet.fromList (IntMap.elems assigned)
+    pool = registersVolatile target <> registersPreserved target
+    registers = boxedArray (length pool) pool
+    -- The pool is small, so a register finds its index by a walk, and a
+    -- table then holds the answer for the positions a convention uses.
+    carrier which = memoise (maybe (-1) indexOf . which target)
+    indexOf register = fromMaybe (-1) (elemIndex register pool)
+    encoded = encodeFunction (carrier registersArgument) (carrier registersResult) signatures function
+    (assigned, used) =
+      runAllocation encoded (length pool) (length (registersVolatile target)) (registersPreservedCost target)
+
+-- | The live interval of every value of the function, in name order.
+functionIntervals :: Function -> [Interval]
+functionIntervals function =
+  [ Interval {intervalVar = encNames encoded ! value, intervalStart = starts ! value, intervalEnd = ends ! value}
+  | value <- [0 .. encValues encoded - 1]
+  ]
+  where
+    encoded = encodeFunction unhinted unhinted Map.empty function
+    unhinted _ = -1
+    (starts, ends) = runST (functionSpans encoded)
+
+-- | The answer of a function on the first positions, in a table.
+memoise :: (Int -> Int) -> Int -> Int
+memoise carrier =
+  let table = listArray (0, limit) (map carrier [0 .. limit]) :: UArray Int Int
+   in \position -> if position <= limit then table ! position else carrier position
+  where
+    limit = 15
 
 -- Encoding
 
--- | A function with its values and blocks numbered.
+-- | A function with its values, blocks, instructions, and positions
+-- numbered, and every list of the function flattened into an array.
 data Encoded = Encoded
-  { -- | Every value of the function by its rank among the names.
-    encodedValues :: !(Map Var Int),
-    encodedNames :: !(Array Int Var),
+  { -- | Every value of the function by its rank among the names, so that the
+    -- number order is the name order.
+    encNames :: !(Array Int Var),
+    encValues :: !Int,
+    -- | One position more than the highest position of the function.
+    encPositions :: !Int,
+    encBlocks :: !Int,
+    -- | How many terminators restore the saved registers: a return or a tail
+    -- call. A trap does not return, so it restores nothing.
+    encExits :: !Int,
     -- | The parameters of the function, in order.
-    encodedParameters :: ![Int],
-    encodedBlocks :: ![EBlock]
-  }
-
-data EBlock = EBlock
-  { ebIndex :: !Int,
+    encParameters :: !(UArray Int Int),
+    -- | Every value the function defines, in the order the text defines it.
+    encDefinitions :: !(UArray Int Int),
     -- | Every position is distinct and the positions of a block are a
-    -- contiguous run, so the whole block sits between its start and its
-    -- end.
-    ebStart :: !Int,
-    ebTerminatorPosition :: !Int,
-    ebEnd :: !Int,
-    ebParameters :: ![Int],
-    ebInstructions :: ![EInstruction],
-    -- | Every read of the terminator, in order and with repeats.
-    ebTerminatorReads :: ![Int],
-    -- | The blocks the terminator jumps to, with the value each argument
-    -- carries when it is a value.
-    ebTargets :: ![(Int, [Maybe Int])],
-    -- | Whether the terminator restores the saved registers: a return or a
-    -- tail call. A trap does not return, so it restores nothing.
-    ebExit :: !Bool,
-    -- | The values the terminator hands to the convention: a tail-call
-    -- argument by its index, or a returned value by its index.
-    ebTerminatorHints :: ![Hint]
+    -- contiguous run, so the whole block sits between its start and its end.
+    -- A block ends one position after its terminator.
+    encBlockStart :: !(UArray Int Int),
+    encBlockTerminator :: !(UArray Int Int),
+    -- | The instructions of block @i@ are the numbers from
+    -- @encBlockInstructions ! i@ up to @encBlockInstructions ! (i + 1)@.
+    encBlockInstructions :: !(UArray Int Int),
+    -- | The convention of the callee of a call: 'callNone', 'callAihc', or
+    -- 'callC'.
+    encInstructionCall :: !(UArray Int Int),
+    -- | One row for each block.
+    encBlockParameters :: !Rows,
+    encTerminatorReads :: !Rows,
+    encTargets :: !Rows,
+    -- | One row for each instruction. A read appears in order and with
+    -- repeats.
+    encResults :: !Rows,
+    encReads :: !Rows,
+    -- | One row for each target: the value each jump argument carries, or -1
+    -- for a literal.
+    encTargetArguments :: !Rows,
+    -- | The instruction that defines each value, or -1 for a parameter.
+    encDefiner :: !(UArray Int Int),
+    -- | The register a convention suggests for a value, as pairs of a value
+    -- and a pool index. The parameters and the calls come first, and the
+    -- terminators follow.
+    encCallHints :: !(UArray Int Int),
+    encExitHints :: !(UArray Int Int)
   }
 
-data EInstruction = EInstruction
-  { eiPosition :: !Int,
-    eiResults :: ![Int],
-    -- | Every read, in order and with repeats.
-    eiReads :: ![Int],
-    -- | The convention of the callee, for a call.
-    eiCall :: !(Maybe CallingConvention),
-    -- | The values a call hands to and takes from the convention.
-    eiHints :: ![Hint]
-  }
+callNone, callAihc, callC :: Int
+callNone = 0
+callAihc = 1
+callC = 2
 
--- | A value the convention places: an argument by its index, or a result by
--- its index.
-data Hint
-  = ArgumentHint !Int !Int
-  | ResultHint !Int !Int
+-- | Run an action on every block, and on every instruction of one block.
+forBlocks :: Encoded -> (Int -> ST s ()) -> ST s ()
+forBlocks encoded = forUpTo (encBlocks encoded)
 
-encodeFunction :: Map Symbol Signature -> Function -> Encoded
-encodeFunction signatures function =
-  Encoded
-    { encodedValues = values,
-      encodedNames = listArray (0, Map.size values - 1) (Map.keys values),
-      encodedParameters = map (valueOf . fst) (functionParameters function),
-      encodedBlocks = go 0 1 blocks
-    }
+-- | The action receives the number of the instruction and its position.
+{-# INLINE forBlockInstructions #-}
+forBlockInstructions :: Encoded -> Int -> (Int -> Int -> ST s ()) -> ST s ()
+forBlockInstructions encoded index act = go (encBlockInstructions encoded ! index) (encBlockStart encoded ! index + 1)
   where
-    blocks = functionBlocks function
-    names =
-      Set.fromList
-        ( map fst (functionParameters function)
-            <> concat
-              [ map fst (blockParameters block)
-                  <> concat [instructionResults instruction <> operationReads (instructionOperation instruction) | instruction <- blockInstructions block]
-                  <> terminatorReads (blockTerminator block)
-              | block <- blocks
-              ]
-        )
-    values = Map.fromDistinctAscList (zip (Set.toAscList names) [0 ..])
-    valueOf var = values Map.! var
-    operandValue operand =
-      case operand of
-        OperandVar var -> Just (valueOf var)
-        OperandLiteral _ -> Nothing
-    blockIndex = Map.fromList (zip (map blockLabel blocks) [0 ..])
-    argumentHints arguments = [ArgumentHint position (valueOf var) | (position, OperandVar var) <- zip [0 ..] arguments]
-    resultHints vars = [ResultHint position (valueOf var) | (position, var) <- zip [0 ..] vars]
-    go _ _ [] = []
-    go index start (block : rest) =
-      let instructions = zipWith encodeInstruction [start + 1 ..] (blockInstructions block)
-          terminatorPosition = start + 1 + length (blockInstructions block)
-          terminator = blockTerminator block
-          encodedBlock =
-            EBlock
-              { ebIndex = index,
-                ebStart = start,
-                ebTerminatorPosition = terminatorPosition,
-                ebEnd = terminatorPosition + 1,
-                ebParameters = map (valueOf . fst) (blockParameters block),
-                ebInstructions = instructions,
-                ebTerminatorReads = map valueOf (terminatorReads terminator),
-                ebTargets = [(blockIndex Map.! targetLabel t, map operandValue (targetArguments t)) | t <- terminatorTargets terminator],
-                ebExit = case terminator of
-                  Return _ -> True
-                  TailCall _ _ -> True
-                  TailCallIndirect {} -> True
-                  _ -> False,
-                ebTerminatorHints = case terminator of
-                  TailCall _ arguments -> argumentHints arguments
-                  TailCallIndirect _ arguments _ -> argumentHints arguments
-                  Return results -> [ResultHint i (valueOf var) | (i, OperandVar var) <- zip [0 ..] results]
-                  _ -> []
-              }
-       in encodedBlock : go (index + 1) (terminatorPosition + 2) rest
-    encodeInstruction position (Instruction results operation) =
-      EInstruction
-        { eiPosition = position,
-          eiResults = map valueOf results,
-          eiReads = map valueOf (operationReads operation),
-          eiCall = case operation of
-            Call symbol _ -> Just (maybe AihcConvention signatureConvention (Map.lookup symbol signatures))
-            CallIndirect _ _ signature -> Just (signatureConvention signature)
-            _ -> Nothing,
-          eiHints = case operation of
-            Call _ arguments -> argumentHints arguments <> resultHints results
-            CallIndirect _ arguments _ -> argumentHints arguments <> resultHints results
-            _ -> []
-        }
+    go number position =
+      when
+        (number < encBlockInstructions encoded ! (index + 1))
+        (act number position >> go (number + 1) (position + 1))
 
--- | Every value the function defines, in the order the text defines it.
-definitionOrder :: Encoded -> [Int]
-definitionOrder encoded =
-  encodedParameters encoded
-    <> concat
-      [ ebParameters block <> concatMap eiResults (ebInstructions block)
-      | block <- encodedBlocks encoded
-      ]
-
--- Calls
-
--- | The positions of the calls of a function, by the convention of the
--- callee.
-data Calls = Calls
-  { callsC :: !IntSet,
-    callsAihc :: !IntSet
-  }
-
-callPositions :: Encoded -> Calls
-callPositions encoded =
-  Calls
-    { callsC = IntSet.fromList [position | (position, CConvention) <- calls],
-      callsAihc = IntSet.fromList [position | (position, AihcConvention) <- calls]
-    }
+-- | Run an action on every hint: a value, and the pool index the convention
+-- suggests for it.
+forHints :: Encoded -> (Int -> Int -> ST s ()) -> ST s ()
+forHints encoded act = pairs (encCallHints encoded) >> pairs (encExitHints encoded)
   where
-    calls =
-      [ (eiPosition instruction, convention)
-      | block <- encodedBlocks encoded,
-        instruction <- ebInstructions block,
-        Just convention <- [eiCall instruction]
-      ]
+    pairs table = forUpTo (lengthOf table `div` 2) (\at -> act (table ! (2 * at)) (table ! (2 * at + 1)))
+
+-- | Run an action on every value a jump copies, with the block parameter it
+-- reaches.
+forJumpPairs :: Encoded -> (Int -> Int -> ST s ()) -> ST s ()
+forJumpPairs encoded act =
+  forBlocks encoded $ \index ->
+    forUpTo (rowTo targets index - rowFrom targets index) $ \step -> do
+      let at = rowFrom targets index + step
+          successor = rowAt targets at
+          count = min (rowTo arguments at - rowFrom arguments at) (rowTo parameters successor - rowFrom parameters successor)
+      forUpTo count $ \position -> do
+        let value = rowAt arguments (rowFrom arguments at + position)
+        when (value >= 0) (act value (rowAt parameters (rowFrom parameters successor + position)))
+  where
+    targets = encTargets encoded
+    arguments = encTargetArguments encoded
+    parameters = encBlockParameters encoded
+
+-- | Number the function and flatten it, in one walk of the blocks. The
+-- carriers give the pool index the convention puts an argument or a result
+-- in, or -1 when it names no register.
+encodeFunction :: (Int -> Int) -> (Int -> Int) -> Map Symbol Signature -> Function -> Encoded
+encodeFunction argumentCarrier resultCarrier signatures function = runST $ do
+  let blocks = functionBlocks function
+      blockCount = length blocks
+      instructionCount = foldl' (\total block -> total + length (blockInstructions block)) 0 blocks
+      parameterCount = length (functionParameters function)
+      labels = Map.fromList (zip (map blockLabel blocks) [0 :: Int ..])
+  identifiers <- newSTRef (Map.empty :: Map Var Int)
+  nextIdentifier <- newInts 1 0
+  exitCount <- newInts 1 0
+  blockStart <- newInts blockCount 0
+  terminatorPositions <- newInts blockCount 0
+  blockRanges <- newInts (blockCount + 1) 0
+  conventions <- newInts instructionCount callNone
+  parameters <- newInts parameterCount 0
+  parameterTable <- newTable blockCount 4
+  terminatorReadTable <- newTable blockCount 8
+  targetTable <- newTable blockCount 4
+  resultTable <- newTable instructionCount (instructionCount + 4)
+  readTable <- newTable instructionCount (2 * instructionCount + 4)
+  argumentTable <- newTable 4 4
+  callHints <- newIntBuffer 4
+  exitHints <- newIntBuffer 4
+  let intern var = do
+        known <- readSTRef identifiers
+        case Map.lookup var known of
+          Just identifier -> pure identifier
+          Nothing -> do
+            identifier <- readArray nextIdentifier 0
+            writeSTRef identifiers (Map.insert var identifier known)
+            writeArray nextIdentifier 0 (identifier + 1)
+            pure identifier
+      internOperand operand =
+        case operand of
+          OperandVar var -> intern var
+          OperandLiteral _ -> pure (-1)
+      pushRead table operand = do
+        value <- internOperand operand
+        when (value >= 0) (pushValue table value)
+      pushHint buffer carrier position var = intern var >>= pushHintValue buffer carrier position
+      hintOperands buffer carrier operands =
+        forEach operands $ \position operand ->
+          case operand of
+            OperandVar var -> pushHint buffer carrier position var
+            OperandLiteral _ -> pure ()
+      goInstruction first offset (Instruction results operation) = do
+        let number = first + offset
+        openRow resultTable
+        traverse_ (intern >=> pushValue resultTable) results
+        openRow readTable
+        forOperationOperands (pushRead readTable) operation
+        let callee arguments convention = do
+              writeArray conventions number convention
+              hintOperands callHints argumentCarrier arguments
+              forEach results (pushHint callHints resultCarrier)
+        case operation of
+          Call symbol arguments -> callee arguments (conventionOf (maybe AihcConvention signatureConvention (Map.lookup symbol signatures)))
+          CallIndirect _ arguments signature -> callee arguments (conventionOf (signatureConvention signature))
+          _ -> pure ()
+      goBlock index start block = do
+        writeArray blockStart index start
+        openRow parameterTable
+        traverse_ (\(var, _) -> intern var >>= pushValue parameterTable) (blockParameters block)
+        first <- readArray blockRanges index
+        forEach (blockInstructions block) (goInstruction first)
+        writeArray blockRanges (index + 1) (first + length (blockInstructions block))
+        let terminator = blockTerminator block
+            terminatorPosition = start + 1 + length (blockInstructions block)
+        writeArray terminatorPositions index terminatorPosition
+        openRow terminatorReadTable
+        forTerminatorOperands (pushRead terminatorReadTable) terminator
+        openRow targetTable
+        traverse_
+          ( \jump -> do
+              pushValue targetTable (labels Map.! targetLabel jump)
+              openRow argumentTable
+              traverse_ (internOperand >=> pushValue argumentTable) (targetArguments jump)
+          )
+          (terminatorTargets terminator)
+        when (restoresRegisters terminator) (addTo exitCount 0 1)
+        case terminator of
+          TailCall _ arguments -> hintOperands exitHints argumentCarrier arguments
+          TailCallIndirect _ arguments _ -> hintOperands exitHints argumentCarrier arguments
+          Return values -> hintOperands exitHints resultCarrier values
+          _ -> pure ()
+        pure (terminatorPosition + 2)
+      goBlocks _ start [] = pure start
+      goBlocks index start (block : rest) = goBlock index start block >>= \next -> goBlocks (index + 1) next rest
+  forEach (functionParameters function) $ \position (var, _) -> do
+    value <- intern var
+    writeArray parameters position value
+    pushHintValue callHints argumentCarrier position value
+  _ <- goBlocks 0 1 blocks
+  -- The values take their rank in name order.
+  known <- readSTRef identifiers
+  let valueCount = Map.size known
+  rankArray <- newInts valueCount 0
+  forEach (Map.elems known) (flip (writeArray rankArray))
+  ranks <- freezeInts rankArray
+  let rename value = if value < 0 then value else ranks ! value
+      renamePairs at value = if even at then rename value else value
+  forUpTo parameterCount (\at -> readArray parameters at >>= writeArray parameters at . rename)
+  blockParameterRows <- freezeTableWith rename parameterTable
+  terminatorReadRows <- freezeTableWith rename terminatorReadTable
+  resultRows <- freezeTableWith rename resultTable
+  readRows <- freezeTableWith rename readTable
+  argumentRows <- freezeTableWith rename argumentTable
+  targetRows <- freezeTableWith id targetTable
+  callHintPairs <- freezeBufferWith renamePairs callHints
+  exitHintPairs <- freezeBufferWith renamePairs exitHints
+  blockRangesFrozen <- freezeInts blockRanges
+  -- The values the function defines, in the order the text defines them,
+  -- and the instruction that defines each one.
+  definitions <- newInts valueCount 0
+  definitionCount <- newInts 1 0
+  definer <- newInts valueCount (-1)
+  let take' value = readArray definitionCount 0 >>= \at -> writeArray definitions at value >> writeArray definitionCount 0 (at + 1)
+  forUpTo parameterCount (readArray parameters >=> take')
+  forUpTo blockCount $ \index -> do
+    forRow blockParameterRows index take'
+    forUpTo (blockRangesFrozen ! (index + 1) - blockRangesFrozen ! index) $ \offset ->
+      forRow resultRows (blockRangesFrozen ! index + offset) $ \value -> do
+        take' value
+        writeArray definer value (blockRangesFrozen ! index + offset)
+  lastTerminator <- if blockCount == 0 then pure (-1) else readArray terminatorPositions (blockCount - 1)
+  Encoded (listArray (0, valueCount - 1) (Map.keys known)) valueCount (lastTerminator + 2) blockCount
+    <$> readArray exitCount 0
+    <*> freezeInts parameters
+    <*> freezeInts definitions
+    <*> freezeInts blockStart
+    <*> freezeInts terminatorPositions
+    <*> pure blockRangesFrozen
+    <*> freezeInts conventions
+    <*> pure blockParameterRows
+    <*> pure terminatorReadRows
+    <*> pure targetRows
+    <*> pure resultRows
+    <*> pure readRows
+    <*> pure argumentRows
+    <*> freezeInts definer
+    <*> pure callHintPairs
+    <*> pure exitHintPairs
+  where
+    conventionOf callee =
+      case callee of
+        AihcConvention -> callAihc
+        CConvention -> callC
+    restoresRegisters terminator =
+      case terminator of
+        Return _ -> True
+        TailCall _ _ -> True
+        TailCallIndirect {} -> True
+        _ -> False
+
+-- | Remember that the convention suggests a register for a value.
+pushHintValue :: IntBuffer s -> (Int -> Int) -> Int -> Int -> ST s ()
+pushHintValue buffer carrier position value =
+  when (carrier position >= 0) (pushInt buffer value >> pushInt buffer (carrier position))
+
+-- | Run an action on every operand one operation reads, in order and with
+-- repeats.
+{-# INLINE forOperationOperands #-}
+forOperationOperands :: (Applicative f) => (Operand -> f ()) -> Operation -> f ()
+forOperationOperands act operation =
+  case operation of
+    Binary _ _ left right -> act left *> act right
+    Unary _ _ value -> act value
+    Wide _ _ left right -> act left *> act right
+    Compare _ _ left right -> act left *> act right
+    FloatBinary _ _ left right -> act left *> act right
+    FloatUnary _ _ value -> act value
+    Convert _ _ value _ -> act value
+    PtrToInt value -> act value
+    PtrFromInt value -> act value
+    Select _ condition left right -> act condition *> act left *> act right
+    Load _ address _ -> act (addressBase address)
+    Store _ value address _ -> act value *> act (addressBase address)
+    PtrAdd base offset -> act base *> act offset
+    StackAlloc _ _ -> pure ()
+    GlobalGet _ -> pure ()
+    GlobalSet _ value -> act value
+    Call _ arguments -> traverse_ act arguments
+    CallIndirect callee arguments _ -> act callee *> traverse_ act arguments
+
+-- | Run an action on every operand one terminator reads, in order and with
+-- repeats.
+{-# INLINE forTerminatorOperands #-}
+forTerminatorOperands :: (Applicative f) => (Operand -> f ()) -> Terminator -> f ()
+forTerminatorOperands act terminator =
+  case terminator of
+    Jump jump -> traverse_ act (targetArguments jump)
+    Branch condition whenTrue whenFalse ->
+      act condition *> traverse_ act (targetArguments whenTrue) *> traverse_ act (targetArguments whenFalse)
+    Switch _ scrutinee cases fallback ->
+      act scrutinee
+        *> traverse_ (traverse_ act . targetArguments . switchCaseTarget) cases
+        *> traverse_ (traverse_ act . targetArguments) fallback
+    Return values -> traverse_ act values
+    TailCall _ arguments -> traverse_ act arguments
+    TailCallIndirect callee arguments _ -> act callee *> traverse_ act arguments
+    Trap _ -> pure ()
+
+-- Intervals
+
+-- | The lowest and the highest position at which each value is live.
+--
+-- A value is relevant at its definition, at each of its uses, at the start of
+-- every block it is live into, and at the end of every block it is live out
+-- of. The interval spans the lowest to the highest of those positions, which
+-- covers every point at which the value is live whatever the block order.
+functionSpans :: Encoded -> ST s (UArray Int Int, UArray Int Int)
+functionSpans encoded = do
+  starts <- newInts (encValues encoded) maxBound
+  ends <- newInts (encValues encoded) minBound
+  let touch position value = do
+        start <- readArray starts value
+        when (position < start) (writeArray starts value position)
+        end <- readArray ends value
+        when (position > end) (writeArray ends value position)
+  -- A parameter is defined before the first block.
+  forUpTo (lengthOf (encParameters encoded)) (touch 0 . (encParameters encoded !))
+  live <- liveness encoded
+  forBlocks encoded $ \index -> do
+    let start = encBlockStart encoded ! index
+    forRow (encBlockParameters encoded) index (touch start)
+    forBlockInstructions encoded index $ \number position -> do
+      forRow (encResults encoded) number (touch position)
+      forRow (encReads encoded) number (touch position)
+    forRow (encTerminatorReads encoded) index (touch (encBlockTerminator encoded ! index))
+    case live of
+      Nothing -> pure ()
+      Just (liveIn, liveOut) -> do
+        forBits liveIn index (touch start)
+        forBits liveOut index (touch (encBlockTerminator encoded ! index + 1))
+  (,) <$> freezeInts starts <*> freezeInts ends
+
+-- | The values that are live at the start and at the end of each block.
+--
+-- A jump argument is a read of the block that jumps, and a block parameter
+-- is a write of the block that receives it, made before anything in the
+-- block reads it.
+liveness :: Encoded -> ST s (Maybe (Bits s, Bits s))
+liveness encoded
+  -- A function whose blocks jump nowhere has nothing live across a block
+  -- boundary: a block parameter is a definition, and a use of something a
+  -- block does not define is a parameter, which is defined before the first
+  -- block.
+  | rowsSize (encTargets encoded) == 0 = pure Nothing
+  | otherwise = do
+      let blockCount = encBlocks encoded
+      liveIn <- newBits blockCount (encValues encoded)
+      liveOut <- newBits blockCount (encValues encoded)
+      scratch <- newBits 1 (encValues encoded)
+      -- The values a block reads before it writes them.
+      upward <- newTable blockCount 8
+      forBlocks encoded $ \index -> do
+        clearRow scratch 0
+        forRow (encTerminatorReads encoded) index (setBit scratch 0)
+        forDownFrom (encBlockInstructions encoded ! (index + 1) - 1) (encBlockInstructions encoded ! index) $ \number -> do
+          forRow (encResults encoded) number (clearBit scratch 0)
+          forRow (encReads encoded) number (setBit scratch 0)
+        forRow (encBlockParameters encoded) index (clearBit scratch 0)
+        openRow upward
+        forBits scratch 0 (pushValue upward)
+      upwardRows <- freezeTableWith id upward
+      let update index = do
+            clearRow liveOut index
+            forRow (encTargets encoded) index (unionRow liveOut index liveIn)
+            _ <- replaceRow scratch 0 liveOut index
+            forRow (encBlockParameters encoded) index (clearBit scratch 0)
+            forBlockInstructions encoded index (\number _ -> forRow (encResults encoded) number (clearBit scratch 0))
+            forRow upwardRows index (setBit scratch 0)
+            replaceRow liveIn index scratch 0
+          sweep index changed
+            | index < 0 = pure changed
+            | otherwise = update index >>= \here -> sweep (index - 1) (changed || here)
+          converge = sweep (blockCount - 1) False >>= \changed -> when changed converge
+      converge
+      pure (Just (liveIn, liveOut))
+
+-- Allocation
 
 -- | Which registers an interval may take, given the calls it lives across.
 -- A call at the start of the interval defines it and a call at its end
 -- consumes it; neither clobbers it.
-data Reach
-  = ReachAny
-  | ReachPreserved
-  | ReachNone
+reachAny, reachPreserved, reachNone :: Int
+reachAny = 0
+reachPreserved = 1
+reachNone = 2
 
-reach :: Calls -> Span -> Reach
-reach calls s
-  | crosses (callsAihc calls) = ReachNone
-  | crosses (callsC calls) = ReachPreserved
-  | otherwise = ReachAny
-  where
-    crosses positions =
-      maybe False (< spanEnd s) (IntSet.lookupGT (spanStart s) positions)
+-- | Walk the intervals in order of their start and hand out registers, by
+-- pool index. The result gives the pool index of every value, or -1 when the
+-- value stays in a frame slot, and the registers the scan handed out.
+--
+-- An interval that outlives another may take its register once that one has
+-- expired. A hint of the value that is free is taken first, then the
+-- register of a partner already placed, then a hint of a partner, then the
+-- register of an operand that just died, then the first free register of
+-- the pool. When nothing acceptable is free, the acceptable interval that
+-- reaches furthest goes to a frame slot; it is the one whose register would
+-- sit idle the longest.
+runAllocation :: Encoded -> Int -> Int -> Bool -> (UArray Int Int, UArray Int Bool)
+runAllocation encoded poolSize volatileCount preservedCost = runST $ do
+  let valueCount = encValues encoded
+  (starts, ends) <- functionSpans encoded
+  aihcCalls <- callsBefore encoded callAihc
+  cCalls <- callsBefore encoded callC
+  earns <- earnedRegisters encoded preservedCost
+  hints <- buildRows valueCount (forHints encoded)
+  partners <- buildRows valueCount (\act -> forJumpPairs encoded act >> forJumpPairs encoded (flip act))
+  order <- orderByStart encoded starts hints partners
+  assigned <- newInts valueCount (-1)
+  used <- newBools poolSize False
+  -- The value in each register, or -1, and the registers in use, in the
+  -- order their intervals end.
+  holder <- newInts poolSize (-1)
+  active <- newInts poolSize 0
+  activeCount <- newInts 1 0
+  let reachOf value
+        | crosses aihcCalls (starts ! value) (ends ! value) = reachNone
+        | crosses cCalls (starts ! value) (ends ! value) = reachPreserved
+        | otherwise = reachAny
+      -- Whether a value may live in the register at a pool index.
+      {-# INLINE accepts #-}
+      accepts value register = do
+        earned <- readArray earns value
+        let preserved = register >= volatileCount
+        pure $ case reachOf value of
+          reach
+            | reach == reachNone -> False
+            | reach == reachPreserved -> preserved && earned
+            | otherwise -> not preserved || earned
+      -- The same, for a register that must also be free.
+      {-# INLINE usable #-}
+      usable value register
+        | register < 0 = pure False
+        | otherwise = do
+            taken <- readArray holder register
+            if taken >= 0 then pure False else accepts value register
+      valueIn index = readArray active index >>= readArray holder
+      -- The active intervals that end before this one starts give their
+      -- registers back. An interval that ends exactly where the next begins
+      -- does so too: the value an instruction consumes hands its register to
+      -- the value the instruction defines, which every instruction a backend
+      -- selects has to tolerate. A value that never lived past its own
+      -- definition keeps its register, so two values one instruction defines
+      -- never share.
+      expire position = do
+        count <- readArray activeCount 0
+        let finished index
+              | index >= count = pure index
+              | otherwise = do
+                  value <- valueIn index
+                  if ends ! value < position || (ends ! value == position && starts ! value < ends ! value)
+                    then readArray active index >>= \register -> writeArray holder register (-1) >> finished (index + 1)
+                    else pure index
+        done <- finished 0
+        when (done > 0) (dropActive 0 done count)
+      -- Take a run of registers out of the active list, and close the gap.
+      dropActive at gone count = do
+        forUpTo (count - at - gone) (\step -> readArray active (at + gone + step) >>= writeArray active (at + step))
+        writeArray activeCount 0 (count - gone)
+      -- The active list stays sorted by end; a new interval goes before the
+      -- ones that end where it ends.
+      activate value register = do
+        count <- readArray activeCount 0
+        let place index
+              | index >= count = pure index
+              | otherwise = valueIn index >>= \other -> if ends ! value <= ends ! other then pure index else place (index + 1)
+        at <- place 0
+        forDownFrom count (at + 1) (\index -> readArray active (index - 1) >>= writeArray active index)
+        writeArray active at register
+        writeArray activeCount 0 (count + 1)
+        writeArray holder register value
+        writeArray used register True
+        writeArray assigned value register
+      -- The first register of a row that the value may take now. The row
+      -- gives a register through @pick@, which is the identity for a hint of
+      -- the value and the assignment for a partner or an operand.
+      {-# INLINE searchRow #-}
+      searchRow rows index pick value
+        | index < 0 = pure (-1)
+        | otherwise = go (rowFrom rows index)
+        where
+          go at
+            | at >= rowTo rows index = pure (-1)
+            | otherwise = do
+                register <- pick (rowAt rows at)
+                ok <- usable value register
+                if ok then pure register else go (at + 1)
+      firstFree value register
+        | register >= poolSize = pure (-1)
+        | otherwise = usable value register >>= \ok -> if ok then pure register else firstFree value (register + 1)
+      preferred value =
+        searchRow hints value pure value
+          `orElse` searchRow partners value (readArray assigned) value
+          `orElse` searchRow partners value (\partner -> searchRow hints partner pure value) value
+          `orElse` searchRow (encReads encoded) (encDefiner encoded ! value) (readArray assigned) value
+          `orElse` firstFree value 0
+      -- The furthest-reaching acceptable interval loses its register. The
+      -- active list is sorted by end, so it is the last acceptable one.
+      spill value = do
+        count <- readArray activeCount 0
+        let victim index
+              | index < 0 = pure (-1)
+              | otherwise = do
+                  register <- readArray active index
+                  accepts value register >>= \ok -> if ok then pure index else victim (index - 1)
+        at <- victim (count - 1)
+        when (at >= 0) $ do
+          register <- readArray active at
+          loser <- readArray holder register
+          when (ends ! loser > ends ! value) $ do
+            writeArray assigned loser (-1)
+            writeArray holder register (-1)
+            dropActive at 1 count
+            activate value register
+  forUpTo valueCount $ \at -> do
+    let value = order ! at
+    expire (starts ! value)
+    register <- preferred value
+    if register >= 0 then activate value register else spill value
+  (,) <$> freezeInts assigned <*> unsafeFreeze used
 
--- Hints
+-- | Whether a call sits inside an interval. A call at the start of the
+-- interval defines it and a call at its end consumes it.
+{-# INLINE crosses #-}
+crosses :: UArray Int Int -> Int -> Int -> Bool
+crosses calls start end = end > start + 1 && calls ! end > calls ! (start + 1)
 
--- | The pool index of the register that carries argument or result number
--- @i@, when one does.
-data Carriers = Carriers
-  { carrierArgument :: Int -> Maybe Int,
-    carrierResult :: Int -> Maybe Int
-  }
+-- | The first of two searches that finds a register.
+{-# INLINE orElse #-}
+orElse :: ST s Int -> ST s Int -> ST s Int
+orElse first second = first >>= \register -> if register >= 0 then pure register else second
 
--- | The pool indexes the convention suggests for each value, and the values
--- each value is copied to or from by a jump.
-hints :: Carriers -> Encoded -> (IntMap [Int], IntMap [Int])
-hints carriers encoded = (fixed, partners)
-  where
-    blocks = encodedBlocks encoded
-    parameters = IntMap.fromList [(ebIndex block, ebParameters block) | block <- blocks]
-    placed hint =
-      case hint of
-        ArgumentHint index value -> [(value, [register]) | Just register <- [carrierArgument carriers index]]
-        ResultHint index value -> [(value, [register]) | Just register <- [carrierResult carriers index]]
-    fixed =
-      IntMap.fromListWith
-        (flip (<>))
-        ( [(value, [register]) | (index, value) <- zip [0 ..] (encodedParameters encoded), Just register <- [carrierArgument carriers index]]
-            <> concat [placed hint | block <- blocks, instruction <- ebInstructions block, hint <- eiHints instruction]
-            <> concat [placed hint | block <- blocks, hint <- ebTerminatorHints block]
-        )
-    pairs =
-      [ (value, parameter)
-      | block <- blocks,
-        (successor, arguments) <- ebTargets block,
-        (Just value, parameter) <- zip arguments (IntMap.findWithDefault [] successor parameters)
-      ]
-    partners = IntMap.fromListWith (flip (<>)) ([(value, [parameter]) | (value, parameter) <- pairs] <> [(parameter, [value]) | (value, parameter) <- pairs])
-
--- | The operands each instruction result is computed from.
-resultOperands :: Encoded -> IntMap [Int]
-resultOperands encoded =
-  IntMap.fromList
-    [ (result, nub (eiReads instruction))
-    | block <- encodedBlocks encoded,
-      instruction <- ebInstructions block,
-      result <- eiResults instruction
-    ]
+-- | How many calls of one convention come before each position.
+callsBefore :: Encoded -> Int -> ST s (UArray Int Int)
+callsBefore encoded convention = do
+  counts <- newInts (encPositions encoded + 2) 0
+  forBlocks encoded $ \index ->
+    forBlockInstructions encoded index $ \number position ->
+      when (encInstructionCall encoded ! number == convention) (addTo counts (position + 1) 1)
+  scanSums counts (encPositions encoded + 1)
+  freezeInts counts
 
 -- | Whether a value earns the register it would take.
 --
@@ -389,324 +701,93 @@ resultOperands encoded =
 -- itself once the value is touched more often than the function has exits
 -- plus the one save.
 --
--- A touch inside a loop happens once for every turn of the loop, so it counts
--- for more. The weight is a power of ten per loop that encloses the block,
--- which is the usual guess in the absence of a profile, and it is capped so
--- that a deep nest cannot overflow the count.
---
 -- Several values that share a register pay the save and the restores once
 -- between them, so a value that clears the bar alone is never a loss and a
 -- register that several values share is a gain beyond what the bar counts.
-profitable :: IntMap Int -> Int -> Span -> Bool
-profitable counts exits s =
-  IntMap.findWithDefault 0 (spanValue s) counts > 1 + exits
-
--- | The number of exits: the terminators that restore the saved registers.
-exitCount :: Encoded -> Int
-exitCount encoded = length [() | block <- encodedBlocks encoded, ebExit block]
+earnedRegisters :: Encoded -> Bool -> ST s (STUArray s Int Bool)
+earnedRegisters encoded preservedCost = do
+  earns <- newBools (encValues encoded) True
+  when preservedCost $ do
+    counts <- accessCounts encoded
+    forUpTo (encValues encoded) $ \value -> do
+      count <- readArray counts value
+      writeArray earns value (count > 1 + encExits encoded)
+  pure earns
 
 -- | How often the function touches each value, weighted by the loops that
 -- enclose the touch: once where it defines it, and once for every place it
 -- reads it. A value read twice by one instruction counts twice, because
 -- instruction selection reads it twice.
-accessCounts :: Encoded -> IntMap Int
-accessCounts encoded =
-  IntMap.fromListWith
-    (+)
-    ( [ (value, weightOf (ebIndex block))
-      | block <- encodedBlocks encoded,
-        value <-
-          ebParameters block
-            <> concatMap eiResults (ebInstructions block)
-            <> concatMap eiReads (ebInstructions block)
-            <> ebTerminatorReads block
-      ]
-        -- A parameter arrives before the first block.
-        <> [(value, 1) | value <- encodedParameters encoded]
-    )
-  where
-    depths = loopDepths encoded
-    weightOf index = 10 ^ min 3 (IntMap.findWithDefault 0 index depths)
+accessCounts :: Encoded -> ST s (STUArray s Int Int)
+accessCounts encoded = do
+  depths <- loopDepths encoded
+  counts <- newInts (encValues encoded) 0
+  forBlocks encoded $ \index -> do
+    depth <- readArray depths index
+    -- A touch inside a loop happens once for every turn of the loop, so it
+    -- counts for more. The weight is a power of ten per loop that encloses
+    -- the block, which is the usual guess in the absence of a profile, and
+    -- it is capped so that a deep nest cannot overflow the count.
+    let add value = addTo counts value (10 ^ min 3 depth)
+    forRow (encBlockParameters encoded) index add
+    forBlockInstructions encoded index $ \number _ -> do
+      forRow (encResults encoded) number add
+      forRow (encReads encoded) number add
+    forRow (encTerminatorReads encoded) index add
+  -- A parameter arrives before the first block.
+  forUpTo (lengthOf (encParameters encoded)) (\at -> addTo counts (encParameters encoded ! at) 1)
+  pure counts
 
--- | How many loops enclose each block. A loop is a back edge and the blocks
--- that reach it without leaving through its header, which is the natural loop
--- of the edge.
-loopDepths :: Encoded -> IntMap Int
-loopDepths encoded =
-  IntMap.fromListWith
-    (+)
-    [ (index, 1)
-    | (tail', header) <- edges,
-      index <- IntSet.toList (naturalLoop predecessors header tail')
-    ]
-  where
-    successors = blockSuccessors encoded
-    predecessors =
-      IntMap.fromListWith
-        (<>)
-        [ (target, [source])
-        | (source, targets) <- IntMap.toList successors,
-          target <- targets
-        ]
-    edges = case encodedBlocks encoded of
-      [] -> []
-      entry : _ -> backEdges successors (ebIndex entry)
+-- | How many loops enclose each block, as a guess from the block order. An
+-- edge whose target does not come after its source closes a loop, and the
+-- blocks between the two are inside that loop. A loop that the block order
+-- breaks apart counts for less, which costs a little code quality and no
+-- correctness: the depth only weights the count of touches.
+loopDepths :: Encoded -> ST s (STUArray s Int Int)
+loopDepths encoded = do
+  let blockCount = encBlocks encoded
+  edges <- newInts (blockCount + 1) 0
+  forBlocks encoded $ \index ->
+    forRow (encTargets encoded) index $ \successor ->
+      when (successor <= index) (addTo edges successor 1 >> addTo edges (index + 1) (-1))
+  depths <- newInts blockCount 0
+  forUpTo blockCount $ \index -> do
+    enclosing <- if index == 0 then pure 0 else readArray depths (index - 1)
+    opened <- readArray edges index
+    writeArray depths index (enclosing + opened)
+  pure depths
 
-blockSuccessors :: Encoded -> IntMap [Int]
-blockSuccessors encoded = IntMap.fromList [(ebIndex block, map fst (ebTargets block)) | block <- encodedBlocks encoded]
-
--- | The edges that close a loop: an edge whose target is already on the path
--- the search took to reach its source.
-backEdges :: IntMap [Int] -> Int -> [(Int, Int)]
-backEdges successors entry = snd (visit (IntSet.empty, []) IntSet.empty entry)
-  where
-    visit (done, found) path index
-      | IntSet.member index done = (done, found)
-      | otherwise = foldl' step (IntSet.insert index done, found) (IntMap.findWithDefault [] index successors)
-      where
-        path' = IntSet.insert index path
-        step (seen, edges) target
-          | IntSet.member target path' = (seen, (index, target) : edges)
-          | otherwise = visit (seen, edges) path' target
-
--- | The blocks of the natural loop of a back edge: its header, its source,
--- and everything that reaches the source without passing the header.
-naturalLoop :: IntMap [Int] -> Int -> Int -> IntSet
-naturalLoop predecessors header tail' = grow (IntSet.fromList [header, tail']) [tail']
-  where
-    grow seen [] = seen
-    grow seen (index : rest)
-      | index == header = grow seen rest
-      | otherwise =
-          let fresh = [source | source <- IntMap.findWithDefault [] index predecessors, not (IntSet.member source seen)]
-           in grow (foldr IntSet.insert seen fresh) (fresh <> rest)
-
--- Liveness
-
--- | The values a block reads before it writes them, and the values it
--- writes. A jump argument is a read of the block that jumps, and a block
--- parameter is a write of the block that receives it, made before anything
--- in the block reads it.
-data BlockFlow = BlockFlow
-  { flowUpwardUses :: !IntSet,
-    flowDefinitions :: !IntSet
-  }
-
-blockFlow :: EBlock -> BlockFlow
-blockFlow block =
-  BlockFlow
-    { flowUpwardUses = foldr IntSet.delete (foldl' step (IntSet.fromList (ebTerminatorReads block)) (reverse (ebInstructions block))) (ebParameters block),
-      flowDefinitions = IntSet.fromList (ebParameters block <> concatMap eiResults (ebInstructions block))
-    }
-  where
-    step live instruction =
-      IntSet.union
-        (IntSet.fromList (eiReads instruction))
-        (foldr IntSet.delete live (eiResults instruction))
-
-liveness :: Encoded -> IntMap (IntSet, IntSet)
-liveness encoded
-  -- A function whose blocks jump nowhere has nothing live across a block
-  -- boundary: a block parameter is a definition, and a use of something a
-  -- block does not define is a parameter, which is defined before the
-  -- first block.
-  | all (null . ebTargets) blocks = initial
-  | otherwise = converge initial
-  where
-    blocks = encodedBlocks encoded
-    flows = IntMap.fromList [(ebIndex block, blockFlow block) | block <- blocks]
-    successors = blockSuccessors encoded
-    initial = IntMap.fromList [(ebIndex block, (IntSet.empty, IntSet.empty)) | block <- blocks]
-    converge current =
-      let next = foldl' update current (reverse (map ebIndex blocks))
-       in if next == current then current else converge next
-    update current index =
-      let flow = flows IntMap.! index
-          liveOut = IntSet.unions [fst (current IntMap.! successor) | successor <- successors IntMap.! index]
-          liveIn = IntSet.union (flowUpwardUses flow) (IntSet.difference liveOut (flowDefinitions flow))
-       in IntMap.insert index (liveIn, liveOut) current
-
--- Intervals
-
--- | The live interval of a numbered value.
-data Span = Span
-  { spanValue :: !Int,
-    spanStart :: !Int,
-    spanEnd :: !Int
-  }
-
--- | The live interval of every value of the function, in name order.
-functionIntervals :: Function -> [Interval]
-functionIntervals function =
-  [ Interval {intervalVar = encodedNames encoded ! spanValue s, intervalStart = spanStart s, intervalEnd = spanEnd s}
-  | s <- functionSpans encoded
-  ]
-  where
-    encoded = encodeFunction Map.empty function
-
--- | The live interval of every value of the function, in value order.
+-- | The values in the order the scan visits them: by the start of the
+-- interval, then the values that lead, then the number of the value.
 --
--- A value is relevant at its definition, at each of its uses, at the start of
--- every block it is live into, and at the end of every block it is live out
--- of. The interval spans the lowest to the highest of those positions, which
--- covers every point at which the value is live whatever the block order.
-functionSpans :: Encoded -> [Span]
-functionSpans encoded =
-  [ Span {spanValue = value, spanStart = start, spanEnd = end}
-  | (value, (start, end)) <- IntMap.toAscList bounds
-  ]
-  where
-    blocks = encodedBlocks encoded
-    live = liveness encoded
-    bounds = foldl' note IntMap.empty relevant
-    note current (value, position) = IntMap.insertWith merge value (position, position) current
-    merge (newStart, newEnd) (oldStart, oldEnd) = (min newStart oldStart, max newEnd oldEnd)
-    relevant =
-      -- A parameter is defined before the first block.
-      [(value, 0) | value <- encodedParameters encoded]
-        <> concat
-          [ [(value, ebStart block) | value <- ebParameters block]
-              <> concat
-                [ [(result, eiPosition instruction) | result <- eiResults instruction]
-                    <> [(value, eiPosition instruction) | value <- IntSet.toList (IntSet.fromList (eiReads instruction))]
-                | instruction <- ebInstructions block
-                ]
-              <> [(value, ebTerminatorPosition block) | value <- IntSet.toList (IntSet.fromList (ebTerminatorReads block))]
-              <> [(value, ebStart block) | value <- IntSet.toList liveIn]
-              <> [(value, ebEnd block) | value <- IntSet.toList liveOut]
-          | block <- blocks,
-            let (liveIn, liveOut) = live IntMap.! ebIndex block
-          ]
-
--- Linear scan
-
-data Config = Config
-  { configPoolSize :: !Int,
-    -- | The pool indexes of the preserved registers.
-    configPreserved :: !IntSet
-  }
-
-data Candidate = Candidate
-  { candidateSpan :: !Span,
-    candidateReach :: !Reach,
-    -- | Whether the value may take a preserved register.
-    candidateEarnsPreserved :: !Bool,
-    -- | The pool indexes the conventions suggest for the value itself.
-    candidateHints :: ![Int],
-    -- | The values a jump copies this one to or from.
-    candidatePartners :: ![Int],
-    -- | The pool indexes the conventions suggest for the partners.
-    candidateWeakHints :: ![Int],
-    -- | The operands the value is computed from.
-    candidateOperands :: ![Int],
-    -- | Whether the value goes before the others defined at its position.
-    candidateLeads :: !Bool
-  }
-
--- | Whether a candidate may live in the register at a pool index.
-accepts :: Config -> Candidate -> Int -> Bool
-accepts config candidate index =
-  case candidateReach candidate of
-    ReachNone -> False
-    ReachPreserved -> preserved && candidateEarnsPreserved candidate
-    ReachAny -> not preserved || candidateEarnsPreserved candidate
-  where
-    preserved = IntSet.member index (configPreserved config)
-
--- | Walk the intervals in order of their start and hand out registers, by
--- pool index.
---
--- An interval that outlives another may take its register once that one has
--- expired. A hint of the value that is free is taken first, then the
--- register of a partner already placed, then a hint of a partner, then the
--- register of an operand that just died, then the first free register of
--- the pool. When nothing acceptable is free, the acceptable interval that
--- reaches furthest goes to a frame slot; it is the one whose register would
--- sit idle the longest.
-linearScan :: Config -> [Candidate] -> IntMap Int
-linearScan config candidates = scanState (foldl' step initial ordered)
-  where
-    initial = ScanState [] (IntSet.fromDistinctAscList [0 .. configPoolSize config - 1]) IntMap.empty
-    ordered = sortOn (\candidate -> (spanStart (candidateSpan candidate), not (candidateLeads candidate), spanValue (candidateSpan candidate))) candidates
-    step state candidate =
-      let s = candidateSpan candidate
-          expired = expire (spanStart s) state
-          free = scanFree expired
-          preferred =
-            candidateHints candidate
-              <> mapMaybe (`IntMap.lookup` scanState expired) (candidatePartners candidate)
-              <> candidateWeakHints candidate
-              <> mapMaybe (`IntMap.lookup` scanState expired) (candidateOperands candidate)
-          choice =
-            case [index | index <- preferred, IntSet.member index free, accepts config candidate index] of
-              index : _ -> Just index
-              [] -> firstFree candidate (IntSet.toAscList free)
-       in case choice of
-            Just index -> activate s index expired
-            Nothing -> spill candidate expired
-    firstFree candidate indexes =
-      case indexes of
-        [] -> Nothing
-        index : rest
-          | accepts config candidate index -> Just index
-          | otherwise -> firstFree candidate rest
-    -- The active intervals that end before this one starts give their
-    -- registers back. An interval that ends exactly where the next begins
-    -- does so too: the value an instruction consumes hands its register to
-    -- the value the instruction defines, which every instruction a backend
-    -- selects has to tolerate. A value that never lived past its own
-    -- definition keeps its register, so two values one instruction defines
-    -- never share.
-    expire position state =
-      let finished active =
-            spanEnd active < position
-              || (spanEnd active == position && spanStart active < spanEnd active)
-          (done, alive) = span (finished . fst) (scanActive state)
-       in case done of
-            [] -> state
-            _ ->
-              state
-                { scanActive = alive,
-                  scanFree = foldl' (\free (_, index) -> IntSet.insert index free) (scanFree state) done
-                }
-    -- The active list stays sorted by end; a new interval goes before the
-    -- ones that end where it ends.
-    activate s index state =
-      state
-        { scanActive = insertActive (s, index) (scanActive state),
-          scanFree = IntSet.delete index (scanFree state),
-          scanState = IntMap.insert (spanValue s) index (scanState state)
-        }
-    insertActive entry active =
-      case active of
-        [] -> [entry]
-        first : rest
-          | spanEnd (fst entry) <= spanEnd (fst first) -> entry : active
-          | otherwise -> first : insertActive entry rest
-    -- The furthest-reaching acceptable interval loses its register. The
-    -- active list is sorted by end, so it is the last acceptable one.
-    spill candidate state =
-      let s = candidateSpan candidate
-       in case reverse [(active, index) | (active, index) <- scanActive state, accepts config candidate index] of
-            (victim, index) : _
-              | spanEnd victim > spanEnd s ->
-                  activate
-                    s
-                    index
-                    state
-                      { scanActive = filter ((/= spanValue victim) . spanValue . fst) (scanActive state),
-                        scanFree = IntSet.insert index (scanFree state),
-                        scanState = IntMap.delete (spanValue victim) (scanState state)
-                      }
-            _ -> state
-
-data ScanState = ScanState
-  { -- | The intervals holding a register, sorted by their end.
-    scanActive :: ![(Span, Int)],
-    -- | The pool indexes nothing holds.
-    scanFree :: !IntSet,
-    scanState :: !(IntMap Int)
-  }
+-- A value with a hint of its own, or with a partner placed before it, has a
+-- claim on a register. It leads, so it goes before the values that are
+-- defined at the same position and have no claim.
+orderByStart :: Encoded -> UArray Int Int -> Rows -> Rows -> ST s (UArray Int Int)
+orderByStart encoded starts hints partners = do
+  let positionCount = encPositions encoded
+      earlier value at
+        | at >= rowTo partners value = False
+        | otherwise = starts ! rowAt partners at < starts ! value || earlier value (at + 1)
+      leads value = rowTo hints value > rowFrom hints value || earlier value (rowFrom partners value)
+  leadCursor <- newInts (positionCount + 1) 0
+  restCursor <- newInts (positionCount + 1) 0
+  let cursorFor value = if leads value then leadCursor else restCursor
+  forUpTo (encValues encoded) (\value -> addTo (cursorFor value) (starts ! value) 1)
+  total <- newInts 1 0
+  forUpTo (positionCount + 1) $ \position -> do
+    leaders <- readArray leadCursor position
+    rest <- readArray restCursor position
+    placed <- readArray total 0
+    writeArray leadCursor position placed
+    writeArray restCursor position (placed + leaders)
+    writeArray total 0 (placed + leaders + rest)
+  order <- newInts (encValues encoded) 0
+  forUpTo (encValues encoded) $ \value -> do
+    at <- readArray (cursorFor value) (starts ! value)
+    writeArray (cursorFor value) (starts ! value) (at + 1)
+    writeArray order at value
+  freezeInts order
 
 -- Uses
 
@@ -722,43 +803,14 @@ readCounts function =
 
 -- | Every read of a value by one operation, in order and with repeats.
 operationReads :: Operation -> [Var]
-operationReads operation =
-  case operation of
-    Binary _ _ left right -> operands [left, right]
-    Unary _ _ value -> operands [value]
-    Wide _ _ left right -> operands [left, right]
-    Compare _ _ left right -> operands [left, right]
-    FloatBinary _ _ left right -> operands [left, right]
-    FloatUnary _ _ value -> operands [value]
-    Convert _ _ value _ -> operands [value]
-    PtrToInt value -> operands [value]
-    PtrFromInt value -> operands [value]
-    Select _ condition left right -> operands [condition, left, right]
-    Load _ address _ -> operands [addressBase address]
-    Store _ value address _ -> operands [value, addressBase address]
-    PtrAdd base offset -> operands [base, offset]
-    StackAlloc _ _ -> []
-    GlobalGet _ -> []
-    GlobalSet _ value -> operands [value]
-    Call _ arguments -> operands arguments
-    CallIndirect callee arguments _ -> operands (callee : arguments)
+operationReads = getConst . forOperationOperands (Const . operandVar)
 
 -- | Every read of a value by one terminator, in order and with repeats.
 terminatorReads :: Terminator -> [Var]
-terminatorReads terminator =
-  case terminator of
-    Jump target -> operands (targetArguments target)
-    Branch condition whenTrue whenFalse -> operands (condition : targetArguments whenTrue <> targetArguments whenFalse)
-    Switch _ scrutinee cases fallback ->
-      operands
-        ( scrutinee
-            : concatMap (targetArguments . switchCaseTarget) cases
-              <> concatMap targetArguments fallback
-        )
-    Return values -> operands values
-    TailCall _ arguments -> operands arguments
-    TailCallIndirect callee arguments _ -> operands (callee : arguments)
-    Trap _ -> []
+terminatorReads = getConst . forTerminatorOperands (Const . operandVar)
 
-operands :: [Operand] -> [Var]
-operands values = [var | OperandVar var <- values]
+operandVar :: Operand -> [Var]
+operandVar operand =
+  case operand of
+    OperandVar var -> [var]
+    OperandLiteral _ -> []
