@@ -67,6 +67,22 @@ program is run. The generated module lands under the package's output path
 for that target, in `preprocess/`, next to the `configure/` directory of a
 `build-type: Configure` package, whose headers it can include.
 
+## Compiler headers
+
+C code of a package expects the headers that a GHC installation gives. These
+are `HsFFI.h` and `MachDeps.h`. GHC also writes `ghcplatform.h` and
+`ghcautoconf.h` for its own host. aihc supplies all four headers. The
+`c-sources` of a package, the C wrappers of its `capi` imports, and `hsc2hs`
+all search the same include directory. Thus a header that one of them includes
+also resolves for the others.
+
+aihc does not run a configure script. Thus `ghcautoconf.h` has no feature
+macros. C code of a package reads the word size and the byte order from that
+header. These come from `ghcplatform.h`. `ghcplatform.h` gets them from the
+target of the C compiler and not from the host that built aihc. The CPP pass
+over the Haskell sources answers the same includes from its own definitions.
+Those definitions describe the Haskell word and not the C word.
+
 ## Linking on another host
 
 `aihc build --no-link` stops before the link and writes a bundle directory

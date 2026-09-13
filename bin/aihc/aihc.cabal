@@ -85,6 +85,7 @@ data-files:
   compiler/native/runtime/aihc_stable_name.lir
   compiler/native/runtime/include/HsFFI.h
   compiler/native/runtime/include/MachDeps.h
+  compiler/native/runtime/include/ghcautoconf.h
   compiler/native/runtime/include/ghcplatform.h
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_internal.h

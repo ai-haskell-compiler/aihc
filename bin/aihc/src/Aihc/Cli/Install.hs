@@ -1004,6 +1004,7 @@ buildEnvironmentIdentity target = do
       getDataFileName
       [ "compiler/native/runtime/include/HsFFI.h",
         "compiler/native/runtime/include/MachDeps.h",
+        "compiler/native/runtime/include/ghcautoconf.h",
         "compiler/native/runtime/include/ghcplatform.h"
       ]
   headerHash <- stableHash <$> mapM BS.readFile headers

@@ -1296,7 +1296,15 @@ test_installCapi getStore =
       )
     let headerText answer =
           unlines
-            [ "#define DEMO_ANSWER " <> show (answer :: Int),
+            [ -- A package header can include the configuration headers of
+              -- the compiler.  The compile of a wrapper thus searches the
+              -- include directory of the runtime.  A C source of the package
+              -- searches the same directory.
+              "#include <ghcautoconf.h>",
+              "#if !defined(SIZEOF_VOID_P)",
+              "#error ghcautoconf.h must define the word size",
+              "#endif",
+              "#define DEMO_ANSWER " <> show (answer :: Int),
               "static inline int demo_double(int value) { return value * 2; }"
             ]
     writeFile header (headerText 42)
