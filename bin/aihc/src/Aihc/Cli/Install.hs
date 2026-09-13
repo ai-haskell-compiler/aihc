@@ -141,6 +141,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     unionTcInterfaces,
   )
+import Aihc.Tc.Share (shareTcInterfaces)
 import Aihc.Tc.Types (tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
@@ -1150,13 +1151,20 @@ loadInstalledPackage requirements immutable storePath = do
       >>= maybe (ioError (userError ("The installed package has no digests: " <> storePath))) pure
   let selectedModules = filter (moduleRequired manifest) (packageManifestModules manifest)
   entries <- mapM loadModule selectedModules
-  (instanceFacts', instanceProviders) <-
+  (decodedFacts, instanceProviders) <-
     if null selectedModules
       then pure (mempty, Map.empty)
       else loadPackageInstances selectedModules
-  let package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
+  -- The interfaces of a package live for the whole install, so they share
+  -- their equal parts with one another.
+  let shared = shareTcInterfaces (decodedFacts : [interface | (_, _, interface) <- entries])
+      (instanceFacts', interfaces) =
+        case shared of
+          facts : rest -> (facts, rest)
+          [] -> (decodedFacts, [])
+      package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
-      types = LazyMap.fromList [(name, interface) | (name, _, interface) <- entries]
+      types = LazyMap.fromList (zip [name | (name, _, _) <- entries] interfaces)
       exposed = Map.restrictKeys (packageDigestsModules digests) (Set.fromList (packageManifestModules manifest))
       scopeHashes = Map.map moduleScopeDigest exposed
       typeHashes = Map.map moduleTypeDigest exposed
@@ -1787,8 +1795,11 @@ runTypeUnit context runtimes runtime = do
   case reused of
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
-      ownFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
-      let interfaces = map typeArtifactInterface artifacts
+      decodedFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
+      let (ownFacts, interfaces) =
+            case shareTcInterfaces (decodedFacts : map typeArtifactInterface artifacts) of
+              facts : rest -> (facts, rest)
+              [] -> (decodedFacts, [])
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $ do
         putTMVar
@@ -1809,8 +1820,15 @@ runTypeUnit context runtimes runtime = do
     Nothing -> do
       ((checkedModules, checkedInterface), diagnostics) <- checkUnit
       let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
-          unitTypes = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
-          ownInstanceInterface = addReferencedFacts completeInterface (instanceFacts checkedInterface)
+          -- What the unit publishes outlives this task, so its equal
+          -- parts are made one object each; the checking state is not.
+          (ownInstanceInterface, unitTypes) =
+            case shareTcInterfaces
+              ( addReferencedFacts completeInterface (instanceFacts checkedInterface)
+                  : map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
+              ) of
+              facts : rest -> (facts, rest)
+              [] -> error "shareTcInterfaces dropped the unit facts"
           completeInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownInstanceInterface]
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
           success = resolveSuccess && dependencySuccess && typeSuccess

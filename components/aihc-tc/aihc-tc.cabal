@@ -42,6 +42,7 @@ library
     Aihc.Tc.Kind
     Aihc.Tc.Monad
     Aihc.Tc.QuickLook
+    Aihc.Tc.Share
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Coercible

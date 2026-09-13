@@ -81,7 +81,10 @@ unifyCollecting _ (TcMetaTv u1) (TcMetaTv u2)
 unifyCollecting loc (TcMetaTv u) ty = fmap (const []) <$> unifyMetaTv loc u ty
 unifyCollecting loc ty (TcMetaTv u) = fmap (const []) <$> unifyMetaTv loc u ty
 unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
-  | v1 == v2 = pure (Right [])
+  -- One variable whose two occurrences carry different kinds (a given
+  -- kind refinement rewrites the kinds of occurrences) is still one
+  -- variable.
+  | tyVarIdentity v1 == tyVarIdentity v2 = pure (Right [])
 unifyCollecting loc t1 t2
   | t1 == t2 = pure (Right [])
   | otherwise = do
