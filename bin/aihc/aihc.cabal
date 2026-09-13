@@ -227,11 +227,13 @@ library
     megaparsec >=9.0 && <10,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
+    primitive >=0.9 && <0.10,
     process >=1.6 && <1.8,
     stm >=2.5 && <2.6,
     text >=2.1.4 && <2.2,
     transformers,
     unix >=2.7 && <2.9,
+    vector >=0.13 && <0.14,
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall

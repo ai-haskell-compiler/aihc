@@ -32,6 +32,7 @@ where
 
 import Aihc.Native.MachO (writeArm64MachO)
 import Aihc.Native.Object
+import Control.Monad.ST (ST)
 import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -248,59 +249,22 @@ data Arm64Instruction
   deriving (Eq, Show)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
-assembleMachO statements = applyStatements emptyDraft statements >>= layoutDraft >>= writeArm64MachO
+assembleMachO statements = assembleObject id writeArm64MachO (`applyStatements` statements)
 
--- | Apply a list of statements. A run of statements that only add items to
--- the current section is appended in one pass.
-applyStatements :: Draft -> [Arm64Statement] -> Either ObjectError Draft
-applyStatements draft statements =
-  case statements of
-    [] -> pure draft
-    Arm64Section role : rest -> applyStatements (selectSection role draft) rest
-    Arm64Global symbol : rest -> applyStatements (addGlobal symbol draft) rest
-    Arm64Align alignment : rest -> addItem (Align alignment (alignmentFill draft)) draft >>= \next -> applyStatements next rest
-    _ ->
-      let (run, rest) = span plain statements
-       in addItems (concatMap statementItems run) draft >>= \next -> applyStatements next rest
-  where
-    plain statement =
-      case statement of
-        Arm64Section _ -> False
-        Arm64Global _ -> False
-        Arm64Align _ -> False
-        _ -> True
-
--- | The items of a statement that adds to the current section.
-statementItems :: Arm64Statement -> [Item]
-statementItems statement =
-  case statement of
-    Arm64Label name -> [Label name]
-    Arm64Quad value -> [Word 8 value]
-    Arm64Word width value -> [Word width value]
-    Arm64QuadSymbol symbol -> [Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)]
-    Arm64QuadSymbolAddend symbol addend -> [Apply (Fixup Absolute64 (SymbolName symbol) 0 8 (fromIntegral addend))]
-    Arm64Bytes value
-      | BS.null value -> []
-      | otherwise -> [Bytes value]
-    Arm64Code instruction -> encodeInstruction instruction
-    Arm64Section _ -> []
-    Arm64Global _ -> []
-    Arm64Align _ -> []
+-- | Apply a list of statements to an object.
+applyStatements :: Object s -> [Arm64Statement] -> ST s (Either ObjectError ())
+applyStatements object = applyAll (applyStatement object)
 
 -- | Assemble statements that arrive in chunks, folding each one in before
 -- the next is produced. A failed chunk ends the assembly with its error;
 -- an object error is the other side.
 assembleMachOChunks :: [Either error [Arm64Statement]] -> Either (Either error ObjectError) BL.ByteString
-assembleMachOChunks = go emptyDraft
+assembleMachOChunks chunks = assembleObject Right writeArm64MachO (\object -> applyAll (applyChunk object) chunks)
   where
-    go draft chunks =
-      case chunks of
-        [] -> either (Left . Right) Right (layoutDraft draft >>= writeArm64MachO)
-        Left err : _ -> Left (Left err)
-        Right statements : rest ->
-          case applyStatements draft statements of
-            Left err -> Left (Right err)
-            Right next -> next `seq` go next rest
+    applyChunk object chunk =
+      case chunk of
+        Left err -> pure (Left (Left err))
+        Right statements -> either (Left . Right) Right <$> applyStatements object statements
 
 arm64Section :: SectionRole -> Arm64Statement
 arm64Section = Arm64Section
@@ -333,27 +297,27 @@ arm64Bytes = Arm64Bytes
 arm64Instruction :: Arm64Instruction -> Arm64Statement
 arm64Instruction = Arm64Code
 
-applyStatement :: Either ObjectError Draft -> Arm64Statement -> Either ObjectError Draft
-applyStatement result statement = do
-  draft <- result
+applyStatement :: Object s -> Arm64Statement -> ST s (Either ObjectError ())
+applyStatement object statement =
   case statement of
-    Arm64Section role -> pure (selectSection role draft)
-    Arm64Align alignment -> addItem (Align alignment (alignmentFill draft)) draft
-    Arm64Global symbol -> pure (addGlobal symbol draft)
-    Arm64Label symbol -> addItem (Label symbol) draft
-    Arm64Quad value -> addItem (Word 8 value) draft
-    Arm64Word width value -> addItem (Word width value) draft
-    Arm64QuadSymbol symbol -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0)) draft
+    Arm64Section role -> selectSection role object >> pure (Right ())
+    Arm64Align alignment -> currentSectionRole object >>= emitAlign object alignment . alignmentFill
+    Arm64Global symbol -> addGlobal symbol object >> pure (Right ())
+    Arm64Label symbol -> emitItem object (Label symbol)
+    Arm64Quad value -> emitItem object (Word 8 value)
+    Arm64Word width value -> emitItem object (Word width value)
+    Arm64QuadSymbol symbol -> emitItem object (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 0))
     -- Mach-O keeps the addend of an absolute relocation in the section bytes.
-    Arm64QuadSymbolAddend symbol addend -> addItem (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 (fromIntegral addend))) draft
+    Arm64QuadSymbolAddend symbol addend -> emitItem object (Apply (Fixup Absolute64 (SymbolName symbol) 0 8 (fromIntegral addend)))
     Arm64Bytes value
-      | BS.null value -> pure draft
-      | otherwise -> addItem (Bytes value) draft
-    Arm64Code instruction -> foldl' (>>=) (pure draft) [addItem item | item <- encodeInstruction instruction]
+      | BS.null value -> pure (Right ())
+      | otherwise -> emitItem object (Bytes value)
+    Arm64Code instruction -> emitItems object (encodeInstruction instruction)
 
-alignmentFill :: Draft -> ByteString
-alignmentFill draft
-  | draftCurrentSection draft == Just TextSection = nopBytes
+-- | The bytes that pad a section: @nop@ in text, and zero elsewhere.
+alignmentFill :: Maybe SectionRole -> ByteString
+alignmentFill role
+  | role == Just TextSection = nopBytes
   | otherwise = zeroByte
 
 -- | The @nop@ that pads the text section, and the zero that pads the rest.
