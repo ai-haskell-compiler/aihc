@@ -42,6 +42,7 @@ would no longer point at a change in aihc.
 | parser-combinators | 1.3.1 |
 | text | 2.1.4 |
 | prettyprinter | 1.7.2 |
+| th-abstraction | 0.7.2.0 |
 
 ## Running it locally
 

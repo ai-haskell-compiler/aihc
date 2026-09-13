@@ -2669,7 +2669,22 @@ data TyVarBndr flag
     PlainTV Name flag
   | -- | @(a :: k)@
     KindedTV Name flag Kind
-  deriving stock (Show, Eq, Ord, Functor, Foldable, Traversable)
+  deriving stock (Show, Eq, Ord)
+
+-- The flag is the last type argument, so GHC derives these three instances.
+-- aihc has no stock deriving of Functor, Foldable, or Traversable yet, so they
+-- are written out here; they are what the derived instances do.
+instance Functor TyVarBndr where
+  fmap f (PlainTV name flag) = PlainTV name (f flag)
+  fmap f (KindedTV name flag kind) = KindedTV name (f flag) kind
+
+instance Foldable TyVarBndr where
+  foldr f initial (PlainTV _ flag) = f flag initial
+  foldr f initial (KindedTV _ flag _) = f flag initial
+
+instance Traversable TyVarBndr where
+  traverse f (PlainTV name flag) = fmap (PlainTV name) (f flag)
+  traverse f (KindedTV name flag kind) = fmap (\flag' -> KindedTV name flag' kind) (f flag)
 
 -- | Visibility of a type variable. See [Inferred vs. specified type variables](https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/type_applications.html#inferred-vs-specified-type-variables).
 data BndrVis
