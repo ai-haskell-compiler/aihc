@@ -75,6 +75,7 @@ import Aihc.Native
     renderLinkedPartialConstructorInfoSymbol,
   )
 import Control.Monad (foldM, forM, forM_, unless, when, zipWithM)
+import Control.Monad.ST (ST)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
@@ -160,6 +161,10 @@ lowerProgramWith options gcProgram =
 
 -- | Supply each complete item to the consumer before conversion proceeds.
 lowerModuleTo :: (Monad m) => LowerTarget -> Bool -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
+{-# INLINEABLE lowerModuleTo #-}
+-- The pure assembler consumes items under 'runST'; see the note on
+-- 'Aihc.Native.Lir.compileNativeItemTo'.
+{-# SPECIALIZE lowerModuleTo :: LowerTarget -> Bool -> (Map Symbol Signature -> Item -> ST s ()) -> GcGrinProgram -> ST s (Either LowerError ()) #-}
 lowerModuleTo target checkPrimBounds output gcProgram =
   consume (initialLowerState options gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
   where

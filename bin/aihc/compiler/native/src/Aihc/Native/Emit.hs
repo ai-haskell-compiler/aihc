@@ -2,11 +2,12 @@
 
 -- | Shared incremental conversion and object emission for native backends.
 --
--- Assembly is pure: it mutates an object in 'ST' and needs no 'IO' of its
--- own. A caller that writes a dump alongside the object runs the same pass
--- in 'IO' instead, so conversion still happens exactly once.
+-- Assembly is pure. It mutates an object in 'ST' and yields the bytes and
+-- the LIR they came from; writing either to a file is the business of the
+-- caller alone.
 module Aihc.Native.Emit
   ( ObjectBackend (..),
+    GrinObject (..),
     compileLirObjectWith,
     compileGrinObjectWith,
     writeLirObjectWith,
@@ -22,14 +23,16 @@ import Aihc.Lir.Syntax
 import Aihc.Native.Lir
 import Aihc.Native.Object (Image, Object, ObjectError, layoutObject, newObject, sealFunction)
 import Aihc.Native.ObjectWriter (writeObjectFile)
-import Control.Monad.ST (ST, runST, stToIO)
+import Control.Monad (when)
+import Control.Monad.ST (ST, runST)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Bifunctor (first)
 import Data.ByteString.Lazy qualified as BL
-import Data.Maybe (fromMaybe)
+import Data.Foldable (for_)
+import Data.Maybe (fromMaybe, isJust)
 import Data.STRef (modifySTRef', newSTRef, readSTRef, writeSTRef)
-import Data.Text.IO qualified as TIO
-import System.IO (IOMode (WriteMode), withFile)
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.IO qualified as TLIO
 
 -- | The instruction encoder and object format are specific to each target.
 data ObjectBackend statement register error = ObjectBackend
@@ -37,6 +40,16 @@ data ObjectBackend statement register error = ObjectBackend
     obStatement :: !(forall s. Object s -> statement -> ST s (Either ObjectError ())),
     obImage :: !(Image -> Either ObjectError BL.ByteString),
     obError :: !(ObjectError -> error)
+  }
+
+-- | What one GC-GRIN program assembles to.
+data GrinObject = GrinObject
+  { -- | The object bytes, or the first failure of any stage.
+    grinObjectBytes :: !(Either String BL.ByteString),
+    -- | The LIR the object was assembled from, when it was asked for, and
+    -- empty otherwise. It holds whatever conversion reached, so a failed
+    -- assembly still renders what it saw.
+    grinObjectLir :: TL.Text
   }
 
 -- | Assemble a module into object bytes.
@@ -52,80 +65,80 @@ compileLirObjectWith backend lint lirModule = runST $ do
   where
     objectResult = either (Left . obError backend) Right
 
--- | Assemble object bytes from a GC-GRIN program, without 'IO'.
-compileGrinObjectWith :: (Ord register, Show error) => ObjectBackend statement register error -> Bool -> Bool -> GcGrinProgram -> ST s (Either String BL.ByteString)
-{-# INLINEABLE compileGrinObjectWith #-}
-compileGrinObjectWith backend =
-  assembleGrinObjectWith backend id (const (pure ()))
-
 -- | Assemble object bytes, encoding each LIR item as GC-GRIN conversion
--- completes it. @liftObject@ runs the object mutation in the monad of the
--- caller, so a caller that needs no 'IO' passes 'id' and stays in 'ST'.
--- Conversion runs once whatever the caller does with @dump@.
+-- completes it so that no converted body outlives its own encoding.
+-- Conversion runs once: @keepLir@ renders each item on its way through,
+-- and the linter is served from the same pass.
 --
 -- The linter types a body against the declarations of the whole module, so
--- @lint@ holds the converted items until the module is complete and checks
--- them before any of them is encoded. Conversion is not repeated for it.
-assembleGrinObjectWith ::
-  (Monad m, Ord register, Show error) =>
+-- it holds the converted items until the module is complete and checks them
+-- before any of them is encoded.
+compileGrinObjectWith ::
+  (Ord register, Show error) =>
   ObjectBackend statement register error ->
-  (forall value. ST s value -> m value) ->
-  (Item -> m ()) ->
+  Bool ->
   Bool ->
   Bool ->
   GcGrinProgram ->
-  m (Either String BL.ByteString)
-{-# INLINEABLE assembleGrinObjectWith #-}
-assembleGrinObjectWith backend liftObject dump lint checkBounds gcProgram = do
-  object <- st newObject
-  state <- st (newSTRef (initialObjectState native))
+  ST s GrinObject
+{-# INLINEABLE compileGrinObjectWith #-}
+compileGrinObjectWith backend lint checkBounds keepLir gcProgram = do
+  object <- newObject
+  state <- newSTRef (initialObjectState native)
   -- Encoding one statement is the hottest step of the pass. A failure is
   -- recorded rather than raised because an error monad would box the result
   -- of every step of the encoder to carry it, and the object is discarded
   -- whole once anything in it has failed.
-  failure <- st (newSTRef Nothing)
-  let stop message = st (modifySTRef' failure (Just . fromMaybe message))
-      running action = st (readSTRef failure) >>= maybe action (const (pure ()))
+  failure <- newSTRef Nothing
+  rendered <- newSTRef []
+  let stop message = modifySTRef' failure (Just . fromMaybe message)
+      running action = readSTRef failure >>= maybe action (const (pure ()))
       objectError = stop . show . obError backend
-      emit statement = either objectError pure =<< st (obStatement backend object statement)
-      seal = either objectError pure =<< st (sealFunction object)
-      encode signatures item = running $ do
-        dump item
-        current <- st (readSTRef state)
+      emit statement = either objectError pure =<< obStatement backend object statement
+      seal = either objectError pure =<< sealFunction object
+      render item = when keepLir (modifySTRef' rendered (renderModule (Module [item]) :))
+      encodeItem signatures item = running $ do
+        current <- readSTRef state
         result <- compileNativeItemTo native emit signatures item current
         case result of
           Left err -> stop (show err)
           Right next -> do
-            st (writeSTRef state next)
+            writeSTRef state next
             case item of
               ItemFunction _ -> seal
               _ -> pure ()
+      encode signatures item = running (render item) >> encodeItem signatures item
       lowerTo output = either (stop . show) pure =<< Lower.lowerModuleTo Lower.posixTarget64 checkBounds output gcProgram
       -- Each item is kept with the declarations conversion knew at its
       -- boundary, which are the ones its own encoding is typed against.
       collectItems = do
-        collected <- st (newSTRef [])
-        lowerTo (\signatures item -> st (modifySTRef' collected ((signatures, item) :)))
-        reverse <$> st (readSTRef collected)
+        collected <- newSTRef []
+        lowerTo (\signatures item -> modifySTRef' collected ((signatures, item) :))
+        reverse <$> readSTRef collected
   if lint
     then do
       items <- collectItems
+      -- The dump is what conversion produced, whatever the linter makes of it.
+      mapM_ (render . snd) items
       case Lint.lintModule (Module (map snd items)) of
-        [] -> mapM_ (uncurry encode) items
+        [] -> mapM_ (uncurry encodeItem) items
         errors -> stop (show (nbLintErrors native errors))
     else lowerTo encode
   running $ do
-    current <- st (readSTRef state)
+    current <- readSTRef state
     result <- finishNativeTo native emit current
     either (stop . show) (const (mapM_ emit (nbAfterObject native))) result
-  failed <- st (readSTRef failure)
+  lir <- lirText <$> readSTRef rendered
+  failed <- readSTRef failure
   case failed of
-    Just message -> pure (Left message)
-    Nothing -> objectResult . (>>= obImage backend) <$> st (layoutObject object)
+    Just message -> pure (GrinObject (Left message) lir)
+    Nothing -> do
+      image <- layoutObject object
+      pure (GrinObject (objectResult (image >>= obImage backend)) lir)
   where
     native = obNative backend
-    st = liftObject
     objectResult = either (Left . show . obError backend) Right
+    lirText chunks = TL.fromChunks (foldl' (\text chunk -> chunk : "\n" : text) [] chunks)
 
 -- | Write an object assembled from a LIR module.
 writeLirObjectWith :: (Ord register, Show error) => ObjectBackend statement register error -> Bool -> Module -> FilePath -> IO ()
@@ -134,16 +147,15 @@ writeLirObjectWith backend lint lirModule path =
   checked (first show (compileLirObjectWith backend lint lirModule)) >>= writeObjectFile path
 
 -- | Write an object assembled from a GC-GRIN program, and the LIR it was
--- assembled from when a dump is wanted.
+-- assembled from when a dump is wanted. The dump is written even when
+-- assembly fails, which is when it is most wanted.
 writeGrinObjectWith :: (Ord register, Show error) => ObjectBackend statement register error -> Bool -> Bool -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
 {-# INLINEABLE writeGrinObjectWith #-}
 writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
-  result <- case dumpPath of
-    Nothing -> stToIO (compileGrinObjectWith backend lint checkBounds gcProgram)
-    Just dump ->
-      withFile dump WriteMode $ \handle ->
-        assembleGrinObjectWith backend stToIO (TIO.hPutStrLn handle . renderModule . Module . pure) lint checkBounds gcProgram
-  checked result >>= writeObjectFile path
+  for_ dumpPath (`TLIO.writeFile` grinObjectLir assembled)
+  checked (grinObjectBytes assembled) >>= writeObjectFile path
+  where
+    assembled = runST (compileGrinObjectWith backend lint checkBounds (isJust dumpPath) gcProgram)
 
 checked :: Either String value -> IO value
 checked = either (ioError . userError) pure

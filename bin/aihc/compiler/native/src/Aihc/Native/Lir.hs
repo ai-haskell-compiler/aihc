@@ -53,6 +53,7 @@ import Aihc.Lir.Syntax
 import Aihc.Native.Move (orderMoves)
 import Aihc.Native.Object (Name (..), SectionRole (..))
 import Control.Monad (forM, forM_, when)
+import Control.Monad.ST (ST)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Control.Monad.Trans.State.Strict (StateT (..), evalStateT, execStateT, get, mapStateT, modify, modify', put, runState, runStateT)
@@ -372,6 +373,10 @@ compileNativeTo lint backend output endFunction lirModule =
 -- | Compile one item with the declarations available at its boundary.
 compileNativeItemTo :: (Monad m, Ord register) => NativeBackend statement register error -> (statement -> m ()) -> Map Symbol Signature -> Item -> ObjectState -> m (Either error ObjectState)
 {-# INLINEABLE compileNativeItemTo #-}
+-- A pure assembler runs under 'runST', whose state variable is bound
+-- locally. The specialiser cannot float a specialisation for such a call
+-- on its own, so the one it needs is named here.
+{-# SPECIALIZE compileNativeItemTo :: (Ord register) => NativeBackend statement register error -> (statement -> ST s ()) -> Map Symbol Signature -> Item -> ObjectState -> ST s (Either error ObjectState) #-}
 compileNativeItemTo backend output signatures item state = case item of
   ItemFunction function -> do
     result <- compileFunctionTo backend output signatures (objectFunctionIndex state) function state
@@ -381,6 +386,8 @@ compileNativeItemTo backend output signatures item state = case item of
   _ -> pure (Right state)
 
 finishNativeTo :: (Monad m) => NativeBackend statement register error -> (statement -> m ()) -> ObjectState -> m (Either error ())
+{-# INLINEABLE finishNativeTo #-}
+{-# SPECIALIZE finishNativeTo :: NativeBackend statement register error -> (statement -> ST s ()) -> ObjectState -> ST s (Either error ()) #-}
 finishNativeTo backend output state = case runStateT (renderTraps backend) state of
   Left err -> pure (Left err)
   Right (statements, _) -> mapM_ output statements >> pure (Right ())
@@ -458,6 +465,7 @@ compileFunction backend signatures index function = StateT $ \state ->
 -- | Keep allocation state for one function and emit its instructions directly.
 compileFunctionTo :: (Monad m, Ord register) => NativeBackend statement register error -> (statement -> m ()) -> Map Symbol Signature -> Int -> Function -> ObjectState -> m (Either error ObjectState)
 {-# INLINEABLE compileFunctionTo #-}
+{-# SPECIALIZE compileFunctionTo :: (Ord register) => NativeBackend statement register error -> (statement -> ST s ()) -> Map Symbol Signature -> Int -> Function -> ObjectState -> ST s (Either error ObjectState) #-}
 compileFunctionTo backend output signatures index function state =
   evalStateT (runExceptT (execStateT action state)) IntMap.empty
   where
