@@ -3,10 +3,10 @@ module Main (main) where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, cppMacrosFromOptions, injectSyntheticCppMacros)
-import Aihc.Hackage.Index (parseHackageIndex, parseHackageIndexUpdatedSince)
+import Aihc.Hackage.Index (latestPreferredVersions, parseHackageIndex, parseHackageIndexUpdatedSince, parsePreferredRanges)
+import Aihc.Hackage.IndexCache (parsePreferredVersionsCache, renderPreferredVersions)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Hackage.VersionResolver (parsePreferredVersions)
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip
@@ -44,18 +44,9 @@ main =
           @?= Right
             [ PackageSpec "alpha" "1.2.0"
             ],
-      testCase "ignores deprecated versions when reading Hackage preferred versions" $ do
-        assertEqual
-          "preferred versions"
-          ["1.5.2.0", "1.5.1.0"]
-          (map prettyShow (parsePreferredVersions deprecatedPreferredVersions)),
-      testCase "reads preferred versions when nothing is deprecated" $ do
-        assertEqual
-          "preferred versions"
-          ["0.8.11", "0.8.10"]
-          (map prettyShow (parsePreferredVersions plainPreferredVersions)),
-      testCase "treats unparseable preferred version metadata as unknown" $ do
-        assertEqual "preferred versions" [] (map prettyShow (parsePreferredVersions (BSC.pack "not json"))),
+      testCase "reads preferred version ranges from the Hackage index" test_readsPreferredRanges,
+      testCase "skips deprecated versions when resolving from the Hackage index" test_skipsDeprecatedVersions,
+      testCase "round-trips the derived preferred version cache" test_preferredVersionsCacheRoundTrip,
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "evaluates impl(ghc) conditions against the emulated compiler" test_evaluatesImplConditions,
@@ -561,12 +552,66 @@ withTempDir prefix action = do
     removeDirectoryRecursive
     action
 
--- | Hackage preferred-version metadata where the newest upload is deprecated.
-deprecatedPreferredVersions :: BS.ByteString
-deprecatedPreferredVersions =
-  BSC.pack "{\"deprecated-version\":[\"1.6.0.0\"],\"normal-version\":[\"1.5.2.0\",\"1.5.1.0\"]}"
+-- | An index whose packages exercise each way a preferred-versions entry can
+-- constrain a package.
+testPreferredIndex :: LBS.ByteString
+testPreferredIndex =
+  GZip.compress $
+    Tar.write
+      [ entry "alpha/1.0.0/alpha.cabal" "name: ignored\n",
+        entry "alpha/1.1.0/alpha.cabal" "name: ignored\n",
+        entry "alpha/1.2.0/alpha.cabal" "name: ignored\n",
+        entry "alpha/preferred-versions" "alpha <1.2.0 || >1.2.0\n",
+        entry "beta/0.1/beta.cabal" "name: ignored\n",
+        -- The index is append-only, so the later entry is the one in force.
+        entry "gamma/2.0/gamma.cabal" "name: ignored\n",
+        entry "gamma/preferred-versions" "gamma <2.0\n",
+        entry "gamma/preferred-versions" "gamma >=2.0\n",
+        -- An emptied entry lifts an earlier restriction.
+        entry "delta/1.0/delta.cabal" "name: ignored\n",
+        entry "delta/preferred-versions" "delta <1.0\n",
+        entry "delta/preferred-versions" ""
+      ]
+  where
+    entry path contents =
+      case Tar.toTarPath False path of
+        Left err -> error ("invalid test tar path: " <> show err)
+        Right tarPath ->
+          let body = LBS.fromStrict (BSC.pack contents)
+           in Tar.simpleEntry tarPath (Tar.NormalFile body (LBS.length body))
 
--- | Hackage preferred-version metadata without any deprecated versions.
-plainPreferredVersions :: BS.ByteString
-plainPreferredVersions =
-  BSC.pack "{\"normal-version\":[\"0.8.11\",\"0.8.10\"]}"
+test_readsPreferredRanges :: Assertion
+test_readsPreferredRanges =
+  case parsePreferredRanges testPreferredIndex of
+    Left err -> assertFailure ("failed to parse test index: " <> err)
+    Right ranges -> do
+      assertEqual
+        "packages with a restriction"
+        ["alpha", "gamma"]
+        (Map.keys ranges)
+      assertEqual
+        "alpha range"
+        (Just "<1.2.0 || >1.2.0")
+        (prettyShow <$> Map.lookup "alpha" ranges)
+      assertEqual
+        "the later gamma entry wins"
+        (Just ">=2.0")
+        (prettyShow <$> Map.lookup "gamma" ranges)
+
+test_skipsDeprecatedVersions :: Assertion
+test_skipsDeprecatedVersions =
+  case parsePreferredRanges testPreferredIndex >>= \ranges -> latestPreferredVersions ranges testPreferredIndex of
+    Left err -> assertFailure ("failed to resolve test index: " <> err)
+    Right versions ->
+      assertEqual
+        "newest preferred version of each package"
+        [("alpha", "1.1.0"), ("beta", "0.1"), ("delta", "1.0"), ("gamma", "2.0")]
+        (Map.toAscList (Map.map prettyShow versions))
+
+test_preferredVersionsCacheRoundTrip :: Assertion
+test_preferredVersionsCacheRoundTrip = do
+  let versions = Map.fromList [("alpha", "1.1.0"), ("beta", "0.1")]
+  assertEqual
+    "derived cache round trip"
+    versions
+    (parsePreferredVersionsCache (renderPreferredVersions versions))
