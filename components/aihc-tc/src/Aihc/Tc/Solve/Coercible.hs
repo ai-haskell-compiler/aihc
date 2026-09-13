@@ -1,5 +1,5 @@
 -- | Check representation constraints before FC conversion.
-module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, isRepresentationParameter) where
+module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens, isRepresentationParameter) where
 
 import Aihc.Tc.Env
 import Aihc.Tc.Monad
@@ -7,7 +7,7 @@ import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (zipWithM)
+import Control.Monad (zipWithM, (<=<))
 import Data.List (nub)
 import Data.Map.Strict qualified as Map
 
@@ -75,6 +75,32 @@ solveCoercible = go [] False
                 )
         _ -> pure Nothing
     representation _ = pure Nothing
+
+-- | Representational equality is symmetric and transitive, so a wanted also
+-- follows from a chain of @Coercible@ givens. The evidence carries no proof
+-- term, thus the chain only has to exist.
+solveCoercibleFromGivens :: TyCon -> [Pred] -> TcType -> TcType -> TcM Bool
+solveCoercibleFromGivens coercibleClass givens rawLeft rawRight = do
+  edges <- mapM normalizeEdge [(left, right) | ClassPred className [left, right] <- givens, className == coercibleClass]
+  start <- normalize rawLeft
+  goal <- normalize rawRight
+  pure (search edges [start] [start] goal)
+  where
+    normalize = reduceTypeFamilies <=< zonkType
+    normalizeEdge (left, right) = (,) <$> normalize left <*> normalize right
+    search edges seen frontier goal
+      | goal `elem` frontier = True
+      | null next = False
+      | otherwise = search edges (seen <> next) next goal
+      where
+        next =
+          nub
+            [ neighbour
+            | node <- frontier,
+              (left, right) <- edges,
+              neighbour <- [right | left == node] <> [left | right == node],
+              neighbour `notElem` seen
+            ]
 
 -- | Whether one parameter of a type constructor holds its representation role.
 -- Newtype deriving lifts coercions through such parameters.

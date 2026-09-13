@@ -26,7 +26,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
-import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible)
+import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
@@ -84,8 +84,11 @@ solveDictWithGivensVisited visited givens ct
                     Just classInfo
                       | null (ciMethods classInfo),
                         null (ciSuperClassTypes classInfo),
-                        null (ciKindTyVars classInfo) ->
-                          solveCoercible left right
+                        null (ciKindTyVars classInfo) -> do
+                          direct <- solveCoercible left right
+                          if direct
+                            then pure True
+                            else solveCoercibleFromGivens className givens' left right
                     _ -> pure False
                   if solved
                     then do

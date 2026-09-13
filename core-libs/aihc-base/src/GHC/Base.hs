@@ -5,6 +5,7 @@
 module GHC.Base
   ( module GHC.Prim.Base,
     module GHC.Prim,
+    module GHC.Classes,
     Int (..),
     Char (..),
     ord,
@@ -29,14 +30,17 @@ module GHC.Base
     (.),
     (++),
     foldr,
+    map,
+    otherwise,
   )
 where
 
 import GHC.CString (unpackCString#, unpackCStringUtf8#, unpackFoldrCString#)
+import GHC.Classes
 import GHC.Int (Int (..))
 import GHC.Prim
 import GHC.Prim.Base
-import GHC.Types (Bool, Char (..), RuntimeRep, TYPE, Type, isTrue#)
+import GHC.Types (Bool (..), Char (..), RuntimeRep, TYPE, Type, isTrue#)
 
 -- | Convert a code point to a character without a range check.
 unsafeChr :: Int -> Char
@@ -87,6 +91,14 @@ infixr 9 .
 (++) (x : xs) ys = x : (xs ++ ys)
 
 infixr 5 ++
+
+-- | The always-true guard.
+otherwise :: Bool
+otherwise = True
+
+map :: (a -> b) -> [a] -> [b]
+map _ [] = []
+map function (value : values) = function value : map function values
 
 foldr :: (a -> b -> b) -> b -> [a] -> b
 foldr _ initial [] = initial

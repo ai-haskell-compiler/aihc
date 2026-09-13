@@ -620,6 +620,12 @@ supportedNativePrimitiveNames =
     "indexWord8ArrayAsWord16#",
     "indexWord8ArrayAsWord32#",
     "indexWord8ArrayAsWord64#",
+    "readWord8ArrayAsWord16#",
+    "readWord8ArrayAsWord32#",
+    "readWord8ArrayAsWord64#",
+    "writeWord8ArrayAsWord16#",
+    "writeWord8ArrayAsWord32#",
+    "writeWord8ArrayAsWord64#",
     -- Address arithmetic, address memory access, and C string length.
     "plusAddr#",
     "minusAddr#",

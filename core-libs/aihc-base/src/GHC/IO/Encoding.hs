@@ -18,12 +18,7 @@ where
 import GHC.Base (Applicative (..), String)
 import GHC.IO (IO)
 import GHC.IO.Encoding.Types (TextEncoding (..))
-
-utf8 :: TextEncoding
-utf8 = TextEncoding "UTF-8"
-
-utf8_bom :: TextEncoding
-utf8_bom = TextEncoding "UTF-8BOM"
+import GHC.IO.Encoding.UTF8 (utf8, utf8_bom)
 
 latin1 :: TextEncoding
 latin1 = TextEncoding "ISO-8859-1"

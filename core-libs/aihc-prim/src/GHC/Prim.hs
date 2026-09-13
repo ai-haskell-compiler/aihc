@@ -317,6 +317,9 @@ module GHC.Prim
     readWord16Array#,
     readWord32Array#,
     readWord64Array#,
+    readWord8ArrayAsWord16#,
+    readWord8ArrayAsWord32#,
+    readWord8ArrayAsWord64#,
     writeAddrArray#,
     writeDoubleArray#,
     writeFloatArray#,
@@ -331,6 +334,9 @@ module GHC.Prim
     writeWord16Array#,
     writeWord32Array#,
     writeWord64Array#,
+    writeWord8ArrayAsWord16#,
+    writeWord8ArrayAsWord32#,
+    writeWord8ArrayAsWord64#,
     uncheckedIShiftL#,
     uncheckedIShiftRA#,
     uncheckedIShiftRL#,
@@ -1205,6 +1211,18 @@ foreign import prim indexWord8ArrayAsWord16# :: ByteArray# -> Int# -> Word16#
 foreign import prim indexWord8ArrayAsWord32# :: ByteArray# -> Int# -> Word32#
 
 foreign import prim indexWord8ArrayAsWord64# :: ByteArray# -> Int# -> Word64#
+
+foreign import prim readWord8ArrayAsWord16# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word16# #)
+
+foreign import prim readWord8ArrayAsWord32# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word32# #)
+
+foreign import prim readWord8ArrayAsWord64# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word64# #)
+
+foreign import prim writeWord8ArrayAsWord16# :: MutableByteArray# d -> Int# -> Word16# -> State# d -> State# d
+
+foreign import prim writeWord8ArrayAsWord32# :: MutableByteArray# d -> Int# -> Word32# -> State# d -> State# d
+
+foreign import prim writeWord8ArrayAsWord64# :: MutableByteArray# d -> Int# -> Word64# -> State# d -> State# d
 
 foreign import prim readAddrArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Addr# #)
 

@@ -1941,8 +1941,11 @@ byteArrayLoadPrimitives =
     ("indexCharArray#", (I8, ByteOffset)),
     ("readCharArray#", (I8, ByteOffset)),
     ("indexWord8ArrayAsWord16#", (I16, ByteOffset)),
+    ("readWord8ArrayAsWord16#", (I16, ByteOffset)),
     ("indexWord8ArrayAsWord32#", (I32, ByteOffset)),
-    ("indexWord8ArrayAsWord64#", (I64, ByteOffset))
+    ("readWord8ArrayAsWord32#", (I32, ByteOffset)),
+    ("indexWord8ArrayAsWord64#", (I64, ByteOffset)),
+    ("readWord8ArrayAsWord64#", (I64, ByteOffset))
   ]
 
 -- | Writes of one element of a byte array, with the widths and indexing of
@@ -1955,7 +1958,10 @@ byteArrayStorePrimitives =
     ("writeWord16Array#", (I16, ElementIndex)),
     ("writeWord32Array#", (I32, ElementIndex)),
     ("writeWord64Array#", (I64, ElementIndex)),
-    ("writeCharArray#", (I8, ByteOffset))
+    ("writeCharArray#", (I8, ByteOffset)),
+    ("writeWord8ArrayAsWord16#", (I16, ByteOffset)),
+    ("writeWord8ArrayAsWord32#", (I32, ByteOffset)),
+    ("writeWord8ArrayAsWord64#", (I64, ByteOffset))
   ]
 
 -- | The width in bytes of an integer element.
