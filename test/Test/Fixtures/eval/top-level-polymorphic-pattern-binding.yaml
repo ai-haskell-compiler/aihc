@@ -1,0 +1,34 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Nat = Z | S Nat
+
+    data Flag = Yes | No
+
+    add :: Nat -> Nat -> Nat
+    add Z m = m
+    add (S n) m = S (add n m)
+
+    applyOnce, applyTwice :: (a -> a) -> a -> a
+    (applyOnce, applyTwice) = (\f x -> f x, \f x -> f (f x))
+
+    konst :: a -> b -> a
+    ignore :: a -> b -> b
+    (konst, ignore) = (\x _ -> x, \_ y -> y)
+
+    loop :: Nat -> b
+    loop n = loop n
+
+    -- Two binders whose whole type is a type variable, as
+    -- Prettyprinter.Render.Util.Panic writes them.
+    panicPeeked, panicPopped :: void
+    (panicPeeked, panicPopped) = (loop Z, loop (S Z))
+output: |
+  S (S (S Z))
+expression: |
+  add (applyTwice (add (S Z)) (konst Z Yes)) (applyOnce (ignore Yes) (S Z))
+status: pass
+reason: a top-level pattern binding generalizes over the type variables that no
+  constraint mentions, as GHC does

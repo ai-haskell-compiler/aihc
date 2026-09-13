@@ -64,6 +64,7 @@ import Aihc.Parser.Syntax
     Role (..),
     RoleAnnotation (..),
     SourceSpan (..),
+    TupleFlavor (..),
     TyVarBinder,
     Type (..),
     TypeFamilyDecl (..),
@@ -97,7 +98,8 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
 import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations
-  ( TcAnnotation (..),
+  ( PendingTcAnnotation (..),
+    TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcCoercedDeriving (..),
@@ -130,12 +132,12 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -2493,9 +2495,22 @@ tcSingleDeclGroup sigs groupId d =
       pure (TcDeclGroupResult groupId bindings Nothing)
 
 -- | Type-check a top-level pattern binding that binds several variables,
--- such as @(low, high) = range x@. The monomorphism restriction applies:
--- the binders get the monomorphic types that the pattern gives them, and a
--- signature must be a monomorphic type.
+-- such as @(low, high) = range x@.
+--
+-- Haskell 2010 rule 1 restricts a /simple/ pattern binding, which binds one
+-- variable and is checked elsewhere. This binding may still be generalized
+-- over the type variables that no constraint mentions, as GHC does, so
+-- @panicPeeked, panicPopped :: void@ over a pair of calls to @error@ is
+-- accepted. A residual class constraint is still an error: the restriction
+-- leaves a pattern binding without quantified constraints.
+--
+-- The binders of the group are generalized together, over one shared set of
+-- type variables, because they share the type of the right-hand side. The
+-- desugarer builds one hidden value for that right-hand side and one
+-- selector per binder, so each binder records the type variables its
+-- selector abstracts and the type arguments that instantiate the shared
+-- value. A type variable that the binder does not mention is instantiated
+-- at the unit type, which is what GHC uses @Any@ for.
 tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
 tcTopLevelPatternBind sigs groupId d pat rhs = do
   let sp = patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d
@@ -2507,13 +2522,13 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
     let name = unqualifiedNameText binder
     case Map.lookup key sigs of
       Just sig -> do
-        ty <- monomorphicSigType sig
-        pure (binder, key, ty, True)
+        ty <- unrestrictedSigType sig
+        pure (binder, key, ty, Just sig)
       Nothing -> do
         ty <- freshMetaTv
         extendTermEnvPermanent name (TcMonoIdBinder ty)
         extendTermKeyEnvPermanent key (TcMonoIdBinder ty)
-        pure (binder, key, ty, False)
+        pure (binder, key, ty, Nothing)
   ((rhs', rhsTy, pat'), failed) <-
     withErrorTracking $ do
       (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
@@ -2534,23 +2549,73 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
   if failed
     then pure (TcDeclGroupResult groupId [] Nothing)
     else do
-      results <- forM placeholders $ \(binder, key, ty, hasSig) -> do
-        zonkedTy <- zonkType ty
-        let name = unqualifiedNameText binder
-        unless hasSig $
-          finalizeInferredTermEnvPermanent name key ty (ForAll [] [] zonkedTy)
-        pure (TcBindingResult name (renderBinderName binder) zonkedTy)
-      zonkedRhsTy <- zonkType rhsTy
-      let decl' = replacePatternBind pat' rhs' d
-          patternResult = TcBindingResult (patternBindingResultName pat) "<pattern>" zonkedRhsTy
-      pure (TcDeclGroupResult groupId (patternResult : results) (Just [decl']))
+      ignored <- patternBindEnvironmentKeys placeholders
+      schemes <- generalizeGroupAndCommitIgnoring ignored ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
+      case schemes of
+        [] -> abortTc "pattern binding lost its generalized right-hand side"
+        rhsScheme@(ForAll rhsTyVars _ _) : binderSchemes -> do
+          results <- forM (zip placeholders binderSchemes) $ \((binder, key, ty, maybeSig), scheme) -> do
+            let name = unqualifiedNameText binder
+            case maybeSig of
+              Nothing -> finalizeInferredTermEnvPermanent name key ty scheme
+              Just sig ->
+                unless (equivalentTypeSchemes scheme (checkedSigScheme sig)) $
+                  emitError (checkedSigSpan sig) $
+                    OtherError
+                      ( "the signature of "
+                          <> T.unpack name
+                          <> " does not match the type its pattern binding gives it: "
+                          <> renderTcType (schemeToType scheme)
+                      )
+            typeArgs <- mapM (patternBindTypeArgument sp name scheme) rhsTyVars
+            zonkedTy <- zonkType (schemeToType scheme)
+            let pending = PendingTcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs [] [] []
+            pure ((name, pending), TcBindingResult name (renderBinderName binder) zonkedTy)
+          zonkedRhsTy <- zonkType (schemeToType rhsScheme)
+          let decl' = replacePatternBind (reannotatePatternBinders (map fst results) pat') rhs' d
+              patternResult = TcBindingResult (patternBindingResultName pat) "<pattern>" zonkedRhsTy
+          pure (TcDeclGroupResult groupId (patternResult : map snd results) (Just [decl']))
   where
-    monomorphicSigType sig =
+    -- The temporary monomorphic entries of this group must not stop it from
+    -- generalizing over its own meta-variables.
+    patternBindEnvironmentKeys placeholders =
+      pure (Set.fromList (concat [[key, unqualifiedTermKey (unqualifiedNameText binder)] | (binder, key, _, _) <- placeholders]))
+
+    -- The monomorphism restriction still forbids a quantified constraint, so
+    -- a signature with a context cannot describe a pattern binding.
+    unrestrictedSigType sig =
       case checkedSigScheme sig of
-        ForAll [] [] ty -> pure ty
-        scheme -> do
-          emitError (checkedSigSpan sig) (OtherError ("the signature of a pattern binding must be a monomorphic type: " <> T.unpack (checkedSigName sig)))
-          pure (typeSchemeBody scheme)
+        ForAll _ (_ : _) body -> do
+          emitError (checkedSigSpan sig) (OtherError ("the signature of a pattern binding must not have a context: " <> T.unpack (checkedSigName sig)))
+          pure body
+        scheme -> fst <$> instantiate scheme
+
+    -- The type argument that instantiates one type variable of the shared
+    -- right-hand side for one selector.
+    patternBindTypeArgument sp' name scheme tyVar
+      | tyVar `elem` typeSchemeTyVars scheme = pure (TcTyVar tyVar)
+      | otherwise = do
+          kinds <- getKinds
+          kind <- zonkType (tvKind tyVar)
+          if kind == typeKind kinds
+            then do
+              unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
+              pure (TcTyCon unitTyCon [])
+            else do
+              emitError sp' $
+                OtherError
+                  ( "a pattern binding cannot generalize over the type variable "
+                      <> T.unpack (tvName tyVar)
+                      <> " of kind "
+                      <> renderTcType kind
+                      <> ", which "
+                      <> T.unpack name
+                      <> " does not mention"
+                  )
+              pure (TcTyVar tyVar)
+
+typeSchemeTyVars :: TypeScheme -> [TyVarId]
+typeSchemeTyVars (ForAll tyVars _ _) = tyVars
 
 -- | The binding-result name that carries the type of the right-hand side
 -- of a top-level pattern binding with several binders.

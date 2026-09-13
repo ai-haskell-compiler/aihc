@@ -1430,14 +1430,27 @@ desugarTopValue top = do
 -- right-hand side and one public value per binder that selects its part.
 -- A binder is lazy, as in GHC: the right-hand side is a thunk that the
 -- first selection forces.
+--
+-- The binding may be polymorphic, in which case the right-hand side
+-- abstracts over the type variables of the whole group and a binder
+-- abstracts only over the ones its own type mentions. The selection then
+-- goes through a hidden function that is generic in every type variable of
+-- the group, because the pattern gives the /other/ binders types that the
+-- value cannot mention. The type checker records on each binder the type
+-- arguments that instantiate the group, one per type variable, using the
+-- unit type where GHC uses @Any@.
 desugarTopPatternGroup :: TopPatternGroup -> ValueM [ValDecl]
 desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
   specs <- patternBinderSpecs pattern'
   moduleOrigin <- gets vsModuleOrigin
   let rhsName = topName moduleOrigin ("$pat$" <> T.intercalate "$" [name | (_, name, _) <- specs])
+      (rhsTyVars, rhsBodyType) = peelForAlls rhsType
   rhsBody <- desugarMatches rhsType [emptyMatch rhs]
   convertedRhsType <- convertCheckedType rhsType
-  selectors <- mapM (selector rhsName) specs
+  selectors <-
+    if null rhsTyVars
+      then mapM (monomorphicSelector rhsName) specs
+      else concat <$> mapM (polymorphicSelector rhsName rhsTyVars rhsBodyType) specs
   pure
     ( ValDecl
         { -- The right-hand side of a pattern binding has a made-up name that
@@ -1450,12 +1463,10 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
         : selectors
     )
   where
-    selector rhsName (key, name, ty) = do
+    monomorphicSelector rhsName (key, name, ty) = do
       moduleOrigin <- gets vsModuleOrigin
       rhsBinder <- freshBinder "_pat_rhs" rhsType
-      body <- desugarDoPattern ty rhsBinder rhsType pattern' $ do
-        (field, _) <- lookupLocal key name
-        pure (ExVar (binderName field))
+      body <- desugarDoPattern ty rhsBinder rhsType pattern' (selectedBinder key name)
       convertedType <- convertCheckedType ty
       vis <- termVisibility name
       pure
@@ -1465,6 +1476,73 @@ desugarTopPatternGroup (TopPatternGroup pattern' rhs rhsType) = do
             valType = convertedType,
             valBody = ExLet (Bind rhsBinder (ExVar rhsName)) body
           }
+
+    polymorphicSelector rhsName rhsTyVars rhsBodyType (key, name, ty) = do
+      moduleOrigin <- gets vsModuleOrigin
+      (tyVars, typeArgs) <- patternBinderInstantiation name rhsTyVars
+      let selectName = topName moduleOrigin ("$patsel$" <> name)
+      -- The hidden selection function is generic in the whole group, so the
+      -- pattern keeps the types the type checker gave it.
+      selectBinders <- convertTypeBinders rhsTyVars
+      (argumentBinder, selectBody) <- withTypeVariables rhsTyVars $ do
+        argumentBinder <- freshBinder "_pat_rhs" rhsBodyType
+        body <- desugarDoPattern ty argumentBinder rhsBodyType pattern' (selectedBinder key name)
+        pure (argumentBinder, body)
+      selectType <- convertCheckedType (foldr TcForAllTy (TcFunTy rhsBodyType ty) rhsTyVars)
+      typeBinders <- convertTypeBinders tyVars
+      convertedArgs <- withTypeVariables tyVars (mapM convertCheckedType typeArgs)
+      convertedType <- convertCheckedType (foldr TcForAllTy ty tyVars)
+      vis <- termVisibility name
+      let instantiate expression = foldl ExTyApp expression convertedArgs
+      pure
+        [ ValDecl
+            { valVis = Private,
+              valName = selectName,
+              valType = selectType,
+              valBody = foldr ExTyLam (ExLam argumentBinder selectBody) selectBinders
+            },
+          ValDecl
+            { valVis = vis,
+              valName = topName moduleOrigin name,
+              valType = convertedType,
+              valBody = foldr ExTyLam (ExApp (instantiate (ExVar selectName)) (instantiate (ExVar rhsName))) typeBinders
+            }
+        ]
+
+    selectedBinder key name = do
+      (field, _) <- lookupLocal key name
+      pure (ExVar (binderName field))
+
+    -- The type variables one binder abstracts, and the type arguments that
+    -- instantiate the group for it.
+    patternBinderInstantiation name rhsTyVars =
+      case [annotation | (binderName', annotation) <- patternBinderAnnotations pattern', binderName' == name] of
+        annotation : _
+          | length (tcAnnTypeArgs annotation) == length rhsTyVars ->
+              pure (tcAnnTypeBinders annotation, tcAnnTypeArgs annotation)
+        _ -> failValue ("pattern binding selector " <> T.unpack name <> " does not have checked type arguments")
+
+-- | The checked annotation of each named binder of a pattern.
+patternBinderAnnotations :: Syn.Pattern -> [(Text, TcAnnotation)]
+patternBinderAnnotations pattern' =
+  case pattern' of
+    Syn.PVar name -> binderAnnotation name
+    Syn.PAs name inner -> binderAnnotation name <> patternBinderAnnotations inner
+    Syn.PAnn _ inner -> patternBinderAnnotations inner
+    Syn.PParen inner -> patternBinderAnnotations inner
+    Syn.PStrict inner -> patternBinderAnnotations inner
+    Syn.PIrrefutable inner -> patternBinderAnnotations inner
+    Syn.PTypeSig inner _ -> patternBinderAnnotations inner
+    Syn.PCon _ _ children -> concatMap patternBinderAnnotations children
+    Syn.PInfix left _ right -> patternBinderAnnotations left <> patternBinderAnnotations right
+    Syn.PList children -> concatMap patternBinderAnnotations children
+    Syn.PTuple _ children -> concatMap patternBinderAnnotations children
+    _ -> []
+  where
+    binderAnnotation name =
+      [ (Syn.unqualifiedNameText name, annotation)
+      | annotation <- take 1 (mapMaybe Syn.fromAnnotation (Syn.unqualifiedNameAnns name))
+      ]
 
 emptyMatch :: Syn.Rhs Syn.Expr -> Syn.Match
 emptyMatch rhs =

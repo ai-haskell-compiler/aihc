@@ -5,6 +5,7 @@
 module Aihc.Tc.Generate.Pattern
   ( PatternCheck (..),
     annotatePatternBindings,
+    reannotatePatternBinders,
     checkPattern,
     checkPatterns,
     checkPatternsWithGivens,
@@ -704,15 +705,35 @@ attachPendingPatternAnnotation target pending pat =
     _ -> pat
 
 annotatePatternBindings :: [(UnqualifiedName, TcType)] -> Pattern -> Pattern
-annotatePatternBindings bindings =
+annotatePatternBindings bindings = mapPatternBinderNames (annotateBinderName bindings)
+
+-- | Replace the pending annotation of the named binders of a pattern. A
+-- top-level pattern binding uses this to record, on each binder, the type
+-- variables its selector abstracts and the type arguments that instantiate
+-- the shared right-hand side.
+reannotatePatternBinders :: [(Text, PendingTcAnnotation)] -> Pattern -> Pattern
+reannotatePatternBinders pendings = mapPatternBinderNames replaceBinderAnnotation
+  where
+    replaceBinderAnnotation name =
+      case lookup (unqualifiedNameText name) pendings of
+        Nothing -> name
+        Just pending ->
+          name
+            { unqualifiedNameAnns =
+                [ann | ann <- unqualifiedNameAnns name, not (annotationIsPending ann)] <> [mkAnnotation pending]
+            }
+
+-- | Apply a function to every named binder of a pattern.
+mapPatternBinderNames :: (UnqualifiedName -> UnqualifiedName) -> Pattern -> Pattern
+mapPatternBinderNames annotateBinder =
   go
   where
     go pat =
       case pat of
         PAnn ann inner -> PAnn ann (go inner)
-        PVar name -> PVar (annotateBinderName bindings name)
+        PVar name -> PVar (annotateBinder name)
         PParen inner -> PParen (go inner)
-        PAs name inner -> PAs (annotateBinderName bindings name) (go inner)
+        PAs name inner -> PAs (annotateBinder name) (go inner)
         PStrict inner -> PStrict (go inner)
         PIrrefutable inner -> PIrrefutable (go inner)
         PList items -> PList (map go items)
