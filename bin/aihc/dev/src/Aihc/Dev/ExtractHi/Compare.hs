@@ -9,6 +9,7 @@ module Aihc.Dev.ExtractHi.Compare
     comparePackageSubset,
     compatibilityPercent,
     coreLibApiDivergences,
+    normalizeSignature,
     coreLibProgressReports,
     renderInterfaceMismatch,
     renderCoreLibProgressReport,
@@ -20,7 +21,7 @@ where
 
 import Aihc.Dev.ExtractHi (extractPackage, extractSourcePackage)
 import Aihc.Dev.ExtractHi.Types
-import Data.Char (isDigit)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace, isUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -140,8 +141,7 @@ coreLibsRoot = do
 --
 -- Names are compared without their namespace or signature: a class method
 -- may become a plain function and back, and the two extractors render types
--- differently. Oracle modules without any extracted export are skipped;
--- @GHC.Prim@ is wired into GHC and has no interface file to compare against.
+-- differently. Oracle modules without any extracted export are skipped.
 coreLibApiDivergences :: [PackageInterface] -> PackageInterface -> [InterfaceMismatch]
 coreLibApiDivergences oracles candidate =
   concatMap divergences (piModules candidate)
@@ -315,7 +315,9 @@ renderExtraLine report =
 data InterfaceItem = InterfaceItem
   { itemKey :: !Text,
     itemPath :: !Text,
-    itemSignature :: !Text
+    -- | The normalized signature, or 'Nothing' when the interface does not
+    -- state one, which is compatible with any signature.
+    itemSignature :: !(Maybe Text)
   }
   deriving (Eq, Show)
 
@@ -324,9 +326,110 @@ compareCompatibilityItem candidateItems oracleItem =
   case Map.lookup (itemKey oracleItem) candidateItems of
     Nothing -> (False, [mismatch (itemPath oracleItem) "export is missing from candidate"])
     Just candidateItem
-      | itemSignature candidateItem /= itemSignature oracleItem ->
+      | Just candidateSignature <- itemSignature candidateItem,
+        Just oracleSignature <- itemSignature oracleItem,
+        candidateSignature /= oracleSignature ->
           (False, [mismatch (itemPath oracleItem) "export signature differs from candidate"])
       | otherwise -> (True, [])
+
+-- | Bring a type or kind rendered by GHC's interface printer and one rendered
+-- from aihc source into the same shape. Whitespace is collapsed first, since
+-- GHC wraps long signatures over several lines. The @forall@ prefix goes:
+-- GHC prints inferred binders as @forall {r :: RuntimeRep}@ while source
+-- spells them out or leaves them implicit. Multiplicities (@a %1 -> b@) go
+-- because source signatures never write them, promotion ticks (@'IntRep@)
+-- because they are optional, and the kind synonyms of @GHC.Types@ are
+-- expanded because either side may use the synonym or its definition. A
+-- single-constraint context loses its parentheses, module qualifiers are
+-- dropped, and type variables are renamed in order of first occurrence so
+-- that alpha-equivalent signatures compare equal.
+normalizeSignature :: Text -> Text
+normalizeSignature =
+  renameTypeVariables
+    . normalizeContext
+    . T.unwords
+    . map expandKindSynonym
+    . dropMultiplicities
+    . T.words
+    . dropTicks
+    . dropForall
+    . T.unwords
+    . T.words
+  where
+    dropForall text =
+      case T.stripPrefix "forall" text of
+        Just rest
+          | Just (sep, _) <- T.uncons rest,
+            isSpace sep || sep == '{' || sep == '(' ->
+              let (_, body) = T.breakOn ". " rest
+               in if T.null body then text else T.drop 2 body
+        _ -> text
+    dropMultiplicities (mult : arrow : rest)
+      | "%" `T.isPrefixOf` mult, arrow == "->" = arrow : dropMultiplicities rest
+    dropMultiplicities (token : rest) = token : dropMultiplicities rest
+    dropMultiplicities [] = []
+    -- A tick that follows an identifier character belongs to a name such
+    -- as @foldl'@; any other tick promotes a constructor.
+    dropTicks text = T.pack (go ' ' (T.unpack text))
+      where
+        go previous (c : rest)
+          | c == '\'' && not (isIdentifierChar previous || previous == '\'') = go c rest
+          | otherwise = c : go c rest
+        go _ [] = []
+    -- Tokens carry their surrounding brackets, so only the core is looked up.
+    expandKindSynonym token =
+      let (open, rest) = T.span (`elem` ("([" :: String)) token
+          (core, close) = T.break (`elem` (")],." :: String)) rest
+       in case Map.lookup core kindSynonyms of
+            Just expansion -> open <> expansion <> close
+            Nothing -> token
+    kindSynonyms =
+      Map.fromList
+        [ ("Type", "TYPE (BoxedRep Lifted)"),
+          ("UnliftedType", "TYPE (BoxedRep Unlifted)"),
+          ("ZeroBitType", "TYPE (TupleRep [])"),
+          ("LiftedRep", "(BoxedRep Lifted)"),
+          ("UnliftedRep", "(BoxedRep Unlifted)"),
+          ("ZeroBitRep", "(TupleRep [])")
+        ]
+    -- @(Monad m) => a@ and @Monad m => a@ are the same context.
+    normalizeContext text =
+      case T.breakOn " => " text of
+        (context, rest)
+          | not (T.null rest),
+            Just inner <- T.stripPrefix "(" context >>= T.stripSuffix ")",
+            not (T.any (== ',') inner) ->
+              inner <> rest
+        _ -> text
+
+-- | Rename every type variable to its index of first occurrence and drop
+-- module qualifiers, so @Strict.ST s a -> ST s a@ becomes @ST t1 t2 -> ST t1 t2@.
+renameTypeVariables :: Text -> Text
+renameTypeVariables text = T.pack (go Map.empty (T.unpack text))
+  where
+    go _ [] = []
+    go seen input@(c : rest)
+      | isIdentifierStart c =
+          let (identifier, afterIdentifier) = span isIdentifierChar input
+           in case afterIdentifier of
+                '.' : next : _
+                  | isUpper c,
+                    isIdentifierStart next ->
+                      go seen (drop 1 afterIdentifier)
+                _
+                  | isUpper c -> identifier <> go seen afterIdentifier
+                  | otherwise ->
+                      let (name, seen') = case Map.lookup identifier seen of
+                            Just known -> (known, seen)
+                            Nothing ->
+                              let fresh = "t" <> show (Map.size seen + 1)
+                               in (fresh, Map.insert identifier fresh seen)
+                       in name <> go seen' afterIdentifier
+      | otherwise = c : go seen rest
+    isIdentifierStart ch = isAlpha ch || ch == '_'
+
+isIdentifierChar :: Char -> Bool
+isIdentifierChar ch = isAlphaNum ch || ch == '_' || ch == '\'' || ch == '#'
 
 countExtraPackageItems :: PackageInterface -> PackageInterface -> Int
 countExtraPackageItems candidate oracle =
@@ -358,7 +461,7 @@ valueItem moduleName value =
   InterfaceItem
     { itemKey = moduleName <> ".value:" <> evName value,
       itemPath = moduleName <> ".value:" <> evName value,
-      itemSignature = evType value
+      itemSignature = Just (normalizeSignature (evType value))
     }
 
 typeItems :: Text -> ExportedType -> [InterfaceItem]
@@ -366,12 +469,15 @@ typeItems moduleName typ =
   InterfaceItem
     { itemKey = typeKey,
       itemPath = typeKey,
-      itemSignature = etKind typ
+      itemSignature =
+        if etKind typ == unspecifiedSourceKind
+          then Nothing
+          else Just (normalizeSignature (etKind typ))
     }
     : [ InterfaceItem
           { itemKey = typeKey <> ".constructor:" <> ctor,
             itemPath = typeKey <> ".constructor:" <> ctor,
-            itemSignature = ctor
+            itemSignature = Nothing
           }
       | ctor <- etConstructors typ
       ]
@@ -383,12 +489,12 @@ classItems moduleName klass =
   InterfaceItem
     { itemKey = classKey,
       itemPath = classKey,
-      itemSignature = ecName klass
+      itemSignature = Nothing
     }
     : [ InterfaceItem
           { itemKey = classKey <> ".method:" <> cmName method,
             itemPath = classKey <> ".method:" <> cmName method,
-            itemSignature = cmType method
+            itemSignature = Just (normalizeSignature (cmType method))
           }
       | method <- ecMethods klass
       ]
@@ -400,5 +506,5 @@ fixityItem moduleName fixity =
   InterfaceItem
     { itemKey = moduleName <> ".fixity:" <> fiName fixity,
       itemPath = moduleName <> ".fixity:" <> fiName fixity,
-      itemSignature = T.pack (show fixity)
+      itemSignature = Just (T.pack (show fixity))
     }
