@@ -610,7 +610,7 @@ test_skipsDeprecatedVersions =
 
 test_preferredVersionsCacheRoundTrip :: Assertion
 test_preferredVersionsCacheRoundTrip = do
-  let versions = Map.fromList [("alpha", "1.1.0"), ("beta", "0.1")]
+  let versions = Map.fromList [(BSC.pack "alpha", BSC.pack "1.1.0"), (BSC.pack "beta", BSC.pack "0.1")]
   assertEqual
     "derived cache round trip"
     versions

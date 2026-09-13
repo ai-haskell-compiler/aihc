@@ -15,6 +15,7 @@
 -- first download.
 module Aihc.Hackage.IndexCache
   ( HackageIndex,
+    PreferredVersions,
     IndexOptions (..),
     defaultIndexOptions,
     newHackageIndex,
@@ -32,6 +33,7 @@ import Aihc.Hackage.Index (latestPreferredVersions, parsePreferredRanges)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
@@ -74,7 +76,7 @@ defaultIndexOptions =
 -- the process, so a build that resolves no Hackage versions never touches it.
 data HackageIndex = HackageIndex
   { hackageIndexOptions :: !IndexOptions,
-    hackageIndexVersions :: !(IORef (Maybe (Map.Map String String)))
+    hackageIndexVersions :: !(IORef (Maybe PreferredVersions))
   }
 
 -- | Create a handle that reads the index when it is first needed.
@@ -91,8 +93,8 @@ indexPreferredVersion index name = do
       versions <- loadPreferredVersions (hackageIndexOptions index)
       writeIORef (hackageIndexVersions index) (Just versions)
       pure versions
-  pure $ case Map.lookup name versions of
-    Just version -> Right version
+  pure $ case Map.lookup (BSC.pack name) versions of
+    Just version -> Right (BSC.unpack version)
     Nothing ->
       Left
         ( "Package not found in the Hackage index: "
@@ -112,7 +114,7 @@ getIndexCacheDir = do
 --
 -- A refresh that fails falls back to a stale derived file, so a broken network
 -- degrades resolution to yesterday's answers rather than failing the build.
-loadPreferredVersions :: IndexOptions -> IO (Map.Map String String)
+loadPreferredVersions :: IndexOptions -> IO PreferredVersions
 loadPreferredVersions opts = do
   cacheDir <- getIndexCacheDir
   let derivedFile = cacheDir </> preferredVersionsFileName
@@ -137,7 +139,7 @@ loadPreferredVersions opts = do
         cached <- doesFileExist derivedFile
         unless cached $
           ioError (userError "The Hackage index is missing from the cache and the network is disabled")
-  parsePreferredVersionsCache <$> readFile derivedFile
+  parsePreferredVersionsCache <$> BS.readFile derivedFile
 
 -- | Whether the derived file is missing or older than the configured age.
 isStale :: IndexOptions -> FilePath -> IO Bool
@@ -168,7 +170,10 @@ refreshHackageIndex opts = do
   ranges <- either (ioError . userError) pure . parsePreferredRanges =<< LBS.readFile indexFile
   versions <- either (ioError . userError) pure . latestPreferredVersions ranges =<< LBS.readFile indexFile
   let derivedFile = cacheDir </> preferredVersionsFileName
-  writeFileAtomically derivedFile writeFile (renderPreferredVersions (Map.map prettyShow versions))
+  writeFileAtomically
+    derivedFile
+    BS.writeFile
+    (renderPreferredVersions (Map.mapKeys BSC.pack (Map.map (BSC.pack . prettyShow) versions)))
   -- Only what was derived is kept. Refreshing refetches the whole index, so
   -- keeping a gigabyte of tarball around would buy nothing until the refresh
   -- is made incremental.
@@ -207,16 +212,23 @@ indexFileName = "01-index.tar.gz"
 preferredVersionsFileName :: FilePath
 preferredVersionsFileName = "preferred-versions.txt"
 
+-- | The newest preferred version of each package, by package name.
+--
+-- The names and versions stay as bytes: the derived file holds twenty thousand
+-- of each, and turning them all into 'String' to answer a handful of lookups
+-- allocated two orders of magnitude more than the file is large.
+type PreferredVersions = Map.Map BSC.ByteString BSC.ByteString
+
 -- | Render the derived versions as one @name version@ line per package.
-renderPreferredVersions :: Map.Map String String -> String
+renderPreferredVersions :: PreferredVersions -> BS.ByteString
 renderPreferredVersions versions =
-  unlines [name ++ " " ++ version | (name, version) <- Map.toAscList versions]
+  BSC.unlines [BSC.unwords [name, version] | (name, version) <- Map.toAscList versions]
 
 -- | Read back what 'renderPreferredVersions' wrote, ignoring malformed lines.
-parsePreferredVersionsCache :: String -> Map.Map String String
+parsePreferredVersionsCache :: BS.ByteString -> PreferredVersions
 parsePreferredVersionsCache contents =
   Map.fromList
     [ (name, version)
-    | line <- lines contents,
-      [name, version] <- [words line]
+    | line <- BSC.lines contents,
+      [name, version] <- [BSC.words line]
     ]
