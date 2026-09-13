@@ -14,6 +14,7 @@ import Aihc.Native
     nativeRuntimePrimitiveCall,
     supportedNativePrimitiveNames,
   )
+import Data.ByteString.Short qualified as SBS
 import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
 import Test.Tasty (TestTree, testGroup)
@@ -177,7 +178,7 @@ tests =
     ]
 
 runtimeCallSymbol :: NativeRuntimeCall -> Text
-runtimeCallSymbol = TE.decodeUtf8 . grinForeignCallSymbol . nativeRuntimeCallForeignCall
+runtimeCallSymbol = TE.decodeUtf8 . SBS.fromShort . grinForeignCallSymbol . nativeRuntimeCallForeignCall
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
 byteArrayRuntimeSymbols =

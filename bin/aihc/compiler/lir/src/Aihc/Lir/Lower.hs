@@ -80,6 +80,8 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runSta
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.Char (ord)
 import Data.Foldable (for_)
 import Data.Map.Strict (Map)
@@ -282,8 +284,8 @@ data Helper
   deriving (Eq, Ord, Show)
 
 -- | A symbol the lowering numbers, like @aihc_lir_info_12@.
-numberedSymbol :: ByteString -> Int -> Symbol
-numberedSymbol prefix index = Symbol (prefix <> BS8.pack (show index))
+numberedSymbol :: ShortByteString -> Int -> Symbol
+numberedSymbol prefix index = Symbol (prefix <> SBS.toShort (BS8.pack (show index)))
 
 helperSymbol :: Helper -> Symbol
 helperSymbol helper =
@@ -298,8 +300,8 @@ helperSymbol helper =
     HelperContinueSlot -> "aihc_lir_continue_slot"
     HelperApplySlot -> "aihc_lir_apply_slot"
 
-shapeName :: [Type] -> ByteString
-shapeName = BS8.pack . map letter
+shapeName :: [Type] -> ShortByteString
+shapeName = SBS.pack . map (fromIntegral . fromEnum . letter)
   where
     letter ty = if ty == Ptr then 'p' else 'i'
 
@@ -832,7 +834,7 @@ sharedEnterSymbol enter
     length (enterTargetParameters enter) == stored + supplied + (if passesContinuation then 1 else 0),
     stored <= sharedEnterMaxStored,
     supplied <= sharedEnterMaxSupplied =
-      Just (Symbol (BS8.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> (if passesContinuation then "_k" else ""))))
+      Just (Symbol (SBS.toShort (BS8.pack ("aihc_lir_enter_" <> show stored <> "_" <> show supplied <> (if passesContinuation then "_k" else "")))))
   | otherwise = Nothing
   where
     stored = length (enterStored enter)
@@ -1127,7 +1129,7 @@ functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
 
 -- | The single result of one extern C call.
-callRuntime :: ByteString -> [Type] -> [Type] -> [Operand] -> LowerM Operand
+callRuntime :: ShortByteString -> [Type] -> [Type] -> [Operand] -> LowerM Operand
 callRuntime name parameters results arguments = do
   let symbol = Symbol name
   requireExtern symbol parameters results

@@ -8,20 +8,22 @@ import Aihc.Arm64.Assemble qualified as Arm64
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
 
 -- | A name this object defines and does not export. Only the relocation
 -- beside it names it, so the object writer is free to number it instead.
-privateName :: ByteString
+privateName :: ShortByteString
 privateName = "aihc_f_aihc_entry___sfIntegralCSUSeconds__uthunk"
 
 -- | A name another object matches against, which must survive intact.
-exportedName :: ByteString
+exportedName :: ShortByteString
 exportedName = "aihc_base_4_21_2_0_hash_Foreign_C_Types_CSUSeconds"
 
 -- | A name this object leaves to the linker, which must survive intact.
-undefinedName :: ByteString
+undefinedName :: ShortByteString
 undefinedName = "aihc_base_4_21_2_0_hash_GHC_Real_toInteger"
 
 -- | An object that defines both names and points an absolute relocation at
@@ -57,8 +59,8 @@ elf =
       Amd64.amd64QuadSymbol undefinedName
     ]
 
-contains :: ByteString -> ByteString -> Bool
-contains name object = name `BS.isInfixOf` object
+contains :: ShortByteString -> ByteString -> Bool
+contains name object = SBS.fromShort name `BS.isInfixOf` object
 
 format :: String -> IO ByteString -> TestTree
 format name object =

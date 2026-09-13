@@ -37,20 +37,22 @@ import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.Int (Int64)
 import Data.Word (Word32, Word64)
 
 data Arm64Statement
   = Arm64Section !SectionRole
   | Arm64Align !Int
-  | Arm64Global !ByteString
+  | Arm64Global !ShortByteString
   | Arm64Label !Name
   | Arm64Quad !Word64
   | -- | A little-endian value of the given byte width.
     Arm64Word !Int !Word64
-  | Arm64QuadSymbol !ByteString
+  | Arm64QuadSymbol !ShortByteString
   | -- | The address of a symbol plus a constant addend.
-    Arm64QuadSymbolAddend !ByteString !Int64
+    Arm64QuadSymbolAddend !ShortByteString !Int64
   | Arm64Bytes !ByteString
   | Arm64Code !Arm64Instruction
   deriving (Eq, Show)
@@ -174,12 +176,12 @@ data Arm64Instruction
   | ArmBrk !Word32
   | ArmBr !Arm64Register
   | ArmB !Name
-  | ArmBl !ByteString
+  | ArmBl !ShortByteString
   | ArmBCond !Arm64Condition !Name
   | ArmCbz !Arm64Register !Name
   | ArmCbnz !Arm64Register !Name
   | ArmAdr !Arm64Register !Name
-  | ArmAdrp !Arm64Register !ByteString
+  | ArmAdrp !Arm64Register !ShortByteString
   | ArmMov !Arm64Register !Arm64Value
   | ArmLdr !Arm64Register !Arm64Address
   | ArmLdrImmediate !Arm64Register !Integer
@@ -187,7 +189,7 @@ data Arm64Instruction
   | ArmLdp !Arm64Register !Arm64Register !Arm64Address
   | ArmStp !Arm64Register !Arm64Register !Arm64Address
   | ArmAdd !Arm64Register !Arm64Register !Arm64Value
-  | ArmAddPageOffset !Arm64Register !Arm64Register !ByteString
+  | ArmAddPageOffset !Arm64Register !Arm64Register !ShortByteString
   | ArmAdds !Arm64Register !Arm64Register !Arm64Value
   | ArmSub !Arm64Register !Arm64Register !Arm64Value
   | ArmSubs !Arm64Register !Arm64Register !Arm64Value
@@ -271,11 +273,11 @@ arm64Section = Arm64Section
 arm64Align :: Int -> Arm64Statement
 arm64Align = Arm64Align
 
-arm64Global :: ByteString -> Arm64Statement
+arm64Global :: ShortByteString -> Arm64Statement
 arm64Global = Arm64Global
 
 -- | A label that names a symbol.
-arm64Label :: ByteString -> Arm64Statement
+arm64Label :: ShortByteString -> Arm64Statement
 arm64Label = Arm64Label . SymbolName
 
 arm64Quad :: Word64 -> Arm64Statement
@@ -284,10 +286,10 @@ arm64Quad = Arm64Quad
 arm64Word :: Int -> Word64 -> Arm64Statement
 arm64Word = Arm64Word
 
-arm64QuadSymbol :: ByteString -> Arm64Statement
+arm64QuadSymbol :: ShortByteString -> Arm64Statement
 arm64QuadSymbol = Arm64QuadSymbol
 
-arm64QuadSymbolAddend :: ByteString -> Int64 -> Arm64Statement
+arm64QuadSymbolAddend :: ShortByteString -> Int64 -> Arm64Statement
 arm64QuadSymbolAddend = Arm64QuadSymbolAddend
 
 arm64Bytes :: ByteString -> Arm64Statement

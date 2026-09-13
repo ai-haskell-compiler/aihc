@@ -11,6 +11,7 @@ import Aihc.Lir.Syntax
 import Control.Applicative (empty, optional, (<|>))
 import Control.Monad (void)
 import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Char (chr, isAlphaNum, isHexDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -116,8 +117,8 @@ nameAfterSigil = bareName <|> quotedText
 -- | The bytes of a symbol after its sigil. A bare name is ASCII, so encoding
 -- it is exact; a quoted one is read byte by byte, which is what
 -- 'Aihc.Lir.Pretty.prettySymbolName' writes.
-nameBytesAfterSigil :: Parser BS.ByteString
-nameBytesAfterSigil = (TE.encodeUtf8 <$> bareName) <|> quotedBytes
+nameBytesAfterSigil :: Parser SBS.ShortByteString
+nameBytesAfterSigil = SBS.toShort <$> ((TE.encodeUtf8 <$> bareName) <|> quotedBytes)
 
 variable :: Parser Var
 variable = lexeme (Var <$> (MPC.char '%' *> nameAfterSigil))

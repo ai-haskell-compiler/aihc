@@ -49,6 +49,8 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Builder.Extra qualified as BuilderExtra
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.List (intercalate, intersperse)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Set qualified as Set
@@ -134,13 +136,13 @@ parseNativeTarget value =
 -- and nothing between here and the string table wants characters. The
 -- renderers below hand back the bytes, and the one buffer they render into
 -- is the only allocation a symbol costs.
-renderLinkedFunctionSymbol :: Text -> ByteString
+renderLinkedFunctionSymbol :: Text -> ShortByteString
 renderLinkedFunctionSymbol logicalName = renderSymbol mempty logicalName mempty
 
 -- | 'renderLinkedFunctionSymbol' with a prefix. The prefix shares the buffer
 -- the name renders into, so a prefixed symbol costs one allocation and not
 -- two.
-renderLinkedPrefixedSymbol :: ByteString -> Text -> ByteString
+renderLinkedPrefixedSymbol :: ByteString -> Text -> ShortByteString
 renderLinkedPrefixedSymbol prefix logicalName = renderSymbol (Builder.byteString prefix) logicalName mempty
 
 -- | One symbol, rendered from its logical name with a prefix and a suffix
@@ -152,9 +154,9 @@ renderLinkedPrefixedSymbol prefix logicalName = renderSymbol (Builder.byteString
 -- 6.6% of everything the compiler allocates. 160 bytes covers the longest
 -- name in aihc-base with room to spare; a longer one still renders, it just
 -- spills into a second chunk.
-renderSymbol :: Builder.Builder -> Text -> Builder.Builder -> ByteString
+renderSymbol :: Builder.Builder -> Text -> Builder.Builder -> ShortByteString
 renderSymbol prefix logicalName suffix =
-  BL.toStrict (BuilderExtra.toLazyByteStringWith symbolBufferStrategy BL.empty (prefix <> rendered <> suffix))
+  SBS.toShort (BL.toStrict (BuilderExtra.toLazyByteStringWith symbolBufferStrategy BL.empty (prefix <> rendered <> suffix)))
   where
     rendered =
       case BS.split 0 (Text.encodeUtf8 logicalName) of
@@ -240,11 +242,11 @@ escapeCodeTable :: ByteString
 escapeCodeTable = BS.pack [fromMaybe 0 (lookup byte escapeCodes) | byte <- [minBound .. maxBound]]
 
 -- | Render the object symbol for one static Haskell value.
-renderLinkedGlobalSymbol :: Text -> ByteString
+renderLinkedGlobalSymbol :: Text -> ShortByteString
 renderLinkedGlobalSymbol = renderLinkedFunctionSymbol
 
 -- | Render the object symbol for the saturated form of one constructor.
-renderLinkedConstructorInfoSymbol :: Text -> Int -> ByteString
+renderLinkedConstructorInfoSymbol :: Text -> Int -> ShortByteString
 renderLinkedConstructorInfoSymbol name remaining =
   renderSymbol (Builder.string7 "aihc_c_") name (Builder.char7 '_' <> Builder.intDec remaining)
 
@@ -252,7 +254,7 @@ renderLinkedConstructorInfoSymbol name remaining =
 -- Every stage between the bare constructor and the saturated one shares this
 -- info table and records its own width in the object, so one constructor
 -- needs one such symbol however many arguments it takes.
-renderLinkedPartialConstructorInfoSymbol :: Text -> ByteString
+renderLinkedPartialConstructorInfoSymbol :: Text -> ShortByteString
 renderLinkedPartialConstructorInfoSymbol name =
   renderSymbol (Builder.string7 "aihc_constructor_") name (Builder.string7 "_partial")
 
@@ -789,7 +791,7 @@ data NativeCpsTransfer
 
 -- | Architecture-neutral native ABI description for a CPS primitive.
 data NativeCpsCall = NativeCpsCall
-  { nativeCpsCallSymbol :: !ByteString,
+  { nativeCpsCallSymbol :: !ShortByteString,
     nativeCpsCallOperandCount :: !Int,
     nativeCpsCallPassContinuation :: !Bool,
     nativeCpsCallTransfer :: !NativeCpsTransfer
@@ -934,7 +936,7 @@ runtimeCall passMachine resultCount primitive symbol arguments result =
       { nativeRuntimeCallForeignCall =
           GrinForeignCall
             { grinForeignCallName = "$runtime$" <> symbol,
-              grinForeignCallSymbol = Text.encodeUtf8 symbol,
+              grinForeignCallSymbol = SBS.toShort (Text.encodeUtf8 symbol),
               grinForeignCallTarget = GrinForeignFunction,
               grinForeignCallSignature =
                 GrinForeignSignature

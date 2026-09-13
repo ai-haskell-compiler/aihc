@@ -20,6 +20,7 @@ import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Short qualified as SBS
 import Data.Char qualified as Char
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int16, Int32, Int64, Int8)
@@ -2294,11 +2295,11 @@ expectForeignLiteral symbol expectedRep value =
 -- the symbol as bytes; only the message needs characters, and a C linker
 -- name is ASCII, so this widens rather than decodes.
 foreignSymbolText :: GrinForeignCall -> Text
-foreignSymbolText = TE.decodeLatin1 . grinForeignCallSymbol
+foreignSymbolText = TE.decodeLatin1 . SBS.fromShort . grinForeignCallSymbol
 
 lookupForeignFunction :: GrinForeignCall -> EvalM (FunPtr ())
 lookupForeignFunction foreignCall = do
-  lookupResult <- liftEvalIO (tryForeign (dlsym Default (BS8.unpack (grinForeignCallSymbol foreignCall))))
+  lookupResult <- liftEvalIO (tryForeign (dlsym Default (BS8.unpack (SBS.fromShort (grinForeignCallSymbol foreignCall)))))
   case lookupResult of
     Left err ->
       throwInterpret

@@ -45,6 +45,7 @@ module Aihc.Grin.Syntax
 where
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Short (ShortByteString)
 import Data.Char (isDigit)
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
@@ -476,7 +477,7 @@ data GrinForeignCall = GrinForeignCall
     -- Every producer encodes it from text or writes it as ASCII, so the
     -- bytes are valid UTF-8 and the GRIN text format can spell the symbol
     -- out as characters and read it back unchanged.
-    grinForeignCallSymbol :: !ByteString,
+    grinForeignCallSymbol :: !ShortByteString,
     grinForeignCallTarget :: !GrinForeignTarget,
     grinForeignCallSignature :: !GrinForeignSignature
   }

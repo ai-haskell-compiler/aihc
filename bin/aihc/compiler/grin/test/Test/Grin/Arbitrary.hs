@@ -9,6 +9,7 @@ import Aihc.Grin.Parser (parseProgram, renderParseError)
 import Aihc.Grin.Pretty (prettyProgram)
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -123,7 +124,7 @@ genForeignCall :: Gen GrinForeignCall
 genForeignCall =
   GrinForeignCall
     <$> genText
-    <*> (TE.encodeUtf8 <$> genText)
+    <*> (SBS.toShort . TE.encodeUtf8 <$> genText)
     <*> genForeignTarget
     <*> (GrinForeignSignature <$> smallList genForeignType <*> genForeignType <*> genForeignEffect)
 

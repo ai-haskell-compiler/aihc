@@ -13,6 +13,8 @@ import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (mapAccumL)
@@ -80,7 +82,7 @@ writeImage image payloads = do
 
 data SectionDescription = SectionDescription
   { descriptionImage :: !ImageSection,
-    descriptionName :: !ByteString,
+    descriptionName :: !ShortByteString,
     descriptionType :: !Word32,
     descriptionFlags :: !Word64
   }
@@ -91,7 +93,7 @@ data PlacedBaseSection = PlacedBaseSection
   }
 
 data RelocationDescription = RelocationDescription
-  { relocationName :: !ByteString,
+  { relocationName :: !ShortByteString,
     relocationTargetIndex :: !Word32,
     relocationValues :: ![Relocation]
   }
@@ -191,7 +193,7 @@ putRelocation indexes relocation = do
 putNullSymbol :: Put
 putNullSymbol = replicateM_ 24 (putWord8 0)
 
-putSymbol :: [PlacedBaseSection] -> Map ByteString Word32 -> Symbol -> Put
+putSymbol :: [PlacedBaseSection] -> Map ShortByteString Word32 -> Symbol -> Put
 putSymbol sections stringIndexes symbol = do
   putWord32le (stringIndexes Map.! symbolName symbol)
   putWord8 (if symbolGlobal symbol then 0x10 else 0)
@@ -214,7 +216,7 @@ findSectionIndex role sections =
 putNullSectionHeader :: Put
 putNullSectionHeader = replicateM_ 64 (putWord8 0)
 
-putBaseSectionHeader :: Map ByteString Word32 -> PlacedBaseSection -> Put
+putBaseSectionHeader :: Map ShortByteString Word32 -> PlacedBaseSection -> Put
 putBaseSectionHeader names section = do
   let description = placedBaseDescription section
       imageSection = descriptionImage description
@@ -229,7 +231,7 @@ putBaseSectionHeader names section = do
   putWord64le (1 `shiftL` imageSectionAlignment imageSection)
   putWord64le 0
 
-putRelocationSectionHeader :: Map ByteString Word32 -> Word32 -> PlacedRelocationSection -> Put
+putRelocationSectionHeader :: Map ShortByteString Word32 -> Word32 -> PlacedRelocationSection -> Put
 putRelocationSectionHeader names symbolTableIndex section = do
   let description = placedRelocationDescription section
   putWord32le (names Map.! relocationName description)
@@ -265,15 +267,16 @@ orderSymbols symbols = filter (not . symbolGlobal . snd) placed <> filter (symbo
   where
     placed = zip [0 ..] symbols
 
-buildStringTable :: [ByteString] -> (Map ByteString Word32, ByteString)
+buildStringTable :: [ShortByteString] -> (Map ShortByteString Word32, ByteString)
 buildStringTable names =
   let uniqueNames = Map.keys (Map.fromList [(name, ()) | name <- names])
       (_, entries) = mapAccumL add 1 uniqueNames
       table = BS.cons 0 (BS.concat [bytes <> BS.singleton 0 | (_, bytes) <- entries])
    in (Map.fromList [(name, offset) | (name, (offset, _)) <- zip uniqueNames entries], table)
   where
-    add offset bytes =
-      (offset + BS.length bytes + 1, (fromIntegral offset, bytes))
+    add offset name =
+      let bytes = SBS.fromShort name
+       in (offset + BS.length bytes + 1, (fromIntegral offset, bytes))
 
 putPadding :: Word64 -> Put
 putPadding count = replicateM_ (fromIntegral count) (putWord8 0)

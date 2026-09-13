@@ -26,6 +26,7 @@ where
 
 import Aihc.Lir.Syntax
 import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Char (isAlpha, isAlphaNum, isPrint, ord)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -269,10 +270,10 @@ prettySymbol (Symbol name) = "@" <> prettySymbolName name
 -- writes and 'Aihc.Lir.Parser.quotedBytes' reads. Spelling it as characters
 -- instead would decode on the way out and encode on the way back, which
 -- round-trips only bytes that happen to be valid UTF-8.
-prettySymbolName :: BS.ByteString -> Doc ann
+prettySymbolName :: SBS.ShortByteString -> Doc ann
 prettySymbolName name
-  | not (BS.null name) && BS.all isBareNameByte name = pretty (TE.decodeLatin1 name)
-  | otherwise = prettyBytes name
+  | not (SBS.null name) && SBS.all isBareNameByte name = pretty (TE.decodeLatin1 (SBS.fromShort name))
+  | otherwise = prettyBytes (SBS.fromShort name)
   where
     isBareNameByte byte =
       byte >= 0x30 && byte <= 0x39

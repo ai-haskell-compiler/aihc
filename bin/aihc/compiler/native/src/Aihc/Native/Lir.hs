@@ -59,6 +59,8 @@ import Control.Monad.Trans.State.Strict (StateT (..), evalStateT, execStateT, ge
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.Int (Int64)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -94,7 +96,7 @@ type NativeM error = StateT ObjectState (Either error)
 data NativeBackend statement register error = NativeBackend
   { nbLintErrors :: [LintError] -> error,
     nbUnsupported :: Text -> error,
-    nbSymbol :: Symbol -> ByteString,
+    nbSymbol :: Symbol -> ShortByteString,
     nbArgumentRegisters :: ![register],
     nbResultRegisters :: ![register],
     nbPreservedRegisters :: ![register],
@@ -112,19 +114,19 @@ data NativeBackend statement register error = NativeBackend
     nbRegistersFor :: CallingConvention -> Function -> Registers register,
     nbSection :: SectionRole -> statement,
     nbAlign :: Int -> statement,
-    nbGlobal :: ByteString -> statement,
+    nbGlobal :: ShortByteString -> statement,
     nbLabel :: Name -> statement,
     nbBytes :: BS.ByteString -> statement,
     nbWord :: Int -> Word64 -> statement,
     nbQuad :: Word64 -> statement,
-    nbQuadSymbol :: ByteString -> statement,
-    nbQuadSymbolAddend :: ByteString -> Int64 -> statement,
+    nbQuadSymbol :: ShortByteString -> statement,
+    nbQuadSymbolAddend :: ShortByteString -> Int64 -> statement,
     nbAsCode :: statement -> Maybe SlotEffect,
     nbRenderTraps :: [(Text, Int)] -> [statement],
     -- | A trampoline of one function: its local label and an unconditional
     -- branch to the trap stub with the given label. A backend whose
     -- conditional branch reaches the whole object gives 'Nothing'.
-    nbTrapTrampoline :: !(Maybe (Name -> ByteString -> [statement])),
+    nbTrapTrampoline :: !(Maybe (Name -> ShortByteString -> [statement])),
     nbPrologueFrame :: Bool -> Int -> [statement],
     nbLeaveFrame :: Ctx register -> Int -> [statement],
     nbSaveReg :: register -> Int -> statement,
@@ -156,11 +158,11 @@ data NativeBackend statement register error = NativeBackend
     nbStore :: Ctx register -> Type -> Operand -> Operand -> Integer -> [statement],
     nbPtrAdd :: Ctx register -> register -> Operand -> register -> [statement],
     nbStackAddr :: register -> Int -> [statement],
-    nbGlobalLoad :: register -> ByteString -> [statement],
-    nbGlobalStore :: register -> ByteString -> [statement],
+    nbGlobalLoad :: register -> ShortByteString -> [statement],
+    nbGlobalStore :: register -> ShortByteString -> [statement],
     nbCall :: Ctx register -> Either Symbol Signature -> [Operand] -> [Var] -> NativeM error [statement],
     nbCallIndirect :: Ctx register -> Operand -> [Operand] -> Signature -> [Var] -> NativeM error [statement],
-    nbTailCall :: Ctx register -> Either ByteString Operand -> CallingConvention -> [Type] -> [Operand] -> NativeM error [statement]
+    nbTailCall :: Ctx register -> Either ShortByteString Operand -> CallingConvention -> [Type] -> [Operand] -> NativeM error [statement]
   }
 
 -- | How a branch tests a condition.
@@ -246,7 +248,7 @@ nextLabelId = do
   put state {objectNextId = identifier + 1}
   pure identifier
 
-freshLabel :: ByteString -> NativeM error Name
+freshLabel :: ShortByteString -> NativeM error Name
 freshLabel kind = do
   state <- get
   let index = objectNextLabel state
@@ -271,11 +273,11 @@ trapLabel message = do
         pure name
     else pure (SymbolName (trapStubLabel index))
 
-trapStubLabel :: Int -> ByteString
+trapStubLabel :: Int -> ShortByteString
 trapStubLabel index = ".Llir_trap_" <> bshow index
 
 -- | The trampoline of one function to one trap stub.
-functionTrapLabel :: Int -> Int -> ByteString
+functionTrapLabel :: Int -> Int -> ShortByteString
 functionTrapLabel functionIndex index = ".Llir_trap_" <> bshow functionIndex <> "_" <> bshow index
 
 -- | The trampolines of the function being compiled, one for each trap it
@@ -710,8 +712,8 @@ canonicalInteger ty value
   | otherwise = value `mod` (2 ^ typeBits ty)
 
 -- | A number inside a symbol or a private label, which are bytes.
-bshow :: (Show value) => value -> ByteString
-bshow = BS8.pack . show
+bshow :: (Show value) => value -> ShortByteString
+bshow = SBS.toShort . BS8.pack . show
 
 -- Parallel moves
 

@@ -46,6 +46,8 @@ module Aihc.Lir.Syntax
 where
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
 
@@ -74,7 +76,14 @@ data Item
 -- and read back by a linker, so it never leaves the byte world except to be
 -- printed, and carrying it as 'Text' meant decoding every name on the way in
 -- and encoding it again on the way out.
-newtype Symbol = Symbol {unSymbol :: ByteString}
+--
+-- It is 'ShortByteString' rather than 'ByteString' because a Lir module holds
+-- millions of these at once and what bounds the compiler is peak residency,
+-- not allocation. A 'ByteString' is ten heap words -- a constructor, a
+-- 'ForeignPtr', its contents box and the array header -- against 'Text' at six
+-- and this at four, and measured on an @llvm@ install of @colour@ the
+-- 'ByteString' spelling cost 117 MB of peak residency over 'Text'.
+newtype Symbol = Symbol {unSymbol :: ShortByteString}
   deriving (Eq, Ord, Show)
 
 -- | A symbol in a diagnostic.
@@ -86,7 +95,7 @@ newtype Symbol = Symbol {unSymbol :: ByteString}
 -- never a replacement character. A message is text, which is why this
 -- exists; the Lir text format spells a symbol out as bytes instead.
 symbolText :: Symbol -> Text
-symbolText = Text.decodeLatin1 . unSymbol
+symbolText = Text.decodeLatin1 . SBS.fromShort . unSymbol
 
 -- | A value name inside one function.
 newtype Var = Var {unVar :: Text}

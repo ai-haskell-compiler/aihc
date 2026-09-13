@@ -18,6 +18,7 @@ where
 import Aihc.Amd64.Assemble
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Short qualified as SBS
 import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -33,11 +34,11 @@ statement value =
   case value of
     Amd64Section role -> section role
     Amd64Align alignment -> indent (".p2align " <> show alignment)
-    Amd64Global symbol -> indent (".globl " <> BS8.unpack symbol)
-    Amd64Label symbol -> BS8.unpack (nameBytes symbol) <> ":"
+    Amd64Global symbol -> indent (".globl " <> BS8.unpack (SBS.fromShort symbol))
+    Amd64Label symbol -> BS8.unpack (SBS.fromShort (nameBytes symbol)) <> ":"
     Amd64Quad word -> indent (".quad " <> hex (toInteger word))
-    Amd64QuadSymbol symbol -> indent (".quad " <> BS8.unpack symbol)
-    Amd64QuadSymbolAddend symbol addend -> indent (".quad " <> BS8.unpack symbol <> signed (toInteger addend))
+    Amd64QuadSymbol symbol -> indent (".quad " <> BS8.unpack (SBS.fromShort symbol))
+    Amd64QuadSymbolAddend symbol addend -> indent (".quad " <> BS8.unpack (SBS.fromShort symbol) <> signed (toInteger addend))
     Amd64Bytes bytes -> indent (".byte " <> intercalate ", " (map (hex . toInteger) (BS.unpack bytes)))
     Amd64Code code -> indent (instruction code)
 
@@ -60,12 +61,12 @@ instruction code =
     AmdUd2 -> "ud2"
     AmdPush register -> "push " <> reg register
     AmdPop register -> "pop " <> reg register
-    AmdCall target -> "call " <> BS8.unpack target
+    AmdCall target -> "call " <> BS8.unpack (SBS.fromShort target)
     AmdCallRegister register -> "call " <> reg register
     AmdJmp target -> "jmp " <> jump target
-    AmdJe target -> "je " <> BS8.unpack (nameBytes target)
-    AmdJne target -> "jne " <> BS8.unpack (nameBytes target)
-    AmdJcc condition target -> "j" <> cond condition <> " " <> BS8.unpack (nameBytes target)
+    AmdJe target -> "je " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    AmdJne target -> "jne " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    AmdJcc condition target -> "j" <> cond condition <> " " <> BS8.unpack (SBS.fromShort (nameBytes target))
     AmdMov destination source -> "mov " <> reg destination <> ", " <> moveSource source
     AmdStore destination source -> "mov " <> memory destination <> ", " <> storeSource source
     AmdMovsxd destination source -> two "movsxd" destination source
@@ -156,7 +157,7 @@ addressText :: Amd64Address -> String
 addressText target =
   case target of
     Amd64MemoryAddress place -> memory place
-    Amd64RipAddress symbol -> "[rip + " <> BS8.unpack symbol <> "]"
+    Amd64RipAddress symbol -> "[rip + " <> BS8.unpack (SBS.fromShort symbol) <> "]"
 
 moveSource :: Amd64MoveSource -> String
 moveSource source =
@@ -180,7 +181,7 @@ binarySource source =
 jump :: Amd64JumpTarget -> String
 jump target =
   case target of
-    Amd64JumpLabel label -> BS8.unpack (nameBytes label)
+    Amd64JumpLabel label -> BS8.unpack (SBS.fromShort (nameBytes label))
     Amd64JumpRegister register -> reg register
 
 offsetText :: Int64 -> String

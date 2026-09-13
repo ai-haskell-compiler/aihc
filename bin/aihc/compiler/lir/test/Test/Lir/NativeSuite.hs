@@ -32,6 +32,7 @@ import Control.Monad (forM, forM_, when, (<=<))
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short qualified as SBS
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -113,7 +114,7 @@ writeUnit backend directory base output =
       pure path
     BackendSource source -> do
       let path = directory </> base <> backendSourceExtension backend
-      BS.writeFile path source
+      TIO.writeFile path source
       pure path
 
 compileUnit :: NativeBackend -> Module -> IO BackendOutput
@@ -279,7 +280,7 @@ snapshotTest backend runtimeExports directory name = testCase name $ do
   -- Every fixture must use the runtime exports without local copies.
   let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) runtimeExports]
   assertEqual "local copies of runtime functions" [] localRuntimeFunctions
-  forM_ [external | ItemExternFunction external <- moduleItems lirModule, "aihc_lir_" `BS.isPrefixOf` unSymbol (externFunctionName external)] $ \external ->
+  forM_ [external | ItemExternFunction external <- moduleItems lirModule, "aihc_lir_" `SBS.isPrefixOf` unSymbol (externFunctionName external)] $ \external ->
     assertEqual
       ("runtime helper signature: " <> T.unpack (symbolText (externFunctionName external)))
       (Just (externFunctionSignature external))

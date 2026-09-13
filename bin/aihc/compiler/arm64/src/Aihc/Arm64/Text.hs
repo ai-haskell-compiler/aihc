@@ -15,6 +15,7 @@ where
 import Aihc.Arm64.Assemble
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Short qualified as SBS
 import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -30,12 +31,12 @@ statement value =
   case value of
     Arm64Section role -> section role
     Arm64Align alignment -> indent (".p2align " <> show alignment)
-    Arm64Global symbol -> indent (".globl " <> BS8.unpack symbol)
-    Arm64Label symbol -> BS8.unpack (nameBytes symbol) <> ":"
+    Arm64Global symbol -> indent (".globl " <> BS8.unpack (SBS.fromShort symbol))
+    Arm64Label symbol -> BS8.unpack (SBS.fromShort (nameBytes symbol)) <> ":"
     Arm64Quad word -> indent (".quad " <> hex (toInteger word))
     Arm64Word width word -> indent ("." <> widthDirective width <> " " <> hex (toInteger word))
-    Arm64QuadSymbol symbol -> indent (".quad " <> BS8.unpack symbol)
-    Arm64QuadSymbolAddend symbol addend -> indent (".quad " <> BS8.unpack symbol <> signed (toInteger addend))
+    Arm64QuadSymbol symbol -> indent (".quad " <> BS8.unpack (SBS.fromShort symbol))
+    Arm64QuadSymbolAddend symbol addend -> indent (".quad " <> BS8.unpack (SBS.fromShort symbol) <> signed (toInteger addend))
     Arm64Bytes bytes -> indent (".byte " <> intercalate ", " (map (hex . toInteger) (BS.unpack bytes)))
     Arm64Code code -> indent (instruction code)
 
@@ -66,15 +67,15 @@ instruction code =
     ArmBrk value -> "brk #" <> show value
     ArmBr register -> "br " <> reg register
     ArmBlr register -> "blr " <> reg register
-    ArmB target -> "b " <> BS8.unpack (nameBytes target)
-    ArmBl target -> "bl " <> BS8.unpack target
-    ArmBCond condition target -> "b." <> cond condition <> " " <> BS8.unpack (nameBytes target)
-    ArmCbz register target -> "cbz " <> reg register <> ", " <> BS8.unpack (nameBytes target)
-    ArmCbnz register target -> "cbnz " <> reg register <> ", " <> BS8.unpack (nameBytes target)
-    ArmAdr register target -> "adr " <> reg register <> ", " <> BS8.unpack (nameBytes target)
-    ArmAdrp register target -> "adrp " <> reg register <> ", " <> BS8.unpack target <> "@PAGE"
+    ArmB target -> "b " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    ArmBl target -> "bl " <> BS8.unpack (SBS.fromShort target)
+    ArmBCond condition target -> "b." <> cond condition <> " " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    ArmCbz register target -> "cbz " <> reg register <> ", " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    ArmCbnz register target -> "cbnz " <> reg register <> ", " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    ArmAdr register target -> "adr " <> reg register <> ", " <> BS8.unpack (SBS.fromShort (nameBytes target))
+    ArmAdrp register target -> "adrp " <> reg register <> ", " <> BS8.unpack (SBS.fromShort target) <> "@PAGE"
     ArmAddPageOffset destination source target ->
-      "add " <> reg destination <> ", " <> reg source <> ", " <> BS8.unpack target <> "@PAGEOFF"
+      "add " <> reg destination <> ", " <> reg source <> ", " <> BS8.unpack (SBS.fromShort target) <> "@PAGEOFF"
     ArmMov destination source -> "mov " <> reg destination <> ", " <> valueText source
     ArmLdr register target -> "ldr " <> reg register <> ", " <> address target
     ArmLdrImmediate register literal -> "ldr " <> reg register <> ", =" <> hex literal

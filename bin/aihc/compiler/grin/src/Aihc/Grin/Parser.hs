@@ -15,6 +15,7 @@ import Control.Applicative (optional, (<|>))
 import Control.Monad (guard, void, when)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Char (isAlphaNum, isSpace, ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -737,12 +738,12 @@ stringText = T.pack <$> (MPC.char '"' *> MP.manyTill L.charLiteral (MPC.char '"'
 -- symbol is bytes, not characters, so the text format spells it out byte by
 -- byte and 'Aihc.Grin.Pretty' writes exactly this back. Encoding the
 -- characters instead would round-trip only what happens to be valid UTF-8.
-stringBytes :: Parser BS.ByteString
+stringBytes :: Parser SBS.ShortByteString
 stringBytes = do
   characters <- MPC.char '"' *> MP.manyTill L.charLiteral (MPC.char '"')
   case filter (> '\xff') characters of
     character : _ -> fail ("a symbol byte must be below 256, but this one is " <> show (ord character))
-    [] -> pure (BS.pack (map (fromIntegral . ord) characters))
+    [] -> pure (SBS.pack (map (fromIntegral . ord) characters))
 
 haskellChar :: Parser Char
 haskellChar = MPC.char '\'' *> L.charLiteral <* MPC.char '\''

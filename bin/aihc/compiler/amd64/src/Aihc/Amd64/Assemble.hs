@@ -40,17 +40,19 @@ import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.Int (Int64)
 import Data.Word (Word32, Word64, Word8)
 
 data Amd64Statement
   = Amd64Section !SectionRole
   | Amd64Align !Int
-  | Amd64Global !ByteString
+  | Amd64Global !ShortByteString
   | Amd64Label !Name
   | Amd64Quad !Word64
-  | Amd64QuadSymbol !ByteString
-  | Amd64QuadSymbolAddend !ByteString !Int64
+  | Amd64QuadSymbol !ShortByteString
+  | Amd64QuadSymbolAddend !ShortByteString !Int64
   | Amd64Bytes !ByteString
   | Amd64Code !Amd64Instruction
 
@@ -110,7 +112,7 @@ data Amd64Memory = Amd64Memory !Amd64Register !Int64
 
 data Amd64Address
   = Amd64MemoryAddress !Amd64Memory
-  | Amd64RipAddress !ByteString
+  | Amd64RipAddress !ShortByteString
   deriving (Eq, Show)
 
 data Amd64Rm
@@ -179,7 +181,7 @@ data Amd64Instruction
   | AmdUd2
   | AmdPush !Amd64Register
   | AmdPop !Amd64Register
-  | AmdCall !ByteString
+  | AmdCall !ShortByteString
   | AmdJmp !Amd64JumpTarget
   | AmdJe !Name
   | AmdJne !Name
@@ -300,20 +302,20 @@ amd64Section = Amd64Section
 amd64Align :: Int -> Amd64Statement
 amd64Align = Amd64Align
 
-amd64Global :: ByteString -> Amd64Statement
+amd64Global :: ShortByteString -> Amd64Statement
 amd64Global = Amd64Global
 
 -- | A label that names a symbol.
-amd64Label :: ByteString -> Amd64Statement
+amd64Label :: ShortByteString -> Amd64Statement
 amd64Label = Amd64Label . SymbolName
 
 amd64Quad :: Word64 -> Amd64Statement
 amd64Quad = Amd64Quad
 
-amd64QuadSymbol :: ByteString -> Amd64Statement
+amd64QuadSymbol :: ShortByteString -> Amd64Statement
 amd64QuadSymbol = Amd64QuadSymbol
 
-amd64QuadSymbolAddend :: ByteString -> Int64 -> Amd64Statement
+amd64QuadSymbolAddend :: ShortByteString -> Int64 -> Amd64Statement
 amd64QuadSymbolAddend = Amd64QuadSymbolAddend
 
 amd64Bytes :: ByteString -> Amd64Statement

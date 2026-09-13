@@ -22,13 +22,13 @@ import Control.Monad (forM, forM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.Bits ((.&.))
-import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Short qualified as SBS
 import Data.Char (ord)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
 import GHC.Float (castDoubleToWord64, double2Float, float2Double)
@@ -40,19 +40,19 @@ data LlvmLirError
   deriving (Eq, Show)
 
 -- | Lint the module, then render it.
-compileLirModule :: Module -> Either LlvmLirError ByteString
+compileLirModule :: Module -> Either LlvmLirError Text
 compileLirModule lirModule =
   case lintModule lirModule of
     [] -> do
       (functions, traps) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) Map.empty
       pure
-        ( BS8.unlines
+        ( T.unlines
             ( preamble
                 <> concatMap declareExtern [external | ItemExternFunction external <- items]
                 <> [renderSymbol symbol <> " = external global i8" | ItemExternData symbol <- items]
                 <> [renderSymbol (globalName global) <> " = internal global " <> renderType (globalType global) <> " " <> zeroValue (globalType global) | ItemGlobal global <- items]
                 <> concatMap renderData [dataItem | ItemData dataItem <- items]
-                <> [ "@" <> quoteBytes (trapMessageName index) <> " = private constant [" <> tshow (BS.length bytes) <> " x i8] c\"" <> escapeBytes bytes <> "\""
+                <> [ "@" <> quote (trapMessageName index) <> " = private constant [" <> tshow (BS.length bytes) <> " x i8] c\"" <> escapeBytes bytes <> "\""
                    | (message, index) <- Map.toAscList traps,
                      let bytes = Text.encodeUtf8 (message <> "\n")
                    ]
@@ -79,7 +79,7 @@ data Ctx = Ctx
     ctxGlobals :: !(Map Symbol Type)
   }
 
-preamble :: [ByteString]
+preamble :: [Text]
 preamble =
   [ "; Lir module compiled by Aihc.Llvm.Lir.",
     "declare i64 @write(i32, ptr, i64)",
@@ -102,7 +102,7 @@ preamble =
       | ty <- ["i8", "i16", "i32", "i64"]
       ]
 
-declareExtern :: ExternFunction -> [ByteString]
+declareExtern :: ExternFunction -> [Text]
 declareExtern external =
   [ "declare "
       <> renderConvention (signatureConvention signature)
@@ -110,28 +110,28 @@ declareExtern external =
       <> " "
       <> renderSymbol (externFunctionName external)
       <> "("
-      <> BS8.intercalate ", " (map renderType (signatureParameters signature))
+      <> T.intercalate ", " (map renderType (signatureParameters signature))
       <> ")"
   ]
   where
     signature = externFunctionSignature external
 
 -- | The name of the constant that holds one trap message.
-trapMessageName :: Int -> ByteString
+trapMessageName :: Int -> Text
 trapMessageName index = ".Llir_trap_" <> tshow index
 
 -- Data
 
-renderData :: DataItem -> [ByteString]
+renderData :: DataItem -> [Text]
 renderData dataItem =
   [ renderSymbol (dataName dataItem)
       <> " = "
       <> (if dataLinkage dataItem == Export then "" else "internal ")
       <> (if dataMutable dataItem then "global " else "constant ")
       <> "<{ "
-      <> BS8.intercalate ", " (map fst fields)
+      <> T.intercalate ", " (map fst fields)
       <> " }> <{ "
-      <> BS8.intercalate ", " (map (\(ty, value) -> ty <> " " <> value) fields)
+      <> T.intercalate ", " (map (\(ty, value) -> ty <> " " <> value) fields)
       <> " }>, align "
       <> tshow (dataAlignment dataItem)
   ]
@@ -153,16 +153,16 @@ renderData dataItem =
         DataBytes bytes -> ("[" <> tshow (BS.length bytes) <> " x i8]", "c\"" <> escapeBytes bytes <> "\"")
         DataZero count -> ("[" <> tshow count <> " x i8]", "zeroinitializer")
 
-escapeBytes :: BS.ByteString -> ByteString
-escapeBytes = BS8.concat . map escapeByte . BS.unpack
+escapeBytes :: BS.ByteString -> Text
+escapeBytes = T.concat . map escapeByte . BS.unpack
   where
-    escapeByte :: Word8 -> ByteString
+    escapeByte :: Word8 -> Text
     escapeByte byte
-      | byte >= 0x20 && byte < 0x7f && byte /= 0x22 && byte /= 0x5c = BS8.singleton (toEnum (fromIntegral byte))
+      | byte >= 0x20 && byte < 0x7f && byte /= 0x22 && byte /= 0x5c = T.singleton (toEnum (fromIntegral byte))
       | otherwise = "\\" <> hexByte byte
 
-hexByte :: Word8 -> ByteString
-hexByte byte = BS8.pack (pad (showHex byte ""))
+hexByte :: Word8 -> Text
+hexByte byte = T.pack (pad (showHex byte ""))
   where
     pad [digit] = ['0', digit]
     pad digits = map toUpperHex digits
@@ -172,33 +172,33 @@ hexByte byte = BS8.pack (pad (showHex byte ""))
 
 -- | Every symbol and value is quoted, so any Lir name is a valid LLVM name.
 -- | An LLVM quoted identifier. LLVM escapes a byte at a time -- @\\XX@ is one
--- byte, not one character -- so this takes the bytes and the character
+-- byte, not one character -- so this takes the bytes, and the character
 -- version encodes into it.
-quoteBytes :: BS.ByteString -> ByteString
-quoteBytes name = "\"" <> BS8.concat (map escape (BS.unpack name)) <> "\""
+quoteBytes :: BS.ByteString -> Text
+quoteBytes name = "\"" <> T.concat (map escape (BS.unpack name)) <> "\""
   where
     escape byte
       | byte == 0x22 = "\\22"
       | byte == 0x5c = "\\5C"
       | byte < 0x20 || byte > 0x7e = "\\" <> hexByte byte
-      | otherwise = BS8.singleton (toEnum (fromIntegral byte))
+      | otherwise = T.singleton (toEnum (fromIntegral byte))
 
-quote :: Text -> ByteString
+quote :: Text -> Text
 quote = quoteBytes . Text.encodeUtf8
 
 -- | A symbol is already bytes, so it needs no encoding on the way in.
-renderSymbol :: Symbol -> ByteString
-renderSymbol symbol = "@" <> quoteBytes (unSymbol symbol)
+renderSymbol :: Symbol -> Text
+renderSymbol symbol = "@" <> quoteBytes (SBS.fromShort (unSymbol symbol))
 
-renderVar :: Var -> ByteString
+renderVar :: Var -> Text
 renderVar var = "%" <> quote ("v." <> unVar var)
 
-blockName :: Label -> ByteString
+blockName :: Label -> Text
 blockName label = quote ("b." <> unLabel label)
 
 -- Types
 
-renderType :: Type -> ByteString
+renderType :: Type -> Text
 renderType ty =
   case ty of
     I1 -> "i1"
@@ -211,27 +211,27 @@ renderType ty =
     Ptr -> "ptr"
     Code -> "ptr"
 
-renderResults :: [Type] -> ByteString
+renderResults :: [Type] -> Text
 renderResults types =
   case types of
     [] -> "void"
     [ty] -> renderType ty
-    _ -> "{" <> BS8.intercalate ", " (map renderType types) <> "}"
+    _ -> "{" <> T.intercalate ", " (map renderType types) <> "}"
 
-renderConvention :: CallingConvention -> ByteString
+renderConvention :: CallingConvention -> Text
 renderConvention convention =
   case convention of
     AihcConvention -> "tailcc "
     CConvention -> ""
 
-zeroValue :: Type -> ByteString
+zeroValue :: Type -> Text
 zeroValue ty
   | isFloatType ty = "0.0"
   | ty `elem` [Ptr, Code] = "null"
   | otherwise = "0"
 
 -- | An integer literal in the signed range of its type.
-renderInteger :: Type -> Integer -> ByteString
+renderInteger :: Type -> Integer -> Text
 renderInteger ty value
   | ty == I1 = if value .&. 1 == 1 then "true" else "false"
   | wrapped >= 2 ^ (bits - 1) = tshow (wrapped - 2 ^ bits)
@@ -242,13 +242,13 @@ renderInteger ty value
 
 -- | A float literal as the hexadecimal double pattern LLVM accepts for both
 -- widths.
-renderFloat :: Type -> Double -> ByteString
-renderFloat ty value = "0x" <> BS8.pack (pad (showHex (castDoubleToWord64 (if ty == F32 then float2Double (double2Float value) else value)) ""))
+renderFloat :: Type -> Double -> Text
+renderFloat ty value = "0x" <> T.pack (pad (showHex (castDoubleToWord64 (if ty == F32 then float2Double (double2Float value) else value)) ""))
   where
     pad digits = replicate (16 - length digits) '0' <> map toUpperHex digits
     toUpperHex character = if character >= 'a' && character <= 'f' then toEnum (ord character - 32) else character
 
-renderOperand :: Type -> Operand -> ByteString
+renderOperand :: Type -> Operand -> Text
 renderOperand ty operand =
   case operand of
     OperandVar var -> renderVar var
@@ -261,7 +261,7 @@ renderOperand ty operand =
         LitNull -> "null"
         LitSymbol symbol -> renderSymbol symbol
 
-typed :: Type -> Operand -> ByteString
+typed :: Type -> Operand -> Text
 typed ty operand = renderType ty <> " " <> renderOperand ty operand
 
 -- Functions
@@ -275,12 +275,12 @@ data FunctionState = FunctionState
     stateFunctionTraps :: !(Map Text Int),
     stateNextTemp :: !Int,
     -- | The finished blocks in reverse order, each as its lines.
-    stateBlocksRev :: ![[ByteString]],
+    stateBlocksRev :: ![[Text]],
     -- | The lines of the open block in reverse order.
-    stateOpenRev :: ![ByteString],
+    stateOpenRev :: ![Text],
     -- | The phi entries of every block with parameters: for each edge, the
     -- edge block and the arguments.
-    stateEdges :: !(Map Label [(ByteString, [Operand])]),
+    stateEdges :: !(Map Label [(Text, [Operand])]),
     stateNextEdge :: !Int
   }
 
@@ -289,17 +289,17 @@ type M = StateT FunctionState (Either LlvmLirError)
 unsupported :: Text -> M value
 unsupported = lift . Left . LlvmLirUnsupported
 
-fresh :: M ByteString
+fresh :: M Text
 fresh = do
   state <- get
   put state {stateNextTemp = stateNextTemp state + 1}
   pure ("%t" <> tshow (stateNextTemp state))
 
-emit :: ByteString -> M ()
+emit :: Text -> M ()
 emit line = modify' $ \state -> state {stateOpenRev = ("  " <> line) : stateOpenRev state}
 
 -- | Close the open block and open the next one.
-beginBlock :: ByteString -> M ()
+beginBlock :: Text -> M ()
 beginBlock name = modify' $ \state ->
   state
     { stateBlocksRev = reverse (stateOpenRev state) : stateBlocksRev state,
@@ -307,7 +307,7 @@ beginBlock name = modify' $ \state ->
     }
 
 -- | The block that reports one trap message.
-trapBlock :: Text -> M ByteString
+trapBlock :: Text -> M Text
 trapBlock message = do
   state <- get
   index <-
@@ -320,17 +320,17 @@ trapBlock message = do
   modify' $ \current -> current {stateFunctionTraps = Map.insert message index (stateFunctionTraps current)}
   pure (trapBlockName index)
 
-trapBlockName :: Int -> ByteString
-trapBlockName index = quoteBytes ("trap." <> tshow index)
+trapBlockName :: Int -> Text
+trapBlockName index = quote ("trap." <> tshow index)
 
 -- | A jump edge. A target with parameters gets its own block so the phi of
 -- the target sees one predecessor per edge.
-edgeTo :: Map Label [(Var, Type)] -> Target -> M ByteString
+edgeTo :: Map Label [(Var, Type)] -> Target -> M Text
 edgeTo parameters (Target label arguments)
   | null (Map.findWithDefault [] label parameters) = pure ("%" <> blockName label)
   | otherwise = do
       state <- get
-      let name = quoteBytes ("e." <> tshow (stateNextEdge state))
+      let name = quote ("e." <> tshow (stateNextEdge state))
       put
         state
           { stateNextEdge = stateNextEdge state + 1,
@@ -338,7 +338,7 @@ edgeTo parameters (Target label arguments)
           }
       pure ("%" <> name)
 
-compileFunction :: Ctx -> Function -> StateT Traps (Either LlvmLirError) [ByteString]
+compileFunction :: Ctx -> Function -> StateT Traps (Either LlvmLirError) [Text]
 compileFunction ctx function = do
   traps <- get
   let initial =
@@ -360,7 +360,7 @@ compileFunction ctx function = do
       rendered =
         concat
           [ [blockName (blockLabel block) <> ":"]
-              <> [ "  " <> renderVar var <> " = phi " <> renderType ty <> " " <> BS8.intercalate ", " ["[" <> renderOperand ty (arguments !! index) <> ", %" <> edge <> "]" | (edge, arguments) <- Map.findWithDefault [] (blockLabel block) edges]
+              <> [ "  " <> renderVar var <> " = phi " <> renderType ty <> " " <> T.intercalate ", " ["[" <> renderOperand ty (arguments !! index) <> ", %" <> edge <> "]" | (edge, arguments) <- Map.findWithDefault [] (blockLabel block) edges]
                  | (index, (var, ty)) <- zip [0 ..] (blockParameters block)
                  ]
               <> body
@@ -375,7 +375,7 @@ compileFunction ctx function = do
       trapBlocks =
         concat
           [ [ trapBlockName index <> ":",
-              "  call i64 @write(i32 2, ptr @" <> quoteBytes (trapMessageName index) <> ", i64 " <> tshow (BS.length (Text.encodeUtf8 (message <> "\n"))) <> ")",
+              "  call i64 @write(i32 2, ptr @" <> quote (trapMessageName index) <> ", i64 " <> tshow (BS.length (Text.encodeUtf8 (message <> "\n"))) <> ")",
               "  call void @_exit(i32 1)",
               "  unreachable"
             ]
@@ -389,7 +389,7 @@ compileFunction ctx function = do
           <> " "
           <> renderSymbol (functionName function)
           <> "("
-          <> BS8.intercalate ", " [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
+          <> T.intercalate ", " [renderType ty <> " " <> renderVar var | (var, ty) <- functionParameters function]
           <> ") {"
       ]
         <> rendered
@@ -401,7 +401,7 @@ compileFunction ctx function = do
 -- | The lines of one block after its phi instructions. An instruction that
 -- traps splits the block, so the result is a list of blocks: the first
 -- continues the block of the Lir label and the rest are fresh blocks.
-compileBlock :: Ctx -> Function -> Map Label [(Var, Type)] -> Block -> M [ByteString]
+compileBlock :: Ctx -> Function -> Map Label [(Var, Type)] -> Block -> M [Text]
 compileBlock ctx function parameters block = do
   modify' $ \state -> state {stateBlocksRev = [], stateOpenRev = []}
   mapM_ (compileInstruction ctx) (blockInstructions block)
@@ -427,7 +427,7 @@ compileTerminator ctx function parameters terminator =
       edges <- forM cases $ \switchCase -> do
         edge <- edgeTo parameters (switchCaseTarget switchCase)
         pure (renderType ty <> " " <> renderInteger ty (resolvedSwitchCaseValue switchCase) <> ", label " <> edge)
-      emit ("switch " <> typed ty scrutinee <> ", label " <> fallbackEdge <> " [" <> BS8.intercalate " " edges <> "]")
+      emit ("switch " <> typed ty scrutinee <> ", label " <> fallbackEdge <> " [" <> T.intercalate " " edges <> "]")
     Return values -> returnValues (functionResults function) (zipWith renderOperand (functionResults function) values)
     TailCall symbol arguments ->
       tailCall (renderSymbol symbol) (Map.findWithDefault (Signature [] [] AihcConvention) symbol (ctxSignatures ctx)) arguments
@@ -440,7 +440,7 @@ compileTerminator ctx function parameters terminator =
       emit ("br label %" <> name)
   where
     tailCall callee signature arguments = do
-      let call = renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> BS8.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"
+      let call = renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"
           keyword = case signatureConvention signature of
             AihcConvention -> "musttail call "
             CConvention -> "tail call "
@@ -461,7 +461,7 @@ compileTerminator ctx function parameters terminator =
           emit ("ret " <> renderResults types <> " " <> aggregate)
 
 -- | Build a struct of several results with @insertvalue@.
-buildAggregate :: [Type] -> [ByteString] -> M ByteString
+buildAggregate :: [Type] -> [Text] -> M Text
 buildAggregate types values = go "undef" (zip3 [0 :: Int ..] types values)
   where
     aggregateType = renderResults types
@@ -473,23 +473,23 @@ buildAggregate types values = go "undef" (zip3 [0 :: Int ..] types values)
 
 -- | Branch to the trap block when a callee is null. Returns the name of the
 -- block that continues the call.
-guardCallee :: Operand -> M ByteString
+guardCallee :: Operand -> M Text
 guardCallee target = do
   trap <- trapBlock "indirect call to a non-function"
   isNull <- fresh
   continue <- fresh
-  let continueName = quoteBytes ("c" <> BS8.drop 1 continue)
+  let continueName = quote ("c" <> T.drop 1 continue)
   emit (isNull <> " = icmp eq ptr " <> renderOperand Code target <> ", null")
   emit ("br i1 " <> isNull <> ", label %" <> trap <> ", label %" <> continueName)
   pure continueName
 
 -- | Branch to a trap block when a condition holds and continue in a fresh
 -- block otherwise.
-trapWhen :: ByteString -> Text -> M ()
+trapWhen :: Text -> Text -> M ()
 trapWhen condition message = do
   trap <- trapBlock message
   continue <- fresh
-  let continueName = quoteBytes ("c" <> BS8.drop 1 continue)
+  let continueName = quote ("c" <> T.drop 1 continue)
   emit ("br i1 " <> condition <> ", label %" <> trap <> ", label %" <> continueName)
   beginBlock continueName
 
@@ -679,7 +679,7 @@ compileInstruction ctx (Instruction results operation) =
           pure pointer
 
     call callee signature arguments = do
-      let body = "call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> BS8.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"
+      let body = "call " <> renderConvention (signatureConvention signature) <> renderResults (signatureResults signature) <> " " <> callee <> "(" <> T.intercalate ", " (zipWith typed (signatureParameters signature) arguments) <> ")"
       case (signatureResults signature, results) of
         ([], []) -> emit body
         ([_], [var]) -> emit (renderVar var <> " = " <> body)
@@ -690,7 +690,7 @@ compileInstruction ctx (Instruction results operation) =
             emit (renderVar var <> " = extractvalue " <> renderResults types <> " " <> aggregate <> ", " <> tshow index)
         _ -> unsupported "call result count"
 
-comparison :: CompareOp -> Type -> ByteString
+comparison :: CompareOp -> Type -> Text
 comparison op ty
   | isFloatType ty =
       case op of
@@ -718,7 +718,7 @@ comparison op ty
         FGt -> "icmp ugt"
         FGe -> "icmp uge"
 
-floatBinary :: FloatBinaryOp -> ByteString
+floatBinary :: FloatBinaryOp -> Text
 floatBinary op =
   case op of
     FAdd -> "fadd"
@@ -726,9 +726,8 @@ floatBinary op =
     FMul -> "fmul"
     FDiv -> "fdiv"
 
-floatSuffix :: Type -> ByteString
+floatSuffix :: Type -> Text
 floatSuffix ty = if ty == F64 then "f64" else "f32"
 
--- | A number inside an LLVM line, which is bytes.
-tshow :: (Show value) => value -> ByteString
-tshow = BS8.pack . show
+tshow :: (Show value) => value -> Text
+tshow = T.pack . show

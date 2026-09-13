@@ -10,6 +10,7 @@ import Aihc.Lir.Parser (parseModule, renderParseError)
 import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Syntax
 import Data.ByteString qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
@@ -185,7 +186,7 @@ genConvention :: Gen CallingConvention
 genConvention = Gen.element [AihcConvention, CConvention]
 
 genSymbol :: Gen Symbol
-genSymbol = Symbol . Text.encodeUtf8 <$> genName
+genSymbol = Symbol . SBS.toShort . Text.encodeUtf8 <$> genName
 
 genVar :: Gen Var
 genVar = Var <$> genName

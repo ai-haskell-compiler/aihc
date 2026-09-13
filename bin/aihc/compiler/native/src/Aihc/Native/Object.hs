@@ -53,7 +53,8 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Short (toShort)
+import Data.ByteString.Short (ShortByteString, toShort)
+import Data.ByteString.Short qualified as SBS
 import Data.ByteString.Short.Internal (ShortByteString (SBS), fromShort)
 import Data.Int (Int64, Int8)
 import Data.IntMap.Strict qualified as IntMap
@@ -93,8 +94,8 @@ data FixupKind
 -- to the object, by a number. A private label carries its text only for
 -- rendering; the assembler never compares or stores it.
 data Name
-  = SymbolName !ByteString
-  | LocalName !Int ByteString
+  = SymbolName !ShortByteString
+  | LocalName !Int ShortByteString
 
 instance Eq Name where
   SymbolName left == SymbolName right = left == right
@@ -110,7 +111,7 @@ instance Ord Name where
 instance Show Name where
   showsPrec precedence name = showsPrec precedence (nameBytes name)
 
-nameBytes :: Name -> ByteString
+nameBytes :: Name -> ShortByteString
 nameBytes name =
   case name of
     SymbolName bytes -> bytes
@@ -139,7 +140,7 @@ data Item
   deriving (Eq, Show)
 
 data Symbol = Symbol
-  { symbolName :: !ByteString,
+  { symbolName :: !ShortByteString,
     symbolGlobal :: !Bool,
     symbolSection :: !(Maybe SectionRole),
     symbolOffset :: !Word64
@@ -451,9 +452,9 @@ data Object s = Object
     objectSections :: !(MutVar s (Map SectionRole (Section s))),
     -- | The sections in the order they were first selected, latest first.
     objectOrder :: !(MutVar s [SectionRole]),
-    objectSymbolIds :: !(MutVar s (Map ByteString Int)),
+    objectSymbolIds :: !(MutVar s (Map ShortByteString Int)),
     -- | The text of every symbol, latest first.
-    objectSymbolNames :: !(MutVar s [ByteString]),
+    objectSymbolNames :: !(MutVar s [ShortByteString]),
     objectSymbolCount :: !(MutablePrimArray s Int),
     objectSymbolOffsets :: !(Unboxed s Int),
     -- | The section a symbol is defined in, or -1.
@@ -511,7 +512,7 @@ selectSection role object = do
       writeMutVar (objectCurrent object) (Just section)
 
 -- | The number of a symbol, assigned on first sight.
-internSymbol :: Object s -> ByteString -> ST s Int
+internSymbol :: Object s -> ShortByteString -> ST s Int
 internSymbol object name = do
   ids <- readMutVar (objectSymbolIds object)
   case Map.lookup name ids of
@@ -524,14 +525,14 @@ internSymbol object name = do
       modifyMutVar' (objectSymbolNames object) (name :)
       pure identifier
 
-addGlobal :: ByteString -> Object s -> ST s ()
+addGlobal :: ShortByteString -> Object s -> ST s ()
 addGlobal name object = do
   identifier <- internSymbol object name
   writeColumn (objectSymbolGlobals object) identifier True
 
 -- | The name of a private label, which is bytes like every other symbol.
-localName :: Int -> ByteString
-localName identifier = ".L" <> BS8.pack (show identifier)
+localName :: Int -> ShortByteString
+localName identifier = ".L" <> SBS.toShort (BS8.pack (show identifier))
 
 defineLabel :: Object s -> Section s -> Name -> ST s (Either ObjectError ())
 defineLabel object section name = do
@@ -542,7 +543,7 @@ defineLabel object section name = do
       identifier <- internSymbol object text
       defined <- readColumn (objectSymbolSections object) identifier
       if defined /= undefinedSection
-        then pure (Left (ObjectDuplicateSymbol (Text.decodeLatin1 text)))
+        then pure (Left (ObjectDuplicateSymbol (Text.decodeLatin1 (SBS.fromShort text))))
         else do
           writeColumn (objectSymbolOffsets object) identifier size
           writeColumn (objectSymbolSections object) identifier role
@@ -550,7 +551,7 @@ defineLabel object section name = do
     LocalName identifier _ -> do
       defined <- readColumn (objectLocalSections object) identifier
       if defined /= undefinedSection
-        then pure (Left (ObjectDuplicateSymbol (Text.decodeLatin1 (localName identifier))))
+        then pure (Left (ObjectDuplicateSymbol (Text.decodeLatin1 (SBS.fromShort (localName identifier)))))
         else do
           writeColumn (objectLocalOffsets object) identifier size
           writeColumn (objectLocalSections object) identifier role
@@ -643,7 +644,7 @@ resolveLocal object section fixup = do
   let identifier = -1 - fixupRowTarget fixup
   defined <- readColumn (objectLocalSections object) identifier
   if defined == undefinedSection
-    then pure (Left (ObjectMissingSymbol (Text.decodeLatin1 (localName identifier))))
+    then pure (Left (ObjectMissingSymbol (Text.decodeLatin1 (SBS.fromShort (localName identifier)))))
     else
       if fromIntegral defined /= fromEnum (sectionRole section) || not (canResolve (fixupRowKind fixup))
         then pure (Left (ObjectInvalidFixup (fixupRowKind fixup)))
@@ -663,7 +664,7 @@ canResolve kind =
     _ -> False
 
 -- | Fill a fixup in with the displacement to a target in the same section.
-patchLocal :: Section s -> ByteString -> Int -> FixupRow -> ST s (Either ObjectError ())
+patchLocal :: Section s -> ShortByteString -> Int -> FixupRow -> ST s (Either ObjectError ())
 patchLocal section name target fixup = do
   word <- readWordAt section offset 4
   let instruction = fromIntegral word :: Word32
@@ -687,7 +688,7 @@ patchLocal section name target fixup = do
   where
     offset = fixupRowOffset fixup
     displacement = fromIntegral target - fromIntegral offset + fixupRowAddend fixup :: Int64
-    outOfRange = pure (Left (ObjectDisplacementOutOfRange (Text.decodeLatin1 name)))
+    outOfRange = pure (Left (ObjectDisplacementOutOfRange (Text.decodeLatin1 (SBS.fromShort name))))
     write value = writeWordAt section offset 4 (fromIntegral (value :: Word32)) >> pure ok
     patchX86
       | fitsSigned 32 displacement = write (fromIntegral displacement)
@@ -729,7 +730,7 @@ layoutObject object = do
             IntMap.fromList
               ( zip
                   [identifier | ((_, identifier), row) <- needed, not (symbolRowGlobal row), defined row]
-                  [".L" <> BS8.pack (show index) | index <- [0 :: Int ..]]
+                  [".L" <> SBS.toShort (BS8.pack (show index)) | index <- [0 :: Int ..]]
               )
           emitted (name, identifier) = IntMap.findWithDefault name identifier privateLabels
           ordered = sortOn fst [(emitted named, (named, row)) | (named, row) <- needed]
@@ -775,7 +776,7 @@ data SymbolRow = SymbolRow
 
 -- | The relocations of every section, in offset order, after patching the
 -- fixups the object resolves itself.
-resolveSections :: Object s -> (Int -> ByteString) -> MU.MVector s Bool -> [Section s] -> ST s (Either ObjectError [(Section s, [(Word64, FixupKind, Int, Int64)])])
+resolveSections :: Object s -> (Int -> ShortByteString) -> MU.MVector s Bool -> [Section s] -> ST s (Either ObjectError [(Section s, [(Word64, FixupKind, Int, Int64)])])
 resolveSections object nameOf relocated = go []
   where
     go done sections =

@@ -31,13 +31,12 @@ import Aihc.Lir.Syntax
 import Control.Monad (forM_, unless, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
-import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BS8
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, double2Float)
@@ -50,7 +49,7 @@ data WasmLirError
 -- | Lint the module, then render it. The helpers for wide 64-bit
 -- multiplication are Lir functions that the backend adds to the module when
 -- it uses them.
-compileLirModule :: Module -> Either WasmLirError ByteString
+compileLirModule :: Module -> Either WasmLirError Text
 compileLirModule lirModule =
   case lintModule lirModule of
     [] -> do
@@ -59,7 +58,7 @@ compileLirModule lirModule =
       (functions, final) <- runStateT (mapM (compileFunction ctx) [function | ItemFunction function <- items]) initialState
       let traps = Map.toAscList (moduleTraps final)
       pure
-        ( BS8.unlines
+        ( T.unlines
             ( header ctx items (moduleUsesStack final)
                 <> concat functions
                 <> concatMap (renderData ctx) [dataItem | ItemData dataItem <- items]
@@ -86,7 +85,7 @@ compileLirModule lirModule =
 
 -- | The module-level facts the functions need.
 data Ctx = Ctx
-  { ctxSymbols :: !(Map Symbol ByteString),
+  { ctxSymbols :: !(Map Symbol Text),
     ctxSignatures :: !(Map Symbol Signature),
     ctxGlobals :: !(Map Symbol Type)
   }
@@ -106,40 +105,40 @@ moduleContext items =
     symbolName item =
       case item of
         ItemFunction function -> Just (functionName function, linkedName (functionLinkage function) (functionName function))
-        ItemExternFunction external -> Just (externFunctionName external, unSymbol (externFunctionName external))
+        ItemExternFunction external -> Just (externFunctionName external, symbolText (externFunctionName external))
         ItemGlobal global -> Just (globalName global, linkedName Internal (globalName global))
         ItemData dataItem -> Just (dataName dataItem, linkedName (dataLinkage dataItem) (dataName dataItem))
-        ItemExternData symbol -> Just (symbol, unSymbol symbol)
+        ItemExternData symbol -> Just (symbol, symbolText symbol)
         ItemConstant _ -> Nothing
         ItemInclude _ -> Nothing
 
 -- | An internal symbol is local to its object.
-linkedName :: Linkage -> Symbol -> ByteString
+linkedName :: Linkage -> Symbol -> Text
 linkedName linkage symbol =
   case linkage of
-    Export -> unSymbol symbol
-    Internal -> ".L" <> unSymbol symbol
+    Export -> symbolText symbol
+    Internal -> ".L" <> symbolText symbol
 
-assemblySymbol :: Ctx -> Symbol -> ByteString
-assemblySymbol ctx symbol = fromMaybe (unSymbol symbol) (Map.lookup symbol (ctxSymbols ctx))
+assemblySymbol :: Ctx -> Symbol -> Text
+assemblySymbol ctx symbol = fromMaybe (symbolText symbol) (Map.lookup symbol (ctxSymbols ctx))
 
 data ModuleState = ModuleState
   { moduleTraps :: !(Map Text Int),
     moduleUsesStack :: !Bool
   }
 
-trapMessageSymbol :: Int -> ByteString
+trapMessageSymbol :: Int -> Text
 trapMessageSymbol index = ".Llir_trap_" <> tshow index
 
-trapSymbol :: ByteString
+trapSymbol :: Text
 trapSymbol = "aihc_lir_trap"
 
-stackPointer :: ByteString
+stackPointer :: Text
 stackPointer = "__stack_pointer"
 
 -- Types
 
-wasmType :: Type -> ByteString
+wasmType :: Type -> Text
 wasmType ty =
   case ty of
     I64 -> "i64"
@@ -152,16 +151,16 @@ is64 :: Type -> Bool
 is64 ty = ty == I64
 
 -- | The instruction prefix of the integer type.
-prefix :: Type -> ByteString
+prefix :: Type -> Text
 prefix ty = if is64 ty then "i64" else "i32"
 
-renderSignature :: Signature -> ByteString
+renderSignature :: Signature -> Text
 renderSignature signature =
-  "(" <> BS8.intercalate ", " (map wasmType (signatureParameters signature)) <> ") -> (" <> BS8.intercalate ", " (map wasmType (signatureResults signature)) <> ")"
+  "(" <> T.intercalate ", " (map wasmType (signatureParameters signature)) <> ") -> (" <> T.intercalate ", " (map wasmType (signatureResults signature)) <> ")"
 
 -- Module header
 
-header :: Ctx -> [Item] -> Bool -> [ByteString]
+header :: Ctx -> [Item] -> Bool -> [Text]
 header ctx items usesStack =
   [ "# Lir module compiled by Aihc.Wasm.Lir.",
     "\t.text",
@@ -175,7 +174,7 @@ header ctx items usesStack =
 
 -- Data
 
-renderData :: Ctx -> DataItem -> [ByteString]
+renderData :: Ctx -> DataItem -> [Text]
 renderData ctx dataItem =
   [ "\t.type\t" <> name <> ",@object",
     "\t.section\t" <> (if dataMutable dataItem then ".data." else ".rodata.") <> name <> ",\"\",@"
@@ -188,7 +187,7 @@ renderData ctx dataItem =
     <> ["\t.size\t" <> name <> ", " <> tshow (sum (map (snd . field) (dataFields dataItem))), ""]
   where
     name = assemblySymbol ctx (dataName dataItem)
-    field :: DataField -> ([ByteString], Int)
+    field :: DataField -> ([Text], Int)
     field dataField =
       case dataField of
         DataIntConstant _ constant -> unresolvedConstant constant
@@ -206,7 +205,7 @@ renderData ctx dataItem =
         DataZero count -> (["\t.skip\t" <> tshow count | count > 0], fromInteger count)
 
 -- | A read-only byte object with a local symbol.
-renderBytes :: ByteString -> BS.ByteString -> [ByteString]
+renderBytes :: Text -> BS.ByteString -> [Text]
 renderBytes name bytes =
   [ "\t.type\t" <> name <> ",@object",
     "\t.section\t.rodata." <> name <> ",\"\",@",
@@ -216,7 +215,7 @@ renderBytes name bytes =
     ""
   ]
 
-renderGlobal :: Ctx -> Global -> [ByteString]
+renderGlobal :: Ctx -> Global -> [Text]
 renderGlobal ctx global =
   [ "\t.globaltype\t" <> name <> ", " <> wasmType (globalType global),
     name <> ":",
@@ -225,13 +224,13 @@ renderGlobal ctx global =
   where
     name = assemblySymbol ctx (globalName global)
 
-escapeBytes :: BS.ByteString -> ByteString
-escapeBytes = BS8.concat . map escapeByte . BS.unpack
+escapeBytes :: BS.ByteString -> Text
+escapeBytes = T.concat . map escapeByte . BS.unpack
   where
-    escapeByte :: Word8 -> ByteString
+    escapeByte :: Word8 -> Text
     escapeByte byte
-      | byte >= 0x20 && byte < 0x7f && byte /= 0x22 && byte /= 0x5c = BS8.singleton (toEnum (fromIntegral byte))
-      | otherwise = "\\" <> BS8.pack (octal byte)
+      | byte >= 0x20 && byte < 0x7f && byte /= 0x22 && byte /= 0x5c = T.singleton (toEnum (fromIntegral byte))
+      | otherwise = "\\" <> T.pack (octal byte)
     octal byte = [digit (byte `div` 64), digit ((byte `div` 8) `mod` 8), digit (byte `mod` 8)]
     digit value = toEnum (fromIntegral value + 48)
 
@@ -242,7 +241,7 @@ typeBytes :: Type -> Int
 typeBytes ty = max 1 (typeBits ty `div` 8)
 
 -- | An integer in the signed range of its width, as the assembler expects.
-renderInteger :: Int -> Integer -> ByteString
+renderInteger :: Int -> Integer -> Text
 renderInteger bytes value =
   let bits = 8 * bytes
       wrapped = value `mod` (2 ^ bits)
@@ -252,7 +251,7 @@ renderInteger bytes value =
 
 data FunctionState = FunctionState
   { functionModule :: !ModuleState,
-    functionLinesRev :: ![ByteString],
+    functionLinesRev :: ![Text],
     functionNext :: !Int
   }
 
@@ -270,16 +269,16 @@ data Fn = Fn
     fnFrame :: !(Maybe (Int, Int)),
     fnAllocs :: !(Map Var Int),
     -- | Scratch locals: @i32@, @i64@, @f32@, and @f64@.
-    fnScratch :: !(Map ByteString Int)
+    fnScratch :: !(Map Text Int)
   }
 
 unsupported :: Text -> M value
 unsupported = lift . Left . WasmLirUnsupported
 
-emit :: ByteString -> M ()
+emit :: Text -> M ()
 emit line = modify' $ \state -> state {functionLinesRev = ("\t" <> line) : functionLinesRev state}
 
-emitLabel :: ByteString -> M ()
+emitLabel :: Text -> M ()
 emitLabel line = modify' $ \state -> state {functionLinesRev = line : functionLinesRev state}
 
 trapIndex :: Text -> M Int
@@ -309,7 +308,7 @@ trapIf message = do
   trap message
   emit "end_if"
 
-compileFunction :: Ctx -> Function -> StateT ModuleState (Either WasmLirError) [ByteString]
+compileFunction :: Ctx -> Function -> StateT ModuleState (Either WasmLirError) [Text]
 compileFunction ctx function = do
   moduleState <- get
   let parameters = functionParameters function
@@ -352,7 +351,7 @@ compileFunction ctx function = do
         <> ["\t.globl\t" <> name | functionLinkage function == Export]
         <> [ name <> ":",
              "\t.functype\t" <> name <> " " <> renderSignature (functionSignature function),
-             "\t.local\t" <> BS8.intercalate ", " localTypes
+             "\t.local\t" <> T.intercalate ", " localTypes
            ]
         <> reverse (functionLinesRev final)
         <> ["\tend_function", ""]
@@ -414,10 +413,10 @@ functionBody fn = do
   emit "loop"
   forM_ [1 .. count] $ \_ -> emit "block"
   emit ("local.get\t" <> tshow (fnState fn))
-  emit ("br_table\t{" <> BS8.intercalate ", " (map tshow ([0 .. count - 1] <> [count - 1])) <> "}")
+  emit ("br_table\t{" <> T.intercalate ", " (map tshow ([0 .. count - 1] <> [count - 1])) <> "}")
   forM_ (zip [0 ..] blocks) $ \(index, block) -> do
     emit "end_block"
-    emitLabel ("# " <> Text.encodeUtf8 (unLabel (blockLabel block)))
+    emitLabel ("# " <> unLabel (blockLabel block))
     mapM_ (compileInstruction fn) (blockInstructions block)
     compileTerminator fn (count - 1 - index) (blockTerminator block)
   emit "end_loop"
@@ -816,7 +815,7 @@ compileInstruction fn (Instruction results operation) =
           emit "i32.add"
           pure 0
 
-loadInstruction :: Type -> ByteString
+loadInstruction :: Type -> Text
 loadInstruction ty =
   case ty of
     I1 -> "i32.load8_u"
@@ -827,7 +826,7 @@ loadInstruction ty =
     F64 -> "f64.load"
     _ -> "i32.load"
 
-storeInstruction :: Type -> ByteString
+storeInstruction :: Type -> Text
 storeInstruction ty =
   case ty of
     I1 -> "i32.store8"
@@ -838,7 +837,7 @@ storeInstruction ty =
     F64 -> "f64.store"
     _ -> "i32.store"
 
-comparison :: CompareOp -> Type -> ByteString
+comparison :: CompareOp -> Type -> Text
 comparison op ty
   | isFloatType ty =
       case op of
@@ -866,7 +865,7 @@ comparison op ty
         FGt -> "gt_u"
         FGe -> "ge_u"
 
-floatBinary :: FloatBinaryOp -> ByteString
+floatBinary :: FloatBinaryOp -> Text
 floatBinary op =
   case op of
     FAdd -> "add"
@@ -874,7 +873,7 @@ floatBinary op =
     FMul -> "mul"
     FDiv -> "div"
 
-floatUnary :: FloatUnaryOp -> ByteString
+floatUnary :: FloatUnaryOp -> Text
 floatUnary op =
   case op of
     FNeg -> "neg"
@@ -940,6 +939,5 @@ wideHelpers = [unsignedHelper, signedHelper]
                ]
         )
 
--- | A number inside an assembly line, which is bytes.
-tshow :: (Show value) => value -> ByteString
-tshow = BS8.pack . show
+tshow :: (Show value) => value -> Text
+tshow = T.pack . show

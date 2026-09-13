@@ -2179,7 +2179,7 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
       source <- compileGrinTo (compileLint config) (compileCheckPrimBounds config) target (if keepNative then Just (outputNativePath paths) else Nothing) gcProgram (outputObjectPath paths)
-      mapM_ (BS.writeFile (outputNativePath paths)) source
+      mapM_ (TIO.writeFile (outputNativePath paths)) source
       when (keepNative || isJust source) (verbose ("Write native source: " <> T.unpack name))
       when (isJust source) $ do
         (compiler, arguments) <- backendCompiler target

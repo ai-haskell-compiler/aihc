@@ -14,6 +14,7 @@ import Data.Bits (shiftL, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
+import Data.ByteString.Short qualified as SBS
 import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -315,7 +316,7 @@ buildStringTable symbols =
    in (map fst entries, table <> BS.replicate (paddedSize - BS.length table) 0)
   where
     add offset symbol =
-      let bytes = symbolName symbol
+      let bytes = SBS.fromShort (symbolName symbol)
        in (offset + BS.length bytes + 1, (fromIntegral offset, bytes))
 
 putFixedName :: ByteString -> Put

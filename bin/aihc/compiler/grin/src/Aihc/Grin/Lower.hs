@@ -19,6 +19,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
+import Data.ByteString.Short qualified as SBS
 import Data.Char (isDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -1417,7 +1418,7 @@ lowerForeignCall name specification =
     { grinForeignCallName = stableGlobalName name,
       -- The one place a C symbol stops being source text and becomes a
       -- linker name.
-      grinForeignCallSymbol = TE.encodeUtf8 (Fc.ccallSymbol specification),
+      grinForeignCallSymbol = SBS.toShort (TE.encodeUtf8 (Fc.ccallSymbol specification)),
       grinForeignCallTarget = lowerForeignTarget (Fc.ccallTarget specification),
       grinForeignCallSignature =
         GrinForeignSignature
