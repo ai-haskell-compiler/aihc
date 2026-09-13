@@ -5,7 +5,7 @@
 - Total Extensions: 56
 - Supported: 39
 - In Progress: 17
-- Fixtures (eval): 502
+- Fixtures (eval): 507
 - Fixtures (fc): 201
 
 ## Extension Status
@@ -25,7 +25,7 @@
 | DerivingVia                |   🔴    | 21/24         |
 | EmptyCase                  |   🟢    | 1/1           |
 | EmptyDataDecls             |   🟢    | 2/2           |
-| ExistentialQuantification  |   🟢    | 7/7           |
+| ExistentialQuantification  |   🟢    | 9/9           |
 | ExplicitForAll             |   🟢    | 11/11         |
 | ExplicitNamespaces         |   🟢    | 4/4           |
 | ExtendedLiterals           |   🟢    | 13/13         |
@@ -41,14 +41,14 @@
 | InstanceSigs               |   🟢    | 3/3           |
 | KindSignatures             |   🟢    | 34/34         |
 | LambdaCase                 |   🟢    | 5/5           |
-| MagicHash                  |   🟡    | 167/168       |
+| MagicHash                  |   🟡    | 168/169       |
 | MultiParamTypeClasses      |   🔴    | 30/34         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 2/2           |
 | OverloadedStrings          |   🟢    | 4/4           |
 | PackageImports             |   🟢    | 1/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
-| PatternSynonyms            |   🟢    | 19/19         |
+| PatternSynonyms            |   🟢    | 20/20         |
 | PolyKinds                  |   🟢    | 23/23         |
 | QuantifiedConstraints      |   🟢    | 1/1           |
 | RankNTypes                 |   🟢    | 16/16         |
@@ -64,7 +64,7 @@
 | TypeApplications           |   🟢    | 6/6           |
 | TypeFamilies               |   🔴    | 25/28         |
 | TypeOperators              |   🟡    | 93/94         |
-| UnboxedTuples              |   🟡    | 53/54         |
+| UnboxedTuples              |   🟡    | 54/55         |
 | UndecidableInstances       |   🔴    | 6/9           |
 | UnliftedFFITypes           |   🟢    | 2/2           |
 | ViewPatterns               |   🟢    | 8/8           |

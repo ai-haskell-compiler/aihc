@@ -1,8 +1,11 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module GHC.Tuple
   ( Tuple0,
     Tuple1,
     Unit (..),
-    Solo (..),
+    Solo (MkSolo, Solo),
+    getSolo,
     Tuple2 (..),
     Tuple3 (..),
     Tuple4 (..),
@@ -75,6 +78,16 @@ data Unit = ()
 
 {- HLINT ignore Solo "Use newtype instead of data" -}
 data Solo a = MkSolo a
+
+-- | The old name of the 'MkSolo' constructor, kept as a pattern synonym so
+-- that code written before the constructor was renamed keeps working.
+pattern Solo :: a -> Solo a
+pattern Solo a = MkSolo a
+
+-- | Extract the value a one-tuple holds. It is a standalone function rather
+-- than a record selector because @Solo@ is wired in.
+getSolo :: Solo a -> a
+getSolo (MkSolo a) = a
 
 type Tuple0 = Unit
 

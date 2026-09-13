@@ -1,0 +1,17 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+
+    import GHC.Tuple (Solo (MkSolo, Solo), getSolo)
+
+    bump :: Solo Int -> Solo Int
+    bump (Solo n) = MkSolo (n + 1)
+output: |
+  I# 42
+expression: |
+  getSolo (bump (MkSolo 41))
+status: pass
+reason: GHC.Tuple exports getSolo and the deprecated Solo pattern synonym alongside MkSolo
