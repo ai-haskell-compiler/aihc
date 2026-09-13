@@ -38,6 +38,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
@@ -149,7 +150,9 @@ runBuildModule options = do
   -- The packages of an executable are installed like any other: the plan
   -- names them, their fingerprints name the store directories, and a
   -- directory that is absent is built. Nothing lists the store.
-  let resolver = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildWorkspace options)
+  hackageIndex <- newHackageIndex defaultIndexOptions
+  let hackageResolver = networkDependencyResolver hackageIndex
+      resolver = maybe hackageResolver (workspaceDependencyResolver hackageResolver) (buildWorkspace options)
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,

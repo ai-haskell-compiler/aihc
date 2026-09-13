@@ -49,6 +49,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory, wholeProgramLevel)
 import Aihc.PackagePlan
@@ -89,7 +90,8 @@ buildPackage :: BuildOptions -> IO [FilePath]
 buildPackage options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
-  (root, origin) <- resolveInstallTarget (buildInput options)
+  hackageIndex <- newHackageIndex defaultIndexOptions
+  (root, origin) <- resolveInstallTarget hackageIndex (buildInput options)
   spec <- packageSpecFromSource root
   gpd <- parseSourcePackageDescription root
   let target = buildTarget options
@@ -128,7 +130,8 @@ buildPackage options = do
       -- The package itself and its siblings resolve locally before the
       -- workspace and Hackage, so an executable that depends on the library
       -- of its own package finds it in the source tree.
-      fallback = maybe networkDependencyResolver (workspaceDependencyResolver networkDependencyResolver) (buildWorkspace options)
+      hackageResolver = networkDependencyResolver hackageIndex
+      fallback = maybe hackageResolver (workspaceDependencyResolver hackageResolver) (buildWorkspace options)
       resolver = localDependencyResolverWithFallback fallback root spec
       locations =
         InstallLocations

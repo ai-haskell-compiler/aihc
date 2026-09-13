@@ -16,11 +16,11 @@ library
     Aihc.Hackage.Cpp
     Aihc.Hackage.Download
     Aihc.Hackage.Index
+    Aihc.Hackage.IndexCache
     Aihc.Hackage.Preprocessor
     Aihc.Hackage.Release
     Aihc.Hackage.Types
     Aihc.Hackage.Util
-    Aihc.Hackage.VersionResolver
 
   hs-source-dirs: src
   build-depends:
@@ -36,6 +36,7 @@ library
     http-types >=0.9 && <0.13,
     tar >=0.5 && <0.7,
     text >=1.2.3 && <2.2,
+    time >=1.9 && <1.15,
     zlib >=0.5.4 && <0.8,
 
   ghc-options: -Wall

@@ -67,10 +67,10 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
-import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
@@ -422,9 +422,10 @@ installWith output options = do
       targetDirectory = nativeTargetStoreDirectory target
   let verbose message = when (installVerbose options) (hPutStrLn output message)
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
-  (root, origin) <- resolveInstallTarget (installPackageTarget options)
+  hackageIndex <- newHackageIndex defaultIndexOptions
+  (root, origin) <- resolveInstallTarget hackageIndex (installPackageTarget options)
   spec <- packageSpecFromSource root
-  let resolver = localDependencyResolverWithFallback networkDependencyResolver root spec
+  let resolver = localDependencyResolverWithFallback (networkDependencyResolver hackageIndex) root spec
   plan <- buildPackagePlanWithResolver resolver spec
   buildRoot <- maybe (pure (defaultBuildRoot root)) pure (installBuildRoot options)
   buildIdentity <- buildEnvironmentIdentity target
@@ -466,8 +467,8 @@ defaultBuildRoot root = root </> ".aihc-target"
 -- An existing directory is used as-is. Anything else is parsed as a Hackage
 -- package name with an optional version (@NAME@ or @NAME-VERSION@) and
 -- downloaded from Hackage; without a version the preferred version is used.
-resolveInstallTarget :: String -> IO (FilePath, PlanOrigin)
-resolveInstallTarget target = do
+resolveInstallTarget :: HackageIndex -> String -> IO (FilePath, PlanOrigin)
+resolveInstallTarget index target = do
   isDirectory <- doesDirectoryExist target
   if isDirectory
     then pure (target, PlanLocal)
@@ -478,7 +479,7 @@ resolveInstallTarget target = do
               (target <> " is not an existing directory nor a Hackage package name (NAME[-VERSION])")
           )
       Just (name, requestedVersion) -> do
-        version <- maybe (resolvePreferredVersion name) pure requestedVersion
+        version <- maybe (resolvePreferredVersion index name) pure requestedVersion
         path <-
           HackageDownload.downloadPackageWithOptions
             HackageDownload.defaultDownloadOptions
@@ -495,15 +496,17 @@ parsePackageTarget target = do
       if version == nullVersion then Nothing else Just (prettyShow version)
     )
 
-resolvePreferredVersion :: String -> IO String
-resolvePreferredVersion name = do
-  result <- getLatestVersion Nothing name
+-- | The newest non-deprecated version of a package, from the cached Hackage
+-- index.
+resolvePreferredVersion :: HackageIndex -> String -> IO String
+resolvePreferredVersion index name = do
+  result <- indexPreferredVersion index name
   either (ioError . userError) pure result
 
-networkDependencyResolver :: DependencyResolver
-networkDependencyResolver =
+networkDependencyResolver :: HackageIndex -> DependencyResolver
+networkDependencyResolver index =
   DependencyResolver
-    { resolverResolveVersion = resolvePreferredVersion,
+    { resolverResolveVersion = resolvePreferredVersion index,
       resolverSourcePath = fmap (`ResolvedSource` PlanHackage) . HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
     }
 
