@@ -64,8 +64,13 @@ expected: |-
   pub val 1.v$fInspectRepa :: ∀(k : 2.sType) (a : k). 1.t$Dict$Inspect (1.tRep k a)
    = Λ(k : 2.sType).
     Λ(a : k).
-      1.c$Dict$Inspect @(1.tRep k a) (λ(x : 1.tRep k a).
-        1.cTrue)
+      1.c$Dict$Inspect @(1.tRep k a) (1.v$fInspectRepa$cinspect @k @a)
+
+  val 1.v$fInspectRepa$cinspect :: ∀(k : 2.sType) (a : k). 1.tRep k a 2.→ 1.tBool
+   = Λ(k : 2.sType).
+    Λ(a : k).
+      λ(x : 1.tRep k a).
+        1.cTrue
 
   pub val 1.vinspectSome :: 1.tSomeRep 2.→ 1.tBool
    = λ(x : 1.tSomeRep).

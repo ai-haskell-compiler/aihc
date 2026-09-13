@@ -91,7 +91,13 @@ expected: |-
    = Λ(k : 3.sType).
     Λ(a : k).
       λ($d0 : 2.t$Dict$Typeable k a).
-        1.c$Dict$Binary @(2.tTypeRep k a) (λ(x : 2.tTypeRep k a).
-          1.cUnit)
+        1.c$Dict$Binary @(2.tTypeRep k a) (1.v$fBinaryTypeRepa$cput @k @a $d0)
+
+  val 1.v$fBinaryTypeRepa$cput :: ∀(k : 3.sType) (a : k). 2.t$Dict$Typeable k a 3.→ 2.tTypeRep k a 3.→ 1.tUnit
+   = Λ(k : 3.sType).
+    Λ(a : k).
+      λ($d0 : 2.t$Dict$Typeable k a).
+        λ(x : 2.tTypeRep k a).
+          1.cUnit
 status: pass
 reason: an instance head that gives a parameter an implicit kind variable quantifies the kind variable before the parameter, so the dictionary type is well scoped.

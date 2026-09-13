@@ -53,8 +53,11 @@ expected: |-
       }
 
   pub val 1.v$fParentFlag :: 1.t$Dict$Parent 1.tFlag
-   = 1.c$Dict$Parent @1.tFlag (λ(x : 1.tFlag).
-    x)
+   = 1.c$Dict$Parent @1.tFlag 1.v$fParentFlag$cparent
+
+  val 1.v$fParentFlag$cparent :: 1.tFlag 2.→ 1.tFlag
+   = λ(x : 1.tFlag).
+    x
   scope 1 = "" Child
   scope 2 = "" Parent
   scope 3 = "aihc-prim" GHC.Types

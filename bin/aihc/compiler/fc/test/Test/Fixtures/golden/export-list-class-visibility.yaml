@@ -73,7 +73,10 @@ expected: |-
   }
 
   pub val 1.v$fCT :: 2.t$Dict$C 1.tT
-   = 2.c$Dict$C @1.tT (2.v$dmmethod @1.tT 1.v$fCT)
+   = 2.c$Dict$C @1.tT 1.v$fCT$cmethod
+
+  val 1.v$fCT$cmethod :: 1.tT 3.→ 1.tT
+   = 2.v$dmmethod @1.tT 1.v$fCT
 
   pub val 1.vrun :: 1.tT 3.→ 1.tT
    = 2.vmethod @1.tT 1.v$fCT

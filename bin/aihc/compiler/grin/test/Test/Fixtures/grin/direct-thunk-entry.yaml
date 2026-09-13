@@ -21,7 +21,11 @@ expected: |-
 
   global 1.$dmtwo = (P$$dmtwo/1)
 
-  global 1.$fClsT = (F$$fClsT_thunk)
+  global 1.$fClsT = (C1.$Dict$Cls global-ref 1.$fClsT$cone global-ref 1.$fClsT$ctwo)
+
+  global 1.$fClsT$cone = (C1.T)
+
+  global 1.$fClsT$ctwo = (F$$dmtwo global-ref 1.$fClsT)
 
   $one ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
@@ -39,10 +43,5 @@ expected: |-
 
   $$dmtwo ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     call @(BoxedRep Lifted) $one ($d0 :: BoxedRep Lifted)
-
-  $$fClsT_thunk -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (F$$dmtwo global-ref 1.$fClsT)
-    store (C1.$Dict$Cls global-ref 1.T (argument :: BoxedRep Lifted))
 status: pass
 reason: suspends a saturated call on the callee itself instead of a forwarding thunk function

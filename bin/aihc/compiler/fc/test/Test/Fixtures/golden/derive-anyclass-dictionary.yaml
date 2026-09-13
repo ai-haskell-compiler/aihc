@@ -111,19 +111,34 @@ expected: |
   pub val 1.v$fRequiredBoxa :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Required (1.tBox a)
    = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Required a).
-      1.c$Dict$Required @(1.tBox a) (λ(x : 1.tBox a).
-        x)
+      1.c$Dict$Required @(1.tBox a) (1.v$fRequiredBoxa$crequired @a $d0)
+
+  val 1.v$fRequiredBoxa$crequired :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tBox a 2.→ 1.tBox a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Required a).
+      λ(x : 1.tBox a).
+        x
 
   pub val 1.v$fRequiredWrappeda :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Required (1.tWrapped a)
    = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Required a).
-      1.c$Dict$Required @(1.tWrapped a) (λ(x : 1.tWrapped a).
-        x)
+      1.c$Dict$Required @(1.tWrapped a) (1.v$fRequiredWrappeda$crequired @a $d0)
+
+  val 1.v$fRequiredWrappeda$crequired :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Required a).
+      λ(x : 1.tWrapped a).
+        x
 
   pub val 1.v$fAnyWrappeda :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Any (1.tWrapped a)
    = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Required a).
-      1.c$Dict$Any @(1.tWrapped a) (1.v$dmanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0) (1.v$fRequiredWrappeda @a $d0))
+      1.c$Dict$Any @(1.tWrapped a) (1.v$fAnyWrappeda$canyValue @a $d0)
+
+  val 1.v$fAnyWrappeda$canyValue :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
+   = Λ(a : 2.sType).
+    λ($d0 : 1.t$Dict$Required a).
+      1.v$dmanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0) (1.v$fRequiredWrappeda @a $d0)
 
   pub val 1.v$fChildBoth :: 1.t$Dict$Child 1.tBoth
    = 1.c$Dict$Child @1.tBoth 1.v$fParentBoth

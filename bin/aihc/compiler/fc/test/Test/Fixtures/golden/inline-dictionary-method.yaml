@@ -45,9 +45,9 @@ expected: |-
   }
 
   pub val 1.v$fMyEqBool :: 1.t$Dict$MyEq 2.tBool
-   = 1.c$Dict$MyEq @2.tBool 1.v$fMyEqBool$m0 1.v$fMyEqBool$m1
+   = 1.c$Dict$MyEq @2.tBool 1.v$fMyEqBool$ceq 1.v$fMyEqBool$cneq
 
-  val 1.v$fMyEqBool$m0 :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+  val 1.v$fMyEqBool$ceq :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
       case x as (_scrut : 2.tBool) return (2.tBool) of {
@@ -69,10 +69,10 @@ expected: |-
               2.cFalse
       }
 
-  val 1.v$fMyEqBool$m1 :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+  val 1.v$fMyEqBool$cneq :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
-      case 1.v$fMyEqBool$m0 x y as (_scrut : 2.tBool) return (2.tBool) of {
+      case 1.v$fMyEqBool$ceq x y as (_scrut : 2.tBool) return (2.tBool) of {
           2.cTrue →
               2.cFalse;
           2.cFalse →
@@ -82,6 +82,6 @@ expected: |-
   pub val 1.veqBool :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
-      1.v$fMyEqBool$m0 x y
+      1.v$fMyEqBool$ceq x y
 status: pass
 reason: Each method body of a dictionary gets a helper, and a method of a known dictionary becomes a direct call of the helper.
