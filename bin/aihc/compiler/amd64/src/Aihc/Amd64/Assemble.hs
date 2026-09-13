@@ -35,6 +35,7 @@ where
 
 import Aihc.Native.Elf (writeAmd64Elf)
 import Aihc.Native.Object
+import Control.Monad.ST (ST)
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -42,7 +43,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word32, Word64, Word8)
-import System.IO.Unsafe (unsafePerformIO)
 
 data Amd64Statement
   = Amd64Section !SectionRole
@@ -253,15 +253,10 @@ data Amd64Instruction
     AmdBitCount !Amd64BitCountOp !Amd64Register !Amd64Rm
 
 assembleElf :: [Amd64Statement] -> Either ObjectError BL.ByteString
-assembleElf statements = unsafePerformIO $ do
-  object <- newObject
-  result <- applyStatements object statements
-  case result of
-    Left err -> pure (Left err)
-    Right () -> (>>= writeAmd64Elf) <$> layoutObject object
+assembleElf statements = assembleObject id writeAmd64Elf (`applyStatements` statements)
 
 -- | Encode one statement before the producer selects the next instruction.
-applyStatement :: Object -> Amd64Statement -> IO (Either ObjectError ())
+applyStatement :: Object s -> Amd64Statement -> ST s (Either ObjectError ())
 applyStatement object statement =
   case statement of
     Amd64Section role -> selectSection role object >> pure (Right ())
@@ -270,17 +265,8 @@ applyStatement object statement =
     _ -> emitItems object (statementItems statement)
 
 -- | Apply a list of statements to an object.
-applyStatements :: Object -> [Amd64Statement] -> IO (Either ObjectError ())
-applyStatements object = go
-  where
-    go statements =
-      case statements of
-        [] -> pure (Right ())
-        statement : rest -> do
-          result <- applyStatement object statement
-          case result of
-            Left err -> pure (Left err)
-            Right () -> go rest
+applyStatements :: Object s -> [Amd64Statement] -> ST s (Either ObjectError ())
+applyStatements object = applyAll (applyStatement object)
 
 -- | The items of a statement that adds to the current section.
 statementItems :: Amd64Statement -> [Item]
@@ -300,22 +286,14 @@ statementItems statement =
 
 -- | Assemble statements that arrive in chunks, folding each one in before
 -- the next is produced. A failed chunk ends the assembly with its error;
--- an object error is the other side. The object is built in a private
--- buffer that nothing else can reach, so the result is a pure function of
--- the statements.
+-- an object error is the other side.
 assembleElfChunks :: [Either error [Amd64Statement]] -> Either (Either error ObjectError) BL.ByteString
-assembleElfChunks chunks0 = unsafePerformIO $ do
-  object <- newObject
-  let go chunks =
-        case chunks of
-          [] -> either (Left . Right) Right . (>>= writeAmd64Elf) <$> layoutObject object
-          Left err : _ -> pure (Left (Left err))
-          Right statements : rest -> do
-            result <- applyStatements object statements
-            case result of
-              Left err -> pure (Left (Right err))
-              Right () -> go rest
-  go chunks0
+assembleElfChunks chunks = assembleObject Right writeAmd64Elf (\object -> applyAll (applyChunk object) chunks)
+  where
+    applyChunk object chunk =
+      case chunk of
+        Left err -> pure (Left (Left err))
+        Right statements -> either (Left . Right) Right <$> applyStatements object statements
 
 amd64Section :: SectionRole -> Amd64Statement
 amd64Section = Amd64Section

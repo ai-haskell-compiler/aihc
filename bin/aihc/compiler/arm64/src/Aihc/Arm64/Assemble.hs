@@ -32,6 +32,7 @@ where
 
 import Aihc.Native.MachO (writeArm64MachO)
 import Aihc.Native.Object
+import Control.Monad.ST (ST)
 import Data.Bits (complement, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -39,7 +40,6 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Word (Word32, Word64)
-import System.IO.Unsafe (unsafePerformIO)
 
 data Arm64Statement
   = Arm64Section !SectionRole
@@ -249,44 +249,22 @@ data Arm64Instruction
   deriving (Eq, Show)
 
 assembleMachO :: [Arm64Statement] -> Either ObjectError BL.ByteString
-assembleMachO statements = unsafePerformIO $ do
-  object <- newObject
-  result <- applyStatements object statements
-  case result of
-    Left err -> pure (Left err)
-    Right () -> (>>= writeArm64MachO) <$> layoutObject object
+assembleMachO statements = assembleObject id writeArm64MachO (`applyStatements` statements)
 
 -- | Apply a list of statements to an object.
-applyStatements :: Object -> [Arm64Statement] -> IO (Either ObjectError ())
-applyStatements object = go
-  where
-    go statements =
-      case statements of
-        [] -> pure (Right ())
-        statement : rest -> do
-          result <- applyStatement object statement
-          case result of
-            Left err -> pure (Left err)
-            Right () -> go rest
+applyStatements :: Object s -> [Arm64Statement] -> ST s (Either ObjectError ())
+applyStatements object = applyAll (applyStatement object)
 
 -- | Assemble statements that arrive in chunks, folding each one in before
 -- the next is produced. A failed chunk ends the assembly with its error;
--- an object error is the other side. The object is built in a private
--- buffer that nothing else can reach, so the result is a pure function of
--- the statements.
+-- an object error is the other side.
 assembleMachOChunks :: [Either error [Arm64Statement]] -> Either (Either error ObjectError) BL.ByteString
-assembleMachOChunks chunks0 = unsafePerformIO $ do
-  object <- newObject
-  let go chunks =
-        case chunks of
-          [] -> either (Left . Right) Right . (>>= writeArm64MachO) <$> layoutObject object
-          Left err : _ -> pure (Left (Left err))
-          Right statements : rest -> do
-            result <- applyStatements object statements
-            case result of
-              Left err -> pure (Left (Right err))
-              Right () -> go rest
-  go chunks0
+assembleMachOChunks chunks = assembleObject Right writeArm64MachO (\object -> applyAll (applyChunk object) chunks)
+  where
+    applyChunk object chunk =
+      case chunk of
+        Left err -> pure (Left (Left err))
+        Right statements -> either (Left . Right) Right <$> applyStatements object statements
 
 arm64Section :: SectionRole -> Arm64Statement
 arm64Section = Arm64Section
@@ -319,7 +297,7 @@ arm64Bytes = Arm64Bytes
 arm64Instruction :: Arm64Instruction -> Arm64Statement
 arm64Instruction = Arm64Code
 
-applyStatement :: Object -> Arm64Statement -> IO (Either ObjectError ())
+applyStatement :: Object s -> Arm64Statement -> ST s (Either ObjectError ())
 applyStatement object statement =
   case statement of
     Arm64Section role -> selectSection role object >> pure (Right ())

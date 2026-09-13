@@ -1,20 +1,27 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- | Direct native object generation into mutable section buffers.
 --
 -- An 'Object' owns one buffer per section: a run of 64 KB pinned chunks
 -- that the assembler writes machine words into as it walks the instruction
--- stream, together with unboxed tables of the labels it defined and the
+-- stream, together with unboxed columns of the labels it defined and the
 -- fixups it still owes. Nothing is allocated per instruction beyond the
--- bytes themselves: a word is a poke, a label is a table write, and a fixup
--- is a table row. Symbols are interned to numbers as they arrive, so the
+-- bytes themselves: a word is a store, a label is a column write, and a
+-- fixup is a row. Symbols are interned to numbers as they arrive, so the
 -- layout that turns the buffers into an 'Image' indexes arrays rather than
 -- comparing names, and a fixup this object resolves on its own is patched
 -- into the buffer in place rather than copied through a patch list.
+--
+-- Everything lives in 'ST', so an object assembled from a list of
+-- statements is a pure function of that list, and a chunk becomes the
+-- payload of its section without a copy once the buffer is frozen.
 module Aihc.Native.Object
   ( Object,
     newObject,
+    assembleObject,
+    applyAll,
     currentSectionRole,
     selectSection,
     addGlobal,
@@ -39,30 +46,28 @@ module Aihc.Native.Object
 where
 
 import Control.Monad (filterM, when)
+import Control.Monad.ST (ST, runST)
 import Data.Array (listArray, (!))
-import Data.Array.Base (unsafeRead, unsafeWrite)
-import Data.Array.IO (IOArray, IOUArray, newArray, newArray_)
 import Data.Bits (shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Internal qualified as BSI
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Unsafe qualified as BSU
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
-import Data.Int (Int32, Int64, Int8)
+import Data.ByteString.Short (toShort)
+import Data.ByteString.Short.Internal (ShortByteString (SBS), fromShort)
+import Data.Int (Int64, Int8)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Primitive.ByteArray (ByteArray (..), MutableByteArray, copyByteArray, newPinnedByteArray, readByteArray, unsafeFreezeByteArray, writeByteArray)
+import Data.Primitive.MutVar (MutVar, modifyMutVar', newMutVar, readMutVar, writeMutVar)
+import Data.Primitive.PrimArray (MutablePrimArray, newPrimArray, readPrimArray, setPrimArray, writePrimArray)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Vector.Generic.Mutable qualified as MG
+import Data.Vector.Mutable qualified as MV
+import Data.Vector.Unboxed.Mutable qualified as MU
 import Data.Word (Word32, Word64, Word8)
-import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrBytes, withForeignPtr)
-import Foreign.Marshal.Utils (copyBytes)
-import Foreign.Ptr (Ptr, castPtr, plusPtr)
-import Foreign.Storable (peekByteOff, pokeByteOff)
-import GHC.ByteOrder (ByteOrder (..), targetByteOrder)
-import GHC.ForeignPtr (unsafeWithForeignPtr)
 
 data SectionRole
   = TextSection
@@ -186,69 +191,56 @@ data ObjectError
 ok :: Either ObjectError ()
 ok = Right ()
 
--- Tables
+-- | Run actions until the first that fails.
+applyAll :: (value -> ST s (Either err ())) -> [value] -> ST s (Either err ())
+applyAll action = go
+  where
+    go values =
+      case values of
+        [] -> pure (Right ())
+        value : rest -> do
+          result <- action value
+          case result of
+            Left err -> pure (Left err)
+            Right () -> go rest
+{-# INLINE applyAll #-}
 
--- | A growable array of fixed-size unboxed rows.
-data Table = Table
-  { tableStride :: !Int,
-    tableBuffer :: !(IORef (ForeignPtr Word8)),
-    -- | The row count, then the capacity in rows.
-    tableMeta :: !(IOUArray Int Int)
-  }
+-- Columns
 
-newTable :: Int -> Int -> IO Table
-newTable stride capacity = do
-  buffer <- mallocForeignPtrBytes (stride * capacity)
-  meta <- newArray (0, 1) 0
-  unsafeWrite meta 1 capacity
-  Table stride <$> newIORef buffer <*> pure meta
+-- | A growable vector whose cells past the end read as a default.
+data Column v s value = Column !value !(MutVar s (v s value))
 
-tableLength :: Table -> IO Int
-tableLength table = unsafeRead (tableMeta table) 0
+newColumn :: (MG.MVector v value) => value -> Int -> ST s (Column v s value)
+newColumn fallback capacity = Column fallback <$> (MG.replicate capacity fallback >>= newMutVar)
+{-# INLINE newColumn #-}
 
-setTableLength :: Table -> Int -> IO ()
-setTableLength table = unsafeWrite (tableMeta table) 0
+readColumn :: (MG.MVector v value) => Column v s value -> Int -> ST s value
+readColumn (Column fallback ref) index = do
+  vector <- readMutVar ref
+  if index < MG.length vector
+    then MG.unsafeRead vector index
+    else pure fallback
+{-# INLINE readColumn #-}
 
--- | Make room for the given number of rows. New rows hold garbage.
-tableReserve :: Table -> Int -> IO ()
-tableReserve table count = do
-  capacity <- unsafeRead (tableMeta table) 1
-  when (count > capacity) $ do
-    let capacity' = max count (2 * capacity)
-    old <- readIORef (tableBuffer table)
-    new <- mallocForeignPtrBytes (tableStride table * capacity')
-    withForeignPtr old $ \source -> withForeignPtr new $ \target -> copyBytes target source (tableStride table * capacity)
-    writeIORef (tableBuffer table) new
-    unsafeWrite (tableMeta table) 1 capacity'
+writeColumn :: (MG.MVector v value) => Column v s value -> Int -> value -> ST s ()
+writeColumn (Column fallback ref) index value = do
+  vector <- readMutVar ref
+  let size = MG.length vector
+  grown <-
+    if index < size
+      then pure vector
+      else do
+        let size' = max (index + 1) (2 * size)
+        larger <- MG.unsafeGrow vector (size' - size)
+        MG.set (MG.unsafeSlice size (size' - size) larger) fallback
+        writeMutVar ref larger
+        pure larger
+  MG.unsafeWrite grown index value
+{-# INLINE writeColumn #-}
 
--- | Add a row and return its index.
-tablePush :: Table -> IO Int
-tablePush table = do
-  count <- tableLength table
-  tableReserve table (count + 1)
-  setTableLength table (count + 1)
-  pure count
+type Unboxed = Column MU.MVector
 
--- | Run an action on the bytes of a row.
-tableAt :: Table -> Int -> (Ptr Word8 -> IO value) -> IO value
-tableAt table row action = do
-  buffer <- readIORef (tableBuffer table)
-  unsafeWithForeignPtr buffer (\pointer -> action (pointer `plusPtr` (row * tableStride table)))
-{-# INLINE tableAt #-}
-
--- Symbol rows: the offset at 0, the section at 8 (-1 when undefined), and
--- whether the symbol is global at 9.
-symbolStride :: Int
-symbolStride = 16
-
--- Local rows: the offset at 0 and the section at 8 (-1 when undefined).
-localStride :: Int
-localStride = 16
-
--- Fixup rows: the offset at 0, the addend at 8, the target at 16 (a symbol
--- number, or @-1 - local@ for a private label), and the kind at 20.
-fixupStride :: Int
-fixupStride = 24
+type Boxed = Column MV.MVector
 
 undefinedSection :: Int8
 undefinedSection = -1
@@ -264,273 +256,308 @@ chunkShift = 16
 chunkMask :: Int
 chunkMask = chunkBytes - 1
 
--- | The bytes of one section and the tables recorded over them.
-data Section = Section
+-- | The bytes of one section and the fixups recorded over them. A fixup
+-- row names its target by symbol number, or by @-1 - local@ for a private
+-- label.
+data Section s = Section
   { sectionRole :: !SectionRole,
-    -- | The size, the alignment power, the chunk count, the number of
-    -- leading fixups that 'sealFunction' has already examined, and the
-    -- capacity of the chunk array.
-    sectionCounters :: !(IOUArray Int Int),
-    sectionChunks :: !(IORef (IOArray Int (ForeignPtr Word8))),
-    sectionFixups :: !Table
+    -- | The size, the alignment power, the chunk count, the fixup count,
+    -- and the number of leading fixups that 'sealFunction' has already
+    -- examined.
+    sectionCounters :: !(MutablePrimArray s Int),
+    sectionChunks :: !(Boxed s (MutableByteArray s)),
+    fixupOffsets :: !(Unboxed s Int),
+    fixupAddends :: !(Unboxed s Int64),
+    fixupTargets :: !(Unboxed s Int),
+    fixupKinds :: !(Unboxed s Word8)
   }
 
-counterSize, counterAlignment, counterChunks, counterSealed, counterCapacity :: Int
+counterSize, counterAlignment, counterChunks, counterFixups, counterSealed :: Int
 counterSize = 0
 counterAlignment = 1
 counterChunks = 2
-counterSealed = 3
-counterCapacity = 4
+counterFixups = 3
+counterSealed = 4
 
-newSection :: SectionRole -> IO Section
+newSection :: SectionRole -> ST s (Section s)
 newSection role = do
-  counters <- newArray (0, 4) 0
-  unsafeWrite counters counterCapacity 4
-  chunks <- newArray_ (0, 3) >>= newIORef
-  Section role counters chunks <$> newTable fixupStride 64
+  counters <- newPrimArray 5
+  setPrimArray counters 0 5 0
+  -- The chunk column is never read past its count, so its default is
+  -- never observed; the first chunk stands in for it.
+  first <- newPinnedByteArray chunkBytes
+  Section role counters
+    <$> newColumn first 4
+    <*> newColumn 0 64
+    <*> newColumn 0 64
+    <*> newColumn 0 64
+    <*> newColumn 0 64
 
-sectionSize :: Section -> IO Int
-sectionSize section = unsafeRead (sectionCounters section) counterSize
+sectionSize :: Section s -> ST s Int
+sectionSize section = readPrimArray (sectionCounters section) counterSize
+{-# INLINE sectionSize #-}
 
 -- | The chunk with the given index, allocated when it is the next one.
-chunkAt :: Section -> Int -> IO (ForeignPtr Word8)
+chunkAt :: Section s -> Int -> ST s (MutableByteArray s)
 chunkAt section index = do
-  count <- unsafeRead (sectionCounters section) counterChunks
-  chunks <- readIORef (sectionChunks section)
+  count <- readPrimArray (sectionCounters section) counterChunks
   if index < count
-    then unsafeRead chunks index
+    then readColumn (sectionChunks section) index
     else do
-      chunk <- mallocForeignPtrBytes chunkBytes
-      capacity <- unsafeRead (sectionCounters section) counterCapacity
-      grown <-
-        if count < capacity
-          then pure chunks
-          else do
-            larger <- newArray_ (0, 2 * capacity - 1)
-            mapM_ (\position -> unsafeRead chunks position >>= unsafeWrite larger position) [0 .. count - 1]
-            writeIORef (sectionChunks section) larger
-            unsafeWrite (sectionCounters section) counterCapacity (2 * capacity)
-            pure larger
-      unsafeWrite grown count chunk
-      unsafeWrite (sectionCounters section) counterChunks (count + 1)
+      chunk <- newPinnedByteArray chunkBytes
+      writeColumn (sectionChunks section) count chunk
+      writePrimArray (sectionCounters section) counterChunks (count + 1)
       pure chunk
 
-pokeLittleEndian :: Ptr Word8 -> Int -> Word64 -> IO ()
-pokeLittleEndian pointer width value =
-  case width of
-    4 | targetByteOrder == LittleEndian -> pokeByteOff pointer 0 (fromIntegral value :: Word32)
-    8 | targetByteOrder == LittleEndian -> pokeByteOff pointer 0 value
-    _ -> go 0
+-- | Store a little-endian word inside one chunk.
+pokeWord :: MutableByteArray s -> Int -> Int -> Word64 -> ST s ()
+pokeWord chunk offset width value = go 0
   where
     go index =
       when (index < width) $ do
-        pokeByteOff pointer index (fromIntegral (value `shiftR` (8 * index)) :: Word8)
+        writeByteArray chunk (offset + index) (fromIntegral (value `shiftR` (8 * index)) :: Word8)
         go (index + 1)
 
-peekLittleEndian :: Ptr Word8 -> Int -> IO Word64
-peekLittleEndian pointer width =
-  case width of
-    4 | targetByteOrder == LittleEndian -> fromIntegral <$> (peekByteOff pointer 0 :: IO Word32)
-    8 | targetByteOrder == LittleEndian -> peekByteOff pointer 0
-    _ -> go 0 0
+readByte :: MutableByteArray s -> Int -> ST s Word8
+readByte = readByteArray
+{-# INLINE readByte #-}
+
+-- | Load a little-endian word from inside one chunk.
+peekWord :: MutableByteArray s -> Int -> Int -> ST s Word64
+peekWord chunk offset width = go 0 0
   where
     go index !value
       | index < width = do
-          byte <- peekByteOff pointer index :: IO Word8
+          byte <- readByte chunk (offset + index)
           go (index + 1) (value .|. (fromIntegral byte `shiftL` (8 * index)))
       | otherwise = pure value
 
 -- | Append one byte.
-emitByte :: Section -> Word8 -> IO ()
+emitByte :: Section s -> Word8 -> ST s ()
 emitByte section value = do
   size <- sectionSize section
   chunk <- chunkAt section (size `shiftR` chunkShift)
-  unsafeWithForeignPtr chunk $ \pointer -> pokeByteOff pointer (size .&. chunkMask) value
-  unsafeWrite (sectionCounters section) counterSize (size + 1)
+  writeByteArray chunk (size .&. chunkMask) value
+  writePrimArray (sectionCounters section) counterSize (size + 1)
 
 -- | Append a little-endian word.
-emitWord :: Section -> Int -> Word64 -> IO ()
+emitWord :: Section s -> Int -> Word64 -> ST s ()
 emitWord section width value = do
   size <- sectionSize section
   let within = size .&. chunkMask
   if within + width <= chunkBytes
     then do
       chunk <- chunkAt section (size `shiftR` chunkShift)
-      unsafeWithForeignPtr chunk $ \pointer -> pokeLittleEndian (pointer `plusPtr` within) width value
-      unsafeWrite (sectionCounters section) counterSize (size + width)
+      pokeWord chunk within width value
+      writePrimArray (sectionCounters section) counterSize (size + width)
     else mapM_ (\index -> emitByte section (fromIntegral (value `shiftR` (8 * index)))) [0 .. width - 1]
 
 -- | Append bytes.
-emitBytes :: Section -> ByteString -> IO ()
-emitBytes section value =
-  BSU.unsafeUseAsCStringLen value $ \(source, total) ->
-    let go done =
-          when (done < total) $ do
-            size <- sectionSize section
-            let within = size .&. chunkMask
-                count = min (total - done) (chunkBytes - within)
-            chunk <- chunkAt section (size `shiftR` chunkShift)
-            unsafeWithForeignPtr chunk $ \pointer -> copyBytes (pointer `plusPtr` within) (castPtr source `plusPtr` done) count
-            unsafeWrite (sectionCounters section) counterSize (size + count)
-            go (done + count)
-     in go 0
+emitBytes :: Section s -> ByteString -> ST s ()
+emitBytes section value = go 0
+  where
+    source = case toShort value of SBS array -> ByteArray array
+    total = BS.length value
+    go done =
+      when (done < total) $ do
+        size <- sectionSize section
+        let within = size .&. chunkMask
+            count = min (total - done) (chunkBytes - within)
+        chunk <- chunkAt section (size `shiftR` chunkShift)
+        copyByteArray chunk within source done count
+        writePrimArray (sectionCounters section) counterSize (size + count)
+        go (done + count)
 
 -- | Read a little-endian word at an offset.
-readWordAt :: Section -> Int -> Int -> IO Word64
+readWordAt :: Section s -> Int -> Int -> ST s Word64
 readWordAt section offset width = do
   let within = offset .&. chunkMask
   if within + width <= chunkBytes
     then do
       chunk <- chunkAt section (offset `shiftR` chunkShift)
-      unsafeWithForeignPtr chunk $ \pointer -> peekLittleEndian (pointer `plusPtr` within) width
+      peekWord chunk within width
     else do
-      let byteAt index = do
-            chunk <- chunkAt section ((offset + index) `shiftR` chunkShift)
-            unsafeWithForeignPtr chunk $ \pointer -> peekByteOff pointer ((offset + index) .&. chunkMask) :: IO Word8
-      bytes <- mapM byteAt [0 .. width - 1]
+      bytes <-
+        mapM
+          ( \index -> do
+              chunk <- chunkAt section ((offset + index) `shiftR` chunkShift)
+              readByte chunk ((offset + index) .&. chunkMask)
+          )
+          [0 .. width - 1]
       pure (foldr (\byte value -> (value `shiftL` 8) .|. fromIntegral byte) 0 bytes)
 
 -- | Write a little-endian word at an offset.
-writeWordAt :: Section -> Int -> Int -> Word64 -> IO ()
+writeWordAt :: Section s -> Int -> Int -> Word64 -> ST s ()
 writeWordAt section offset width value = do
   let within = offset .&. chunkMask
   if within + width <= chunkBytes
     then do
       chunk <- chunkAt section (offset `shiftR` chunkShift)
-      unsafeWithForeignPtr chunk $ \pointer -> pokeLittleEndian (pointer `plusPtr` within) width value
+      pokeWord chunk within width value
     else
       mapM_
         ( \index -> do
             chunk <- chunkAt section ((offset + index) `shiftR` chunkShift)
-            unsafeWithForeignPtr chunk $ \pointer -> pokeByteOff pointer ((offset + index) .&. chunkMask) (fromIntegral (value `shiftR` (8 * index)) :: Word8)
+            writeByteArray chunk ((offset + index) .&. chunkMask) (fromIntegral (value `shiftR` (8 * index)) :: Word8)
         )
         [0 .. width - 1]
 
--- | Every byte of the section, sharing the chunk memory.
-sectionBytes :: Section -> IO BL.ByteString
-sectionBytes section = do
+-- | Every byte of the section, sharing the chunk memory. Nothing writes to
+-- the section afterwards.
+freezeSection :: Section s -> ST s BL.ByteString
+freezeSection section = do
   size <- sectionSize section
-  count <- unsafeRead (sectionCounters section) counterChunks
-  chunks <- readIORef (sectionChunks section)
+  count <- readPrimArray (sectionCounters section) counterChunks
   pieces <-
     mapM
       ( \index -> do
-          chunk <- unsafeRead chunks index
+          ByteArray frozen <- readColumn (sectionChunks section) index >>= unsafeFreezeByteArray
           let width = if index == count - 1 then size - index * chunkBytes else chunkBytes
-          pure (BSI.fromForeignPtr chunk 0 width)
+          -- The chunk is pinned, so this shares it rather than copying.
+          pure (BS.take width (fromShort (SBS frozen)))
       )
       [0 .. count - 1]
   pure (BL.fromChunks pieces)
 
+-- | A fixup row, read back for resolution.
+data FixupRow = FixupRow
+  { fixupRowOffset :: !Int,
+    fixupRowAddend :: !Int64,
+    fixupRowTarget :: !Int,
+    fixupRowKind :: !FixupKind
+  }
+
+readFixup :: Section s -> Int -> ST s FixupRow
+readFixup section row =
+  FixupRow
+    <$> readColumn (fixupOffsets section) row
+    <*> readColumn (fixupAddends section) row
+    <*> readColumn (fixupTargets section) row
+    <*> (toEnum . fromIntegral <$> readColumn (fixupKinds section) row)
+
+writeFixup :: Section s -> Int -> FixupRow -> ST s ()
+writeFixup section row fixup = do
+  writeColumn (fixupOffsets section) row (fixupRowOffset fixup)
+  writeColumn (fixupAddends section) row (fixupRowAddend fixup)
+  writeColumn (fixupTargets section) row (fixupRowTarget fixup)
+  writeColumn (fixupKinds section) row (fromIntegral (fromEnum (fixupRowKind fixup)))
+
 -- Objects
 
 -- | An object under construction.
-data Object = Object
-  { objectCurrent :: !(IORef (Maybe Section)),
-    objectSections :: !(IORef (Map SectionRole Section)),
+data Object s = Object
+  { objectCurrent :: !(MutVar s (Maybe (Section s))),
+    objectSections :: !(MutVar s (Map SectionRole (Section s))),
     -- | The sections in the order they were first selected, latest first.
-    objectOrder :: !(IORef [SectionRole]),
-    objectSymbolIds :: !(IORef (Map Text Int)),
+    objectOrder :: !(MutVar s [SectionRole]),
+    objectSymbolIds :: !(MutVar s (Map Text Int)),
     -- | The text of every symbol, latest first.
-    objectSymbolNames :: !(IORef [Text]),
-    objectSymbols :: !Table,
+    objectSymbolNames :: !(MutVar s [Text]),
+    objectSymbolCount :: !(MutablePrimArray s Int),
+    objectSymbolOffsets :: !(Unboxed s Int),
+    -- | The section a symbol is defined in, or -1.
+    objectSymbolSections :: !(Unboxed s Int8),
+    objectSymbolGlobals :: !(Unboxed s Bool),
     -- | Private labels, by number.
-    objectLocals :: !Table
+    objectLocalOffsets :: !(Unboxed s Int),
+    objectLocalSections :: !(Unboxed s Int8)
   }
 
-newObject :: IO Object
-newObject =
+newObject :: ST s (Object s)
+newObject = do
+  count <- newPrimArray 1
+  writePrimArray count 0 0
   Object
-    <$> newIORef Nothing
-    <*> newIORef Map.empty
-    <*> newIORef []
-    <*> newIORef Map.empty
-    <*> newIORef []
-    <*> newTable symbolStride 256
-    <*> newTable localStride 256
+    <$> newMutVar Nothing
+    <*> newMutVar Map.empty
+    <*> newMutVar []
+    <*> newMutVar Map.empty
+    <*> newMutVar []
+    <*> pure count
+    <*> newColumn 0 256
+    <*> newColumn undefinedSection 256
+    <*> newColumn False 256
+    <*> newColumn 0 256
+    <*> newColumn undefinedSection 256
 
-currentSectionRole :: Object -> IO (Maybe SectionRole)
-currentSectionRole object = fmap sectionRole <$> readIORef (objectCurrent object)
+-- | Build an object, lay it out, and encode it. The object exists only
+-- inside the call, so the result is a pure function of the builder.
+assembleObject :: (ObjectError -> err) -> (Image -> Either ObjectError BL.ByteString) -> (forall s. Object s -> ST s (Either err ())) -> Either err BL.ByteString
+assembleObject wrap encode build = runST $ do
+  object <- newObject
+  result <- build object
+  case result of
+    Left err -> pure (Left err)
+    Right () -> either (Left . wrap) (either (Left . wrap) Right . encode) <$> layoutObject object
 
-selectSection :: SectionRole -> Object -> IO ()
+currentSectionRole :: Object s -> ST s (Maybe SectionRole)
+currentSectionRole object = fmap sectionRole <$> readMutVar (objectCurrent object)
+
+selectSection :: SectionRole -> Object s -> ST s ()
 selectSection role object = do
-  current <- readIORef (objectCurrent object)
+  current <- readMutVar (objectCurrent object)
   case current of
     Just section | sectionRole section == role -> pure ()
     _ -> do
-      sections <- readIORef (objectSections object)
+      sections <- readMutVar (objectSections object)
       section <- case Map.lookup role sections of
         Just section -> pure section
         Nothing -> do
           section <- newSection role
-          writeIORef (objectSections object) (Map.insert role section sections)
-          modifyIORef' (objectOrder object) (role :)
+          writeMutVar (objectSections object) (Map.insert role section sections)
+          modifyMutVar' (objectOrder object) (role :)
           pure section
-      writeIORef (objectCurrent object) (Just section)
+      writeMutVar (objectCurrent object) (Just section)
 
 -- | The number of a symbol, assigned on first sight.
-internSymbol :: Object -> Text -> IO Int
+internSymbol :: Object s -> Text -> ST s Int
 internSymbol object name = do
-  ids <- readIORef (objectSymbolIds object)
+  ids <- readMutVar (objectSymbolIds object)
   case Map.lookup name ids of
     Just identifier -> pure identifier
     Nothing -> do
-      identifier <- tablePush (objectSymbols object)
-      tableAt (objectSymbols object) identifier $ \row -> do
-        pokeByteOff row 0 (0 :: Word64)
-        pokeByteOff row 8 undefinedSection
-        pokeByteOff row 9 (0 :: Word8)
-      writeIORef (objectSymbolIds object) (Map.insert name identifier ids)
-      modifyIORef' (objectSymbolNames object) (name :)
+      identifier <- readPrimArray (objectSymbolCount object) 0
+      writePrimArray (objectSymbolCount object) 0 (identifier + 1)
+      writeColumn (objectSymbolSections object) identifier undefinedSection
+      writeMutVar (objectSymbolIds object) (Map.insert name identifier ids)
+      modifyMutVar' (objectSymbolNames object) (name :)
       pure identifier
 
-addGlobal :: Text -> Object -> IO ()
+addGlobal :: Text -> Object s -> ST s ()
 addGlobal name object = do
   identifier <- internSymbol object name
-  tableAt (objectSymbols object) identifier $ \row -> pokeByteOff row 9 (1 :: Word8)
-
--- | Make sure the local table reaches the given number, marking new rows
--- undefined.
-reserveLocal :: Object -> Int -> IO ()
-reserveLocal object identifier = do
-  count <- tableLength (objectLocals object)
-  when (identifier >= count) $ do
-    tableReserve (objectLocals object) (identifier + 1)
-    mapM_ (\row -> tableAt (objectLocals object) row (\pointer -> pokeByteOff pointer 8 undefinedSection)) [count .. identifier]
-    setTableLength (objectLocals object) (identifier + 1)
+  writeColumn (objectSymbolGlobals object) identifier True
 
 localText :: Int -> Text
 localText identifier = ".L" <> T.pack (show identifier)
 
-defineLabel :: Object -> Section -> Name -> IO (Either ObjectError ())
+defineLabel :: Object s -> Section s -> Name -> ST s (Either ObjectError ())
 defineLabel object section name = do
   size <- sectionSize section
+  let role = fromIntegral (fromEnum (sectionRole section)) :: Int8
   case name of
     SymbolName text -> do
       identifier <- internSymbol object text
-      tableAt (objectSymbols object) identifier $ \row -> do
-        defined <- peekByteOff row 8 :: IO Int8
-        if defined /= undefinedSection
-          then pure (Left (ObjectDuplicateSymbol text))
-          else do
-            pokeByteOff row 0 (fromIntegral size :: Word64)
-            pokeByteOff row 8 (fromIntegral (fromEnum (sectionRole section)) :: Int8)
-            pure ok
+      defined <- readColumn (objectSymbolSections object) identifier
+      if defined /= undefinedSection
+        then pure (Left (ObjectDuplicateSymbol text))
+        else do
+          writeColumn (objectSymbolOffsets object) identifier size
+          writeColumn (objectSymbolSections object) identifier role
+          pure ok
     LocalName identifier _ -> do
-      reserveLocal object identifier
-      tableAt (objectLocals object) identifier $ \row -> do
-        defined <- peekByteOff row 8 :: IO Int8
-        if defined /= undefinedSection
-          then pure (Left (ObjectDuplicateSymbol (localText identifier)))
-          else do
-            pokeByteOff row 0 (fromIntegral size :: Word64)
-            pokeByteOff row 8 (fromIntegral (fromEnum (sectionRole section)) :: Int8)
-            pure ok
+      defined <- readColumn (objectLocalSections object) identifier
+      if defined /= undefinedSection
+        then pure (Left (ObjectDuplicateSymbol (localText identifier)))
+        else do
+          writeColumn (objectLocalOffsets object) identifier size
+          writeColumn (objectLocalSections object) identifier role
+          pure ok
 
 -- | Append one item to the current section.
-emitItem :: Object -> Item -> IO (Either ObjectError ())
+emitItem :: Object s -> Item -> ST s (Either ObjectError ())
 emitItem object item = do
-  current <- readIORef (objectCurrent object)
+  current <- readMutVar (objectCurrent object)
   case current of
     Nothing -> pure (Left ObjectNoSection)
     Just section ->
@@ -544,32 +571,20 @@ emitItem object item = do
             SymbolName text -> internSymbol object text
             LocalName identifier _ -> pure (-1 - identifier)
           emitWord section (fixupWidth fixup) (fixupWord fixup)
-          row <- tablePush (sectionFixups section)
-          tableAt (sectionFixups section) row $ \pointer -> do
-            pokeByteOff pointer 0 (fromIntegral size :: Word64)
-            pokeByteOff pointer 8 (fixupAddend fixup)
-            pokeByteOff pointer 16 (fromIntegral target :: Int32)
-            pokeByteOff pointer 20 (fromIntegral (fromEnum (fixupKind fixup)) :: Word8)
+          row <- readPrimArray (sectionCounters section) counterFixups
+          writePrimArray (sectionCounters section) counterFixups (row + 1)
+          writeFixup section row (FixupRow size (fixupAddend fixup) target (fixupKind fixup))
           pure ok
 
 -- | Append a run of items to the current section.
-emitItems :: Object -> [Item] -> IO (Either ObjectError ())
-emitItems object = go
-  where
-    go items =
-      case items of
-        [] -> pure ok
-        item : rest -> do
-          result <- emitItem object item
-          case result of
-            Left err -> pure (Left err)
-            Right () -> go rest
+emitItems :: Object s -> [Item] -> ST s (Either ObjectError ())
+emitItems object = applyAll (emitItem object)
 
 -- | Pad the current section to a power-of-two boundary with copies of the
 -- fill, and record the alignment.
-emitAlign :: Object -> Int -> ByteString -> IO (Either ObjectError ())
+emitAlign :: Object s -> Int -> ByteString -> ST s (Either ObjectError ())
 emitAlign object alignmentPower fill = do
-  current <- readIORef (objectCurrent object)
+  current <- readMutVar (objectCurrent object)
   case current of
     Nothing -> pure (Left ObjectNoSection)
     Just section
@@ -577,8 +592,8 @@ emitAlign object alignmentPower fill = do
       | BS.null fill -> pure (Left (ObjectInvalidInput "empty alignment fill"))
       | otherwise -> do
           size <- sectionSize section
-          alignment <- unsafeRead (sectionCounters section) counterAlignment
-          unsafeWrite (sectionCounters section) counterAlignment (max alignment alignmentPower)
+          alignment <- readPrimArray (sectionCounters section) counterAlignment
+          writePrimArray (sectionCounters section) counterAlignment (max alignment alignmentPower)
           let boundary = 1 `shiftL` alignmentPower
               padding = (boundary - size `mod` boundary) `mod` boundary
               -- A block of whole fills, bounded so that a large alignment
@@ -594,21 +609,21 @@ emitAlign object alignmentPower fill = do
 
 -- | Resolve the fixups of the function just emitted that name its private
 -- labels, patching the section in place, and keep the rest for layout.
-sealFunction :: Object -> IO (Either ObjectError ())
+sealFunction :: Object s -> ST s (Either ObjectError ())
 sealFunction object = do
-  current <- readIORef (objectCurrent object)
+  current <- readMutVar (objectCurrent object)
   case current of
     Nothing -> pure ok
     Just section -> do
-      sealed <- unsafeRead (sectionCounters section) counterSealed
-      count <- tableLength (sectionFixups section)
+      sealed <- readPrimArray (sectionCounters section) counterSealed
+      count <- readPrimArray (sectionCounters section) counterFixups
       let go source target
             | source == count = do
-                setTableLength (sectionFixups section) target
-                unsafeWrite (sectionCounters section) counterSealed target
+                writePrimArray (sectionCounters section) counterFixups target
+                writePrimArray (sectionCounters section) counterSealed target
                 pure ok
             | otherwise = do
-                fixup <- readFixup (sectionFixups section) source
+                fixup <- readFixup section source
                 if fixupRowTarget fixup < 0
                   then do
                     result <- resolveLocal object section fixup
@@ -616,50 +631,23 @@ sealFunction object = do
                       Left err -> pure (Left err)
                       Right () -> go (source + 1) target
                   else do
-                    when (source /= target) (writeFixup (sectionFixups section) target fixup)
+                    when (source /= target) (writeFixup section target fixup)
                     go (source + 1) (target + 1)
       go sealed sealed
 
--- | A fixup row, read back for resolution.
-data FixupRow = FixupRow
-  { fixupRowOffset :: !Int,
-    fixupRowAddend :: !Int64,
-    fixupRowTarget :: !Int,
-    fixupRowKind :: !FixupKind
-  }
-
-readFixup :: Table -> Int -> IO FixupRow
-readFixup table row =
-  tableAt table row $ \pointer -> do
-    offset <- peekByteOff pointer 0 :: IO Word64
-    addend <- peekByteOff pointer 8 :: IO Int64
-    target <- peekByteOff pointer 16 :: IO Int32
-    kind <- peekByteOff pointer 20 :: IO Word8
-    pure (FixupRow (fromIntegral offset) addend (fromIntegral target) (toEnum (fromIntegral kind)))
-
-writeFixup :: Table -> Int -> FixupRow -> IO ()
-writeFixup table row fixup =
-  tableAt table row $ \pointer -> do
-    pokeByteOff pointer 0 (fromIntegral (fixupRowOffset fixup) :: Word64)
-    pokeByteOff pointer 8 (fixupRowAddend fixup)
-    pokeByteOff pointer 16 (fromIntegral (fixupRowTarget fixup) :: Int32)
-    pokeByteOff pointer 20 (fromIntegral (fromEnum (fixupRowKind fixup)) :: Word8)
-
 -- | Patch a fixup that names a private label of this section.
-resolveLocal :: Object -> Section -> FixupRow -> IO (Either ObjectError ())
+resolveLocal :: Object s -> Section s -> FixupRow -> ST s (Either ObjectError ())
 resolveLocal object section fixup = do
   let identifier = -1 - fixupRowTarget fixup
-  count <- tableLength (objectLocals object)
-  (defined, target) <-
-    if identifier < count
-      then tableAt (objectLocals object) identifier $ \row -> (,) <$> (peekByteOff row 8 :: IO Int8) <*> (peekByteOff row 0 :: IO Word64)
-      else pure (undefinedSection, 0)
+  defined <- readColumn (objectLocalSections object) identifier
   if defined == undefinedSection
     then pure (Left (ObjectMissingSymbol (localText identifier)))
     else
       if fromIntegral defined /= fromEnum (sectionRole section) || not (canResolve (fixupRowKind fixup))
         then pure (Left (ObjectInvalidFixup (fixupRowKind fixup)))
-        else patchLocal section (localText identifier) (fromIntegral target) fixup
+        else do
+          target <- readColumn (objectLocalOffsets object) identifier
+          patchLocal section (localText identifier) target fixup
 
 -- | Whether this object can fill a fixup in without the linker.
 canResolve :: FixupKind -> Bool
@@ -673,9 +661,10 @@ canResolve kind =
     _ -> False
 
 -- | Fill a fixup in with the displacement to a target in the same section.
-patchLocal :: Section -> Text -> Int -> FixupRow -> IO (Either ObjectError ())
+patchLocal :: Section s -> Text -> Int -> FixupRow -> ST s (Either ObjectError ())
 patchLocal section name target fixup = do
-  instruction <- fromIntegral <$> readWordAt section offset 4 :: IO Word32
+  word <- readWordAt section offset 4
+  let instruction = fromIntegral word :: Word32
   case fixupRowKind fixup of
     Arm64Branch26
       | displacement `mod` 4 /= 0 || not (fitsSigned 28 displacement) -> outOfRange
@@ -707,21 +696,6 @@ fitsSigned bits value = value >= negate (1 `shiftL` (bits - 1)) && value < (1 `s
 
 -- Layout
 
--- | A symbol row, read back for layout.
-data SymbolRow = SymbolRow
-  { symbolRowOffset :: !Word64,
-    symbolRowSection :: !Int8,
-    symbolRowGlobal :: !Bool
-  }
-
-readSymbol :: Table -> Int -> IO SymbolRow
-readSymbol table row =
-  tableAt table row $ \pointer -> do
-    offset <- peekByteOff pointer 0 :: IO Word64
-    section <- peekByteOff pointer 8 :: IO Int8
-    global <- peekByteOff pointer 9 :: IO Word8
-    pure (SymbolRow offset section (global /= 0))
-
 -- | Resolve every fixup left, patching the ones this object can fill in and
 -- turning the rest into relocations, and choose the symbols. Only a name
 -- that the linker needs becomes a symbol: a global one, or one that a
@@ -734,21 +708,20 @@ readSymbol table row =
 -- the string table of a library object. Those are numbered instead. An
 -- exported or undefined name keeps its text, because that is what another
 -- object matches against.
-layoutObject :: Object -> IO (Either ObjectError Image)
+layoutObject :: Object s -> ST s (Either ObjectError Image)
 layoutObject object = do
-  order <- reverse <$> readIORef (objectOrder object)
-  sections <- readIORef (objectSections object)
-  symbolCount <- tableLength (objectSymbols object)
-  names <- listArray (0, symbolCount - 1) . reverse <$> readIORef (objectSymbolNames object)
-  relocated <- newArray (0, max 0 (symbolCount - 1)) False :: IO (IOUArray Int Bool)
+  order <- reverse <$> readMutVar (objectOrder object)
+  sections <- readMutVar (objectSections object)
+  symbolCount <- readPrimArray (objectSymbolCount object) 0
+  names <- listArray (0, symbolCount - 1) . reverse <$> readMutVar (objectSymbolNames object)
+  relocated <- MU.replicate symbolCount False
   resolved <- resolveSections object (names !) relocated [sections Map.! role | role <- order]
   case resolved of
     Left err -> pure (Left err)
     Right sectionRelocations -> do
-      ids <- Map.toAscList <$> readIORef (objectSymbolIds object)
-      rows <- mapM (\(_, identifier) -> readSymbol (objectSymbols object) identifier) ids
-      let candidates = zip ids rows
-      needed <- filterMaybe relocated candidates
+      ids <- Map.toAscList <$> readMutVar (objectSymbolIds object)
+      candidates <- mapM (\named@(_, identifier) -> (,) named <$> readSymbol identifier) ids
+      needed <- filterM (\((_, identifier), row) -> if symbolRowGlobal row then pure True else MU.unsafeRead relocated identifier) candidates
       let defined row = symbolRowSection row /= undefinedSection
           privateLabels =
             IntMap.fromList
@@ -760,19 +733,19 @@ layoutObject object = do
           ordered = sortOn fst [(emitted named, (named, row)) | (named, row) <- needed]
           symbols =
             [ if defined row
-                then Symbol label (symbolRowGlobal row) (Just (toEnum (fromIntegral (symbolRowSection row)))) (symbolRowOffset row)
+                then Symbol label (symbolRowGlobal row) (Just (toEnum (fromIntegral (symbolRowSection row)))) (fromIntegral (symbolRowOffset row))
                 else Symbol label True Nothing 0
             | (label, (_, row)) <- ordered
             ]
-      positions <- newArray (0, max 0 (symbolCount - 1)) (-1) :: IO (IOUArray Int Int)
-      mapM_ (\(position, (_, ((_, identifier), _))) -> unsafeWrite positions identifier position) (zip [0 ..] ordered)
+      positions <- MU.replicate symbolCount (-1 :: Int)
+      mapM_ (\(position, (_, ((_, identifier), _))) -> MU.unsafeWrite positions identifier position) (zip [0 ..] ordered)
       imageSections <-
         mapM
           ( \(section, relocations) -> do
               size <- sectionSize section
-              alignment <- unsafeRead (sectionCounters section) counterAlignment
-              bytes <- sectionBytes section
-              placed <- mapM (\(offset, kind, identifier, addend) -> (\position -> Relocation offset kind position addend) <$> unsafeRead positions identifier) relocations
+              alignment <- readPrimArray (sectionCounters section) counterAlignment
+              bytes <- freezeSection section
+              placed <- mapM (\(offset, kind, identifier, addend) -> (\position -> Relocation offset kind position addend) <$> MU.unsafeRead positions identifier) relocations
               pure
                 ImageSection
                   { imageSectionRole = sectionRole section,
@@ -785,24 +758,29 @@ layoutObject object = do
           sectionRelocations
       pure (Right Image {imageSections = imageSections, imageSymbols = symbols})
   where
-    filterMaybe relocated =
-      filterM
-        ( \((_, identifier), row) ->
-            if symbolRowGlobal row
-              then pure True
-              else unsafeRead relocated identifier
-        )
+    readSymbol identifier =
+      SymbolRow
+        <$> readColumn (objectSymbolOffsets object) identifier
+        <*> readColumn (objectSymbolSections object) identifier
+        <*> readColumn (objectSymbolGlobals object) identifier
+
+-- | A symbol row, read back for layout.
+data SymbolRow = SymbolRow
+  { symbolRowOffset :: !Int,
+    symbolRowSection :: !Int8,
+    symbolRowGlobal :: !Bool
+  }
 
 -- | The relocations of every section, in offset order, after patching the
 -- fixups the object resolves itself.
-resolveSections :: Object -> (Int -> Text) -> IOUArray Int Bool -> [Section] -> IO (Either ObjectError [(Section, [(Word64, FixupKind, Int, Int64)])])
+resolveSections :: Object s -> (Int -> Text) -> MU.MVector s Bool -> [Section s] -> ST s (Either ObjectError [(Section s, [(Word64, FixupKind, Int, Int64)])])
 resolveSections object nameOf relocated = go []
   where
     go done sections =
       case sections of
         [] -> pure (Right (reverse done))
         section : rest -> do
-          count <- tableLength (sectionFixups section)
+          count <- readPrimArray (sectionCounters section) counterFixups
           result <- resolveFrom section 0 count []
           case result of
             Left err -> pure (Left err)
@@ -810,18 +788,21 @@ resolveSections object nameOf relocated = go []
     resolveFrom section index count relocations
       | index == count = pure (Right (reverse relocations))
       | otherwise = do
-          fixup <- readFixup (sectionFixups section) index
+          fixup <- readFixup section index
           result <-
             if fixupRowTarget fixup < 0
               then fmap (const Nothing) <$> resolveLocal object section fixup
               else do
                 let identifier = fixupRowTarget fixup
-                row <- readSymbol (objectSymbols object) identifier
-                let sameSection = fromIntegral (symbolRowSection row) == fromEnum (sectionRole section)
-                if canResolve (fixupRowKind fixup) && not (symbolRowGlobal row) && sameSection
-                  then fmap (const Nothing) <$> patchLocal section (nameOf identifier) (fromIntegral (symbolRowOffset row)) fixup
+                definedIn <- readColumn (objectSymbolSections object) identifier
+                global <- readColumn (objectSymbolGlobals object) identifier
+                let sameSection = fromIntegral definedIn == fromEnum (sectionRole section)
+                if canResolve (fixupRowKind fixup) && not global && sameSection
+                  then do
+                    target <- readColumn (objectSymbolOffsets object) identifier
+                    fmap (const Nothing) <$> patchLocal section (nameOf identifier) target fixup
                   else do
-                    unsafeWrite relocated identifier True
+                    MU.unsafeWrite relocated identifier True
                     pure (Right (Just (fromIntegral (fixupRowOffset fixup), fixupRowKind fixup, identifier, fixupRowAddend fixup)))
           case result of
             Left err -> pure (Left err)

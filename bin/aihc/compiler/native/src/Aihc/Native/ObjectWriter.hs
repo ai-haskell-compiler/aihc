@@ -8,6 +8,7 @@ where
 import Aihc.Native.Object
 import Control.Exception (bracket)
 import Control.Monad (when)
+import Control.Monad.ST (RealWorld, stToIO)
 import Data.ByteString.Lazy qualified as BL
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
 import System.FilePath (takeDirectory)
@@ -15,12 +16,12 @@ import System.IO (hClose, openBinaryTempFile)
 
 -- | Publish the object only after all compiler and object checks succeed.
 -- An existing file at the destination stays untouched until then.
-withObjectWriter :: FilePath -> (Image -> Either ObjectError BL.ByteString) -> (Object -> IO value) -> IO value
+withObjectWriter :: FilePath -> (Image -> Either ObjectError BL.ByteString) -> (Object RealWorld -> IO value) -> IO value
 withObjectWriter destination encode action = do
   createDirectoryIfMissing True directory
-  object <- newObject
+  object <- stToIO newObject
   value <- action object
-  image <- layoutObject object >>= checked
+  image <- stToIO (layoutObject object) >>= checked
   bytes <- checked (encode image)
   bracket (openBinaryTempFile directory ".aihc-object") (\(path, handle) -> hClose handle >> removeIfPresent path) $ \(path, handle) -> do
     BL.hPut handle bytes

@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 -- | Shared incremental conversion and object emission for native backends.
 module Aihc.Native.Emit
   ( ObjectBackend (..),
@@ -17,37 +19,33 @@ import Aihc.Native.Object (Image, Object, ObjectError, layoutObject, newObject, 
 import Aihc.Native.ObjectWriter (withObjectWriter)
 import Aihc.Native.ObjectWriter qualified as ObjectWriter
 import Control.Monad (when)
+import Control.Monad.ST (RealWorld, ST, runST, stToIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.ByteString.Lazy qualified as BL
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
 import Data.Text.IO qualified as TIO
 import System.IO (IOMode (WriteMode), withFile)
-import System.IO.Unsafe (unsafePerformIO)
 
 -- | The instruction encoder and object format are specific to each target.
 data ObjectBackend statement register error = ObjectBackend
   { obNative :: !(NativeBackend statement register error),
-    obStatement :: !(Object -> statement -> IO (Either ObjectError ())),
+    obStatement :: !(forall s. Object s -> statement -> ST s (Either ObjectError ())),
     obImage :: !(Image -> Either ObjectError BL.ByteString),
     obError :: !(ObjectError -> error)
   }
 
--- | Assemble a module into object bytes. The object is built in a private
--- buffer that nothing else can reach, so the result is a pure function of
--- the module.
+-- | Assemble a module into object bytes.
 compileLirObjectWith :: (Ord register) => ObjectBackend statement register error -> Bool -> Module -> Either error BL.ByteString
 {-# INLINEABLE compileLirObjectWith #-}
-compileLirObjectWith backend lint lirModule = unsafePerformIO $ do
+compileLirObjectWith backend lint lirModule = runST $ do
   object <- newObject
-  result <- runExceptT (compileNativeTo lint (obNative backend) (output object) (endFunction object) lirModule)
+  result <- runExceptT (compileNativeTo lint (obNative backend) (ExceptT . obStatement backend object) (ExceptT (sealFunction object)) lirModule)
   case result of
     Left err -> pure (Left (obError backend err))
     Right (Left err) -> pure (Left err)
     Right (Right ()) -> objectResult . (>>= obImage backend) <$> layoutObject object
   where
-    output object statement = ExceptT (obStatement backend object statement)
-    endFunction object = ExceptT (sealFunction object)
     objectResult = either (Left . obError backend) Right
 
 -- | Write an object, assembling each statement as it is produced.
@@ -55,7 +53,7 @@ writeLirObjectWith :: (Ord register, Show error) => ObjectBackend statement regi
 {-# INLINEABLE writeLirObjectWith #-}
 writeLirObjectWith backend lint lirModule path =
   withObjectWriter path (obImage backend) $ \object ->
-    compileNativeTo lint (obNative backend) (writeStatement backend object) (sealFunction object >>= ObjectWriter.checked) lirModule >>= checked
+    compileNativeTo lint (obNative backend) (writeStatement backend object) (seal object) lirModule >>= checked
 
 -- | Consume each LIR item as GC-GRIN conversion completes it.
 writeGrinObjectWith :: (Ord register, Show error) => ObjectBackend statement register error -> Bool -> Bool -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO ()
@@ -73,7 +71,7 @@ writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
             next <- compileNativeItemTo native (writeStatement backend object) signatures item current >>= checked
             writeIORef state next
             case item of
-              ItemFunction _ -> sealFunction object >>= ObjectWriter.checked
+              ItemFunction _ -> seal object
               _ -> pure ()
       Lower.lowerModuleTo Lower.posixTarget64 checkBounds output gcProgram >>= checked
       current <- readIORef state
@@ -100,9 +98,12 @@ writeGrinObjectWith backend lint checkBounds dumpPath gcProgram path = do
       Nothing -> action (const (pure ()))
       Just dump -> withFile dump WriteMode $ \handle -> action (TIO.hPutStrLn handle . renderModule . Module . pure)
 
-writeStatement :: ObjectBackend statement register error -> Object -> statement -> IO ()
+writeStatement :: ObjectBackend statement register error -> Object RealWorld -> statement -> IO ()
 {-# INLINEABLE writeStatement #-}
-writeStatement backend object statement = obStatement backend object statement >>= ObjectWriter.checked
+writeStatement backend object statement = stToIO (obStatement backend object statement) >>= ObjectWriter.checked
+
+seal :: Object RealWorld -> IO ()
+seal object = stToIO (sealFunction object) >>= ObjectWriter.checked
 
 checked :: (Show error) => Either error value -> IO value
 checked = either (ioError . userError . show) pure
