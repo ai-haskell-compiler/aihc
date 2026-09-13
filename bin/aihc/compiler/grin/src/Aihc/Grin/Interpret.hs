@@ -1423,6 +1423,18 @@ evalPrimitive "indexWord8ArrayAsWord32#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "indexWord8ArrayAsWord32#" 1 4 readAddressWord32 value offset
 evalPrimitive "indexWord8ArrayAsWord64#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "indexWord8ArrayAsWord64#" 1 8 readAddressWord64 value offset
+evalPrimitive "readWord8ArrayAsWord16#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readByteArrayElement "readWord8ArrayAsWord16#" 1 2 readAddressWord16 value offset
+evalPrimitive "readWord8ArrayAsWord32#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "readWord8ArrayAsWord32#" 1 4 readAddressWord32 value offset
+evalPrimitive "readWord8ArrayAsWord64#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "readWord8ArrayAsWord64#" 1 8 readAddressWord64 value offset
+evalPrimitive "writeWord8ArrayAsWord16#" [value, offset, element] =
+  writeByteArrayElement "writeWord8ArrayAsWord16#" 1 2 Word16Rep writeAddressWord16 value offset element
+evalPrimitive "writeWord8ArrayAsWord32#" [value, offset, element] =
+  writeByteArrayElement "writeWord8ArrayAsWord32#" 1 4 Word32Rep writeAddressWord32 value offset element
+evalPrimitive "writeWord8ArrayAsWord64#" [value, offset, element] =
+  writeByteArrayElement "writeWord8ArrayAsWord64#" 1 8 Word64Rep writeAddressWord64 value offset element
 evalPrimitive "indexWord8Array#" [value, index] =
   (: []) . RuntimeLit . GrinLitInt Word8Rep <$> readByteArrayElement "indexWord8Array#" 1 1 readAddressWord8 value index
 evalPrimitive "indexWord16Array#" [value, index] =

@@ -149,7 +149,7 @@ import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Either (Either (..), either)
 import Data.Maybe (maybe)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, ($), (++), (.))
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, const, flip, id, map, ($), (++), (.))
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
@@ -204,10 +204,6 @@ infixr 0 $!
 (<$>) = fmap
 
 infixl 4 <$>
-
-map :: (a -> b) -> [a] -> [b]
-map _ [] = []
-map function (value : values) = function value : map function values
 
 concat :: [[a]] -> [a]
 concat = foldr (++) []

@@ -1,10 +1,15 @@
 {-# HLINT ignore "Use guards" #-}
+{-# HLINT ignore "Use ==" #-}
+{-# HLINT ignore "Use /=" #-}
 {-# HLINT ignore "Use max" #-}
 {-# HLINT ignore "Use min" #-}
 
 module GHC.Classes
   ( Eq (..),
     Ord (..),
+    (&&),
+    (||),
+    not,
   )
 where
 
@@ -13,8 +18,8 @@ import GHC.Types (Bool (..), Ordering (..))
 class Eq a where
   (==) :: a -> a -> Bool
   (/=) :: a -> a -> Bool
-  left == right = classesNot (left /= right)
-  left /= right = classesNot (left == right)
+  left == right = not (left /= right)
+  left /= right = not (left == right)
 
 infix 4 ==, /=
 
@@ -54,7 +59,21 @@ class (Eq a) => Ord a where
 
 infix 4 <, <=, >, >=
 
--- | Boolean negation for the class default methods.
-classesNot :: Bool -> Bool
-classesNot True = False
-classesNot False = True
+infixr 3 &&
+
+-- | Boolean conjunction, lazy in its second argument.
+(&&) :: Bool -> Bool -> Bool
+False && _ = False
+True && right = right
+
+infixr 2 ||
+
+-- | Boolean disjunction, lazy in its second argument.
+(||) :: Bool -> Bool -> Bool
+False || right = right
+True || _ = True
+
+-- | Boolean negation.
+not :: Bool -> Bool
+not False = True
+not True = False
