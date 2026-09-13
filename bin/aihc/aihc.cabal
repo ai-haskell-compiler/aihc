@@ -178,6 +178,7 @@ library
     Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
     Aihc.Lir.Convert
+    Aihc.Lir.Flat
     Aihc.Native.Elf
     Aihc.Native.Emit
     Aihc.Native.Lir
