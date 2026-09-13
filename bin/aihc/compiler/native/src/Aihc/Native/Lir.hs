@@ -433,6 +433,11 @@ compileGlobal backend global =
 log2 :: Integer -> Int
 log2 value = length (takeWhile (< value) (iterate (* 2) 1))
 
+-- | The native targets are 64-bit, so a word-scaled address offset counts
+-- eight bytes.
+wordBytes :: Integer
+wordBytes = 8
+
 typeBytes :: Type -> Int
 typeBytes ty = max 1 (typeBits ty `div` 8)
 
@@ -568,7 +573,7 @@ functionLayout backend signatures function = do
       slotsEnd = 8 * Map.size slots
       saved = zip savedRegisters [slotsEnd, slotsEnd + 8 ..]
       allocsStart = slotsEnd + 8 * length saved
-      allocations = [(var, size, alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
+      allocations = [(var, size, alignmentInBytes wordBytes alignment) | block <- take 1 blocks, Instruction [var] (StackAlloc size alignment) <- blockInstructions block]
   allocs <- placeAllocations backend allocsStart allocations
   let end = case Map.elems allocs of
         [] -> allocsStart
@@ -899,10 +904,10 @@ compileInstruction backend ctx (Instruction results operation) =
     PtrToInt value -> single $ \dst -> pure (operandTo backend ctx Ptr dst value)
     PtrFromInt value -> single $ \dst -> pure (operandTo backend ctx Ptr dst value)
     Select ty condition left right -> single $ \dst -> pure (nbSelect backend ctx ty dst condition left right)
-    Load ty (Address base offset) _ ->
-      single $ \dst -> pure (nbLoad backend ctx ty base offset dst)
-    Store ty value (Address base offset) _ ->
-      pure (nbStore backend ctx ty value base offset)
+    Load ty address _ ->
+      single $ \dst -> pure (nbLoad backend ctx ty (addressBase address) (addressByteOffset wordBytes address) dst)
+    Store ty value address _ ->
+      pure (nbStore backend ctx ty value (addressBase address) (addressByteOffset wordBytes address))
     PtrAdd base offset -> do
       let (loads, a) = operandIn backend ctx 0 Ptr (nbScratchLeft backend) base
       single $ \dst -> pure (loads <> nbPtrAdd backend ctx a offset dst)

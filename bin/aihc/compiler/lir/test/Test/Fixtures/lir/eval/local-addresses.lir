@@ -35,21 +35,21 @@ entry:
 
 func @main() -> (i64, i64, i64, i64, i64, i1, f64) {
 entry:
-  %function = load code [@table] align 8
+  %function = load code [@table] align 1 word
   %answer = call.indirect %function() : () -> i64
-  %positive = load ptr [@table + 8] align 8
+  %positive = load ptr [@table + 1 word] align 1 word
   %second = load i64 [%positive] align 8
-  %negative = load ptr [@table + 16] align 8
+  %negative = load ptr [@table + 2 words] align 1 word
   %positiveAddress = ptr.to_int %positive
   %negativeAddress = ptr.to_int %negative
   %distance = sub i64 %positiveAddress, %negativeAddress
-  %mutable = load ptr [@table + 24] align 8
+  %mutable = load ptr [@table + 3 words] align 1 word
   %third = load i64 [%mutable] align 8
-  %public = load ptr [@table + 32] align 8
+  %public = load ptr [@table + 4 words] align 1 word
   %fourth = load i64 [%public] align 8
-  %mixed = load code [@table + 40] align 8
+  %mixed = load code [@table + 5 words] align 1 word
   %same = eq code %mixed, @mixed
-  %external = load code [@table + 48] align 8
+  %external = load code [@table + 6 words] align 1 word
   %sine = call.indirect %external(0.0) : (f64) -> f64 cc c
   return %answer, %second, %distance, %third, %fourth, %same, %sine
 }

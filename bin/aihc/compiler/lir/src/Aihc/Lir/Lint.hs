@@ -101,7 +101,7 @@ signatureErrors signature =
 
 lintData :: Symbols -> DataItem -> [Text]
 lintData symbols dataItem =
-  alignmentErrors (dataAlignment dataItem) <> concatMap fieldErrors (dataFields dataItem)
+  byteAlignmentErrors (dataAlignment dataItem) <> concatMap fieldErrors (dataFields dataItem)
   where
     fieldErrors field =
       case field of
@@ -157,10 +157,21 @@ functionSymbolErrors symbols symbol =
     Just _ -> [renderSymbol symbol <> " is not a function"]
     Nothing -> ["unknown symbol " <> renderSymbol symbol]
 
-alignmentErrors :: Integer -> [Text]
-alignmentErrors alignment
+byteAlignmentErrors :: Integer -> [Text]
+byteAlignmentErrors alignment
   | alignment > 0 && popCount alignment == 1 = []
   | otherwise = ["alignment " <> tshow alignment <> " is not a power of two"]
+
+-- | An alignment is a power of two. A word-scaled alignment multiplies a
+-- count by the target word size, which is itself a power of two, so the
+-- count is what this checks.
+alignmentErrors :: Alignment -> [Text]
+alignmentErrors alignment =
+  case alignment of
+    AlignBytes value -> byteAlignmentErrors value
+    AlignWords count
+      | count > 0 && popCount count == 1 -> []
+      | otherwise -> ["alignment " <> tshow count <> " words is not a power of two"]
 
 -- Functions
 

@@ -33,6 +33,7 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcess, readProcessWithExitCode)
+import Test.Lir.NativeSuite (uncheckedTraps)
 import Test.Lir.Observed (lowerObservedProgram)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -60,6 +61,7 @@ tests = do
         [ testGroup "Lir evaluation fixtures" (map (fixtureTest tools directory) names),
           testGroup "GRIN heap snapshots lowered for wasm32" (map (snapshotTest snapshotDirectory) snapshots),
           testGroup "static data fixtures lowered for wasm32" (map (snapshotTest lowerDirectory) lowerFixtures),
+          testCase "a word-scaled address offset counts four bytes" wordOffsetTest,
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -97,11 +99,35 @@ clangSupportsWasm clang = do
         target : _ -> target == "wasm32"
         [] -> False
 
--- | The backend does not check memory alignment or read-only data, so these
--- interpreter traps have no WebAssembly counterpart. The fixtures that
--- address data objects with 8-byte words do not run on a 32-bit target.
-skippedFixtures :: [FilePath]
-skippedFixtures = ["trap-misaligned.lir", "trap-read-only.lir", "indirect-call.lir", "info-table.lir"]
+-- | A word-scaled address offset is four bytes here and eight bytes on a
+-- 64-bit target, which is what lets one fixture walk a table of @ptr@ and
+-- @code@ fields on both.
+wordOffsetTest :: IO ()
+wordOffsetTest = do
+  assembly <- compileText (wordScaledModule (Address (OperandLiteral (LitSymbol (Symbol "table"))) 0 2) (byteAlignment 1))
+  assertBool ("two words is offset 8, not 16: " <> T.unpack assembly) ("i32.load\t8" `T.isInfixOf` assembly)
+
+wordScaledModule :: Address -> Alignment -> Module
+wordScaledModule address alignment =
+  Module
+    [ ItemData (DataItem (Symbol "table") Internal False 8 (replicate 4 (DataCode (Just (Symbol "main"))))),
+      ItemFunction
+        Function
+          { functionName = Symbol "main",
+            functionParameters = [],
+            functionResults = [Ptr],
+            functionConvention = AihcConvention,
+            functionLinkage = Export,
+            functionBlocks =
+              [ Block
+                  { blockLabel = Label "entry",
+                    blockParameters = [],
+                    blockInstructions = [Instruction [Var "slot"] (Load Ptr address alignment)],
+                    blockTerminator = Return [OperandVar (Var "slot")]
+                  }
+              ]
+          }
+    ]
 
 compileText :: Module -> IO Text
 compileText lirModule = either (assertFailure . ("WebAssembly backend failed: " <>) . show) pure (compileLirModule lirModule)
@@ -116,7 +142,7 @@ fixtureTest tools directory name = testCase name $ do
   assembly <- compileText wrapped
   assertBool "declares the test entry" (".functype\taihc_lir_test_main (i32) -> (i64)" `T.isInfixOf` assembly)
   case tools of
-    Just available | name `notElem` skippedFixtures -> do
+    Just available | name `notElem` uncheckedTraps -> do
       (exit, out, err) <- runFixture available assembly
       case (headerValues "expect" source, headerValues "expect-trap" source) of
         ([expected], []) -> do
@@ -165,7 +191,7 @@ testWrapper resultTypes =
               blockParameters = [],
               blockInstructions =
                 Instruction results (Call (Symbol "main") [])
-                  : [ Instruction [] (Store ty (OperandVar var) (Address (OperandVar (Var "out")) (8 * index)) 1)
+                  : [ Instruction [] (Store ty (OperandVar var) (byteAddress (OperandVar (Var "out")) (8 * index)) (byteAlignment 1))
                     | (index, var, ty) <- zip3 [0 ..] results resultTypes
                     ],
               blockTerminator = Return [OperandLiteral (LitInt (toInteger (length resultTypes)))]

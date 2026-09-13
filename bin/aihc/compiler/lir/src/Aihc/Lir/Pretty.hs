@@ -182,11 +182,24 @@ prettyOperation operation =
     CallIndirect target arguments signature ->
       "call.indirect" <+> prettyOperand target <> prettyArguments arguments <+> ":" <+> prettySignature signature
 
-prettyAlign :: Integer -> Doc ann
-prettyAlign alignment = "align" <+> pretty alignment
+prettyAlign :: Alignment -> Doc ann
+prettyAlign alignment =
+  case alignment of
+    AlignBytes value -> "align" <+> pretty value
+    AlignWords count -> "align" <+> pretty count <+> (if count == 1 then "word" else "words")
 
 prettyAddress :: Address -> Doc ann
-prettyAddress (Address base offset) = "[" <> prettyOperand base <> prettyAddend offset <> "]"
+prettyAddress (Address base offset wordOffset) =
+  "[" <> prettyOperand base <> prettyWordAddend wordOffset <> prettyAddend offset <> "]"
+
+-- | A word-scaled addend keeps the keyword, so an address round-trips.
+prettyWordAddend :: Integer -> Doc ann
+prettyWordAddend wordOffset
+  | wordOffset == 0 = mempty
+  | wordOffset < 0 = " -" <+> pretty (negate wordOffset) <+> unit (negate wordOffset)
+  | otherwise = " +" <+> pretty wordOffset <+> unit wordOffset
+  where
+    unit count = if count == 1 then "word" else "words"
 
 prettyArguments :: [Operand] -> Doc ann
 prettyArguments arguments = "(" <> prettyOperands arguments <> ")"

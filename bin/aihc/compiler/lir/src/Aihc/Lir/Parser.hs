@@ -362,10 +362,24 @@ operations =
     binary construct = construct <$> typeParser <*> operand <* token "," <*> operand
 
 address :: Parser Address
-address = MP.between (token "[") (token "]") (Address <$> operand <*> addend)
+address = MP.between (token "[") (token "]") (addressTerms <$> operand <*> MP.many addressTerm)
 
-alignment :: Parser Integer
-alignment = keyword "align" *> natural
+-- | One signed term of an address offset: bytes, or target words when the
+-- keyword follows the number.
+addressTerm :: Parser (Integer, Integer)
+addressTerm = do
+  sign <- (1 <$ token "+") <|> (-1 <$ token "-")
+  value <- natural
+  words' <- MP.option False (True <$ (keyword "words" <|> keyword "word"))
+  pure (if words' then (0, sign * value) else (sign * value, 0))
+
+addressTerms :: Operand -> [(Integer, Integer)] -> Address
+addressTerms base terms = Address base (sum (map fst terms)) (sum (map snd terms))
+
+alignment :: Parser Alignment
+alignment = keyword "align" *> (scaled <$> natural <*> MP.option False (True <$ (keyword "words" <|> keyword "word")))
+  where
+    scaled value words' = if words' then wordAlignment value else byteAlignment value
 
 terminatorParser :: Parser Terminator
 terminatorParser = do

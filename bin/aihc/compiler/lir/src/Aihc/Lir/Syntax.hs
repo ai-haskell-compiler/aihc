@@ -35,6 +35,12 @@ module Aihc.Lir.Syntax
     FloatUnaryOp (..),
     ConvertOp (..),
     Address (..),
+    byteAddress,
+    addressByteOffset,
+    Alignment (..),
+    byteAlignment,
+    wordAlignment,
+    alignmentInBytes,
     Terminator (..),
     terminatorTargets,
     Target (..),
@@ -221,10 +227,10 @@ data Operation
   | PtrToInt !Operand
   | PtrFromInt !Operand
   | Select !Type !Operand !Operand !Operand
-  | Load !Type !Address !Integer
-  | Store !Type !Operand !Address !Integer
+  | Load !Type !Address !Alignment
+  | Store !Type !Operand !Address !Alignment
   | PtrAdd !Operand !Operand
-  | StackAlloc !Integer !Integer
+  | StackAlloc !Integer !Alignment
   | GlobalGet !Symbol
   | GlobalSet !Symbol !Operand
   | Call !Symbol ![Operand]
@@ -292,12 +298,47 @@ data ConvertOp
   | Bitcast
   deriving (Eq, Ord, Show, Enum, Bounded)
 
--- | A base pointer and a constant byte offset.
+-- | A base pointer and a constant offset. The offset is @addressOffset@
+-- bytes plus @addressWordOffset@ target words, so a module that walks a
+-- table of word-sized fields is the same text on a 32-bit and on a 64-bit
+-- target. Use 'addressByteOffset' to read the offset for a word size.
 data Address = Address
   { addressBase :: !Operand,
-    addressOffset :: !Integer
+    addressOffset :: !Integer,
+    addressWordOffset :: !Integer
   }
   deriving (Eq, Show)
+
+-- | The alignment an access promises: a fixed number of bytes, or a number
+-- of target words. A word-scaled alignment states the exact alignment of a
+-- word-sized field on every target, which a byte count cannot.
+data Alignment
+  = AlignBytes !Integer
+  | AlignWords !Integer
+  deriving (Eq, Show)
+
+-- | An alignment of a fixed number of bytes.
+byteAlignment :: Integer -> Alignment
+byteAlignment = AlignBytes
+
+-- | An alignment of a number of target words.
+wordAlignment :: Integer -> Alignment
+wordAlignment = AlignWords
+
+-- | An alignment in bytes, given the size of a target word.
+alignmentInBytes :: Integer -> Alignment -> Integer
+alignmentInBytes wordBytes alignment =
+  case alignment of
+    AlignBytes value -> value
+    AlignWords count -> count * wordBytes
+
+-- | An address with a byte offset and no word offset.
+byteAddress :: Operand -> Integer -> Address
+byteAddress base offset = Address base offset 0
+
+-- | The offset of an address in bytes, given the size of a target word.
+addressByteOffset :: Integer -> Address -> Integer
+addressByteOffset wordBytes address = addressOffset address + addressWordOffset address * wordBytes
 
 data Terminator
   = Jump !Target

@@ -17,7 +17,7 @@ entry:
 
 func @main() -> (i64, i1) {
 entry:
-  %f = load code [@table + 8] align 8
+  %f = load code [@table + 1 word] align 1 word
   %r = call.indirect %f(7, 3) : (i64, i64) -> i64
   %same = eq code %f, @sub
   return %r, %same
