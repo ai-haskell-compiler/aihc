@@ -13,10 +13,9 @@
 -- make the program larger. 'InlineBudget' also accepts a site that makes
 -- the program larger while the program size stays under the limit.
 --
--- Before the walk, the method bodies of each dictionary get their own
--- top-level helper. A dictionary is then a small constructor application,
--- and a class method applied to a known dictionary reduces to a direct
--- call of the helper.
+-- The desugarer already gives each dictionary method its own top-level
+-- worker, so a dictionary is a small constructor application and a class
+-- method applied to a known dictionary reduces to a direct call.
 module Aihc.Fc.Inline
   ( InlineMode (..),
     InlineConfig (..),
@@ -32,11 +31,11 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, viewForAll, viewFun)
-import Aihc.Fc.Wired (liftedRepName, primPackageFromScopes)
+import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, mapAndUnzipM)
+import Control.Monad (foldM)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState, state)
 import Data.Either (lefts, rights)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -46,7 +45,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text qualified as T
 
 -- | How the inliner decides at a use site.
 data InlineMode
@@ -74,8 +72,7 @@ data InlineReport = InlineReport
   { reportSizeBefore :: !Int,
     reportSizeAfter :: !Int,
     reportInlinedSites :: !Int,
-    reportDroppedValues :: !Int,
-    reportHelpers :: !Int
+    reportDroppedValues :: !Int
   }
   deriving (Eq, Show)
 
@@ -142,11 +139,11 @@ isStrictBinder env = not . isLiftedBinder env
 inlineProgram :: InlineConfig -> Program -> (Program, InlineReport)
 inlineProgram config program =
   case primPackageFromScopes (programScopes program) of
-    Nothing -> (program, InlineReport size0 size0 0 0 0)
+    Nothing -> (program, InlineReport size0 size0 0 0)
     Just primPackage ->
       let env = typeEnvFromProgram primPackage program
           supply0 = maxLocalUnique program + 1
-          (lifted, helperCount) = liftDictionaryMethods env (programDecls program)
+          lifted = programDecls program
           state0 = initialInliner config env lifted supply0
           final = runRounds config (inlineRounds config) state0
           decls = rebuildDecls lifted final
@@ -160,8 +157,7 @@ inlineProgram config program =
               { reportSizeBefore = size0,
                 reportSizeAfter = programSize result,
                 reportInlinedSites = inSites final,
-                reportDroppedValues = length lifted - length decls,
-                reportHelpers = helperCount
+                reportDroppedValues = length lifted - length decls
               }
        in (result, report)
   where
@@ -1122,126 +1118,6 @@ exprBinderNames = go
         ExCast body _ -> go body
         ExForeignCall call types arguments -> typeBinderNames (foreignCallType call) <> foldMap typeBinderNames types <> foldMap go arguments
     altNames alternative = foldMap binderNames (altTypeBinders alternative <> altBinders alternative) <> go (altRhs alternative)
-
--- * Dictionary methods
-
--- | Give each method body of a dictionary its own top-level helper. The
--- dictionary then applies the constructor to the helpers, so a method
--- selection on a known dictionary becomes a direct reference.
---
--- A dictionary is a value whose body is a chain of lambdas around an
--- application of a dictionary constructor. Each non-trivial argument of
--- the constructor becomes a helper that takes the lambda parameters of the
--- dictionary. Returns the declarations with the helpers, and the number of
--- helpers.
-liftDictionaryMethods :: TypeEnv -> [Decl] -> ([Decl], Int)
-liftDictionaryMethods env decls = (concat lifted, sum (map (subtract 1 . length) lifted))
-  where
-    lifted = map liftDecl decls
-    liftDecl decl =
-      case decl of
-        DeclVal declaration
-          | Just (declaration', helpers) <- liftDictionary env declaration -> DeclVal declaration' : map DeclVal helpers
-        _ -> [decl]
-
-liftDictionary :: TypeEnv -> ValDecl -> Maybe (ValDecl, [ValDecl])
-liftDictionary env declaration = do
-  let (outer, inner) = splitLambdas (valBody declaration)
-  (ExVar con, args) <- Just (collectSpine inner)
-  if isConstructorName con && "$Dict$" `T.isPrefixOf` nameText con && any needsHelper args
-    then do
-      conType <- lookupHeaderType env con
-      let (foralls, fields) = splitConstructorType env conType
-          typeArgs = lefts args
-      if length foralls /= length typeArgs then Nothing else Just ()
-      let fieldTypes = map (substTypes (Map.fromList (zip (map binderName foralls) typeArgs))) fields
-      OriginTop package moduleName <- Just (nameOrigin (valName declaration))
-      let helperName index =
-            Name
-              { nameText = nameText (valName declaration) <> "$m" <> T.pack (show (index :: Int)),
-                nameSort = SortValue,
-                nameOrigin = OriginTop package moduleName
-              }
-          outerEnv = List.foldl' extendBinder env (lefts outer)
-      (args', helpers) <- mapAndUnzipM (liftField helperName outerEnv outer) (zip3 (fieldIndexes args) args (fieldTypesFor args fieldTypes))
-      Just (declaration {valBody = wrapLambdas outer (rebuildSpine (ExVar con) args')}, concat helpers)
-    else Nothing
-  where
-    needsHelper arg =
-      case arg of
-        Right argument -> not (isTrivial argument)
-        Left _ -> False
-    -- The helpers number the value arguments from zero.
-    fieldIndexes args = snd (List.mapAccumL (\next arg -> either (const (next, next)) (const (next + 1, next)) arg) (0 :: Int) args)
-    -- The field types follow the value arguments in order.
-    fieldTypesFor = go
-      where
-        go (Left _ : rest) types = Nothing : go rest types
-        go (Right _ : rest) (ty : types) = Just ty : go rest types
-        go (Right _ : rest) [] = Nothing : go rest []
-        go [] _ = []
-    liftField helperName outerEnv outer (index, arg, fieldType) =
-      case (arg, fieldType) of
-        (Right argument, Just ty)
-          | not (isTrivial argument) -> do
-              helperType <- lambdaType outerEnv outer ty
-              let name = helperName index
-                  helper =
-                    ValDecl
-                      { valVis = Private,
-                        valName = name,
-                        valType = helperType,
-                        valBody = wrapLambdas outer argument
-                      }
-                  reference = rebuildSpine (ExVar name) [either (Left . TyVar . binderName) (Right . ExVar . binderName) binder | binder <- outer]
-              Just (Right reference, [helper])
-        _ -> Just (arg, [])
-
--- | The lambda chain at the head of a body, and the body under it.
-splitLambdas :: Expr -> ([Either Binder Binder], Expr)
-splitLambdas expr =
-  case expr of
-    ExTyLam binder body -> let (binders, inner) = splitLambdas body in (Left binder : binders, inner)
-    ExLam binder body -> let (binders, inner) = splitLambdas body in (Right binder : binders, inner)
-    _ -> ([], expr)
-
-wrapLambdas :: [Either Binder Binder] -> Expr -> Expr
-wrapLambdas binders body = foldr wrap body binders
-  where
-    wrap binder inner = either (`ExTyLam` inner) (`ExLam` inner) binder
-
--- | The type of a lambda chain around a body of the given type.
-lambdaType :: TypeEnv -> [Either Binder Binder] -> Type -> Maybe Type
-lambdaType env binders result =
-  case binders of
-    [] -> Just result
-    Left binder : rest -> TyForAll binder <$> lambdaType (extendBinder env binder) rest result
-    Right binder : rest -> do
-      inner <- lambdaType env rest result
-      argumentRep <- repOf env (binderType binder)
-      resultRep <- repOf env inner
-      Just (TyFun (liftedRepSpelling argumentRep) (liftedRepSpelling resultRep) (binderType binder) inner)
-  where
-    -- The desugarer spells the lifted representation by its synonym, and
-    -- the printer shows such an arrow as an arrow.
-    liftedRepSpelling rep =
-      case rep of
-        TyApp (TyCon boxed) (TyCon levity)
-          | nameText boxed == "BoxedRep" && nameText levity == "Lifted" -> TyCon (liftedRepName (tePrimPackage env))
-        _ -> rep
-
-splitConstructorType :: TypeEnv -> Type -> ([Binder], [Type])
-splitConstructorType env ty =
-  case ty of
-    TyForAll binder body ->
-      let (binders, fields) = splitConstructorType env body
-       in (binder : binders, fields)
-    TyFun _ _ argument body ->
-      let (binders, fields) = splitConstructorType env body
-       in (binders, argument : fields)
-    _ ->
-      let reduced = reduceType env ty
-       in if reduced == ty then ([], []) else splitConstructorType env reduced
 
 -- * Imports
 

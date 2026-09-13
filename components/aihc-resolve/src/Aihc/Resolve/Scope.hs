@@ -117,26 +117,28 @@ collectModuleExports = collectModuleExportsWithDeps Map.empty
 
 -- | Extract interfaces for a compilation unit while allowing its explicit
 -- export lists to re-export names supplied by predecessor units.
+-- The fixed point only changes the scopes of the modules of this unit. The
+-- scopes of the dependencies stay as the caller gave them. The loop thus
+-- holds the local scopes alone and compares only those. A comparison of the
+-- dependency scopes finds no difference, and they are much more numerous
+-- than the local scopes.
 collectModuleExportsWithDeps :: ModuleExports -> [ModuleUnit] -> ModuleExports
-collectModuleExportsWithDeps depExports packageModules = Map.restrictKeys (closeExports initialExports) moduleKeys
+collectModuleExportsWithDeps depExports packageModules = closeExports localExports
   where
-    moduleKeys = Map.keysSet localExports
     localExports =
       Map.fromList
         [ (exportKey package modu, emptyScope)
         | ModuleUnit {moduleUnitPackage = package, moduleUnitAst = modu} <- packageModules
         ]
-    initialExports =
-      localExports `Map.union` depExports
 
-    closeExports exports =
-      let exports' =
+    closeExports localScopes =
+      let exports = localScopes `Map.union` depExports
+          localScopes' =
             Map.fromList
               [ (exportKey package modu, exportedScope package exports extensions modu)
               | ModuleUnit {moduleUnitPackage = package, moduleUnitExtensions = extensions, moduleUnitAst = modu} <- packageModules
               ]
-              `Map.union` depExports
-       in if exports' == exports then exports else closeExports exports'
+       in if localScopes' == localScopes then localScopes else closeExports localScopes'
     exportKey package modu = ModuleKey package (moduleKey modu)
 
 -- | The top-level names that one module makes visible to other modules,

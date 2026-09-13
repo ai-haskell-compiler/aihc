@@ -27,6 +27,8 @@ import Aihc.Parser.Syntax
     ExportSpec (..),
     FieldDecl (..),
     FixityAssoc,
+    ForeignDecl (..),
+    ForeignDirection (..),
     GadtBody (..),
     IEBundledMember (..),
     IEEntityNamespace (..),
@@ -35,7 +37,6 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Type (..),
     TypeFamilyDecl (..),
-    TypeFamilyResultSig (..),
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
@@ -62,12 +63,13 @@ import Distribution.PackageDescription (GenericPackageDescription, condLibrary, 
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.CondTree (CondTree (condTreeData))
 import GHC (Ghc, lookupName)
+import GHC.Builtin.Utils (ghcPrimExports, ghcPrimFixities)
 import GHC.Core.ConLike (ConLike (..), conLikeName)
 import GHC.Core.DataCon (dataConName)
 import GHC.Core.DataCon qualified as DataCon
 import GHC.Core.PatSyn (patSynName, pprPatSynType)
 import GHC.Core.TyCo.Ppr (pprSigmaType, pprType)
-import GHC.Core.TyCon (isAlgTyCon, tyConDataCons, tyConName, tyConResKind)
+import GHC.Core.TyCon (TyConBndrVis (..), isAlgTyCon, tyConDataCons, tyConKind, tyConName)
 import GHC.Iface.Syntax
   ( IfaceAT (..),
     IfaceClassBody (..),
@@ -76,12 +78,13 @@ import GHC.Iface.Syntax
     IfaceConDecls (..),
     IfaceDecl (..),
   )
-import GHC.Iface.Type (IfaceTyConBinder, IfaceType, ShowForAllFlag (..), pprIfaceSigmaType, pprIfaceType)
+import GHC.Iface.Type (IfaceBndr (..), IfaceTyConBinder, IfaceType, ShowForAllFlag (..), pprIfaceSigmaType, pprIfaceType)
 import GHC.Types.Avail (AvailInfo (..))
 import GHC.Types.Id (idType)
 import GHC.Types.Name (Name, getOccString, nameModule_maybe)
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.TyThing (TyThing (..))
+import GHC.Types.Var (VarBndr (..))
 import GHC.Unit.Module (moduleNameString)
 import GHC.Unit.Module.ModIface (ModIface, mi_decls, mi_exports, mi_fixities)
 import GHC.Unit.Types (moduleName, moduleUnit, unitString)
@@ -210,14 +213,44 @@ extractSingleModule readIface cacheRef importDir modName = do
       iface <- liftIO $ readIface hiPath
       ifaceToModule readIface cacheRef modName iface
     else
-      pure
-        ModuleInterface
-          { miModule = T.pack modName,
-            miTypes = [],
-            miValues = [],
-            miClasses = [],
-            miFixities = []
-          }
+      if modName == "GHC.Prim"
+        then wiredInGhcPrimModule
+        else
+          pure
+            ModuleInterface
+              { miModule = T.pack modName,
+                miTypes = [],
+                miValues = [],
+                miClasses = [],
+                miFixities = []
+              }
+
+-- | @GHC.Prim@ is wired into the compiler and ships without an interface
+-- file. Its exports and fixities come from the GHC API instead, and every
+-- exported name resolves through the session because they are all wired in.
+wiredInGhcPrimModule :: Ghc ModuleInterface
+wiredInGhcPrimModule = do
+  let modName = T.pack "GHC.Prim"
+  (types, values, classes) <- classifyExports modName ghcPrimExports Map.empty (const (pure Nothing))
+  pure
+    ModuleInterface
+      { miModule = modName,
+        miTypes = types,
+        miValues = values,
+        miClasses = classes,
+        miFixities =
+          [ FixityInfo
+              { fiName = T.pack (occNameString occ),
+                fiDirection = convertDir dir,
+                fiPrecedence = prec
+              }
+          | (occ, GHC.Fixity prec dir) <- ghcPrimFixities
+          ]
+      }
+  where
+    convertDir GHC.InfixL = InfixL
+    convertDir GHC.InfixR = InfixR
+    convertDir GHC.InfixN = InfixN
 
 -- | Convert a 'ModIface' to our output representation.
 ifaceToModule ::
@@ -423,7 +456,7 @@ extractTypeFromName name subNames = do
          in Just
               ExportedType
                 { etName = T.pack parentName,
-                  etKind = T.pack (showSDocUnsafe (pprType (tyConResKind tyCon))),
+                  etKind = T.pack (showSDocUnsafe (pprType (tyConKind tyCon))),
                   etConstructors = ctorNames ++ extraSubs
                 }
       _ -> Nothing
@@ -525,10 +558,25 @@ extractClassOp (IfaceClassOp name ty _defMeth) =
 renderType :: IfaceType -> Text
 renderType ty = T.pack (showSDocUnsafe (pprIfaceSigmaType ShowForAllWhen ty))
 
--- | Render a kind from binders and result kind.
+-- | Render the full kind of a type constructor from its binders and result
+-- kind. Visible binders become arrows; invisible ones are only quantified
+-- and are left out, since signature comparison drops @forall@ prefixes.
 renderKind :: [IfaceTyConBinder] -> IfaceType -> Text
-renderKind _binders resKind =
-  T.pack (showSDocUnsafe (pprIfaceType resKind))
+renderKind binders resKind =
+  T.intercalate " -> " (mapMaybe visibleBinderKind binders <> [render resKind])
+  where
+    render = T.pack . showSDocUnsafe . pprIfaceType
+    visibleBinderKind (Bndr bndr vis) =
+      case vis of
+        AnonTCB -> Just (parenthesize (render (binderKind bndr)))
+        NamedTCB _ -> Nothing
+    parenthesize kind
+      | T.any (== ' ') kind = "(" <> kind <> ")"
+      | otherwise = kind
+    binderKind bndr =
+      case bndr of
+        IfaceTvBndr (_, kind) -> kind
+        IfaceIdBndr (_, _, ty) -> ty
 
 exposedSourceModules :: FilePath -> IO [String]
 exposedSourceModules root = do
@@ -595,10 +643,17 @@ sourceValues :: [Decl] -> [ExportedValue]
 sourceValues decls =
   Map.elems $
     Map.fromList
-      [ (renderUnqualifiedName name, ExportedValue (renderUnqualifiedName name) (renderSourceType ty))
-      | DeclTypeSig names ty <- decls,
-        name <- names
+      [ (name, ExportedValue name (renderSourceType ty))
+      | (name, ty) <- concatMap declaredValueTypes decls
       ]
+  where
+    declaredValueTypes decl =
+      case decl of
+        DeclTypeSig names ty -> [(renderUnqualifiedName name, ty) | name <- names]
+        DeclForeign foreignDecl
+          | foreignDirection foreignDecl == ForeignImport ->
+              [(renderUnqualifiedName (foreignName foreignDecl), foreignType foreignDecl)]
+        _ -> []
 
 missingExportedValueSignatures :: Module -> [Decl] -> ModuleInterface -> [Text]
 missingExportedValueSignatures modu decls iface =
@@ -640,23 +695,20 @@ sourceTypes kindSigs =
       case decl of
         DeclTypeSyn syn ->
           let name = binderHeadName (typeSynHead syn)
-           in Just (ExportedType name (sourceTypeKind kindSigs name Nothing) [])
+           in Just (ExportedType name (sourceTypeKind kindSigs name) [])
         DeclTypeData dataDecl -> Just (sourceDataType kindSigs dataDecl)
         DeclData dataDecl -> Just (sourceDataType kindSigs dataDecl)
         DeclNewtype newtypeDecl -> Just (sourceNewtype kindSigs newtypeDecl)
         DeclTypeFamilyDecl familyDecl ->
           let name = sourceTypeFamilyName familyDecl
-              kind = case typeFamilyDeclResultSig familyDecl of
-                Just (TypeFamilyKindSig ty) -> Just ty
-                _ -> Nothing
-           in Just (ExportedType name (sourceTypeKind kindSigs name kind) [])
+           in Just (ExportedType name (sourceTypeKind kindSigs name) [])
         _ -> Nothing
 
 sourceDataType :: Map Text Text -> DataDecl -> ExportedType
 sourceDataType kindSigs dataDecl =
   ExportedType
     { etName = name,
-      etKind = sourceTypeKind kindSigs name (dataDeclKind dataDecl),
+      etKind = sourceTypeKind kindSigs name,
       etConstructors = concatMap dataConNames (dataDeclConstructors dataDecl)
     }
   where
@@ -666,17 +718,18 @@ sourceNewtype :: Map Text Text -> NewtypeDecl -> ExportedType
 sourceNewtype kindSigs newtypeDecl =
   ExportedType
     { etName = name,
-      etKind = sourceTypeKind kindSigs name (newtypeDeclKind newtypeDecl),
+      etKind = sourceTypeKind kindSigs name,
       etConstructors = maybe [] dataConNames (newtypeDeclConstructor newtypeDecl)
     }
   where
     name = binderHeadName (newtypeDeclHead newtypeDecl)
 
-sourceTypeKind :: Map Text Text -> Text -> Maybe Type -> Text
-sourceTypeKind kindSigs name inlineKind =
-  case inlineKind of
-    Just kind -> renderSourceType kind
-    Nothing -> Map.findWithDefault "<unspecified-source-kind>" name kindSigs
+-- | The full kind of a source type: only a standalone kind signature states
+-- it. A kind annotation on a declaration head gives just the result kind,
+-- which is not comparable with the kinds extracted from interface files.
+sourceTypeKind :: Map Text Text -> Text -> Text
+sourceTypeKind kindSigs name =
+  Map.findWithDefault unspecifiedSourceKind name kindSigs
 
 sourceClasses :: [Decl] -> [ExportedClass]
 sourceClasses decls =

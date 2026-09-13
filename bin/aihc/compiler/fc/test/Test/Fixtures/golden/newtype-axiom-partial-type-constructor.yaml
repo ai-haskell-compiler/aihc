@@ -65,11 +65,24 @@ expected: |-
     Λ(b : 2.sType 2.→ 2.sType).
       λ($d0 : 1.t$Dict$SumSize a).
         λ($d1 : 1.t$Dict$SumSize b).
-          1.c$Dict$SumSize @(1.tSum a b) (1.cUnit ▷ sym (axiom-co 1.$ax$Tagged @(1.tSum a b) @1.tUnit))
+          1.c$Dict$SumSize @(1.tSum a b) (1.v$fSumSizeSumab$csumSize @a @b $d0 $d1)
+
+  val 1.v$fSumSizeSumab$csumSize :: ∀(a : 2.sType 2.→ 2.sType) (b : 2.sType 2.→ 2.sType). 1.t$Dict$SumSize a 2.→ 1.t$Dict$SumSize b 2.→ 1.tTagged (1.tSum a b) 1.tUnit
+   = Λ(a : 2.sType 2.→ 2.sType).
+    Λ(b : 2.sType 2.→ 2.sType).
+      λ($d0 : 1.t$Dict$SumSize a).
+        λ($d1 : 1.t$Dict$SumSize b).
+          1.cUnit ▷ sym (axiom-co 1.$ax$Tagged @(1.tSum a b) @1.tUnit)
 
   pub val 1.v$fSumSizeM1ica :: ∀(i : 2.sType) (c : 2.sType) (a : 2.sType 2.→ 2.sType). 1.t$Dict$SumSize (1.tM1 i c a)
    = Λ(i : 2.sType).
     Λ(c : 2.sType).
       Λ(a : 2.sType 2.→ 2.sType).
-        1.c$Dict$SumSize @(1.tM1 i c a) (1.cUnit ▷ sym (axiom-co 1.$ax$Tagged @(1.tM1 i c a) @1.tUnit))
+        1.c$Dict$SumSize @(1.tM1 i c a) (1.v$fSumSizeM1ica$csumSize @i @c @a)
+
+  val 1.v$fSumSizeM1ica$csumSize :: ∀(i : 2.sType) (c : 2.sType) (a : 2.sType 2.→ 2.sType). 1.tTagged (1.tM1 i c a) 1.tUnit
+   = Λ(i : 2.sType).
+    Λ(c : 2.sType).
+      Λ(a : 2.sType 2.→ 2.sType).
+        1.cUnit ▷ sym (axiom-co 1.$ax$Tagged @(1.tM1 i c a) @1.tUnit)
 status: pass

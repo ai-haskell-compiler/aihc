@@ -58,11 +58,17 @@ expected: |-
       }
 
   pub val 1.v$fParentFlag :: 1.t$Dict$Parent 1.tFlag
-   = 1.c$Dict$Parent @1.tFlag (λ(x : 1.tFlag).
-    x)
+   = 1.c$Dict$Parent @1.tFlag 1.v$fParentFlag$cparent
+
+  val 1.v$fParentFlag$cparent :: 1.tFlag 2.→ 1.tFlag
+   = λ(x : 1.tFlag).
+    x
 
   pub val 1.v$fChildFlag :: 1.t$Dict$Child 1.tFlag
-   = 1.c$Dict$Child @1.tFlag 1.v$fParentFlag (λ(x : 1.tFlag).
-    x)
+   = 1.c$Dict$Child @1.tFlag 1.v$fParentFlag 1.v$fChildFlag$cchild
+
+  val 1.v$fChildFlag$cchild :: 1.tFlag 2.→ 1.tFlag
+   = λ(x : 1.tFlag).
+    x
 status: pass
 reason: ''

@@ -71,14 +71,24 @@ expected: |-
   pub val 2.v$fMethodsNa :: ∀(a : 3.sType). 1.t$Dict$Methods a 3.→ 1.t$Dict$Methods (2.tN a)
    = Λ(a : 3.sType).
     λ($d0 : 1.t$Dict$Methods a).
-      1.c$Dict$Methods @(2.tN a) (2.v$fParentNa @a) ((case $d0 as ($coerced_source : 1.t$Dict$Methods a) return (a 3.→ a) of {
+      1.c$Dict$Methods @(2.tN a) (2.v$fParentNa @a) (2.v$fMethodsNa$cpublic @a $d0) (2.v$fMethodsNa$cprivate @a $d0)
+
+  val 2.v$fMethodsNa$cpublic :: ∀(a : 3.sType). 1.t$Dict$Methods a 3.→ 2.tN a 3.→ 2.tN a
+   = Λ(a : 3.sType).
+    λ($d0 : 1.t$Dict$Methods a).
+      (case $d0 as ($coerced_source : 1.t$Dict$Methods a) return (a 3.→ a) of {
           1.c$Dict$Methods ($coerced_field0 : 1.t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b : 3.sType). a 3.→ b 3.→ b) →
               $coerced_field1
-      }) ▷ fun-co (sym (axiom-co 2.$ax$N @a)) (sym (axiom-co 2.$ax$N @a))) (Λ(b : 3.sType).
+      }) ▷ fun-co (sym (axiom-co 2.$ax$N @a)) (sym (axiom-co 2.$ax$N @a))
+
+  val 2.v$fMethodsNa$cprivate :: ∀(a : 3.sType). 1.t$Dict$Methods a 3.→ (∀(b : 3.sType). 2.tN a 3.→ b 3.→ b)
+   = Λ(a : 3.sType).
+    λ($d0 : 1.t$Dict$Methods a).
+      Λ(b : 3.sType).
         ((case $d0 as ($coerced_source : 1.t$Dict$Methods a) return (∀(b{1} : 3.sType). a 3.→ b{1} 3.→ b{1}) of {
             1.c$Dict$Methods ($coerced_field0 : 1.t$Dict$Parent a) ($coerced_field1 : a 3.→ a) ($coerced_field2 : ∀(b{1} : 3.sType). a 3.→ b{1} 3.→ b{1}) →
                 $coerced_field2
-        }) @b) ▷ fun-co (sym (axiom-co 2.$ax$N @a)) (refl (b 3.→ b)))
+        }) @b) ▷ fun-co (sym (axiom-co 2.$ax$N @a)) (refl (b 3.→ b))
 extensions:
 - GeneralizedNewtypeDeriving
 modules:

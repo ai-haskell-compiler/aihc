@@ -100,7 +100,7 @@ import Aihc.Tc.Types
     wordRep,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, unless, zipWithM)
+import Control.Monad (foldM, mapAndUnzipM, unless, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
@@ -1002,29 +1002,41 @@ desugarInstanceDecl declaration =
     Syn.DeclAnn annotation inner
       | Just instanceAnnotation <- Syn.fromAnnotation annotation,
         Syn.DeclInstance instanceDecl <- Syn.peelDeclAnn inner ->
-          (: []) <$> desugarInstance instanceAnnotation instanceDecl
+          desugarInstance instanceAnnotation instanceDecl
       | otherwise -> desugarInstanceDecl inner
     Syn.DeclInstance {} -> failValue "missing type-checker annotation for instance declaration"
     _ -> pure []
 
-desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM Decl
+-- | The dictionary of one instance, and one worker for each of its
+-- methods. The dictionary never holds a method body itself: every field it
+-- fills is a call of a worker at the instance's own type variables and
+-- context dictionaries. A method selection on a known dictionary then
+-- reduces to a direct call, which is what the inliner needs to see.
+desugarInstance :: TcInstanceAnnotation -> Syn.InstanceDecl -> ValueM [Decl]
 desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars annotation) $ do
   let methods = Map.fromListWith appendMatches (instanceMethods instanceDecl)
   contextDictionaries <- zipWithM makeContextDictionary [0 :: Int ..] (tcInstanceContextDicts annotation)
-  dictionaryBody <- withDictionaries contextDictionaries $ do
+  (dictionaryBody, workers) <- withDictionaries contextDictionaries $ do
     case tcInstanceCoerced annotation of
       Just derived
         | Just proof <- tcCoercedDictionaryCast derived,
           Just evidence <- tcCoercedEvidence derived ->
-            withCoercion proof (\converted -> (`ExCast` converted) <$> desugarEvidence evidence)
+            (,[]) <$> withCoercion proof (\converted -> (`ExCast` converted) <$> desugarEvidence evidence)
       derived -> do
         superClasses <- mapM (desugarEvidence . snd) (tcInstanceSuperClasses annotation)
-        methodFields <- case derived of
-          Nothing -> mapM (desugarInstanceMethod annotation contextDictionaries methods) (tcInstanceMethodOrder annotation)
-          Just body -> mapM (desugarCoercedMethod annotation body) (tcCoercedMethods body)
+        methodBodies <- case derived of
+          Nothing ->
+            mapM
+              (\name -> (name,) <$> desugarInstanceMethod annotation contextDictionaries methods name)
+              (tcInstanceMethodOrder annotation)
+          Just body ->
+            mapM
+              (\method -> (tcCoercedMethodName method,) <$> desugarCoercedMethod annotation body method)
+              (tcCoercedMethods body)
+        (methodFields, workers) <- mapAndUnzipM (uncurry (hoistInstanceMethod annotation contextDictionaries)) methodBodies
         headTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
         let constructor = foldl ExTyApp (ExVar (classDictConName (tcInstanceClassTyCon annotation))) headTypes
-        pure (foldl ExApp constructor (superClasses <> methodFields))
+        pure (foldl ExApp constructor (superClasses <> methodFields), workers)
   _ <- freshUnique
   _ <- freshUnique
   typeBinders <- convertTypeBinders (tcInstanceTyVars annotation)
@@ -1042,9 +1054,74 @@ desugarInstance annotation instanceDecl = withTypeVariables (tcInstanceTyVars an
             valType = dictionaryType,
             valBody = body
           }
+        : workers
     )
   where
     appendMatches (newType, newMatches) (_, oldMatches) = (newType, oldMatches <> newMatches)
+
+-- | Move one method body out of the dictionary into a top-level worker,
+-- and give back the call that takes its place in the dictionary. The
+-- worker repeats the instance's own type and dictionary parameters, so the
+-- call passes them straight back.
+--
+-- Only this module names a worker, so it stays private.
+hoistInstanceMethod :: TcInstanceAnnotation -> [Dictionary] -> Text -> Expr -> ValueM (Expr, Decl)
+hoistInstanceMethod annotation contextDictionaries methodName methodBody = do
+  method <- requiredClassMethod annotation methodName
+  workerType <- convertCheckedType (instanceWorkerType (tcInstanceDictType annotation) (instanceMethodFieldType annotation method))
+  typeBinders <- convertTypeBinders (tcInstanceTyVars annotation)
+  instanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
+  moduleOrigin <- gets vsModuleOrigin
+  let dictionaryBinders = map dictionaryBinder contextDictionaries
+      workerName = topName moduleOrigin (instanceMethodWorkerName (tcInstanceDictName annotation) methodName)
+      worker =
+        ValDecl
+          { valVis = Private,
+            valName = workerName,
+            valType = workerType,
+            valBody = foldr ExTyLam (foldr ExLam methodBody dictionaryBinders) typeBinders
+          }
+      call =
+        foldl
+          ExApp
+          (foldl ExTyApp (ExVar workerName) instanceTypes)
+          (map (ExVar . binderName) dictionaryBinders)
+  pure (call, DeclVal worker)
+
+-- | The name of the worker that holds one method body of an instance.
+instanceMethodWorkerName :: Text -> Text -> Text
+instanceMethodWorkerName dictName methodName = dictName <> "$c" <> methodName
+
+requiredClassMethod :: TcInstanceAnnotation -> Text -> ValueM TcClassMethodAnnotation
+requiredClassMethod annotation methodName =
+  case [candidate | candidate <- tcInstanceClassMethods annotation, tcClassMethodName candidate == methodName] of
+    candidate : _ -> pure candidate
+    [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
+
+-- | The type of one dictionary field at an instance head: the method's own
+-- type with its class constraint dropped and the class variables fixed to
+-- the head types.
+instanceMethodFieldType :: TcInstanceAnnotation -> TcClassMethodAnnotation -> TcType
+instanceMethodFieldType annotation method = foldr TcForAllTy qualified extraTyVars
+  where
+    classTyVars = tcInstanceClassTyVars annotation
+    extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
+    substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+    (_, afterForAlls) = peelForAlls (tcClassMethodType method)
+    (predicates, methodBody) = peelConstraints afterForAlls
+    extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) predicates)
+    resultType = applySubst substitution methodBody
+    qualified = if null extraPredicates then resultType else TcQualTy extraPredicates resultType
+
+-- | The type of a method worker: the dictionary's own quantifiers and
+-- context in front of the field type, so the worker takes exactly the
+-- parameters the dictionary passes it.
+instanceWorkerType :: TcType -> TcType -> TcType
+instanceWorkerType dictType fieldType =
+  case dictType of
+    TcForAllTy tyVar body -> TcForAllTy tyVar (instanceWorkerType body fieldType)
+    TcQualTy predicates _ -> TcQualTy predicates fieldType
+    _ -> fieldType
 
 -- | Select the field of the reused dictionary without a reference to a
 -- public method, and cast it to the derived instance's method type.

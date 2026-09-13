@@ -60,16 +60,23 @@ expected: |-
       }
 
   pub val 1.v$fContainerBag :: 1.t$Dict$Container 1.tBag
-   = 1.c$Dict$Container @1.tBag (λ(x : 1.tBag).
+   = 1.c$Dict$Container @1.tBag 1.v$fContainerBag$csize
+
+  val 1.v$fContainerBag$csize :: 1.tBag 2.→ 1.tNat
+   = λ(x : 1.tBag).
     case x as (_scrut : 1.tBag) return (1.tNat) of {
         1.cBag (n : 1.tNat) →
             n
-    })
+    }
 
   pub val 1.v$fContainerList :: ∀(a : 2.sType). 1.t$Dict$Container (2.t[] a)
    = Λ(a : 2.sType).
-    1.c$Dict$Container @(2.t[] a) (λ(x : 2.t[] a).
-      1.cZ)
+    1.c$Dict$Container @(2.t[] a) (1.v$fContainerList$csize @a)
+
+  val 1.v$fContainerList$csize :: ∀(a : 2.sType). 2.t[] a 2.→ 1.tNat
+   = Λ(a : 2.sType).
+    λ(x : 2.t[] a).
+      1.cZ
 status: pass
 reason: An associated type family becomes an empty family type next to the class dictionary,
   and the explicit and defaulted instance equations become axioms.

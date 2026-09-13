@@ -14,6 +14,7 @@ import Aihc.Dev.ExtractHi.Compare
     comparePackageCompatibility,
     comparePackageSubset,
     coreLibApiDivergences,
+    normalizeSignature,
     renderCoreLibProgressReports,
     runCoreLibApiDivergences,
   )
@@ -42,6 +43,10 @@ extractHiCompareTests =
           testCase "resolves base re-exported value types" test_coreLibProgressResolvesReexportedTypes,
           testCase "counts missing candidate exports as failures" test_coreLibProgressCountsMissingExports,
           testCase "rejects changed value types and type kinds" test_coreLibProgressRejectsChangedSignatures,
+          testCase "accepts source types without a kind signature" test_coreLibProgressAcceptsUnspecifiedKinds,
+          testCase "compares signatures up to rendering differences" test_coreLibProgressNormalizesSignatures,
+          testCase "extracts foreign imports as source values" test_coreLibProgressExtractsForeignImports,
+          testCase "extracts the wired-in GHC.Prim exports" test_coreLibProgressExtractsGhcPrim,
           testCase "requires exports to come from the same module" test_coreLibProgressRequiresSameModule,
           testCase "counts candidate-only exports separately" test_coreLibProgressCountsExtrasSeparately,
           testCase "renders stable command output" test_coreLibProgressRendersStableOutput
@@ -162,6 +167,71 @@ test_coreLibProgressRejectsChangedSignatures = do
   assertEqual "total" 2 (crTotal report)
   assertEqual "mismatches" 2 (length (crMismatches report))
 
+test_coreLibProgressAcceptsUnspecifiedKinds :: Assertion
+test_coreLibProgressAcceptsUnspecifiedKinds = do
+  let candidate = (emptyModule "A") {miTypes = [ExportedType "T" unspecifiedSourceKind ["MkT"]]}
+      oracle = (emptyModule "A") {miTypes = [ExportedType "T" "Type -> Type" ["MkT"]]}
+      report = comparePackageCompatibility (pkg [candidate]) (pkg [oracle])
+  assertEqual "matched" 2 (crMatched report)
+  assertEqual "mismatches" [] (crMismatches report)
+
+test_coreLibProgressNormalizesSignatures :: Assertion
+test_coreLibProgressNormalizesSignatures = do
+  assertEqual
+    "inferred forall binders, line breaks and promotion ticks"
+    (normalizeSignature "forall {l :: Levity} (a :: TYPE ('BoxedRep l)).\n  Array# a -> Int# -> Int# -> Array# a")
+    (normalizeSignature "Array# a -> Int# -> Int# -> Array# a")
+  assertEqual
+    "multiplicities"
+    (normalizeSignature "forall {n :: Multiplicity} a b. (a %n -> b) -> a %n -> b")
+    (normalizeSignature "(a -> b) -> a -> b")
+  assertEqual
+    "kind synonyms"
+    (normalizeSignature "Type -> ZeroBitType")
+    (normalizeSignature "TYPE 'LiftedRep -> TYPE ('TupleRep '[])")
+  assertEqual
+    "single-constraint context parentheses"
+    (normalizeSignature "Monad m => m (m a) -> m a")
+    (normalizeSignature "(Monad m) => m (m a) -> m a")
+  assertEqual
+    "type variable names and module qualifiers"
+    (normalizeSignature "TYPE k0 -> TYPE k1 -> TYPE ('TupleRep '[k0, k1])")
+    (normalizeSignature "TYPE r1 -> TYPE r2 -> TYPE (TupleRep [r1, r2])")
+  assertEqual
+    "module qualifiers"
+    (normalizeSignature "Strict.ST s a -> ST s a")
+    (normalizeSignature "ST s a -> Lazy.ST s a")
+  assertBool
+    "primed constructor names keep their tick"
+    (normalizeSignature "T' a" /= normalizeSignature "T a")
+  assertBool
+    "different types stay different"
+    (normalizeSignature "Monad m => [a] -> m ()" /= normalizeSignature "(Foldable t, Monad m) => t a -> m ()")
+
+test_coreLibProgressExtractsForeignImports :: Assertion
+test_coreLibProgressExtractsForeignImports =
+  withTempDir "core-libs-progress-source-foreign" $ \root -> do
+    let srcDir = root </> "src" </> "Data"
+    createDirectoryIfMissing True srcDir
+    writeFile (root </> "demo-base.cabal") demoBaseCabal
+    writeFile (srcDir </> "Bool.hs") demoBoolForeignSource
+    iface <- extractSourcePackage root "demo-base"
+    case piModules iface of
+      [modIface] ->
+        assertEqual
+          "values"
+          [ExportedValue "not" "Bool -> Bool", ExportedValue "seqBool#" "forall a. Bool -> a -> a"]
+          (miValues modIface)
+      _ -> assertFailure ("expected one source module, got " <> show (piModules iface))
+
+test_coreLibProgressExtractsGhcPrim :: Assertion
+test_coreLibProgressExtractsGhcPrim = do
+  ghcPrimIface <- extractPackage "ghc-prim"
+  ghcPrim <- findModule "GHC.Prim" ghcPrimIface
+  assertEqual "+#" [ExportedValue "+#" "Int# -> Int# -> Int#"] (filter ((== "+#") . evName) (miValues ghcPrim))
+  assertEqual "Int#" [ExportedType "Int#" "TYPE 'IntRep" []] (filter ((== "Int#") . etName) (miTypes ghcPrim))
+  assertEqual "fixity of +#" [FixityInfo "+#" InfixL 6] (filter ((== "+#") . fiName) (miFixities ghcPrim))
+
 test_coreLibProgressRequiresSameModule :: Assertion
 test_coreLibProgressRequiresSameModule = do
   let report =
@@ -268,7 +338,30 @@ test_apiDivergenceSkipsEmptyOracleModules =
 -- provide. Every entry is an incompatibility that should be fixed; remove it
 -- from this list once the export is gone. New entries must not be added.
 knownCoreLibApiDivergences :: [T.Text]
-knownCoreLibApiDivergences = []
+knownCoreLibApiDivergences =
+  -- GHC exports these from GHC.Magic, GHC.Exts or GHC.Internal.Exts
+  -- instead, or (awaitIO#, stm*, compareInt#, divInt#) does not have them.
+  [ "GHC.Prim.awaitIO#",
+    "GHC.Prim.compareInt#",
+    "GHC.Prim.cstringLength#",
+    "GHC.Prim.divInt#",
+    "GHC.Prim.newDelayTVar#",
+    "GHC.Prim.resizeSmallMutableArray#",
+    "GHC.Prim.runRW#",
+    "GHC.Prim.sameMVar#",
+    "GHC.Prim.sameMutVar#",
+    "GHC.Prim.sameMutableArray#",
+    "GHC.Prim.sameMutableByteArray#",
+    "GHC.Prim.sameSmallMutableArray#",
+    "GHC.Prim.sameTVar#",
+    "GHC.Prim.seq#",
+    "GHC.Prim.stmAbort#",
+    "GHC.Prim.stmActive#",
+    "GHC.Prim.stmBegin#",
+    "GHC.Prim.stmCommit#",
+    "GHC.Prim.stmWait#",
+    "GHC.Prim.unsafeCoerce#"
+  ]
 
 test_coreLibsHaveOnlyKnownDivergences :: Assertion
 test_coreLibsHaveOnlyKnownDivergences = do
@@ -372,6 +465,23 @@ demoBoolSource =
       "(&&) :: Bool -> Bool -> Bool",
       "False && _ = False",
       "True && x = x"
+    ]
+
+demoBoolForeignSource :: String
+demoBoolForeignSource =
+  unlines
+    [ "{-# LANGUAGE GHCForeignImportPrim, MagicHash #-}",
+      "module Data.Bool",
+      "  ( Bool(False, True),",
+      "    not,",
+      "    seqBool#,",
+      "  )",
+      "where",
+      "data Bool = False | True",
+      "not :: Bool -> Bool",
+      "not False = True",
+      "not True = False",
+      "foreign import prim seqBool# :: forall a. Bool -> a -> a"
     ]
 
 demoBoolMissingSignatureSource :: String

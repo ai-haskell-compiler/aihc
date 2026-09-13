@@ -41,11 +41,17 @@ expected: |-
     3.sType = 3.tTYPE 3.sLiftedRep
 
   pub val 1.v$fEqBool :: 2.t$Dict$Eq 3.tBool
-   = 2.c$Dict$Eq @3.tBool (λ(x : 3.tBool).
+   = 2.c$Dict$Eq @3.tBool 1.v$fEqBool$c== 1.v$fEqBool$c/=
+
+  val 1.v$fEqBool$c== :: 3.tBool 3.→ 3.tBool 3.→ 3.tBool
+   = λ(x : 3.tBool).
     λ(y : 3.tBool).
-      3.cTrue) (λ(x : 3.tBool).
+      3.cTrue
+
+  val 1.v$fEqBool$c/= :: 3.tBool 3.→ 3.tBool 3.→ 3.tBool
+   = λ(x : 3.tBool).
     λ(y : 3.tBool).
-      3.cFalse)
+      3.cFalse
   scope 1 = "" Test
   scope 2 = "" Types
   scope 3 = "aihc-prim" GHC.Classes

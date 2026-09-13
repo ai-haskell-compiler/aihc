@@ -8,6 +8,7 @@ module Aihc.Dev.ExtractHi.Types
     ClassMethod (..),
     FixityInfo (..),
     FixityDirection (..),
+    unspecifiedSourceKind,
   )
 where
 
@@ -47,6 +48,11 @@ instance ToJSON ModuleInterface where
         "classes" .= miClasses mi,
         "fixities" .= miFixities mi
       ]
+
+-- | The kind recorded for a source type without a standalone kind
+-- signature. Nothing states its full kind, so nothing can be compared.
+unspecifiedSourceKind :: Text
+unspecifiedSourceKind = "<unspecified-source-kind>"
 
 -- | An exported type or data declaration.
 data ExportedType = ExportedType

@@ -12,11 +12,11 @@
 module Aihc.Resolve.Traverse
   ( HasAnnotations (..),
     annotationList,
+    collectAnnotations,
   )
 where
 
 import Aihc.Parser.Syntax
-import Data.Functor.Const (Const (..))
 
 -- | Syntax that can hold annotations.
 class HasAnnotations a where
@@ -25,7 +25,44 @@ class HasAnnotations a where
 
 -- | Every annotation of a piece of syntax, in source order.
 annotationList :: (HasAnnotations a) => a -> [Annotation]
-annotationList = getConst . traverseAnnotations (\ann -> Const [ann])
+annotationList = collectAnnotations Just
+
+-- | The values that one function selects from the annotations of a piece
+-- of syntax, in source order. An annotation that the function rejects adds
+-- no value to the result.
+--
+-- Most callers keep few annotations of a module, or none. The walk thus
+-- builds the result as a difference list and appends no lists. A walk that
+-- keeps no annotation of a module allocates nothing.
+collectAnnotations :: (HasAnnotations a) => (Annotation -> Maybe r) -> a -> [r]
+collectAnnotations select value =
+  case runCollect (traverseAnnotations step value) of
+    Nothing -> []
+    Just build -> build []
+  where
+    step ann = Collect (fmap (:) (select ann))
+
+-- | The applicative that 'collectAnnotations' walks the syntax with. It
+-- keeps the selected values as a difference list and drops the syntax.
+-- 'Nothing' is a subtree that gives no value. A walk that finds no value in
+-- a whole module thus allocates nothing, because the newtype and the
+-- 'Nothing' cost no memory.
+newtype Collect r a = Collect {runCollect :: Maybe ([r] -> [r])}
+
+instance Functor (Collect r) where
+  fmap _ (Collect build) = Collect build
+
+instance Applicative (Collect r) where
+  pure _ = Collect Nothing
+  Collect left <*> Collect right = Collect (appendCollected left right)
+  liftA2 _ (Collect left) (Collect right) = Collect (appendCollected left right)
+
+-- | Put the values of the first subtree in front of the values of the
+-- second subtree. The walk visits the first subtree first.
+appendCollected :: Maybe ([r] -> [r]) -> Maybe ([r] -> [r]) -> Maybe ([r] -> [r])
+appendCollected Nothing right = right
+appendCollected left Nothing = left
+appendCollected (Just left) (Just right) = Just (left . right)
 
 instance HasAnnotations Annotation where
   traverseAnnotations f = f

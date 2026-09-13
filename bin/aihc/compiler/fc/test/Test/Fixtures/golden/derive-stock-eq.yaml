@@ -47,7 +47,12 @@ expected: |-
   pub val 1.v$fEqTreea :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 2.t$Dict$Eq (1.tTree a)
    = Λ(a : 3.sType).
     λ($d0 : 2.t$Dict$Eq a).
-      2.c$Dict$Eq @(1.tTree a) (λ(x : 1.tTree a).
+      2.c$Dict$Eq @(1.tTree a) (1.v$fEqTreea$c== @a $d0) (1.v$fEqTreea$c/= @a $d0)
+
+  val 1.v$fEqTreea$c== :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
+   = Λ(a : 3.sType).
+    λ($d0 : 2.t$Dict$Eq a).
+      λ(x : 1.tTree a).
         λ(y : 1.tTree a).
           case x as (_scrut : 1.tTree a) return (3.tBool) of {
               1.cLeaf (a1 : a) →
@@ -71,7 +76,12 @@ expected: |-
                   };
               _ →
                   3.cFalse
-          }) (2.v$dm$47$$61$ @(1.tTree a) (1.v$fEqTreea @a $d0))
+          }
+
+  val 1.v$fEqTreea$c/= :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
+   = Λ(a : 3.sType).
+    λ($d0 : 2.t$Dict$Eq a).
+      2.v$dm$47$$61$ @(1.tTree a) (1.v$fEqTreea @a $d0)
 
   pub val 1.vsameTree :: ∀(a : 3.sType). 2.t$Dict$Eq a 3.→ 1.tTree a 3.→ 1.tTree a 3.→ 3.tBool
    = Λ(a : 3.sType).

@@ -19,6 +19,8 @@ expected: |-
 
   global 1."$fAp(->)r" = (F"$$fAp(->)r_thunk")
 
+  global 1."$fAp(->)r$clift2" = (P$$dmlift2/3 global-ref 1."$fAp(->)r")
+
   $fmap' ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) ($d0 :: BoxedRep Lifted)
@@ -72,48 +74,46 @@ expected: |-
       apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_application%1 :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
-  "$$fFun(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+  "$$fFun(->)r_thunk" -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      store (P"$$fFun(->)r$cfmap'"/3)
+    store (C1.$Dict$Fun (argument :: BoxedRep Lifted))
+
+  "$$fFun(->)r$cfmap'_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
-  "$$fFun(->)r_closure" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+  "$$fFun(->)r$cfmap'" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     argument :: BoxedRep Lifted <-
-      store (F"$$fFun(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
+      store (F"$$fFun(->)r$cfmap'_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
 
-  "$$fFun(->)r_thunk" -> BoxedRep Lifted =
+  "$$fAp(->)r_thunk" -> BoxedRep Lifted =
     argument :: BoxedRep Lifted <-
-      store (P"$$fFun(->)r_closure"/3)
-    store (C1.$Dict$Fun (argument :: BoxedRep Lifted))
+      store (P"$$fAp(->)r$cunit"/2)
+    argument%1 :: BoxedRep Lifted <-
+      store (P"$$fAp(->)r$cap"/3)
+    store (C1.$Dict$Ap global-ref 1."$fFun(->)r" (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) global-ref 1."$fAp(->)r$clift2")
 
-  "$$fAp(->)r_closure" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+  "$$fAp(->)r$cunit" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
 
-  "$$fAp(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+  "$$fAp(->)r$cap_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
-  "$$fAp(->)r_closure_2" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
+  "$$fAp(->)r$cap" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     argument :: BoxedRep Lifted <-
-      store (F"$$fAp(->)r_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
+      store (F"$$fAp(->)r$cap_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted))
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     function_whnf%1 :: BoxedRep Lifted <-
       apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (z :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
-
-  "$$fAp(->)r_thunk" -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (P"$$fAp(->)r_closure"/2)
-    argument%1 :: BoxedRep Lifted <-
-      store (P"$$fAp(->)r_closure_2"/3)
-    argument%2 :: BoxedRep Lifted <-
-      store (P$$dmlift2/3 global-ref 1."$fAp(->)r")
-    store (C1.$Dict$Ap global-ref 1."$fFun(->)r" (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) (argument%2 :: BoxedRep Lifted))
 extensions: []
 reason: an instance for the partially applied function arrow gives its
   methods function types, and the lint equates them with the class method

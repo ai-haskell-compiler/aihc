@@ -18,9 +18,8 @@ import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet qualified as IntSet
-import Data.List (mapAccumL, sortOn)
+import Data.List (mapAccumL)
 import Data.Maybe (isJust, isNothing)
-import Data.Ord (Down (..))
 import Data.Word (Word32, Word64)
 
 writeArm64MachO :: Image -> Either ObjectError BL.ByteString
@@ -227,8 +226,10 @@ localRelocationTarget targets relocation
   | otherwise = Nothing
 
 putSectionRelocations :: IntMap (Word32, Word64) -> IntMap Word32 -> PlacedSection -> Put
+-- Mach-O lists the relocations of a section from the highest offset down,
+-- and the image lists them ascending.
 putSectionRelocations localTargets indexes section =
-  mapM_ putRelocation (sortOn (Down . relocationOffset) (imageSectionRelocations (placedImageSection section)))
+  mapM_ putRelocation (reverse (imageSectionRelocations (placedImageSection section)))
   where
     putRelocation relocation = do
       let symbolIndex = indexes IntMap.! relocationSymbol relocation
@@ -329,12 +330,10 @@ putSectionContents localTargets offset sections =
       let imageSection = placedImageSection section
           next = placedFileOffset section + imageSectionSize imageSection
           patches =
-            sortOn
-              fst
-              [ (relocationOffset relocation, address)
-              | relocation <- imageSectionRelocations imageSection,
-                Just (_, address) <- [localRelocationTarget localTargets relocation]
-              ]
+            [ (relocationOffset relocation, address)
+            | relocation <- imageSectionRelocations imageSection,
+              Just (_, address) <- [localRelocationTarget localTargets relocation]
+            ]
       putLocalAddresses 0 bytes patches
       putSectionContents localTargets next rest
 
