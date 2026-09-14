@@ -152,6 +152,7 @@ module GHC.Prim
     stmAbort#,
     stmActive#,
     stmWait#,
+    myThreadId#,
     newDelayTVar#,
     newAlignedPinnedByteArray#,
     newArray#,
@@ -1293,6 +1294,12 @@ foreign import prim
     (# State# RealWorld, ThreadId# #)
 
 foreign import prim yield# :: State# RealWorld -> State# RealWorld
+
+-- | The identifier of the green thread that runs the call.
+foreign import prim
+  myThreadId# ::
+    State# RealWorld ->
+    (# State# RealWorld, ThreadId# #)
 
 -- | Suspend the current green thread until an opaque runtime IO request has
 -- completed. Concrete IO operations are ordinary runtime foreign calls.

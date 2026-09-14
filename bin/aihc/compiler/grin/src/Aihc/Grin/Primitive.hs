@@ -117,6 +117,9 @@ transactionPrimitives =
 concurrencyPrimitives :: [Text]
 concurrencyPrimitives =
   [ "fork#",
+    -- myThreadId# only reads a field of the machine. It is here because it
+    -- takes the machine, which is the rule this list must agree with.
+    "myThreadId#",
     "yield#",
     "awaitIO#",
     "newMVar#",

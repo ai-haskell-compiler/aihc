@@ -576,6 +576,7 @@ supportedNativePrimitiveNames =
     "sameMVar#",
     "eqStableName#",
     "stableNameToInt#",
+    "aihcThreadIdNumber#",
     "readMutVar#",
     "writeMutVar#",
     "casMutVar#",
@@ -818,6 +819,9 @@ nativeRuntimePrimitiveCalls =
     machineCall "stmActive#" "aihc_stm_active" [] GrinForeignWord64,
     machineCall "newMutVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
+    -- The thread that runs now is a field of the machine, so this call takes
+    -- the machine. It only reads that field, and it allocates nothing.
+    machineCall "myThreadId#" "aihc_my_thread_id" [] GrinForeignAddr,
     procedure "copyArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     procedure "copyMutableArray#" "aihc_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     machineCall "cloneArray#" "aihc_array_clone" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
