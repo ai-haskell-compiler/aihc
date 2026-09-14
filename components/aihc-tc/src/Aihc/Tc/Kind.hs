@@ -702,11 +702,11 @@ refineGivenKind kind = do
       where
         recur = rewrite equalities visited
     replace ty left@(TcTyVar a) right@(TcTyVar b)
-      | tvUnique a > tvUnique b, ty == left = Just right
-      | tvUnique b > tvUnique a, ty == right = Just left
+      | tvUnique a > tvUnique b, sameType ty left = Just right
+      | tvUnique b > tvUnique a, sameType ty right = Just left
     replace _ TcTyVar {} TcTyVar {} = Nothing
-    replace ty left@TcTyVar {} right | ty == left, left /= right = Just right
-    replace ty left right@TcTyVar {} | ty == right, left /= right = Just left
+    replace ty left@TcTyVar {} right | sameType ty left, not (sameType left right) = Just right
+    replace ty left right@TcTyVar {} | sameType ty right, not (sameType left right) = Just left
     replace _ _ _ = Nothing
 
 -- | Rewrite the kind of every type variable in a type with the equality

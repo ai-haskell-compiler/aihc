@@ -8,6 +8,13 @@ module Aihc.Tc.Types
     TyVarId (TyVarId, tvName, tvUnique),
     mkTyVarId,
     tvKind,
+    sameTyVar,
+    TypeShape,
+    PredShape,
+    typeShape,
+    predShape,
+    sameType,
+    samePred,
     setTyVarKind,
     TcType (..),
     isPolyType,
@@ -102,21 +109,16 @@ import Data.Text qualified as T
 newtype Unique = Unique Int
   deriving (Eq, Ord, Show, Read)
 
--- | A type variable and its type-level kind.
+-- | A type variable and its type-level kind. Equality is structural: two
+-- occurrences of one variable whose kinds differ (a GADT match can refine
+-- the kind of a variable in scope) are two values. Code that asks whether
+-- two occurrences are the same variable uses 'sameTyVar'.
 data TyVarId = TyVarIdInternal !Text !Unique !TcType
-  deriving (Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
--- | A type variable is its name and its unique; the kind is a property of
--- the variable, not part of its identity. A GADT match can refine the kind
--- of a variable that is already in scope, and the refined occurrence has to
--- stay the same variable as the binder.
-instance Eq TyVarId where
-  TyVarIdInternal leftName leftUnique _ == TyVarIdInternal rightName rightUnique _ =
-    leftUnique == rightUnique && leftName == rightName
-
-instance Ord TyVarId where
-  compare (TyVarIdInternal leftName leftUnique _) (TyVarIdInternal rightName rightUnique _) =
-    compare leftUnique rightUnique <> compare leftName rightName
+-- The identity of a variable: its name and unique, without its kind.
+tyVarIdentity :: TyVarId -> (Unique, Text)
+tyVarIdentity (TyVarIdInternal name unique _) = (unique, name)
 
 -- | A type variable is matched by its name and its unique. Its kind is
 -- read with 'tvKind' and given with 'mkTyVarId': the module knows no kind
@@ -498,12 +500,12 @@ applySubstPred substitution predicate =
 typeMentionsTyVar :: TyVarId -> TcType -> Bool
 typeMentionsTyVar target ty =
   case ty of
-    TcTyVar tyVar -> tyVar == target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
+    TcTyVar tyVar -> sameTyVar tyVar target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
     TcMetaTv {} -> False
     TcArrowTy -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
-    TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
+    TcForAllTy tyVar body -> not (sameTyVar tyVar target) && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
 
@@ -515,8 +517,69 @@ predicateMentionsTyVar target predicate =
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
     IParamPred _ payload -> typeMentionsTyVar target payload
     QuantifiedPred variables antecedents consequent ->
-      target `notElem` variables
+      not (any (sameTyVar target) variables)
         && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
+
+-- | Whether two occurrences are one variable. Occurrences of a variable can
+-- carry different kinds (a given kind refinement rewrites the kinds of the
+-- occurrences it reaches), so this asks about the identity, not 'Eq'.
+sameTyVar :: TyVarId -> TyVarId -> Bool
+sameTyVar left right = tyVarIdentity left == tyVarIdentity right
+
+-- | A type with the kinds of its variables left out: what the solver means
+-- by one type. Two types of one shape are the same type however their
+-- variable occurrences are kinded, so a shape is the key to use where types
+-- are matched against one another. 'Eq' on 'TcType' is finer: it tells two
+-- differently kinded occurrences of a variable apart.
+data TypeShape
+  = ShapeTyVar !Unique !Text
+  | ShapeMetaTv !Unique
+  | ShapeTyCon !TyCon ![TypeShape]
+  | ShapeArrowTy
+  | ShapeFunTy !TypeShape !TypeShape
+  | ShapeForAllTy !Unique !Text !TypeShape
+  | ShapeQualTy ![PredShape] !TypeShape
+  | ShapeAppTy !TypeShape !TypeShape
+  deriving (Eq, Ord, Show)
+
+-- | A predicate with the kinds of its variables left out.
+data PredShape
+  = ShapeClassPred !TyCon ![TypeShape]
+  | ShapeEqPred !TypeShape !TypeShape
+  | ShapeQuantifiedPred ![(Unique, Text)] ![PredShape] !PredShape
+  | ShapeIParamPred !Text !TypeShape
+  deriving (Eq, Ord, Show)
+
+typeShape :: TcType -> TypeShape
+typeShape ty =
+  case ty of
+    TcTyVar tyVar -> ShapeTyVar (tvUnique tyVar) (tvName tyVar)
+    TcMetaTv unique -> ShapeMetaTv unique
+    TcTyCon tyCon arguments -> ShapeTyCon tyCon (map typeShape arguments)
+    TcArrowTy -> ShapeArrowTy
+    TcFunTy argument result -> ShapeFunTy (typeShape argument) (typeShape result)
+    TcForAllTy tyVar body -> ShapeForAllTy (tvUnique tyVar) (tvName tyVar) (typeShape body)
+    TcQualTy predicates body -> ShapeQualTy (map predShape predicates) (typeShape body)
+    TcAppTy function argument -> ShapeAppTy (typeShape function) (typeShape argument)
+
+predShape :: Pred -> PredShape
+predShape predicate =
+  case predicate of
+    ClassPred tyCon arguments -> ShapeClassPred tyCon (map typeShape arguments)
+    EqPred left right -> ShapeEqPred (typeShape left) (typeShape right)
+    QuantifiedPred variables antecedents consequent ->
+      ShapeQuantifiedPred (map tyVarIdentity variables) (map predShape antecedents) (predShape consequent)
+    IParamPred name payload -> ShapeIParamPred name (typeShape payload)
+
+-- | Whether two types are one type, whatever kinds their variable
+-- occurrences carry.
+sameType :: TcType -> TcType -> Bool
+sameType left right = typeShape left == typeShape right
+
+-- | Whether two predicates are one predicate, whatever kinds their
+-- variable occurrences carry.
+samePred :: Pred -> Pred -> Bool
+samePred left right = predShape left == predShape right
 
 -- | Whether a kind mentions one unique. A type variable matches by its
 -- unique alone, because a kind can hold a different copy of it.
