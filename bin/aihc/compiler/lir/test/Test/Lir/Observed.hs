@@ -26,8 +26,12 @@ lowerObservedProgram target entryName gcProgram = do
   case Map.lookup entryName (gcFunctionContinuations gcProgram) of
     Just continuation | grinFunctionParameters entryFunction == [continuation] -> pure ()
     _ -> Left (LowerUnsupportedExpression "observed entry function must have only its CPS continuation")
-  let resultReps = runtimeRepComponents (grinFunctionResultRep entryFunction)
-      resultTypes = map repType resultReps
+  resultReps <-
+    maybe
+      (Left (LowerUnsupportedExpression "observed entry function must place its result"))
+      Right
+      (resultRepComponents (grinFunctionResultRep entryFunction))
+  let resultTypes = map repType resultReps
   metadata <-
     renderObservedMetadata
       LowerUnsupportedRuntimeRep

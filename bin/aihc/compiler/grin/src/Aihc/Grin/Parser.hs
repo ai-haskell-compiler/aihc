@@ -158,7 +158,7 @@ functionDeclaration = do
   horizontal1
   _ <- MPC.string "->"
   horizontal1
-  resultRep <- runtimeRep
+  resultRep <- grinResultRep
   horizontal1
   _ <- MPC.char '='
   lineEnd
@@ -390,11 +390,11 @@ cpsEvalExpr = do
   lineEnd
   pure (GrinCpsEval representation value continuation updateContinuation)
 
-namedCallExpr :: Text -> (GrinRep -> FunctionName -> [GrinValue] -> GrinExpr) -> Parser GrinExpr
+namedCallExpr :: Text -> (GrinResultRep -> FunctionName -> [GrinValue] -> GrinExpr) -> Parser GrinExpr
 namedCallExpr expressionName constructor = do
   keyword expressionName
   horizontal1
-  representation <- runtimeRepArgument
+  representation <- resultRepArgument
   horizontal1
   functionName <- FunctionName <$> name
   arguments <- grinValues
@@ -431,7 +431,7 @@ applyExpr :: Parser GrinExpr
 applyExpr = do
   keyword "apply"
   horizontal1
-  representation <- runtimeRepArgument
+  representation <- resultRepArgument
   horizontal1
   function <- grinValue
   horizontal1
@@ -443,7 +443,7 @@ cpsApplyExpr :: Parser GrinExpr
 cpsApplyExpr = do
   keyword "cps-apply"
   horizontal1
-  representation <- runtimeRepArgument
+  representation <- resultRepArgument
   horizontal1
   function <- grinValue
   horizontal1
@@ -646,6 +646,12 @@ foreignType =
 
 runtimeRepArgument :: Parser GrinRep
 runtimeRepArgument = MPC.char '@' *> runtimeRep
+
+resultRepArgument :: Parser GrinResultRep
+resultRepArgument = MPC.char '@' *> grinResultRep
+
+grinResultRep :: Parser GrinResultRep
+grinResultRep = (ResultForwarded <$ keyword "forwarded") <|> (ResultRep <$> runtimeRep)
 
 runtimeRep :: Parser GrinRep
 runtimeRep =

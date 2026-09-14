@@ -65,7 +65,7 @@ prettyFunction scopes function =
   prettyFunctionName (grinFunctionName function)
     <> foldMap ((space <>) . prettyVarAtom) (grinFunctionParameters function)
     <+> "->"
-    <+> prettyShow (grinFunctionResultRep function)
+    <+> prettyResultRep (grinFunctionResultRep function)
     <+> "="
     <> hardline
     <> indent 2 (prettyExprWith scopes (grinFunctionBody function))
@@ -102,10 +102,10 @@ prettyExprWith scopes expr =
         <+> "@"
         <> prettyRuntimeRepArgument runtimeRep
         <+> hsep (map (prettyValue scopes) [value, continuation, updateContinuation])
-    GrinCall runtimeRep functionName arguments ->
+    GrinCall resultRep functionName arguments ->
       "call"
         <+> "@"
-        <> prettyRuntimeRepArgument runtimeRep
+        <> prettyResultRepArgument resultRep
         <+> prettyFunctionName functionName
         <> prettyValues scopes arguments
     GrinPrimitiveCall runtimeRep name arguments ->
@@ -122,16 +122,16 @@ prettyExprWith scopes expr =
         <> prettyValues scopes arguments
         <+> "->"
         <+> prettyValue scopes continuation
-    GrinApply runtimeRep function arguments ->
+    GrinApply resultRep function arguments ->
       "apply"
         <+> "@"
-        <> prettyRuntimeRepArgument runtimeRep
+        <> prettyResultRepArgument resultRep
         <+> prettyValue scopes function
         <> prettyArgument scopes arguments
-    GrinCpsApply runtimeRep function arguments continuation ->
+    GrinCpsApply resultRep function arguments continuation ->
       "cps-apply"
         <+> "@"
-        <> prettyRuntimeRepArgument runtimeRep
+        <> prettyResultRepArgument resultRep
         <+> prettyValue scopes function
         <> prettyArgument scopes arguments
         <+> "->"
@@ -258,6 +258,20 @@ prettyVar var =
 
 prettyVarAtom :: GrinVar -> Doc ann
 prettyVarAtom = parens . prettyVar
+
+-- | A result representation after a function's parameters.
+prettyResultRep :: GrinResultRep -> Doc ann
+prettyResultRep resultRep =
+  case resultRep of
+    ResultRep runtimeRep -> prettyShow runtimeRep
+    ResultForwarded -> "forwarded"
+
+-- | A result representation after the @\@@ of a call.
+prettyResultRepArgument :: GrinResultRep -> Doc ann
+prettyResultRepArgument resultRep =
+  case resultRep of
+    ResultRep runtimeRep -> prettyRuntimeRepArgument runtimeRep
+    ResultForwarded -> "forwarded"
 
 prettyRuntimeRepArgument :: GrinRep -> Doc ann
 prettyRuntimeRepArgument runtimeRep =
