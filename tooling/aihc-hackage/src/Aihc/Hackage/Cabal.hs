@@ -50,6 +50,7 @@ import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, sourceDirs)
 import Data.List (isPrefixOf, nub)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Distribution.Compat.Graph qualified as Graph
@@ -342,9 +343,18 @@ collectExecutablesFor os arch gpd packageRoot =
 first :: (a -> c) -> (a, b) -> (c, b)
 first f (a, b) = (f a, b)
 
+-- | Keep the first 'FileInfo' of each path, in order.
+--
+-- The paths of one package share a long directory prefix, so comparing them
+-- pairwise costs far more than the list length suggests: a set keyed on the
+-- path keeps this linear.
 dedupeFiles :: [FileInfo] -> [FileInfo]
-dedupeFiles [] = []
-dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfoPath f) fs)
+dedupeFiles = go Set.empty
+  where
+    go _ [] = []
+    go seen (f : fs)
+      | Set.member (fileInfoPath f) seen = go seen fs
+      | otherwise = f : go (Set.insert (fileInfoPath f) seen) fs
 
 libraryFilesFor :: PackageDescription -> (Condition ConfVar -> Bool) -> FilePath -> LibraryName -> CondTree ConfVar c Library -> IO [FileInfo]
 libraryFilesFor pkgDescr evalCond packageRoot libName tree = do

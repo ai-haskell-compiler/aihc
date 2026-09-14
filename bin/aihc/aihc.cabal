@@ -135,6 +135,7 @@ library
     Aihc.Fc.Parser
     Aihc.Fc.Pretty
     Aihc.Fc.Prune
+    Aihc.Fc.Share
     Aihc.Fc.Syntax
     Aihc.Fc.Tidy
     Aihc.Fc.TypeOf

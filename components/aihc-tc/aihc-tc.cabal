@@ -25,6 +25,7 @@ library
     Aihc.Tc.Deriving.Context
     Aihc.Tc.Deriving.Generate
     Aihc.Tc.Deriving.References
+    Aihc.Tc.Deriving.StockClass
     Aihc.Tc.Deriving.Strategy
     Aihc.Tc.Env
     Aihc.Tc.Error
@@ -42,6 +43,7 @@ library
     Aihc.Tc.Kind
     Aihc.Tc.Monad
     Aihc.Tc.QuickLook
+    Aihc.Tc.Share
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Coercible
@@ -117,6 +119,7 @@ test-suite spec
     TcAnnotatedRender
     Test.Tc.Interface
     Test.Tc.Properties
+    Test.Tc.StockClass
     Test.Tc.Suite
     Test.Tc.Traverse
 

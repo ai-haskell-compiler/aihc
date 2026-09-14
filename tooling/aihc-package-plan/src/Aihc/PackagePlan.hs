@@ -25,6 +25,7 @@ module Aihc.PackagePlan
     workspaceDependencyResolver,
     packageSpecFromSource,
     parseSourcePackageDescription,
+    parseSourcePackageDescriptionAt,
   )
 where
 
@@ -34,6 +35,7 @@ import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibraryByS
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Data.ByteString qualified as BS
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -53,6 +55,11 @@ import System.FilePath (normalise, takeDirectory, (</>))
 
 data PackagePlan = PackagePlan
   { planSourcePath :: !FilePath,
+    -- | The @.cabal@ file the plan read under 'planSourcePath'.
+    planCabalFile :: !FilePath,
+    -- | What that file says. The installer reuses it instead of parsing the
+    -- file a second time.
+    planDescription :: GenericPackageDescription,
     planOrigin :: !PlanOrigin,
     planDependencyPlans :: ![PackagePlan]
   }
@@ -141,7 +148,11 @@ packageSpecFromDescription gpd =
         }
 
 parseSourcePackageDescription :: FilePath -> IO GenericPackageDescription
-parseSourcePackageDescription sourcePath = do
+parseSourcePackageDescription sourcePath = snd <$> parseSourcePackageDescriptionAt sourcePath
+
+-- | Parse the @.cabal@ file of a source tree and say which file it was.
+parseSourcePackageDescriptionAt :: FilePath -> IO (FilePath, GenericPackageDescription)
+parseSourcePackageDescriptionAt sourcePath = do
   cabalFiles <- HackageUtil.findCabalFiles sourcePath
   cabalFile <-
     case cabalFiles of
@@ -149,29 +160,46 @@ parseSourcePackageDescription sourcePath = do
       files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
   cabalBytes <- BS.readFile cabalFile
   case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right parsed) -> pure parsed
+    (_, Right parsed) -> pure (cabalFile, parsed)
     (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
 
 buildPackagePlanWithResolver :: DependencyResolver -> PackageSpec -> IO PackagePlan
-buildPackagePlanWithResolver resolver = buildPackagePlanRecursive resolver []
+buildPackagePlanWithResolver resolver spec = do
+  -- The dependency graph is a DAG that the recursion walks as a tree: without
+  -- the cache a package shared by several dependents is resolved and parsed
+  -- once per path that reaches it.
+  cache <- newIORef Map.empty
+  buildPackagePlanRecursive cache resolver [] spec
 
-buildPackagePlanRecursive :: DependencyResolver -> [PackageSpec] -> PackageSpec -> IO PackagePlan
-buildPackagePlanRecursive resolver stack rawSpec
+buildPackagePlanRecursive :: IORef (Map.Map (String, String) PackagePlan) -> DependencyResolver -> [PackageSpec] -> PackageSpec -> IO PackagePlan
+buildPackagePlanRecursive cache resolver stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
       ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = do
+      cached <- Map.lookup (packageSpecIdentity spec) <$> readIORef cache
+      case cached of
+        -- A cached plan is complete, so it took part in no cycle.
+        Just plan -> pure plan
+        Nothing -> do
+          plan <- buildPlan
+          modifyIORef' cache (Map.insert (packageSpecIdentity spec) plan)
+          pure plan
+  where
+    buildPlan = do
       ResolvedSource sourcePath origin <- sourcePathForSpec resolver spec
-      gpd <- parseSourcePackageDescription sourcePath
+      (cabalFile, gpd) <- parseSourcePackageDescriptionAt sourcePath
       let dependencyNames = packageDependencyNames gpd
       dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec dependencyNames)
-      dependencyPlans <- mapM (buildPackagePlanRecursive resolver (spec : stack)) dependencySpecs
+      dependencyPlans <- mapM (buildPackagePlanRecursive cache resolver (spec : stack)) dependencySpecs
       pure
         PackagePlan
           { planSourcePath = sourcePath,
+            planCabalFile = cabalFile,
+            planDescription = gpd,
             planOrigin = origin,
             planDependencyPlans = dependencyPlans
           }
-  where
+
     spec = canonicalPackageSpec rawSpec
     resolveDependencySpec dependencyName = do
       version <- resolveVersionForDependency dependencyName

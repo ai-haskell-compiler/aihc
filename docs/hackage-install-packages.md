@@ -43,6 +43,7 @@ would no longer point at a change in aihc.
 | text | 2.1.4 |
 | prettyprinter | 1.7.2 |
 | th-abstraction | 0.7.2.0 |
+| OneTuple | 0.4.3 |
 
 ## Running it locally
 

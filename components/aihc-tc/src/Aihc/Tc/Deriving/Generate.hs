@@ -56,8 +56,9 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (isSupportedStockClass, newtypeRepresentation, stockFieldTypes)
+import Aihc.Tc.Deriving.Context (newtypeRepresentation, stockFieldTypes)
 import Aihc.Tc.Deriving.References
+import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf)
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -76,19 +77,20 @@ import Data.Text qualified as T
 generateDerivedInstances :: (Text, Text) -> Module -> TcM [Decl]
 generateDerivedInstances origin modu = do
   references <- getDerivingReferences
-  concat <$> mapM (declDerivedInstances references origin) (moduleDecls modu)
+  primPackage <- getPrimPackage
+  concat <$> mapM (declDerivedInstances references primPackage origin) (moduleDecls modu)
 
-declDerivedInstances :: DerivingReferences -> (Text, Text) -> Decl -> TcM [Decl]
-declDerivedInstances references origin decl =
+declDerivedInstances :: DerivingReferences -> PackageId -> (Text, Text) -> Decl -> TcM [Decl]
+declDerivedInstances references primPackage origin decl =
   case decl of
     DeclAnn annotation inner -> do
       own <-
         case fromAnnotation @TcDerivingAnnotation annotation of
           Just derivingAnnotation -> do
             kinds <- getKinds
-            catMaybes <$> mapM (generatePlan kinds references origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
+            catMaybes <$> mapM (generatePlan kinds references primPackage origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
           Nothing -> pure []
-      rest <- declDerivedInstances references origin inner
+      rest <- declDerivedInstances references primPackage origin inner
       pure (own <> rest)
     _ -> pure []
 
@@ -97,13 +99,16 @@ data Gen = Gen
   { genSpan :: !SourceSpan,
     genKinds :: !TcKinds,
     genReferences :: !DerivingReferences,
+    -- | The primitive package, which most references come from.
+    genPrimPackage :: !PackageId,
     genPlan :: !TcDerivingPlan,
-    -- | Package and module of the class, where its methods live.
+    -- | Package and module of the class, where its methods live, and where
+    -- a reference of the class package comes from.
     genClassOrigin :: !(Text, Text)
   }
 
-generatePlan :: TcKinds -> DerivingReferences -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
-generatePlan kinds references origin sourceDecl plan =
+generatePlan :: TcKinds -> DerivingReferences -> PackageId -> (Text, Text) -> Decl -> TcDerivingPlan -> TcM (Maybe Decl)
+generatePlan kinds references primPackage origin sourceDecl plan =
   case supportedStrategy of
     Left message -> do
       emitWarning (tcDerivingSourceSpan plan) (OtherError message)
@@ -152,6 +157,7 @@ generatePlan kinds references origin sourceDecl plan =
         { genSpan = tcDerivingSourceSpan plan,
           genKinds = kinds,
           genReferences = references,
+          genPrimPackage = primPackage,
           genPlan = plan,
           genClassOrigin = fromMaybe origin (tcDerivingClassOrigin plan)
         }
@@ -173,7 +179,7 @@ generatePlan kinds references origin sourceDecl plan =
           -- generator must not write method bodies for it.
           | not (isGeneratedStockClass references (tcDerivingClassName plan) (tcDerivingClassOrigin plan)) ->
               Left ("stock deriving of " <> className <> " is not available for a class outside the core libraries")
-          | isSupportedStockClass (tcDerivingClassName plan) -> Right ()
+          | generatesStockMethods (tcDerivingClassName plan) -> Right ()
           | otherwise -> Left ("stock deriving of " <> className <> " is not supported yet; no instance is generated")
         TcDerivingVia {} -> Right ()
     -- A standalone declaration keeps the syntax the user wrote. An attached
@@ -202,13 +208,13 @@ generateItems gen =
         (Left message, _) -> failWith message
         (Right _, Just dataType) ->
           let constructors = dtiConstructors dataType
-           in case tcDerivingClassName plan of
-                "Eq" -> Just <$> eqItems gen constructors
-                "Ord" -> Just <$> ordItems gen constructors
-                "Show" -> Just <$> showItems gen constructors
-                "Read" -> Just <$> readItems gen constructors
-                "Bounded" -> boundedItems gen constructors
-                other -> failWith ("stock deriving of " <> T.unpack other <> " is not supported yet")
+           in case stockClassMethodsOf (tcDerivingClassName plan) of
+                Just StockEqMethods -> Just <$> eqItems gen constructors
+                Just StockOrdMethods -> Just <$> ordItems gen constructors
+                Just StockShowMethods -> Just <$> showItems gen constructors
+                Just StockReadMethods -> Just <$> readItems gen constructors
+                Just StockBoundedMethods -> boundedItems gen constructors
+                Nothing -> failWith ("stock deriving of " <> T.unpack (tcDerivingClassName plan) <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
     TcDerivingVia viaType -> associatedItems gen viaType
   where
@@ -222,34 +228,20 @@ generateItems gen =
 referencesAvailable :: Gen -> TcM (Maybe String)
 referencesAvailable gen = do
   present <- forM needed $ \reference -> do
-    binder <- lookupTermKey (TcTermGlobal (referencePackage reference) (referenceModule reference) (referenceName reference))
+    let (package, moduleName, name) = referenceIdentityOf gen reference
+    binder <- lookupTermKey (TcTermGlobal package moduleName name)
     pure (reference, binder)
   pure (listToMaybe [describe reference | (reference, Nothing) <- present])
   where
     references = genReferences gen
+    -- Only a stock body mentions a library name that is not a method of
+    -- the class being derived; the coercing strategies mention none.
     needed =
-      case (tcDerivingStrategy (genPlan gen), tcDerivingClassName (genPlan gen)) of
-        (TcDerivingStock, "Eq") -> [derivingTrue references, derivingFalse references]
-        (TcDerivingStock, "Ord") -> [derivingLT references, derivingEQ references, derivingGT references]
-        (TcDerivingStock, "Show") ->
-          [derivingIntCon references, derivingGreaterOrEqual references, derivingCons references]
-        (TcDerivingStock, "Read") ->
-          [ derivingIntCon references,
-            derivingBind references,
-            derivingThen references,
-            derivingReturn references,
-            derivingReadParens references,
-            derivingReadPrecContext references,
-            derivingReadStep references,
-            derivingReadReset references,
-            derivingReadAlternative references,
-            derivingReadFail references,
-            derivingReadExpect references,
-            derivingReadField references,
-            derivingReadSymField references,
-            derivingLexemeIdent references,
-            derivingLexemeSymbol references,
-            derivingLexemePunc references
+      case tcDerivingStrategy (genPlan gen) of
+        TcDerivingStock ->
+          [ select references
+          | Just stockClass <- [lookupStockClass (tcDerivingClassName (genPlan gen))],
+            select <- stockClassReferences stockClass
           ]
         _ -> []
     describe reference = T.unpack (referenceModule reference <> "." <> referenceName reference)
@@ -687,9 +679,17 @@ methodApp gen name = applyN gen (methodExpr gen name)
 
 referenceSyntax :: Gen -> (DerivingReferences -> DerivingReference) -> Name
 referenceSyntax gen select =
-  resolvedName (genSpan gen) (referencePackage reference) (referenceModule reference) (referenceNameType reference) (referenceNamespace reference) (referenceName reference)
+  resolvedName (genSpan gen) package moduleName (referenceNameType reference) (referenceNamespace reference) name
   where
     reference = select (genReferences gen)
+    (package, moduleName, name) = referenceIdentityOf gen reference
+
+-- | The identity a reference denotes in this generation context: the
+-- primitive package of the configuration, or the package the derived class
+-- was found in.
+referenceIdentityOf :: Gen -> DerivingReference -> (PackageId, Text, Text)
+referenceIdentityOf gen =
+  referenceIdentity (genPrimPackage gen) (PackageId (fst (genClassOrigin gen)))
 
 referenceExpr :: Gen -> (DerivingReferences -> DerivingReference) -> Expr
 referenceExpr gen select = at gen (EVar (referenceSyntax gen select))
@@ -706,11 +706,12 @@ intLiteral gen value =
       (referenceExpr gen derivingIntCon)
       ( at gen $
           EAnn
-            (mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed (referenceName primType)) ResolutionNamespaceType (ResolvedTopLevel (referencePackage primType) (Name (Just (referenceModule primType)) NameConId (referenceName primType) []))))
+            (mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (ResolvedTopLevel primTypePackage (Name (Just primTypeModule) NameConId primTypeName []))))
             (EInt value TIntHash (T.pack (show value) <> "#"))
       )
   where
-    primType = derivingIntPrimType (genReferences gen)
+    (primTypePackage, primTypeModule, primTypeName) =
+      referenceIdentityOf gen (derivingIntPrimType (genReferences gen))
 
 resolvedName :: SourceSpan -> PackageId -> Text -> NameType -> ResolutionNamespace -> Text -> Name
 resolvedName sp packageId moduleName' nameType namespace text =

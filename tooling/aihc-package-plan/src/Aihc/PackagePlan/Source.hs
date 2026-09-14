@@ -54,7 +54,9 @@ import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory
 data ParsedInterfaceFile = ParsedInterfaceFile
   { parsedFilePath :: !FilePath,
     parsedFileModule :: Module,
-    parsedFileSourceLines :: !DiagnosticSourceMap,
+    -- | The lines of the file by the path and line a span names. Lazy: a
+    -- consumer that renders no excerpt never builds it.
+    parsedFileSourceLines :: DiagnosticSourceMap,
     parsedFileParseDiagnostics :: [Aeson.Value],
     parsedFileCppDiagnostics :: [Aeson.Value],
     parsedFileExtensions :: [Extension],
