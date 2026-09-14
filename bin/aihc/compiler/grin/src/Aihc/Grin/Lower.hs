@@ -650,7 +650,9 @@ hasGlobal env name =
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
   let application = Fc.ExApp function argument
-  resultRep <- expressionRuntimeRep env application
+  -- An application is the one expression that can be a whole function body,
+  -- so its result is the one that may never be placed.
+  resultRep <- expressionResultRuntimeRep env application
   case (resultRep, collectApplications application) of
     (_, (Fc.ExVar name, arguments))
       | Just arity <- Map.lookup (Fc.nameText name) specialPrimitiveArities,
@@ -1181,7 +1183,7 @@ closureShape env expression = do
   let (bodyEnv0, binders, body) = collectLambdas env expression
   parameterGroups <- mapM (freshVarsForBinder bodyEnv0) binders
   let bodyEnv = foldl bindPair bodyEnv0 (zip binders parameterGroups)
-  bodyRep <- expressionRuntimeRep bodyEnv body
+  bodyRep <- expressionResultRuntimeRep bodyEnv body
   pure (ClosureShape bodyEnv parameterGroups bodyRep body)
   where
     bindPair current (binder, vars) = bindLocal current binder vars
@@ -1270,6 +1272,17 @@ expressionRuntimeRep env expression =
     _ | divergingExpression expression -> pure liftedGrinRep
     _ -> expressionType env expression >>= liftEither . runtimeRep env
 
+-- | The runtime representation of an expression that is a function's
+-- result, which may still be a variable. See 'resultRuntimeRep'. Only the
+-- body of a function and the application that a function's body may be use
+-- this; every other position uses 'expressionRuntimeRep'.
+expressionResultRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
+expressionResultRuntimeRep env expression =
+  case expression of
+    Fc.ExLit {} -> expressionRuntimeRep env expression
+    _ | divergingExpression expression -> expressionRuntimeRep env expression
+    _ -> expressionType env expression >>= liftEither . resultRuntimeRep env
+
 expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type
 expressionType env expression =
   case expression of
@@ -1317,14 +1330,32 @@ expressionType env expression =
         Just (_, target) -> pure (applySubstitution env target)
         Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
 
+-- | The runtime representation of a value the code generator has to place.
+-- It refuses a representation that is still a variable, so a value of such
+-- a type can never reach a binder, a node field or a case scrutinee.
 runtimeRep :: LowerEnv -> Fc.Type -> Either String GrinRep
 runtimeRep env sourceType = do
-  representation <-
-    maybe
-      (Left ("GRIN cannot find a runtime representation for type: " <> show appliedType))
-      pure
-      (TypeOf.repOf (lowerTypes env) appliedType)
+  representation <- lookupRuntimeRep env sourceType
   convertRep env representation
+
+-- | The runtime representation of a function's result, which the function
+-- may never place: one whose every exit is a tail call produces no values
+-- of its own, and the empty tuple says exactly that. This is the only
+-- position where a representation may still be a variable, and it is how a
+-- representation-polymorphic pattern synonym matcher compiles.
+resultRuntimeRep :: LowerEnv -> Fc.Type -> Either String GrinRep
+resultRuntimeRep env sourceType = do
+  representation <- lookupRuntimeRep env sourceType
+  case reduce env representation of
+    Fc.TyVar _ -> Right (TupleRep [])
+    _ -> convertRep env representation
+
+lookupRuntimeRep :: LowerEnv -> Fc.Type -> Either String Fc.Type
+lookupRuntimeRep env sourceType =
+  maybe
+    (Left ("GRIN cannot find a runtime representation for type: " <> show appliedType))
+    pure
+    (TypeOf.repOf (lowerTypes env) appliedType)
   where
     appliedType = applySubstitution env sourceType
 

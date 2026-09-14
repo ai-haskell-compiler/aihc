@@ -17,6 +17,7 @@ module Aihc.Tc.Monad
     freshMetaTv,
     freshMetaTvOfKind,
     freshSkolemTv,
+    freshSkolemTvOfKind,
     freshEvVar,
     getUniqueBoundary,
 
@@ -549,8 +550,13 @@ freshMetaTvOfKind kind = do
 freshSkolemTv :: Text -> TcM TyVarId
 freshSkolemTv name = do
   kinds <- getKinds
+  freshSkolemTvOfKind name (typeKind kinds)
+
+-- | Allocate a fresh skolem (rigid) type variable of a given kind.
+freshSkolemTvOfKind :: Text -> TcType -> TcM TyVarId
+freshSkolemTvOfKind name kind = do
   u <- freshUnique
-  pure (mkTyVarId name u (typeKind kinds))
+  pure (mkTyVarId name u kind)
 
 -- | Allocate a fresh evidence variable.
 freshEvVar :: TcM EvVar

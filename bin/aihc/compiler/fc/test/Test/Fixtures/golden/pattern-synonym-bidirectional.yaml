@@ -11,58 +11,63 @@ modules:
   swap e = e
 expected: |-
   scope 1 = "" Test
-  scope 2 = "aihc-prim" GHC.Types
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    2.tLevity :: 2.sType;
-    2.sLiftedRep :: 2.tRuntimeRep;
-    2.tRuntimeRep :: 2.sType;
-    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
-    2.sType :: 2.sType;
-    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
-    2.cLifted :: 2.tLevity
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    2.c() :: 2.tUnit;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
 
   import synonyms
-    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
-    2.sType = 2.tTYPE 2.sLiftedRep
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
 
-  pub type 1.tBool :: 2.sType {
+  pub type 1.tBool :: 3.sType {
       pub 1.cTrue :: 1.tBool;
       pub 1.cFalse :: 1.tBool
   }
 
-  pub type 1.tExpr :: 2.sType {
-      pub 1.cLit :: 1.tBool 2.→ 1.tExpr;
-      pub 1.cAdd :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr;
-      pub 1.cNeg :: 1.tExpr 2.→ 1.tExpr
+  pub type 1.tExpr :: 3.sType {
+      pub 1.cLit :: 1.tBool 3.→ 1.tExpr;
+      pub 1.cAdd :: 1.tExpr 3.→ 1.tExpr 3.→ 1.tExpr;
+      pub 1.cNeg :: 1.tExpr 3.→ 1.tExpr
   }
 
-  pub val 1.v$mSub :: ∀(r : 2.sType). 1.tExpr 2.→ (1.tExpr 2.→ 1.tExpr 2.→ r) 2.→ r 2.→ r
-   = Λ(r : 2.sType).
-    λ(x : 1.tExpr).
-      λ(y : 1.tExpr 2.→ 1.tExpr 2.→ r).
-        λ(z : r).
-          case x as (_scrut : 1.tExpr) return (r) of {
-              1.cAdd (a : 1.tExpr) (_pat : 1.tExpr) →
-                  case _pat as (_scrut{1} : 1.tExpr) return (r) of {
-                      1.cNeg (b : 1.tExpr) →
-                          y a b;
-                      _ →
-                          z
-                  };
-              _ →
-                  z
-          }
+  pub val 1.v$mSub :: ∀(rep : 3.tRuntimeRep) (r : 3.tTYPE rep). 1.tExpr 3.→ (1.tExpr 3.→ FUN @3.sLiftedRep @rep 1.tExpr r) 3.→ FUN @3.sLiftedRep @rep (FUN @3.sLiftedRep @rep 2.tUnit r) r
+   = Λ(rep : 3.tRuntimeRep).
+    Λ(r : 3.tTYPE rep).
+      λ(x : 1.tExpr).
+        λ(y : 1.tExpr 3.→ FUN @3.sLiftedRep @rep 1.tExpr r).
+          λ(z : FUN @3.sLiftedRep @rep 2.tUnit r).
+            case x as (_scrut : 1.tExpr) return (r) of {
+                1.cAdd (a : 1.tExpr) (_pat : 1.tExpr) →
+                    case _pat as (_scrut{1} : 1.tExpr) return (r) of {
+                        1.cNeg (b : 1.tExpr) →
+                            y a b;
+                        _ →
+                            z 2.c()
+                    };
+                _ →
+                    z 2.c()
+            }
 
-  pub val 1.v$bSub :: 1.tExpr 2.→ 1.tExpr 2.→ 1.tExpr
+  pub val 1.v$bSub :: 1.tExpr 3.→ 1.tExpr 3.→ 1.tExpr
    = λ(x : 1.tExpr).
     λ(y : 1.tExpr).
       1.cAdd x (1.cNeg y)
 
-  pub val 1.vswap :: 1.tExpr 2.→ 1.tExpr
+  pub val 1.vswap :: 1.tExpr 3.→ 1.tExpr
    = λ(x : 1.tExpr).
-    1.v$mSub @1.tExpr x (λ(a : 1.tExpr).
+    1.v$mSub @3.sLiftedRep @1.tExpr x (λ(a : 1.tExpr).
       λ(b : 1.tExpr).
-        1.v$bSub b a) x
+        1.v$bSub b a) (λ(_pattern_failure : 2.tUnit).
+      x)
 status: pass
 reason: A bidirectional pattern synonym gives a matcher and a builder. A pattern use calls the matcher with a continuation and the failure, and an expression use calls the builder.

@@ -129,6 +129,7 @@ failClass name
   | "case-result" `isInfixOf` name = Just isTypeMismatch
   | "tyapp-kind" `isInfixOf` name = Just isKindMismatch
   | "cast-source" `isInfixOf` name = Just isTypeMismatch
+  | "representation-polymorphic-binder" `isInfixOf` name = Just isRepresentationPolymorphicBinder
   | "shadowed" `isInfixOf` name = Just isShadowedBinder
   | "unused-import" `isInfixOf` name = Just isUnusedImport
   | "lit-alt-lifted" `isInfixOf` name = Just isLintFailure
@@ -151,6 +152,10 @@ isKindMismatch _ = False
 isShadowedBinder :: LintError -> Bool
 isShadowedBinder ShadowedBinder {} = True
 isShadowedBinder _ = False
+
+isRepresentationPolymorphicBinder :: LintError -> Bool
+isRepresentationPolymorphicBinder RepresentationPolymorphicBinder {} = True
+isRepresentationPolymorphicBinder _ = False
 
 isUnusedImport :: LintError -> Bool
 isUnusedImport UnusedImport {} = True

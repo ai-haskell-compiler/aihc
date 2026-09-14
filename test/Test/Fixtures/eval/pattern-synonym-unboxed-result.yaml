@@ -1,0 +1,29 @@
+extensions:
+  - PatternSynonyms
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms, MagicHash #-}
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Box = Box Int#
+
+    pattern P :: Int# -> Box
+    pattern P x = Box x
+
+    -- The matcher of P returns Int# here, so its result is instantiated at
+    -- a representation that is not a pointer.
+    bump :: Box -> Int
+    bump b = case b of P x -> I# (x +# 1#)
+
+    build :: Int -> Box
+    build (I# x) = P x
+output: |
+  I# 21
+expression: |
+  bump (build 20)
+status: pass
+reason: a pattern synonym matches where the result is unboxed, through the RuntimeRep-polymorphic result of its matcher
