@@ -31,7 +31,7 @@ lowerObservedProgram target entryName gcProgram = do
   metadata <-
     renderObservedMetadata
       LowerUnsupportedRuntimeRep
-      (pure . unSymbol . functionSymbol)
+      observedFunctionLabel
       (\name -> unSymbol (constructorInfoSymbol name 0))
       id
       program
@@ -48,6 +48,12 @@ lowerObservedProgram target entryName gcProgram = do
     program = gcGrinProgram gcProgram
     options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
+    -- The update continuation is not lowered into the module any more, so the
+    -- snapshot descriptor names the shared runtime function that every
+    -- module's update frames now point at.
+    observedFunctionLabel name
+      | name == gcUpdateFunction gcProgram = pure "aihc_lir_cps_update"
+      | otherwise = pure (unSymbol (functionSymbol name))
     threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
     snapshotInfo = Symbol "aihc_lir_snapshot_info"
     snapshotTarget = Symbol "aihc_lir_snapshot_result"
@@ -82,8 +88,8 @@ lowerObservedProgram target entryName gcProgram = do
       requireExtern (Symbol "aihc_set_thread_done_continuation") [Ptr, Ptr] []
       emit [] (Call (Symbol "aihc_set_thread_done_continuation") [OperandVar machine, threadDone])
       snapshot <- allocateContinuation (OperandVar machine) snapshotInfo 1
-      requireExtern (Symbol "aihc_reset_allocation_count") [Ptr] []
-      emit [] (Call (Symbol "aihc_reset_allocation_count") [OperandVar machine])
+      requireExtern (Symbol "aihc_reset_heap_allocated_bytes") [Ptr] []
+      emit [] (Call (Symbol "aihc_reset_heap_allocated_bytes") [OperandVar machine])
       emit [] (Call (functionSymbol entryName) [OperandVar machine, snapshot])
       terminate (Return [OperandLiteral (LitInt 0)])
       finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention

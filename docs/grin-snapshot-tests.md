@@ -18,9 +18,9 @@ program: |
 return: "@0"
 heap: |
   @0 = CI32# 1
-allocations:
-  macos-arm64: 3
-  linux-amd64: 3
+allocated-bytes:
+  macos-arm64: 16
+  linux-amd64: 16
 status: pass
 reason: a stored constructor is returned as a location
 ```
@@ -52,15 +52,23 @@ Snapshotting reads heap objects but never enters them. A suspended thunk remains
 are recovered through descriptor tables generated beside the assembly, so
 snapshot output does not depend on debug symbols or raw addresses.
 
-Successful fixtures also record every heap reservation and auxiliary C
-allocation made while the observed entry executes. Compiled code takes managed
-objects by bumping the heap pointer itself, so one reservation - which may
-cover a group of objects - is the allocation the runtime counts. The native
-harness resets the counter after creating its own continuations and
-initializing globals, then selects the expectation for its backend from
-`allocations`. The auxiliary allocations include argument vectors, thread
-records, blackhole records, and waiters. Interpreter execution does not check
-allocations.
+Successful fixtures also record the managed-heap bytes the observed entry
+takes while it runs. Compiled code reserves and bumps the heap pointer itself
+and reports nothing, so the runtime does not count reservations: it reads the
+total off the bump pointer, which makes the figure exact even where one
+reservation covers a group of objects or covers the largest of several case
+branches. The native harness clears the total after creating its own
+continuations and initializing globals, then selects the expectation for its
+backend from `allocated-bytes`. Interpreter execution does not check the
+bytes, and neither does a backend this host can compile for but not run.
+
+Because the byte count is the same whether one reservation covers a group of
+stores or each store reserves for itself, it does not describe how the
+reservations are grouped. `Test.Grin.Heap` asserts that grouping on the
+GC-GRIN directly.
+
+Error fixtures omit `allocated-bytes` because the native runtime terminates
+before the snapshot harness can observe the total.
 
 Fixtures may replace `return` and `heap` with an `error` expectation. These
 cases assert the same stable runtime diagnostic from the interpreter and native
@@ -70,9 +78,6 @@ blackhole uses:
 ```yaml
 error: blackholed thunk re-entered
 ```
-
-Error fixtures omit `allocations` because the native runtime terminates before
-the snapshot harness can observe the counter.
 
 The focused fixture parser currently accepts constructor and function
 declarations plus `constant`, `store`, `store-rec`, `eval`, `apply`,

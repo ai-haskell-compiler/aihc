@@ -46,9 +46,9 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
       <> renderRepDeclaration "result_reps" renderedResultReps
       <> renderConstructorTable constructors
       <> renderFunctionTable functions
-      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, const AihcMachine *machine) {",
+      <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, AihcMachine *machine) {",
            "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
-           "                     aihc_allocation_count(machine),",
+           "                     aihc_heap_allocated_bytes(machine),",
            "                     " <> tshow (length constructors) <> ", " <> pointerOrNull constructors "constructors" <> ",",
            "                     " <> tshow (length functions) <> ", " <> pointerOrNull functions "functions" <> ");",
            "}"

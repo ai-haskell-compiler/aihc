@@ -163,12 +163,17 @@ struct AihcMachine {
   int64_t exit_status;
   uint64_t other_space_bytes;
   /* The runtime statistics. heap_allocated_bytes above counts every byte
-     reserved on the managed heap: compiled code bumps the heap pointer
-     itself, so the reservation is the only allocation the runtime sees.
-     heap_peak_bytes is the most the current space ever held: the live data
-     after a collection plus the allocations since, sampled before each
-     collection and when the statistics are reported. The collector counts its
-     runs and their monotonic time. */
+     compiled code has taken from the managed heap. Compiled code reserves
+     and bumps the heap pointer itself and reports nothing, so the runtime
+     reads the total off the bump pointer instead of counting reservations:
+     heap_alloc_base is where the mutator started filling the current space,
+     and heap_next minus that base is what it has taken since. The collector
+     adds that span before it flips, and aihc_heap_account adds it again
+     whenever the total is read. heap_peak_bytes is the most the current space
+     ever held: the live data after a collection plus the allocations since,
+     sampled before each collection and when the statistics are reported. The
+     collector counts its runs and their monotonic time. */
+  uint8_t *heap_alloc_base;
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;
@@ -250,11 +255,21 @@ extern const AihcSrt *aihc_current_srt;
 /* Reserve heap for the objects that follow. Compiled code then takes each
    object by bumping the heap pointer itself, so the runtime exports no
    allocator. */
+/* Collect for a caller that has already compared the bump pointer against the
+   end of the space and found the words do not fit. Compiled code takes this
+   entry point; aihc_ensure_heap is for a caller that has compared nothing. */
+void aihc_heap_collect(AihcMachine *machine, uint64_t words,
+                       uint64_t root_count, AihcSlot *roots);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
+/* The bytes compiled code has taken from the managed heap. Compiled code
+   bumps the heap pointer itself, so both of these account for the span since
+   the last account before they read or clear the total. */
+uint64_t aihc_heap_allocated_bytes(AihcMachine *machine);
+void aihc_reset_heap_allocated_bytes(AihcMachine *machine);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 /* The runtime removes RTS options before the Haskell machine starts. argv[0]

@@ -261,7 +261,10 @@ data LowerEnv = LowerEnv
     envInfos :: ![RuntimeInfo],
     envStaticReferences :: !StaticReferences,
     envSrtSymbols :: !(Map FunctionName Symbol),
-    envAddrLiterals :: !(Map BS.ByteString Symbol)
+    envAddrLiterals :: !(Map BS.ByteString Symbol),
+    -- | The update continuation this program's CPS conversion generated. The
+    -- module does not lower it: see 'sharedUpdateInfo'.
+    envUpdateFunction :: !FunctionName
   }
 
 -- | Shared functions that lowered code tail-calls.
@@ -361,11 +364,12 @@ lowerEnvironment options gcProgram =
       envFunctionSymbols = functionSymbols,
       envFunctionParameters = functionParameters,
       envContinuationFunctions = continuationFunctions,
-      envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries],
+      envInfoSymbols = Map.fromList [(key, infoSymbol info) | (key, info) <- constructorEntries <> functionEntries] <> sharedUpdateSymbols,
       envInfos = map snd (constructorEntries <> functionEntries),
       envStaticReferences = staticReferences,
       envSrtSymbols = srtSymbols,
-      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)]
+      envAddrLiterals = Map.fromList [(bytes, Symbol ("aihc_lir_addr_" <> T.pack (show index))) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
+      envUpdateFunction = updateFunctionName
     }
   where
     program = gcGrinProgram gcProgram
@@ -418,13 +422,22 @@ lowerEnvironment options gcProgram =
         let symbol = constructorStageSymbol name stage,
         key `Set.member` requiredConstructorInfos
       ]
+    updateFunctionName = gcUpdateFunction gcProgram
     infoKeys =
       [ key
       | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
         Just name <- [runtimeInfoFunctionName key],
+        name /= updateFunctionName,
         name `Map.member` functionSymbols
       ]
     infoSymbols = Map.fromList [(key, Symbol ("aihc_lir_info_" <> T.pack (show index))) | (index, key) <- zip [0 :: Int ..] infoKeys]
+    -- The stage that still wants the thunk's result and the stage that has it.
+    sharedUpdateSymbols =
+      Map.fromList
+        [ (key, if runtimeInfoKeyRemainingArity key == 0 then sharedUpdateAppliedInfo else sharedUpdateInfo)
+        | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
+          runtimeInfoFunctionName key == Just updateFunctionName
+        ]
     functionEntries =
       [ ( key,
           RuntimeInfo
@@ -677,6 +690,12 @@ machineExitCodeOffset = 16
 machineHeapNextOffset :: LowerTarget -> Integer
 machineHeapNextOffset target = machineExitCodeOffset + toInteger (lowerWordSize target)
 
+-- | The end of the space the bump pointer runs into, the field after it. A
+-- reservation compares the two itself and only calls the runtime when the
+-- words it wants do not fit.
+machineHeapLimitOffset :: LowerTarget -> Integer
+machineHeapLimitOffset target = machineHeapNextOffset target + toInteger (lowerWordSize target)
+
 -- Coercion
 
 -- | Convert a typed operand to a type. Pointers and words convert both ways.
@@ -722,7 +741,8 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
   [mapM_ validateRuntimeRep (programRuntimeReps program)]
-    <> map (lowerFunction env) functions
+    -- The update continuation is shared: see 'sharedUpdateInfo'.
+    <> [lowerFunction env function | function <- functions, grinFunctionName function /= envUpdateFunction env]
     <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
     <> map lowerInfo (envInfos env)
     <> [lowerStaticReferenceTables env]
@@ -949,7 +969,11 @@ nodeInfoSymbol env node =
     fields = map grinValueRuntimeRep (grinNodeFields node)
     lookupInfo key =
       case Map.lookup key (envInfoSymbols env) of
-        Just symbol -> pure symbol
+        Just symbol
+          | symbol == sharedUpdateInfo || symbol == sharedUpdateAppliedInfo -> do
+              requireExternData symbol
+              pure symbol
+          | otherwise -> pure symbol
         Nothing ->
           case key of
             ConstructorRuntimeInfo name stage -> do
@@ -1204,13 +1228,7 @@ compileBinding ctx env vars expression =
               ([], _) -> pure (OperandLiteral LitNull)
               (_, Just array) -> pure array
               _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
-          forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-            storeSlot Ptr root array (toInteger (8 * index))
-          _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
-          relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) -> do
-            typed <- loadSlot (varBase var) Ptr array (toInteger (8 * index))
-            pure (var, typed)
-          pure (Map.fromList relocated `Map.union` env)
+          reserveHeap ctx env vars requiredWords words' roots rootOperands array
       | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
@@ -1227,6 +1245,62 @@ compileBinding ctx env vars expression =
       _ <- callRuntime symbol (map (const Ptr) arguments) [] arguments
       bindResults [valueTyped]
     bindResults = bindVars env vars
+
+-- | Take the words of a reservation from the current space. The fast path is
+-- the compare of the bump pointer against the end of the space and the branch
+-- alone: it keeps every root in the register it already sits in, so a
+-- safepoint that does not collect costs the same whatever is live across it.
+-- Only the slow path spills the roots to the root array, calls the collector,
+-- and reloads the roots it moved. The two paths meet at a block whose
+-- parameters carry the roots, which are the relocated names the body uses.
+reserveHeap ::
+  FunctionCtx ->
+  ValueEnv ->
+  [GrinVar] ->
+  GrinValue ->
+  Operand ->
+  [GrinValue] ->
+  [Operand] ->
+  Operand ->
+  LowerM ValueEnv
+reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
+  target <- targetM
+  next <- loadMachinePointer "heap" (machineHeapNextOffset target)
+  limit <- loadMachinePointer "heap_end" (machineHeapLimitOffset target)
+  nextWord <- emitValue "heap_word" I64 (PtrToInt (typedOperand next))
+  limitWord <- emitValue "heap_end_word" I64 (PtrToInt (typedOperand limit))
+  -- The bump pointer never passes the end of the space, so this subtraction
+  -- does not wrap and the free bytes are exact.
+  room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
+  fits <- case requiredWords of
+    GrinLitValue (GrinLitInt _ requested) ->
+      emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand room) (OperandLiteral (LitInt (8 * requested))))
+    _ -> do
+      -- A dynamic size brings the room down to words rather than the words up
+      -- to bytes: a reservation the address space cannot hold then fails the
+      -- compare instead of wrapping past it into the unchecked store behind.
+      roomWords <- emitValue "heap_room_words" I64 (Binary ShrU I64 (typedOperand room) (OperandLiteral (LitInt 3)))
+      emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand roomWords) words')
+  collect <- freshLabel "gc_collect"
+  reserved <- freshLabel "gc_reserved"
+  parameters <- forM vars $ \var -> do
+    parameter <- fresh (varBase var)
+    pure (var, parameter)
+  terminate (Branch (typedOperand fits) (Target reserved rootOperands) (Target collect []))
+  beginBlock collect []
+  forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
+    storeSlot Ptr root array (toInteger (8 * index))
+  -- The compare above is the reservation, so this is the collector rather
+  -- than a second reservation that would repeat it.
+  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
+  relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
+    loadSlot (varBase var) Ptr array (toInteger (8 * index))
+  terminate (Jump (Target reserved (map typedOperand relocated)))
+  beginBlock reserved [(parameter, Ptr) | (_, parameter) <- parameters]
+  pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
+  where
+    loadMachinePointer base offset =
+      emitValue base Ptr (Load Ptr (byteAddress (ctxMachine ctx) offset) (wordAlignment 1))
 
 -- | Bind the result variables of a direct expression, converting each value
 -- to the representation of its variable.
@@ -2293,16 +2367,31 @@ wasmMachineSymbol = Symbol "aihc_machine"
 finishedSymbol :: Symbol
 finishedSymbol = Symbol "aihc_lir_finished"
 
+-- | The update continuation of a thunk under evaluation, and its two info
+-- tables, which @aihc_helpers.lir@ defines once for every module. The CPS
+-- conversion appends an update function to every program, so a module that
+-- evaluates nothing used to carry a copy of it that nothing could reach: the
+-- function is internal and the tables that name it are reachable only from
+-- the function itself. The body does not depend on the module, so a module
+-- names these instead of lowering its own.
+-- The tables name @aihc_lir_cps_update@ themselves, so no module refers to
+-- the function by symbol.
+sharedUpdateInfo, sharedUpdateAppliedInfo :: Symbol
+sharedUpdateInfo = Symbol "aihc_lir_cps_update_info"
+sharedUpdateAppliedInfo = Symbol "aihc_lir_cps_update_applied_info"
+
 -- | The special continuations of an executable: the top continuation
 -- applies the evaluated entry, the final continuation halts, the update
 -- continuation is the GC-GRIN update function, and the thread done
 -- continuation returns to the scheduler.
 entryItems :: GcGrinProgram -> LowerM ()
-entryItems gcProgram = do
+entryItems _ = do
   requireExternData (globalSymbol executableEntryName)
   continuationInfoItems (ContinuationSpec finalInfo (Symbol "aihc_lir_final_applied_info") finalTarget [] [Ptr] ContinuationFrameStop)
   continuationInfoItems (ContinuationSpec topInfo (Symbol "aihc_lir_top_applied_info") topTarget [Ptr] [Ptr] ContinuationFrameNormal)
-  continuationInfoItems (ContinuationSpec updateInfo (Symbol "aihc_lir_update_applied_info") (functionSymbol (gcUpdateFunction gcProgram)) [Ptr, Ptr] [Ptr] ContinuationFrameUpdate)
+  -- The update continuation and its tables are shared, so the entry names
+  -- them rather than defining a fourth pair of its own.
+  requireExternData sharedUpdateInfo
   continuationInfoItems (ContinuationSpec threadDoneInfo (Symbol "aihc_lir_thread_done_applied_info") threadDoneTarget [] [Ptr] ContinuationFrameStop)
   emitItem (ItemData (DataItem finishedSymbol Internal True 8 [DataInt I64 0]))
   -- The top continuation applies the evaluated entry action to no arguments
@@ -2328,10 +2417,9 @@ entryItems gcProgram = do
     topTarget = Symbol "aihc_lir_top_continuation"
     threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
 
-finalInfo, topInfo, updateInfo, threadDoneInfo :: Symbol
+finalInfo, topInfo, threadDoneInfo :: Symbol
 finalInfo = Symbol "aihc_lir_final_info"
 topInfo = Symbol "aihc_lir_top_info"
-updateInfo = Symbol "aihc_lir_update_info"
 threadDoneInfo = Symbol "aihc_lir_thread_done_info"
 
 -- | Create the machine and its continuations and evaluate the entry. The
@@ -2345,7 +2433,7 @@ startMachine = do
   final <- allocateContinuation machine finalInfo 1
   top <- allocateContinuation machine topInfo 2
   storeSlot Ptr final top 8
-  update <- allocateContinuation machine updateInfo 3
+  update <- allocateContinuation machine sharedUpdateInfo 3
   storeSlot Ptr top update 8
   storeSlot Ptr (OperandLiteral (LitSymbol entryGlobal)) update 16
   threadDone <- allocateContinuation machine threadDoneInfo 1

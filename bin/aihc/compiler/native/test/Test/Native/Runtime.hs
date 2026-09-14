@@ -514,6 +514,9 @@ statisticsSource ending =
         "    aihc_set_field(cell, 0, machine->globals[0]);",
         "    machine->globals[0] = (AihcSlot)cell;",
         "  }",
+        "  /* Compiled code allocates without telling the runtime, so the total",
+        "     is only exact once the bump pointer has been accounted for. */",
+        "  aihc_heap_account(machine);",
         "  if (machine->heap_allocated_bytes != 16008) return 7;",
         "  if (machine->gc_count == 0) return 8;",
         "  if (machine->heap_peak_bytes == 0) return 9;"

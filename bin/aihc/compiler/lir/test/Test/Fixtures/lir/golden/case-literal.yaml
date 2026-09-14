@@ -1,0 +1,36 @@
+program: |
+  $entry (value%1 :: IntRep) -> IntRep =
+    case (value%1 :: IntRep) as scrutinee%2 :: IntRep of
+      0 ->
+        constant (10 :: IntRep)
+      1 ->
+        constant (20 :: IntRep)
+      _ ->
+        constant (30 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %value_1: i64, %$cps_return_2: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    switch i64 %value_1 {
+      0 -> alt_3
+      1 -> alt_4
+      default -> alt_5
+    }
+
+  alt_3:
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 10)
+
+  alt_4:
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 20)
+
+  alt_5:
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 30)
+  }
+status: pass
+reason: |
+  A case on an unboxed scalar is one switch with the default alternative as the
+  fallback, and allocates nothing, so the function has no reservation at all.

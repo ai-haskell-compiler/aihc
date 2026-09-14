@@ -535,11 +535,22 @@ The lowering keeps the control model of CPS-GRIN:
   extern C function.
 - A case on a pointer loads the header and the `identity` field and compares
   it with the constructor tables. A case on a scalar is a `switch`.
-- A heap reservation stores the live roots in a `stack.alloc` array, calls
-  `aihc_ensure_heap`, and reloads the relocated roots.
+- A heap reservation subtracts the heap pointer of the machine from the end of
+  its space and branches on whether the words it wants fit. When they do, the
+  branch is the whole reservation and every root stays in its register. When
+  they do not, the slow block stores the live roots in a `stack.alloc` array,
+  calls `aihc_ensure_heap`, and reloads the relocated roots. The two paths meet
+  at a block whose parameters carry the roots, so the code after a reservation
+  names the roots the same way whichever path reached it.
 - A store takes its object from that reservation itself: it loads the heap
   pointer of the machine, advances it by the words of the object, and writes
   the header and the fields. The runtime exports no allocator.
+- The update continuation of a thunk under evaluation is the shared
+  `aihc_lir_cps_update` of `aihc_helpers.lir`, and a module names its two
+  info tables rather than lowering a copy. The CPS conversion appends an
+  update function to every program whether or not the program evaluates
+  anything, and the body does not depend on the module, so a module that
+  lowered its own carried a function nothing in it could reach.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
   `[i64]`. The compiler emits local helpers for all other argument shapes.
@@ -558,6 +569,36 @@ static reference tables, and the address literals as data objects. Static
 objects are exported and mutable. Info tables are read-only. The collector
 finds static objects by address, so a Lir module needs no root section and
 both collectors work with this pipeline.
+
+### Lowering fixtures
+
+`bin/aihc/compiler/lir/test/Test/Fixtures/lir/golden` holds the golden
+fixtures of this lowering. A fixture names a GRIN program and the whole Lir
+module the lowering must produce from it, so a change to the Lir a construct
+compiles to shows up as a diff rather than only as a change in behaviour.
+The source-to-GRIN goldens stop at GRIN and the fixtures in `asm` start at
+hand-written Lir; these join the two.
+
+```yaml
+target: posix64            # optional, the default; or wasip3
+check-prim-bounds: false   # optional, the default
+program: |
+  <GRIN>
+expected: |
+  <the rendered Lir module>
+status: pass
+reason: <what the fixture pins>
+```
+
+A fixture selects a target by word size and host, not by architecture: the
+lowering takes a `LowerTarget`, and Apple ARM64, Linux AMD64 and LLVM all
+share `posix64`, so only `wasip3` produces different Lir. There is no accept
+flag. A mismatch prints the expectation and the actual module, and the actual
+module is what the `expected` block should hold.
+
+The neighbouring `lower` directory is the wasm data-layout suite, which takes
+a GRIN program all the way to wasm and asserts the shape of a global rather
+than the Lir text.
 
 ## Runtime units
 
@@ -582,8 +623,9 @@ it.
 The units are:
 
 - `aihc_helpers.lir` defines `eval`, `resume`, the slot dispatchers,
-  `quotrem2`, and `cstring_length`. It also defines `apply` and `continue`
-  for `[]`, `[ptr]`, and `[i64]`. Library modules declare these functions
+  `quotrem2`, `cstring_length`, and the shared update continuation
+  `aihc_lir_cps_update` with its two info tables. It also defines `apply`
+  and `continue` for `[]`, `[ptr]`, and `[i64]`. Library modules declare these functions
   as externs. Other shapes remain local, without a fixed shape limit.
   C accessors read pointer-sized info-table fields. `aihc_lir_take_resume`
   copies a scheduler record to five eight-byte slots and clears the record.

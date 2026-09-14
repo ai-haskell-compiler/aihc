@@ -12,8 +12,8 @@ program: |
 return: "@0"
 heap: |
   @0 = CLarge 1 2 3 4 5 6
-allocations:
-  macos-arm64: 1
-  linux-amd64: 1
+allocated-bytes:
+  macos-arm64: 56
+  linux-amd64: 56
 status: pass
-reason: one speculative reservation supplies the largest case branch
+reason: a case branch stores the node its reservation was sized for (Test.Grin.Heap asserts the single hoisted reservation itself)

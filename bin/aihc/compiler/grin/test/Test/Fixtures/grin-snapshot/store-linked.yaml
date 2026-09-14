@@ -10,8 +10,8 @@ return: "@0"
 heap: |
   @0 = CLink @1
   @1 = CI32# 2
-allocations:
-  macos-arm64: 1
-  linux-amd64: 1
+allocated-bytes:
+  macos-arm64: 32
+  linux-amd64: 32
 status: pass
 reason: snapshot traversal follows links between separately stored heap values

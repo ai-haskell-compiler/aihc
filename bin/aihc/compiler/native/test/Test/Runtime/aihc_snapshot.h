@@ -36,7 +36,7 @@ typedef struct {
 
 void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
                         const AihcSnapshotRep *result_reps,
-                        uint64_t allocation_count, uint64_t constructor_count,
+                        uint64_t allocated_bytes, uint64_t constructor_count,
                         const AihcSnapshotConstructor *constructors,
                         uint64_t function_count,
                         const AihcSnapshotFunction *functions);

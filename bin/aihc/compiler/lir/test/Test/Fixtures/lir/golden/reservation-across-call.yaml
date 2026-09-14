@@ -1,0 +1,120 @@
+program: |
+  constructor Box/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $other -> IntRep =
+    constant (7 :: IntRep)
+
+  $entry -> BoxedRep Lifted =
+    (first%1 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))
+    (value%2 :: IntRep) <- call @IntRep $other
+    store (CPair (first%1 :: BoxedRep Lifted) (first%1 :: BoxedRep Lifted))
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
+
+  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sother(%machine_0: ptr, %$cps_return_1: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_1, 7)
+  }
+
+  func @aihc_f_aihc_entry___sentry(%machine_2: ptr, %$cps_return_3: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_4 = stack.alloc 8 align 8
+    %heap_5 = load ptr [%machine_2 + 24] align 1 word
+    %heap_end_6 = load ptr [%machine_2 + 32] align 1 word
+    %heap_word_7 = ptr.to_int %heap_5
+    %heap_end_word_8 = ptr.to_int %heap_end_6
+    %heap_room_9 = sub i64 %heap_end_word_8, %heap_word_7
+    %heap_fits_10 = ge.u i64 %heap_room_9, 40
+    br %heap_fits_10, gc_reserved_12(%$cps_return_3), gc_collect_11
+
+  gc_collect_11:
+    store ptr %$cps_return_3, [%roots_4] align 8
+    call @aihc_heap_collect(%machine_2, 5, 1, %roots_4)
+    %$cps_return$gc_14 = load ptr [%roots_4] align 8
+    jump gc_reserved_12(%$cps_return$gc_14)
+
+  gc_reserved_12(%$cps_return$gc_13: ptr):
+    %object_15 = load ptr [%machine_2 + 24] align 1 word
+    %heap_16 = ptr.add %object_15, 16
+    store ptr %heap_16, [%machine_2 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Box_0, [%object_15] align 8
+    store i64 1, [%object_15 + 8] align 8
+    %object_17 = load ptr [%machine_2 + 24] align 1 word
+    %heap_18 = ptr.add %object_17, 24
+    store ptr %heap_18, [%machine_2 + 24] align 1 word
+    store ptr @aihc_lir_info_0, [%object_17] align 8
+    store ptr %$cps_return$gc_13, [%object_17 + 8] align 8
+    store ptr %object_15, [%object_17 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sother(%machine_2, %object_17)
+  }
+
+  func @aihc_f_aihc_entry___sentry__ucont(%machine_19: ptr, %$cps_return_20: ptr, %first_21: ptr, %value_22: i64) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_23 = stack.alloc 16 align 8
+    %heap_24 = load ptr [%machine_19 + 24] align 1 word
+    %heap_end_25 = load ptr [%machine_19 + 32] align 1 word
+    %heap_word_26 = ptr.to_int %heap_24
+    %heap_end_word_27 = ptr.to_int %heap_end_25
+    %heap_room_28 = sub i64 %heap_end_word_27, %heap_word_26
+    %heap_fits_29 = ge.u i64 %heap_room_28, 24
+    br %heap_fits_29, gc_reserved_31(%$cps_return_20, %first_21), gc_collect_30
+
+  gc_collect_30:
+    store ptr %$cps_return_20, [%roots_23] align 8
+    store ptr %first_21, [%roots_23 + 8] align 8
+    call @aihc_heap_collect(%machine_19, 3, 2, %roots_23)
+    %$cps_return$gc_34 = load ptr [%roots_23] align 8
+    %first$gc_35 = load ptr [%roots_23 + 8] align 8
+    jump gc_reserved_31(%$cps_return$gc_34, %first$gc_35)
+
+  gc_reserved_31(%$cps_return$gc_32: ptr, %first$gc_33: ptr):
+    %object_36 = load ptr [%machine_19 + 24] align 1 word
+    %heap_37 = ptr.add %object_36, 24
+    store ptr %heap_37, [%machine_19 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Pair_0, [%object_36] align 8
+    store ptr %first$gc_33, [%object_36 + 8] align 8
+    store ptr %first$gc_33, [%object_36 + 16] align 8
+    tailcall @aihc_lir_continue_p(%machine_19, %$cps_return$gc_32, %object_36)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  export data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+
+  export data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
+
+  func @aihc_lir_info_0_e(%machine_38: ptr, %object_39: ptr, %continuation_40: ptr, %supplied_41: i64) {
+  entry:
+    %stored_42 = load ptr [%object_39 + 8] align 8
+    %stored_43 = load ptr [%object_39 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_38, %stored_42, %stored_43, %supplied_41)
+  }
+
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1 }
+
+  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
+
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1 }
+status: pass
+reason: |
+  A call can collect, so it ends the caller's reservation and the store after it
+  reserves again in the continuation the call returns to. The pointer that stays
+  live across the reservation is a root: the fast path passes it straight to the
+  merge block and only the slow path writes it to the root array and reads back
+  the address the collector moved it to.

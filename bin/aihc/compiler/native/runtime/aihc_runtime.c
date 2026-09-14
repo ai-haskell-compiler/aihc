@@ -337,6 +337,7 @@ void aihc_runtime_statistics_report(void) {
   }
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(machine);
+  aihc_heap_account(machine);
   /* The fixed text is 86 bytes and the four numbers take at most 80. */
   char text[256];
   char *cursor = text;
@@ -454,6 +455,11 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
   aihc_gc_ensure(machine, words, root_count, roots);
 }
 
+void aihc_heap_collect(AihcMachine *machine, uint64_t words,
+                       uint64_t root_count, AihcSlot *roots) {
+  aihc_gc_collect(machine, words, root_count, roots);
+}
+
 /* Place one object in heap the caller has already reserved. Compiled code
    inlines the same two steps - bump the heap pointer, write the header - and
    the slow apply path below is the only caller left in the runtime. */
@@ -480,6 +486,16 @@ uint64_t aihc_allocation_count(const AihcMachine *machine) {
 
 void aihc_reset_allocation_count(AihcMachine *machine) {
   machine->allocation_count = 0;
+}
+
+uint64_t aihc_heap_allocated_bytes(AihcMachine *machine) {
+  aihc_heap_account(machine);
+  return machine->heap_allocated_bytes;
+}
+
+void aihc_reset_heap_allocated_bytes(AihcMachine *machine) {
+  aihc_heap_account(machine);
+  machine->heap_allocated_bytes = 0;
 }
 
 /* The next stage of a closure. Closures keep a chain of info tables: each

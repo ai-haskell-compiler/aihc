@@ -16,6 +16,7 @@ import System.Directory (listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (takeExtension, (</>))
 import Test.Lir.Arbitrary (prop_lirPrettyRoundTrip)
+import Test.Lir.LowerSuite qualified as LowerSuite
 import Test.Lir.RegAllocSpec qualified as RegAllocSpec
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, assertFailure, testCase)
@@ -27,12 +28,14 @@ tests = do
   evalCases <- loadFixtures (root </> "eval")
   lintCases <- loadFixtures (root </> "lint")
   regAlloc <- RegAllocSpec.tests (root </> "eval")
+  lowerCases <- LowerSuite.tests (root </> "golden")
   pure
     ( testGroup
         "aihc-lir"
         [ testProperty "generated Lir pretty-printer round-trip" prop_lirPrettyRoundTrip,
           testGroup "evaluation fixtures" (map evalTest evalCases),
           testGroup "lint error fixtures" (map lintTest lintCases),
+          lowerCases,
           testCase "emits the primitive bounds checks only when asked" test_primitiveBoundsChecks,
           testCase "a word-scaled alignment is the word size, not four bytes" test_wordAlignment,
           regAlloc

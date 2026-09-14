@@ -8,8 +8,8 @@ program: |
 return: "@0"
 heap: |
   @0 = CPair# 10 20
-allocations:
-  macos-arm64: 2
-  linux-amd64: 2
+allocated-bytes:
+  macos-arm64: 48
+  linux-amd64: 48
 status: pass
 reason: saturating a partial constructor stays on the C path because it must allocate the completed node
