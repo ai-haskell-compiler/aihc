@@ -2921,8 +2921,8 @@ inferPatSynLayout sp name pat argBinders = do
 -- A representation-polymorphic result is sound because a matcher never
 -- materialises one: every branch tail-calls a continuation, so the values
 -- are produced by the continuation and consumed by the caller of the
--- matcher, and the matcher only jumps. GRIN carries
--- 'Aihc.Grin.Syntax.PolymorphicRep' for exactly this shape.
+-- matcher, and the matcher only jumps. GRIN calls that shape
+-- 'Aihc.Grin.Syntax.ResultForwarded'.
 patSynMatcherSig :: Text -> SourceSpan -> PatSynLayout -> TcM CheckedSig
 patSynMatcherSig matcherName sp layout = do
   kinds <- getKinds
