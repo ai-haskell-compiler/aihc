@@ -4358,12 +4358,12 @@ requiredNameTermKey sourceName =
 binderTermKey :: Syn.UnqualifiedName -> Maybe TcTermKey
 binderTermKey name = do
   resolution <- unqualifiedTermResolution name
-  resolutionTermKey (Syn.unqualifiedNameText name) resolution
+  resolutionTermKey resolution
 
 nameTermKey :: Syn.Name -> Maybe TcTermKey
 nameTermKey sourceName = do
   resolution <- termResolution sourceName
-  resolutionTermKey (Syn.nameText sourceName) resolution
+  resolutionTermKey resolution
 
 unqualifiedTermResolution :: Syn.UnqualifiedName -> Maybe ResolutionAnnotation
 unqualifiedTermResolution name =
@@ -4373,13 +4373,15 @@ unqualifiedTermResolution name =
       resolutionNamespace resolution == ResolutionNamespaceTerm
     ]
 
-resolutionTermKey :: Text -> ResolutionAnnotation -> Maybe TcTermKey
-resolutionTermKey displayName resolution =
+-- | Built-in syntax denotes a wired constructor rather than a binder, so
+-- it has no term key; an occurrence of one is desugared from its shape.
+resolutionTermKey :: ResolutionAnnotation -> Maybe TcTermKey
+resolutionTermKey resolution =
   case resolutionTarget resolution of
     ResolvedLocal unique _ -> Just (TcTermLocal unique)
     ResolvedTopLevel package target ->
       Just (TcTermGlobal package (fromMaybe "" (Syn.nameQualifier target)) (Syn.nameText target))
-    ResolvedSyntax -> Just (TcTermGlobal (PackageId "") "" displayName)
+    ResolvedSyntax -> Nothing
     ResolvedError _ -> Nothing
 
 lookupLocal :: TcTermKey -> Text -> ValueM (Binder, TcType)

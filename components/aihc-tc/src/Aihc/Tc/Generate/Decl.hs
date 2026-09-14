@@ -236,6 +236,11 @@ definitionResolution declaration =
     DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
     DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
     DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
+    DeclForeign foreignDeclaration -> nameResolution (foreignName foreignDeclaration)
+    DeclTypeSyn typeSynDeclaration -> nameResolution (binderHeadName (typeSynHead typeSynDeclaration))
+    DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
+    DeclPatSyn patSynDeclaration -> nameResolution (patSynDeclName patSynDeclaration)
+    DeclTypeSig names _ -> listToMaybe (mapMaybe nameResolution names)
     _ -> Nothing
 
 patternResolution :: Pattern -> Maybe ResolutionAnnotation
@@ -552,21 +557,22 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   structuralKeys <- globalStateKeys <$> lift get
   derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
   derivingInferred <- inferDerivingContexts derivingAnnotated
-  derivingFinalized <- mapM registerDerivedInstances derivingInferred
+  derivingFinalized <- mapM (\modu -> inModule modu (registerDerivedInstances modu)) derivingInferred
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- zipWithM tcModuleBody schemes derivingFinalized
-  mapM_ checkBundledPatSyns derivingFinalized
+  pending <- zipWithM (\sigs modu -> inModule modu (tcModuleBody sigs modu)) schemes derivingFinalized
+  mapM_ (\modu -> inModule modu (checkBundledPatSyns modu)) derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
   defaultGlobalKindMetas structuralKeys
-  annotated <- mapM annotatePendingModule pending
-  mapM finalizeModuleTc annotated
+  annotated <- mapM (\p -> inModule (pendingSyntax p) (annotatePendingModule p)) pending
+  mapM (\modu -> inModule modu (finalizeModuleTc modu)) annotated
   where
+    inModule modu = withModuleOrigin (resolvedModuleOrigin modu)
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
-    atDeclOf check (origin, declaration) = atDecl (check origin) declaration
+    atDeclOf check (origin, declaration) = withModuleOrigin origin (atDecl (check origin) declaration)
 
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
@@ -624,9 +630,7 @@ generalizeSignatureKinds signature = do
   pure signature {checkedSigScheme = ForAll (closeKindVariables variables') predicates' body'}
 
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
-registerCheckedSig key sig = do
-  extendTermEnvPermanent (checkedSigName sig) binder
-  extendTermKeyEnvPermanent key binder
+registerCheckedSig key sig = extendTermKeyEnvPermanent key binder
   where
     binder = TcIdBinder (flattenSchemeContexts (checkedSigScheme sig)) Closed
 
@@ -1226,7 +1230,7 @@ annotateRegisteredDataConDeclTc dataConDecl = do
   case names of
     [] -> pure dataConDecl
     name : _ -> do
-      maybeBinder <- lookupTerm name
+      maybeBinder <- lookupModuleTerm name
       case maybeBinder of
         Just (TcIdBinder scheme _) -> annotateWithType (schemeToType scheme)
         Just (TcMonoIdBinder ty) -> annotateWithType ty
@@ -1276,7 +1280,7 @@ annotateRecordSelectorNames declaration =
 
 dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
-  mBinder <- lookupTerm name
+  mBinder <- lookupModuleTerm name
   case mBinder of
     Just (TcIdBinder scheme _) -> zonkType (schemeToType scheme)
     Just (TcMonoIdBinder ty) -> zonkType ty
@@ -1838,7 +1842,7 @@ tcClassDefaultValue valueDecl =
   case valueDeclBinderName valueDecl of
     Nothing -> pure valueDecl
     Just (methodName, _) -> do
-      binder <- lookupTerm (defaultMethodName methodName)
+      binder <- lookupModuleTerm (defaultMethodName methodName)
       case binder of
         Just (TcIdBinder (ForAll methodTyVars givens methodTy) _) ->
           case valueDecl of
@@ -2062,7 +2066,7 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
 
 bindingType :: Text -> TcM TcType
 bindingType name = do
-  mBinder <- lookupTerm name
+  mBinder <- lookupModuleTerm name
   case mBinder of
     Just binder -> pure (binderType binder)
     Nothing -> missingTypeInfo ("binding " <> T.unpack name)
@@ -2522,14 +2526,12 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
   -- get a placeholder that the checked pattern fills in.
   placeholders <- forM binders $ \binder -> do
     key <- resolvedUnqualifiedTermKey binder
-    let name = unqualifiedNameText binder
     case Map.lookup key sigs of
       Just sig -> do
         ty <- unrestrictedSigType sig
         pure (binder, key, ty, Just sig)
       Nothing -> do
         ty <- freshMetaTv
-        extendTermEnvPermanent name (TcMonoIdBinder ty)
         extendTermKeyEnvPermanent key (TcMonoIdBinder ty)
         pure (binder, key, ty, Nothing)
   ((rhs', rhsTy, pat'), failed) <-
@@ -2560,7 +2562,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
           results <- forM (zip placeholders binderSchemes) $ \((binder, key, ty, maybeSig), scheme) -> do
             let name = unqualifiedNameText binder
             case maybeSig of
-              Nothing -> finalizeInferredTermEnvPermanent name key ty scheme
+              Nothing -> finalizeInferredTermEnvPermanent key ty scheme
               Just sig ->
                 unless (equivalentTypeSchemes scheme (checkedSigScheme sig)) $
                   emitError (checkedSigSpan sig) $
@@ -2582,7 +2584,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
     -- The temporary monomorphic entries of this group must not stop it from
     -- generalizing over its own meta-variables.
     patternBindEnvironmentKeys placeholders =
-      pure (Set.fromList (concat [[key, unqualifiedTermKey (unqualifiedNameText binder)] | (binder, key, _, _) <- placeholders]))
+      pure (Set.fromList [key | (_, key, _, _) <- placeholders])
 
     -- The monomorphism restriction still forbids a quantified constraint, so
     -- a signature with a context cannot describe a pattern binding.
@@ -2897,7 +2899,6 @@ commitCheckedHelper key name results =
     ty : _ -> do
       let binder = TcIdBinder (typeToScheme ty) Closed
       replaceTermKeyEnvPermanent key binder
-      replaceTermKeyEnvPermanent (unqualifiedTermKey name) binder
     [] -> pure ()
 
 -- | The field labels of a record pattern synonym. Other forms have none.
@@ -3152,7 +3153,7 @@ tcTopLevelWithSig key displayName name sig matches = do
   (maybeMatches, bindings) <- tcFunctionWithSig displayName name sig matches
   bindings' <-
     if checkedSigPartial sig
-      then mapM (generalizePartialSigBinding name key) bindings
+      then mapM (generalizePartialSigBinding key) bindings
       else pure bindings
   pure (maybeMatches, bindings')
 
@@ -3160,14 +3161,13 @@ tcTopLevelWithSig key displayName name sig matches = do
 -- left open, as GHC infers the rest of a partial signature. The binder
 -- registered from the signature still mentions the wildcard
 -- meta-variables, so it is replaced by the generalized scheme.
-generalizePartialSigBinding :: Text -> TcTermKey -> TcBindingResult -> TcM TcBindingResult
-generalizePartialSigBinding name key (TcBindingResult resultName displayName ty) = do
+generalizePartialSigBinding :: TcTermKey -> TcBindingResult -> TcM TcBindingResult
+generalizePartialSigBinding key (TcBindingResult resultName displayName ty) = do
   let ForAll sigTyVars sigPreds body = typeSchemeFromType ty
   ForAll extraTyVars preds body' <-
-    generalizeAndCommitIgnoring (Set.fromList [unqualifiedTermKey name, key]) body sigPreds
+    generalizeAndCommitIgnoring (Set.singleton key) body sigPreds
   let scheme = ForAll (sigTyVars <> extraTyVars) preds body'
       binder = TcIdBinder scheme Closed
-  replaceTermKeyEnvPermanent (unqualifiedTermKey name) binder
   replaceTermKeyEnvPermanent key binder
   zonkedTy <- zonkType (schemeToType scheme)
   pure (TcBindingResult resultName displayName zonkedTy)
@@ -3216,7 +3216,6 @@ tcFunctionInfer key displayName name matches = do
   placeholderTy <- freshMetaTv
   ((matches', ty, residualPreds), failed) <-
     withErrorTracking $ do
-      extendTermEnvPermanent name (TcMonoIdBinder placeholderTy)
       extendTermKeyEnvPermanent key (TcMonoIdBinder placeholderTy)
       (matches', ty, cts', impls') <- tcMatches matches
       solveResult <- solveWithImpls cts' impls'
@@ -3226,10 +3225,10 @@ tcFunctionInfer key displayName name matches = do
   if failed
     then pure (Nothing, [])
     else do
-      scheme <- generalizeAndCommitIgnoring (Set.fromList [unqualifiedTermKey name, key]) ty residualPreds
+      scheme <- generalizeAndCommitIgnoring (Set.singleton key) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
-      finalizeInferredTermEnvPermanent name key placeholderTy scheme
+      finalizeInferredTermEnvPermanent key placeholderTy scheme
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 generalizableResidualPreds :: TcType -> SolveResult -> TcM [Pred]
@@ -3572,7 +3571,7 @@ registerClassDecl origin classDecl = do
   pure (methodResults <> catMaybes defaultResults)
   where
     registeredMethod methodName = do
-      binder <- lookupTerm methodName
+      binder <- lookupModuleTerm methodName
       case binder of
         Just (TcIdBinder scheme _) -> pure (methodName, scheme)
         _ -> missingTypeInfo ("class method " <> T.unpack methodName)
@@ -3582,7 +3581,7 @@ registerClassDecl origin classDecl = do
           let workerName = defaultMethodName methodName
               workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
               workerType = schemeToType workerScheme
-          extendTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
+          extendModuleTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
           pure (Just (TcBindingResult workerName workerName workerType))
       | otherwise = pure Nothing
 
@@ -4381,7 +4380,6 @@ registerRecordSelectors origin constructors =
               (TcFunTy (dciResTy constructor) (dcfiType field))
       let binder = TcIdBinder scheme Closed
           (packageId, moduleName') = origin
-      extendTermEnvPermanent label binder
       extendTermKeyEnvPermanent (TcTermGlobal (PackageId packageId) moduleName' label) binder
       zonkedType <- zonkType (schemeToType scheme)
       pure (TcBindingResult label label zonkedType)
@@ -4537,6 +4535,9 @@ registerDataConWithResult paramInfos resTy con = case con of
       wired <- wiredBuiltinDataCon builtin
       registerH98DataCon forallVars context Nothing (tyConName wired) fieldTypes
 
+    -- A constructor the source names is keyed by its resolver identity.
+    -- A built-in form spells no name of its own, so the wiring names the
+    -- constructor and the declared type gives it its identity.
     registerH98DataCon forallVars context maybeName name fieldTypes = do
       constructorParams <- makeParamEnv forallVars
       let constructorEnv =
@@ -4555,7 +4556,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         Nothing ->
           case resTy of
             TcTyCon resultTyCon _ -> extendTyConTermEnvPermanent resultTyCon name (TcIdBinder scheme Closed)
-            _ -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
+            _ -> extendModuleTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult name name zonkedTy)
 
@@ -4646,8 +4647,8 @@ checkedDataConInfos tyCon declaration = do
   mapM (checkedDataConInfo origin sourceForm sourceFields) constructorNames
 
 checkedDataConInfo :: (PackageId, Text) -> DataConSourceForm -> [(Maybe Text, BangType)] -> Text -> TcM DataConInfo
-checkedDataConInfo origin sourceForm sourceFields constructorName = do
-  maybeBinder <- lookupTerm constructorName
+checkedDataConInfo origin@(originPackage, originModule) sourceForm sourceFields constructorName = do
+  maybeBinder <- lookupTermKey (TcTermGlobal originPackage originModule constructorName)
   case maybeBinder of
     Just (TcIdBinder (ForAll tyVars predicates constructorType) _) -> do
       let (argumentTypes, resultType) = splitFunctionType constructorType

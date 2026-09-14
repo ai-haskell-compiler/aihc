@@ -408,7 +408,7 @@ checkListPattern gadtHandling sp items scrutTy =
     [] -> do
       (nilCon, scheme) <- listConstructorScheme tcWiringNilDataCon
       (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
-      scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey (tyConName nilCon)) scrutTy nilTy
+      scrutCts <- constructorScrutineeCt gadtHandling sp (tyConTermKey nilCon) scrutTy nilTy
       predicateGivens <- mapM (constructorGiven sp (tyConName nilCon)) predicates
       pure
         mempty
@@ -423,7 +423,7 @@ checkListPattern gadtHandling sp items scrutTy =
       (argumentTypes, resultTy) <- splitConTy 2 consTy
       case argumentTypes of
         [itemTy, tailTy] -> do
-          scrutCts <- constructorScrutineeCt gadtHandling sp (unqualifiedTermKey (tyConName consCon)) scrutTy resultTy
+          scrutCts <- constructorScrutineeCt gadtHandling sp (tyConTermKey consCon) scrutTy resultTy
           itemCheck <- checkPatternWith gadtHandling sp item itemTy
           tailCheck <- checkListPattern gadtHandling sp rest tailTy
           predicateGivens <- mapM (constructorGiven sp (tyConName consCon)) predicates

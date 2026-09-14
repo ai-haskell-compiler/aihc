@@ -53,12 +53,15 @@ module Aihc.Tc.Monad
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
-    unqualifiedTermKey,
+    tyConTermKey,
     Closedness (..),
     emptyTcEnv,
     mkWiredTyCon,
     implicitParamType,
-    lookupTerm,
+    withModuleOrigin,
+    getModuleOrigin,
+    moduleTermKey,
+    lookupModuleTerm,
     lookupResolvedTerm,
     lookupTermKey,
     resolvedTermKey,
@@ -70,7 +73,7 @@ module Aihc.Tc.Monad
     rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
-    extendTermEnvPermanent,
+    extendModuleTermEnvPermanent,
     replaceTermKeyEnvPermanent,
     finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
@@ -153,7 +156,7 @@ import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
-import Control.Monad (foldM, when)
+import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
@@ -240,7 +243,13 @@ data TcEnv = TcEnv
     -- emitted without a span of its own, as the checks of internal types
     -- do, reports here instead of nowhere.
     tcEnvAmbientSpan :: !SourceSpan,
-    tcEnvVisibleTerms :: !(Set.Set TcTermKey)
+    tcEnvVisibleTerms :: !(Set.Set TcTermKey),
+    -- | The package and module whose declarations are being checked.
+    --
+    -- A binder that source text names without a resolver identity of its
+    -- own -- a class default-method worker, say -- is keyed here, so that
+    -- two members of one import cycle never share a key.
+    tcEnvModuleOrigin :: !(Maybe (PackageId, Text))
   }
   deriving (Show)
 
@@ -338,8 +347,7 @@ arrowType = do
 -- | The binder of a term that a wiring entry names. The wiring gives the
 -- whole identity, so the term is found by key and never by scope.
 lookupWiredTerm :: TyCon -> TcM (Maybe TcBinder)
-lookupWiredTerm wired =
-  lookupTermKey (TcTermGlobal (tyConPackageId wired) (tyConModuleName wired) (tyConName wired))
+lookupWiredTerm wired = lookupTermKey (tyConTermKey wired)
 
 -- | The @Bool@ type that a guard and an @if@ condition have.
 boolType :: TcM TcType
@@ -403,8 +411,10 @@ data TcTermKey
   | TcTermGlobal !PackageId !Text !Text
   deriving (Eq, Ord, Show, Read)
 
-unqualifiedTermKey :: Text -> TcTermKey
-unqualifiedTermKey = TcTermGlobal (PackageId "") ""
+-- | The term key of a name that a type constructor's identity carries,
+-- such as a data constructor or a wired-in binder.
+tyConTermKey :: TyCon -> TcTermKey
+tyConTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConName tyCon)
 
 -- | An empty environment at the top level.
 emptyTcEnv :: TcConfig -> TcEnv
@@ -422,7 +432,8 @@ emptyTcEnv config =
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
       tcEnvAmbientSpan = NoSourceSpan,
-      tcEnvVisibleTerms = Set.empty
+      tcEnvVisibleTerms = Set.empty,
+      tcEnvModuleOrigin = Nothing
     }
 
 -- | The mutable state of the type checker.
@@ -576,17 +587,36 @@ lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
 
--- | Look up a global term by its selected global name.
-lookupTerm :: Text -> TcM (Maybe TcBinder)
-lookupTerm name =
-  lift $ gets $ \s -> Map.lookup (unqualifiedTermKey name) (tcsGlobalTerms s)
+-- | Run an action while checking the declarations of one module. Names
+-- that source text spells but the resolver gives no identity of its own
+-- are keyed at this package and module.
+withModuleOrigin :: (Text, Text) -> TcM a -> TcM a
+withModuleOrigin (package, moduleName') =
+  local (\env -> env {tcEnvModuleOrigin = Just (PackageId package, moduleName')})
+
+-- | The module whose declarations are being checked.
+getModuleOrigin :: TcM (PackageId, Text)
+getModuleOrigin = do
+  origin <- asks tcEnvModuleOrigin
+  case origin of
+    Just identity -> pure identity
+    Nothing -> abortTc "a declaration was checked outside of any module"
+
+-- | The key of a top-level name of the module being checked.
+moduleTermKey :: Text -> TcM TcTermKey
+moduleTermKey name = do
+  (package, moduleName') <- getModuleOrigin
+  pure (TcTermGlobal package moduleName' name)
+
+-- | Look a top-level binder of the module being checked up by its source
+-- name. Only for a name the checker itself spells; an occurrence in source
+-- text is looked up through its resolver identity.
+lookupModuleTerm :: Text -> TcM (Maybe TcBinder)
+lookupModuleTerm name = moduleTermKey name >>= lookupTermKey
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
-lookupResolvedTerm displayName resolved = do
-  exact <- resolvedNameTermKey displayName resolved >>= lookupTermKey
-  case (exact, resolved) of
-    (Nothing, ResolvedTopLevel _ name) -> lookupTerm (nameText name)
-    _ -> pure exact
+lookupResolvedTerm displayName resolved =
+  resolvedNameTermKey displayName resolved >>= lookupTermKey
 
 lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
 lookupTermKey key =
@@ -619,7 +649,7 @@ resolvedNameTermKey displayName resolved =
     ResolvedTopLevel packageId name ->
       pure (TcTermGlobal packageId (fromMaybe "" (nameQualifier name)) (nameText name))
     ResolvedSyntax ->
-      pure (unqualifiedTermKey displayName)
+      abortTc ("built-in syntax has no term key: " <> show displayName)
     ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
@@ -662,8 +692,12 @@ extendTermKeyEnvPermanent key binder = do
   terms' <- insertNewMap "global term environment" key binder terms
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
 
-extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
-extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
+-- | Register a top-level binder of the module being checked that source
+-- text does not spell, such as a class default-method worker.
+extendModuleTermEnvPermanent :: Text -> TcBinder -> TcM ()
+extendModuleTermEnvPermanent name binder = do
+  key <- moduleTermKey name
+  extendTermKeyEnvPermanent key binder
 
 -- | Replace a permanent global term entry. A synthesized binding registers
 -- a provisional type before its check and the checked type after it.
@@ -673,10 +707,10 @@ replaceTermKeyEnvPermanent key binder =
 
 -- | Replace the temporary monomorphic entries for one inferred top-level
 -- binding. No other permanent term entry can use this operation.
-finalizeInferredTermEnvPermanent :: Text -> TcTermKey -> TcType -> TypeScheme -> TcM ()
-finalizeInferredTermEnvPermanent name key placeholderTy scheme = do
+finalizeInferredTermEnvPermanent :: TcTermKey -> TcType -> TypeScheme -> TcM ()
+finalizeInferredTermEnvPermanent key placeholderTy scheme = do
   terms <- lift $ gets tcsGlobalTerms
-  terms' <- foldM finalizePlaceholder terms [unqualifiedTermKey name, key]
+  terms' <- finalizePlaceholder terms key
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
   where
     finalizedBinder = TcIdBinder scheme Closed
@@ -691,22 +725,14 @@ finalizeInferredTermEnvPermanent name key placeholderTy scheme = do
           abortTc ("missing inferred term placeholder key: " <> show placeholderKey)
 
 extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
-extendTyConTermEnvPermanent tyCon name binder = do
-  extendTermEnvPermanent name binder
-  extendTermKeyEnvPermanent
-    (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
-    binder
+extendTyConTermEnvPermanent tyCon name =
+  extendTermKeyEnvPermanent (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
 
--- | Add a source binder under its resolver identity and its source name.
+-- | Add a source binder under its resolver identity.
 extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
 extendResolvedTermEnvPermanent name binder = do
-  extendTermEnvPermanent (unqualifiedNameText name) binder
-  case termResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
-      extendTermKeyEnvPermanent
-        (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
-        binder
-    _ -> pure ()
+  key <- resolvedUnqualifiedTermKey name
+  extendTermKeyEnvPermanent key binder
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =

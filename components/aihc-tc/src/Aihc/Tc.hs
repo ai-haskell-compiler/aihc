@@ -168,7 +168,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Data.Text qualified as T
 import Data.Typeable (cast)
 
 -- | Result of type checking.
@@ -441,31 +440,12 @@ tcModuleSuccess =
 typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
 typecheckModulesWithInterface config imported units =
   let initialState = initialTcState imported
-      persistentUnqualifiedTerms = Map.keys (Map.filterWithKey (\key _ -> isUnqualifiedTermKey key) (tcsGlobalTerms initialState))
-      (checkedModules, finalState) = go persistentUnqualifiedTerms initialState units
+      (finalState, checkedModules) = List.mapAccumL check initialState units
    in (checkedModules, tcInterfaceDifference initialState finalState)
   where
-    go _ st [] = ([], st)
-    go persistentUnqualifiedTerms st (m : ms) =
+    check st m =
       let (result, st') = typecheckModuleWithState config st m
-          nextState = removeTransientUnqualifiedTerms persistentUnqualifiedTerms st'
-          (results, finalState) = go persistentUnqualifiedTerms nextState ms
-       in (result : results, finalState)
-
-removeTransientUnqualifiedTerms :: [TcTermKey] -> TcState -> TcState
-removeTransientUnqualifiedTerms persistent state =
-  state
-    { tcsGlobalTerms =
-        Map.filterWithKey
-          (\key _ -> not (isUnqualifiedTermKey key) || key `elem` persistent)
-          (tcsGlobalTerms state)
-    }
-
-isUnqualifiedTermKey :: TcTermKey -> Bool
-isUnqualifiedTermKey key =
-  case key of
-    TcTermGlobal packageId moduleName _ -> T.null (packageIdText packageId) && T.null moduleName
-    TcTermLocal {} -> False
+       in (st', result)
 
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
@@ -511,25 +491,12 @@ tcInterfaceDifference initial state =
     initialInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances initial)))
 
 exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> Map.Map TcTermKey TypeScheme
-exportedGlobalTerms globalTerms =
-  Map.filterWithKey (\key _ -> not (isRedundantUnqualifiedAlias key)) terms
+exportedGlobalTerms = Map.mapMaybe binderScheme
   where
-    terms = Map.mapMaybe binderScheme globalTerms
     binderScheme binder =
       case binder of
         TcIdBinder scheme _ -> Just scheme
         _ -> Nothing
-    qualifiedIdentifiers =
-      Set.fromList
-        [ name
-        | TcTermGlobal packageId moduleName name <- Map.keys terms,
-          not (T.null (packageIdText packageId)) || not (T.null moduleName)
-        ]
-    isRedundantUnqualifiedAlias key =
-      case key of
-        TcTermGlobal _ _ identifier
-          | isUnqualifiedTermKey key -> identifier `Set.member` qualifiedIdentifiers
-        _ -> False
 
 typecheckModuleSccWithState :: TcConfig -> TcState -> [ModuleUnit] -> ([Module], TcState)
 typecheckModuleSccWithState config st units =

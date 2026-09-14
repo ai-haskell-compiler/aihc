@@ -1,0 +1,41 @@
+annotated:
+- |-
+  module A where
+  import B
+  data T = T
+       │   └─ type: T
+       └─ type: Type
+  same :: T
+  same = T
+  └─ type: T
+  useB :: T
+  useB = other
+  └─ type: T
+- |-
+  module B where
+  import A
+  same :: T
+  same = T
+  └─ type: A.T
+  other :: T
+  other = T
+  └─ type: A.T
+extensions: []
+modules:
+- |
+  module A where
+  import B
+  data T = T
+  same :: T
+  same = T
+  useB :: T
+  useB = other
+- |
+  module B where
+  import A
+  same :: T
+  same = T
+  other :: T
+  other = T
+reason: two modules of one import cycle may each define a top-level name
+status: pass
