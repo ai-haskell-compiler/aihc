@@ -28,10 +28,12 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
-  ( TcInterface,
+  ( MergeCheck (..),
+    TcInterface,
     TcKinds,
     TcWiring,
     emptyTcInterface,
+    mergeTcInterfaces,
     mkTcKinds,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -113,7 +115,7 @@ buildFcPrograms extensions sources = do
   if not (all tcModuleSuccess fixtureTcResults)
     then Left ("typecheck error: " <> unlines [show diagnostic | result <- fixtureTcResults, diagnostic <- tcModuleDiagnostics result])
     else do
-      let availableInterface = supportTcInterface primitiveSupport <> tcInterface
+      let availableInterface = mergeTcInterfaces CheckMergedFacts [supportTcInterface primitiveSupport, tcInterface]
           fixtureBindings = concatMap (tcModuleBindings fixtureWiring) fixtureTcResults
           fixtureExports =
             collectModuleExportsWithDeps (supportScopes primitiveSupport) fixtureModules

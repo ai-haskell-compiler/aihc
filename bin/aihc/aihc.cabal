@@ -170,6 +170,7 @@ library
 
   other-modules:
     Aihc.Cli.Cbor
+    Aihc.Cli.InterfaceParts
     Aihc.Cli.InterfaceTyCons
     Aihc.Cli.TaskGraph
     Aihc.CompilerBuildIdentity
