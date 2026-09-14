@@ -12,11 +12,11 @@
 -- Set @AIHC_HADDOCK_ACCEPT=1@ to rewrite the goldens.
 module Test.Haddock.Fixtures (tests) where
 
-import Aihc.Hackage.Headers (defaultHeaderTarget, writeCompilerHeaders)
+import Aihc.Hackage.Headers (writeCompilerHeaders)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model (decodePackageDoc, encodePackageDoc)
-import Aihc.Haddock.Package (loadPackageDoc)
+import Aihc.Haddock.Package (documentationHeaderTarget, loadPackageDoc)
 import Aihc.Haddock.Reference.Hoogle (parseHoogleFile)
 import Aihc.Haddock.Reference.Json (decodeReferenceInterface)
 import Control.Monad (filterM, unless)
@@ -44,7 +44,7 @@ tests = do
   -- The fixtures share one copy of the compiler headers, which a module of a
   -- fixture may include.
   headerRoot <- getTemporaryDirectory
-  headerDir <- writeCompilerHeaders defaultHeaderTarget (headerRoot </> "aihc-haddock-fixtures")
+  headerDir <- writeCompilerHeaders documentationHeaderTarget (headerRoot </> "aihc-haddock-fixtures")
   pure (testGroup "fixtures" (map (fixtureTests accept headerDir) fixtures))
 
 fixtureTests :: Bool -> FilePath -> FilePath -> TestTree

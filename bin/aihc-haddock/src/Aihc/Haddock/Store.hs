@@ -20,10 +20,10 @@ module Aihc.Haddock.Store
   )
 where
 
-import Aihc.Hackage.Headers (defaultHeaderTarget, writeCompilerHeaders)
+import Aihc.Hackage.Headers (writeCompilerHeaders)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Haddock.Model
-import Aihc.Haddock.Package (loadPackageDoc, packageSpecOf)
+import Aihc.Haddock.Package (documentationHeaderTarget, loadPackageDoc, packageSpecOf)
 import Aihc.PackagePlan (PackagePlan (..))
 import Control.Monad (filterM, forM)
 import Data.Bits (xor)
@@ -144,7 +144,7 @@ documentPlan store useCache documentDependencies say plan = do
           pure (key, package)
         Nothing -> do
           say ("documenting " <> pkgName (artifactPackage key) <> "-" <> pkgVersion (artifactPackage key))
-          headerDir <- writeCompilerHeaders defaultHeaderTarget (storeRoot store)
+          headerDir <- writeCompilerHeaders documentationHeaderTarget (storeRoot store)
           package <- loadPackageDoc headerDir root (map artifactPackage dependencyKeys)
           _ <- storePackageDoc store key package
           pure (key, package)

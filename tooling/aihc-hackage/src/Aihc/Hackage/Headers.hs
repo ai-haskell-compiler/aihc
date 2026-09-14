@@ -17,7 +17,6 @@
 -- 'HeaderTarget' of the target that the code is compiled for.
 module Aihc.Hackage.Headers
   ( HeaderTarget (..),
-    defaultHeaderTarget,
     compilerHeaderTexts,
     writeCompilerHeaders,
     haskellWordCppMacros,
@@ -57,18 +56,6 @@ data HeaderTarget = HeaderTarget
     headerArch :: !Text
   }
   deriving (Eq, Show)
-
--- | The 64-bit POSIX target, for a reader that documents sources rather than
--- compiling them and so has no target of its own.
-defaultHeaderTarget :: HeaderTarget
-defaultHeaderTarget =
-  HeaderTarget
-    { headerPointerBytes = 8,
-      headerLongBytes = 8,
-      headerBigEndian = False,
-      headerOs = "linux",
-      headerArch = "x86_64"
-    }
 
 -- | The width of @Int#@ and of a heap slot.  The code generator gives every
 -- target the same one: @repType@ lowers @IntRep@ and @WordRep@ to @i64@, and

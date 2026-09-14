@@ -9,13 +9,15 @@
 -- module is loaded, exposed or not, so that later re-export resolution has
 -- the hidden modules available.
 module Aihc.Haddock.Package
-  ( loadPackageDoc,
+  ( documentationHeaderTarget,
+    loadPackageDoc,
     packageSpecOf,
   )
 where
 
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions)
+import Aihc.Hackage.Headers (HeaderTarget (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Haddock.Build (BuildInput (..), buildModuleDoc)
@@ -33,6 +35,22 @@ import System.FilePath (dropExtension, makeRelative, normalise, splitDirectories
 
 packageSpecOf :: FilePath -> IO PackageSpec
 packageSpecOf = packageSpecFromSource
+
+-- | The machine that documentation describes.
+--
+-- A module reaches the CPP pass with @#if SIZEOF_VOID_P == 8@ and the like,
+-- so the headers must answer for some machine.  This tool documents sources
+-- and compiles none, and it takes no target from its caller, so it documents
+-- for LP64, which every target of aihc except @wasm32@ matches.
+documentationHeaderTarget :: HeaderTarget
+documentationHeaderTarget =
+  HeaderTarget
+    { headerPointerBytes = 8,
+      headerLongBytes = 8,
+      headerBigEndian = False,
+      headerOs = "linux",
+      headerArch = "x86_64"
+    }
 
 -- | Document the library of the package at the given root. The dependency
 -- specs supply the versions that @MIN_VERSION_*@ macros report during CPP,
