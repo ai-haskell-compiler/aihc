@@ -449,9 +449,9 @@ firstPatternPatSyn match =
     [] -> pure Nothing
 
 -- | The matcher of a pattern synonym applied to the type arguments of one
--- use. The matcher quantifies the pattern synonym variables and the result
--- variable. The use gives the pattern synonym arguments, and the result
--- type gives the result variable.
+-- use. The matcher quantifies the pattern synonym variables, the
+-- representation of its result and the result variable. The use gives the
+-- pattern synonym arguments, and the result type gives the last two.
 patSynMatcherReference :: PatSynInfo -> TcAnnotation -> TcType -> ValueM Expr
 patSynMatcherReference info annotation resultType = do
   let (package, moduleName') = psiOrigin info
@@ -461,14 +461,19 @@ patSynMatcherReference info annotation resultType = do
   matcherType <- lookupBindingType matcherKey
   unless (length patternVariables == length typeArguments) $
     failValue ("pattern synonym use does not have the type arguments of its declaration: " <> T.unpack (psiName info))
-  -- The matcher quantifies the universal variables and then the result
-  -- variable. The use gives the universal arguments and then the
-  -- existential arguments.
+  -- The matcher quantifies the universal variables and then the
+  -- representation of the result and the result variable. The use gives the
+  -- universal arguments and then the existential arguments.
   let (matcherVariables, _) = peelForAlls matcherType
-      universalCount = length matcherVariables - 1
+      universalCount = length matcherVariables - 2
   unless (universalCount >= 0 && universalCount <= length typeArguments) $
-    failValue ("pattern synonym matcher does not quantify the universal variables and the result: " <> T.unpack (psiName info))
-  types <- mapM convertCheckedType (take universalCount typeArguments <> [resultType])
+    failValue ("pattern synonym matcher does not quantify the universal variables, the result representation and the result: " <> T.unpack (psiName info))
+  universalTypes <- mapM convertCheckedType (take universalCount typeArguments)
+  -- The matcher is polymorphic in the representation of its result, so a
+  -- use gives that representation before the result type itself.
+  resultRepresentation <- checkedRuntimeRep resultType
+  convertedResultType <- convertCheckedType resultType
+  let types = universalTypes <> [resultRepresentation, convertedResultType]
   pure (foldl ExTyApp (ExVar (Name (patSynHelperName "$m" info) SortValue (OriginTop package moduleName'))) types)
 
 -- | The empty case that reports a failed match on one binder.
@@ -528,8 +533,27 @@ desugarPatSynCall info annotation resultType scrutinee pattern' failureExpressio
     requiredArguments <- mapM desugarEvidence requiredTerms
     matcher <- patSynMatcherReference info annotation resultType
     body' <- withAlternativeScope (not (null typeBinders)) (zipWith Dictionary providedPredicates dictionaries) (body fields fieldTypes)
-    let continuation = foldr ExTyLam (foldr ExLam (foldr ExLam body' fields) dictionaries) typeBinders
-    pure (ExApp (ExApp (ExApp (foldl ExApp matcher requiredArguments) (ExVar (binderName scrutinee))) continuation) failureExpression)
+    unitType <- patSynMatcherUnitType info
+    -- Neither continuation can be a value of the result type, which may be
+    -- unlifted, so one with no argument of its own takes a unit.
+    successBinders <- if null fields then pure <$> freshBinder "_pattern_success" unitType else pure fields
+    failureBinder <- freshBinder "_pattern_failure" unitType
+    let continuation = foldr ExTyLam (foldr ExLam (foldr ExLam body' successBinders) dictionaries) typeBinders
+        failure = ExLam failureBinder failureExpression
+    pure (ExApp (ExApp (ExApp (foldl ExApp matcher requiredArguments) (ExVar (binderName scrutinee))) continuation) failure)
+
+-- | The unit a pattern synonym matcher hands a continuation that has no
+-- argument of its own. Reading the type from the matcher's own signature
+-- keeps the call in step with the declaration.
+patSynMatcherUnitType :: PatSynInfo -> ValueM TcType
+patSynMatcherUnitType info = do
+  let (package, moduleName') = psiOrigin info
+  matcherType <- lookupBindingType (TcTermGlobal package moduleName' (patSynHelperName "$m" info))
+  let (_, qualified) = peelForAlls matcherType
+      (_, body) = peelConstraints qualified
+  case body of
+    TcFunTy _ (TcFunTy _ (TcFunTy (TcFunTy domain _) _)) -> pure domain
+    _ -> failValue ("pattern synonym matcher does not take a failure continuation: " <> T.unpack (psiName info))
 
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =
@@ -1686,13 +1710,32 @@ shareExpr resultType expression body =
   case expression of
     ExVar _ -> body expression
     _ -> do
-      binder <- freshBinder "_fail" resultType
-      let name = binderName binder
-      result <- body (ExVar name)
-      pure $ case countUses name result of
-        0 -> result
-        1 -> substituteVar name expression result
-        _ -> ExLet (Bind binder expression) result
+      fixed <- hasFixedRuntimeRep resultType
+      -- A value whose representation is still a variable cannot be bound,
+      -- so it is repeated at each use instead. Only the body of a
+      -- representation-polymorphic pattern synonym matcher gets here, and
+      -- its failure is one call of the matcher's failure continuation.
+      if not fixed
+        then body expression
+        else do
+          binder <- freshBinder "_fail" resultType
+          let name = binderName binder
+          result <- body (ExVar name)
+          pure $ case countUses name result of
+            0 -> result
+            1 -> substituteVar name expression result
+            _ -> ExLet (Bind binder expression) result
+
+-- | Whether the code generator can lay out a value of this type. It cannot
+-- when the representation is still a type variable, which is how the result
+-- of a pattern synonym matcher is quantified.
+hasFixedRuntimeRep :: TcType -> ValueM Bool
+hasFixedRuntimeRep ty = do
+  kinds <- valueKinds
+  convertEnv <- gets vsConvertEnv
+  pure $ case runtimeRepOfTypeInEnv kinds (ceKindEnv convertEnv) (ceTyVarKinds convertEnv) ty of
+    Right (TcTyVar _) -> False
+    _ -> True
 
 -- | The number of times an expression names a variable, counted up to two.
 countUses :: Name -> Expr -> Int

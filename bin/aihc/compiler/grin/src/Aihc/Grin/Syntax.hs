@@ -9,6 +9,9 @@ module Aihc.Grin.Syntax
     GrinVecCount (..),
     GrinVecElem (..),
     liftedGrinRep,
+    GrinResultRep (..),
+    liftedResultRep,
+    resultRepComponents,
     GrinProgram (..),
     GrinFunction (..),
     FunctionName (..),
@@ -95,6 +98,37 @@ data GrinVecElem
 liftedGrinRep :: GrinRep
 liftedGrinRep = BoxedRep Lifted
 
+-- | What a function, or a call of one, produces where it returns.
+--
+-- A layout belongs to a function that places its result itself: it binds a
+-- value, builds a node, or reads a literal, and the code generator needs the
+-- width and the register class of every such value. A function whose every
+-- exit hands its own continuation to a callee places nothing. Its result has
+-- no layout of its own: the caller's continuation knows what it expects, and
+-- the callee that finally produces the value knows what it delivers, so the
+-- function in between only forwards the continuation. Such a function is
+-- 'ResultForwarded', and so is a call of it whose own result is forwarded in
+-- turn.
+--
+-- This is a separate type from 'GrinRep' on purpose. A 'GrinRep' is a machine
+-- layout, and every consumer of one is entitled to place a value with it. A
+-- forwarded result must never reach a binder, a node field, a case
+-- scrutinee, or a garbage collection root, and the type keeps it out of them.
+data GrinResultRep
+  = ResultRep !GrinRep
+  | ResultForwarded
+  deriving (Eq, Ord, Show, Read)
+
+liftedResultRep :: GrinResultRep
+liftedResultRep = ResultRep liftedGrinRep
+
+-- | The values a result occupies, when the function places them itself.
+resultRepComponents :: GrinResultRep -> Maybe [GrinRep]
+resultRepComponents resultRep =
+  case resultRep of
+    ResultRep runtimeRep -> Just (runtimeRepComponents runtimeRep)
+    ResultForwarded -> Nothing
+
 -- | The package and the module that a top-level GRIN name comes from.
 data GrinScope = GrinScope
   { grinScopePackage :: !Text,
@@ -133,7 +167,7 @@ data GrinProgram = GrinProgram
 data GrinFunction = GrinFunction
   { grinFunctionName :: !FunctionName,
     grinFunctionParameters :: ![GrinVar],
-    grinFunctionResultRep :: !GrinRep,
+    grinFunctionResultRep :: !GrinResultRep,
     grinFunctionBody :: !GrinExpr
   }
   deriving (Eq, Show, Read)
@@ -192,8 +226,10 @@ data GrinExpr
     -- in weak-head normal form. The second continuation receives the result
     -- of an entered thunk and is responsible for updating its blackhole.
     GrinCpsEval !GrinRep !GrinValue !GrinValue !GrinValue
-  | -- | A saturated call to a statically known code entry.
-    GrinCall !GrinRep !FunctionName ![GrinValue]
+  | -- | A saturated call to a statically known code entry. The result is
+    -- the one this call site expects; see 'GrinResultRep' for when it is
+    -- forwarded rather than placed.
+    GrinCall !GrinResultRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !GrinRep !Text ![GrinValue]
   | -- | A CPS-only primitive that may transfer execution to another thread.
@@ -203,12 +239,12 @@ data GrinExpr
     -- already in weak-head normal form. The list contains that argument's
     -- runtime values and may be empty for a zero-width argument such as
     -- @State# RealWorld@.
-    GrinApply !GrinRep !GrinValue ![GrinValue]
+    GrinApply !GrinResultRep !GrinValue ![GrinValue]
   | -- | CPS-only application. Partial applications and saturated
     -- constructors transfer their result to the continuation; saturated
     -- closures enter their code with the continuation as the hidden final
     -- argument.
-    GrinCpsApply !GrinRep !GrinValue ![GrinValue] !GrinValue
+    GrinCpsApply !GrinResultRep !GrinValue ![GrinValue] !GrinValue
   | -- | Invoke an ordinary continuation closure with one logical result.
     -- Unlike 'GrinCpsApply', continuation entries do not themselves receive a
     -- return continuation.

@@ -134,7 +134,12 @@ failClass name
   | "lit-alt-lifted" `isInfixOf` name = Just isLintFailure
   | "lit-alt" `isInfixOf` name = Just isTypeMismatch
   | "tycon-co-arity" `isInfixOf` name = Just isLintFailure
+  | "representation-polymorphic-binder" `isInfixOf` name = Just isRepresentationPolymorphicBinder
   | otherwise = Nothing
+
+isRepresentationPolymorphicBinder :: LintError -> Bool
+isRepresentationPolymorphicBinder RepresentationPolymorphicBinder {} = True
+isRepresentationPolymorphicBinder _ = False
 
 isUnboundName :: LintError -> Bool
 isUnboundName UnboundName {} = True

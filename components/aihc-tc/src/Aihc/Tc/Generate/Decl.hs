@@ -2927,21 +2927,56 @@ inferPatSynLayout sp name pat argBinders = do
         _ -> False
 
 -- | The matcher signature
--- @forall univ r. req => scrutinee -> (forall ex. prov => x1 -> .. -> xn -> r) -> r -> r@.
+-- @forall univ rep (r :: TYPE rep). req => scrutinee ->
+-- (forall ex. prov => x1 -> .. -> xn -> r) -> (() -> r) -> r@.
+--
+-- The result is representation-polymorphic, as it is in GHC, so a pattern
+-- synonym can match where the result is unlifted or unboxed: a strict
+-- pattern binding selects one binder per match through the matcher, so
+-- @let !(SBS arr) = ..@ of "Data.ByteString.Short" gives the matcher the
+-- result @ByteArray#@.
+--
+-- A representation-polymorphic result is sound because a matcher never
+-- materialises one: every branch tail-calls a continuation, so the values
+-- are produced by the continuation and consumed by the caller of the
+-- matcher, and the matcher only jumps. GRIN calls that shape
+-- 'Aihc.Grin.Syntax.ResultForwarded'.
 patSynMatcherSig :: Text -> SourceSpan -> PatSynLayout -> TcM CheckedSig
 patSynMatcherSig matcherName sp layout = do
   kinds <- getKinds
-  result <- freshSkolemTv "r"
-  let resultBinder = mkTyVarBinder result (typeKind kinds)
+  unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
+  let representationKind = runtimeRepKind kinds
+  representation <- freshSkolemTvOfKind "rep" representationKind
+  let resultKind = mkTYPEKind kinds (TcTyVar representation)
+  result <- freshSkolemTvOfKind "r" resultKind
+  let representationBinder = mkTyVarBinder representation representationKind
+      resultBinder = mkTyVarBinder result resultKind
       resultTy = TcTyVar result
-      continuationBody = foldr TcFunTy resultTy (patSynLayoutArgTypes layout)
+      unitTy = TcTyCon unitTyCon []
+      -- Neither continuation can be a value of the result type, because a
+      -- binder cannot have a representation-polymorphic type. A
+      -- continuation with no arguments takes a unit, as it takes a @Void#@
+      -- in GHC.
+      continuationArgs =
+        case patSynLayoutArgTypes layout of
+          [] -> [unitTy]
+          argTypes -> argTypes
+      continuationBody = foldr TcFunTy resultTy continuationArgs
       qualifiedContinuation =
         case patSynLayoutProvided layout of
           [] -> continuationBody
           provided -> TcQualTy provided continuationBody
       continuation = foldr TcForAllTy qualifiedContinuation (patSynLayoutExistentials layout)
-      matcherTy = TcFunTy (patSynLayoutResultType layout) (TcFunTy continuation (TcFunTy resultTy resultTy))
-  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [resultBinder]) (patSynLayoutRequired layout) matcherTy) sp [] False)
+      failure = TcFunTy unitTy resultTy
+      matcherTy = TcFunTy (patSynLayoutResultType layout) (TcFunTy continuation (TcFunTy failure resultTy))
+  pure
+    ( CheckedSig
+        matcherName
+        (ForAll (patSynLayoutUniversals layout <> [representationBinder, resultBinder]) (patSynLayoutRequired layout) matcherTy)
+        sp
+        []
+        False
+    )
 
 -- | Give a checked matcher or builder the type of its checked body. The
 -- signature check closes the body over fresh skolems, and the desugarer
@@ -3079,7 +3114,7 @@ patSynMatcherMatch pat argBinders =
           ( ECase
               (localVar scrutinee)
               [ CaseAlt [] pat (UnguardedRhs [] success Nothing),
-                CaseAlt [] PWildcard (UnguardedRhs [] (localVar failure) Nothing)
+                CaseAlt [] PWildcard (UnguardedRhs [] failed Nothing)
               ]
           )
           Nothing
@@ -3088,7 +3123,12 @@ patSynMatcherMatch pat argBinders =
     scrutinee = synthesizedLocal (-1) "$scrutinee"
     continue = synthesizedLocal (-2) "$continue"
     failure = synthesizedLocal (-3) "$failure"
-    success = foldl EApp (localVar continue) (map localVar argBinders)
+    -- Both continuations take a unit where they have no argument of their
+    -- own, because the result of a matcher is representation-polymorphic
+    -- and a binder of that type has no fixed representation.
+    success = foldl EApp (localVar continue) (if null argBinders then [unit] else map localVar argBinders)
+    failed = EApp (localVar failure) unit
+    unit = ETuple Boxed []
 
 -- | The checked pattern inside a checked matcher equation.
 matcherPattern :: Match -> Maybe Pattern

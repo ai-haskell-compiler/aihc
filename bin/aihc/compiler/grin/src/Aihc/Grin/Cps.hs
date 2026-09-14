@@ -69,6 +69,10 @@ continuationFrameKindCode frameKind =
 data CpsGrinError
   = CpsGrinAlreadyTransformed !FunctionName
   | CpsGrinInvalidContinuationParent !FunctionName
+  | -- | A function with a forwarded result placed a value in tail position.
+    -- Only a call can end such a function; the lint reports the same shape
+    -- before this pass runs.
+    CpsGrinForwardedDirectResult !FunctionName
   deriving (Eq, Show)
 
 data CpsState = CpsState
@@ -141,7 +145,7 @@ transformFunction updateName function = do
         grinFunctionBody = body
       }
 
-transformTail :: FunctionName -> FunctionName -> Set GrinVar -> GrinRep -> GrinValue -> GrinExpr -> CpsM GrinExpr
+transformTail :: FunctionName -> FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> GrinExpr -> CpsM GrinExpr
 transformTail updateName parent bound resultRep continuation expression =
   case expression of
     GrinConstant values -> pure (GrinContinue continuation values)
@@ -185,12 +189,12 @@ transformTail updateName parent bound resultRep continuation expression =
               updateName
               parent
               (Set.insert nextVar bound)
-              (varsRuntimeRep resultVars)
+              (ResultRep (varsRuntimeRep resultVars))
               (GrinVarValue nextVar)
               valueExpression
           pure (GrinBind [nextVar] (GrinStore nextNode) transformedValue)
-    GrinStore node -> continueDirect resultRep continuation (GrinStore node)
-    GrinEnsureHeap requiredWords roots -> continueDirect resultRep continuation (GrinEnsureHeap requiredWords roots)
+    GrinStore node -> continuePlaced (GrinStore node)
+    GrinEnsureHeap requiredWords roots -> continuePlaced (GrinEnsureHeap requiredWords roots)
     GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)
@@ -211,7 +215,7 @@ transformTail updateName parent bound resultRep continuation expression =
         )
     GrinCpsEval {} -> alreadyTransformed
     GrinCall _ functionName arguments ->
-      pure (GrinCall cpsResultRep functionName (arguments <> [continuation]))
+      pure (GrinCall (ResultRep cpsResultRep) functionName (arguments <> [continuation]))
     GrinPrimitiveCall runtimeRep name arguments
       | isControlPrimitive name ->
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
@@ -248,12 +252,12 @@ transformTail updateName parent bound resultRep continuation expression =
           updateName
           parent
           (Set.insert catchVar bound)
-          runtimeRep
+          (ResultRep runtimeRep)
           (GrinVarValue catchVar)
           ( GrinBind
               [evaluatedAction]
               (GrinEval (grinValueRuntimeRep action) action)
-              (GrinApply runtimeRep (GrinVarValue evaluatedAction) state)
+              (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) state)
           )
       pure
         ( GrinBind
@@ -262,11 +266,17 @@ transformTail updateName parent bound resultRep continuation expression =
             protectedAction
         )
     GrinForeignCallExpr foreignCall arguments ->
-      continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
+      continuePlaced (GrinForeignCallExpr foreignCall arguments)
   where
     alreadyTransformed = lift (Left (CpsGrinAlreadyTransformed parent))
+    -- A direct expression in tail position places the function's result,
+    -- so the function must have a layout for it.
+    continuePlaced directExpression =
+      case resultRep of
+        ResultRep runtimeRep -> continueDirect runtimeRep continuation directExpression
+        ResultForwarded -> lift (Left (CpsGrinForwardedDirectResult parent))
 
-reifyContinuation :: FunctionName -> FunctionName -> Set GrinVar -> GrinRep -> GrinValue -> [GrinVar] -> GrinExpr -> CpsM (GrinVar, GrinNode)
+reifyContinuation :: FunctionName -> FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> [GrinVar] -> GrinExpr -> CpsM (GrinVar, GrinNode)
 reifyContinuation updateName parent bound resultRep outerContinuation resultVars body = do
   transformedBody <-
     transformTail
@@ -332,7 +342,7 @@ makeCatchContinuation parent resultRep outerContinuation handler = do
         GrinFunction
           { grinFunctionName = catchName,
             grinFunctionParameters = parentContinuation : capturedHandler : resultVars,
-            grinFunctionResultRep = resultRep,
+            grinFunctionResultRep = ResultRep resultRep,
             grinFunctionBody = GrinContinue (GrinVarValue parentContinuation) (map GrinVarValue resultVars)
           }
       catchNode =
@@ -357,7 +367,7 @@ makeUpdateFunction updateName = do
     GrinFunction
       { grinFunctionName = updateName,
         grinFunctionParameters = [outerContinuation, blackhole, result],
-        grinFunctionResultRep = liftedGrinRep,
+        grinFunctionResultRep = liftedResultRep,
         grinFunctionBody =
           GrinBind
             [updated]

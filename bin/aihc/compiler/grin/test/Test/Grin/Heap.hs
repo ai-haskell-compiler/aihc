@@ -33,7 +33,17 @@ tests =
         assertEqual
           "reservations"
           [("$entry", [5]), ("$entry_cont", [2]), ("$cps_update", [3])]
-          reservations
+          reservations,
+      testCase "a primitive that cannot allocate keeps one reservation" $ do
+        reservations <- entryReservations (betweenStoresProgram "+#" 2 "(2 :: IntRep) (2 :: IntRep)")
+        -- The addition is one instruction and takes nothing from the heap,
+        -- so both nodes stay under the reservation that reaches it.
+        assertEqual "reservations" [4] reservations,
+      testCase "a primitive that allocates ends a reservation" $ do
+        reservations <- entryReservations (betweenStoresProgram "newMutVar#" 1 "(0 :: IntRep)")
+        -- A new mutable reference takes from the heap the first store
+        -- reserved, so the second store has to reserve again.
+        assertEqual "reservations" [2, 2] reservations
     ]
 
 -- | The words of every reservation of the entry function, in the order the
@@ -98,6 +108,23 @@ straightLineProgram =
       "$entry -> BoxedRep Lifted =",
       "  (inner%1 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))",
       "  store (CLink (inner%1 :: BoxedRep Lifted))"
+    ]
+
+-- | Two stores with one call of the named primitive between them. Whether
+-- the primitive allocates decides whether the two stores share one
+-- reservation.
+betweenStoresProgram :: Text -> Int -> Text -> Text
+betweenStoresProgram primitive arity arguments =
+  T.unlines
+    [ "constructor Box/1 [IntRep]",
+      "constructor Link/1 [BoxedRep Lifted]",
+      "",
+      "primitive " <> primitive <> " :: IntRep/" <> T.pack (show arity),
+      "",
+      "$entry -> BoxedRep Lifted =",
+      "  (first%1 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))",
+      "  (made%2 :: IntRep) <- primitive-call @IntRep " <> primitive <> " " <> arguments,
+      "  store (CLink (first%1 :: BoxedRep Lifted))"
     ]
 
 -- | A call between the two stores can collect, so it separates them into two

@@ -26,7 +26,7 @@ schedulerProgram =
         [ GrinFunction
             { grinFunctionName = mainFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [global childClosure]) $
                   GrinBind [parentBeforeYield] (putchar 'P') $
@@ -39,7 +39,7 @@ schedulerProgram =
           GrinFunction
             { grinFunctionName = childFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind [childOutput] (putchar 'C') $
                   GrinConstant [global unitValue]
@@ -80,7 +80,7 @@ stdioSchedulerProgram =
         [ GrinFunction
             { grinFunctionName = mainFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind [byteArray] (GrinPrimitiveCall (BoxedRep Unlifted) "newPinnedByteArray#" [intValue 64]) $
                   GrinBind [bufferContents] (GrinPrimitiveCall AddrRep "mutableByteArrayContents#" [GrinVarValue byteArray]) $
@@ -155,7 +155,7 @@ blackholeSchedulerProgram =
         [ GrinFunction
             { grinFunctionName = mainFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [global childClosure]) $
                   GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
@@ -166,13 +166,13 @@ blackholeSchedulerProgram =
           GrinFunction
             { grinFunctionName = childFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody = GrinEval lifted (global sharedThunk)
             },
           GrinFunction
             { grinFunctionName = sharedFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
                   GrinBind [thunkOutput] (putchar 'T') $

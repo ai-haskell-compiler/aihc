@@ -32,6 +32,12 @@ data LintError
   = UnboundName !Name
   | TypeMismatch !String !Type !Type
   | KindMismatch !String !Type !Type
+  | -- | A term binder whose type has no fixed runtime representation: the
+    -- representation is the named type variable. The code generator has to
+    -- place every bound value, so it needs the layout. A function's result
+    -- carries no such rule; a function whose every exit is a tail call
+    -- never places its result.
+    RepresentationPolymorphicBinder !Name !Name
   | ShadowedBinder !Name
   | UnusedImport !Name
   | LintFailure !String
@@ -157,6 +163,9 @@ bindLocal :: TypeEnv -> Binder -> Either LintError TypeEnv
 bindLocal env binder = do
   _ <- lintType env (binderType binder)
   let name = binderName binder
+  case repOf env (binderType binder) of
+    Just (TyVar representation) -> Left (RepresentationPolymorphicBinder name representation)
+    _ -> pure ()
   when (Map.member name (teBinders env) || Map.member name (teHeaders env)) (Left (ShadowedBinder name))
   pure (extendBinder env binder)
 

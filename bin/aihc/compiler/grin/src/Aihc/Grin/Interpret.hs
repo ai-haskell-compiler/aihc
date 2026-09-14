@@ -62,7 +62,7 @@ data InterpretError
   | InterpretInvalidByteArrayRange !Text !Integer !Integer !Int
   | InterpretResultArity !Int !Int
   | InterpretInvalidThunkResult ![RuntimeValue]
-  | InterpretInvalidThunkResultRep !FunctionName !GrinRep
+  | InterpretInvalidThunkResultRep !FunctionName !GrinResultRep
   | InterpretInvalidUpdateValue !RuntimeValue
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
@@ -578,10 +578,9 @@ forceScheduledLocation location continue = do
   case cell of
     HeapSuspended functionName fields -> do
       function <- lookupFunction functionName
-      let resultRep = grinFunctionResultRep function
-      if isLiftedRuntimeRep resultRep
-        then pure ()
-        else throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
+      case grinFunctionResultRep function of
+        ResultRep resultRep | isLiftedRuntimeRep resultRep -> pure ()
+        resultRep -> throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
       writeCell location HeapBlackhole
       callScheduledFunction functionName fields (updateThunk cell)
         `catchE` \failure -> writeCell location cell >> throwE failure
