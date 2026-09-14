@@ -48,6 +48,7 @@ module Aihc.Tc
     tcInterfaceForeignImports,
     tcInterfaceFromLists,
     emptyTcInterface,
+    MergeCheck (..),
     mergeTcInterfaces,
     unionTcInterfaces,
     restrictTcInterfaceToModules,
@@ -271,19 +272,33 @@ emptyTcInterface =
     }
 
 instance Semigroup TcInterface where
-  (<>) = mergeTcInterface
+  (<>) = mergeTcInterface CheckMergedFacts
 
 instance Monoid TcInterface where
   mempty = emptyTcInterface
 
--- | Merge interfaces. Two facts with one identity must be equal; the
--- check runs only for identities present on both sides.
-mergeTcInterfaces :: [TcInterface] -> TcInterface
-mergeTcInterfaces [] = emptyTcInterface
-mergeTcInterfaces (first : rest) = List.foldl' mergeTcInterface first rest
+-- | Whether a merge checks the sides against each other.
+--
+-- Interfaces that carry one fact must give it one meaning.
+-- 'CheckMergedFacts' verifies that wherever two sides overlap, which
+-- costs a comparison of every fact they share -- the facts of a module
+-- and of everything it imports, once per module group. An install pays
+-- that under @--lint@; otherwise it trusts the interfaces it merges,
+-- which the store and the type checker produced together.
+data MergeCheck
+  = CheckMergedFacts
+  | TrustMergedFacts
+  deriving (Eq, Show)
 
-mergeTcInterface :: TcInterface -> TcInterface -> TcInterface
-mergeTcInterface left right =
+-- | Merge interfaces. Two facts with one identity must be equal; under
+-- 'CheckMergedFacts' that is verified for the identities present on both
+-- sides, and under 'TrustMergedFacts' it is assumed.
+mergeTcInterfaces :: MergeCheck -> [TcInterface] -> TcInterface
+mergeTcInterfaces _ [] = emptyTcInterface
+mergeTcInterfaces check (first : rest) = List.foldl' (mergeTcInterface check) first rest
+
+mergeTcInterface :: MergeCheck -> TcInterface -> TcInterface -> TcInterface
+mergeTcInterface check left right =
   TcInterface
     { tcInterfaceTermMap = merge "term interface" tcInterfaceTermMap,
       tcInterfaceTyConMap = merge "type constructor interface" tcInterfaceTyConMap,
@@ -297,7 +312,9 @@ mergeTcInterface left right =
     }
   where
     merge :: (Ord key, Show key, Eq value) => String -> (TcInterface -> Map.Map key value) -> Map.Map key value
-    merge label select = Map.unionWithKey (conflict label) (select left) (select right)
+    merge label select = case check of
+      CheckMergedFacts -> Map.unionWithKey (conflict label) (select left) (select right)
+      TrustMergedFacts -> Map.union (select left) (select right)
 
 conflict :: (Show key, Eq value) => String -> key -> value -> value -> value
 conflict label key left right

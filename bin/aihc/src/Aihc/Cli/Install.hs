@@ -118,6 +118,7 @@ import Aihc.Tc
     DataFamilyInstanceInfo (..),
     DerivingReference (..),
     InstanceInfo (..),
+    MergeCheck (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
@@ -864,7 +865,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
         [ (installedName dependency, installedInstanceDigest dependency, Map.keysSet (installedTypeHashes dependency))
         | dependency <- loadedDependencies
         ]
-      dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
+      dependencyInstanceFacts = mergeTcInterfaces (configMergeCheck config) (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
   _ <-
@@ -939,7 +940,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
       allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
       allTypes = localTypes `LazyMap.union` dependencyTypes
       allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
-      packageInstanceInterface = mergeTcInterfaces (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
+      packageInstanceInterface = mergeTcInterfaces (configMergeCheck config) (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
       instanceProviders =
         Map.fromList
           [ (sourceName source, interfaceInstanceProviders (typeUnitInstanceInterface result))
@@ -1804,6 +1805,7 @@ runTypeUnit context runtimes runtime = do
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
       importedTypes =
         mergeTcInterfaces
+          (configMergeCheck config)
           ( importedInstanceInterface
               : [ interface
                 | name <- dependencyNames,
@@ -1857,7 +1859,7 @@ runTypeUnit context runtimes runtime = do
         putTMVar (runtimeBackendInput runtime) Nothing
     Nothing -> do
       ((checkedModules, checkedInterface), diagnostics) <- checkUnit
-      let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
+      let completeInterface = mergeTcInterfaces (configMergeCheck config) [importedTypes, checkedInterface]
           -- What the unit publishes outlives this task, so its equal
           -- parts are made one object each; the checking state is not.
           (ownInstanceInterface, unitTypes) =
@@ -2144,6 +2146,14 @@ renderBackendPhaseTotals timings =
       "native total: " <> renderDuration (backendNativeNs timings),
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
+
+-- | Whether the interface merges of a compile verify the sides against
+-- each other. The check costs a comparison of every fact two merged
+-- interfaces share, so it runs under @--lint@ and nowhere else.
+configMergeCheck :: ModuleCompileConfig -> MergeCheck
+configMergeCheck config
+  | compileLint config = CheckMergedFacts
+  | otherwise = TrustMergedFacts
 
 -- | Desugar the checked modules of a unit to System FC, lint it when asked,
 -- and write it when a later build or a @--lto@ link reads it. This is the
