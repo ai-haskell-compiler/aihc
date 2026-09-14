@@ -1,0 +1,47 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Bits (popCount, shiftL, shiftR, (.&.))
+    import Numeric.Natural (Natural, minusNaturalMaybe)
+    import Prelude
+
+    -- Every case here crosses the NS/NB boundary in one direction or the
+    -- other, which is where a representation that is not a plain newtype
+    -- over Integer can go wrong.
+    main :: IO ()
+    main = do
+      print (18446744073709551615 + 1 :: Natural)
+      print (18446744073709551616 - 1 :: Natural)
+      print (4294967296 * 4294967296 :: Natural)
+      print (quotRem 18446744073709551618 7 :: (Natural, Natural))
+      print (toInteger (18446744073709551616 :: Natural))
+      print (compare (18446744073709551616 :: Natural) 18446744073709551615)
+      print (18446744073709551616 == (18446744073709551616 :: Natural))
+      print (minusNaturalMaybe 3 5 :: Maybe Natural)
+      print (minusNaturalMaybe 5 3 :: Maybe Natural)
+      print (popCount (18446744073709551616 :: Natural))
+      print (shiftR (18446744073709551616 :: Natural) 64)
+      print (shiftL (1 :: Natural) 64)
+      print (18446744073709551616 .&. (18446744073709551615 :: Natural))
+      print ([1 .. 5] :: [Natural])
+stdout: |
+  18446744073709551616
+  18446744073709551615
+  18446744073709551616
+  (2635249153387078802,4)
+  18446744073709551616
+  GT
+  True
+  Nothing
+  Just 2
+  1
+  1
+  18446744073709551616
+  0
+  [1,2,3,4,5]
+output: |
+  ()
+expression: main
+status: pass
+reason: Natural's arithmetic, comparison and bit operations survive the NS/NB boundary

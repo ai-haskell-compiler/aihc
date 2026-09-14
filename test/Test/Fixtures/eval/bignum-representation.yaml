@@ -1,0 +1,46 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Num.BigNat (BigNat (..))
+    import GHC.Num.Integer (Integer (..))
+    import GHC.Num.Natural (Natural (..))
+    import GHC.Prim (sizeofByteArray#, word2Int#)
+    import GHC.Types (Int (..))
+    import Prelude
+
+    -- The magnitude that Integer carries in IP and IN is the very same
+    -- BigNat# that Natural carries in NB, so one helper reads all of them.
+    limbCount :: BigNat -> Int
+    limbCount (BN# magnitude) = quot (I# (sizeofByteArray# magnitude)) 8
+
+    describeInteger :: Integer -> String
+    describeInteger (IS value) = "IS " ++ show (I# value)
+    describeInteger (IP magnitude) = "IP " ++ show (limbCount (BN# magnitude)) ++ " limbs"
+    describeInteger (IN magnitude) = "IN " ++ show (limbCount (BN# magnitude)) ++ " limbs"
+
+    describeNatural :: Natural -> String
+    describeNatural (NS value) = "NS " ++ show (I# (word2Int# value))
+    describeNatural (NB magnitude) = "NB " ++ show (limbCount (BN# magnitude)) ++ " limbs"
+
+    main :: IO ()
+    main = do
+      mapM_ (putStrLn . describeInteger) [7, -7, 18446744073709551616, -18446744073709551616]
+      -- The last small Natural is maxBound :: Word, which reads back as -1
+      -- through word2Int# and still stays out of NB.
+      mapM_ (putStrLn . describeNatural) [7, 18446744073709551615, 18446744073709551616]
+stdout: |
+  IS 7
+  IS -7
+  IP 2 limbs
+  IN 2 limbs
+  NS 7
+  NS -1
+  NB 2 limbs
+output: |
+  ()
+expression: main
+status: pass
+reason: Integer and Natural expose ghc-bignum's IS/IP/IN and NS/NB constructors over a shared BigNat magnitude
