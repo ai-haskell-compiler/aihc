@@ -1,0 +1,110 @@
+target: wasip3
+program: |
+  constructor Box/1 [IntRep]
+
+  $entry -> BoxedRep Lifted =
+    store (CBox (1 :: IntRep))
+expected: |
+  extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+
+  extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
+
+  extern func @aihc_lir_eval(ptr, ptr, ptr, ptr)
+
+  extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_2 = stack.alloc 8 align 8
+    %heap_3 = load ptr [%machine_0 + 20] align 1 word
+    %heap_end_4 = load ptr [%machine_0 + 24] align 1 word
+    %heap_word_5 = ptr.to_int %heap_3
+    %heap_end_word_6 = ptr.to_int %heap_end_4
+    %heap_room_7 = sub i64 %heap_end_word_6, %heap_word_5
+    %heap_fits_8 = ge.u i64 %heap_room_7, 16
+    br %heap_fits_8, gc_reserved_10(%$cps_return_1), gc_collect_9
+
+  gc_collect_9:
+    %slot_12 = ptr.to_int %$cps_return_1
+    store i64 %slot_12, [%roots_2] align 8
+    call @aihc_ensure_heap(%machine_0, 2, 1, %roots_2)
+    %$cps_return$gc_13 = load i64 [%roots_2] align 8
+    %$cps_return$gc_14 = ptr.from_int %$cps_return$gc_13
+    jump gc_reserved_10(%$cps_return$gc_14)
+
+  gc_reserved_10(%$cps_return$gc_11: ptr):
+    %object_15 = load ptr [%machine_0 + 20] align 1 word
+    %heap_16 = ptr.add %object_15, 16
+    store ptr %heap_16, [%machine_0 + 20] align 1 word
+    %slot_17 = ptr.to_int @aihc_c_aihc_entry_Box_0
+    store i64 %slot_17, [%object_15] align 8
+    store i64 1, [%object_15 + 8] align 8
+    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return$gc_11, %object_15)
+  }
+
+  func @aihc_f_aihc_entry___scps__uupdate(%machine_18: ptr, %$cps_outer_19: ptr, %$cps_blackhole_20: ptr, %$cps_thunk_result_21: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_22 = stack.alloc 24 align 8
+    %heap_23 = load ptr [%machine_18 + 20] align 1 word
+    %heap_end_24 = load ptr [%machine_18 + 24] align 1 word
+    %heap_word_25 = ptr.to_int %heap_23
+    %heap_end_word_26 = ptr.to_int %heap_end_24
+    %heap_room_27 = sub i64 %heap_end_word_26, %heap_word_25
+    %heap_fits_28 = ge.u i64 %heap_room_27, 24
+    br %heap_fits_28, gc_reserved_30(%$cps_blackhole_20, %$cps_outer_19, %$cps_thunk_result_21), gc_collect_29
+
+  gc_collect_29:
+    %slot_34 = ptr.to_int %$cps_blackhole_20
+    store i64 %slot_34, [%roots_22] align 8
+    %slot_35 = ptr.to_int %$cps_outer_19
+    store i64 %slot_35, [%roots_22 + 8] align 8
+    %slot_36 = ptr.to_int %$cps_thunk_result_21
+    store i64 %slot_36, [%roots_22 + 16] align 8
+    call @aihc_ensure_heap(%machine_18, 3, 3, %roots_22)
+    %$cps_blackhole$gc_37 = load i64 [%roots_22] align 8
+    %$cps_blackhole$gc_38 = ptr.from_int %$cps_blackhole$gc_37
+    %$cps_outer$gc_39 = load i64 [%roots_22 + 8] align 8
+    %$cps_outer$gc_40 = ptr.from_int %$cps_outer$gc_39
+    %$cps_thunk_result$gc_41 = load i64 [%roots_22 + 16] align 8
+    %$cps_thunk_result$gc_42 = ptr.from_int %$cps_thunk_result$gc_41
+    jump gc_reserved_30(%$cps_blackhole$gc_38, %$cps_outer$gc_40, %$cps_thunk_result$gc_42)
+
+  gc_reserved_30(%$cps_blackhole$gc_31: ptr, %$cps_outer$gc_32: ptr, %$cps_thunk_result$gc_33: ptr):
+    call @aihc_update_blackhole(%machine_18, %$cps_blackhole$gc_31, %$cps_thunk_result$gc_33)
+    %object_43 = load ptr [%machine_18 + 20] align 1 word
+    %heap_44 = ptr.add %object_43, 24
+    store ptr %heap_44, [%machine_18 + 20] align 1 word
+    %slot_45 = ptr.to_int @aihc_lir_info_0
+    store i64 %slot_45, [%object_43] align 8
+    %slot_46 = ptr.to_int %$cps_outer$gc_32
+    store i64 %slot_46, [%object_43 + 8] align 8
+    %slot_47 = ptr.to_int %$cps_thunk_result$gc_33
+    store i64 %slot_47, [%object_43 + 16] align 8
+    tailcall @aihc_lir_eval(%machine_18, %$cps_thunk_result$gc_33, %$cps_outer$gc_32, %object_43)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  export data @aihc_c_aihc_entry_Box_0 align 4 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Box_partial align 4 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+
+  data @aihc_lir_info_0 align 4 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 3, i8 1 }
+
+  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x01" }
+
+  data @aihc_lir_info_1 align 4 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 3, i8 1 }
+status: pass
+reason: |
+  The same program on the 32-bit target. A heap slot is eight bytes everywhere,
+  so the field offsets are unchanged, but a pointer is four bytes: the machine
+  fields move to their 32-bit offsets and a pointer stored in a slot travels
+  through an i64.

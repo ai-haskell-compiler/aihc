@@ -564,6 +564,36 @@ objects are exported and mutable. Info tables are read-only. The collector
 finds static objects by address, so a Lir module needs no root section and
 both collectors work with this pipeline.
 
+### Lowering fixtures
+
+`bin/aihc/compiler/lir/test/Test/Fixtures/lir/golden` holds the golden
+fixtures of this lowering. A fixture names a GRIN program and the whole Lir
+module the lowering must produce from it, so a change to the Lir a construct
+compiles to shows up as a diff rather than only as a change in behaviour.
+The source-to-GRIN goldens stop at GRIN and the fixtures in `asm` start at
+hand-written Lir; these join the two.
+
+```yaml
+target: posix64            # optional, the default; or wasip3
+check-prim-bounds: false   # optional, the default
+program: |
+  <GRIN>
+expected: |
+  <the rendered Lir module>
+status: pass
+reason: <what the fixture pins>
+```
+
+A fixture selects a target by word size and host, not by architecture: the
+lowering takes a `LowerTarget`, and Apple ARM64, Linux AMD64 and LLVM all
+share `posix64`, so only `wasip3` produces different Lir. There is no accept
+flag. A mismatch prints the expectation and the actual module, and the actual
+module is what the `expected` block should hold.
+
+The neighbouring `lower` directory is the wasm data-layout suite, which takes
+a GRIN program all the way to wasm and asserts the shape of a global rather
+than the Lir text.
+
 ## Runtime units
 
 A runtime unit is a `.lir` file in `bin/aihc/compiler/native/runtime` that

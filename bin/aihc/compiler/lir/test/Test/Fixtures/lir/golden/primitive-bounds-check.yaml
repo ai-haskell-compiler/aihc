@@ -1,0 +1,91 @@
+check-prim-bounds: true
+program: |
+  primitive newByteArray#%1 :: BoxedRep Unlifted/1
+  primitive readWordArray#%2 :: WordRep/2
+
+  $entry -> WordRep =
+    (array%3 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (8 :: IntRep)
+    primitive-call @WordRep readWordArray# (array%3 :: BoxedRep Unlifted) (4 :: IntRep)
+expected: |
+  extern func @aihc_byte_array_bounds_fail() cc c
+
+  extern func @aihc_byte_array_new(i64) -> ptr cc c
+
+  extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
+
+  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+
+  extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
+
+  extern func @aihc_lir_eval(ptr, ptr, ptr, ptr)
+
+  extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %result_2 = call @aihc_byte_array_new(8)
+    %size_3 = load i64 [%result_2 + 8] align 8
+    %limit_4 = div.u i64 %size_3, 8
+    %invalid_5 = ge.u i64 4, %limit_4
+    br %invalid_5, out_of_bounds_6, inside_7
+
+  out_of_bounds_6:
+    call @aihc_byte_array_bounds_fail()
+    trap "byte array access is out of bounds"
+
+  inside_7:
+    %offset_8 = mul i64 4, 8
+    %contents_9 = load ptr [%result_2 + 16] align 8
+    %address_10 = ptr.add %contents_9, %offset_8
+    %value_11 = load i64 [%address_10] align 1
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_1, %value_11)
+  }
+
+  func @aihc_f_aihc_entry___scps__uupdate(%machine_12: ptr, %$cps_outer_13: ptr, %$cps_blackhole_14: ptr, %$cps_thunk_result_15: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_16 = stack.alloc 24 align 8
+    %heap_17 = load ptr [%machine_12 + 24] align 1 word
+    %heap_end_18 = load ptr [%machine_12 + 32] align 1 word
+    %heap_word_19 = ptr.to_int %heap_17
+    %heap_end_word_20 = ptr.to_int %heap_end_18
+    %heap_room_21 = sub i64 %heap_end_word_20, %heap_word_19
+    %heap_fits_22 = ge.u i64 %heap_room_21, 24
+    br %heap_fits_22, gc_reserved_24(%$cps_blackhole_14, %$cps_outer_13, %$cps_thunk_result_15), gc_collect_23
+
+  gc_collect_23:
+    store ptr %$cps_blackhole_14, [%roots_16] align 8
+    store ptr %$cps_outer_13, [%roots_16 + 8] align 8
+    store ptr %$cps_thunk_result_15, [%roots_16 + 16] align 8
+    call @aihc_ensure_heap(%machine_12, 3, 3, %roots_16)
+    %$cps_blackhole$gc_28 = load ptr [%roots_16] align 8
+    %$cps_outer$gc_29 = load ptr [%roots_16 + 8] align 8
+    %$cps_thunk_result$gc_30 = load ptr [%roots_16 + 16] align 8
+    jump gc_reserved_24(%$cps_blackhole$gc_28, %$cps_outer$gc_29, %$cps_thunk_result$gc_30)
+
+  gc_reserved_24(%$cps_blackhole$gc_25: ptr, %$cps_outer$gc_26: ptr, %$cps_thunk_result$gc_27: ptr):
+    call @aihc_update_blackhole(%machine_12, %$cps_blackhole$gc_25, %$cps_thunk_result$gc_27)
+    %object_31 = load ptr [%machine_12 + 24] align 1 word
+    %heap_32 = ptr.add %object_31, 24
+    store ptr %heap_32, [%machine_12 + 24] align 1 word
+    store ptr @aihc_lir_info_0, [%object_31] align 8
+    store ptr %$cps_outer$gc_26, [%object_31 + 8] align 8
+    store ptr %$cps_thunk_result$gc_27, [%object_31 + 16] align 8
+    tailcall @aihc_lir_eval(%machine_12, %$cps_thunk_result$gc_27, %$cps_outer$gc_26, %object_31)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
+
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_1, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 3, i8 1 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01\x01" }
+
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 3, i8 0, i8 3, i8 1 }
+status: pass
+reason: |
+  With --check-prim-bounds the array primitive compares the index against the
+  length of the array and branches to a call of aihc_byte_array_bounds_fail,
+  which the same program without the flag does not mention at all.

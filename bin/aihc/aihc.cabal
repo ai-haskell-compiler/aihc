@@ -360,6 +360,7 @@ test-suite spec
     Test.Grin.Srt
     Test.Lir.Arbitrary
     Test.Lir.AsmSuite
+    Test.Lir.LowerSuite
     Test.Lir.NativeSuite
     Test.Lir.Observed
     Test.Lir.RegAllocSpec
