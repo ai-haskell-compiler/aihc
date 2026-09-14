@@ -21,7 +21,6 @@ import Control.Concurrent.STM
     writeTVar,
   )
 import Control.Exception (SomeException, throwIO, try)
-import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
@@ -33,7 +32,10 @@ import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import Numeric (showFFloat)
 
-newtype TaskId = TaskId String
+-- | The identity of a task within one graph. The caller numbers its tasks,
+-- so the graph stores and compares machine integers: naming the tasks made
+-- every dependency edge a comparison of module names joined into a string.
+newtype TaskId = TaskId Int
   deriving (Eq, Ord, Show)
 
 data TaskKind
@@ -89,25 +91,20 @@ runTaskGraph requestedWorkers tasks = do
   mapConcurrently_ (runWorker taskMap state timings) [1 .. max 1 requestedWorkers]
   sortOn timingStart <$> readIORef timings
 
+-- | Check what the caller can get wrong when it numbers its tasks. A cycle
+-- is not among it: the callers build their graphs from a dependency order
+-- that is already acyclic, and a phase of a unit only ever waits on an
+-- earlier phase of the same unit or on a unit before it.
 validateTasks :: [Task] -> IO (Map TaskId Task)
 validateTasks tasks = do
   let taskMap = Map.fromList [(taskId task, task) | task <- tasks]
       knownIds = Map.keysSet taskMap
       duplicateCount = length tasks - Map.size taskMap
       missingIds = Set.unions (map taskDependencies tasks) Set.\\ knownIds
-      cycles =
-        [ identifiers
-        | CyclicSCC identifiers <-
-            stronglyConnComp
-              [ (identifier, identifier, Set.toList (taskDependencies task))
-              | (identifier, task) <- Map.toList taskMap
-              ]
-        ]
   case () of
     _
       | duplicateCount /= 0 -> ioError (userError "Task graph has duplicate task identifiers")
       | not (Set.null missingIds) -> ioError (userError ("Task graph has missing dependencies: " <> show (Set.toAscList missingIds)))
-      | not (null cycles) -> ioError (userError ("Task graph has dependency cycles: " <> show cycles))
       | otherwise -> pure taskMap
 
 initialTaskState :: [Task] -> TaskState
