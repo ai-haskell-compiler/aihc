@@ -18,7 +18,7 @@ module Aihc.Hackage.Cpp
   )
 where
 
-import Aihc.Hackage.Headers (HeaderTarget, machineCppMacros)
+import Aihc.Hackage.Headers (haskellWordCppMacros)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, releaseVersionText)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
@@ -31,15 +31,16 @@ import Data.Text qualified as T
 
 -- | GHC version macros that every preprocessed file sees.
 -- Mirrors what GHC itself defines when invoking @cpp@.
-builtinCppMacros :: HeaderTarget -> Map Text Text
-builtinCppMacros target =
+builtinCppMacros :: Map Text Text
+builtinCppMacros =
   M.fromList
     [ ("__GLASGOW_HASKELL__", T.pack (show (major * 100 + minor))),
       ("__GLASGOW_HASKELL_FULL_VERSION__", T.pack (show (releaseVersionText emulatedGhc))),
       ("__GLASGOW_HASKELL_PATCHLEVEL1__", T.pack (show patch1)),
       ("__GLASGOW_HASKELL_PATCHLEVEL2__", T.pack (show patch2))
     ]
-    `M.union` M.restrictKeys (machineCppMacros target) (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
+    -- The word macros a module reads without including @MachDeps.h@ first.
+    `M.union` M.restrictKeys haskellWordCppMacros (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
   where
     (major, minor, patch1, patch2) = compilerVersionComponents
 
@@ -56,9 +57,9 @@ compilerVersionComponents =
 --
 -- Starts from 'builtinCppMacros' and applies any @-D@ and @-U@ flags found
 -- in the option list.
-cppMacrosFromOptions :: HeaderTarget -> [String] -> Map Text Text
-cppMacrosFromOptions target cppOptions =
-  foldl apply (builtinCppMacros target) (mapMaybe parseCppMacroOption cppOptions)
+cppMacrosFromOptions :: [String] -> Map Text Text
+cppMacrosFromOptions cppOptions =
+  foldl apply builtinCppMacros (mapMaybe parseCppMacroOption cppOptions)
   where
     apply macros option =
       case option of

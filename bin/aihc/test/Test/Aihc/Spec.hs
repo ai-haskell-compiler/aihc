@@ -13,7 +13,6 @@ import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.Headers (posix64HeaderTarget)
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
@@ -163,7 +162,9 @@ test_moduleDepsIncludedHeader =
               HackageCabal.fileInfoDependencies = [],
               HackageCabal.fileInfoPreprocessor = Nothing
             }
-        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile posix64HeaderTarget root mempty fileInfo
+        -- The module includes a header of its own, so the compiler headers
+        -- are not needed and their directory stays empty.
+        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile (root </> "headers") root mempty fileInfo
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile (sourceDir </> "Demo.hs") (unlines ["module Demo (demo) where", "#include \"demo.h\"", "demo = VALUE"])

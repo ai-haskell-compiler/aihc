@@ -18,7 +18,6 @@ where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
-import Aihc.Hackage.Headers (HeaderTarget, compilerHeader)
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -114,14 +113,14 @@ digestChunks =
     field bytes = [BS8.pack (show (BS.length bytes) <> ":"), bytes]
     hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
 
-parseInterfaceFile :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
-parseInterfaceFile target packageRoot versions fileInfo = do
+parseInterfaceFile :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
+parseInterfaceFile headerDir packageRoot versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  parseInterfaceBytes target packageRoot versions fileInfo bytes
+  parseInterfaceBytes headerDir packageRoot versions fileInfo bytes
 
 -- | Parse the same source bytes that the caller uses for its input hash.
-parseInterfaceBytes :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
-parseInterfaceBytes target packageRoot versions fileInfo bytes = do
+parseInterfaceBytes :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
+parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
   let normalized = normalizeSource path (TE.decodeUtf8With lenientDecode bytes)
       -- The extensions of the source as it stands, which decide whether CPP
       -- runs on it. A module turns CPP off with @{-# LANGUAGE NoCPP #-}@ the
@@ -130,7 +129,7 @@ parseInterfaceBytes target packageRoot versions fileInfo bytes = do
       cppEnabled = CPP `elem` normalizedExtensions
   (source, cppDiagnostics, includes) <-
     if cppEnabled
-      then preprocessInterfaceSource target packageRoot versions fileInfo normalized
+      then preprocessInterfaceSource headerDir packageRoot versions fileInfo normalized
       else pure (normalized, [], M.empty)
   -- The preprocessor may add or remove pragmas, so the extensions are
   -- computed once more from its output. Without it the source is unchanged
@@ -186,8 +185,8 @@ parseInterfaceBytes target packageRoot versions fileInfo bytes = do
 
 -- | Preprocess one module and report, besides the output and the
 -- diagnostics, every package header it included.
-preprocessInterfaceSource :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value], Map FilePath Text)
-preprocessInterfaceSource target packageRoot versions fileInfo source = do
+preprocessInterfaceSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value], Map FilePath Text)
+preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
   drive M.empty (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
   where
     path = HackageCabal.fileInfoPath fileInfo
@@ -196,7 +195,7 @@ preprocessInterfaceSource target packageRoot versions fileInfo source = do
     cppConfig =
       Cpp.defaultConfig
         { Cpp.configInputFile = path,
-          Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions target cppOptions))
+          Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions cppOptions))
         }
 
     drive includes step =
@@ -204,7 +203,7 @@ preprocessInterfaceSource target packageRoot versions fileInfo source = do
         Cpp.Done result ->
           pure (TE.decodeUtf8With lenientDecode (Cpp.resultOutput result), map cppDiagnosticValue (Cpp.resultDiagnostics result), includes)
         Cpp.NeedInclude req k -> do
-          resolved <- resolveInclude target packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
+          resolved <- resolveInclude headerDir packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
           case resolved of
             -- A header the package ships is an input of this module: record
             -- it so that editing the header rebuilds every module that reads
@@ -235,14 +234,18 @@ data ResolvedInclude
   | IncludeFromCompiler !BS.ByteString
   | IncludeMissing
 
-resolveInclude :: HeaderTarget -> FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO ResolvedInclude
-resolveInclude target packageRoot includeDirs currentFile req =
+resolveInclude :: FilePath -> FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO ResolvedInclude
+resolveInclude headerDir packageRoot includeDirs currentFile req =
   findFirst (includeCandidates packageRoot includeDirs currentFile req)
   where
-    -- A header of the package comes first.  The compiler answers the rest
-    -- from the headers of the target, which the C compiles read as files.
-    findFirst [] =
-      pure (maybe IncludeMissing (IncludeFromCompiler . TE.encodeUtf8) (compilerHeader target (normalise (Cpp.includePath req))))
+    -- A header of the package comes first.  The headers of the compiler
+    -- answer the rest, from the directory that the C compiles also read.
+    compilerHeader = headerDir </> normalise (Cpp.includePath req)
+    findFirst [] = do
+      exists <- doesFileExist compilerHeader
+      if exists
+        then IncludeFromCompiler <$> BS.readFile compilerHeader
+        else pure IncludeMissing
     findFirst (candidate : rest) = do
       exists <- doesFileExist candidate
       if exists

@@ -12,6 +12,7 @@
 -- Set @AIHC_HADDOCK_ACCEPT=1@ to rewrite the goldens.
 module Test.Haddock.Fixtures (tests) where
 
+import Aihc.Hackage.Headers (defaultHeaderTarget, writeCompilerHeaders)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model (decodePackageDoc, encodePackageDoc)
@@ -26,7 +27,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getTemporaryDirectory, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
@@ -40,31 +41,35 @@ tests = do
   entries <- sort <$> listDirectory fixtureRoot
   fixtures <- filterM (doesDirectoryExist . (fixtureRoot </>)) entries
   accept <- isJust <$> lookupEnv "AIHC_HADDOCK_ACCEPT"
-  pure (testGroup "fixtures" (map (fixtureTests accept) fixtures))
+  -- The fixtures share one copy of the compiler headers, which a module of a
+  -- fixture may include.
+  headerRoot <- getTemporaryDirectory
+  headerDir <- writeCompilerHeaders defaultHeaderTarget (headerRoot </> "aihc-haddock-fixtures")
+  pure (testGroup "fixtures" (map (fixtureTests accept headerDir) fixtures))
 
-fixtureTests :: Bool -> FilePath -> TestTree
-fixtureTests accept name =
+fixtureTests :: Bool -> FilePath -> FilePath -> TestTree
+fixtureTests accept headerDir name =
   testGroup
     name
     [ testCase "model" $ do
-        package <- loadPackageDoc dir []
+        package <- loadPackageDoc headerDir dir []
         checkGolden accept (expected "model.json") (TE.decodeUtf8 (BL.toStrict (encodePackageDoc package)))
         -- The model must survive a round trip through its own JSON.
         case decodePackageDoc (encodePackageDoc package) of
           Left err -> assertFailure ("model does not decode: " <> err)
           Right decoded -> unless (decoded == package) (assertFailure "model changes across a JSON round trip"),
       testCase "hoogle" $ do
-        package <- loadPackageDoc dir []
+        package <- loadPackageDoc headerDir dir []
         checkGolden accept (expected "hoogle.txt") (renderHoogle package),
       testCase "compare-json" $ do
-        package <- loadPackageDoc dir []
+        package <- loadPackageDoc headerDir dir []
         referenceBytes <- BL.readFile (dir </> "reference" </> "haddock.json")
         reference <- either (assertFailure . ("reference JSON: " <>)) pure (decodeReferenceInterface referenceBytes)
         let report = compareInterface defaultNormalization package reference
         checkGolden accept (expected "compare-json.txt") (renderReport report)
         checkStatus "json" (reportVerdict report),
       testCase "compare-hoogle" $ do
-        package <- loadPackageDoc dir []
+        package <- loadPackageDoc headerDir dir []
         reference <- parseHoogleFile <$> TIO.readFile (dir </> "reference" </> "hoogle.txt")
         let report = compareHoogle reference (parseHoogleFile (renderHoogle package))
         checkGolden accept (expected "compare-hoogle.txt") (renderReport report)

@@ -46,7 +46,7 @@ import Aihc.Cli.BuildStamp
     writeStamp,
   )
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
-import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, headerTargetFor, hostPlatformMacros)
+import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -67,7 +67,6 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
-import Aihc.Hackage.Headers (HeaderTarget)
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -840,7 +839,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   let versions =
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
-  (parsed, importTimings) <- loadSourceModules (headerTargetFor (compileTarget config)) (max 1 capabilities) packageRoot versions files
+  (parsed, importTimings) <- loadSourceModules (compileHeaderDirectory config) (max 1 capabilities) packageRoot versions files
   loadedDependencies <- loadRequiredDependencies parsed dependencies
   let units = sourceModuleUnits parsed
       dependencyExports = Map.unions (map installedExports loadedDependencies)
@@ -890,7 +889,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
           [ [(unitLabel (runtimeUnit runtime), diagnostic) | diagnostic <- typeUnitDiagnostics result, diagSeverity diagnostic == TcError]
           | (runtime, result) <- zip runtimes typeResults
           ]
-  frontendFailure <- renderFrontendFailure (excerptSourceLoader (headerTargetFor (compileTarget config)) packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
+  frontendFailure <- renderFrontendFailure (excerptSourceLoader (compileHeaderDirectory config) packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
   let localExports = Map.unions (map resolveUnitExports resolveResults)
       localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
@@ -1213,8 +1212,8 @@ loadInstalledPackage requirements immutable storePath = do
               visibleProviders = Set.unions (Map.elems providers)
           pure (selectInstanceProviders (typeArtifactInterface artifact) visibleProviders, providers)
 
-parseSource :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
-parseSource headerTarget root versions fileInfo = do
+parseSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
+parseSource headerDir root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
   ParsedInterfaceFile
     { parsedFilePath = path,
@@ -1224,7 +1223,7 @@ parseSource headerTarget root versions fileInfo = do
       parsedFileExtensions = extensions,
       parsedFileDeps = deps
     } <-
-    parseInterfaceBytes headerTarget root versions fileInfo bytes
+    parseInterfaceBytes headerDir root versions fileInfo bytes
   let (cppWarnings, cppErrors) = partition isCppWarning cppDiagnostics
   mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
   unless (null cppErrors) $
@@ -1253,8 +1252,8 @@ isCppWarning :: Value -> Bool
 isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
 isCppWarning _ = False
 
-loadSourceModules :: HeaderTarget -> Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
-loadSourceModules headerTarget workers root versions files = do
+loadSourceModules :: FilePath -> Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
+loadSourceModules headerDir workers root versions files = do
   results <- mapM (const newEmptyTMVarIO) files
   let tasks = zipWith3 loadTask [0 ..] files results
   timings <- runTaskGraph workers tasks
@@ -1269,7 +1268,7 @@ loadSourceModules headerTarget workers root versions files = do
           taskDependencies = Set.empty,
           -- The header fields of the module are strict, so the import
           -- list is known once the source exists.
-          taskAction = parseSource headerTarget root versions fileInfo >>= atomically . putTMVar result
+          taskAction = parseSource headerDir root versions fileInfo >>= atomically . putTMVar result
         }
 
 sourceModuleUnits :: [SourceModule] -> [SourceUnit]
@@ -1422,12 +1421,12 @@ loadExcerptSources loadSource spans =
 -- their own paths, exactly as the parse did. Any other file (a header a
 -- span points into) is read as it is. A file that cannot be read gets no
 -- excerpt.
-excerptSourceLoader :: HeaderTarget -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> FilePath -> IO DiagnosticSourceMap
-excerptSourceLoader headerTarget root versions files path =
+excerptSourceLoader :: FilePath -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> FilePath -> IO DiagnosticSourceMap
+excerptSourceLoader headerDir root versions files path =
   case Map.lookup path fileInfos of
     Just fileInfo -> do
       bytes <- BS.readFile path
-      parsedFileSourceLines <$> parseInterfaceBytes headerTarget root versions fileInfo bytes
+      parsedFileSourceLines <$> parseInterfaceBytes headerDir root versions fileInfo bytes
     Nothing -> do
       result <- try (BS.readFile path)
       pure $
