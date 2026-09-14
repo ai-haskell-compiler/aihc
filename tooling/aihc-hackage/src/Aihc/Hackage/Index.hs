@@ -77,8 +77,11 @@ parseHackageIndexWith keep bytes =
     newerVersion new old =
       if fst new > fst old then new else old
 
+    -- Force the accumulator at each step. A lazy chain of 'collectEntry'
+    -- thunks pins every entry, and with it the whole decompressed index.
     collectEntries packages (Tar.Next entry rest) =
-      collectEntries (collectEntry packages entry) rest
+      let next = collectEntry packages entry
+       in next `seq` collectEntries next rest
     collectEntries packages Tar.Done = Right packages
     collectEntries _ (Tar.Fail err) = Left (show err)
 
@@ -90,8 +93,11 @@ parsePreferredRanges :: LBSC.ByteString -> Either String PreferredRanges
 parsePreferredRanges bytes =
   collectEntries Map.empty (Tar.read (GZip.decompress bytes))
   where
+    -- Force the accumulator at each step. A lazy chain of 'collectEntry'
+    -- thunks pins every entry, and with it the whole decompressed index.
     collectEntries ranges (Tar.Next entry rest) =
-      collectEntries (collectEntry ranges entry) rest
+      let next = collectEntry ranges entry
+       in next `seq` collectEntries next rest
     collectEntries ranges Tar.Done = Right ranges
     collectEntries _ (Tar.Fail err) = Left (show err)
 
@@ -137,8 +143,11 @@ latestPreferredVersions ranges bytes =
       | Map.null packages -> Left "No package versions found in Hackage index"
       | otherwise -> Right packages
   where
+    -- Force the accumulator at each step. A lazy chain of 'collectEntry'
+    -- thunks pins every entry, and with it the whole decompressed index.
     collectEntries packages (Tar.Next entry rest) =
-      collectEntries (collectEntry packages entry) rest
+      let next = collectEntry packages entry
+       in next `seq` collectEntries next rest
     collectEntries packages Tar.Done = Right packages
     collectEntries _ (Tar.Fail err) = Left (show err)
 
