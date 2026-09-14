@@ -1,1 +1,22 @@
-module GHC.Num.BigNat () where
+{-# LANGUAGE MagicHash #-}
+
+module GHC.Num.BigNat
+  ( BigNat (..),
+    BigNat#,
+  )
+where
+
+import GHC.Prim (ByteArray#)
+
+-- | The magnitude of an arbitrary-precision number: a canonical,
+-- little-endian sequence of 64-bit limbs with no trailing zero limb.  This is
+-- the payload that 'GHC.Num.Integer.Integer' carries in @IP@ and @IN@ and
+-- that 'GHC.Num.Natural.Natural' carries in @NB@.
+type BigNat# = ByteArray#
+
+-- | Lifted wrapper for a 'BigNat#'.
+--
+-- The magnitude itself is unlifted, so it cannot be stored directly in
+-- ordinary lifted data structures or passed to a class method.  This wrapper
+-- is the representation packages such as @hashable@ match on.
+data BigNat = BN# {unBigNat :: BigNat#}

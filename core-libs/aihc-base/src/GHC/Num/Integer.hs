@@ -1,6 +1,6 @@
 module GHC.Num.Integer
-  ( Integer,
+  ( Integer (..),
   )
 where
 
-import GHC.Internal.Integer (Integer)
+import GHC.Internal.Integer (Integer (..))
