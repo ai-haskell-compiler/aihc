@@ -181,14 +181,17 @@ completeTask taskMap stateVar (ReadyTask _ _ identifier) =
               Nothing -> error "missing dependent task"
             else (nextWaitCounts, ready)
 
-renderTaskTimeline :: Bool -> [TaskTiming] -> String
-renderTaskTimeline _ [] = unlines ["Frontend time: 0.000 ns", "Compile time: 0.000 ns"]
-renderTaskTimeline useColor timings =
+-- | The timeline of a compile. The phases are the serial stretches that
+-- run between the task graphs, as label and duration; they report no task,
+-- so they are the idle stretches of the timeline.
+renderTaskTimeline :: Bool -> [(String, Word64)] -> [TaskTiming] -> String
+renderTaskTimeline _ phases [] = unlines (renderPhases phases <> ["Frontend time: 0.000 ns", "Compile time: 0.000 ns"])
+renderTaskTimeline useColor phases timings =
   unlines
     ( map renderWorker workers
-        <> [ axis,
-             renderLegend,
-             "Frontend time: " <> renderDuration frontend,
+        <> [axis, renderLegend]
+        <> renderPhases phases
+        <> [ "Frontend time: " <> renderDuration frontend,
              "Compile time: " <> renderDuration total
            ]
         <> map renderKindTotal [TaskParse, TaskResolve, TaskTypeCheck, TaskBackend]
@@ -243,6 +246,9 @@ renderTaskTimeline useColor timings =
             <> renderDuration totalNs
             <> ", spanning "
             <> renderSpanDuration spanNs
+
+renderPhases :: [(String, Word64)] -> [String]
+renderPhases phases = [name <> " time: " <> renderDuration duration | (name, duration) <- phases]
 
 kindSymbol :: Bool -> TaskKind -> String
 kindSymbol useColor kind = colorize useColor (kindColor kind) [kindGlyph kind]

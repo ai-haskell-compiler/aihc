@@ -175,6 +175,7 @@ import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
+import GHC.Generics (Generic)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
@@ -191,7 +192,9 @@ data InstallResult = InstallResult
     installWrittenModules :: ![Text],
     installReusedModules :: ![Text]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData InstallResult
 
 data SourceModule = SourceModule
   { sourceModulePath :: !FilePath,
@@ -234,6 +237,9 @@ data InstalledPackage = InstalledPackage
     installedInstanceFacts :: !TcInterface,
     installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
   }
+  deriving (Generic)
+
+instance NFData InstalledPackage
 
 type InstanceProvider = (PackageId, Text)
 
@@ -276,7 +282,9 @@ data PendingBackend = PendingBackend
   }
 
 newtype UnitId = UnitId Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance NFData UnitId
 
 data SourceUnit = SourceUnit
   { sourceUnitId :: !UnitId,
@@ -842,9 +850,13 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
   (parsed, importTimings) <- loadSourceModules (compileHeaderDirectory config) (max 1 capabilities) packageRoot versions files
-  loadedDependencies <- loadRequiredDependencies parsed dependencies
-  let units = sourceModuleUnits parsed
-      dependencyExports = Map.unions (map installedExports loadedDependencies)
+  -- The two serial stretches between the task graphs. Neither runs a task,
+  -- so both show as idle workers on the timeline, and both build their
+  -- result lazily: forcing them here is what puts the time on the line
+  -- that names the work rather than on whichever task first asks for it.
+  setupStart <- getMonotonicTimeNSec
+  loadedDependencies <- evaluate . force =<< loadRequiredDependencies parsed dependencies
+  let dependencyExports = Map.unions (map installedExports loadedDependencies)
       dependencyTypes = LazyMap.unions (map installedTypes loadedDependencies)
       dependencyScopeHashes = Map.unions (map installedScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedTypeHashes loadedDependencies)
@@ -855,6 +867,27 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
       dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+  _ <-
+    evaluate
+      ( force
+          ( dependencyExports,
+            dependencyTypes,
+            dependencyScopeHashes,
+            dependencyTypeHashes,
+            dependencyPackages,
+            dependencyInstanceFacts,
+            dependencyInstanceProviders
+          )
+      )
+  setupEnd <- getMonotonicTimeNSec
+  depgraphStart <- getMonotonicTimeNSec
+  units <- evaluate (sourceModuleUnits parsed)
+  -- The graph this phase builds is which units there are and which units
+  -- each waits on. The modules in them are its input, forced when they
+  -- were parsed; forcing them here would only move that work out of the
+  -- parse tasks that run in parallel.
+  _ <- evaluate (force [(sourceUnitId unit, sourceUnitDependencies unit) | unit <- units])
+  depgraphEnd <- getMonotonicTimeNSec
   backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
@@ -879,7 +912,12 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   phaseTimings <- readIORef backendPhaseTimings
   compilePrintTimings
     config
-    ( renderTaskTimeline (compileUseColor config) (importTimings <> taskTimings)
+    ( renderTaskTimeline
+        (compileUseColor config)
+        [ ("Setup", setupEnd - setupStart),
+          ("Depgraph", depgraphEnd - depgraphStart)
+        ]
+        (importTimings <> taskTimings)
         <> renderBackendPhaseTotals phaseTimings
     )
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
