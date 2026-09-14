@@ -184,6 +184,13 @@ lintType env ty =
       _ <- lintType env left
       _ <- lintType env right
       Right (typeAppRep env (equalityRep (tePrimPackage env)))
+    -- A cast is checked against the evidence that casts it: the coercion
+    -- must prove that the kind of the type is the one the cast gives it.
+    TyCast inner coercion -> do
+      kind <- lintType env inner
+      (left, right) <- coercionEndpoints env coercion
+      unless (typesEqual env kind left) (Left (KindMismatch "type cast" left kind))
+      Right right
 
 lintFun :: TypeEnv -> Type -> Type -> Type -> Type -> Either LintError Type
 lintFun env r1 r2 argument result = do
@@ -210,11 +217,7 @@ applyKind env function functionKind argument argumentKind =
         Just (_, _, expected, result) -> do
           unless (kindsCompatible env function expected argumentKind) (Left (KindMismatch "type application argument" expected argumentKind))
           Right result
-        Nothing
-          | refined /= functionKind -> applyKind env function refined argument argumentKind
-          | otherwise -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
-  where
-    refined = refineKind env functionKind
+        Nothing -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
 
 kindsCompatible :: TypeEnv -> Type -> Type -> Type -> Bool
 kindsCompatible env function expected actual =

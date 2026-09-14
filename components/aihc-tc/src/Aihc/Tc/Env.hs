@@ -87,7 +87,7 @@ data TyConInfo = TyConInfo
 instance NFData TyConInfo
 
 data TypeSynonymInfo = TypeSynonymInfo
-  { tsiParams :: ![TyVarId],
+  { tsiParams :: ![TcTyVarBinder],
     tsiBody :: !(Maybe TcType)
   }
   deriving (Eq, Show, Read, Generic)
@@ -100,7 +100,7 @@ instance NFData TypeSynonymInfo
 data DataTypeInfo = DataTypeInfo
   { dtiName :: !Text,
     dtiTyCon :: !TyCon,
-    dtiTyVars :: ![TyVarId],
+    dtiTyVars :: ![TcTyVarBinder],
     dtiResultKind :: !TcType,
     dtiFlavor :: !TyConFlavor,
     dtiConstructors :: ![DataConInfo],
@@ -160,9 +160,9 @@ data DataConInfo = DataConInfo
     -- | Package and module that define the constructor.
     dciOrigin :: !(PackageId, Text),
     -- | Universally quantified type variables.
-    dciUnivTyVars :: ![TyVarId],
+    dciUnivTyVars :: ![TcTyVarBinder],
     -- | Existentially quantified type variables (GADTs).
-    dciExTyVars :: ![TyVarId],
+    dciExTyVars :: ![TcTyVarBinder],
     -- | Constructor constraints (given on match).
     dciTheta :: ![Pred],
     -- | Checked fields in runtime argument order.
@@ -220,9 +220,9 @@ data ClassInfo = ClassInfo
     -- | Package and module that define the class.
     ciOrigin :: !(Maybe (Text, Text)),
     -- | Invisible kind parameters of the class.
-    ciKindTyVars :: ![TyVarId],
+    ciKindTyVars :: ![TcTyVarBinder],
     -- | Type parameters of the class.
-    ciTyVars :: ![TyVarId],
+    ciTyVars :: ![TcTyVarBinder],
     -- | Superclass constraint types. Keeping the full type permits a class
     -- parameter to appear in predicate position, as in @class c a => D c a@.
     ciSuperClassTypes :: ![TcType],
@@ -283,7 +283,7 @@ data InstanceInfo = InstanceInfo
     iiDictOrigin :: !(Text, Text),
     iiDictType :: !TcType,
     -- | Type variables quantified over.
-    iiTyVars :: ![TyVarId],
+    iiTyVars :: ![TcTyVarBinder],
     -- | Instance context (prerequisites).
     iiContext :: ![Pred],
     -- | Instance head types.
@@ -359,7 +359,7 @@ instanceEnvForClass classTyCon = Map.findWithDefault [] (tyConKey classTyCon) . 
 data DataFamilyInstanceInfo = DataFamilyInstanceInfo
   { dfiiFamilyName :: !Text,
     dfiiFamilyType :: !TcType,
-    dfiiTyVars :: ![TyVarId],
+    dfiiTyVars :: ![TcTyVarBinder],
     dfiiRepresentationTyCon :: !TyCon,
     dfiiAxiomName :: !Text,
     dfiiConstructorNames :: ![Text],
@@ -390,7 +390,7 @@ data TypeFamilyInstanceInfo = TypeFamilyInstanceInfo
   { tfiiFamilyName :: !Text,
     tfiiAxiomName :: !Text,
     tfiiOrigin :: !(PackageId, Text),
-    tfiiTyVars :: ![TyVarId],
+    tfiiTyVars :: ![TcTyVarBinder],
     tfiiLeft :: !TcType,
     tfiiRight :: !TcType,
     tfiiClosed :: !Bool

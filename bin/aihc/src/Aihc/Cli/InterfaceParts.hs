@@ -36,10 +36,10 @@ import Aihc.Tc
     PatSynInfo (..),
     Pred (..),
     TcInterface,
+    TcTyVarBinder,
     TcType (..),
     TyCon,
     TyConInfo (..),
-    TyVarId,
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     tcInterfaceClasses,
@@ -51,7 +51,7 @@ import Aihc.Tc
     tcInterfaceTerms,
     tcInterfaceTyCons,
     tcInterfaceTypeFamilyInstances,
-    tvKind,
+    tvbKind,
   )
 import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
@@ -66,7 +66,7 @@ import Data.Word (Word64)
 -- | One entry of the table: the part itself, built from parts that come
 -- before it.
 data InterfacePart
-  = PartTyVar !TyVarId
+  = PartTyVar !TcTyVarBinder
   | PartType !TcType
   | PartPred !Pred
   | PartScheme !TypeScheme
@@ -75,7 +75,7 @@ data InterfacePart
 -- type constructors keep their own table and are passed through.
 data PartIndex = PartIndex
   { partIndexTyCons :: !(Map TyCon Word64),
-    partIndexTyVars :: !(Map TyVarId Word64),
+    partIndexTyVars :: !(Map TcTyVarBinder Word64),
     partIndexTypes :: !(Map TcType Word64),
     partIndexPreds :: !(Map Pred Word64),
     partIndexSchemes :: !(Map TypeScheme Word64)
@@ -98,7 +98,7 @@ interfaceParts tyCons interface =
     final = execState (walkInterface interface) emptyState
 
 data PartsState = PartsState
-  { stateTyVars :: !(Map TyVarId Word64),
+  { stateTyVars :: !(Map TcTyVarBinder Word64),
     stateTypes :: !(Map TcType Word64),
     statePreds :: !(Map Pred Word64),
     stateSchemes :: !(Map TypeScheme Word64),
@@ -122,14 +122,14 @@ record part remember =
          in (number, remember number numbered)
     )
 
-internTyVar :: TyVarId -> Parts Word64
-internTyVar variable = do
-  known <- gets (Map.lookup variable . stateTyVars)
+internTyVar :: TcTyVarBinder -> Parts Word64
+internTyVar binder = do
+  known <- gets (Map.lookup binder . stateTyVars)
   case known of
     Just number -> pure number
     Nothing -> do
-      void (internType (tvKind variable))
-      record (PartTyVar variable) (\number current -> current {stateTyVars = Map.insert variable number (stateTyVars current)})
+      void (internType (tvbKind binder))
+      record (PartTyVar binder) (\number current -> current {stateTyVars = Map.insert binder number (stateTyVars current)})
 
 internType :: TcType -> Parts Word64
 internType ty = do
@@ -138,7 +138,7 @@ internType ty = do
     Just number -> pure number
     Nothing -> do
       case ty of
-        TcTyVar variable -> void (internTyVar variable)
+        TcTyVar {} -> pure ()
         TcMetaTv {} -> pure ()
         TcArrowTy -> pure ()
         TcTyCon _ arguments -> traverse_ internType arguments

@@ -30,7 +30,7 @@ import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
-import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, mkAppTy)
+import Aihc.Tc.Types (Pred (..), TcKinds, TcTyVarBinder (..), TcType (..), TyVarId, Unique, mkAppTy, tvbKind, tvbTyVar)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (when)
 
@@ -188,7 +188,7 @@ improveImplicationWanteds givenPredicates constraints = do
 
 -- | Retry equalities after argument constraints solve meta variables.
 -- The result holds the equality wanteds that the enclosing scope must solve.
-solveImplicationEqualities :: [TyVarId] -> [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM [Ct]
+solveImplicationEqualities :: [TcTyVarBinder] -> [Pred] -> [(TcType, TcType)] -> [Ct] -> TcM [Ct]
 solveImplicationEqualities skolems predicates equalities constraints = do
   results <- withGivenPredicates predicates (mapM solveEquality constraints)
   let remaining = [constraint | (constraint, result) <- zip constraints results, case result of EqSolved -> False; _ -> True]
@@ -250,7 +250,7 @@ applyGivenSubst givens ty = foldr applyOne ty givens
 
 -- | Attempt to solve a wanted constraint using given equalities.
 -- Equality evidence must prove the original endpoints.
-solveWantedWithGivens :: [TyVarId] -> [Pred] -> [(TcType, TcType)] -> Ct -> TcM [Ct]
+solveWantedWithGivens :: [TcTyVarBinder] -> [Pred] -> [(TcType, TcType)] -> Ct -> TcM [Ct]
 solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred ct of
   EqPred {} -> do
     result <- withGivenPredicates givenPredicates (solveEquality ct)
@@ -293,10 +293,10 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
 -- | A stuck dictionary wanted that mentions a meta variable and no skolem
 -- of the implication can still be solved by the enclosing scope, so it is
 -- deferred. Every other stuck wanted is an error.
-deferOrReport :: [TyVarId] -> Ct -> TcM [Ct]
+deferOrReport :: [TcTyVarBinder] -> Ct -> TcM [Ct]
 deferOrReport skolems stuck = do
   predicate <- zonkPred (ctPred stuck)
-  let deferrable = not (null (predMetaVars predicate)) && not (any (`elem` skolems) (predTyVars predicate))
+  let deferrable = not (null (predMetaVars predicate)) && not (any (`elem` map tvbTyVar skolems) (predTyVars predicate))
   if deferrable
     then pure [stuck {ctPred = predicate}]
     else do
@@ -330,7 +330,7 @@ predTyVars predicate =
     EqPred left right -> typeTyVars left <> typeTyVars right
     IParamPred _ payload -> typeTyVars payload
     QuantifiedPred variables antecedents consequent ->
-      filter (`notElem` variables) (concatMap predTyVars antecedents <> predTyVars consequent)
+      filter (`notElem` map tvbTyVar variables) (concatMap predTyVars antecedents <> predTyVars consequent)
 
 typeTyVars :: TcType -> [TyVarId]
 typeTyVars ty =
@@ -340,7 +340,7 @@ typeTyVars ty =
     TcArrowTy -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
-    TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
+    TcForAllTy binder body -> typeTyVars (tvbKind binder) <> filter (/= tvbTyVar binder) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
 

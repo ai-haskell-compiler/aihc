@@ -35,15 +35,15 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
       -- The wanteds that wait on the enclosing scope continue outward.
       pure (inertDicts (srInerts result))
 
-rejectEscapingPatternType :: SourceSpan -> [TyVarId] -> TcType -> TcM ()
+rejectEscapingPatternType :: SourceSpan -> [TcTyVarBinder] -> TcType -> TcM ()
 rejectEscapingPatternType sourceSpan skolems outerType = do
   zonkedOuterType <- zonkType outerType
-  let escaping = filter (`typeMentionsTyVar` zonkedOuterType) skolems
+  let escaping = filter ((\tyVar -> typeMentionsTyVar (tyVarBinderKinds skolems) tyVar zonkedOuterType) . tvbTyVar) skolems
   unless (null escaping) $
     emitError
       sourceSpan
       ( OtherError
           ( "existential type variable escapes its pattern-match branch: "
-              <> T.unpack (T.intercalate ", " (map tvName escaping))
+              <> T.unpack (T.intercalate ", " (map tvbName escaping))
           )
       )

@@ -47,6 +47,15 @@ data Type
     TyFun Type Type Type Type
   | TyForAll Binder Type
   | TyEq Type Type
+  | -- | @ty |> co@: a type whose kind a coercion changes.
+    --
+    -- A GADT match can give an equality between kinds, as the @Fun@
+    -- pattern of @Type.Reflection@ gives @k ~ (arg -> res)@. Inside the
+    -- branch a variable @f :: k@ is applied like a function, and the cast
+    -- is the evidence that makes the application well kinded. Casts are
+    -- irrelevant to type equality, as they are in GHC: two types that
+    -- differ only in their casts are one type.
+    TyCast Type Coercion
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

@@ -51,6 +51,7 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     defaultMethodName,
+    interfaceTyVarKinds,
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
     tcInterfaceDataTypes,
@@ -68,12 +69,13 @@ import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
     TcKinds,
+    TcTyVarBinder (..),
     TcType (..),
     TcTypeKey,
-    TyVarId,
     TypeScheme (..),
     Unique (..),
     isEqualityTyCon,
+    tvbType,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -170,15 +172,12 @@ withConversionContext context =
 
 interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
 interfaceConvertEnv config interface =
-  withKindEnv
-    (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
-    ( withClassTyCons
-        (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
-        ( withSynonymTyCons
-            [tyConKey (tciTyCon info) | info <- tcInterfaceTyCons interface, tciFlavor info == SynonymTyCon]
-            (withExportedNames (exportedNames config) (emptyConvertEnv (desugarKinds config) (primPackageId config)))
-        )
-    )
+  withTyVarKinds (interfaceTyVarKinds interface)
+    . withKindEnv (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
+    . withClassTyCons (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
+    . withSynonymTyCons [tyConKey (tciTyCon info) | info <- tcInterfaceTyCons interface, tciFlavor info == SynonymTyCon]
+    . withExportedNames (exportedNames config)
+    $ emptyConvertEnv (desugarKinds config) (primPackageId config)
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
 convertTyConHeader env info = do
@@ -640,12 +639,12 @@ convertClass env info = do
           }
     )
 
-convertMethodField :: ConvertEnv -> Text -> [TyVarId] -> (Text, TypeScheme) -> Either String Type
+convertMethodField :: ConvertEnv -> Text -> [TcTyVarBinder] -> (Text, TypeScheme) -> Either String Type
 convertMethodField env className classTyVars (_methodName, scheme) = do
   fieldType <- classMethodFieldType className classTyVars scheme
   convertType env fieldType
 
-classMethodFieldType :: Text -> [TyVarId] -> TypeScheme -> Either String TcType
+classMethodFieldType :: Text -> [TcTyVarBinder] -> TypeScheme -> Either String TcType
 classMethodFieldType className classTyVars (ForAll methodTyVars predicates body) = do
   remaining <- removeClassPredicate className predicates
   let extraTyVars = filter (`notElem` classTyVars) methodTyVars
@@ -748,7 +747,7 @@ convertDataFamilyInst env package moduleName' bindings info = do
       representationTyCon = dfiiRepresentationTyCon info
       representationName = tyConNameFc env representationTyCon
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map TcTyVar tyVars))
+  representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map tvbType tyVars))
   result <- convertKind bindersEnv representationKind
   familyType <- convertType bindersEnv (dfiiFamilyType info)
   let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
@@ -975,7 +974,7 @@ convertSynonym env info =
 -- @type RDoc = Doc@ keeps arrows after its parameters. They become the
 -- binders that a type constructor kind has, so the kind of the body
 -- matches the declared result.
-synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
+synonymResult :: ConvertEnv -> TypeScheme -> [TcTyVarBinder] -> Either String Type
 synonymResult env scheme params =
   residualKind (0 :: Int) (synonymResultKind scheme params)
   where
@@ -987,7 +986,7 @@ synonymResult env scheme params =
           pure (TyForAll binder converted)
         _ -> convertKind env kind
 
-synonymResultKind :: TypeScheme -> [TyVarId] -> TcType
+synonymResultKind :: TypeScheme -> [TcTyVarBinder] -> TcType
 synonymResultKind scheme params =
   dropParams (length params) (typeSchemeBody scheme)
   where
@@ -1133,6 +1132,7 @@ typeOrigins ty =
       typeOrigins r1 <> typeOrigins r2 <> typeOrigins argument <> typeOrigins result
     TyForAll binder body -> binderOrigins binder <> typeOrigins body
     TyEq left right -> typeOrigins left <> typeOrigins right
+    TyCast inner coercion -> typeOrigins inner <> coercionOrigins coercion
 
 nameOriginPair :: Name -> [(PackageId, Text)]
 nameOriginPair name =

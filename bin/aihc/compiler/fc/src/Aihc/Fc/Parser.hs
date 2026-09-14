@@ -337,10 +337,17 @@ explicitFun =
 typeAtom :: Parser Type
 typeAtom =
   MP.choice
-    [ parens fcType,
+    [ parens castType,
       TyVar <$> MP.try typeLocalName,
       TyCon <$> topNameWithSort
     ]
+
+-- | A type, optionally cast by a coercion. A cast is always parenthesised,
+-- so the cast form belongs to the parenthesised atom.
+castType :: Parser Type
+castType = do
+  inner <- fcType
+  MP.option inner (TyCast inner <$> (symbol "▷" *> coercion))
 
 openPiBinder :: Parser Binder
 openPiBinder = parens (Binder <$> localBinderName SortTypeVariable <*> (symbol ":" *> fcType))

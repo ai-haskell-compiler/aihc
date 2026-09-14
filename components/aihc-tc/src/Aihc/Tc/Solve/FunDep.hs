@@ -112,9 +112,10 @@ improveFromInstances className dependency constraint = do
               (determiners dependency arguments) -> do
             let instanceDetermined =
                   map (applySubst substitution) (determined dependency (iiHead instanceInfo))
+                instanceKinds = tyVarBinderKinds (iiTyVars instanceInfo)
                 undetermined =
                   any
-                    (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined)
+                    (\binder -> any (typeMentionsTyVar instanceKinds (tvbTyVar binder)) instanceDetermined)
                     (iiTyVars instanceInfo)
             unless undetermined $
               improveEqualities instanceDetermined (determined dependency arguments)

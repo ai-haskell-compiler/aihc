@@ -72,7 +72,7 @@ solveEq ct rawLeft rawRight = do
   rightIsFamily <- isTypeFamilyApplication t2
   if (leftIsFamily || rightIsFamily) && not (isMetaTv t1) && not (isMetaTv t2)
     then
-      if sameType t1 t2
+      if t1 == t2
         then do
           bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
           pure EqSolved
@@ -98,18 +98,17 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   (TcMetaTv u, _) -> solveMetaEq ct u t2
   -- Meta on right: solve by binding.
   (_, TcMetaTv u) -> solveMetaEq ct u t1
-  -- Same rigid variable, whatever kinds its two occurrences carry.
-  (TcTyVar v1, TcTyVar v2) | sameTyVar v1 v2 -> do
+  -- Same rigid variable.
+  (TcTyVar v1, TcTyVar v2) | v1 == v2 -> do
     bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
     pure EqSolved
   -- Two polymorphic types are equal up to the names of their bound
   -- variables.
   (TcForAllTy v1 b1, TcForAllTy v2 b2) ->
     do
-      solveDecomposed ct t1 [(b1, applySubst (Map.singleton (tvUnique v2) (TcTyVar v1)) b2)]
+      solveDecomposed ct t1 [(b1, applySubst (Map.singleton (tvbUnique v2) (tvbType v1)) b2)]
   (TcQualTy p1 b1, TcQualTy p2 b2)
-    | length p1 == length p2,
-      and (zipWith samePred p1 p2) ->
+    | p1 == p2 ->
         solveDecomposed ct t1 [(b1, b2)]
   _ -> do
     children <- decomposeNominalEquality t1 t2
@@ -170,4 +169,4 @@ occursIn u = go
     goPred (EqPred a b) = go a || go b
     goPred (IParamPred _ payload) = go payload
     goPred (QuantifiedPred variables antecedents consequent) =
-      any (go . tvKind) variables || any goPred antecedents || goPred consequent
+      any (go . tvbKind) variables || any goPred antecedents || goPred consequent

@@ -25,19 +25,17 @@ import Aihc.Tc
     PatSynInfo (..),
     Pred (..),
     TcInterface (..),
+    TcTyVarBinder (..),
     TcType (..),
     TyCon,
     TyConInfo (..),
     TyVarId,
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
-    tvKind,
-    tvName,
-    tvUnique,
+    mkTyVarBinder,
   )
 import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyVarId)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
@@ -63,13 +61,14 @@ shareTcInterfaces interfaces =
 data ShareState = ShareState
   { stateTyCons :: !(Map TyCon TyCon),
     stateTyVars :: !(Map TyVarId TyVarId),
+    stateTyVarBinders :: !(Map TcTyVarBinder TcTyVarBinder),
     stateTypes :: !(Map TcType TcType),
     statePreds :: !(Map Pred Pred),
     stateSchemes :: !(Map TypeScheme TypeScheme)
   }
 
 emptyState :: ShareState
-emptyState = ShareState Map.empty Map.empty Map.empty Map.empty Map.empty
+emptyState = ShareState Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | A strict state monad: every result is evaluated as it is produced, so
 -- the rebuilt interface holds no thunk that could keep a table alive.
@@ -120,9 +119,13 @@ shareTyCon :: TyCon -> Share TyCon
 shareTyCon = intern stateTyCons (\table state -> state {stateTyCons = table})
 
 shareTyVar :: TyVarId -> Share TyVarId
-shareTyVar variable = do
-  kind <- shareType (tvKind variable)
-  intern stateTyVars (\table state -> state {stateTyVars = table}) (mkTyVarId (tvName variable) (tvUnique variable) kind)
+shareTyVar = intern stateTyVars (\table state -> state {stateTyVars = table})
+
+shareTyVarBinder :: TcTyVarBinder -> Share TcTyVarBinder
+shareTyVarBinder binder = do
+  variable <- shareTyVar (tvbTyVar binder)
+  kind <- shareType (tvbKind binder)
+  intern stateTyVarBinders (\table state -> state {stateTyVarBinders = table}) (mkTyVarBinder variable kind)
 
 shareType :: TcType -> Share TcType
 shareType ty = do
@@ -133,7 +136,7 @@ shareType ty = do
       TcTyCon tyCon arguments -> TcTyCon <$> shareTyCon tyCon <*> mapM shareType arguments
       TcArrowTy -> pure TcArrowTy
       TcFunTy argument result -> TcFunTy <$> shareType argument <*> shareType result
-      TcForAllTy variable body -> TcForAllTy <$> shareTyVar variable <*> shareType body
+      TcForAllTy variable body -> TcForAllTy <$> shareTyVarBinder variable <*> shareType body
       TcQualTy predicates body -> TcQualTy <$> mapM sharePred predicates <*> shareType body
       TcAppTy function argument -> TcAppTy <$> shareType function <*> shareType argument
   intern stateTypes (\table state -> state {stateTypes = table}) rebuilt
@@ -145,13 +148,13 @@ sharePred predicate = do
       ClassPred tyCon arguments -> ClassPred <$> shareTyCon tyCon <*> mapM shareType arguments
       EqPred left right -> EqPred <$> shareType left <*> shareType right
       QuantifiedPred variables antecedents consequent ->
-        QuantifiedPred <$> mapM shareTyVar variables <*> mapM sharePred antecedents <*> sharePred consequent
+        QuantifiedPred <$> mapM shareTyVarBinder variables <*> mapM sharePred antecedents <*> sharePred consequent
       IParamPred name payload -> IParamPred name <$> shareType payload
   intern statePreds (\table state -> state {statePreds = table}) rebuilt
 
 shareScheme :: TypeScheme -> Share TypeScheme
 shareScheme (ForAll variables predicates body) = do
-  rebuilt <- ForAll <$> mapM shareTyVar variables <*> mapM sharePred predicates <*> shareType body
+  rebuilt <- ForAll <$> mapM shareTyVarBinder variables <*> mapM sharePred predicates <*> shareType body
   intern stateSchemes (\table state -> state {stateSchemes = table}) rebuilt
 
 -- The interface and its facts.
@@ -178,20 +181,20 @@ shareTyConInfo info = do
 
 shareTypeSynonymInfo :: TypeSynonymInfo -> Share TypeSynonymInfo
 shareTypeSynonymInfo info =
-  TypeSynonymInfo <$> mapM shareTyVar (tsiParams info) <*> traverse shareType (tsiBody info)
+  TypeSynonymInfo <$> mapM shareTyVarBinder (tsiParams info) <*> traverse shareType (tsiBody info)
 
 shareDataTypeInfo :: DataTypeInfo -> Share DataTypeInfo
 shareDataTypeInfo info = do
   tyCon <- shareTyCon (dtiTyCon info)
-  tyVars <- mapM shareTyVar (dtiTyVars info)
+  tyVars <- mapM shareTyVarBinder (dtiTyVars info)
   resultKind <- shareType (dtiResultKind info)
   constructors <- mapM shareDataConInfo (dtiConstructors info)
   pure info {dtiTyCon = tyCon, dtiTyVars = tyVars, dtiResultKind = resultKind, dtiConstructors = constructors}
 
 shareDataConInfo :: DataConInfo -> Share DataConInfo
 shareDataConInfo info = do
-  univTyVars <- mapM shareTyVar (dciUnivTyVars info)
-  exTyVars <- mapM shareTyVar (dciExTyVars info)
+  univTyVars <- mapM shareTyVarBinder (dciUnivTyVars info)
+  exTyVars <- mapM shareTyVarBinder (dciExTyVars info)
   theta <- mapM sharePred (dciTheta info)
   fields <- mapM shareField (dciFields info)
   resTy <- shareType (dciResTy info)
@@ -204,8 +207,8 @@ shareDataConInfo info = do
 shareClassInfo :: ClassInfo -> Share ClassInfo
 shareClassInfo info = do
   tyCon <- shareTyCon (ciTyCon info)
-  kindTyVars <- mapM shareTyVar (ciKindTyVars info)
-  tyVars <- mapM shareTyVar (ciTyVars info)
+  kindTyVars <- mapM shareTyVarBinder (ciKindTyVars info)
+  tyVars <- mapM shareTyVarBinder (ciTyVars info)
   superClassTypes <- mapM shareType (ciSuperClassTypes info)
   methods <- mapM shareNamedScheme (ciMethods info)
   defaultSignatures <- mapM shareNamedScheme (ciDefaultSignatures info)
@@ -232,7 +235,7 @@ shareAssociatedTypeInfo info = do
 shareInstanceInfo :: InstanceInfo -> Share InstanceInfo
 shareInstanceInfo info = do
   dictType <- shareType (iiDictType info)
-  tyVars <- mapM shareTyVar (iiTyVars info)
+  tyVars <- mapM shareTyVarBinder (iiTyVars info)
   context <- mapM sharePred (iiContext info)
   headTypes <- mapM shareType (iiHead info)
   pure info {iiDictType = dictType, iiTyVars = tyVars, iiContext = context, iiHead = headTypes}
@@ -240,13 +243,13 @@ shareInstanceInfo info = do
 shareDataFamilyInstanceInfo :: DataFamilyInstanceInfo -> Share DataFamilyInstanceInfo
 shareDataFamilyInstanceInfo info = do
   familyType <- shareType (dfiiFamilyType info)
-  tyVars <- mapM shareTyVar (dfiiTyVars info)
+  tyVars <- mapM shareTyVarBinder (dfiiTyVars info)
   representation <- shareTyCon (dfiiRepresentationTyCon info)
   pure info {dfiiFamilyType = familyType, dfiiTyVars = tyVars, dfiiRepresentationTyCon = representation}
 
 shareTypeFamilyInstanceInfo :: TypeFamilyInstanceInfo -> Share TypeFamilyInstanceInfo
 shareTypeFamilyInstanceInfo info = do
-  tyVars <- mapM shareTyVar (tfiiTyVars info)
+  tyVars <- mapM shareTyVarBinder (tfiiTyVars info)
   left <- shareType (tfiiLeft info)
   right <- shareType (tfiiRight info)
   pure info {tfiiTyVars = tyVars, tfiiLeft = left, tfiiRight = right}

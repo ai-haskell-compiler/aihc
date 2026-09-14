@@ -44,6 +44,7 @@ library
     Aihc.Tc.Kind
     Aihc.Tc.Monad
     Aihc.Tc.QuickLook
+    Aihc.Tc.Rename
     Aihc.Tc.Share
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize

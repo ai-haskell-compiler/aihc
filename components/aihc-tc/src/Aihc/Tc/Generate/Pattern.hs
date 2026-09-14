@@ -92,7 +92,7 @@ data PatternCheck = PatternCheck
   { pcBindings :: ![(UnqualifiedName, TcType)],
     pcWantedCts :: ![Ct],
     pcGivenCts :: ![Ct],
-    pcSkolems :: ![TyVarId],
+    pcSkolems :: ![TcTyVarBinder],
     pcPatterns :: ![Pattern]
   }
   deriving (Show)
@@ -849,14 +849,16 @@ constructorGiven sp constructorName predicate = do
         ctLoc = sp
       }
 
-instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
+instantiateConstructorPattern :: TcType -> TypeScheme -> TcM (TcType, [TcType], [Pred], [TcTyVarBinder])
 instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
-  matched <- matchConstructorResult (Set.fromList (map tvUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
-  let resultTyVars = constructorResultTyVars body
-      isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
+  recordTyVarBinders tyVars
+  let binderKinds = tyVarBinderKinds tyVars
+  matched <- matchConstructorResult binderKinds (Set.fromList (map tvbUnique tyVars)) (constructorResultType body) =<< zonkType scrutTy
+  let resultTyVars = constructorResultTyVars binderKinds body
+      isUniversal binder = tvbUnique binder `Set.member` resultTyVars
   (substitution, skolems) <- foldM (instantiateTyVar matched isUniversal) (Map.empty, []) tyVars
   let instantiateType = applySubst substitution
-      typeArgs = map (instantiateType . TcTyVar) tyVars
+      typeArgs = map (instantiateType . tvbType) tyVars
   pure
     ( instantiateType body,
       typeArgs,
@@ -865,20 +867,20 @@ instantiateConstructorPattern scrutTy (ForAll tyVars predicates body) = do
     )
   where
     instantiateTyVar matched isUniversal (substitution, skolems) tyVar = do
-      let kind = applySubst substitution (tvKind tyVar)
-          extend ty extra = (Map.insert (tvUnique tyVar) ty substitution, skolems <> extra)
-      case Map.lookup (tvUnique tyVar) matched of
+      let kind = applySubst substitution (tvbKind tyVar)
+          extend ty extra = (Map.insert (tvbUnique tyVar) ty substitution, skolems <> extra)
+      case Map.lookup (tvbUnique tyVar) matched of
         Just ty -> pure (extend ty [])
         Nothing
           | isUniversal tyVar -> do
               meta <- freshMetaTvOfKind kind
               pure (extend meta [])
           | otherwise -> do
-              skolem <- setTyVarKind kind <$> freshSkolemTv (tvName tyVar)
-              pure (extend (TcTyVar skolem) [skolem])
+              skolem <- freshSkolemTvOfKind (tvbName tyVar) kind
+              pure (extend (TcTyVar skolem) [mkTyVarBinder skolem kind])
 
-constructorResultTyVars :: TcType -> Set.Set Unique
-constructorResultTyVars = typeTyVars . constructorResultType
+constructorResultTyVars :: TcTyVarKinds -> TcType -> Set.Set Unique
+constructorResultTyVars tyVarKinds = typeTyVars tyVarKinds . constructorResultType
 
 constructorResultType :: TcType -> TcType
 constructorResultType (TcFunTy _ result) = constructorResultType result
@@ -887,46 +889,57 @@ constructorResultType result = result
 -- | Reuse indices that the scrutinee determines through nominal structure.
 -- Repeated indices retain the first match. The result constraint checks the rest.
 -- A family application cannot determine its arguments.
-matchConstructorResult :: Set.Set Unique -> TcType -> TcType -> TcM (Map.Map Unique TcType)
-matchConstructorResult variables result scrutinee =
+matchConstructorResult :: TcTyVarKinds -> Set.Set Unique -> TcType -> TcType -> TcM (Map.Map Unique TcType)
+matchConstructorResult tyVarKinds variables result scrutinee =
   case result of
     TcTyVar variable
       | tvUnique variable `Set.member` variables ->
           do
+            let variableKind = Map.findWithDefault result (tvUnique variable) tyVarKinds
             kinds <-
-              if Set.null (typeTyVars (tvKind variable) `Set.intersection` variables)
+              if Set.null (typeTyVars tyVarKinds variableKind `Set.intersection` variables)
                 then pure Map.empty
-                else tcTypeKind scrutinee >>= matchConstructorResult variables (tvKind variable)
+                else tcTypeKind scrutinee >>= matchConstructorResult tyVarKinds variables variableKind
             pure (Map.insert (tvUnique variable) scrutinee kinds)
     _ -> do
       children <- decomposeNominalEquality result scrutinee
       case children of
         Nothing -> pure Map.empty
-        Just pairs -> Map.unions <$> mapM (uncurry (matchConstructorResult variables)) pairs
+        Just pairs -> Map.unions <$> mapM (uncurry (matchConstructorResult tyVarKinds variables)) pairs
 
-typeTyVars :: TcType -> Set.Set Unique
-typeTyVars ty =
+-- | The variables a type mentions, the variables of their kinds included.
+-- An occurrence carries no kind, so the kinds of the variables the caller
+-- binds are given.
+typeTyVars :: TcTyVarKinds -> TcType -> Set.Set Unique
+typeTyVars tyVarKinds ty =
   case ty of
-    TcTyVar tyVar -> Set.insert (tvUnique tyVar) (typeTyVars (tvKind tyVar))
+    TcTyVar tyVar ->
+      Set.insert
+        (tvUnique tyVar)
+        (maybe Set.empty (typeTyVars (Map.delete (tvUnique tyVar) tyVarKinds)) (Map.lookup (tvUnique tyVar) tyVarKinds))
     TcMetaTv {} -> Set.empty
     TcArrowTy -> Set.empty
-    TcTyCon _ arguments -> Set.unions (map typeTyVars arguments)
-    TcFunTy argument result -> typeTyVars argument <> typeTyVars result
-    TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
-    TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)
-    TcAppTy function argument -> typeTyVars function <> typeTyVars argument
+    TcTyCon _ arguments -> Set.unions (map recur arguments)
+    TcFunTy argument result -> recur argument <> recur result
+    TcForAllTy binder body -> recur (tvbKind binder) <> Set.delete (tvbUnique binder) (recur body)
+    TcQualTy predicates body -> Set.unions (recur body : map (predTyVars tyVarKinds) predicates)
+    TcAppTy function argument -> recur function <> recur argument
+  where
+    recur = typeTyVars tyVarKinds
 
-predTyVars :: Pred -> Set.Set Unique
-predTyVars predicate =
+predTyVars :: TcTyVarKinds -> Pred -> Set.Set Unique
+predTyVars tyVarKinds predicate =
   case predicate of
-    ClassPred _ arguments -> Set.unions (map typeTyVars arguments)
-    EqPred left right -> typeTyVars left <> typeTyVars right
-    IParamPred _ payload -> typeTyVars payload
+    ClassPred _ arguments -> Set.unions (map recur arguments)
+    EqPred left right -> recur left <> recur right
+    IParamPred _ payload -> recur payload
     QuantifiedPred variables antecedents consequent ->
       foldr
-        (Set.delete . tvUnique)
-        (Set.unions (predTyVars consequent : map predTyVars antecedents))
+        (Set.delete . tvbUnique)
+        (Set.unions (predTyVars tyVarKinds consequent : map (predTyVars tyVarKinds) antecedents))
         variables
+  where
+    recur = typeTyVars tyVarKinds
 
 replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
 replaceConstructorSubpatterns pat subPats =

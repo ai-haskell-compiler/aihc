@@ -7,6 +7,9 @@ module Aihc.Fc.Convert
     emptyConvertEnv,
     withTyVar,
     withTyVars,
+    withTyVarKinds,
+    withKindEqualities,
+    refineKind,
     withKindEnv,
     withClassTyCons,
     withSynonymTyCons,
@@ -42,6 +45,7 @@ import Aihc.Tc.Types
     TcAxiomKey (..),
     TcKindEnv,
     TcKinds (..),
+    TcTyVarBinder (..),
     TcType (..),
     TcTypeKey,
     TyCon,
@@ -49,7 +53,8 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     runtimeRepFromKind,
-    tvKind,
+    tvbName,
+    tvbUnique,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -97,7 +102,24 @@ data ConvertEnv = ConvertEnv
   { cePrimPackage :: PackageId,
     -- | The kind vocabulary of the compiler that produced these types.
     ceKinds :: TcKinds,
-    ceTyVars :: Map Unique TyVarId,
+    ceTyVars :: Map Unique TcTyVarBinder,
+    -- | The kinds of the type variables that the facts of the module and
+    -- its imports bind. An occurrence carries no kind, so a type whose
+    -- variables no enclosing quantifier of the converted type binds -- a
+    -- constructor field under a case alternative, say -- reads them here.
+    -- | The kind of every type variable the converted types can mention,
+    -- kept as the environment grows rather than rebuilt for each question:
+    -- the kind of a type is asked for once per subterm, and the facts of an
+    -- imported package bind many thousands of variables.
+    ceTyVarKinds :: Tc.TcTyVarKinds,
+    -- | The nominal equalities the enclosing pattern matches give, with
+    -- the System FC name of the evidence that proves each. A GADT match
+    -- can give an equality on a kind variable, as the @Fun@ pattern of
+    -- @Type.Reflection@ gives @k ~ (arg -> res)@, and an occurrence of a
+    -- variable of kind @k@ is then applied like a function. The converter
+    -- kinds such an occurrence through the equality, and casts it with the
+    -- evidence so that the lint can check the application.
+    ceKindEqualities :: [(TcType, TcType, Name)],
     ceKindEnv :: TcKindEnv,
     ceClassTyCons :: Set TcTypeKey,
     -- | The type synonyms. A reference to one is a synonym name, which the
@@ -115,6 +137,8 @@ emptyConvertEnv kinds package =
     { cePrimPackage = package,
       ceKinds = kinds,
       ceTyVars = Map.empty,
+      ceTyVarKinds = Map.empty,
+      ceKindEqualities = [],
       ceKindEnv = Map.empty,
       ceClassTyCons = Set.empty,
       ceSynonymTyCons = Set.empty,
@@ -153,12 +177,71 @@ lookupAxiomName :: TcAxiomKey -> Name
 lookupAxiomName (TcAxiomKey package moduleName' name) =
   Name name SortAxiom (OriginTop package moduleName')
 
-withTyVar :: TyVarId -> ConvertEnv -> ConvertEnv
-withTyVar tyVar env =
-  env {ceTyVars = Map.insert (tvUnique tyVar) tyVar (ceTyVars env)}
+withTyVar :: TcTyVarBinder -> ConvertEnv -> ConvertEnv
+withTyVar binder env =
+  env
+    { ceTyVars = Map.insert (tvbUnique binder) binder (ceTyVars env),
+      ceTyVarKinds = Map.insert (tvbUnique binder) (refineKind (ceKindEqualities env) (tvbKind binder)) (ceTyVarKinds env)
+    }
 
-withTyVars :: [TyVarId] -> ConvertEnv -> ConvertEnv
-withTyVars tyVars env = foldr withTyVar env tyVars
+withTyVars :: [TcTyVarBinder] -> ConvertEnv -> ConvertEnv
+withTyVars binders env = foldr withTyVar env binders
+
+-- | Record the kinds of variables that the converted types may mention
+-- without binding.
+withTyVarKinds :: Tc.TcTyVarKinds -> ConvertEnv -> ConvertEnv
+withTyVarKinds kinds env = env {ceTyVarKinds = ceTyVarKinds env <> kinds}
+
+-- | The equalities that one pattern match gives, for the types its branch
+-- converts.
+--
+-- The kinds in scope are rewritten with them once here, so that a variable
+-- whose kind the match refined is kinded as the branch sees it without
+-- rewriting the whole table at every question.
+withKindEqualities :: [(TcType, TcType, Name)] -> ConvertEnv -> ConvertEnv
+withKindEqualities [] env = env
+withKindEqualities equalities env =
+  env
+    { ceKindEqualities = refined,
+      ceTyVarKinds = Map.map (refineKind refined) (ceTyVarKinds env)
+    }
+  where
+    refined = equalities <> ceKindEqualities env
+
+-- | Rewrite a kind with the equalities in scope.
+--
+-- An equality between two variables rewrites the greater unique to the
+-- smaller one, so that both sides of a later comparison reach the same
+-- representative; an equality between a variable and anything else
+-- rewrites the variable. The walk stops at a kind it has already visited,
+-- which is what keeps a cycle of equalities from looping.
+refineKind :: [(TcType, TcType, Name)] -> TcType -> TcType
+refineKind [] kind = kind
+refineKind equalities kind = rewrite Set.empty kind
+  where
+    rewrite visited ty
+      | Set.member ty visited = ty
+      | otherwise =
+          case [replacement | (left, right, _) <- equalities, Just replacement <- [replace ty left right]] of
+            replacement : _ -> rewrite (Set.insert ty visited) replacement
+            [] ->
+              case ty of
+                TcTyCon constructor arguments -> TcTyCon constructor (map recur arguments)
+                TcFunTy argument result -> TcFunTy (recur argument) (recur result)
+                TcAppTy function argument -> TcAppTy (recur function) (recur argument)
+                _ -> ty
+      where
+        recur = rewrite visited
+
+-- | The rewriting one equality performs on one kind, if any.
+replace :: TcType -> TcType -> TcType -> Maybe TcType
+replace ty left@(TcTyVar a) right@(TcTyVar b)
+  | tvUnique a > tvUnique b, ty == left = Just right
+  | tvUnique b > tvUnique a, ty == right = Just left
+replace _ TcTyVar {} TcTyVar {} = Nothing
+replace ty left@TcTyVar {} right | ty == left, left /= right = Just right
+replace ty left right@TcTyVar {} | ty == right, left /= right = Just left
+replace _ _ _ = Nothing
 
 withKindEnv :: TcKindEnv -> ConvertEnv -> ConvertEnv
 withKindEnv kindEnv env = env {ceKindEnv = kindEnv <> ceKindEnv env}
@@ -214,7 +297,7 @@ convertRep env runtimeRep =
     TcTyVar tyVar ->
       let unique@(Unique uniqueValue) = tvUnique tyVar
        in case Map.lookup unique (ceTyVars env) of
-            Just found -> Right (tyVarType found)
+            Just found -> Right (tyVarType (tvbTyVar found))
             Nothing -> Left ("unbound runtime-representation variable: rep" <> show uniqueValue)
     TcMetaTv {} -> Left "runtime representation still has a meta variable"
     _ -> convertType env runtimeRep
@@ -240,7 +323,7 @@ convertType env = convertTypeWithExpectedKind env Nothing
 convertTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either String Type
 convertTypeWithExpectedKind env expectedKind ty =
   case ty of
-    TcTyVar tyVar -> Right (tyVarType tyVar)
+    TcTyVar tyVar -> Right (castOccurrence env tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
@@ -258,9 +341,9 @@ convertTypeWithExpectedKind env expectedKind ty =
       r1 <- typeRep env argument
       r2 <- typeRep env result
       pure (TyFun r1 r2 convertedArgument convertedResult)
-    TcForAllTy tyVar body -> do
-      binder <- tyVarBinder env tyVar
-      convertedBody <- convertType (withTyVar tyVar env) body
+    TcForAllTy tyVarBinder' body -> do
+      binder <- tyVarBinder env tyVarBinder'
+      convertedBody <- convertType (withTyVar tyVarBinder' env) body
       pure (TyForAll binder convertedBody)
     TcQualTy predicates body -> do
       convertedPredicates <- mapM (convertPred env) predicates
@@ -302,7 +385,7 @@ typeRep env ty = do
         Right converted -> Right converted
 
 typeKindInEnv :: ConvertEnv -> TcType -> Either String TcType
-typeKindInEnv env = Tc.typeKindInEnv (ceKinds env) (ceKindEnv env)
+typeKindInEnv env = Tc.typeKindInEnv (ceKinds env) (ceKindEnv env) (ceTyVarKinds env)
 
 -- | The evidence arrows of a qualified type.
 --
@@ -326,10 +409,10 @@ evidenceRep env _ = liftedRepType env
 liftedRepType :: ConvertEnv -> Type
 liftedRepType env = TyCon (liftedRepName (cePrimPackage env))
 
-tyVarBinder :: ConvertEnv -> TyVarId -> Either String Binder
-tyVarBinder env tyVar = do
-  kind <- convertKind (withTyVar tyVar env) (tvKind tyVar)
-  pure (Binder (tyVarName tyVar) kind)
+tyVarBinder :: ConvertEnv -> TcTyVarBinder -> Either String Binder
+tyVarBinder env binder = do
+  kind <- convertKind (withTyVar binder env) (tvbKind binder)
+  pure (Binder (tyVarName (tvbTyVar binder)) kind)
 
 tyVarName :: TyVarId -> Name
 tyVarName tyVar =
@@ -337,6 +420,32 @@ tyVarName tyVar =
 
 tyVarType :: TyVarId -> Type
 tyVarType tyVar = TyVar (tyVarName tyVar)
+
+-- | One occurrence of a type variable, cast when a match has refined its
+-- kind.
+--
+-- A GADT match can give an equality on a kind variable: matching
+-- @typeRepKind f@ against the @Fun@ pattern gives @k ~ (arg -> res)@, and
+-- that is what makes @f x@ well kinded for an @f :: k@ bound by an earlier
+-- match. The kind lives at the binder, which the match does not rewrite,
+-- so the occurrence carries the evidence instead: @f ▷ co@ has the kind
+-- the branch gives it, and the lint checks the application against the
+-- coercion rather than against a kind the binder never had.
+castOccurrence :: ConvertEnv -> TyVarId -> Type
+castOccurrence env tyVar =
+  case Map.lookup (tvUnique tyVar) (ceTyVars env) of
+    Just found
+      | Just coercion <- kindCoercion env (tvbKind found) -> TyCast (tyVarType tyVar) coercion
+    _ -> tyVarType tyVar
+
+-- | The evidence that one kind equals the kind a match refines it to.
+kindCoercion :: ConvertEnv -> TcType -> Maybe Coercion
+kindCoercion env kind =
+  case [(left, right, name) | (left, right, name) <- ceKindEqualities env, Just {} <- [replace kind left right]] of
+    (left, _, name) : _
+      | kind == left -> Just (CoVar name)
+      | otherwise -> Just (CoSym (CoVar name))
+    [] -> Nothing
 
 tyConNameFc :: ConvertEnv -> TyCon -> Name
 tyConNameFc env tyCon
@@ -355,11 +464,11 @@ tyConNameFc env tyCon
     namespaceSort ResolutionNamespaceModule = SortTypeConstructor
 
 -- | Invisible kind parameters that the type constructor quantifies before visible arguments.
-extraKindVars :: ConvertEnv -> TyCon -> [TyVarId] -> Either String [TyVarId]
+extraKindVars :: ConvertEnv -> TyCon -> [TcTyVarBinder] -> Either String [TcTyVarBinder]
 extraKindVars env tyCon visible = do
   ForAll vars _ _ <- kindScheme env tyCon
-  let seen = map tvUnique visible
-  pure (filter (\tyVar -> tvUnique tyVar `notElem` seen) vars)
+  let seen = map tvbUnique visible
+  pure (filter (\binder -> tvbUnique binder `notElem` seen) vars)
 
 invisibleKindArgs :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [Type]
 invisibleKindArgs env tyCon arguments expectedKind = do
@@ -375,20 +484,20 @@ invisibleKindArgs env tyCon arguments expectedKind = do
 -- installed interface can repeat the current module's, so a signature
 -- variable of the module may share the unique of a kind variable of an
 -- imported type constructor. The names must agree as well.
-kindVarToType :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> TyVarId -> Either String Type
+kindVarToType :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> TcTyVarBinder -> Either String Type
 kindVarToType env tyCon arguments expectedKind tyVar =
-  case Map.lookup (tvUnique tyVar) (ceTyVars env) of
+  case Map.lookup (tvbUnique tyVar) (ceTyVars env) of
     Just found
-      | tvName found == tvName tyVar -> Right (tyVarType found)
+      | tvbName found == tvbName tyVar -> Right (tyVarType (tvbTyVar found))
     _ -> do
-      checkedKinds <- Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
+      checkedKinds <- Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) (ceTyVarKinds env) tyCon arguments expectedKind
       let substitution = Tc.tcInvisibleKindSubstitution checkedKinds
-      case Map.lookup (tvUnique tyVar) substitution of
+      case Map.lookup (tvbUnique tyVar) substitution of
         Just runtimeRep -> convertRep env runtimeRep
         Nothing ->
           Left
             ( "cannot infer the invisible kind argument "
-                <> show (tvUnique tyVar)
+                <> show (tvbUnique tyVar)
                 <> " for "
                 <> T.unpack (tyConName tyCon)
                 <> " with arguments "
@@ -402,7 +511,7 @@ kindVarToType env tyCon arguments expectedKind tyVar =
 
 visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [TcType]
 visibleArgumentKinds env tyCon arguments expectedKind =
-  Tc.tcVisibleArgumentKinds <$> Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
+  Tc.tcVisibleArgumentKinds <$> Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) (ceTyVarKinds env) tyCon arguments expectedKind
 
 kindScheme :: ConvertEnv -> TyCon -> Either String TypeScheme
 kindScheme env tyCon =

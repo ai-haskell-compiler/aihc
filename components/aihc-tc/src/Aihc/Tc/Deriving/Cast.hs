@@ -22,7 +22,7 @@ import Data.Text qualified as T
 
 checkCoercedInstance :: (Text, Text) -> (Text -> [Pred] -> Pred -> TcM EvTerm) -> (ClassInfo -> [TcType] -> Text -> TcM TypeScheme) -> TcDerivingPlan -> ClassInfo -> [Pred] -> TcInstanceAnnotation -> TcM TcInstanceAnnotation
 checkCoercedInstance origin solve methodScheme original info context annotation = do
-  let substitution = Map.fromList [(tvUnique old, TcTyVar new) | old <- tcDerivingTyVars original, new <- tcInstanceTyVars annotation, tvName old == tvName new]
+  let substitution = Map.fromList [(tvbUnique old, tvbType new) | old <- tcDerivingTyVars original, new <- tcInstanceTyVars annotation, tvbName old == tvbName new]
       plan = original {tcDerivingHeadTypes = tcInstanceHeadTypes annotation}
   case coercedSource plan of
     Left message -> reject message >> pure annotation
@@ -31,8 +31,8 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
           headTypes = init (tcInstanceHeadTypes annotation) <> [sourceType]
       sourceSchemes <- mapM (methodScheme info headTypes . fst) (ciMethods info)
       headKinds <- mapM tcTypeKind headTypes
-      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
-          classSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) headTypes) <> kindSubstitution
+      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvbKind (ciTyVars info)) headKinds)
+          classSubstitution = Map.fromList (zip (map tvbUnique (ciTyVars info)) headTypes) <> kindSubstitution
           superclassFields = map (applySubst classSubstitution) (ciSuperClassTypes info)
           fieldTypes = superclassFields <> map fieldType sourceSchemes
       methods <- zipWithM (checkMethod headTypes) [length superclassFields ..] (map fst (ciMethods info))

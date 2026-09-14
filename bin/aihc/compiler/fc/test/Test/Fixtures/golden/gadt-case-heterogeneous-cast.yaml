@@ -79,7 +79,7 @@ expected: |-
                       1.cJust (_pat : 1.t:~~: k{1} k a{1} a) →
                           case _pat as (_scrut{2} : 1.t:~~: k{1} k a{1} a) return (1.tMaybe (1.tTypeRep k a)) of {
                               1.cHRefl ($pattern_d0 : k ~ k{1}) ($pattern_d1 : a ~ a{1}) →
-                                  (1.cJust @(1.tTypeRep k a{1}) rep) ▷ sym (tycon-co 1.tMaybe (tycon-co 1.tTypeRep (refl k) ($pattern_d1)))
+                                  (1.cJust @(1.tTypeRep k (a{1} ▷ sym ($pattern_d0))) rep) ▷ sym (tycon-co 1.tMaybe (tycon-co 1.tTypeRep (refl k) ($pattern_d1)))
                           };
                       1.cNothing →
                           1.cNothing @(1.tTypeRep k a)

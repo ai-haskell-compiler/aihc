@@ -26,47 +26,47 @@ import Data.Text qualified as T
 type TidyEnv = Map Unique TyVarId
 
 -- | Rename the meta-variables of one diagnostic to display names.
-tidyDiagnostic :: TcKinds -> TcDiagnostic -> TcDiagnostic
-tidyDiagnostic kinds diagnostic =
-  diagnostic {diagKind = tidyErrorKind kinds (diagKind diagnostic)}
+tidyDiagnostic :: TcDiagnostic -> TcDiagnostic
+tidyDiagnostic diagnostic =
+  diagnostic {diagKind = tidyErrorKind (diagKind diagnostic)}
 
 -- | Rename the meta-variables of one error kind to display names.
-tidyErrorKind :: TcKinds -> TcErrorKind -> TcErrorKind
-tidyErrorKind kinds kind =
+tidyErrorKind :: TcErrorKind -> TcErrorKind
+tidyErrorKind kind =
   case kind of
     UnificationError left right origin provenance ->
-      let env = mkTidyEnv kinds (provenanceTypes provenance ++ [left, right]) []
+      let env = mkTidyEnv (provenanceTypes provenance ++ [left, right]) []
        in UnificationError (tidyTypeWith env left) (tidyTypeWith env right) origin (tidyProvenance env <$> provenance)
     OccursCheckError variable ty ->
-      let env = mkTidyEnv kinds [variable, ty] []
+      let env = mkTidyEnv [variable, ty] []
        in OccursCheckError (tidyTypeWith env variable) (tidyTypeWith env ty)
     KindMismatch expected actual ->
-      let env = mkTidyEnv kinds [expected, actual] []
+      let env = mkTidyEnv [expected, actual] []
        in KindMismatch (tidyTypeWith env expected) (tidyTypeWith env actual)
     UnsolvedWanted predicate origin ->
-      let env = mkTidyEnv kinds [] [predicate]
+      let env = mkTidyEnv [] [predicate]
        in UnsolvedWanted (tidyPredWith env predicate) origin
     TopLevelUnliftedBinding name ty ->
-      TopLevelUnliftedBinding name (tidyType kinds ty)
+      TopLevelUnliftedBinding name (tidyType ty)
     RepresentationPolymorphicFunctionArgument name ty ->
-      RepresentationPolymorphicFunctionArgument name (tidyType kinds ty)
+      RepresentationPolymorphicFunctionArgument name (tidyType ty)
     InstanceFunDepCoverage predicate determiners determined ->
-      let env = mkTidyEnv kinds [] [predicate]
+      let env = mkTidyEnv [] [predicate]
        in InstanceFunDepCoverage (tidyPredWith env predicate) determiners determined
     InstanceFunDepConflict predicate other determiners determined ->
-      let env = mkTidyEnv kinds [] [predicate, other]
+      let env = mkTidyEnv [] [predicate, other]
        in InstanceFunDepConflict (tidyPredWith env predicate) (tidyPredWith env other) determiners determined
     FunDepUnknownTyVar {} -> kind
     UnboundVariable {} -> kind
     OtherError {} -> kind
 
 -- | Rename the meta-variables of some types with one shared name supply.
-tidyTypes :: TcKinds -> [TcType] -> [TcType]
-tidyTypes kinds types = map (tidyTypeWith (mkTidyEnv kinds types [])) types
+tidyTypes :: [TcType] -> [TcType]
+tidyTypes types = map (tidyTypeWith (mkTidyEnv types [])) types
 
 -- | Rename the meta-variables of one type.
-tidyType :: TcKinds -> TcType -> TcType
-tidyType kinds ty = tidyTypeWith (mkTidyEnv kinds [ty] []) ty
+tidyType :: TcType -> TcType
+tidyType ty = tidyTypeWith (mkTidyEnv [ty] []) ty
 
 provenanceTypes :: Maybe EqProvenance -> [TcType]
 provenanceTypes provenance =
@@ -83,17 +83,14 @@ tidyProvenance env provenance =
   where
     tidyTrace trace = trace {typeTraceType = tidyTypeWith env (typeTraceType trace)}
 
-mkTidyEnv :: TcKinds -> [TcType] -> [Pred] -> TidyEnv
-mkTidyEnv kinds types predicates =
+mkTidyEnv :: [TcType] -> [Pred] -> TidyEnv
+mkTidyEnv types predicates =
   Map.fromList (zip metas (zipWith displayVariable freshNames metas))
   where
     metas = orderedNub (concatMap typeMetas types ++ concatMap predMetas predicates)
     usedNames = Set.fromList (concatMap typeNames types ++ concatMap predNames predicates)
     freshNames = filter (`Set.notMember` usedNames) [T.pack ('t' : show n) | n <- [0 :: Int ..]]
-    -- A display variable stands for an unsolved meta, whose kind the
-    -- diagnostic does not show. It still needs one, so give it the kind of
-    -- an ordinary type.
-    displayVariable name unique = mkTyVarId name unique (typeKind kinds)
+    displayVariable = mkTyVarId
 
 orderedNub :: [Unique] -> [Unique]
 orderedNub = go Set.empty
@@ -131,7 +128,7 @@ typeNames ty =
     TcTyVar tv -> [tvName tv]
     TcTyCon _ args -> concatMap typeNames args
     TcFunTy argument result -> typeNames argument ++ typeNames result
-    TcForAllTy tv body -> tvName tv : typeNames body
+    TcForAllTy binder body -> tvbName binder : typeNames (tvbKind binder) ++ typeNames body
     TcQualTy preds body -> concatMap predNames preds ++ typeNames body
     TcAppTy function argument -> typeNames function ++ typeNames argument
 
@@ -142,7 +139,7 @@ predNames predicate =
     EqPred left right -> typeNames left ++ typeNames right
     IParamPred _ payload -> typeNames payload
     QuantifiedPred variables antecedents consequent ->
-      map tvName variables ++ concatMap predNames antecedents ++ predNames consequent
+      map tvbName variables ++ concatMap predNames antecedents ++ predNames consequent
 
 tidyTypeWith :: TidyEnv -> TcType -> TcType
 tidyTypeWith env ty =

@@ -20,6 +20,7 @@ where
 
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Types
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 
 -- | What a field type does with the last parameter of the datatype.
@@ -51,7 +52,7 @@ fieldUse mechanism parameter = go
         not (mentions function) =
           FieldContainer function <$> go argument
       | otherwise = Left (positionError mechanism parameter ty)
-    mentions = typeMentionsTyVar parameter
+    mentions = typeMentionsTyVar Map.empty parameter
 
 -- | A type as a function and its last argument. A saturated arrow is the
 -- arrow type constructor applied to its domain, so a field of function type

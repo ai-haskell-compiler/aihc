@@ -19,9 +19,10 @@ where
 import Aihc.Tc.Constraint (EqProvenance (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..))
 import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
-import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, writeMetaTv)
+import Aihc.Tc.Monad (TcM, TcState (..), lookupTyVarKind, readMetaTv, recordTyVarKind, writeMetaTv)
 import Aihc.Tc.Tidy (tidyDiagnostic)
 import Aihc.Tc.Types
+import Control.Monad ((>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets, modify')
 
@@ -37,10 +38,10 @@ zonkType ty = case ty of
         zonked <- zonkType sol
         writeMetaTv u zonked
         pure zonked
-  TcTyVar tv -> TcTyVar <$> zonkTyVar tv
+  TcTyVar {} -> zonkKind ty >> pure ty
   TcTyCon tc args -> TcTyCon tc <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
-  TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
+  TcForAllTy binder body -> TcForAllTy <$> zonkTyVarBinder binder <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
   TcAppTy f a -> mkAppTy <$> zonkType f <*> zonkType a
 
@@ -50,12 +51,15 @@ zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
 zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
 zonkPred (IParamPred name payload) = IParamPred name <$> zonkType payload
 zonkPred (QuantifiedPred variables antecedents consequent) =
-  QuantifiedPred <$> mapM zonkTyVar variables <*> mapM zonkPred antecedents <*> zonkPred consequent
+  QuantifiedPred <$> mapM zonkTyVarBinder variables <*> mapM zonkPred antecedents <*> zonkPred consequent
 
-zonkTyVar :: TyVarId -> TcM TyVarId
-zonkTyVar tv = do
-  kind <- zonkKind (tvKind tv)
-  pure (setTyVarKind kind tv)
+-- | Zonk the kind that a binder writes down, and record it so that
+-- occurrences of the variable read the zonked kind.
+zonkTyVarBinder :: TcTyVarBinder -> TcM TcTyVarBinder
+zonkTyVarBinder binder = do
+  kind <- zonkKind (tvbKind binder)
+  recordTyVarKind (tvbTyVar binder) kind
+  pure (mkTyVarBinder (tvbTyVar binder) kind)
 
 -- | Finalize every kind embedded in a type. Unlike ordinary zonking, this
 -- defaults unconstrained kind metavariables to 'Type', so it must only run at
@@ -65,10 +69,10 @@ defaultTypeKinds ty =
   case ty of
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
-    TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
+    TcTyVar tv -> defaultTyVarKind tv >> pure ty
     TcTyCon tyCon args -> TcTyCon tyCon <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
-    TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
+    TcForAllTy binder body -> TcForAllTy <$> defaultTyVarKinds binder <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
     TcAppTy function argument -> mkAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
 
@@ -95,10 +99,18 @@ defaultPredKinds predicate =
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred <$> mapM defaultTyVarKinds variables <*> mapM defaultPredKinds antecedents <*> defaultPredKinds consequent
 
-defaultTyVarKinds :: TyVarId -> TcM TyVarId
-defaultTyVarKinds tv = do
-  kind <- defaultKindMetas (tvKind tv) >>= zonkKind
-  pure (setTyVarKind kind tv)
+-- | Settle the kind a binder writes down, and record it.
+defaultTyVarKinds :: TcTyVarBinder -> TcM TcTyVarBinder
+defaultTyVarKinds binder = do
+  kind <- defaultKindMetas (tvbKind binder) >>= zonkKind
+  recordTyVarKind (tvbTyVar binder) kind
+  pure (mkTyVarBinder (tvbTyVar binder) kind)
+
+-- | Settle the recorded kind of one type-variable occurrence.
+defaultTyVarKind :: TyVarId -> TcM ()
+defaultTyVarKind tyVar = do
+  recorded <- lookupTyVarKind tyVar
+  mapM_ (defaultKindMetas >=> zonkKind >=> recordTyVarKind tyVar) recorded
 
 -- | Zonk the types in one error kind.
 zonkErrorKind :: TcErrorKind -> TcM TcErrorKind
@@ -141,10 +153,9 @@ zonkProvenance provenance = do
 -- Tidying replaces internal meta-variable numbers with stable display names.
 finalizeDiagnostics :: TcM ()
 finalizeDiagnostics = do
-  kinds <- getKinds
   diagnostics <- lift (gets tcsDiagnostics)
   zonked <- mapM zonkDiagnostic diagnostics
-  lift (modify' (\state -> state {tcsDiagnostics = map (tidyDiagnostic kinds) zonked}))
+  lift (modify' (\state -> state {tcsDiagnostics = map tidyDiagnostic zonked}))
   where
     zonkDiagnostic diagnostic = do
       kind <- zonkErrorKind (diagKind diagnostic)

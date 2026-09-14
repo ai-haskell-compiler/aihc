@@ -68,12 +68,12 @@ equivalentTypeSchemes (ForAll leftVars leftPredicates leftBody) (ForAll rightVar
   | length leftVars /= length rightVars = False
   | length leftPredicates /= length rightPredicates = False
   | otherwise =
-      let renaming = Map.fromList (zip (map tvUnique leftVars) (map tvUnique rightVars))
+      let renaming = Map.fromList (zip (map tvbUnique leftVars) (map tvbUnique rightVars))
        in and (zipWith (equivalentType renaming `onTyVar`) leftVars rightVars)
             && and (zipWith (equivalentPred renaming) leftPredicates rightPredicates)
             && equivalentType renaming leftBody rightBody
   where
-    onTyVar compareKinds left right = compareKinds (tvKind left) (tvKind right)
+    onTyVar compareKinds left right = compareKinds (tvbKind left) (tvbKind right)
 
 typeSchemeArity :: TypeScheme -> Int
 typeSchemeArity (ForAll _ _ body) = go body
@@ -96,9 +96,9 @@ equivalentType renaming left right =
       equivalentType renaming leftArg rightArg
         && equivalentType renaming leftResult rightResult
     (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody) ->
-      equivalentType renaming (tvKind leftVar) (tvKind rightVar)
+      equivalentType renaming (tvbKind leftVar) (tvbKind rightVar)
         && equivalentType
-          (Map.insert (tvUnique leftVar) (tvUnique rightVar) renaming)
+          (Map.insert (tvbUnique leftVar) (tvbUnique rightVar) renaming)
           leftBody
           rightBody
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody) ->
@@ -130,8 +130,8 @@ equivalentPred renaming left right =
       where
         quantifiedRenaming =
           foldr
-            (\(leftVariable, rightVariable) -> Map.insert (tvUnique leftVariable) (tvUnique rightVariable))
+            (\(leftVariable, rightVariable) -> Map.insert (tvbUnique leftVariable) (tvbUnique rightVariable))
             renaming
             (zip leftVariables rightVariables)
-        onKind comparison leftVariable rightVariable = comparison (tvKind leftVariable) (tvKind rightVariable)
+        onKind comparison leftVariable rightVariable = comparison (tvbKind leftVariable) (tvbKind rightVariable)
     _ -> False

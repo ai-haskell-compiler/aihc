@@ -16,7 +16,7 @@ module Aihc.Tc.Generalize
 where
 
 import Aihc.Tc.Kind (defaultKindMetas, deferKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, deferKindMeta, freshSkolemTv, getKinds, getPolyKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, deferKindMeta, freshSkolemTvOfKind, getKinds, getPolyKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, void, when)
@@ -76,7 +76,7 @@ generalizeGroupAndCommitIgnoring ignoredKeys bindings = do
   settleKinds <- settleKindsNow
   when settleKinds (mapM_ defaultMetaKind uniqueMetaVars)
   tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
-  let subst = zip uniqueMetaVars (map TcTyVar tvs)
+  let subst = zip uniqueMetaVars (map tvbType tvs)
   forM_ subst (uncurry writeMetaTv)
   pure
     [ ForAll [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] (map (substMetasPred subst) preds) (substMetas subst ty)
@@ -104,7 +104,7 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
-  let subst = zip uniqueMetaVars (map TcTyVar tvs)
+  let subst = zip uniqueMetaVars (map tvbType tvs)
   let quantifiedTy = substMetas subst ty''
   let quantifiedPreds = map (substMetasPred subst) preds''
   pure (ForAll tvs quantifiedPreds quantifiedTy, subst)
@@ -174,20 +174,20 @@ predMetaVars (ClassPred _ args) = concatMap collectMetaVars args
 predMetaVars (EqPred a b) = collectMetaVars a ++ collectMetaVars b
 predMetaVars (IParamPred _ payload) = collectMetaVars payload
 predMetaVars (QuantifiedPred variables antecedents consequent) =
-  concatMap (collectMetaVars . tvKind) variables
+  concatMap (collectMetaVars . tvbKind) variables
     ++ concatMap predMetaVars antecedents
     ++ predMetaVars consequent
 
 -- | Create a type variable from a meta-variable unique, using a
 -- sequential index for naming (so the first generalized variable is
 -- 'a', the second 'b', etc.).
-metaVarsToTyVars :: Bool -> [Unique] -> TcM [TyVarId]
+metaVarsToTyVars :: Bool -> [Unique] -> TcM [TcTyVarBinder]
 metaVarsToTyVars settleKinds uniques = mapM makeTyVar (zip [0 ..] uniques)
   where
     makeTyVar (index, unique) = do
       kind <- readMetaTvKind unique >>= (if settleKinds then defaultKindMetas else deferKindMetas deferKindMeta)
-      rawTyVar <- freshSkolemTv (mkName index)
-      pure (setTyVarKind kind rawTyVar)
+      tyVar <- freshSkolemTvOfKind (mkName index) kind
+      pure (mkTyVarBinder tyVar kind)
 
     mkName i =
       let c = toEnum (fromEnum 'a' + i `mod` 26)
@@ -237,7 +237,7 @@ substMetasPred subst (EqPred a b) = EqPred (substMetas subst a) (substMetas subs
 substMetasPred subst (IParamPred name payload) = IParamPred name (substMetas subst payload)
 substMetasPred subst (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred
-    (map (\variable -> setTyVarKind (substMetas subst (tvKind variable)) variable) variables)
+    (map (mapTyVarBinderKind (substMetas subst)) variables)
     (map (substMetasPred subst) antecedents)
     (substMetasPred subst consequent)
 
@@ -252,7 +252,7 @@ zonkPred (QuantifiedPred variables antecedents consequent) =
     <*> mapM zonkPred antecedents
     <*> zonkPred consequent
   where
-    zonkVariable variable = setTyVarKind <$> zonkType (tvKind variable) <*> pure variable
+    zonkVariable variable = mkTyVarBinder (tvbTyVar variable) <$> zonkType (tvbKind variable)
 
 -- | The meta-variables of one binder after zonking. Zonking only replaces
 -- meta-variables, so a binder without any needs no zonk. Most binders in the

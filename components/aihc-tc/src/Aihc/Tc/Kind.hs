@@ -3,6 +3,7 @@
 module Aihc.Tc.Kind
   ( TvKindEnv,
     ParamInfo (..),
+    paramBinder,
     checkSurfaceType,
     checkRuntimeType,
     convertSurfaceType,
@@ -25,7 +26,6 @@ module Aihc.Tc.Kind
     tyConKindFromParams,
     tyConKindFromParamsWith,
     tcTypeKind,
-    refineGivenTyVarKinds,
     unifyKinds,
     unifyKindsAt,
     surfaceTypeSpan,
@@ -58,7 +58,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
+import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_, (>=>))
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -76,6 +76,10 @@ data ParamInfo = ParamInfo
   }
   deriving (Show)
 
+-- | The binder that a checked parameter introduces.
+paramBinder :: ParamInfo -> TcTyVarBinder
+paramBinder param = mkTyVarBinder (paramTyVar param) (paramKind param)
+
 -- | Convert a signature to a type scheme. A free type variable that is a
 -- lexically scoped type variable refers to that variable and is not
 -- quantified again.
@@ -84,12 +88,12 @@ sigToScheme ty = do
   scoped <- getScopedTyVars
   let (explicitBinders, context, body) = splitSigma ty
       freeVars = filter (`Map.notMember` scoped) (freeTypeVars ty)
-  rawTvs <- mapM freshSkolemTv freeVars
   kinds <- mapM (const freshKindMeta) freeVars
-  let implicitTvs = zipWith setTyVarKind kinds rawTvs
+  implicitTvs <- zipWithM freshSkolemTvOfKind freeVars kinds
+  let implicitBinders = zipWith mkTyVarBinder implicitTvs kinds
   let implicitEnv = scoped <> Map.fromList (zip freeVars (zip implicitTvs kinds))
   explicitParams <- makeParamEnvWith implicitEnv explicitBinders
-  let explicitTvs = map paramTyVar explicitParams
+  let explicitBinders' = map paramBinder explicitParams
       tvEnv =
         implicitEnv
           <> Map.fromList
@@ -98,7 +102,7 @@ sigToScheme ty = do
             ]
   tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
-  pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
+  pure (ForAll (implicitBinders <> explicitBinders') preds tcTy)
 
 -- | Whether a signature contains a partial-signature wildcard.
 hasWildcardType :: Type -> Bool
@@ -124,12 +128,12 @@ explicitForallNames ty = map tyVarBinderName (fst (splitForalls ty))
 -- variables of an explicit outer @forall@ scope, as in GHC. The given
 -- variables are the opened variables of the checked scheme; they keep the
 -- source names.
-scopedSigTyVars :: [Text] -> [TyVarId] -> Map Text (TyVarId, TcType)
-scopedSigTyVars explicitNames tyVars =
+scopedSigTyVars :: [Text] -> [TcTyVarBinder] -> Map Text (TyVarId, TcType)
+scopedSigTyVars explicitNames binders =
   Map.fromList
-    [ (tvName tyVar, (tyVar, tvKind tyVar))
-    | tyVar <- tyVars,
-      tvName tyVar `elem` explicitNames
+    [ (tvbName binder, (tvbTyVar binder, tvbKind binder))
+    | binder <- binders,
+      tvbName binder `elem` explicitNames
     ]
 
 -- | The empty context @() =>@. A pattern synonym signature uses it for an
@@ -147,12 +151,12 @@ standaloneKindSigToScheme :: Type -> TcM TypeScheme
 standaloneKindSigToScheme ty = do
   let (explicitBinders, bodyType) = splitForalls ty
       freeVars = freeTypeVars ty
-  rawTyVars <- mapM freshSkolemTv freeVars
   implicitKinds <- mapM (const freshKindMeta) freeVars
-  let implicitTyVars = zipWith setTyVarKind implicitKinds rawTyVars
-      implicitEnv = Map.fromList [(tvName tyVar, (tyVar, tvKind tyVar)) | tyVar <- implicitTyVars]
+  implicitTyVars <- zipWithM freshSkolemTvOfKind freeVars implicitKinds
+  let implicitBinders = zipWith mkTyVarBinder implicitTyVars implicitKinds
+      implicitEnv = Map.fromList (zip freeVars (zip implicitTyVars implicitKinds))
   explicitParams <- makeParamEnvWith implicitEnv explicitBinders
-  let explicitTyVars = map paramTyVar explicitParams
+  let explicitBinders' = map paramBinder explicitParams
       tyVarEnv =
         implicitEnv
           <> Map.fromList
@@ -160,10 +164,10 @@ standaloneKindSigToScheme ty = do
             | param <- explicitParams
             ]
   body <- kindFromSurfaceType tyVarEnv bodyType
-  let (nestedTyVars, body') = prenexKindForalls body
-  pure (ForAll (implicitTyVars <> explicitTyVars <> nestedTyVars) [] body')
+  let (nestedBinders, body') = prenexKindForalls body
+  pure (ForAll (implicitBinders <> explicitBinders' <> nestedBinders) [] body')
 
-prenexKindForalls :: TcType -> ([TyVarId], TcType)
+prenexKindForalls :: TcType -> ([TcTyVarBinder], TcType)
 prenexKindForalls kind =
   case kind of
     TcForAllTy tyVar body ->
@@ -174,9 +178,9 @@ prenexKindForalls kind =
        in (tyVars, TcFunTy argument result')
     _ -> ([], kind)
 
-convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
+convertSurfaceType :: Map Text TcTyVarBinder -> Type -> TcM TcType
 convertSurfaceType tvMap ty = do
-  let tvEnv = Map.map (\tv -> (tv, tvKind tv)) tvMap
+  let tvEnv = Map.map (\binder -> (tvbTyVar binder, tvbKind binder)) tvMap
   checkRuntimeType tvEnv ty
 
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
@@ -304,7 +308,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
       let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
       (innerTy, innerKind) <- convertSurfaceTypeWithKinds tvEnv' inner
-      pure (foldr (TcForAllTy . paramTyVar) innerTy params, innerKind)
+      pure (foldr (TcForAllTy . paramBinder) innerTy params, innerKind)
     _ -> do
       emitError NoSourceSpan (OtherError ("unsupported surface type in kind checker: " <> take 80 (show ty)))
       meta <- freshMetaTv
@@ -391,10 +395,10 @@ expandTypeSynonym tvEnv ty =
             Just {} <- tsiBody synonym -> do
               let ForAll variables _ _ = tciKindScheme info
               instantiation <- instantiateWithArgs (tciKindScheme info)
-              let substitution = Map.fromList (zip (map tvUnique variables) (instTypeArgs instantiation))
+              let substitution = Map.fromList (zip (map tvbUnique variables) (instTypeArgs instantiation))
                   specialize variable = do
-                    kind <- zonkKind (tvKind variable)
-                    pure (setTyVarKind (applySubst substitution kind) variable)
+                    kind <- zonkKind (tvbKind variable)
+                    pure (mkTyVarBinder (tvbTyVar variable) (applySubst substitution kind))
               parameters <- mapM specialize (tsiParams synonym)
               let specialized = synonym {tsiParams = parameters, tsiBody = applySubst substitution <$> tsiBody synonym}
               Just <$> instantiateTypeSynonym tvEnv (nameText name) specialized arguments
@@ -420,12 +424,12 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
           pure (meta, typeKind kinds)
         else do
           checkedArguments <- zipWithM checkArgument params synonymArguments
-          let substitution = Map.fromList (zip (map tvUnique params) checkedArguments)
+          let substitution = Map.fromList (zip (map tvbUnique params) checkedArguments)
           expandedBody <- expandTcTypeSynonyms Set.empty (applySubst substitution body)
           expandedKind <- tcTypeKind expandedBody
           applyRemainingArguments (expandedBody, expandedKind) remainingArguments
   where
-    checkArgument param argument = checkSurfaceType tvEnv argument (tvKind param)
+    checkArgument param argument = checkSurfaceType tvEnv argument (tvbKind param)
 
     applyRemainingArguments result [] = pure result
     applyRemainingArguments (functionType, functionKind) (argument : rest) = do
@@ -463,7 +467,7 @@ expandTcTypeSynonyms expanding ty = do
                   pure (TcTyCon tyCon expandedArguments)
                 else do
                   let (synonymArguments, remainingArguments) = splitAt (length params) expandedArguments
-                      substitution = Map.fromList (zip (map tvUnique params) synonymArguments)
+                      substitution = Map.fromList (zip (map tvbUnique params) synonymArguments)
                       expandedBody = applySubst substitution body
                       expanding' = Set.insert (tyConKey tyCon) expanding
                   normalizedBody <- expandTcTypeSynonyms expanding' expandedBody
@@ -485,8 +489,8 @@ expandTcTypeSynonyms expanding ty = do
             <*> mapM expandPredicate antecedents
             <*> expandPredicate consequent
     expandVariable variable = do
-      kind <- expandTcTypeSynonyms expanding (tvKind variable)
-      pure (setTyVarKind kind variable)
+      kind <- expandTcTypeSynonyms expanding (tvbKind variable)
+      pure (mkTyVarBinder (tvbTyVar variable) kind)
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
 inferTypeVariable tvEnv name =
@@ -610,10 +614,9 @@ makeParamEnvWith = go
   where
     go _ [] = pure []
     go tvEnv (binder : rest) = do
-      rawTv <- freshSkolemTv (tyVarBinderName binder)
       kind <- maybe freshKindMeta (kindFromSurfaceType tvEnv) (tyVarBinderKind binder)
-      let tv = setTyVarKind kind rawTv
-          param =
+      tv <- freshSkolemTvOfKind (tyVarBinderName binder) kind
+      let param =
             ParamInfo
               { paramName = tyVarBinderName binder,
                 paramTyVar = tv,
@@ -702,40 +705,12 @@ refineGivenKind kind = do
       where
         recur = rewrite equalities visited
     replace ty left@(TcTyVar a) right@(TcTyVar b)
-      | tvUnique a > tvUnique b, sameType ty left = Just right
-      | tvUnique b > tvUnique a, sameType ty right = Just left
+      | tvUnique a > tvUnique b, ty == left = Just right
+      | tvUnique b > tvUnique a, ty == right = Just left
     replace _ TcTyVar {} TcTyVar {} = Nothing
-    replace ty left@TcTyVar {} right | sameType ty left, not (sameType left right) = Just right
-    replace ty left right@TcTyVar {} | sameType ty right, not (sameType left right) = Just left
+    replace ty left@TcTyVar {} right | ty == left, left /= right = Just right
+    replace ty left right@TcTyVar {} | ty == right, left /= right = Just left
     replace _ _ _ = Nothing
-
--- | Rewrite the kind of every type variable in a type with the equality
--- evidence that is in scope, the way 'refineGivenKind' rewrites one kind.
---
--- A GADT match can refine a kind variable: matching @typeRepKind f@
--- against the @Fun@ pattern gives @k ~ (arg -> res)@, which is what makes
--- @f x@ well kinded for an @f :: k@ bound by an earlier match. The
--- refinement lives in the constraint solver, so a type recorded without it
--- carries the unrefined variable, and a later pass that recomputes kinds
--- with no evidence to hand -- the FC converter -- cannot apply @f@ to
--- anything. Applying the refinement before the type is recorded keeps
--- those passes working from a type whose kinds already agree.
-refineGivenTyVarKinds :: TcType -> TcM TcType
-refineGivenTyVarKinds ty = do
-  predicates <- getGivenPredicates
-  if null [() | EqPred _ _ <- predicates]
-    then pure ty
-    else go ty
-  where
-    go t =
-      case t of
-        TcTyVar tyVar -> do
-          kind <- refineGivenKind (tvKind tyVar)
-          pure (TcTyVar (setTyVarKind kind tyVar))
-        TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM go arguments
-        TcFunTy argument result -> TcFunTy <$> go argument <*> go result
-        TcAppTy function argument -> TcAppTy <$> go function <*> go argument
-        _ -> pure t
 
 -- | Whether a kind is a runtime representation with no variables left in
 -- it, so that a representation-polymorphic variable may take it.
@@ -789,9 +764,13 @@ zonkKind kind =
           zonked <- zonkKind solved
           writeMetaTv unique zonked
           pure zonked
+    -- An occurrence carries no kind of its own. Its binder's kind can
+    -- still hold a solved meta, so refresh the recorded kind and leave the
+    -- occurrence as it is.
     TcTyVar tyVar -> do
-      kind' <- zonkKind (tvKind tyVar)
-      pure (TcTyVar (setTyVarKind kind' tyVar))
+      recorded <- lookupTyVarKind tyVar
+      mapM_ (zonkKind >=> recordTyVarKind tyVar) recorded
+      pure kind
     TcTyCon tyCon arguments -> do
       let tyCon' = tyCon
       maybeSynonym <- lookupKindSynonym tyCon'
@@ -802,9 +781,9 @@ zonkKind kind =
               zonkKind =<< expandTcTypeSynonyms Set.empty (TcTyCon tyCon' arguments)
         _ -> TcTyCon tyCon' <$> mapM zonkKind arguments
     TcFunTy argument result -> TcFunTy <$> zonkKind argument <*> zonkKind result
-    TcForAllTy tyVar body -> do
-      kind' <- zonkKind (tvKind tyVar)
-      TcForAllTy (setTyVarKind kind' tyVar) <$> zonkKind body
+    TcForAllTy binder body -> do
+      binder' <- zonkKindBinder binder
+      TcForAllTy binder' <$> zonkKind body
     TcQualTy predicates body -> TcQualTy <$> mapM zonkKindPred predicates <*> zonkKind body
     TcAppTy function argument -> TcAppTy <$> zonkKind function <*> zonkKind argument
   where
@@ -818,7 +797,14 @@ zonkKind kind =
             <$> mapM zonkVariable variables
             <*> mapM zonkKindPred antecedents
             <*> zonkKindPred consequent
-    zonkVariable variable = setTyVarKind <$> zonkKind (tvKind variable) <*> pure variable
+    zonkVariable = zonkKindBinder
+
+-- | Zonk the kind a binder writes down, and record it.
+zonkKindBinder :: TcTyVarBinder -> TcM TcTyVarBinder
+zonkKindBinder binder = do
+  kind <- zonkKind (tvbKind binder)
+  recordTyVarKind (tvbTyVar binder) kind
+  pure (mkTyVarBinder (tvbTyVar binder) kind)
 
 -- | The synonym declaration of a type constructor in a kind, if it has one.
 --
@@ -863,8 +849,9 @@ settleKindMetas defer kind =
               kinds <- getKinds
               writeMetaTv unique (typeKind kinds) >> pure (typeKind kinds)
     TcTyVar tyVar -> do
-      kind' <- recur (tvKind tyVar)
-      pure (TcTyVar (setTyVarKind kind' tyVar))
+      recorded <- lookupTyVarKind tyVar
+      mapM_ (recur >=> recordTyVarKind tyVar) recorded
+      pure kind
     KTYPE (TcMetaTv representation) -> do
       -- An open representation defaults to lifted, not to 'Type'. The meta
       -- may come from instantiating a representation-polymorphic kind, so
@@ -886,9 +873,9 @@ settleKindMetas defer kind =
           pure (liftedRep kinds)
     TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM recur arguments
     TcFunTy argument result -> TcFunTy <$> recur argument <*> recur result
-    TcForAllTy tyVar body -> do
-      kind' <- recur (tvKind tyVar)
-      TcForAllTy (setTyVarKind kind' tyVar) <$> recur body
+    TcForAllTy binder body -> do
+      binder' <- defaultVariable binder
+      TcForAllTy binder' <$> recur body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultKindPred predicates <*> recur body
     TcAppTy function argument -> TcAppTy <$> recur function <*> recur argument
   where
@@ -903,7 +890,10 @@ settleKindMetas defer kind =
             <$> mapM defaultVariable variables
             <*> mapM defaultKindPred antecedents
             <*> defaultKindPred consequent
-    defaultVariable variable = setTyVarKind <$> recur (tvKind variable) <*> pure variable
+    defaultVariable variable = do
+      kind' <- recur (tvbKind variable)
+      recordTyVarKind (tvbTyVar variable) kind'
+      pure (mkTyVarBinder (tvbTyVar variable) kind')
 
 freshKindMeta :: TcM TcType
 freshKindMeta = do
@@ -916,10 +906,10 @@ occursInKind needle kind =
   case kind of
     TcArrowTy -> False
     TcMetaTv unique -> unique == needle
-    TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
+    TcTyVar {} -> False
     TcTyCon _ arguments -> any (occursInKind needle) arguments
     TcFunTy argument result -> occursInKind needle argument || occursInKind needle result
-    TcForAllTy tyVar body -> occursInKind needle (tvKind tyVar) || occursInKind needle body
+    TcForAllTy binder body -> occursInKind needle (tvbKind binder) || occursInKind needle body
     TcQualTy predicates body -> any occursInPred predicates || occursInKind needle body
     TcAppTy function argument -> occursInKind needle function || occursInKind needle argument
   where
@@ -929,7 +919,7 @@ occursInKind needle kind =
         EqPred left right -> occursInKind needle left || occursInKind needle right
         IParamPred _ payload -> occursInKind needle payload
         QuantifiedPred variables antecedents consequent ->
-          any (occursInKind needle . tvKind) variables
+          any (occursInKind needle . tvbKind) variables
             || any occursInPred antecedents
             || occursInPred consequent
 
@@ -940,7 +930,16 @@ tcTypeKind ty =
     TcArrowTy -> do
       kinds <- getKinds
       pure (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
-    TcTyVar tyVar -> zonkKind (tvKind tyVar)
+    TcTyVar tyVar -> do
+      recorded <- lookupTyVarKind tyVar
+      case recorded of
+        Just recordedKind -> do
+          zonked <- zonkKind recordedKind
+          recordTyVarKind tyVar zonked
+          pure zonked
+        Nothing -> do
+          emitError NoSourceSpan (OtherError ("type variable has no recorded kind: " <> T.unpack (tvName tyVar)))
+          typeKind <$> getKinds
     TcMetaTv unique -> readMetaTvKind unique >>= zonkKind
     TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -953,7 +952,9 @@ tcTypeKind ty =
             pure (foldr KFun (typeKind kinds) (replicate (tyConArity tyCon) (typeKind kinds)))
       foldM applyArgument initialKind arguments
     TcFunTy {} -> typeKind <$> getKinds
-    TcForAllTy _ body -> tcTypeKind body
+    TcForAllTy binder body -> do
+      recordTyVarKind (tvbTyVar binder) (tvbKind binder)
+      tcTypeKind body
     TcQualTy _ _ -> typeKind <$> getKinds
     TcAppTy function argument -> tcTypeKind function >>= (`applyArgument` argument)
   where
@@ -1057,7 +1058,7 @@ surfacePredToPred tvEnv ty = do
                 ]
       antecedents <- mapM (surfaceAtomicPredToPred quantifiedEnv) antecedentTypes
       consequent <- surfaceAtomicPredToPred quantifiedEnv consequentType
-      pure (QuantifiedPred (map paramTyVar params) antecedents consequent)
+      pure (QuantifiedPred (map paramBinder params) antecedents consequent)
 
 surfaceAtomicPredToPred :: TvKindEnv -> Type -> TcM Pred
 surfaceAtomicPredToPred tvEnv ty =

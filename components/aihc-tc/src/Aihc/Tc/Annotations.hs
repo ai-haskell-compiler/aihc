@@ -74,7 +74,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcTyVarBinder (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tvbName, tyConModuleName, tyConNamespace, pattern KType)
 import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -120,7 +120,7 @@ data TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
     tcAnnType :: !TcType,
     -- | Type variables abstracted at this expression.
-    tcAnnTypeBinders :: ![TyVarId],
+    tcAnnTypeBinders :: ![TcTyVarBinder],
     -- | Type arguments made explicit at this occurrence.
     tcAnnTypeArgs :: ![TcType],
     -- | Evidence terms whose dictionaries must be passed at this occurrence.
@@ -255,7 +255,7 @@ instance NFData TcForeignAbiType
 -- ordinary 'TcAnnotation' values after solving.
 data PendingTcAnnotation = PendingTcAnnotation
   { pendingTcAnnType :: !TcType,
-    pendingTcAnnTypeBinders :: ![TyVarId],
+    pendingTcAnnTypeBinders :: ![TcTyVarBinder],
     pendingTcAnnTypeArgs :: ![TcType],
     pendingTcAnnEvidenceVars :: ![EvVar],
     pendingTcAnnEvidenceBinders :: ![EvVar],
@@ -273,7 +273,7 @@ data TcDictBinderAnnotation = TcDictBinderAnnotation
 data TcClassMethodAnnotation = TcClassMethodAnnotation
   { tcClassMethodName :: !Text,
     tcClassMethodType :: !TcType,
-    tcClassMethodTyVars :: ![TyVarId],
+    tcClassMethodTyVars :: ![TcTyVarBinder],
     tcClassMethodDictType :: !TcType,
     tcClassMethodIndex :: !Int
   }
@@ -281,8 +281,8 @@ data TcClassMethodAnnotation = TcClassMethodAnnotation
 
 data TcClassAnnotation = TcClassAnnotation
   { tcClassTyCon :: !TyCon,
-    tcClassKindTyVars :: ![TyVarId],
-    tcClassTyVars :: ![TyVarId],
+    tcClassKindTyVars :: ![TcTyVarBinder],
+    tcClassTyVars :: ![TcTyVarBinder],
     tcClassSuperClasses :: ![TcDictBinderAnnotation],
     tcClassMethods :: ![TcClassMethodAnnotation],
     tcClassDefaultMethods :: ![Text],
@@ -321,13 +321,13 @@ data TcDerivingPlan = TcDerivingPlan
     tcDerivingClassName :: !Text,
     tcDerivingClassTyCon :: !TyCon,
     tcDerivingClassOrigin :: !(Maybe (Text, Text)),
-    tcDerivingTyVars :: ![TyVarId],
+    tcDerivingTyVars :: ![TcTyVarBinder],
     tcDerivingHeadTypes :: ![TcType],
     -- | Checked constructor layout of the final instance-head type, when the
     -- target is a data or newtype constructor known to this compilation.
     tcDerivingDataType :: !(Maybe DataTypeInfo),
     tcDerivingContext :: !TcDerivingContext,
-    tcDerivingClassTyVars :: ![TyVarId],
+    tcDerivingClassTyVars :: ![TcTyVarBinder],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
     tcDerivingClassMethods :: ![TcClassMethodAnnotation],
     tcDerivingDefaultMethods :: ![Text],
@@ -375,7 +375,7 @@ data TcCoercedInstance = TcCoercedInstance
 data TcCoercedMethod = TcCoercedMethod
   { tcCoercedMethodName :: !Text,
     tcCoercedMethodIndex :: !Int,
-    tcCoercedMethodTyVars :: ![TyVarId],
+    tcCoercedMethodTyVars :: ![TcTyVarBinder],
     tcCoercedMethodPredicates :: ![Pred],
     tcCoercedMethodCoercion :: !Coercion
   }
@@ -385,9 +385,9 @@ data TcInstanceAnnotation = TcInstanceAnnotation
   { tcInstanceDictName :: !Text,
     tcInstanceDictType :: !TcType,
     tcInstanceClassTyCon :: !TyCon,
-    tcInstanceTyVars :: ![TyVarId],
+    tcInstanceTyVars :: ![TcTyVarBinder],
     tcInstanceHeadTypes :: ![TcType],
-    tcInstanceClassTyVars :: ![TyVarId],
+    tcInstanceClassTyVars :: ![TcTyVarBinder],
     tcInstanceClassOrigin :: !(Maybe (Text, Text)),
     tcInstanceClassSuperClasses :: ![TcDictBinderAnnotation],
     tcInstanceClassMethods :: ![TcClassMethodAnnotation],
@@ -443,7 +443,7 @@ pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnot
 pendingAnnotation ty typeArgs evidenceVars =
   PendingTcAnnotation ty [] typeArgs evidenceVars []
 
-pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> [EvVar] -> PendingTcAnnotation
+pendingTypeLambdaAnnotation :: TcType -> [TcTyVarBinder] -> [EvVar] -> PendingTcAnnotation
 pendingTypeLambdaAnnotation ty binders evidenceBinders =
   PendingTcAnnotation ty binders [] [] evidenceBinders []
 
@@ -468,7 +468,7 @@ renderPred pred' =
       T.unpack name ++ " ∷ " ++ renderTcType payload
     QuantifiedPred variables antecedents consequent ->
       "∀ "
-        ++ unwords (map (T.unpack . tvName) variables)
+        ++ unwords (map (T.unpack . tvbName) variables)
         ++ ". "
         ++ (if null antecedents then "" else "(" ++ commaSep (map renderPred antecedents) ++ ") ⇒ ")
         ++ renderPred consequent
@@ -509,7 +509,7 @@ renderTcTypeInModule currentModule = go 0
     go p (TcForAllTy tv body) =
       let (tvs, inner) = collectForAlls body
        in parenIf (p >= 1) $
-            "∀ " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
+            "∀ " ++ unwords (map (T.unpack . tvbName) (tv : tvs)) ++ ". " ++ go 0 inner
     go p (TcQualTy preds body) =
       parenIf (p >= 1) $
         "(" ++ commaSep (map showPred preds) ++ ") ⇒ " ++ go 0 body
@@ -555,7 +555,7 @@ renderTcTypeInModule currentModule = go 0
           | otherwise = definingModule <> T.pack "." <> tyConName tyCon
 
 -- | Collect nested forall binders into a list.
-collectForAlls :: TcType -> ([TyVarId], TcType)
+collectForAlls :: TcType -> ([TcTyVarBinder], TcType)
 collectForAlls (TcForAllTy tv body) =
   let (tvs, inner) = collectForAlls body
    in (tv : tvs, inner)

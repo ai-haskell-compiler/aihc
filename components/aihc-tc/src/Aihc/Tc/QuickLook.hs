@@ -16,7 +16,7 @@ module Aihc.Tc.QuickLook
   )
 where
 
-import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, zonkKind)
+import Aihc.Tc.Kind (tcTypeKind, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (reduceTypeFamilies)
@@ -52,7 +52,7 @@ quickLookUnify instantiationVariables = go
         (TcMetaTv _, _) -> pure ()
         (_, TcMetaTv _) -> pure ()
         (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody) ->
-          go leftBody (applySubst (Map.singleton (tvUnique rightVar) (TcTyVar leftVar)) rightBody)
+          go leftBody (applySubst (Map.singleton (tvbUnique rightVar) (tvbType leftVar)) rightBody)
         (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
           | length leftPredicates == length rightPredicates -> go leftBody rightBody
         _ -> do
@@ -66,8 +66,7 @@ quickLookUnify instantiationVariables = go
     -- reports the mismatch. The kinds are zonked as kinds first, which
     -- gives a wired-in constructor its configured identity, so a kind from
     -- an installed interface compares equal to the wired-in kind.
-    bind unique rawType = do
-      ty <- refineGivenTyVarKinds rawType
+    bind unique ty =
       unless (unique `elem` metaVariables ty) $ do
         declaredKind <- readMetaTvKind unique >>= zonkKind
         solvedKind <- tcTypeKind ty >>= zonkKind
@@ -95,6 +94,6 @@ predicateMetaVariables predicate =
     EqPred left right -> metaVariables left <> metaVariables right
     IParamPred _ payload -> metaVariables payload
     QuantifiedPred variables antecedents consequent ->
-      concatMap (metaVariables . tvKind) variables
+      concatMap (metaVariables . tvbKind) variables
         <> concatMap predicateMetaVariables antecedents
         <> predicateMetaVariables consequent

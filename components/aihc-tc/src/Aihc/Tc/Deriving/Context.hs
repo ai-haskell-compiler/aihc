@@ -165,7 +165,7 @@ reusesInstance strategy =
 coercedObligations :: TcKinds -> TcDerivingPlan -> TcType -> [Pred]
 coercedObligations kinds plan source = supers <> methods
   where
-    substitution = Map.fromList (zip (map tvUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
+    substitution = Map.fromList (zip (map tvbUnique (tcDerivingClassTyVars plan)) (tcDerivingHeadTypes plan))
     supers = mapMaybe (constraintTypeToPred kinds . applySubst substitution . tcDictBinderType) (tcDerivingClassSuperClasses plan)
     methods = [ClassPred (tcDerivingClassTyCon plan) (init (tcDerivingHeadTypes plan) <> [source]) | not (null (tcDerivingClassMethods plan))]
 
@@ -192,7 +192,7 @@ inferredContext environment plan =
 
 simplifyPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> Either Pred [Pred]
 simplifyPredicate kinds environment owner predicate
-  | isBareVariablePredicate (tcDerivingTyVars owner) predicate = Right [predicate]
+  | isBareVariablePredicate (map tvbTyVar (tcDerivingTyVars owner)) predicate = Right [predicate]
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
       concat
@@ -258,7 +258,7 @@ anyClassObligations kinds plan =
   where
     substitution =
       Map.fromList
-        [ (tvUnique tyVar, headType)
+        [ (tvbUnique tyVar, headType)
         | (tyVar, headType) <- zip (tcDerivingClassTyVars plan) (tcDerivingHeadTypes plan)
         ]
 
@@ -289,11 +289,11 @@ stockFunctorialFields plan = do
   validateStockDataType mechanism dataType
   parameter <-
     case drop (length targetArguments) (dtiTyVars dataType) of
-      [parameter] -> Right parameter
+      [parameter] -> Right (tvbTyVar parameter)
       _ -> Left (mechanism <> " requires a datatype whose last parameter the instance head leaves out")
   let substitution =
         Map.fromList
-          [ (tvUnique tyVar, argument)
+          [ (tvbUnique tyVar, argument)
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
   pure
@@ -318,7 +318,7 @@ stockFieldTypes plan = do
   validateStockDataType mechanism dataType
   let substitution =
         Map.fromList
-          [ (tvUnique tyVar, argument)
+          [ (tvbUnique tyVar, argument)
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
   pure
@@ -350,10 +350,10 @@ newtypeRepresentation plan = do
   let supplied = length targetArguments
       substitution =
         Map.fromList
-          [ (tvUnique tyVar, argument)
+          [ (tvbUnique tyVar, argument)
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
-      dropped = drop supplied (dtiTyVars dataType)
+      dropped = map tvbTyVar (drop supplied (dtiTyVars dataType))
   case etaReduce dropped (applySubst substitution field) of
     Just representation
       | not (any (`elem` typeTyVars representation) dropped) -> Right representation
@@ -399,7 +399,7 @@ validateStockDataType mechanism dataType
   | otherwise = Right ()
   where
     constructors = dtiConstructors dataType
-    expectedResult = TcTyCon (dtiTyCon dataType) (map TcTyVar (dtiTyVars dataType))
+    expectedResult = TcTyCon (dtiTyCon dataType) (map tvbType (dtiTyVars dataType))
 
 moduleDerivingPlans :: Module -> [TcDerivingPlan]
 moduleDerivingPlans = concatMap declDerivingPlans . moduleDecls
@@ -496,7 +496,7 @@ isBareVariablePredicate tyVars predicate =
 isAdmissibleContextPredicate :: TcDerivingPlan -> Pred -> Bool
 isAdmissibleContextPredicate plan predicate =
   not (null mentionedVariables)
-    && all (`elem` tcDerivingTyVars plan) mentionedVariables
+    && all (`elem` map tvbTyVar (tcDerivingTyVars plan)) mentionedVariables
     && maybe True (not . predicateMentionsTyCon predicate) (derivedTargetTyCon plan)
   where
     mentionedVariables = predTyVars predicate
@@ -534,7 +534,7 @@ predTyVars :: Pred -> [TyVarId]
 predTyVars predicate =
   case predicate of
     QuantifiedPred variables antecedents consequent ->
-      filter (`notElem` variables) (nub (concatMap predTyVars antecedents <> predTyVars consequent))
+      filter (`notElem` map tvbTyVar variables) (nub (concatMap predTyVars antecedents <> predTyVars consequent))
     _ -> nub (concatMap typeTyVars (predArguments predicate))
 
 typeTyVars :: TcType -> [TyVarId]
@@ -545,6 +545,6 @@ typeTyVars ty =
     TcArrowTy -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
-    TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
+    TcForAllTy binder body -> typeTyVars (tvbKind binder) <> filter (/= tvbTyVar binder) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument

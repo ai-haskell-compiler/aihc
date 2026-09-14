@@ -150,7 +150,8 @@ Use `let` and `rec` for local groups.
 Use `val` for top-level values.
 Use `type T { cons }` for data types.
 Use `axiom` for axioms.
-Use `e ▷ γ` for cast.
+Use `e ▷ γ` for a term cast.
+Use `(τ ▷ γ)` for a type cast, always parenthesised.
 Use `foreign {convention deps name :: type} @t... e...` for a foreign call.
 `[]` and `:` are ordinary names.
 
@@ -190,6 +191,23 @@ The result type is the right side.
 --------------------
 Γ ⊢ e ▷ γ : τ2
 ```
+
+A type carries a cast the same way, and its kind is the right side of the
+coercion. A GADT match can give an equality between kinds -- the `Fun`
+pattern of `Type.Reflection` gives `k ~ (arg -> res)` -- and inside the
+branch a variable `f : k` is applied like a function. The kind belongs to
+the binder, which the match does not rewrite, so the occurrence carries the
+evidence instead.
+
+```text
+Γ ⊢ τ : κ1
+Γ ⊢ γ : κ1 ~ κ2
+--------------------
+Γ ⊢ (τ ▷ γ) : κ2
+```
+
+Casts are irrelevant to type equality, as they are in GHC: two types that
+differ only in their casts are one type.
 
 An axiom prints its role as `~N` or `~R`.
 
@@ -232,11 +250,9 @@ Hedgehog checks `parseProgram . renderProgram = id` on self-contained programs.
 
 A golden fixture passes Fc lint by default. A fixture may set `lint: xfail`
 to pin the Core of a program the lint rejects for a defect the compiler
-cannot fix yet, such as a kind that only scoped equality evidence refines:
-Fc types have no cast, so the coercion cannot be written. Such a fixture
-needs a `reason` naming the defect, and it still compares `expected`, so
-the Core is checked exactly. Once the lint accepts the program the fixture
-fails and asks for the key to be dropped.
+cannot fix yet. Such a fixture needs a `reason` naming the defect, and it
+still compares `expected`, so the Core is checked exactly. Once the lint
+accepts the program the fixture fails and asks for the key to be dropped.
 
 ## install
 

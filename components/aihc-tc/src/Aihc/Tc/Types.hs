@@ -5,17 +5,16 @@
 -- | Core type representation for the type checker.
 module Aihc.Tc.Types
   ( Unique (..),
-    TyVarId (TyVarId, tvName, tvUnique),
+    TyVarId (..),
     mkTyVarId,
-    tvKind,
-    sameTyVar,
-    TypeShape,
-    PredShape,
-    typeShape,
-    predShape,
-    sameType,
-    samePred,
-    setTyVarKind,
+    TcTyVarBinder (..),
+    mkTyVarBinder,
+    tvbName,
+    tvbUnique,
+    tvbType,
+    mapTyVarBinderKind,
+    tyVarBinderKinds,
+    TcTyVarKinds,
     TcType (..),
     isPolyType,
     TcTypeKey,
@@ -113,36 +112,60 @@ newtype Unique = Unique Int
 
 instance NFData Unique
 
--- | A type variable and its type-level kind. Equality is structural: two
--- occurrences of one variable whose kinds differ (a GADT match can refine
--- the kind of a variable in scope) are two values. Code that asks whether
--- two occurrences are the same variable uses 'sameTyVar'.
-data TyVarId = TyVarIdInternal !Text !Unique !TcType
+-- | A type variable: a name and a unique, and nothing else.
+--
+-- A variable carries no kind. Its kind is written once, at the binder
+-- that introduces it ('TcTyVarBinder'), and every occurrence reads it
+-- from there. Two occurrences of one variable are therefore one value,
+-- and structural equality is the only equality the checker needs.
+data TyVarId = TyVarId
+  { tvName :: !Text,
+    tvUnique :: !Unique
+  }
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TyVarId
 
--- The identity of a variable: its name and unique, without its kind.
-tyVarIdentity :: TyVarId -> (Unique, Text)
-tyVarIdentity (TyVarIdInternal name unique _) = (unique, name)
+-- | A type variable of one name and unique.
+mkTyVarId :: Text -> Unique -> TyVarId
+mkTyVarId = TyVarId
 
--- | A type variable is matched by its name and its unique. Its kind is
--- read with 'tvKind' and given with 'mkTyVarId': the module knows no kind
--- vocabulary of its own, so it has no kind to default to.
-pattern TyVarId :: Text -> Unique -> TyVarId
-pattern TyVarId {tvName, tvUnique} <- TyVarIdInternal tvName tvUnique _
+-- | A bound type variable together with its kind.
+--
+-- Quantifiers, type schemes and the interface infos bind variables with
+-- these. A pass that refines a kind rewrites the binder, so the variable
+-- never has two kinds at once.
+data TcTyVarBinder = TcTyVarBinder
+  { tvbTyVar :: !TyVarId,
+    tvbKind :: !TcType
+  }
+  deriving (Eq, Ord, Show, Read, Generic)
 
-{-# COMPLETE TyVarId #-}
+instance NFData TcTyVarBinder
 
--- | A type variable of one name, unique and kind.
-mkTyVarId :: Text -> Unique -> TcType -> TyVarId
-mkTyVarId = TyVarIdInternal
+mkTyVarBinder :: TyVarId -> TcType -> TcTyVarBinder
+mkTyVarBinder = TcTyVarBinder
 
-tvKind :: TyVarId -> TcType
-tvKind (TyVarIdInternal _ _ kind) = kind
+tvbName :: TcTyVarBinder -> Text
+tvbName = tvName . tvbTyVar
 
-setTyVarKind :: TcType -> TyVarId -> TyVarId
-setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
+tvbUnique :: TcTyVarBinder -> Unique
+tvbUnique = tvUnique . tvbTyVar
+
+-- | The type that is one occurrence of the bound variable.
+tvbType :: TcTyVarBinder -> TcType
+tvbType = TcTyVar . tvbTyVar
+
+mapTyVarBinderKind :: (TcType -> TcType) -> TcTyVarBinder -> TcTyVarBinder
+mapTyVarBinderKind f binder = binder {tvbKind = f (tvbKind binder)}
+
+-- | The kinds of type variables in scope, by unique. This is what a pass
+-- that has no type checker environment -- the System FC converter, the
+-- lint -- reads an occurrence's kind from.
+type TcTyVarKinds = Map Unique TcType
+
+tyVarBinderKinds :: [TcTyVarBinder] -> TcTyVarKinds
+tyVarBinderKinds binders = Map.fromList [(tvbUnique binder, tvbKind binder) | binder <- binders]
 
 -- | A type-constructor identity. Kind schemes live in the type-constructor environment.
 data TyCon = TyConInternal !PackageId !Text !ResolutionNamespace !Text !Int
@@ -214,14 +237,14 @@ data TcType
     -- 'TcArrowTy' domain@, and nothing else may spell either.
     TcArrowTy
   | TcFunTy !TcType !TcType
-  | TcForAllTy !TyVarId !TcType
+  | TcForAllTy !TcTyVarBinder !TcType
   | TcQualTy ![Pred] !TcType
   | TcAppTy !TcType !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TcType
 
-data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
+data TypeScheme = ForAll ![TcTyVarBinder] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TypeScheme
@@ -242,7 +265,7 @@ typeSchemeBody (ForAll _ _ body) = body
 data Pred
   = ClassPred !TyCon ![TcType]
   | EqPred !TcType !TcType
-  | QuantifiedPred ![TyVarId] ![Pred] !Pred
+  | QuantifiedPred ![TcTyVarBinder] ![Pred] !Pred
   | -- | An implicit parameter such as @?x :: Int@. The name keeps its @?@ prefix.
     IParamPred !Text !TcType
   deriving (Eq, Ord, Show, Read, Generic)
@@ -291,7 +314,7 @@ isEqualityTyCon kinds tyCon =
 isImplicitParamTyConName :: Text -> Bool
 isImplicitParamTyConName = T.isPrefixOf "?"
 
-collectForAllTypes :: TcType -> ([TyVarId], TcType)
+collectForAllTypes :: TcType -> ([TcTyVarBinder], TcType)
 collectForAllTypes (TcForAllTy variable body) =
   let (variables, result) = collectForAllTypes body
    in (variable : variables, result)
@@ -404,12 +427,16 @@ dataConstructorList kinds = foldr cons nil
     cons field rest = TcTyCon (kindsConsDataCon kinds) [field, rest]
 
 -- | Get a type kind from the complete type-constructor identity table.
-typeKindInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
+typeKindInEnv :: TcKinds -> TcKindEnv -> TcTyVarKinds -> TcType -> Either String TcType
 typeKindInEnv kinds kindEnv = go
   where
-    go rawType =
+    go scope rawType =
       case rawType of
-        TcTyVar tyVar -> Right (tvKind tyVar)
+        TcTyVar tyVar ->
+          maybe
+            (Left ("type variable is not in scope: " <> T.unpack (tvName tyVar)))
+            Right
+            (Map.lookup (tvUnique tyVar) scope)
         TcMetaTv {} -> Left "type still has a meta variable"
         TcTyCon tyCon arguments -> do
           scheme <-
@@ -417,35 +444,35 @@ typeKindInEnv kinds kindEnv = go
               (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
               Right
               (Map.lookup (tyConKey tyCon) kindEnv)
-          applyArguments scheme arguments
+          applyArguments scope scheme arguments
         TcArrowTy -> Right (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
         TcFunTy {} -> Right (typeKind kinds)
-        TcForAllTy _ body -> go body
-        TcQualTy _ body -> go body
+        TcForAllTy binder body -> go (Map.insert (tvbUnique binder) (tvbKind binder) scope) body
+        TcQualTy _ body -> go scope body
         TcAppTy function argument -> do
-          functionKind <- go function
-          applyKind functionKind argument
+          functionKind <- go scope function
+          applyKind scope functionKind argument
 
-    applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) body
+    applyArguments scope (ForAll quantified _ body) = applyMany scope (map tvbUnique quantified) body
 
-    applyMany _ kind [] = Right kind
-    applyMany quantified kind (argument : rest) = do
-      kind' <- applyKindWith quantified kind argument
-      applyMany quantified kind' rest
+    applyMany _ _ kind [] = Right kind
+    applyMany scope quantified kind (argument : rest) = do
+      kind' <- applyKindWith scope quantified kind argument
+      applyMany scope quantified kind' rest
 
-    applyKind = applyKindWith []
+    applyKind scope = applyKindWith scope []
 
-    applyKindWith quantified (TcFunTy formal result) argument = do
-      actual <- go argument
+    applyKindWith scope quantified (TcFunTy formal result) argument = do
+      actual <- go scope argument
       substitution <- matchKinds quantified (argumentKindVariables argument) formal actual
       Right (applySubst substitution result)
-    applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
+    applyKindWith _ _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
 
     argumentKindVariables argument =
       case argument of
         TcTyCon tyCon _ ->
           case Map.lookup (tyConKey tyCon) kindEnv of
-            Just (ForAll variables _ _) -> map tvUnique variables
+            Just (ForAll variables _ _) -> map tvbUnique variables
             Nothing -> []
         TcAppTy function _ -> argumentKindVariables function
         _ -> []
@@ -469,12 +496,13 @@ typeKindInEnv kinds kindEnv = go
       where
         recur = matchKinds quantified argumentQuantified
 
-runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
-runtimeRepOfTypeInEnv kinds kindEnv ty = typeKindInEnv kinds kindEnv ty >>= runtimeRepFromKind
+runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcTyVarKinds -> TcType -> Either String TcType
+runtimeRepOfTypeInEnv kinds kindEnv tyVarKinds ty =
+  typeKindInEnv kinds kindEnv tyVarKinds ty >>= runtimeRepFromKind
 
-isUnliftedTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Bool
-isUnliftedTypeInEnv kinds kindEnv ty =
-  case runtimeRepOfTypeInEnv kinds kindEnv ty of
+isUnliftedTypeInEnv :: TcKinds -> TcKindEnv -> TcTyVarKinds -> TcType -> Bool
+isUnliftedTypeInEnv kinds kindEnv tyVarKinds ty =
+  case runtimeRepOfTypeInEnv kinds kindEnv tyVarKinds ty of
     Right representation -> not (matchesLiftedRuntimeRep representation)
     Left _ -> False
 
@@ -484,13 +512,15 @@ applySubst substitution = go
   where
     go ty =
       case ty of
-        TcTyVar tyVar -> Map.findWithDefault (TcTyVar (setTyVarKind (go (tvKind tyVar)) tyVar)) (tvUnique tyVar) substitution
+        TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
         TcMetaTv {} -> ty
         TcArrowTy -> ty
         TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
-        TcForAllTy tyVar body ->
-          TcForAllTy (setTyVarKind (go (tvKind tyVar)) tyVar) (applySubst (Map.delete (tvUnique tyVar) substitution) body)
+        TcForAllTy binder body ->
+          TcForAllTy
+            (mapTyVarBinderKind go binder)
+            (applySubst (Map.delete (tvbUnique binder) substitution) body)
         TcQualTy predicates body -> TcQualTy (map (applySubstPred substitution) predicates) (go body)
         TcAppTy function argument -> mkAppTy (go function) (go argument)
 
@@ -502,112 +532,66 @@ applySubstPred substitution predicate =
     EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
     IParamPred name payload -> IParamPred name (applySubst substitution payload)
     QuantifiedPred variables antecedents consequent ->
-      let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
+      let scopedSubstitution = foldr (Map.delete . tvbUnique) substitution variables
        in QuantifiedPred
-            [setTyVarKind (applySubst scopedSubstitution (tvKind variable)) variable | variable <- variables]
+            (map (mapTyVarBinderKind (applySubst scopedSubstitution)) variables)
             (map (applySubstPred scopedSubstitution) antecedents)
             (applySubstPred scopedSubstitution consequent)
 
 -- | Whether a type mentions one type variable.
 --
--- A type variable can occur in the kind of another type variable. An
--- escape check must find that occurrence, so the walk looks in each kind
--- that it finds.
-typeMentionsTyVar :: TyVarId -> TcType -> Bool
-typeMentionsTyVar target ty =
+-- A type variable can occur in the kind of another variable, and a type
+-- that mentions @a :: TYPE r@ therefore mentions @r@ as well. An
+-- occurrence carries no kind, so the kinds of the variables the caller
+-- knows about are given: the walk looks in the kind of every variable it
+-- finds there, and in the kind each quantifier writes down.
+typeMentionsTyVar :: TcTyVarKinds -> TyVarId -> TcType -> Bool
+typeMentionsTyVar tyVarKinds target ty =
   case ty of
-    TcTyVar tyVar -> sameTyVar tyVar target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
+    TcTyVar tyVar ->
+      tyVar == target
+        || maybe False (kindMentionsUnique (tvUnique target)) (Map.lookup (tvUnique tyVar) tyVarKinds)
     TcMetaTv {} -> False
     TcArrowTy -> False
-    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
-    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
-    TcForAllTy tyVar body -> not (sameTyVar tyVar target) && typeMentionsTyVar target body
-    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
-    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+    TcTyCon _ arguments -> any recur arguments
+    TcFunTy argument result -> recur argument || recur result
+    TcForAllTy binder body ->
+      recur (tvbKind binder)
+        || (tvbTyVar binder /= target && recur body)
+    TcQualTy predicates body -> any (predicateMentionsTyVar tyVarKinds target) predicates || recur body
+    TcAppTy function argument -> recur function || recur argument
+  where
+    recur = typeMentionsTyVar tyVarKinds target
 
 -- | Whether a predicate mentions one type variable.
-predicateMentionsTyVar :: TyVarId -> Pred -> Bool
-predicateMentionsTyVar target predicate =
+predicateMentionsTyVar :: TcTyVarKinds -> TyVarId -> Pred -> Bool
+predicateMentionsTyVar tyVarKinds target predicate =
   case predicate of
-    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
-    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
-    IParamPred _ payload -> typeMentionsTyVar target payload
+    ClassPred _ arguments -> any recur arguments
+    EqPred left right -> recur left || recur right
+    IParamPred _ payload -> recur payload
     QuantifiedPred variables antecedents consequent ->
-      not (any (sameTyVar target) variables)
-        && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
+      any (recur . tvbKind) variables
+        || ( notElem target (map tvbTyVar variables)
+               && ( any (predicateMentionsTyVar tyVarKinds target) antecedents
+                      || predicateMentionsTyVar tyVarKinds target consequent
+                  )
+           )
+  where
+    recur = typeMentionsTyVar tyVarKinds target
 
--- | Whether two occurrences are one variable. Occurrences of a variable can
--- carry different kinds (a given kind refinement rewrites the kinds of the
--- occurrences it reaches), so this asks about the identity, not 'Eq'.
-sameTyVar :: TyVarId -> TyVarId -> Bool
-sameTyVar left right = tyVarIdentity left == tyVarIdentity right
-
--- | A type with the kinds of its variables left out: what the solver means
--- by one type. Two types of one shape are the same type however their
--- variable occurrences are kinded, so a shape is the key to use where types
--- are matched against one another. 'Eq' on 'TcType' is finer: it tells two
--- differently kinded occurrences of a variable apart.
-data TypeShape
-  = ShapeTyVar !Unique !Text
-  | ShapeMetaTv !Unique
-  | ShapeTyCon !TyCon ![TypeShape]
-  | ShapeArrowTy
-  | ShapeFunTy !TypeShape !TypeShape
-  | ShapeForAllTy !Unique !Text !TypeShape
-  | ShapeQualTy ![PredShape] !TypeShape
-  | ShapeAppTy !TypeShape !TypeShape
-  deriving (Eq, Ord, Show)
-
--- | A predicate with the kinds of its variables left out.
-data PredShape
-  = ShapeClassPred !TyCon ![TypeShape]
-  | ShapeEqPred !TypeShape !TypeShape
-  | ShapeQuantifiedPred ![(Unique, Text)] ![PredShape] !PredShape
-  | ShapeIParamPred !Text !TypeShape
-  deriving (Eq, Ord, Show)
-
-typeShape :: TcType -> TypeShape
-typeShape ty =
-  case ty of
-    TcTyVar tyVar -> ShapeTyVar (tvUnique tyVar) (tvName tyVar)
-    TcMetaTv unique -> ShapeMetaTv unique
-    TcTyCon tyCon arguments -> ShapeTyCon tyCon (map typeShape arguments)
-    TcArrowTy -> ShapeArrowTy
-    TcFunTy argument result -> ShapeFunTy (typeShape argument) (typeShape result)
-    TcForAllTy tyVar body -> ShapeForAllTy (tvUnique tyVar) (tvName tyVar) (typeShape body)
-    TcQualTy predicates body -> ShapeQualTy (map predShape predicates) (typeShape body)
-    TcAppTy function argument -> ShapeAppTy (typeShape function) (typeShape argument)
-
-predShape :: Pred -> PredShape
-predShape predicate =
-  case predicate of
-    ClassPred tyCon arguments -> ShapeClassPred tyCon (map typeShape arguments)
-    EqPred left right -> ShapeEqPred (typeShape left) (typeShape right)
-    QuantifiedPred variables antecedents consequent ->
-      ShapeQuantifiedPred (map tyVarIdentity variables) (map predShape antecedents) (predShape consequent)
-    IParamPred name payload -> ShapeIParamPred name (typeShape payload)
-
--- | Whether two types are one type, whatever kinds their variable
--- occurrences carry.
-sameType :: TcType -> TcType -> Bool
-sameType left right = typeShape left == typeShape right
-
--- | Whether two predicates are one predicate, whatever kinds their
--- variable occurrences carry.
-samePred :: Pred -> Pred -> Bool
-samePred left right = predShape left == predShape right
-
--- | Whether a kind mentions one unique. A type variable matches by its
--- unique alone, because a kind can hold a different copy of it.
+-- | Whether a kind mentions one unique.
 kindMentionsUnique :: Unique -> TcType -> Bool
 kindMentionsUnique target kind =
   case kind of
-    TcTyVar tyVar -> tvUnique tyVar == target || kindMentionsUnique target (tvKind tyVar)
+    TcTyVar tyVar -> tvUnique tyVar == target
     TcMetaTv unique -> unique == target
     TcArrowTy -> False
     TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
-    TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
+    TcForAllTy binder body ->
+      kindMentionsUnique target (tvbKind binder)
+        || (tvbUnique binder /= target && kindMentionsUnique target body)
     TcQualTy predicates body -> any (predicateMentionsUnique target) predicates || kindMentionsUnique target body
     TcAppTy function argument -> kindMentionsUnique target function || kindMentionsUnique target argument
   where
@@ -617,8 +601,9 @@ kindMentionsUnique target kind =
         EqPred left right -> kindMentionsUnique unique left || kindMentionsUnique unique right
         IParamPred _ payload -> kindMentionsUnique unique payload
         QuantifiedPred variables antecedents consequent ->
-          all ((/= unique) . tvUnique) variables
-            && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)
+          any (kindMentionsUnique unique . tvbKind) variables
+            || all ((/= unique) . tvbUnique) variables
+              && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)
 
 -- The kind patterns recognise a kind by its namespace and its name, so
 -- that a kind built here and a kind resolved from an interface match each
@@ -816,10 +801,10 @@ data TcTypeApplicationKinds = TcTypeApplicationKinds
   }
   deriving (Eq, Show, Read)
 
-typeApplicationKinds :: TcKinds -> TcKindEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
-typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
+typeApplicationKinds :: TcKinds -> TcKindEnv -> TcTyVarKinds -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
+typeApplicationKinds kinds kindEnv tyVarKinds tyCon arguments expectedKind = do
   ForAll quantified _ resultKind <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
-  let quantifiedUniques = map tvUnique quantified
+  let quantifiedUniques = map tvbUnique quantified
       (argumentSubstitution, remainingKind, skipped) = go quantifiedUniques 0 Map.empty resultKind arguments
       resultSubstitution =
         case expectedKind of
@@ -831,7 +816,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
     argumentKinds (KFun argument result) = argument : argumentKinds result
     argumentKinds _ = []
     go quantifiedUniques position substitution (KFun formal result) (argument : rest) =
-      case typeKindInEnv kinds kindEnv argument of
+      case typeKindInEnv kinds kindEnv tyVarKinds argument of
         Right argumentKind ->
           let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
            in go quantifiedUniques (position + 1) (substitution <> found) (applySubst found result) rest

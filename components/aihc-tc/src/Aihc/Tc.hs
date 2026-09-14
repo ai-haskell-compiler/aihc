@@ -52,6 +52,7 @@ module Aihc.Tc
     mergeTcInterface,
     mergeTcInterfaces,
     unionTcInterfaces,
+    interfaceTyVarKinds,
     restrictTcInterfaceToModules,
     tcInterfaceBindings,
 
@@ -73,7 +74,13 @@ module Aihc.Tc
     tyConPackageId,
     tyConModuleName,
     TyVarId (..),
-    tvKind,
+    TcTyVarBinder (..),
+    mkTyVarBinder,
+    tvbName,
+    tvbUnique,
+    tvbType,
+    tyVarBinderKinds,
+    TcTyVarKinds,
     TypeScheme (..),
     Pred (..),
     InstanceInfo (..),
@@ -151,11 +158,12 @@ import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..), ReferencePackage (..), StockClassLocation (..), derivingReferenceList)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
+import Aihc.Tc.Rename (renameInterfaceTyVars)
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
@@ -166,6 +174,7 @@ import Control.DeepSeq (NFData)
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data)
+import Data.IntMap.Strict qualified as IntMap
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -471,19 +480,84 @@ typecheckModuleSccWithInterface config imported units =
       (checkedModules, finalState) = typecheckModuleSccWithState config initialState units
    in (checkedModules, tcInterfaceDifference initialState finalState)
 
+-- | The state a module starts from, with the facts of its imports.
+--
+-- The variables of the imported facts are renumbered first. A unique is
+-- only unique within the run that allocated it, and the checker reads the
+-- kind of a variable by looking the variable up, so two imported modules
+-- that each numbered a variable 6 would be one variable with two kinds.
+-- Renumbering makes every variable of this run distinct, and the unique
+-- supply starts above them.
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
   initTcState
-    { tcsGlobalTerms = Map.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
-      tcsGlobalTyCons = tcInterfaceTyConMap imported <> tcsGlobalTyCons initTcState,
-      tcsDataTypes = tcInterfaceDataTypeMap imported,
-      tcsClasses = tcInterfaceClassMap imported,
-      tcsInstances = instanceEnvFromList (tcInterfaceInstances imported),
-      tcsDataFamilyInstances = tcInterfaceDataFamilyInstanceMap imported,
-      tcsTypeFamilyInstances = tcInterfaceTypeFamilyInstanceMap imported,
-      tcsPatSyns = tcInterfacePatSynMap imported,
+    { tcsNextUnique = nextUnique,
+      tcsTyVarKinds = IntMap.fromList [(key, kind) | (Unique key, kind) <- Map.toList importedKinds],
+      tcsGlobalTerms = Map.map (`TcIdBinder` Closed) terms <> tcsGlobalTerms initTcState,
+      tcsGlobalTyCons = tyCons <> tcsGlobalTyCons initTcState,
+      tcsDataTypes = dataTypes,
+      tcsClasses = classes,
+      tcsInstances = instanceEnvFromList (Map.elems instances),
+      tcsDataFamilyInstances = dataFamilies,
+      tcsTypeFamilyInstances = typeFamilies,
+      tcsPatSyns = patSyns,
       tcsForeignImports = tcInterfaceForeignImportMap imported
     }
+  where
+    (terms, tyCons, dataTypes, classes, instances, dataFamilies, typeFamilies, patSyns, importedKinds, nextUnique) =
+      renameInterfaceTyVars
+        (tcsNextUnique initTcState)
+        (tcInterfaceTermMap imported)
+        (tcInterfaceTyConMap imported)
+        (tcInterfaceDataTypeMap imported)
+        (tcInterfaceClassMap imported)
+        (tcInterfaceInstanceMap imported)
+        (tcInterfaceDataFamilyInstanceMap imported)
+        (tcInterfaceTypeFamilyInstanceMap imported)
+        (tcInterfacePatSynMap imported)
+
+-- | The kind of every type variable an interface fact binds at its head.
+--
+-- A variable's kind is written at its binder, so a pass that has only an
+-- occurrence in hand reads it from here. A quantifier inside a type binds
+-- its own variable and the reader of that type meets the binder on the way
+-- in, so only the heads are collected: the binder lists of the facts and
+-- the variables their kinds mention.
+interfaceTyVarKinds :: TcInterface -> TcTyVarKinds
+interfaceTyVarKinds imported =
+  Map.fromList [(tvbUnique binder, tvbKind binder) | binder <- binders]
+  where
+    binders =
+      concatMap (schemeBinders . snd) (Map.toList (tcInterfaceTermMap imported))
+        <> concatMap tyConBinders (tcInterfaceTyCons imported)
+        <> concatMap dataTypeBinders (tcInterfaceDataTypes imported)
+        <> concatMap classBinders (tcInterfaceClasses imported)
+        <> concatMap (heads . iiTyVars) (tcInterfaceInstances imported)
+        <> concatMap (heads . dfiiTyVars) (tcInterfaceDataFamilyInstances imported)
+        <> concatMap (heads . tfiiTyVars) (tcInterfaceTypeFamilyInstances imported)
+        <> concatMap (schemeBinders . psiScheme) (tcInterfacePatSyns imported)
+
+    tyConBinders info =
+      schemeBinders (tciKindScheme info) <> maybe [] (heads . tsiParams) (tciTypeSynonym info)
+    dataTypeBinders info =
+      heads (dtiTyVars info) <> concatMap dataConBinders (dtiConstructors info)
+    dataConBinders info = heads (dciUnivTyVars info) <> heads (dciExTyVars info)
+    classBinders info =
+      heads (ciKindTyVars info)
+        <> heads (ciTyVars info)
+        <> concatMap (schemeBinders . snd) (ciMethods info)
+        <> concatMap (schemeBinders . snd) (ciDefaultSignatures info)
+    schemeBinders (ForAll variables _ _) = heads variables
+
+    -- A binder's own kind can bind further variables, as @(a :: k)@ does.
+    heads = concatMap (\binder -> binder : kindBinders (tvbKind binder))
+    kindBinders ty =
+      case ty of
+        TcForAllTy binder body -> heads [binder] <> kindBinders body
+        TcTyCon _ arguments -> concatMap kindBinders arguments
+        TcFunTy argument result -> kindBinders argument <> kindBinders result
+        TcAppTy function argument -> kindBinders function <> kindBinders argument
+        _ -> []
 
 tcInterfaceDifference :: TcState -> TcState -> TcInterface
 tcInterfaceDifference initial state =

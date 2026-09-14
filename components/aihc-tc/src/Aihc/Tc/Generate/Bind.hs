@@ -192,7 +192,7 @@ annotateRecursiveOccurrences binders decls = do
               case Map.lookup key schemes of
                 Just (ForAll tyVars predicates body) -> do
                   evidenceVars <- mapM givenEvidence predicates
-                  let pending = pendingAnnotation body (map TcTyVar tyVars) evidenceVars []
+                  let pending = pendingAnnotation body (map tvbType tyVars) evidenceVars []
                       annotated = case mapMaybe fromAnnotation (nameAnns name) of
                         sp : _ -> EAnn (mkAnnotation (sp :: SourceSpan)) (EAnn (mkAnnotation pending) (EVar name))
                         [] -> EAnn (mkAnnotation pending) (EVar name)

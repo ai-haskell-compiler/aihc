@@ -85,7 +85,7 @@ renderClassAnnotation classAnnotation =
         <> unwords (map classParamName (fdDetermined dependency))
     classParamName index =
       case drop index (tcClassTyVars classAnnotation) of
-        variable : _ -> T.unpack (tvName variable)
+        variable : _ -> T.unpack (tvbName variable)
         [] -> "?"
 
 renderClassMethod :: TcClassMethodAnnotation -> String
@@ -259,7 +259,7 @@ renderEvTerm ev =
     EvTypeable _ ty _ _ arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
     EvTypeLam variable body ->
-      "Λ" <> T.unpack (tvName variable) <> ". " <> renderEvTerm body
+      "Λ" <> T.unpack (tvbName variable) <> ". " <> renderEvTerm body
     EvDictLam predicate _ body ->
       "λ(_ ∷ " <> renderPred predicate <> "). " <> renderEvTerm body
     EvTypeApp function argument ->
@@ -304,7 +304,7 @@ renderPred pred' =
     IParamPred name payload -> T.unpack name <> " ∷ " <> renderTcType payload
     QuantifiedPred variables antecedents consequent ->
       "forall "
-        <> unwords (map (T.unpack . tvName) variables)
+        <> unwords (map (T.unpack . tvbName) variables)
         <> ". "
         <> (if null antecedents then "" else "(" <> intercalate ", " (map renderPred antecedents) <> ") => ")
         <> renderPred consequent

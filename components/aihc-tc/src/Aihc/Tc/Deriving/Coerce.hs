@@ -80,7 +80,7 @@ coercionBetween equations rawSource rawTarget = go [] (normalize rawSource) (nor
            | equation <- equations,
              Just substitution <- [matchTypes [tfiiLeft equation] [target]],
              normalize (applySubst substitution (tfiiRight equation)) == source,
-             let arguments = map (applySubst substitution . TcTyVar) (tfiiTyVars equation)
+             let arguments = map (applySubst substitution . tvbType) (tfiiTyVars equation)
            ] of
         proof : _ -> Just proof
         [] -> Nothing
@@ -111,7 +111,7 @@ newtypeUnwrapping ty =
             length arguments == length (dtiTyVars dataType),
             [con] <- dtiConstructors dataType,
             [field] <- dciFields con -> do
-              let substitution = Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)
+              let substitution = Map.fromList (zip (map tvbUnique (dtiTyVars dataType)) arguments)
               axiom <- newtypeAxiom constructor dataType arguments
               pure (Just (normalize (applySubst substitution (dcfiType field)), axiom))
         _ -> pure Nothing
@@ -122,8 +122,8 @@ newtypeUnwrapping ty =
 newtypeAxiom :: TyCon -> DataTypeInfo -> [TcType] -> TcM Coercion
 newtypeAxiom constructor dataType arguments = do
   argumentKinds <- mapM tcTypeKind arguments
-  let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (dtiTyVars dataType)) argumentKinds)
-      kindVariables = filter (`notElem` dtiTyVars dataType) (nub (concatMap (typeTyVars . tvKind) (dtiTyVars dataType)))
+  let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvbKind (dtiTyVars dataType)) argumentKinds)
+      kindVariables = filter (`notElem` map tvbTyVar (dtiTyVars dataType)) (nub (concatMap (typeTyVars . tvbKind) (dtiTyVars dataType)))
       kindArguments = map (applySubst kindSubstitution . TcTyVar) kindVariables
       key = TcAxiomKey (tyConPackageId constructor) (tyConModuleName constructor) ("$ax$" <> dtiName dataType)
   pure (AxiomInstCo key (kindArguments <> arguments))

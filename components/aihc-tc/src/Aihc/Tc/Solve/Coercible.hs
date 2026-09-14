@@ -70,7 +70,7 @@ solveCoercible = go [] False
               visible <- isTermVisible (TcTermGlobal package moduleName' (dciName con))
               pure
                 ( if visible
-                    then Just (applySubst (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
+                    then Just (applySubst (Map.fromList (zip (map tvbUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
                     else Nothing
                 )
         _ -> pure Nothing
@@ -118,8 +118,8 @@ representationParameter visited constructor index
         Just dataType
           | index < length (dtiTyVars dataType),
             not (or (take 1 (drop index (dtiNominalRoles dataType)))) -> do
-              let parameter = dtiTyVars dataType !! index
-                  expected = TcTyCon constructor (map TcTyVar (dtiTyVars dataType))
+              let parameter = tvbTyVar (dtiTyVars dataType !! index)
+                  expected = TcTyCon constructor (map tvbType (dtiTyVars dataType))
               and <$> mapM (checkConstructor parameter expected) (dtiConstructors dataType)
           | otherwise -> pure False
         Nothing -> pure False
@@ -134,7 +134,7 @@ representationParameter visited constructor index
 
 representationPosition :: [(TyCon, Int)] -> TyVarId -> TcType -> TcM Bool
 representationPosition visited variable ty = case ty of
-  TcTyVar binder -> pure (not (mentions variable (tvKind binder)))
+  TcTyVar {} -> pure True
   TcMetaTv _ -> pure False
   TcArrowTy -> pure False
   TcFunTy argument result -> do
@@ -153,7 +153,7 @@ representationPosition visited variable ty = case ty of
     | mentions variable argument -> pure False
     | otherwise -> representationPosition visited variable function
   TcForAllTy binder body
-    | mentions variable (tvKind binder) -> pure False
+    | mentions variable (tvbKind binder) -> pure False
     | otherwise -> representationPosition visited variable body
   TcQualTy _ _ -> pure False
 
@@ -161,17 +161,17 @@ mentions :: TyVarId -> TcType -> Bool
 mentions variable = elem (tvUnique variable) . variables
   where
     variables ty = nub $ case ty of
-      TcTyVar binder -> [tvUnique binder] <> variables (tvKind binder)
+      TcTyVar occurrence -> [tvUnique occurrence]
       TcMetaTv _ -> []
       TcArrowTy -> []
       TcTyCon _ arguments -> concatMap variables arguments
       TcFunTy argument result -> variables argument <> variables result
       TcAppTy function argument -> variables function <> variables argument
-      TcForAllTy binder body -> variables (tvKind binder) <> filter (/= tvUnique binder) (variables body)
+      TcForAllTy binder body -> variables (tvbKind binder) <> filter (/= tvbUnique binder) (variables body)
       TcQualTy predicates body -> concatMap predicateVariables predicates <> variables body
     predicateVariables predicate = case predicate of
       ClassPred _ arguments -> concatMap variables arguments
       EqPred left right -> variables left <> variables right
       IParamPred _ payload -> variables payload
       QuantifiedPred binders antecedents consequent ->
-        concatMap (filter (`notElem` map tvUnique binders) . predicateVariables) (consequent : antecedents)
+        concatMap (filter (`notElem` map tvbUnique binders) . predicateVariables) (consequent : antecedents)

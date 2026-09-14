@@ -935,7 +935,7 @@ checkInferredHigherRankArgument sp boundary expectedTy arg' actualTy argCts = do
 
 -- | Tie an argument of a higher-rank application to the skolemized
 -- polytype it was checked or inferred against.
-finishHigherRankArgument :: SourceSpan -> Unique -> TcType -> ([TyVarId], [Pred], TcType) -> Expr -> TcType -> [Ct] -> TcM (Expr, [Ct])
+finishHigherRankArgument :: SourceSpan -> Unique -> TcType -> ([TcTyVarBinder], [Pred], TcType) -> Expr -> TcType -> [Ct] -> TcM (Expr, [Ct])
 finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBody) arg' actualTy argCts = do
   -- An equality that a stuck type family application leaves undecided
   -- becomes a wanted: the meta variable that blocks the reduction may
@@ -981,22 +981,25 @@ instantiateSigmaType :: TcType -> TcM (TcType, [TcType], [Pred])
 instantiateSigmaType = go []
   where
     go arguments (TcForAllTy binder body) = do
-      argument <- freshMetaTvOfKind (tvKind binder)
-      go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
+      argument <- freshMetaTvOfKind (tvbKind binder)
+      go (arguments <> [argument]) (applySubst (Map.singleton (tvbUnique binder) argument) body)
     go arguments (TcQualTy predicates body) = pure (body, arguments, predicates)
     go arguments ty = pure (ty, arguments, [])
 
-skolemizeSigmaType :: TcType -> TcM ([TyVarId], [Pred], TcType)
+skolemizeSigmaType :: TcType -> TcM ([TcTyVarBinder], [Pred], TcType)
 skolemizeSigmaType = go [] []
   where
     go skolems predicates (TcForAllTy binder body) = do
-      skolem <- setTyVarKind (tvKind binder) <$> freshSkolemTv (tvName binder)
-      go (skolems <> [skolem]) predicates (applySubst (Map.singleton (tvUnique binder) (TcTyVar skolem)) body)
+      skolem <- freshSkolemTvOfKind (tvbName binder) (tvbKind binder)
+      go
+        (skolems <> [mkTyVarBinder skolem (tvbKind binder)])
+        predicates
+        (applySubst (Map.singleton (tvbUnique binder) (TcTyVar skolem)) body)
     go skolems predicates (TcQualTy morePredicates body) =
       go skolems (predicates <> morePredicates) body
     go skolems predicates ty = pure (skolems, predicates, ty)
 
-rejectEscapingHigherRankMetas :: SourceSpan -> Unique -> [TyVarId] -> TcType -> TcM ()
+rejectEscapingHigherRankMetas :: SourceSpan -> Unique -> [TcTyVarBinder] -> TcType -> TcM ()
 rejectEscapingHigherRankMetas sp (Unique boundaryInt) skolems actualTy = do
   let olderMetas = filter (isOlderThan boundaryInt) (typeMetaVariables actualTy)
   escaped <- anyM (metaMentionsAnySkolem skolems) olderMetas
@@ -1005,10 +1008,10 @@ rejectEscapingHigherRankMetas sp (Unique boundaryInt) skolems actualTy = do
   where
     isOlderThan threshold (Unique metaInt) = metaInt < threshold
 
-metaMentionsAnySkolem :: [TyVarId] -> Unique -> TcM Bool
+metaMentionsAnySkolem :: [TcTyVarBinder] -> Unique -> TcM Bool
 metaMentionsAnySkolem skolems meta = do
   ty <- zonkType (TcMetaTv meta)
-  pure (any (`typeMentionsTyVar` ty) skolems)
+  pure (any ((\tyVar -> typeMentionsTyVar (tyVarBinderKinds skolems) tyVar ty) . tvbTyVar) skolems)
 
 anyM :: (a -> TcM Bool) -> [a] -> TcM Bool
 anyM _ [] = pure False
@@ -1035,7 +1038,7 @@ predicateMetaVariables predicate =
     EqPred left right -> typeMetaVariables left <> typeMetaVariables right
     IParamPred _ payload -> typeMetaVariables payload
     QuantifiedPred variables antecedents consequent ->
-      concatMap (typeMetaVariables . tvKind) variables
+      concatMap (typeMetaVariables . tvbKind) variables
         <> concatMap predicateMetaVariables antecedents
         <> predicateMetaVariables consequent
 

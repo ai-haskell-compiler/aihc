@@ -25,6 +25,7 @@ import Aihc.Tc
     Pred (..),
     TcInterface (..),
     TcTermKey (..),
+    TcTyVarBinder (..),
     TcType (..),
     TyCon,
     TyConFlavor (..),
@@ -43,13 +44,14 @@ import Aihc.Tc
     tcInterfaceTerms,
     tcInterfaceTyCons,
     tcInterfaceTypeFamilyInstances,
-    tvKind,
+    tvbName,
+    tvbUnique,
     tyConArity,
     tyConName,
   )
 import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignCApi (..), TcForeignCApiKind (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (mkTyConWithNamespace, mkTyVarBinder, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when, (<$!>))
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
@@ -408,10 +410,10 @@ putTypeScheme index scheme = putNumber "type scheme" (Map.lookup scheme (partInd
 getTypeScheme :: PartTable -> Get.Get TypeScheme
 getTypeScheme table = getWord >>= partScheme (tableParts table)
 
-putTyVar :: PartIndex -> TyVarId -> Builder.Builder
-putTyVar index variable = putNumber "type variable" (Map.lookup variable (partIndexTyVars index))
+putTyVar :: PartIndex -> TcTyVarBinder -> Builder.Builder
+putTyVar index binder = putNumber "type variable" (Map.lookup binder (partIndexTyVars index))
 
-getTyVar :: PartTable -> Get.Get TyVarId
+getTyVar :: PartTable -> Get.Get TcTyVarBinder
 getTyVar table = getWord >>= partTyVar (tableParts table)
 
 putUnique :: Unique -> Builder.Builder
@@ -490,10 +492,12 @@ putNumber what = maybe (error ("missing interface " <> what <> " number")) cborW
 -- pass over the table is enough to read it.
 putPart :: PartIndex -> InterfacePart -> Builder.Builder
 putPart index part = case part of
-  PartTyVar variable ->
-    cborArray 4 <> cborWord 0 <> cborText (tvName variable) <> putUnique (tvUnique variable) <> putType index (tvKind variable)
+  PartTyVar binder ->
+    cborArray 4 <> cborWord 0 <> cborText (tvbName binder) <> putUnique (tvbUnique binder) <> putType index (tvbKind binder)
   PartType ty -> case ty of
-    TcTyVar variable -> sum1 1 (putTyVar index variable)
+    -- An occurrence carries no kind, so it is written out rather than
+    -- numbered: its binder holds the kind.
+    TcTyVar variable -> sum2 1 (cborText (tvName variable)) (putUnique (tvUnique variable))
     TcMetaTv unique -> sum1 2 (putUnique unique)
     TcTyCon tyCon arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
     TcFunTy argument result -> sum2 4 (putType index argument) (putType index result)
@@ -530,8 +534,8 @@ getPart tyCons parts = do
       name <- getText
       unique <- getUnique
       kind <- refType
-      pure $! PartTyVar (mkTyVarId name unique kind)
-    (2, 1) -> typePart (TcTyVar <$!> refTyVar)
+      pure $! PartTyVar (mkTyVarBinder (mkTyVarId name unique) kind)
+    (3, 1) -> typePart (TcTyVar <$!> (mkTyVarId <$!> getText <*!> getUnique))
     (2, 2) -> typePart (TcMetaTv <$!> getUnique)
     (3, 3) -> typePart (TcTyCon <$!> refTyCon <*!> getList refType)
     (3, 4) -> typePart (TcFunTy <$!> refType <*!> refType)
@@ -558,9 +562,9 @@ partType parts number = case IntMap.lookup (fromIntegral number) parts of
   Just (PartType ty) -> pure ty
   _ -> fail "invalid interface type reference"
 
-partTyVar :: IntMap InterfacePart -> Word64 -> Get.Get TyVarId
+partTyVar :: IntMap InterfacePart -> Word64 -> Get.Get TcTyVarBinder
 partTyVar parts number = case IntMap.lookup (fromIntegral number) parts of
-  Just (PartTyVar variable) -> pure variable
+  Just (PartTyVar binder) -> pure binder
   _ -> fail "invalid interface type variable reference"
 
 partPred :: IntMap InterfacePart -> Word64 -> Get.Get Pred

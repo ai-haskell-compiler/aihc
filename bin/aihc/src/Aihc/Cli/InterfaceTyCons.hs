@@ -88,8 +88,8 @@ typeSchemeTyCons (ForAll variables predicates body) =
     <> Set.unions (map predTyCons predicates)
     <> typeTyCons body
 
-tyVarTyCons :: TyVarId -> Set.Set TyCon
-tyVarTyCons = typeTyCons . tvKind
+tyVarTyCons :: TcTyVarBinder -> Set.Set TyCon
+tyVarTyCons = typeTyCons . tvbKind
 
 predTyCons :: Pred -> Set.Set TyCon
 predTyCons predicate = case predicate of
@@ -103,12 +103,12 @@ predTyCons predicate = case predicate of
 
 typeTyCons :: TcType -> Set.Set TyCon
 typeTyCons ty = case ty of
-  TcTyVar variable -> tyVarTyCons variable
+  TcTyVar {} -> Set.empty
   TcMetaTv {} -> mempty
   TcArrowTy -> mempty
   TcTyCon tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
   TcFunTy argument result -> typeTyCons argument <> typeTyCons result
-  TcForAllTy variable body -> tyVarTyCons variable <> typeTyCons body
+  TcForAllTy binder body -> tyVarTyCons binder <> typeTyCons body
   TcQualTy predicates body -> Set.unions (map predTyCons predicates) <> typeTyCons body
   TcAppTy function argument -> typeTyCons function <> typeTyCons argument
 

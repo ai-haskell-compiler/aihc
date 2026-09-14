@@ -168,6 +168,9 @@ typeOf env ty =
       typeOf (extendBinder env binder) body
     TyEq {} ->
       Just (TyApp (TyCon (typeConstructor (tePrimPackage env))) (equalityRep (tePrimPackage env)))
+    -- A cast says what the kind of the type is: the right-hand side of the
+    -- coercion that casts it.
+    TyCast _ coercion -> snd <$> coercionEndpoints env coercion
 
 applyType :: Type -> Type -> Maybe Type
 applyType function argument =
@@ -225,6 +228,23 @@ substType target replacement = go
                in TyForAll freshBinder (go freshBody)
           | otherwise -> TyForAll binder {binderType = go (binderType binder)} (go body)
         TyEq left right -> TyEq (go left) (go right)
+        TyCast inner coercion -> TyCast (go inner) (substCoercionType target replacement coercion)
+
+-- | Substitute a type inside the types a coercion carries.
+substCoercionType :: Name -> Type -> Coercion -> Coercion
+substCoercionType target replacement = go
+  where
+    go coercion =
+      case coercion of
+        CoVar {} -> coercion
+        CoRefl ty -> CoRefl (substType target replacement ty)
+        CoSym inner -> CoSym (go inner)
+        CoTrans first second -> CoTrans (go first) (go second)
+        CoApp function argument -> CoApp (go function) (go argument)
+        CoFun domain range -> CoFun (go domain) (go range)
+        CoNth index inner -> CoNth index (go inner)
+        CoTyConApp name arguments -> CoTyConApp name (map go arguments)
+        CoAxiom name arguments -> CoAxiom name (map (substType target replacement) arguments)
 
 -- | Substitute types at the same time.
 substTypes :: Map Name Type -> Type -> Type
@@ -247,6 +267,23 @@ substTypes = go
           where
             bodySubstitutions = Map.delete (binderName binder) current
         TyEq left right -> TyEq (go current left) (go current right)
+        TyCast inner coercion -> TyCast (go current inner) (substCoercionTypes current coercion)
+
+-- | Substitute several types inside the types a coercion carries.
+substCoercionTypes :: Map Name Type -> Coercion -> Coercion
+substCoercionTypes substitutions = go
+  where
+    go coercion =
+      case coercion of
+        CoVar {} -> coercion
+        CoRefl ty -> CoRefl (substTypes substitutions ty)
+        CoSym inner -> CoSym (go inner)
+        CoTrans first second -> CoTrans (go first) (go second)
+        CoApp function argument -> CoApp (go function) (go argument)
+        CoFun domain range -> CoFun (go domain) (go range)
+        CoNth index inner -> CoNth index (go inner)
+        CoTyConApp name arguments -> CoTyConApp name (map go arguments)
+        CoAxiom name arguments -> CoAxiom name (map (substTypes substitutions) arguments)
 
 typeVariableNames :: Type -> [Name]
 typeVariableNames ty =
@@ -257,6 +294,7 @@ typeVariableNames ty =
     TyFun r1 r2 argument result -> concatMap typeVariableNames [r1, r2, argument, result]
     TyForAll binder body -> binderName binder : typeVariableNames (binderType binder) <> typeVariableNames body
     TyEq left right -> typeVariableNames left <> typeVariableNames right
+    TyCast inner _ -> typeVariableNames inner
 
 freshTypeVariableName :: Name -> [Name] -> Name
 freshTypeVariableName name used =
@@ -308,6 +346,8 @@ reduceTypeWith :: Bool -> TypeEnv -> Type -> Type
 reduceTypeWith families env ty =
   case ty of
     TyVar {} -> ty
+    -- A cast is irrelevant to what a type reduces to.
+    TyCast inner _ -> reduceTypeWith families env inner
     TyCon {} ->
       let unfolded = unfoldType env ty
        in if unfolded == ty then reduceFamily ty else reduceTypeWith families env unfolded
@@ -481,7 +521,11 @@ matchAxiomTypes env = matchTypes
               matchTypes substitution left actualLeft
                 >>= \next -> matchTypes next right actualRight
             _ -> Nothing
+        -- A cast is irrelevant to which type a pattern matches.
+        TyCast inner _ -> matchTypes substitution inner actualType
 
+-- | Whether two types are one type. Casts are irrelevant, as they are in
+-- GHC: a cast changes the kind a type is seen at, not the type itself.
 typesEqual :: TypeEnv -> Type -> Type -> Bool
 typesEqual env left right =
   eq (reduceType env left) (reduceType env right)
@@ -644,3 +688,4 @@ typeUsesName target ty =
       | binderName binder == target -> typeUsesName target (binderType binder)
       | otherwise -> typeUsesName target (binderType binder) || typeUsesName target body
     TyEq left right -> typeUsesName target left || typeUsesName target right
+    TyCast inner _ -> typeUsesName target inner

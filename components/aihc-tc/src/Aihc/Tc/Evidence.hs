@@ -50,7 +50,7 @@ data EvTerm
   | -- | Compiler-synthesized structural runtime type representation.
     EvTypeable !(Maybe (Text, Text)) !TcType !TypeableTyCon ![(TcType, EvTerm)] ![EvTerm]
   | -- | Type abstraction for quantified evidence.
-    EvTypeLam !TyVarId !EvTerm
+    EvTypeLam !TcTyVarBinder !EvTerm
   | -- | Dictionary abstraction with its checked binder type.
     EvDictLam !Pred !TcType !EvTerm
   | -- | Type application for quantified evidence.

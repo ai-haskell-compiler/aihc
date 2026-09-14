@@ -63,6 +63,7 @@ shareType ty = do
         TyFun <$> shareType argumentRep <*> shareType resultRep <*> shareType argument <*> shareType result
       TyForAll binder body -> TyForAll <$> shareBinder binder <*> shareType body
       TyEq left right -> TyEq <$> shareType left <*> shareType right
+      TyCast inner coercion -> TyCast <$> shareType inner <*> shareCoercion coercion
   known <- gets (Map.lookup rebuilt . shareTypes)
   case known of
     Just shared -> pure shared

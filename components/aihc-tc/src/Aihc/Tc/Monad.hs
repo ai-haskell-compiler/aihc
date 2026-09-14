@@ -17,6 +17,12 @@ module Aihc.Tc.Monad
     freshMetaTv,
     freshMetaTvOfKind,
     freshSkolemTv,
+    freshSkolemTvOfKind,
+    recordTyVarKind,
+    recordTyVarBinders,
+    lookupTyVarKind,
+    lookupTyVarBinder,
+    getTyVarKinds,
     freshEvVar,
     getUniqueBoundary,
 
@@ -148,7 +154,7 @@ import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), TupleFlavor, 
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -165,7 +171,7 @@ import Data.IntSet qualified as IntSet
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -454,6 +460,14 @@ data TcState = TcState
     tcsTrackedKindMetas :: !IntSet,
     -- | Declared kinds of representation-polymorphic meta-variables.
     tcsMetaKinds :: !(IntMap TcType),
+    -- | The kind of every type variable that has been introduced.
+    --
+    -- A 'TyVarId' is a name and a unique; its kind is written at the
+    -- binder that introduces it. This table is where a pass that has only
+    -- an occurrence in hand -- the kind of a type, the escape check --
+    -- reads that kind from. Uniques are never reused, so entries only
+    -- accumulate.
+    tcsTyVarKinds :: !(IntMap TcType),
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
@@ -500,6 +514,7 @@ initTcState =
       tcsMetaSolutions = IntMap.empty,
       tcsTrackedKindMetas = IntSet.empty,
       tcsMetaKinds = IntMap.empty,
+      tcsTyVarKinds = IntMap.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = Map.empty,
@@ -545,12 +560,55 @@ freshMetaTvOfKind kind = do
     state {tcsMetaKinds = IntMap.insert key kind (tcsMetaKinds state)}
   pure (TcMetaTv unique)
 
--- | Allocate a fresh skolem (rigid) type variable.
+-- | Allocate a fresh skolem (rigid) type variable of an ordinary kind.
 freshSkolemTv :: Text -> TcM TyVarId
 freshSkolemTv name = do
   kinds <- getKinds
-  u <- freshUnique
-  pure (mkTyVarId name u (typeKind kinds))
+  freshSkolemTvOfKind name (typeKind kinds)
+
+-- | Allocate a fresh skolem (rigid) type variable of one kind.
+freshSkolemTvOfKind :: Text -> TcType -> TcM TyVarId
+freshSkolemTvOfKind name kind = do
+  unique <- freshUnique
+  let tyVar = mkTyVarId name unique
+  recordTyVarKind tyVar kind
+  pure tyVar
+
+-- | Record the kind of a type variable, so that an occurrence of it can
+-- be kinded later. A binder that changes a variable's kind -- a kind meta
+-- that has been solved, a given that refines it -- records it again.
+recordTyVarKind :: TyVarId -> TcType -> TcM ()
+recordTyVarKind tyVar kind =
+  lift $ modify' $ \state ->
+    state {tcsTyVarKinds = IntMap.insert key kind (tcsTyVarKinds state)}
+  where
+    Unique key = tvUnique tyVar
+
+-- | Record the kinds that a list of binders writes down.
+recordTyVarBinders :: [TcTyVarBinder] -> TcM ()
+recordTyVarBinders = mapM_ (\binder -> recordTyVarKind (tvbTyVar binder) (tvbKind binder))
+
+-- | The kind of a type variable, as its binder wrote it.
+lookupTyVarKind :: TyVarId -> TcM (Maybe TcType)
+lookupTyVarKind tyVar = lift (gets (IntMap.lookup key . tcsTyVarKinds))
+  where
+    Unique key = tvUnique tyVar
+
+-- | A binder for one type variable, with the kind its binder recorded. A
+-- variable with no recorded kind takes the kind of an ordinary type: the
+-- caller has already reported the problem that left it unrecorded.
+lookupTyVarBinder :: TyVarId -> TcM TcTyVarBinder
+lookupTyVarBinder tyVar = do
+  recorded <- lookupTyVarKind tyVar
+  kinds <- getKinds
+  pure (mkTyVarBinder tyVar (fromMaybe (typeKind kinds) recorded))
+
+-- | Every type-variable kind that has been recorded, keyed by unique.
+getTyVarKinds :: TcM TcTyVarKinds
+getTyVarKinds =
+  lift (gets (Map.fromList . map toEntry . IntMap.toList . tcsTyVarKinds))
+  where
+    toEntry (key, kind) = (Unique key, kind)
 
 -- | Allocate a fresh evidence variable.
 freshEvVar :: TcM EvVar

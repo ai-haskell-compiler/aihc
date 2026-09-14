@@ -75,6 +75,6 @@ expected: |-
             λ(z : 1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted)) x).
               case x{1} as (_scrut : 1.tIsFun k) return (1.tSome) of {
                   1.cIsFun ($pattern_d0 : k ~ (2.tTYPE (2.cBoxedRep 2.cLifted) 2.→ 2.tTYPE (2.cBoxedRep 2.cLifted))) →
-                      1.vapply @(1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted)) (f x)) @1.tSome (1.cSome @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(f x)) (1.vmkApp @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @f @x y z)
+                      1.vapply @(1.tProxy (2.tTYPE (2.cBoxedRep 2.cLifted)) ((f ▷ $pattern_d0) x)) @1.tSome (1.cSome @(2.tTYPE (2.cBoxedRep 2.cLifted)) @((f ▷ $pattern_d0) x)) (1.vmkApp @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(2.tTYPE (2.cBoxedRep 2.cLifted)) @(f ▷ $pattern_d0) @x y z)
               }
 status: pass

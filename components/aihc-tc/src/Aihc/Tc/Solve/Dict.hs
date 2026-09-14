@@ -25,7 +25,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTvOfKind, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
@@ -136,7 +136,7 @@ solveDictWithGivensVisited visited givens ct
                 Nothing -> pure Nothing
                 Just info -> do
                   kinds <- getKinds
-                  let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
+                  let substitution = Map.fromList [(tvbUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                       fieldTypes = classFieldTypes info substitution
                   case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
                     Just superClasses -> searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
@@ -164,7 +164,7 @@ solveDictWithGivensVisited visited givens ct
         Nothing -> tryInstances visited' className args rest
         Just subst -> do
           let context = map (applySubstPred subst) (iiContext instanceInfo)
-              typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
+              typeArgs = map (applySubst subst . tvbType) (iiTyVars instanceInfo)
           contextEvidence <- mapM (solveSubPred visited') context
           case sequence contextEvidence of
             Just evidence -> do
@@ -237,7 +237,7 @@ solveDictWithGivensVisited visited givens ct
     useQuantifiedEvidence _ _ _ _ = pure Nothing
 
     applyQuantifiedEvidence visited' source variables antecedents substitution = do
-      let typeArguments = map (\variable -> Map.findWithDefault (TcTyVar variable) (tvUnique variable) substitution) variables
+      let typeArguments = map (\variable -> Map.findWithDefault (tvbType variable) (tvbUnique variable) substitution) variables
           instantiatedAntecedents = map (applySubstPred substitution) antecedents
       antecedentEvidence <- mapM (solveSubPred visited') instantiatedAntecedents
       pure $ do
@@ -259,7 +259,7 @@ solveDictWithGivensVisited visited givens ct
                       kinds <- getKinds
                       let classSubstitution =
                             Map.fromList
-                              [ (tvUnique variable, argument)
+                              [ (tvbUnique variable, argument)
                               | (variable, argument) <- zip (ciTyVars info) sourceArguments
                               ]
                           fieldTypes = classFieldTypes info classSubstitution
@@ -318,10 +318,10 @@ solveDictWithGivensVisited visited givens ct
     freshQuantifiedVariables = foldM freshOne ([], Map.empty)
       where
         freshOne (variables, substitution) variable = do
-          fresh <- freshSkolemTv (tvName variable)
-          let kind = applySubst substitution (tvKind variable)
-              freshVariable = setTyVarKind kind fresh
-          pure (variables <> [freshVariable], Map.insert (tvUnique variable) (TcTyVar freshVariable) substitution)
+          let kind = applySubst substitution (tvbKind variable)
+          fresh <- freshSkolemTvOfKind (tvbName variable) kind
+          let freshVariable = mkTyVarBinder fresh kind
+          pure (variables <> [freshVariable], Map.insert (tvbUnique variable) (TcTyVar fresh) substitution)
 
     predicateType predicate =
       case predicate of
@@ -412,7 +412,7 @@ reportUnsolvedDict ct = do
           bindEvidence (ctEvVar ct) (implicitParamEvidence ct name payload (EvCallStackEmpty origin))
     _ -> emitError (ctLoc ct) (UnsolvedWanted predicate (ctOrigin ct))
 
-matchQuantifiedPredicate :: [TyVarId] -> Pred -> Pred -> Maybe (Map Unique TcType)
+matchQuantifiedPredicate :: [TcTyVarBinder] -> Pred -> Pred -> Maybe (Map Unique TcType)
 matchQuantifiedPredicate variables patternPredicate targetPredicate =
   case (patternPredicate, targetPredicate) of
     (ClassPred patternClass patternArguments, ClassPred targetClass targetArguments)
@@ -423,7 +423,7 @@ matchQuantifiedPredicate variables patternPredicate targetPredicate =
       foldM matchOneQuantified Map.empty [(patternLeft, targetLeft), (patternRight, targetRight)]
     _ -> Nothing
   where
-    quantified = map tvUnique variables
+    quantified = map tvbUnique variables
     matchOneQuantified = matchTypeQuantified quantified
 
 matchTypeQuantified :: [Unique] -> Map Unique TcType -> (TcType, TcType) -> Maybe (Map Unique TcType)
@@ -481,12 +481,12 @@ typeableTyConMetadata constructor = do
   let ForAll variables _ body = tciKindScheme info
   TypeableTyCon constructor (length variables) <$> typeableKindMetadata variables body
 
-typeableKindMetadata :: [TyVarId] -> TcType -> TcM TypeableKind
+typeableKindMetadata :: [TcTyVarBinder] -> TcType -> TcM TypeableKind
 typeableKindMetadata variables kind =
   case kind of
     KTYPE representation -> pure (TypeableKindType representation)
     TcTyVar variable ->
-      maybe (abortTc "Typeable kind has an unbound variable") (pure . TypeableKindVar) (elemIndex variable variables)
+      maybe (abortTc "Typeable kind has an unbound variable") (pure . TypeableKindVar) (elemIndex variable (map tvbTyVar variables))
     TcFunTy argument result -> TypeableKindFun <$> recur argument <*> recur result
     TcTyCon _ arguments -> do
       (constructor, kindArguments) <- typeableConstructor kind
@@ -502,7 +502,7 @@ typeableKindMetadata variables kind =
 -- can reach the solver before its kinds are settled: a type argument
 -- instantiated from a poly-kinded signature carries a kind meta until
 -- something forces it, and choosing the instance is what forces it.
-matchInstanceKinds :: [TyVarId] -> Map Unique TcType -> TcM (Maybe (Map Unique TcType))
+matchInstanceKinds :: [TcTyVarBinder] -> Map Unique TcType -> TcM (Maybe (Map Unique TcType))
 matchInstanceKinds variables substitution = do
   matched <- foldM extend (Just (substitution, [])) variables
   case matched of
@@ -512,11 +512,11 @@ matchInstanceKinds variables substitution = do
       pure (Just final)
   where
     extend Nothing _ = pure Nothing
-    extend (Just (current, kindMetas)) variable = case Map.lookup (tvUnique variable) current of
+    extend (Just (current, kindMetas)) variable = case Map.lookup (tvbUnique variable) current of
       Nothing -> pure (Just (current, kindMetas))
       Just target -> do
         targetKind <- tcTypeKind target >>= zonkKind
-        patternKind <- zonkKind (tvKind variable)
+        patternKind <- zonkKind (tvbKind variable)
         pure $ do
           (inferred, metas) <- matchKinds patternKind targetKind
           merged <- foldM merge current (Map.toList inferred)

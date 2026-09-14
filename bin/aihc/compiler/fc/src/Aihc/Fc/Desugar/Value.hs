@@ -69,9 +69,9 @@ import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcKinds,
+    TcTyVarBinder (..),
     TcType (..),
     TyCon,
-    TyVarId,
     TypeScheme (..),
     Unique (..),
     addrRep,
@@ -86,9 +86,10 @@ import Aihc.Tc.Types
     isUnliftedTypeInEnv,
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
-    tvKind,
     tvName,
-    tvUnique,
+    tvbKind,
+    tvbType,
+    tvbUnique,
     tyConModuleName,
     tyConName,
     tyConPackageId,
@@ -932,7 +933,7 @@ desugarDefaultWorker annotation matches = do
           }
     )
 
-desugarSelector :: TyCon -> [TyVarId] -> [TcType] -> Int -> TcClassMethodAnnotation -> ValueM Decl
+desugarSelector :: TyCon -> [TcTyVarBinder] -> [TcType] -> Int -> TcClassMethodAnnotation -> ValueM Decl
 desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
   _ <- freshUnique
   let (typeVariables, afterForAlls) = peelForAlls (tcClassMethodType method)
@@ -949,7 +950,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
       case drop (superClassCount + tcClassMethodIndex method) fields of
         field : _ -> pure field
         [] -> failValue ("invalid class method index for " <> T.unpack (tcClassMethodName method))
-    extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
+    extraTypes <- mapM (convertCheckedType . tvbType) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
     resultType' <- convertCheckedType resultType
     let extraDictionaries = drop 1 dictionaries
         selectedExpr =
@@ -977,7 +978,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
             }
       )
 
-methodFieldType :: Text -> [TyVarId] -> TcClassMethodAnnotation -> ValueM TcType
+methodFieldType :: Text -> [TcTyVarBinder] -> TcClassMethodAnnotation -> ValueM TcType
 methodFieldType className classTyVars method = do
   remaining <-
     case removeClassPredicate predicates of
@@ -1070,7 +1071,7 @@ hoistInstanceMethod annotation contextDictionaries methodName methodBody = do
   method <- requiredClassMethod annotation methodName
   workerType <- convertCheckedType (instanceWorkerType (tcInstanceDictType annotation) (instanceMethodFieldType annotation method))
   typeBinders <- convertTypeBinders (tcInstanceTyVars annotation)
-  instanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
+  instanceTypes <- mapM (convertCheckedType . tvbType) (tcInstanceTyVars annotation)
   moduleOrigin <- gets vsModuleOrigin
   let dictionaryBinders = map dictionaryBinder contextDictionaries
       workerName = topName moduleOrigin (instanceMethodWorkerName (tcInstanceDictName annotation) methodName)
@@ -1106,7 +1107,7 @@ instanceMethodFieldType annotation method = foldr TcForAllTy qualified extraTyVa
   where
     classTyVars = tcInstanceClassTyVars annotation
     extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
-    substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+    substitution = Map.fromList [(tvbUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
     (_, afterForAlls) = peelForAlls (tcClassMethodType method)
     (predicates, methodBody) = peelConstraints afterForAlls
     extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) predicates)
@@ -1128,7 +1129,7 @@ instanceWorkerType dictType fieldType =
 desugarCoercedMethod :: TcInstanceAnnotation -> TcCoercedInstance -> TcCoercedMethod -> ValueM Expr
 desugarCoercedMethod annotation derived method = withTypeVariables (tcCoercedMethodTyVars method) $ do
   typeBinders <- convertTypeBinders (tcCoercedMethodTyVars method)
-  extraTypes <- mapM (convertCheckedType . TcTyVar) (tcCoercedMethodTyVars method)
+  extraTypes <- mapM (convertCheckedType . tvbType) (tcCoercedMethodTyVars method)
   dictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] (tcCoercedMethodPredicates method)
   evidence <- maybe (failValue "newtype method lacks representation evidence") desugarEvidence (tcCoercedEvidence derived)
   let classTyCon = tcInstanceClassTyCon annotation
@@ -1165,7 +1166,7 @@ desugarMissingMethod annotation methodName = do
   let classTyCon = tcInstanceClassTyCon annotation
       classTyVars = tcInstanceClassTyVars annotation
       extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
-      substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+      substitution = Map.fromList [(tvbUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, methodBody) = peelConstraints methodAfterForAlls
       extraPredicates = map (applySubstPred substitution) (dropClassPredicate classTyCon methodPredicates)
@@ -1200,15 +1201,15 @@ desugarDefaultMethod annotation dictionaries methodName = do
       candidate : _ -> pure candidate
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
   convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
-  convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
+  convertedInstanceTypes <- mapM (convertCheckedType . tvbType) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
       extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars method)
-      substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+      substitution = Map.fromList [(tvbUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
       extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- convertTypeBinders extraTyVars
-  convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
+  convertedExtraTypes <- mapM (convertCheckedType . tvbType) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
   -- A default signature gives the worker its own constraints, which the
   -- type checker solved at the instance head.
@@ -1572,7 +1573,7 @@ desugarMatches ty matches =
           pure (dictionaries, arguments, body)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
-withTypeVariables :: [TyVarId] -> ValueM a -> ValueM a
+withTypeVariables :: [TcTyVarBinder] -> ValueM a -> ValueM a
 withTypeVariables variables action = do
   previous <- gets vsConvertEnv
   modify' $ \state -> state {vsConvertEnv = withTyVars variables previous}
@@ -2168,7 +2169,7 @@ patternGivenPredicates = go
         ]
     evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
 
-patternTypeVariables :: Syn.Pattern -> [TyVarId]
+patternTypeVariables :: Syn.Pattern -> [TcTyVarBinder]
 patternTypeVariables = go
   where
     go pattern' =
@@ -2565,96 +2566,97 @@ desugarAnnotatedExpr annotation inner = do
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- zipWithM (freshDictionaryBinder "$higher_rank_d") [0 :: Int ..] evidencePredicates
   body <-
-    withAlternativeScope (not (null (tcAnnTypeBinders annotation))) (zipWith Dictionary evidencePredicates evidenceBinders) $
-      case inner of
-        _
-          | not (null (tcAnnTypeBinders annotation)) || not (null evidenceBinders) -> desugarExpr inner
-        expression
-          | Just name <- annotatedVariable expression -> do
-              desugarVariable (Just annotation) name
-        Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _)
-          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-            resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
-              desugarOverloadedInteger annotation resolution value
-        Syn.EAnn resolutionAnnotation (Syn.EFloat value Syn.TFractional _)
-          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-            resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
-              desugarOverloadedRational annotation resolution value
-        Syn.EAnn resolutionAnnotation (Syn.EString value _)
-          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-            resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromString" ->
-              desugarOverloadedString annotation resolution value
-        Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
-          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-            isIfThenElseResolution resolution ->
-              desugarRebindableIf annotation resolution condition thenExpression elseExpression
-        Syn.EAnn resolutionAnnotation (Syn.ENegate operand)
-          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-            resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "negate" -> do
-              method <- desugarResolvedOccurrence annotation resolution
-              ExApp method <$> desugarExpr operand
-        Syn.EAnn resolutionAnnotation primitiveLiteral
-          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
-            resolutionNamespace resolution == ResolutionNamespaceType,
-            isPrimitiveLiteral primitiveLiteral ->
-              desugarAnnotatedExpr annotation primitiveLiteral
-        Syn.EInt value numericType _
-          | numericType /= Syn.TInteger -> do
-              kinds <- valueKinds
-              representation <- convertRuntimeRep (numericRepresentation kinds numericType)
-              pure (ExLit (LitInt representation value))
-        Syn.EChar value _ -> do
-          kinds <- valueKinds
-          constructor <- boxedCharConstructor
-          representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
-        Syn.ECharHash value _ -> do
-          kinds <- valueKinds
-          representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExLit (LitChar representation value))
-        Syn.EString value _ -> desugarString annotation value
-        _
-          | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
-        Syn.EStringHash value _ -> do
-          kinds <- valueKinds
-          representation <- convertRuntimeRep (addrRep kinds)
-          pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
-        Syn.EList elements -> desugarList annotation elements
-        Syn.EListComp expression statements -> desugarListComp annotation expression statements
-        Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
-        Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
-        Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
-        Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
-        Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
-        Syn.EIf condition thenExpression elseExpression ->
-          desugarIf (tcAnnType annotation) condition thenExpression elseExpression
-        -- A multi-way if is a guarded right-hand side. A failed last guard
-        -- ends in an empty case on its own test value.
-        Syn.EMultiWayIf alternatives ->
-          desugarGuardedRhss (tcAnnType annotation) Nothing alternatives
-        Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
-        Syn.EImplicitParam name ->
-          case tcAnnEvidenceTerms annotation of
-            [evidence] -> desugarEvidence evidence
-            _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
-        Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
-        Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
-        Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
-        -- An application with a polymorphic type is instantiated where it
-        -- is applied. The annotation gives the type arguments and the
-        -- evidence.
-        _
-          | isApplicationExpression inner,
-            not (null (tcAnnTypeArgs annotation)) || not (null (tcAnnEvidenceTerms annotation)) -> do
-              inner' <- desugarExpr inner
-              types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
-              evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-              pure (foldl ExApp (foldl ExTyApp inner' types) evidence)
-        _ -> desugarExpr inner
+    withTypeVariables (tcAnnTypeBinders annotation) $
+      withAlternativeScope (not (null (tcAnnTypeBinders annotation))) (zipWith Dictionary evidencePredicates evidenceBinders) $
+        case inner of
+          _
+            | not (null (tcAnnTypeBinders annotation)) || not (null evidenceBinders) -> desugarExpr inner
+          expression
+            | Just name <- annotatedVariable expression -> do
+                desugarVariable (Just annotation) name
+          Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _)
+            | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+              resolutionNamespace resolution == ResolutionNamespaceTerm,
+              resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
+                desugarOverloadedInteger annotation resolution value
+          Syn.EAnn resolutionAnnotation (Syn.EFloat value Syn.TFractional _)
+            | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+              resolutionNamespace resolution == ResolutionNamespaceTerm,
+              resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
+                desugarOverloadedRational annotation resolution value
+          Syn.EAnn resolutionAnnotation (Syn.EString value _)
+            | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+              resolutionNamespace resolution == ResolutionNamespaceTerm,
+              resolutionIdentifier resolution == IdentifierNamed "fromString" ->
+                desugarOverloadedString annotation resolution value
+          Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
+            | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+              isIfThenElseResolution resolution ->
+                desugarRebindableIf annotation resolution condition thenExpression elseExpression
+          Syn.EAnn resolutionAnnotation (Syn.ENegate operand)
+            | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+              resolutionNamespace resolution == ResolutionNamespaceTerm,
+              resolutionIdentifier resolution == IdentifierNamed "negate" -> do
+                method <- desugarResolvedOccurrence annotation resolution
+                ExApp method <$> desugarExpr operand
+          Syn.EAnn resolutionAnnotation primitiveLiteral
+            | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+              resolutionNamespace resolution == ResolutionNamespaceType,
+              isPrimitiveLiteral primitiveLiteral ->
+                desugarAnnotatedExpr annotation primitiveLiteral
+          Syn.EInt value numericType _
+            | numericType /= Syn.TInteger -> do
+                kinds <- valueKinds
+                representation <- convertRuntimeRep (numericRepresentation kinds numericType)
+                pure (ExLit (LitInt representation value))
+          Syn.EChar value _ -> do
+            kinds <- valueKinds
+            constructor <- boxedCharConstructor
+            representation <- convertRuntimeRep (wordRep kinds)
+            pure (ExApp (ExVar constructor) (ExLit (LitChar representation value)))
+          Syn.ECharHash value _ -> do
+            kinds <- valueKinds
+            representation <- convertRuntimeRep (wordRep kinds)
+            pure (ExLit (LitChar representation value))
+          Syn.EString value _ -> desugarString annotation value
+          _
+            | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
+          Syn.EStringHash value _ -> do
+            kinds <- valueKinds
+            representation <- convertRuntimeRep (addrRep kinds)
+            pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
+          Syn.EList elements -> desugarList annotation elements
+          Syn.EListComp expression statements -> desugarListComp annotation expression statements
+          Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
+          Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
+          Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
+          Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
+          Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
+          Syn.EIf condition thenExpression elseExpression ->
+            desugarIf (tcAnnType annotation) condition thenExpression elseExpression
+          -- A multi-way if is a guarded right-hand side. A failed last guard
+          -- ends in an empty case on its own test value.
+          Syn.EMultiWayIf alternatives ->
+            desugarGuardedRhss (tcAnnType annotation) Nothing alternatives
+          Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
+          Syn.EImplicitParam name ->
+            case tcAnnEvidenceTerms annotation of
+              [evidence] -> desugarEvidence evidence
+              _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
+          Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
+          Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
+          Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
+          -- An application with a polymorphic type is instantiated where it
+          -- is applied. The annotation gives the type arguments and the
+          -- evidence.
+          _
+            | isApplicationExpression inner,
+              not (null (tcAnnTypeArgs annotation)) || not (null (tcAnnEvidenceTerms annotation)) -> do
+                inner' <- desugarExpr inner
+                types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+                evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+                pure (foldl ExApp (foldl ExTyApp inner' types) evidence)
+          _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
 
@@ -2714,8 +2716,8 @@ convertCheckedTypeArguments declaredType arguments = do
   where
     convertArguments _ _ [] = Right []
     convertArguments env (TcForAllTy variable body) (argument : rest) = do
-      converted <- convertTypeWithExpectedKind env (Just (tvKind variable)) argument
-      let substitution = Map.singleton (tvUnique variable) argument
+      converted <- convertTypeWithExpectedKind env (Just (tvbKind variable)) argument
+      let substitution = Map.singleton (tvbUnique variable) argument
       (converted :) <$> convertArguments env (applySubst substitution body) rest
     convertArguments env _ remaining = mapM (convertType env) remaining
 
@@ -2891,14 +2893,16 @@ desugarStrictConstructor name annotation strictFlags = do
       fields <- mapM (freshBinder "_strict_field") fieldTypes
       convertedResult <- convertCheckedType resultType
       kinds <- valueKinds
-      kindEnv <- gets (ceKindEnv . vsConvertEnv)
+      convertEnv <- gets vsConvertEnv
+      let kindEnv = ceKindEnv convertEnv
+          tyVarKinds = ceTyVarKinds convertEnv
       let applied =
             foldl
               ExApp
               (foldl ExApp (foldl ExTyApp (ExVar constructor) types) evidence)
               (map (ExVar . binderName) fields)
           forced (strict, binder, fieldType) inner
-            | strict && not (isUnliftedTypeInEnv kinds kindEnv fieldType) = do
+            | strict && not (isUnliftedTypeInEnv kinds kindEnv tyVarKinds fieldType) = do
                 evaluated <- freshBinder "_strict_forced" fieldType
                 pure
                   ( ExCase
@@ -2968,7 +2972,7 @@ familyInstanceArguments info familyType =
             maybe
               (failValue ("data-family instance " <> T.unpack (dfiiFamilyName info) <> " has an unbound type variable"))
               pure
-              (Map.lookup (tvUnique tyVar) substitution)
+              (Map.lookup (tvbUnique tyVar) substitution)
         )
         (dfiiTyVars info)
 
@@ -3381,8 +3385,10 @@ desugarTuple annotation flavor elements = do
 checkedRuntimeRep :: TcType -> ValueM Type
 checkedRuntimeRep ty = do
   kinds <- valueKinds
-  kindEnv <- gets (ceKindEnv . vsConvertEnv)
-  liftEither (runtimeRepOfTypeInEnv kinds kindEnv ty) >>= convertRuntimeRep
+  convertEnv <- gets vsConvertEnv
+  let kindEnv = ceKindEnv convertEnv
+      tyVarKinds = ceTyVarKinds convertEnv
+  liftEither (runtimeRepOfTypeInEnv kinds kindEnv tyVarKinds ty) >>= convertRuntimeRep
 
 desugarTupleElement :: TcType -> Maybe Syn.Expr -> ValueM (Expr, [Binder])
 desugarTupleElement _ (Just expression) = (,[]) <$> desugarExpr expression
@@ -3702,13 +3708,15 @@ desugarLocalDecls declarations bodyType body = do
         LocalStrictBinds binds -> pure (foldr ExLet innerExpression binds)
     allocationHasUnliftedBinder allocation = do
       kinds <- valueKinds
-      kindEnv <- gets (ceKindEnv . vsConvertEnv)
+      convertEnv <- gets vsConvertEnv
+      let kindEnv = ceKindEnv convertEnv
+          tyVarKinds = ceTyVarKinds convertEnv
       let types =
             case allocation of
               LocalNamedAllocation _ _ ty _ -> [ty]
               LocalPatternAllocation _ _ _ rhsType binders _ -> rhsType : [ty | (_, _, ty) <- binders]
               LocalImplicitParamAllocation _ _ _ ty -> [ty]
-      pure (any (isUnliftedTypeInEnv kinds kindEnv) types)
+      pure (any (isUnliftedTypeInEnv kinds kindEnv tyVarKinds) types)
     allocateLocal (LocalNamedGroup group) = do
       let key = groupKey group
           name = groupName group
@@ -4238,7 +4246,7 @@ convertCoercion coercion =
           env <- gets vsConvertEnv
           kindVariables <- liftEither (extraKindVars env (dtiTyCon info) (dtiTyVars info))
           let variables = kindVariables <> dtiTyVars info
-              result = TcTyCon (dtiTyCon info) (map TcTyVar (dtiTyVars info))
+              result = TcTyCon (dtiTyCon info) (map tvbType (dtiTyVars info))
           convertCheckedTypeArguments (foldr TcForAllTy result variables) arguments
         [] -> mapM convertCheckedType arguments
       pure (CoAxiom name converted, [])
@@ -4474,12 +4482,12 @@ convertCheckedType ty = do
     Left message -> failValue (message <> " while converting " <> show ty)
     Right converted -> pure converted
 
-convertTypeBinder :: TyVarId -> ValueM Binder
+convertTypeBinder :: TcTyVarBinder -> ValueM Binder
 convertTypeBinder tyVar = do
   env <- gets vsConvertEnv
   liftEither (tyVarBinder env tyVar)
 
-convertTypeBinders :: [TyVarId] -> ValueM [Binder]
+convertTypeBinders :: [TcTyVarBinder] -> ValueM [Binder]
 convertTypeBinders variables =
   withTypeVariables variables (mapM convertTypeBinder variables)
 
@@ -4607,10 +4615,20 @@ shareSuperClass evidence resultType build = do
 withDictionaries :: [Dictionary] -> ValueM a -> ValueM a
 withDictionaries additions action = do
   previous <- gets vsDictionaries
+  previousEnv <- gets vsConvertEnv
   let updated = foldr insertDictionary previous additions
-  modify' (\state -> state {vsDictionaries = updated})
+      -- A nominal equality that a match gives can refine a kind. The
+      -- converter needs both the equality and the evidence that proves it:
+      -- the equality to kind the branch's types, the evidence to cast an
+      -- occurrence the equality re-kinds.
+      equalities =
+        [ (left, right, binderName (dictionaryBinder dictionary))
+        | dictionary <- additions,
+          EqPred left right <- [dictionaryPredicate dictionary]
+        ]
+  modify' (\state -> state {vsDictionaries = updated, vsConvertEnv = withKindEqualities equalities previousEnv})
   result <- action
-  modify' (\state -> state {vsDictionaries = previous})
+  modify' (\state -> state {vsDictionaries = previous, vsConvertEnv = previousEnv})
   pure result
   where
     insertDictionary dictionary =
@@ -4637,7 +4655,7 @@ dictionaryKey classTyCon arguments =
 typeKey :: TcType -> Text
 typeKey ty = T.pack (show ty)
 
-peelForAlls :: TcType -> ([TyVarId], TcType)
+peelForAlls :: TcType -> ([TcTyVarBinder], TcType)
 peelForAlls ty =
   case ty of
     TcForAllTy tyVar body ->

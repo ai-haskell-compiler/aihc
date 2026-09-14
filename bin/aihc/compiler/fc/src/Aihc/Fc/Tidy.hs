@@ -106,6 +106,7 @@ tidyType env ty =
       let (binder', bodyEnv) = tidyBinder env binder
        in TyForAll binder' (tidyType bodyEnv body)
     TyEq left right -> TyEq (tidyType env left) (tidyType env right)
+    TyCast inner coercion -> TyCast (tidyType env inner) (tidyCoercion env coercion)
 
 tidyExpr :: TidyEnv -> Expr -> Expr
 tidyExpr env expr =

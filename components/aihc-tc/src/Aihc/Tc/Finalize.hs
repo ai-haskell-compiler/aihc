@@ -35,7 +35,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad
 import Aihc.Tc.Tidy (tidyType)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..), tvKind, typeKind, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcTyVarBinder, TcType (..), Unique (..), tvbKind, tvbType, typeKind, pattern KType)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
@@ -118,7 +118,7 @@ defaultUnsolvedAnnotationMetas annotation =
             _ ->
               abortTc
                 ( "internal type annotation error: cannot default a meta-variable with kind "
-                    <> renderTcType (tidyType kinds kind)
+                    <> renderTcType (tidyType kind)
                 )
       annotation' <- zonkTcAnnotation annotation
       defaultUnsolvedAnnotationMetas annotation'
@@ -133,12 +133,8 @@ zonkTcAnnotation annotation =
     <*> mapM zonkEvTerm (tcAnnEvidenceBinders annotation)
     <*> mapM zonkType (tcAnnTermArgTypes annotation)
 
-zonkTypeBinder :: TyVarId -> TcM TyVarId
-zonkTypeBinder binder = do
-  binderType <- zonkType (TcTyVar binder)
-  case binderType of
-    TcTyVar binder' -> pure binder'
-    _ -> abortTc "internal type annotation error: type binder zonked to a non-variable"
+zonkTypeBinder :: TcTyVarBinder -> TcM TcTyVarBinder
+zonkTypeBinder = defaultTyVarKinds
 
 -- | Reverse a proof, cancelling a symmetry rather than stacking one.
 symmetric :: Coercion -> Coercion
@@ -155,11 +151,10 @@ evidenceForEvVar contextType ev = do
     Nothing -> do
       -- A reported type error can leave a wanted constraint without
       -- evidence. Keep the placeholder so the error reaches the user.
-      kinds <- getKinds
       errorCount <- currentErrorCount
       if errorCount > 0
         then pure (EvVarTerm ev)
-        else abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType kinds contextType))
+        else abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> renderTcType (tidyType contextType))
 
 zonkEvTerm :: EvTerm -> TcM EvTerm
 zonkEvTerm evTerm =
@@ -228,11 +223,10 @@ rejectMetaTcAnnotation :: TcAnnotation -> TcM ()
 rejectMetaTcAnnotation ann =
   case firstMetaTcAnnotation ann of
     Nothing -> pure ()
-    Just {} -> do
-      kinds <- getKinds
+    Just {} ->
       abortTc
         ( "internal type annotation error: unzonked meta-variable in finalized annotation with type "
-            <> renderTcType (tidyType kinds (tcAnnType ann))
+            <> renderTcType (tidyType (tcAnnType ann))
         )
 
 rejectMetaFinalAnnotation :: Annotation -> TcM ()
@@ -268,7 +262,7 @@ firstMetaTcAnnotation ann =
 
 firstMetaClassAnnotation :: TcClassAnnotation -> Maybe Unique
 firstMetaClassAnnotation classAnnotation =
-  firstJusts (map (firstMetaType . TcTyVar) (tcClassKindTyVars classAnnotation))
+  firstJusts (map (firstMetaType . tvbType) (tcClassKindTyVars classAnnotation))
     <|> firstJusts (map (firstMetaType . tcDictBinderType) (tcClassSuperClasses classAnnotation))
     <|> firstJusts (map firstMetaClassMethodAnnotation (tcClassMethods classAnnotation))
     <|> firstJusts (map (firstMetaType . snd) (tcClassDefaultSignatures classAnnotation))
@@ -328,7 +322,7 @@ firstMetaCoerced body =
         ++ [firstMetaEvTerm evidence | Just evidence <- [tcCoercedEvidence body]]
         ++ [firstMetaCoercion proof | Just proof <- [tcCoercedDictionaryCast body]]
         ++ [ firstMetaCoercion (tcCoercedMethodCoercion method)
-               <|> firstJusts (map (firstMetaType . tvKind) (tcCoercedMethodTyVars method))
+               <|> firstJusts (map (firstMetaType . tvbKind) (tcCoercedMethodTyVars method))
                <|> firstJusts (map firstMetaPred (tcCoercedMethodPredicates method))
            | method <- tcCoercedMethods body
            ]
@@ -378,7 +372,7 @@ firstMetaEvTerm evTerm =
     EvTypeable _ ty _ kindArguments arguments ->
       firstMetaType ty <|> firstJusts [firstMetaType kind <|> firstMetaEvTerm evidence | (kind, evidence) <- kindArguments] <|> firstJusts (map firstMetaEvTerm arguments)
     EvTypeLam variable body ->
-      firstMetaType (tvKind variable) <|> firstMetaEvTerm body
+      firstMetaType (tvbKind variable) <|> firstMetaEvTerm body
     EvDictLam predicate binderType body ->
       firstMetaPred predicate <|> firstMetaType binderType <|> firstMetaEvTerm body
     EvTypeApp function argument ->
@@ -421,7 +415,7 @@ firstMetaPred pred' =
     IParamPred _ payload ->
       firstMetaType payload
     QuantifiedPred variables antecedents consequent ->
-      firstJusts (map (firstMetaType . tvKind) variables)
+      firstJusts (map (firstMetaType . tvbKind) variables)
         <|> firstJusts (map firstMetaPred antecedents)
         <|> firstMetaPred consequent
 

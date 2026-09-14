@@ -36,5 +36,5 @@ val 1.vrebuild :: ∀(k : 2.sType) (f : k) (x : 2.sType). 1.tIsFun k 2.→ 1.tSo
       λ(evidence : 1.tIsFun k).
         case evidence as (scrut : 1.tIsFun k) return (1.tSome) of {
             1.cIsFun (given : k ~ (2.sType 2.→ 2.sType)) →
-                1.cSome @2.sType @(f x) (1.cProxy @2.sType @(f x))
+                1.cSome @2.sType @((f ▷ given) x) (1.cProxy @2.sType @((f ▷ given) x))
         }

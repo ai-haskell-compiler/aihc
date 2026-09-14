@@ -11,7 +11,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
+import Aihc.Tc.Kind (tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
@@ -80,11 +80,6 @@ unifyCollecting _ (TcMetaTv u1) (TcMetaTv u2)
   | u1 == u2 = pure (Right [])
 unifyCollecting loc (TcMetaTv u) ty = fmap (const []) <$> unifyMetaTv loc u ty
 unifyCollecting loc ty (TcMetaTv u) = fmap (const []) <$> unifyMetaTv loc u ty
-unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
-  -- One variable whose two occurrences carry different kinds (a given
-  -- kind refinement rewrites the kinds of occurrences) is still one
-  -- variable.
-  | sameTyVar v1 v2 = pure (Right [])
 unifyCollecting loc t1 t2
   | t1 == t2 = pure (Right [])
   | otherwise = do
@@ -122,7 +117,7 @@ retryDeferred loc pairs = sequence_ <$> mapM retryOne pairs
 -- | Unify a meta-variable with a type, performing the occurs check.
 unifyMetaTv :: SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())
 unifyMetaTv loc u ty = do
-  ty' <- zonkType ty >>= refineGivenTyVarKinds
+  ty' <- zonkType ty
   case ty' of
     TcMetaTv u' | u == u' -> pure (Right ())
     _
@@ -154,4 +149,4 @@ occursIn u = go
     goPred (EqPred a b) = go a || go b
     goPred (IParamPred _ payload) = go payload
     goPred (QuantifiedPred variables antecedents consequent) =
-      any (go . tvKind) variables || any goPred antecedents || goPred consequent
+      any (go . tvbKind) variables || any goPred antecedents || goPred consequent

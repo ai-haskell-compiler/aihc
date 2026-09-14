@@ -20,7 +20,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Monad (TcM, emitError, freshUnique, getClassInstances, getUndecidableInstances, lookupClass)
+import Aihc.Tc.Monad (TcM, emitError, freshSkolemTvOfKind, getClassInstances, getUndecidableInstances, lookupClass)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, unless)
@@ -33,12 +33,12 @@ import Data.Text (Text)
 --
 -- The instance is not yet registered, so it cannot be checked against
 -- itself.
-checkInstanceFunDeps :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [Pred] -> TcM ()
+checkInstanceFunDeps :: SourceSpan -> ClassInfo -> [TcTyVarBinder] -> [TcType] -> [Pred] -> TcM ()
 checkInstanceFunDeps loc classInfo tyVars headTypes context =
   unless (null (ciFunDeps classInfo)) $ do
     headTypes' <- mapM zonkType headTypes
-    contextDependencies <- predicateFunDeps tyVars context
-    forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo tyVars headTypes' contextDependencies)
+    contextDependencies <- predicateFunDeps (tyVarBinderKinds tyVars) (map tvbTyVar tyVars) context
+    forM_ (ciFunDeps classInfo) (checkCoverage loc classInfo (tyVarBinderKinds tyVars) (map tvbTyVar tyVars) headTypes' contextDependencies)
     others <- getClassInstances (ciTyCon classInfo)
     forM_ others $ \other -> do
       otherHead <- freshenTypes (iiTyVars other) (iiHead other)
@@ -55,12 +55,12 @@ checkInstanceFunDeps loc classInfo tyVars headTypes context =
 -- dependencies of the instance context reach from those: the standard
 -- lifting instance of a monad transformer needs it, since it takes the
 -- state type of the class from its context rather than from its head.
-checkCoverage :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [([TyVarId], [TyVarId])] -> FunDep -> TcM ()
-checkCoverage loc classInfo tyVars headTypes contextDependencies dependency = do
+checkCoverage :: SourceSpan -> ClassInfo -> TcTyVarKinds -> [TyVarId] -> [TcType] -> [([TyVarId], [TyVarId])] -> FunDep -> TcM ()
+checkCoverage loc classInfo tyVarKinds tyVars headTypes contextDependencies dependency = do
   liberal <- getUndecidableInstances
   let determiners = atPositions (fdDeterminers dependency) headTypes
       determined = atPositions (fdDetermined dependency) headTypes
-      mentioned types = [tyVar | tyVar <- tyVars, any (typeMentionsTyVar tyVar) types]
+      mentioned types = [tyVar | tyVar <- tyVars, any (typeMentionsTyVar tyVarKinds tyVar) types]
       reached
         | liberal = closeOver contextDependencies (mentioned determiners)
         | otherwise = mentioned determiners
@@ -70,8 +70,8 @@ checkCoverage loc classInfo tyVars headTypes contextDependencies dependency = do
 
 -- | The functional dependencies that the predicates of an instance context
 -- state, as the type variables on each side.
-predicateFunDeps :: [TyVarId] -> [Pred] -> TcM [([TyVarId], [TyVarId])]
-predicateFunDeps tyVars context =
+predicateFunDeps :: TcTyVarKinds -> [TyVarId] -> [Pred] -> TcM [([TyVarId], [TyVarId])]
+predicateFunDeps tyVarKinds tyVars context =
   concat <$> mapM predicateDependencies context
   where
     predicateDependencies predicate =
@@ -87,7 +87,7 @@ predicateFunDeps tyVars context =
             variables positions =
               [ tyVar
               | tyVar <- tyVars,
-                any (typeMentionsTyVar tyVar) (atPositions positions arguments)
+                any (typeMentionsTyVar tyVarKinds tyVar) (atPositions positions arguments)
               ]
         _ -> pure []
 
@@ -138,7 +138,7 @@ funDepConflictError classInfo headTypes otherHead dependency =
 
 -- | The source names of the class parameters at the given positions.
 funDepNames :: ClassInfo -> [Int] -> [Text]
-funDepNames classInfo positions = map tvName (atPositions positions (ciTyVars classInfo))
+funDepNames classInfo positions = map tvbName (atPositions positions (ciTyVars classInfo))
 
 -- | The elements at the given positions. A position that the list does not
 -- reach contributes nothing.
@@ -148,15 +148,15 @@ atPositions positions values =
 
 -- | Rename the type variables of an instance head, so that unifying two
 -- instance heads cannot confuse variables that share a unique.
-freshenTypes :: [TyVarId] -> [TcType] -> TcM [TcType]
+freshenTypes :: [TcTyVarBinder] -> [TcType] -> TcM [TcType]
 freshenTypes tyVars types = do
   renamings <- mapM freshen tyVars
   let substitution = Map.fromList renamings
   pure (map (applySubst substitution) types)
   where
-    freshen tyVar = do
-      unique <- freshUnique
-      pure (tvUnique tyVar, TcTyVar (mkTyVarId (tvName tyVar) unique (tvKind tyVar)))
+    freshen binder = do
+      fresh <- freshSkolemTvOfKind (tvbName binder) (tvbKind binder)
+      pure (tvbUnique binder, TcTyVar fresh)
 
 -- | The outcome of unifying two instance heads. Every type variable is
 -- flexible: both sides are instance heads, and their variables are
@@ -222,5 +222,5 @@ walk substitution ty =
 bind :: Map Unique TcType -> TyVarId -> TcType -> UnifyOpen
 bind substitution tyVar ty
   | TcTyVar other <- ty, tvUnique other == tvUnique tyVar = Unified substitution
-  | typeMentionsTyVar tyVar ty = NotUnified
+  | typeMentionsTyVar Map.empty tyVar ty = NotUnified
   | otherwise = Unified (Map.insert (tvUnique tyVar) ty substitution)

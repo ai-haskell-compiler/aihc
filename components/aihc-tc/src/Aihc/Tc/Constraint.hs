@@ -155,7 +155,7 @@ ctEqProvenance ct =
 -- which is the heart of OutsideIn(X).
 data Implication = Implication
   { -- | Skolem type variables introduced by this implication.
-    implSkols :: ![TyVarId],
+    implSkols :: ![TcTyVarBinder],
     -- | Given constraints (from GADT match, etc.).
     implGivenCts :: ![Ct],
     -- | Wanted constraints to solve under this implication.

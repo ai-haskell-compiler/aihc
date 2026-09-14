@@ -33,13 +33,16 @@ instantiate scheme = do
 
 instantiateWithArgs :: TypeScheme -> TcM Instantiation
 instantiateWithArgs (ForAll tvs preds body) = do
+  -- A scheme can come from an interface, whose binders this run has never
+  -- seen; record their kinds so that an occurrence of one can be kinded.
+  recordTyVarBinders tvs
   -- Allocate in binder order so later binder kinds can refer to earlier
   -- instantiations (for example @b :: TYPE r@).
   subst <- foldM extendSubst Map.empty tvs
   let substTy = applySubst subst
       body' = substTy body
       preds' = map (applySubstPred subst) preds
-      typeArgs = map (substTy . TcTyVar) tvs
+      typeArgs = map (substTy . tvbType) tvs
   pure
     Instantiation
       { instType = body',
@@ -48,5 +51,5 @@ instantiateWithArgs (ForAll tvs preds body) = do
       }
   where
     extendSubst subst tv = do
-      meta <- freshMetaTvOfKind (applySubst subst (tvKind tv))
-      pure (Map.insert (tvUnique tv) meta subst)
+      meta <- freshMetaTvOfKind (applySubst subst (tvbKind tv))
+      pure (Map.insert (tvbUnique tv) meta subst)

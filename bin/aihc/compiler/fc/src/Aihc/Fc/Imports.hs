@@ -199,6 +199,7 @@ typeReferences ty =
     TyFun r1 r2 argument result -> foldMap typeReferences [r1, r2, argument, result]
     TyForAll binder body -> binderReferences binder <> typeReferences body
     TyEq left right -> typeReferences left <> typeReferences right
+    TyCast inner coercion -> typeReferences inner <> coercionReferences coercion
 
 exprReferences :: Expr -> References
 exprReferences expr =

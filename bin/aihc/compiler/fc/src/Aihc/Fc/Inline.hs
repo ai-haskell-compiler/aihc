@@ -773,6 +773,7 @@ typeVariables ty =
     TyFun r1 r2 argument result -> Set.unions (map typeVariables [r1, r2, argument, result])
     TyForAll binder body -> Set.delete (binderName binder) (typeVariables body) <> typeVariables (binderType binder)
     TyEq left right -> typeVariables left <> typeVariables right
+    TyCast inner _ -> typeVariables inner
 
 isLiftedBinder :: TypeEnv -> Binder -> Bool
 isLiftedBinder env binder =
@@ -1005,6 +1006,7 @@ renameType renaming ty =
       (binder', bodyRenaming) <- renameBinder renaming binder
       TyForAll binder' <$> renameType bodyRenaming body
     TyEq left right -> TyEq <$> renameType renaming left <*> renameType renaming right
+    TyCast inner coercion -> TyCast <$> renameType renaming inner <*> renameCoercion renaming coercion
 
 renameCoercion :: Map Name Name -> Coercion -> FreshM Coercion
 renameCoercion renaming coercion =
@@ -1097,6 +1099,7 @@ typeBinderNames ty =
     TyFun r1 r2 argument result -> foldMap typeBinderNames [r1, r2, argument, result]
     TyForAll binder body -> Set.insert (binderName binder) (typeBinderNames (binderType binder) <> typeBinderNames body)
     TyEq left right -> typeBinderNames left <> typeBinderNames right
+    TyCast inner _ -> typeBinderNames inner
 
 exprBinderNames :: Expr -> Set Name
 exprBinderNames = go
@@ -1163,3 +1166,4 @@ pruneImports program = program {programImports = imports'}
         TyFun r1 r2 argument result -> foldMap typeReferences [r1, r2, argument, result]
         TyForAll binder body -> typeReferences (binderType binder) <> typeReferences body
         TyEq left right -> typeReferences left <> typeReferences right
+        TyCast inner _ -> typeReferences inner

@@ -308,6 +308,8 @@ prettyTypeWith scopes prec ty =
         )
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith scopes PrecApp left <+> "~" <+> prettyTypeWith scopes PrecApp right)
+    TyCast inner coercion ->
+      parens (prettyTypeWith scopes PrecApp inner <+> "▷" <+> prettyCoercion scopes coercion)
 
 liftedArrowScope :: ScopeIndex -> Type -> Type -> Maybe Int
 liftedArrowScope scopes left right =

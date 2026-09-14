@@ -17,17 +17,17 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 
--- | The vertices are types up to the kinds of their variable occurrences:
--- an occurrence that a given kind refinement rewrote is the same vertex as
--- the one in the given that mentions it.
-type ProofGraph = Map TypeShape [(TcType, Coercion)]
+-- | The vertices are types. A variable occurrence carries no kind, so two
+-- occurrences of one variable are one vertex whatever a given has refined
+-- its kind to.
+type ProofGraph = Map TcType [(TcType, Coercion)]
 
 -- | Every graph edge proves equality between its two vertices.
 -- Closure uses only subterms of the givens and the wanted.
 -- Each new edge joins two components, so closure terminates.
 proveGivenEquality :: [Pred] -> TcType -> TcType -> TcM (Maybe Coercion)
 proveGivenEquality predicates left right
-  | sameType left right = pure (Just (Refl left))
+  | left == right = pure (Just (Refl left))
   | otherwise = do
       equalities <- concat <$> traverse (givenEqualities [] . (\predicate -> (predicate, EvGiven predicate))) predicates
       if null equalities then pure Nothing else prove equalities
@@ -69,7 +69,7 @@ givenEqualities visited (predicate, evidence) = case predicate of
           Nothing -> pure []
           Just info -> do
             kinds <- getKinds
-            let substitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
+            let substitution = Map.fromList (zip (map tvbUnique (ciTyVars info)) arguments)
                 fields = classFieldTypes info substitution
                 supers = map (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info)
             concat
@@ -80,19 +80,18 @@ givenEqualities visited (predicate, evidence) = case predicate of
 
 addProof :: TcType -> TcType -> Coercion -> ProofGraph -> ProofGraph
 addProof left right proof =
-  Map.insertWith (<>) (typeShape left) [(right, proof)]
-    . Map.insertWith (<>) (typeShape right) [(left, Sym proof)]
+  Map.insertWith (<>) left [(right, proof)]
+    . Map.insertWith (<>) right [(left, Sym proof)]
 
 findProof :: ProofGraph -> TcType -> TcType -> Maybe Coercion
-findProof graph source target = go (Set.singleton (typeShape source)) [(source, Refl source)]
+findProof graph source target = go (Set.singleton source) [(source, Refl source)]
   where
-    targetShape = typeShape target
     go _ [] = Nothing
     go visited ((current, proof) : rest)
-      | typeShape current == targetShape = Just proof
+      | current == target = Just proof
       | otherwise =
-          let edges = [(next, compose proof edge) | (next, edge) <- Map.findWithDefault [] (typeShape current) graph, typeShape next `Set.notMember` visited]
-              visited' = Set.union visited (Set.fromList (map (typeShape . fst) edges))
+          let edges = [(next, compose proof edge) | (next, edge) <- Map.findWithDefault [] current graph, next `Set.notMember` visited]
+              visited' = Set.union visited (Set.fromList (map fst edges))
            in go visited' (rest <> edges)
 
     compose (Refl _) proof = proof
@@ -142,9 +141,9 @@ application ty =
     TcFunTy domain range -> Just (TcAppTy TcArrowTy domain, range)
     _ -> Nothing
 
--- | The subterms of a type, one representative per shape.
-subterms :: TcType -> Map TypeShape TcType
+-- | The subterms of a type, one representative each.
+subterms :: TcType -> Map TcType TcType
 subterms ty =
-  Map.insert (typeShape ty) ty $ case application ty of
+  Map.insert ty ty $ case application ty of
     Just (function, argument) -> subterms function <> subterms argument
     Nothing -> Map.empty

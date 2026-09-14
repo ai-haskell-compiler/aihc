@@ -137,7 +137,7 @@ import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, paramBinder, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -449,13 +449,18 @@ recordSelectorBindings declaration =
           -- existential variable has no selector. A kind variable of a
           -- universal variable, such as the runtime representation in
           -- @TExp (a :: TYPE r)@, is universal as well.
-          universals = filter (`elem` closeOverKinds (typeTyVars resultType)) typeVariables
+          universals = filter ((`elem` closeOverKinds (typeTyVars resultType)) . tvbTyVar) typeVariables
           closeOverKinds variables =
-            let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
+            let kindVariables =
+                  [ tvbTyVar binder
+                  | binder <- typeVariables,
+                    tvbTyVar binder `notElem` variables,
+                    any (\universal -> tvbTyVar binder `elem` typeTyVars (tvbKind universal)) [b | b <- typeVariables, tvbTyVar b `elem` variables]
+                  ]
              in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
        in [ TcBindingResult label label (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
-            all (`elem` universals) (typeTyVars fieldType),
+            all (`elem` map tvbTyVar universals) (typeTyVars fieldType),
             Just label <- [maybeLabel]
           ]
 
@@ -622,11 +627,11 @@ checkModuleSignatures extensions signatures = do
 -- open, so the binder they belong to quantifies over them instead of
 -- defaulting them to 'Type'. A meta whose own kind is not 'Type' is
 -- representation-polymorphic and defaults as before.
-generalizeTyVarKinds :: [TyVarId] -> TcM ()
+generalizeTyVarKinds :: [TcTyVarBinder] -> TcM ()
 generalizeTyVarKinds variables = do
   kinds <- getKinds
   reserved <- reservedKindMetas
-  variableKinds <- mapM (zonkKind . tvKind) variables
+  variableKinds <- mapM (zonkKind . tvbKind) variables
   forM_ (zip [0 :: Int ..] (nub (concatMap collectMetaVars variableKinds))) $ \(index, Unique meta) -> do
     metaKind <- readMetaTvKind (Unique meta) >>= zonkKind
     tracked <- isTrackedKindMeta (Unique meta)
@@ -642,7 +647,8 @@ generalizeSignatureKinds signature = do
   variables' <- mapM defaultTyVarKinds variables
   body' <- zonkType body
   predicates' <- mapM defaultPredKinds predicates
-  pure signature {checkedSigScheme = ForAll (closeKindVariables variables') predicates' body'}
+  closed <- closeKindVariables variables'
+  pure signature {checkedSigScheme = ForAll closed predicates' body'}
 
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
 registerCheckedSig key sig = extendTermKeyEnvPermanent key binder
@@ -832,24 +838,31 @@ generalizeDataKind (ForAll variables predicates body) = do
     variable <- freshSkolemTv ("k" <> T.pack (show index))
     writeMetaTv meta (TcTyVar variable)
   kind' <- zonkKind kind
-  pure (ForAll (uniqueKindVariables (variables <> freeKindVariables kind')) predicates kind')
+  free <- freeKindVariables kind'
+  pure (ForAll (uniqueKindVariables (variables <> free)) predicates kind')
 
-closeKindVariables :: [TyVarId] -> [TyVarId]
+-- | A binder for every variable a list of binders mentions, the kind
+-- variables of their kinds included, with each binder's own kind read from
+-- the environment that records it.
+closeKindVariables :: [TcTyVarBinder] -> TcM [TcTyVarBinder]
 closeKindVariables variables =
-  uniqueKindVariables (concatMap (\variable -> freeKindVariables (tvKind variable) <> [variable]) variables)
+  uniqueKindVariables . concat
+    <$> mapM (\variable -> (<> [variable]) <$> freeKindVariables (tvbKind variable)) variables
 
-uniqueKindVariables :: [TyVarId] -> [TyVarId]
-uniqueKindVariables = nubBy (\left right -> tvUnique left == tvUnique right)
+uniqueKindVariables :: [TcTyVarBinder] -> [TcTyVarBinder]
+uniqueKindVariables = nubBy (\left right -> tvbUnique left == tvbUnique right)
 
-freeKindVariables :: TcType -> [TyVarId]
+freeKindVariables :: TcType -> TcM [TcTyVarBinder]
 freeKindVariables ty = case ty of
-  TcTyVar variable -> freeKindVariables (tvKind variable) <> [variable]
-  TcMetaTv {} -> []
-  TcArrowTy -> []
-  TcTyCon _ arguments -> concatMap freeKindVariables arguments
-  TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
-  TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
-  TcForAllTy variable body -> filter (/= variable) (freeKindVariables body)
+  TcTyVar variable -> do
+    binder <- lookupTyVarBinder variable
+    (<> [binder]) <$> freeKindVariables (tvbKind binder)
+  TcMetaTv {} -> pure []
+  TcArrowTy -> pure []
+  TcTyCon _ arguments -> concat <$> mapM freeKindVariables arguments
+  TcFunTy argument result -> (<>) <$> freeKindVariables argument <*> freeKindVariables result
+  TcAppTy function argument -> (<>) <$> freeKindVariables function <*> freeKindVariables argument
+  TcForAllTy variable body -> filter (/= variable) <$> freeKindVariables body
   TcQualTy _ body -> freeKindVariables body
 
 defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
@@ -894,11 +907,13 @@ defaultGlobalKindMetas initialKeys = do
       case binder of
         TcIdBinder scheme closedness -> do
           ForAll variables predicates body <- defaultTypeSchemeKinds scheme
-          pure (TcIdBinder (ForAll (closeKindVariables variables) predicates body) closedness)
+          closed <- closeKindVariables variables
+          pure (TcIdBinder (ForAll closed predicates body) closedness)
         TcMonoIdBinder ty -> TcMonoIdBinder <$> defaultTypeKinds ty
     defaultTyConInfoKinds info = do
       ForAll variables predicates body <- defaultTyConKindScheme (tciKindScheme info)
-      let kindScheme = ForAll (closeKindVariables variables) predicates body
+      closed <- closeKindVariables variables
+      let kindScheme = ForAll closed predicates body
       synonym <- traverse defaultTypeSynonymKinds (tciTypeSynonym info)
       pure
         info
@@ -925,10 +940,12 @@ defaultGlobalKindMetas initialKeys = do
       predicates <- mapM defaultPredKinds (dciTheta info)
       fields <- mapM defaultDataConFieldKinds (dciFields info)
       resultType <- defaultTypeKinds (dciResTy info)
+      closedUniversals <- closeKindVariables universalTyVars
+      closedExistentials <- closeKindVariables existentialTyVars
       pure
         info
-          { dciUnivTyVars = closeKindVariables universalTyVars,
-            dciExTyVars = filter (`notElem` closeKindVariables universalTyVars) (closeKindVariables existentialTyVars),
+          { dciUnivTyVars = closedUniversals,
+            dciExTyVars = filter (`notElem` closedUniversals) closedExistentials,
             dciTheta = predicates,
             dciFields = fields,
             dciResTy = resultType
@@ -1703,9 +1720,9 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       dictName <- lookupInstanceDictName origin (ciTyCon info) headTys
       headKinds <- mapM tcTypeKind headTys
-      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind (ciTyVars info)) headKinds)
+      let kindSubstitution = fromMaybe Map.empty (matchTypes (map tvbKind (ciTyVars info)) headKinds)
           classSubstitution =
-            Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
+            Map.fromList [(tvbUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys] <> kindSubstitution
           superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
@@ -1774,12 +1791,12 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
           associatedEquations = mapMaybe explicitEquation (instanceDeclTypeFamilyInsts instanceDecl) <> defaultEquations
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon info) headTys)) tvIds
           methodOrder = map fst (ciMethods info)
-          specializeVariable variable = setTyVarKind (applySubst kindSubstitution (tvKind variable)) variable
+          specializeVariable = mapTyVarBinderKind (applySubst kindSubstitution)
           classTyVars = map specializeVariable (ciTyVars info)
           specializeKinds (name, ForAll variables predicates body) =
             ( name,
               ForAll
-                [specializeVariable variable | variable <- variables, Map.notMember (tvUnique variable) kindSubstitution]
+                [specializeVariable variable | variable <- variables, Map.notMember (tvbUnique variable) kindSubstitution]
                 (map (applySubstPred kindSubstitution) predicates)
                 (applySubst kindSubstitution body)
             )
@@ -1812,7 +1829,7 @@ classMethodFromInfo :: ClassInfo -> Int -> (Text, TypeScheme) -> TcClassMethodAn
 classMethodFromInfo info index (methodName, scheme) =
   let methodType = schemeToType scheme
       (typeVariables, _) = peelForAlls methodType
-      dictionaryType = TcTyCon (ciTyCon info) (map TcTyVar (ciTyVars info))
+      dictionaryType = TcTyCon (ciTyCon info) (map tvbType (ciTyVars info))
    in TcClassMethodAnnotation
         { tcClassMethodName = methodName,
           tcClassMethodType = methodType,
@@ -1930,8 +1947,8 @@ tcInstanceDeclBodies decl =
 
 -- | The scope of type variables that keep their source names, for an
 -- instance head or a class head.
-tyVarScope :: [TyVarId] -> Map Text (TyVarId, TcType)
-tyVarScope tyVars = Map.fromList [(tvName tyVar, (tyVar, tvKind tyVar)) | tyVar <- tyVars]
+tyVarScope :: [TcTyVarBinder] -> Map Text (TyVarId, TcType)
+tyVarScope tyVars = Map.fromList [(tvbName tyVar, (tvbTyVar tyVar, tvbKind tyVar)) | tyVar <- tyVars]
 
 instanceMethodSignatures :: [InstanceDeclItem] -> Map Text Type
 instanceMethodSignatures = Map.fromList . concatMap collect
@@ -1963,15 +1980,15 @@ instanceMethodScope signatures name givens (ForAll _ predicates expected) matche
       solveBodyConstraintsWithGivens (givens <> predicates) (equality : constraints) []
       arguments <- mapM zonkType (instTypeArgs instantiated)
       forM_ (zip variables arguments) $ \(variable, argument) ->
-        when (tvName variable `elem` explicitForallNames signature) $
+        when (tvbName variable `elem` explicitForallNames signature) $
           case argument of
             TcTyVar _ -> pure ()
             _ -> emitError span' (OtherError "an explicit instance signature variable must remain polymorphic")
       pure
         ( Map.fromList
-            [ (tvName variable, (scoped, tvKind scoped))
+            [ (tvbName variable, (scoped, tvbKind variable))
             | (variable, TcTyVar scoped) <- zip variables arguments,
-              tvName variable `elem` explicitForallNames signature
+              tvbName variable `elem` explicitForallNames signature
             ]
         )
 
@@ -2115,12 +2132,12 @@ methodExpectedScheme classInfo headTys methodName =
       case splitClassReceiver predicates headTys of
         Just (receiverSubst, methodPredicates) -> do
           headKinds <- mapM tcTypeKind headTys
-          let classKinds = map tvKind (ciTyVars classInfo)
+          let classKinds = map tvbKind (ciTyVars classInfo)
               kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
               subst = receiverSubst <> kindSubst
           pure
             ( ForAll
-                (filter (\tyVar -> not (Map.member (tvUnique tyVar) subst)) tyVars)
+                (filter (\tyVar -> not (Map.member (tvbUnique tyVar) subst)) tyVars)
                 (map (applySubstPred subst) methodPredicates)
                 (applySubst subst body)
             )
@@ -2146,7 +2163,7 @@ selectorDictTypeTc methodName methodTy =
     TcQualTy (pred' : _) _ -> predType pred'
     _ -> missingTypeInfo ("class dictionary type for method selector " <> T.unpack methodName)
 
-peelForAlls :: TcType -> ([TyVarId], TcType)
+peelForAlls :: TcType -> ([TcTyVarBinder], TcType)
 peelForAlls (TcForAllTy tv body) =
   let (tvs, inner) = peelForAlls body
    in (tv : tvs, inner)
@@ -2296,7 +2313,7 @@ splitContext ty = ([], ty)
 -- | Order type variables so that a variable comes after every variable its
 -- kind mentions: @instance C (TypeRep (a :: k))@ quantifies @k@ before
 -- @a@. The order is otherwise stable.
-orderTyVarsByKind :: [TyVarId] -> [TyVarId]
+orderTyVarsByKind :: [TcTyVarBinder] -> [TcTyVarBinder]
 orderTyVarsByKind = go []
   where
     go emitted pending =
@@ -2304,7 +2321,7 @@ orderTyVarsByKind = go []
         ([], _) -> reverse emitted <> pending
         (next, rest) -> go (reverse next <> emitted) rest
     ready emitted pending tyVar =
-      not (any (\other -> other /= tyVar && other `notElem` emitted && kindMentionsUnique (tvUnique other) (tvKind tyVar)) pending)
+      not (any (\other -> other /= tyVar && other `notElem` emitted && kindMentionsUnique (tvbUnique other) (tvbKind tyVar)) pending)
 
 -- | Settle the kinds an instance head left open and return the variables
 -- the dictionary quantifies over.
@@ -2315,28 +2332,28 @@ orderTyVarsByKind = go []
 -- kind 'generalizeSignatureKinds' turned into a skolem, so quantify over
 -- the kind instead, the way GHC does. Without PolyKinds the kinds default
 -- as before.
-resolveInstanceTyVars :: (Text, Text) -> [TyVarId] -> TcM [TyVarId]
+resolveInstanceTyVars :: (Text, Text) -> [TcTyVarBinder] -> TcM [TcTyVarBinder]
 resolveInstanceTyVars origin rawTyVars = do
   polyKinds <- isPolyKindOrigin origin
   if polyKinds
     then do
       generalizeTyVarKinds rawTyVars
       tyVars <- mapM defaultTyVarKinds rawTyVars
-      pure (orderTyVarsByKind (closeKindVariables tyVars))
+      orderTyVarsByKind <$> closeKindVariables tyVars
     else orderTyVarsByKind <$> mapM defaultTyVarKinds rawTyVars
 
-makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TyVarId], TvKindEnv)
+makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TcTyVarBinder], TvKindEnv)
 makeInstanceTyVarEnv instanceDecl headArgTypes = do
   explicitParams <- makeParamEnv (instanceDeclForall instanceDecl)
   let explicitNames = map paramName explicitParams
       freeVars = nub (explicitNames <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
       implicitNames = freeVars \\ explicitNames
       explicitEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- explicitParams]
-  rawImplicitTyVars <- mapM freshSkolemTv implicitNames
   implicitKinds <- mapM (const freshKindMeta) implicitNames
-  let implicitTyVars = zipWith setTyVarKind implicitKinds rawImplicitTyVars
+  implicitTyVars <- zipWithM freshSkolemTvOfKind implicitNames implicitKinds
+  let implicitBinders = zipWith mkTyVarBinder implicitTyVars implicitKinds
       implicitEnv = Map.fromList (zip implicitNames (zip implicitTyVars implicitKinds))
-  pure (map paramTyVar explicitParams <> implicitTyVars, explicitEnv <> implicitEnv)
+  pure (map paramBinder explicitParams <> implicitBinders, explicitEnv <> implicitEnv)
 
 checkInstanceHeadTypes :: Name -> TvKindEnv -> [Type] -> TcM [TcType]
 checkInstanceHeadTypes className tvEnv headArgTypes = do
@@ -2347,15 +2364,16 @@ checkInstanceHeadTypes className tvEnv headArgTypes = do
 -- preserving the scheme predicates as scoped givens for the checked body.
 -- Unlike regular instantiation (which uses metas), this produces rigid
 -- type variables that cannot be unified during constraint solving.
-skolemizeQualified :: TypeScheme -> TcM ([TyVarId], [Pred], TcType)
+skolemizeQualified :: TypeScheme -> TcM ([TcTyVarBinder], [Pred], TcType)
 skolemizeQualified (ForAll tvs preds body) = do
+  recordTyVarBinders tvs
   (skolems, subst) <- foldM extendSubst ([], Map.empty) tvs
   pure (skolems, map (applySubstPred subst) preds, applySubst subst body)
   where
     extendSubst (skolems, subst) tv = do
-      rawSkolem <- freshSkolemTv (tvName tv)
-      let skolem = setTyVarKind (applySubst subst (tvKind tv)) rawSkolem
-      pure (skolems <> [skolem], Map.insert (tvUnique tv) (TcTyVar skolem) subst)
+      let kind = applySubst subst (tvbKind tv)
+      skolem <- freshSkolemTvOfKind (tvbName tv) kind
+      pure (skolems <> [mkTyVarBinder skolem kind], Map.insert (tvbUnique tv) (TcTyVar skolem) subst)
 
 -- | Split a function type into argument types and result type.
 splitFunTy :: TcType -> Int -> ([TcType], TcType)
@@ -2631,10 +2649,10 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
     -- The type argument that instantiates one type variable of the shared
     -- right-hand side for one selector.
     patternBindTypeArgument sp' name scheme tyVar
-      | tyVar `elem` typeSchemeTyVars scheme = pure (TcTyVar tyVar)
+      | tyVar `elem` typeSchemeTyVars scheme = pure (tvbType tyVar)
       | otherwise = do
           kinds <- getKinds
-          kind <- zonkType (tvKind tyVar)
+          kind <- zonkType (tvbKind tyVar)
           if kind == typeKind kinds
             then do
               unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
@@ -2643,16 +2661,16 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
               emitError sp' $
                 OtherError
                   ( "a pattern binding cannot generalize over the type variable "
-                      <> T.unpack (tvName tyVar)
+                      <> T.unpack (tvbName tyVar)
                       <> " of kind "
                       <> renderTcType kind
                       <> ", which "
                       <> T.unpack name
                       <> " does not mention"
                   )
-              pure (TcTyVar tyVar)
+              pure (tvbType tyVar)
 
-typeSchemeTyVars :: TypeScheme -> [TyVarId]
+typeSchemeTyVars :: TypeScheme -> [TcTyVarBinder]
 typeSchemeTyVars (ForAll tyVars _ _) = tyVars
 
 -- | The binding-result name that carries the type of the right-hand side
@@ -2810,8 +2828,8 @@ checkBundledPatSyns modu =
 -- | The parts of a pattern synonym type
 -- @forall univ. req => forall ex. prov => x1 -> .. -> xn -> scrutinee@.
 data PatSynLayout = PatSynLayout
-  { patSynLayoutUniversals :: ![TyVarId],
-    patSynLayoutExistentials :: ![TyVarId],
+  { patSynLayoutUniversals :: ![TcTyVarBinder],
+    patSynLayoutExistentials :: ![TcTyVarBinder],
     patSynLayoutRequired :: ![Pred],
     patSynLayoutProvided :: ![Pred],
     patSynLayoutArgTypes :: ![TcType],
@@ -2840,7 +2858,7 @@ patSynLayoutFromSig name arity sig = do
           TcQualTy predicates inner -> (predicates, inner)
           _ -> ([], innerBody)
       (argTys, resultType) = splitFunTy body arity
-      (universals, implicitExistentials) = partition (`typeMentionsTyVar` resultType) tyVars
+      (universals, implicitExistentials) = partition ((\tyVar -> typeMentionsTyVar (tyVarBinderKinds tyVars) tyVar resultType) . tvbTyVar) tyVars
       existentials = implicitExistentials <> explicitExistentials
   if length argTys /= arity
     then do
@@ -2912,8 +2930,10 @@ inferPatSynLayout sp name pat argBinders = do
 -- @forall univ r. req => scrutinee -> (forall ex. prov => x1 -> .. -> xn -> r) -> r -> r@.
 patSynMatcherSig :: Text -> SourceSpan -> PatSynLayout -> TcM CheckedSig
 patSynMatcherSig matcherName sp layout = do
+  kinds <- getKinds
   result <- freshSkolemTv "r"
-  let resultTy = TcTyVar result
+  let resultBinder = mkTyVarBinder result (typeKind kinds)
+      resultTy = TcTyVar result
       continuationBody = foldr TcFunTy resultTy (patSynLayoutArgTypes layout)
       qualifiedContinuation =
         case patSynLayoutProvided layout of
@@ -2921,7 +2941,7 @@ patSynMatcherSig matcherName sp layout = do
           provided -> TcQualTy provided continuationBody
       continuation = foldr TcForAllTy qualifiedContinuation (patSynLayoutExistentials layout)
       matcherTy = TcFunTy (patSynLayoutResultType layout) (TcFunTy continuation (TcFunTy resultTy resultTy))
-  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [result]) (patSynLayoutRequired layout) matcherTy) sp [] False)
+  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [resultBinder]) (patSynLayoutRequired layout) matcherTy) sp [] False)
 
 -- | Give a checked matcher or builder the type of its checked body. The
 -- signature check closes the body over fresh skolems, and the desugarer
@@ -2961,7 +2981,7 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
   pure (concatMap fst checked, concatMap snd checked)
   where
     selector field argBinder argType
-      | any (`typeMentionsTyVar` argType) (patSynLayoutExistentials layout) = do
+      | any ((\tyVar -> typeMentionsTyVar (tyVarBinderKinds (patSynLayoutExistentials layout)) tyVar argType) . tvbTyVar) (patSynLayoutExistentials layout) = do
           emitError nameSpan (OtherError ("the field " <> T.unpack field <> " of a record pattern synonym has an existential type, so it has no selector"))
           pure ([], [])
       | otherwise = do
@@ -3337,13 +3357,13 @@ rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()
 rejectEscapingExistentials outerType implications = do
   zonkedOuterType <- zonkType outerType
   let skolems = concatMap implSkols implications
-      escaping = filter (`typeMentionsTyVar` zonkedOuterType) skolems
+      escaping = filter ((\tyVar -> typeMentionsTyVar (tyVarBinderKinds skolems) tyVar zonkedOuterType) . tvbTyVar) skolems
   unless (null escaping) $
     emitError
       NoSourceSpan
       ( OtherError
           ( "existential type variable escapes its pattern-match branch: "
-              <> T.unpack (T.intercalate ", " (map tvName escaping))
+              <> T.unpack (T.intercalate ", " (map tvbName escaping))
           )
       )
 
@@ -3557,21 +3577,21 @@ registerClassDecl origin classDecl = do
       else pure []
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   paramInfos <- makeParamEnvWith kindEnv params
-  let paramTyVars = map paramTyVar paramInfos
-      allClassTyVars = map paramTyVar kindParams <> paramTyVars
+  let paramTyVars = map paramBinder paramInfos
+      allClassTyVars = map paramBinder kindParams <> paramTyVars
       paramKinds = map paramKind paramInfos
       paramTvEnv = kindEnv <> Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   kinds <- getKinds
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty (constraintKind kinds)) (fromMaybe [] (classDeclContext classDecl))
   let classKind = foldr KFun (constraintKind kinds) paramKinds
   classTyCon <- mkDeclaredTyCon classBinder className (length params)
-  let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
+  let classPred = ClassPred classTyCon (map tvbType paramTyVars)
   storeTyConInfo
     TyConInfo
       { tciName = className,
         tciArity = length params,
         tciTyCon = classTyCon,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] classKind,
+        tciKindScheme = ForAll (map paramBinder kindParams) [] classKind,
         tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing
       }
@@ -3591,7 +3611,7 @@ registerClassDecl origin classDecl = do
       { ciName = className,
         ciTyCon = classTyCon,
         ciOrigin = Just origin,
-        ciKindTyVars = map paramTyVar kindParams,
+        ciKindTyVars = map paramBinder kindParams,
         ciTyVars = paramTyVars,
         ciSuperClassTypes = superClassTypes,
         ciMethods = methods,
@@ -3684,7 +3704,7 @@ registerAssociatedTypeFamily origin classParamNames defaults familyDecl =
 -- | Register the associated type family equations of an instance: the
 -- explicit items first, then the class default of each family that the
 -- instance does not define.
-registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> [TyVarId] -> [TcType] -> InstanceDecl -> TcM ()
+registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> [TcTyVarBinder] -> [TcType] -> InstanceDecl -> TcM ()
 registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instanceDecl = do
   let explicit = instanceDeclTypeFamilyInsts instanceDecl
       explicitNames = mapMaybe typeFamilyInstName explicit
@@ -3700,13 +3720,13 @@ registerInstanceAssociatedTypes origin classInfo instanceTyVars headTys instance
 -- | Instantiate the default equation of an associated type family at the
 -- head types of an instance. A family parameter that is not a class
 -- parameter becomes a fresh type variable.
-instantiateAssociatedDefault :: (Text, Text) -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
+instantiateAssociatedDefault :: (Text, Text) -> [TcTyVarBinder] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
 instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys info defaultEquation = do
   kinds <- getKinds
   args <- mapM argumentType (atiClassParams info)
   let substitution =
         Map.fromList [(tvUnique tyVar, arg) | (TcTyVar tyVar, arg) <- zip (typeArguments (tfiiLeft defaultEquation)) args]
-      freshTyVars = [tyVar | TcTyVar tyVar <- args, tyVar `notElem` instanceTyVars]
+  freshTyVars <- mapM lookupTyVarBinder [tyVar | TcTyVar tyVar <- args, tyVar `notElem` map tvbTyVar instanceTyVars]
   pure
     TypeFamilyInstanceInfo
       { tfiiFamilyName = tyConName (atiTyCon info),
@@ -3722,9 +3742,8 @@ instantiateAssociatedDefault (packageName, moduleName') instanceTyVars headTys i
       case associatedClassArgument headTys maybeIndex of
         Just ty -> pure ty
         Nothing -> do
-          rawTyVar <- freshSkolemTv "a"
           kind <- freshKindMeta
-          pure (TcTyVar (setTyVarKind kind rawTyVar))
+          TcTyVar <$> freshSkolemTvOfKind "a" kind
 
 associatedClassArgument :: [TcType] -> Maybe Int -> Maybe TcType
 associatedClassArgument headTys maybeIndex = maybeIndex >>= \index -> listToMaybe (drop index headTys)
@@ -3759,22 +3778,22 @@ isImplicitlyKindPolymorphicClass (_, moduleName') className = do
         || (moduleName' == tyConModuleName equality && className `elem` [tyConName equality, "~~"])
     )
 
-registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
+registerClassItem :: Pred -> TvKindEnv -> [TcTyVarBinder] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemTypeSig names ty -> do
       let (context, body) = splitContext ty
           classVarNames = Map.keys classTvEnv
           freeVars = freeTypeVars ty \\ classVarNames
-      rawExtraTyVars <- mapM freshSkolemTv freeVars
       extraKinds <- mapM (const freshKindMeta) freeVars
-      let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
+      extraTyVars <- zipWithM freshSkolemTvOfKind freeVars extraKinds
+      let extraBinders = zipWith mkTyVarBinder extraTyVars extraKinds
       let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
       kinds <- getKinds
       methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
       contextPreds <- mapM (surfacePredToPred tvEnv) context
       let preds = classPred : contextPreds
-          scheme = ForAll (classTyVars <> extraTyVars) preds methodBody
+          scheme = ForAll (classTyVars <> extraBinders) preds methodBody
           declaredTy = schemeToType scheme
       mapM
         ( \methodName -> do
@@ -3787,16 +3806,16 @@ registerClassItem classPred classTvEnv classTyVars item =
         names
     _ -> pure []
 
-registerClassDefaultSignature :: TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM (Maybe (Text, TypeScheme))
+registerClassDefaultSignature :: TvKindEnv -> [TcTyVarBinder] -> ClassDeclItem -> TcM (Maybe (Text, TypeScheme))
 registerClassDefaultSignature classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemDefaultSig methodName ty -> do
       let (context, body) = splitContext ty
           classVarNames = Map.keys classTvEnv
           freeVars = freeTypeVars ty \\ classVarNames
-      rawExtraTyVars <- mapM freshSkolemTv freeVars
       extraKinds <- mapM (const freshKindMeta) freeVars
-      let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
+      extraTyVars <- zipWithM freshSkolemTvOfKind freeVars extraKinds
+      let extraBinders = zipWith mkTyVarBinder extraTyVars extraKinds
       let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
       kinds <- getKinds
       methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
@@ -3804,7 +3823,7 @@ registerClassDefaultSignature classTvEnv classTyVars item =
       pure
         ( Just
             ( unqualifiedNameText methodName,
-              ForAll (classTyVars <> extraTyVars) contextPreds methodBody
+              ForAll (classTyVars <> extraBinders) contextPreds methodBody
             )
         )
     _ -> pure Nothing
@@ -3927,7 +3946,7 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       { tciName = familyName,
         tciArity = arity,
         tciTyCon = familyTyCon,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = ForAll (map paramBinder kindParams) [] declaredKind,
         tciFlavor = DataFamilyTyCon,
         tciTypeSynonym = Nothing
       }
@@ -3977,7 +3996,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                     DataFamilyInstanceInfo
                       { dfiiFamilyName = familyName,
                         dfiiFamilyType = familyType,
-                        dfiiTyVars = map paramTyVar paramInfos,
+                        dfiiTyVars = map paramBinder paramInfos,
                         dfiiRepresentationTyCon = representationTyCon,
                         dfiiAxiomName = axiomName,
                         dfiiConstructorNames = constructorNames,
@@ -4017,12 +4036,12 @@ dataFamilyInstanceParams familyInst = do
   pure (explicitParams <> implicitParams)
   where
     makeImplicitParam name = do
-      rawTyVar <- freshSkolemTv name
       kind <- freshKindMeta
+      tyVar <- freshSkolemTvOfKind name kind
       pure
         ParamInfo
           { paramName = name,
-            paramTyVar = setTyVarKind kind rawTyVar,
+            paramTyVar = tyVar,
             paramKind = kind
           }
 
@@ -4179,7 +4198,7 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
                       { tfiiFamilyName = familyName,
                         tfiiAxiomName = axiomName,
                         tfiiOrigin = (PackageId packageName, moduleName'),
-                        tfiiTyVars = map paramTyVar paramInfos,
+                        tfiiTyVars = map paramBinder paramInfos,
                         tfiiLeft = lhs,
                         tfiiRight = rhs,
                         tfiiClosed = isClosed
@@ -4209,12 +4228,12 @@ typeFamilyEquationParams extraBinders equation = do
   pure (explicitParams <> implicitParams)
   where
     makeImplicitParam name = do
-      rawTyVar <- freshSkolemTv name
       kind <- freshKindMeta
+      tyVar <- freshSkolemTvOfKind name kind
       pure
         ParamInfo
           { paramName = name,
-            paramTyVar = setTyVarKind kind rawTyVar,
+            paramTyVar = tyVar,
             paramKind = kind
           }
 
@@ -4242,12 +4261,8 @@ typeDeclParamInfos maybeKindScheme params =
           emitError NoSourceSpan (OtherError "standalone kind signature arity does not match its type declaration")
           pure (kindParams, paramInfos)
   where
-    kindParam tyVar = ParamInfo (tvName tyVar) tyVar (tvKind tyVar)
-    setParamKind kind param =
-      param
-        { paramTyVar = setTyVarKind kind (paramTyVar param),
-          paramKind = kind
-        }
+    kindParam binder = ParamInfo (tvbName binder) (tvbTyVar binder) (tvbKind binder)
+    setParamKind kind param = param {paramKind = kind}
 
 implicitBinderKindParams :: [TyVarBinder] -> TcM [ParamInfo]
 implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
@@ -4255,12 +4270,12 @@ implicitBinderKindParams binders = mapM makeImplicitParam implicitNames
     explicitNames = map tyVarBinderName binders
     implicitNames = nub (concatMap (maybe [] freeTypeVars . tyVarBinderKind) binders) \\ explicitNames
     makeImplicitParam name = do
-      rawTyVar <- freshSkolemTv name
       kind <- freshKindMeta
+      tyVar <- freshSkolemTvOfKind name kind
       pure
         ParamInfo
           { paramName = name,
-            paramTyVar = setTyVarKind kind rawTyVar,
+            paramTyVar = tyVar,
             paramKind = kind
           }
 
@@ -4292,7 +4307,7 @@ registerDataDeclHeader maybeKindScheme dd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = ForAll (map paramBinder kindParams) [] declaredKind,
         tciFlavor = DataTyCon,
         tciTypeSynonym = Nothing
       }
@@ -4313,8 +4328,8 @@ registerDataConstructors origin dataDecl = do
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors origin constructors
-      let tyVars = map paramTyVar paramInfos
-      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      let tyVars = map paramBinder paramInfos
+      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map tvbType tyVars))
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -4345,7 +4360,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = ForAll (map paramBinder kindParams) [] declaredKind,
         tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing
       }
@@ -4366,8 +4381,8 @@ registerNewtypeConstructor origin newtypeDecl = do
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors origin constructors
-      let tyVars = map paramTyVar paramInfos
-      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
+      let tyVars = map paramBinder paramInfos
+      resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map tvbType tyVars))
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -4415,7 +4430,7 @@ registerRecordSelectors origin constructors =
         [ (label, [(constructor, field)])
         | constructor <- constructors,
           field <- dciFields constructor,
-          not (any (`elem` dciExTyVars constructor) (typeTyVars (dcfiType field))),
+          not (any (`elem` map tvbTyVar (dciExTyVars constructor)) (typeTyVars (dcfiType field))),
           Just label <- [dcfiLabel field]
         ]
     registerSelector (label, (constructor, field) : _) = do
@@ -4444,7 +4459,7 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   tyCon <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKindScheme = fromMaybe (ForAll [] [] inferredKind) maybeKindScheme
       declaredKind = typeSchemeBody declaredKindScheme
-  let synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
+  let synonym = TypeSynonymInfo (map paramBinder paramInfos) Nothing
   storeTyConInfo
     TyConInfo
       { tciName = tyName,
@@ -4466,7 +4481,7 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
+              tvEnv = Map.fromList [(tvbName param, (tvbTyVar param, tvbKind param)) | param <- params]
           (body, _) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
@@ -4482,7 +4497,7 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
+              tvEnv = Map.fromList [(tvbName param, (tvbTyVar param, tvbKind param)) | param <- params]
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
           (_, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
@@ -4531,9 +4546,9 @@ registerDataConWithResult paramInfos resTy con = case con of
     let explicitNames = map paramName (explicitParams <> paramInfos)
         implicitNames = filter (`notElem` explicitNames) (nub (concatMap freeTypeVars (gadtBodyResultType body : gadtBodyArgTypes body <> context)))
     implicitParams <- forM implicitNames $ \name -> do
-      variable <- freshSkolemTv name
       kind <- freshKindMeta
-      pure (ParamInfo name (setTyVarKind kind variable) kind)
+      variable <- freshSkolemTvOfKind name kind
+      pure (ParamInfo name variable kind)
     let constructorParams = explicitParams <> implicitParams
         constructorEnv =
           Map.fromList
@@ -4541,7 +4556,7 @@ registerDataConWithResult paramInfos resTy con = case con of
             | param <- constructorParams
             ]
             <> paramEnv
-        constructorTyVars = map paramTyVar constructorParams
+        constructorTyVars = map paramBinder constructorParams
     let resultSurfTy = gadtBodyResultType body
         argSurfTys = gadtBodyArgTypes body
     kinds <- getKinds
@@ -4552,7 +4567,8 @@ registerDataConWithResult paramInfos resTy con = case con of
     let predicates = refinementPredicates <> writtenPredicates
         conTy = foldr TcFunTy universalResTy gadtArgTys
         candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
-        quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
+        candidateKinds = tyVarBinderKinds (universalTyVars <> candidateTyVars)
+        quantifiedTyVars = universalTyVars <> filter (\binder -> typeMentionsTyVar candidateKinds (tvbTyVar binder) conTy || any (predicateMentionsTyVar candidateKinds (tvbTyVar binder)) predicates) candidateTyVars
         gadtScheme = ForAll quantifiedTyVars predicates conTy
     mapM_
       ( \n -> do
@@ -4573,7 +4589,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         [ (paramName param, (paramTyVar param, paramKind param))
         | param <- paramInfos
         ]
-    paramVarIds = map paramTyVar paramInfos
+    paramVarIds = map paramBinder paramInfos
     -- A built-in form declares the constructor the wiring already names,
     -- so the declaration binds that name rather than spelling one.
     registerBuiltinDataCon forallVars context builtin fieldTypes = do
@@ -4591,7 +4607,7 @@ registerDataConWithResult paramInfos resTy con = case con of
               | param <- constructorParams
               ]
               <> paramEnv
-          constructorTyVars = map paramTyVar constructorParams
+          constructorTyVars = map paramBinder constructorParams
       argTys <- mapM (checkRuntimeType constructorEnv) fieldTypes
       predicates <- mapM (surfacePredToPred constructorEnv) context
       let conTy = foldr TcFunTy resTy argTys
@@ -4614,7 +4630,7 @@ registerDataConWithResult paramInfos resTy con = case con of
 -- The rejig applies when the declared result is the data type applied to
 -- distinct variables. A data family instance whose result carries indices keeps
 -- the written result type.
-rejigGadtResult :: TcType -> TcType -> TcM ([TyVarId], [Pred], TcType)
+rejigGadtResult :: TcType -> TcType -> TcM ([TcTyVarBinder], [Pred], TcType)
 rejigGadtResult declaredResTy writtenResTy =
   case (declaredResTy, writtenResTy) of
     (TcTyCon declaredTyCon declaredArgs, TcTyCon writtenTyCon writtenArgs)
@@ -4622,8 +4638,9 @@ rejigGadtResult declaredResTy writtenResTy =
         length declaredArgs == length writtenArgs,
         Just params <- mapM declaredParam declaredArgs,
         distinctTyVars params -> do
-          (universals, predicates) <- rejigIndices [] (zip params writtenArgs)
-          pure (universals, predicates, TcTyCon writtenTyCon (map TcTyVar universals))
+          paramBinders <- mapM lookupTyVarBinder params
+          (universals, predicates) <- rejigIndices [] (zip paramBinders writtenArgs)
+          pure (universals, predicates, TcTyCon writtenTyCon (map tvbType universals))
     _ -> pure ([], [], writtenResTy)
   where
     declaredParam ty = case ty of
@@ -4642,21 +4659,22 @@ rejigGadtResult declaredResTy writtenResTy =
 -- therefore gets @b :: k2@ rather than @b :: k@, and the kind equality
 -- @k2 ~ k@ joins the index equality @b ~ a@, so a match at two different
 -- kinds still instantiates the constructor.
-rejigIndices :: [TyVarId] -> [(TyVarId, TcType)] -> TcM ([TyVarId], [Pred])
+rejigIndices :: [TcTyVarBinder] -> [(TcTyVarBinder, TcType)] -> TcM ([TcTyVarBinder], [Pred])
 rejigIndices = go Map.empty
   where
     go _ _ [] = pure ([], [])
     go kindParams claimed ((param, writtenArg) : rest) = do
       (universal, predicates, kindParams') <- case writtenArg of
         TcTyVar tyVar
-          | tvUnique tyVar `notElem` map tvUnique claimed ->
-              pure (tyVar, [], claimKindParams kindParams (tvKind param) (tvKind tyVar))
+          | tvUnique tyVar `notElem` map tvbUnique claimed -> do
+              binder <- lookupTyVarBinder tyVar
+              pure (binder, [], claimKindParams kindParams (tvbKind param) (tvbKind binder))
         _ -> do
           writtenKind <- tcTypeKind writtenArg >>= zonkKind
-          declaredKind <- zonkKind (substituteKindParams kindParams (tvKind param))
-          fresh <- setTyVarKind declaredKind <$> freshSkolemTv (tvName param)
+          declaredKind <- zonkKind (substituteKindParams kindParams (tvbKind param))
+          fresh <- freshSkolemTvOfKind (tvbName param) declaredKind
           let kindPredicates = [EqPred declaredKind writtenKind | declaredKind /= writtenKind]
-          pure (fresh, kindPredicates <> [EqPred (TcTyVar fresh) writtenArg], kindParams)
+          pure (mkTyVarBinder fresh declaredKind, kindPredicates <> [EqPred (TcTyVar fresh) writtenArg], kindParams)
       (universals, restPredicates) <- go kindParams' (universal : claimed) rest
       pure (universal : universals, predicates <> restPredicates)
 
@@ -4700,7 +4718,7 @@ checkedDataConInfo origin@(originPackage, originModule) sourceForm sourceFields 
       if length sourceFields /= length argumentTypes
         then abortTc ("constructor metadata arity disagrees with checked type for " <> T.unpack constructorName)
         else do
-          let (universalTyVars, existentialTyVars) = partition (`typeMentionsTyVar` resultType) tyVars
+          let (universalTyVars, existentialTyVars) = partition ((\tyVar -> typeMentionsTyVar (tyVarBinderKinds tyVars) tyVar resultType) . tvbTyVar) tyVars
           pure
             DataConInfo
               { dciName = constructorName,
