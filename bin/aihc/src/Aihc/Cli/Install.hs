@@ -1275,7 +1275,12 @@ parseSource headerDir root versions fileInfo = do
   let name = fromMaybe "Main" (moduleName modu)
       imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
   parsed <- newMVar modu
-  pure
+  -- Built here rather than returned as a thunk: the strict fields below
+  -- are what the phases after this one read instead of the parse tree,
+  -- and they only run when the record is built. Left to 'pure', the
+  -- first read of any of them built every module's -- the digest, the
+  -- name, the imports -- on the serial stretch before the task graph.
+  evaluate
     SourceModule
       { sourceModulePath = path,
         sourceModuleSize = BS.length bytes,
