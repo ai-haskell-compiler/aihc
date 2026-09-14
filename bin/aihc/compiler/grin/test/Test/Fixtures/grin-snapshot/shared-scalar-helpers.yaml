@@ -10,7 +10,7 @@ program: |
     constant (quotient%3 :: WordRep) (remainder%4 :: WordRep) (length%5 :: IntRep) (empty%6 :: IntRep)
 return: "(6148914691236517207, 0, 3, 0)"
 heap: "[]"
-allocations:
+allocated-bytes:
   macos-arm64: 0
   linux-amd64: 0
 status: pass

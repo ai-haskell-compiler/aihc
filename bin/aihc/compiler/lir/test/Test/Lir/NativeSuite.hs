@@ -62,7 +62,7 @@ data NativeBackend = NativeBackend
     backendClangArguments :: ![String],
     -- | Whether this host can run the linked programs.
     backendRuns :: !Bool,
-    -- | The allocation count key of the snapshot fixtures.
+    -- | The allocated-byte key of the snapshot fixtures.
     backendAllocationKey :: !Text,
     -- | The extension of a source output.
     backendSourceExtension :: !String,
@@ -253,7 +253,7 @@ data SnapshotFixture = SnapshotFixture
     snapshotFixtureReturn :: !(Maybe Text),
     snapshotFixtureHeap :: !(Maybe Text),
     snapshotFixtureError :: !(Maybe Text),
-    snapshotFixtureAllocations :: !(Maybe (Map.Map Text Word64)),
+    snapshotFixtureAllocatedBytes :: !(Maybe (Map.Map Text Word64)),
     snapshotFixtureStatus :: !Text
   }
 
@@ -266,7 +266,7 @@ instance FromJSON SnapshotFixture where
         <*> object .:? "return"
         <*> object .:? "heap"
         <*> object .:? "error"
-        <*> object .:? "allocations"
+        <*> object .:? "allocated-bytes"
         <*> object .: "status"
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
@@ -294,12 +294,12 @@ snapshotTest backend runtimeExports directory name = testCase name $ do
     native <- runObservedUnit backend output metadata
     case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
       (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
-        allocations <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocation count")) pure (snapshotFixtureAllocations fixture >>= Map.lookup (backendAllocationKey backend))
+        allocatedBytes <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocated byte count")) pure (snapshotFixtureAllocatedBytes fixture >>= Map.lookup (backendAllocationKey backend))
         let heap = T.stripEnd heapValue
             expected
               | heap == "[]" = "return: " <> returnValue <> "\nheap: []"
               | otherwise = "return: " <> returnValue <> "\nheap:\n" <> T.unlines (map ("  " <>) (T.lines heap))
-        assertEqual "native snapshot" (T.stripEnd expected <> "\nallocations: " <> T.pack (show allocations)) (T.stripEnd snapshot)
+        assertEqual "native snapshot" (T.stripEnd expected <> "\nallocated bytes: " <> T.pack (show allocatedBytes)) (T.stripEnd snapshot)
       (Nothing, Nothing, Just err, Left message) -> assertEqual "native error" (T.strip err) message
       (_, _, _, Left message) -> assertFailure ("native snapshot failed: " <> T.unpack message)
       (_, _, _, Right snapshot) -> assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)

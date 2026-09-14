@@ -18,8 +18,8 @@ program: |
     apply @IntRep (partial%20 :: BoxedRep Lifted) ((2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep))
 return: "55"
 heap: "[]"
-allocations:
-  macos-arm64: 1
-  linux-amd64: 1
+allocated-bytes:
+  macos-arm64: 16
+  linux-amd64: 16
 status: pass
 reason: saturated closure arguments beyond the native register set use temporary stack overflow slots without heap allocation

@@ -260,6 +260,11 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
 AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
+/* The bytes compiled code has taken from the managed heap. Compiled code
+   bumps the heap pointer itself, so both of these account for the span since
+   the last account before they read or clear the total. */
+uint64_t aihc_heap_allocated_bytes(AihcMachine *machine);
+void aihc_reset_heap_allocated_bytes(AihcMachine *machine);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 /* The runtime removes RTS options before the Haskell machine starts. argv[0]

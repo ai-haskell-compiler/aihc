@@ -483,6 +483,16 @@ void aihc_reset_allocation_count(AihcMachine *machine) {
   machine->allocation_count = 0;
 }
 
+uint64_t aihc_heap_allocated_bytes(AihcMachine *machine) {
+  aihc_heap_account(machine);
+  return machine->heap_allocated_bytes;
+}
+
+void aihc_reset_heap_allocated_bytes(AihcMachine *machine) {
+  aihc_heap_account(machine);
+  machine->heap_allocated_bytes = 0;
+}
+
 /* The next stage of a closure. Closures keep a chain of info tables: each
    stage names the slots it holds and points at the stage after it. */
 const AihcInfo *aihc_next_application_info(const AihcInfo *info,

@@ -82,8 +82,8 @@ lowerObservedProgram target entryName gcProgram = do
       requireExtern (Symbol "aihc_set_thread_done_continuation") [Ptr, Ptr] []
       emit [] (Call (Symbol "aihc_set_thread_done_continuation") [OperandVar machine, threadDone])
       snapshot <- allocateContinuation (OperandVar machine) snapshotInfo 1
-      requireExtern (Symbol "aihc_reset_allocation_count") [Ptr] []
-      emit [] (Call (Symbol "aihc_reset_allocation_count") [OperandVar machine])
+      requireExtern (Symbol "aihc_reset_heap_allocated_bytes") [Ptr] []
+      emit [] (Call (Symbol "aihc_reset_heap_allocated_bytes") [OperandVar machine])
       emit [] (Call (functionSymbol entryName) [OperandVar machine, snapshot])
       terminate (Return [OperandLiteral (LitInt 0)])
       finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention
