@@ -502,6 +502,22 @@ dataConNames declaration = do
   wiring <- getWiring
   pure (map (dataConIdentityName wiring) (dataConIdentities declaration))
 
+-- | The key one constructor of a declaration is registered under. A
+-- constructor the source names has a resolver identity of its own; a
+-- built-in form takes the identity of the type it declares, which is what
+-- 'registerDataConWithResult' keys it by.
+dataConIdentityKey :: TyCon -> DataConIdentity -> TcM TcTermKey
+dataConIdentityKey parent identity =
+  case identity of
+    DeclaredDataCon name -> resolvedUnqualifiedTermKey name
+    BuiltinDataConIdentity builtin -> do
+      wiring <- getWiring
+      pure (tyConMemberTermKey parent (tyConName (builtinDataCon wiring builtin)))
+
+-- | The keys of every constructor one declaration binds, in source order.
+dataConKeys :: TyCon -> DataConDecl -> TcM [TcTermKey]
+dataConKeys parent = mapM (dataConIdentityKey parent) . dataConIdentities
+
 binderBindingName :: UnqualifiedName -> (Text, Text)
 binderBindingName name =
   (unqualifiedNameText name, renderBinderName name)
@@ -557,22 +573,21 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   structuralKeys <- globalStateKeys <$> lift get
   derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
   derivingInferred <- inferDerivingContexts derivingAnnotated
-  derivingFinalized <- mapM (\modu -> inModule modu (registerDerivedInstances modu)) derivingInferred
+  derivingFinalized <- mapM registerDerivedInstances derivingInferred
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- zipWithM (\sigs modu -> inModule modu (tcModuleBody sigs modu)) schemes derivingFinalized
-  mapM_ (\modu -> inModule modu (checkBundledPatSyns modu)) derivingFinalized
+  pending <- zipWithM tcModuleBody schemes derivingFinalized
+  mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
   defaultGlobalKindMetas structuralKeys
-  annotated <- mapM (\p -> inModule (pendingSyntax p) (annotatePendingModule p)) pending
-  mapM (\modu -> inModule modu (finalizeModuleTc modu)) annotated
+  annotated <- mapM annotatePendingModule pending
+  mapM finalizeModuleTc annotated
   where
-    inModule modu = withModuleOrigin (resolvedModuleOrigin modu)
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
-    atDeclOf check (origin, declaration) = withModuleOrigin origin (atDecl (check origin) declaration)
+    atDeclOf check (origin, declaration) = atDecl (check origin) declaration
 
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
@@ -1094,8 +1109,8 @@ annotateClassDeclTc classDecl = do
     Nothing -> missingTypeInfo ("class " <> T.unpack className)
     Just info -> do
       kinds <- getKinds
-      methods <- zipWithM annotateClassMethod [0 :: Int ..] (classDeclMethodNames classDecl)
-      items <- mapM annotateClassDefaultItem (classDeclItems classDecl)
+      methods <- zipWithM (annotateClassMethod (ciTyCon info)) [0 :: Int ..] (classDeclMethodNames classDecl)
+      items <- mapM (annotateClassDefaultItem (ciTyCon info)) (classDeclItems classDecl)
       pure
         ( DeclAnn
             ( mkAnnotation
@@ -1115,14 +1130,14 @@ annotateClassDeclTc classDecl = do
             (DeclClass (classDecl {classDeclItems = items}))
         )
 
-annotateClassDefaultItem :: ClassDeclItem -> TcM ClassDeclItem
-annotateClassDefaultItem item =
+annotateClassDefaultItem :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
+annotateClassDefaultItem classTyCon item =
   case item of
-    ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem inner
+    ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem classTyCon inner
     ClassItemDefault valueDecl ->
       case valueDeclBinderName valueDecl of
         Just (methodName, _) -> do
-          methodTy <- bindingType (defaultMethodName methodName)
+          methodTy <- bindingType (tyConMemberTermKey classTyCon (defaultMethodName methodName))
           pure (ClassItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) item)
         Nothing -> pure item
     ClassItemTypeFamilyDecl familyDecl ->
@@ -1134,9 +1149,9 @@ annotateClassDefaultItem item =
           pure (ClassItemTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
     _ -> pure item
 
-annotateClassMethod :: Int -> Text -> TcM TcClassMethodAnnotation
-annotateClassMethod index methodName = do
-  methodTy <- bindingType methodName
+annotateClassMethod :: TyCon -> Int -> Text -> TcM TcClassMethodAnnotation
+annotateClassMethod classTyCon index methodName = do
+  methodTy <- bindingType (tyConMemberTermKey classTyCon methodName)
   let (tvs, _) = peelForAlls methodTy
   dictTy <- selectorDictTypeTc methodName methodTy
   pure
@@ -1150,17 +1165,21 @@ annotateClassMethod index methodName = do
 
 annotateDataDeclTc :: DataDecl -> TcM Decl
 annotateDataDeclTc dataDecl = do
-  let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
+  let binder = binderHeadName (dataDeclHead dataDecl)
+      tyName = unqualifiedNameText binder
   ty <- tyConBindingType tyName
-  constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
+  parent <- mkDeclaredTyCon binder tyName (length (binderHeadParams (dataDeclHead dataDecl)))
+  constructors <- mapM (annotateDataConDeclTc parent) (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
 
 annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
 annotateNewtypeDeclTc newtypeDecl = do
-  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
+  let binder = binderHeadName (newtypeDeclHead newtypeDecl)
+      tyName = unqualifiedNameText binder
   ty <- tyConBindingType tyName
-  constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
+  parent <- mkDeclaredTyCon binder tyName (length (binderHeadParams (newtypeDeclHead newtypeDecl)))
+  constructor <- mapM (annotateDataConDeclTc parent) (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
@@ -1212,7 +1231,10 @@ annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
 
 annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
 annotateDataFamilyInstTc familyInst = do
-  constructors <- mapM annotateRegisteredDataConDeclTc (dataFamilyInstConstructors familyInst)
+  -- 'registerDataFamilyInstance' keys the constructors by the checked
+  -- head, which is the data family itself.
+  parent <- dataFamilyInstHeadTyCon familyInst
+  constructors <- mapM (annotateRegisteredDataConDeclTc parent) (dataFamilyInstConstructors familyInst)
   let annotated = DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors})
   constructorNames <- concat <$> mapM dataConNames constructors
   familyInstances <- getDataFamilyInstances
@@ -1223,13 +1245,13 @@ annotateDataFamilyInstTc familyInst = do
         Nothing -> pure annotated
     [] -> pure annotated
 
-annotateRegisteredDataConDeclTc :: DataConDecl -> TcM DataConDecl
-annotateRegisteredDataConDeclTc dataConDecl = do
-  names <- dataConNames dataConDecl
-  case names of
+annotateRegisteredDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
+annotateRegisteredDataConDeclTc parent dataConDecl = do
+  keys <- dataConKeys parent dataConDecl
+  case keys of
     [] -> pure dataConDecl
-    name : _ -> do
-      maybeBinder <- lookupModuleTerm name
+    key : _ -> do
+      maybeBinder <- lookupTermKey key
       case maybeBinder of
         Just (TcIdBinder scheme _) -> annotateWithType (schemeToType scheme)
         Just (TcMonoIdBinder ty) -> annotateWithType ty
@@ -1251,18 +1273,18 @@ annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
 annotateUnqualifiedName tcAnn name =
   name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation tcAnn]}
 
-annotateDataConDeclTc :: DataConDecl -> TcM DataConDecl
-annotateDataConDeclTc dataConDecl = do
-  names <- dataConNames dataConDecl
-  case names of
+annotateDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
+annotateDataConDeclTc parent dataConDecl = do
+  keys <- dataConKeys parent dataConDecl
+  case keys of
     [] -> pure dataConDecl
-    name : _ -> do
-      ty <- dataConBindingType name
-      selectors <- annotateRecordSelectorNames dataConDecl
+    key : _ -> do
+      ty <- dataConBindingType key
+      selectors <- annotateRecordSelectorNames parent dataConDecl
       pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [] [])) selectors)
 
-annotateRecordSelectorNames :: DataConDecl -> TcM DataConDecl
-annotateRecordSelectorNames declaration =
+annotateRecordSelectorNames :: TyCon -> DataConDecl -> TcM DataConDecl
+annotateRecordSelectorNames parent declaration =
   case declaration of
     RecordCon forallVars context constructor fields ->
       RecordCon forallVars context constructor <$> mapM annotateField fields
@@ -1273,22 +1295,24 @@ annotateRecordSelectorNames declaration =
     annotateField field = do
       names <- mapM annotateSelectorName (fieldNames field)
       pure field {fieldNames = names}
+    -- A record selector belongs to the declaration, so it is keyed like
+    -- the type, which is how 'registerRecordSelectors' registers it.
     annotateSelectorName name = do
-      ty <- bindingType (unqualifiedNameText name)
+      ty <- bindingType (tyConMemberTermKey parent (unqualifiedNameText name))
       pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
 
-dataConBindingType :: Text -> TcM TcType
-dataConBindingType name = do
-  mBinder <- lookupModuleTerm name
+dataConBindingType :: TcTermKey -> TcM TcType
+dataConBindingType key = do
+  mBinder <- lookupTermKey key
   case mBinder of
     Just (TcIdBinder scheme _) -> zonkType (schemeToType scheme)
     Just (TcMonoIdBinder ty) -> zonkType ty
-    Nothing -> missingTypeInfo ("data constructor " <> T.unpack name)
+    Nothing -> missingTypeInfo ("data constructor " <> T.unpack (termKeyName key))
 
 annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
-  ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
   key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
+  ty <- bindingType key
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
       annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
@@ -1639,19 +1663,24 @@ annotateValueDeclTc :: Map Text TcType -> ValueDecl -> TcM (TcType, ValueDecl)
 annotateValueDeclTc checkedValueTypes valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
-      bindingTy <- checkedBindingType (unqualifiedNameText name)
+      bindingTy <- checkedBinderType name
       pure (bindingTy, FunctionBind name matches)
     PatternBind anns pat rhs ->
-      case patternBinderName pat of
-        Just (name, _) -> do
-          bindingTy <- checkedBindingType name
+      case patternBinderSyntaxName pat of
+        Just name -> do
+          bindingTy <- checkedBinderType name
           pure (bindingTy, PatternBind anns pat rhs)
         Nothing -> do
-          ty <- checkedBindingType (patternBindingResultName pat)
+          -- A pattern binding that binds no single name is named by its
+          -- shape, so only the checked results can give it a type.
+          let name = patternBindingResultName pat
+          ty <- maybe (missingTypeInfo ("pattern binding " <> T.unpack name)) pure (Map.lookup name checkedValueTypes)
           pure (ty, valueDecl)
   where
-    checkedBindingType name =
-      maybe (bindingType name) pure (Map.lookup name checkedValueTypes)
+    checkedBinderType name =
+      case Map.lookup (unqualifiedNameText name) checkedValueTypes of
+        Just ty -> pure ty
+        Nothing -> bindingType =<< resolvedUnqualifiedTermKey name
 
 annotateInstanceDeclTc :: (Text, Text) -> Bool -> InstanceDecl -> TcM Decl
 annotateInstanceDeclTc origin derived = annotateInstanceDeclWithPlan origin derived Nothing
@@ -1823,25 +1852,30 @@ tcClassDeclBodies :: Decl -> TcM Decl
 tcClassDeclBodies (DeclAnn ann inner) =
   DeclAnn ann <$> tcClassDeclBodies inner
 tcClassDeclBodies (DeclClass classDecl) = do
-  items <- mapM tcClassDefaultBody (classDeclItems classDecl)
-  pure (DeclClass (classDecl {classDeclItems = items}))
+  let classBinder = binderHeadName (classDeclHead classDecl)
+  classInfo <- lookupDeclaredClass classBinder
+  case classInfo of
+    Nothing -> missingTypeInfo ("class " <> T.unpack (unqualifiedNameText classBinder))
+    Just info -> do
+      items <- mapM (tcClassDefaultBody (ciTyCon info)) (classDeclItems classDecl)
+      pure (DeclClass (classDecl {classDeclItems = items}))
 tcClassDeclBodies decl = pure decl
 
-tcClassDefaultBody :: ClassDeclItem -> TcM ClassDeclItem
-tcClassDefaultBody item =
+tcClassDefaultBody :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
+tcClassDefaultBody classTyCon item =
   case item of
-    ClassItemAnn ann inner -> ClassItemAnn ann <$> tcClassDefaultBody inner
+    ClassItemAnn ann inner -> ClassItemAnn ann <$> tcClassDefaultBody classTyCon inner
     ClassItemDefault valueDecl -> do
-      checked <- tcClassDefaultValue valueDecl
+      checked <- tcClassDefaultValue classTyCon valueDecl
       pure (ClassItemDefault checked)
     _ -> pure item
 
-tcClassDefaultValue :: ValueDecl -> TcM ValueDecl
-tcClassDefaultValue valueDecl =
+tcClassDefaultValue :: TyCon -> ValueDecl -> TcM ValueDecl
+tcClassDefaultValue classTyCon valueDecl =
   case valueDeclBinderName valueDecl of
     Nothing -> pure valueDecl
     Just (methodName, _) -> do
-      binder <- lookupModuleTerm (defaultMethodName methodName)
+      binder <- lookupTermKey (tyConMemberTermKey classTyCon (defaultMethodName methodName))
       case binder of
         Just (TcIdBinder (ForAll methodTyVars givens methodTy) _) ->
           case valueDecl of
@@ -2063,12 +2097,12 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
         EqPred {} -> False
         QuantifiedPred {} -> False
 
-bindingType :: Text -> TcM TcType
-bindingType name = do
-  mBinder <- lookupModuleTerm name
+bindingType :: TcTermKey -> TcM TcType
+bindingType key = do
+  mBinder <- lookupTermKey key
   case mBinder of
     Just binder -> pure (binderType binder)
-    Nothing -> missingTypeInfo ("binding " <> T.unpack name)
+    Nothing -> missingTypeInfo ("binding " <> T.unpack (termKeyName key))
 
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder scheme _) = schemeToType scheme
@@ -3542,10 +3576,10 @@ registerClassDecl origin classDecl = do
         tciTypeSynonym = Nothing
       }
   methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv allClassTyVars) (classDeclItems classDecl)
-  methods <- mapM registeredMethod (classDeclMethodNames classDecl)
+  methods <- mapM (registeredMethod classTyCon) (classDeclMethodNames classDecl)
   defaultSignatures <- catMaybes <$> mapM (registerClassDefaultSignature paramTvEnv allClassTyVars) (classDeclItems classDecl)
   let defaults = classDeclDefaultMethodNames classDecl
-  defaultResults <- mapM (registerDefaultMethod defaults defaultSignatures) methods
+  defaultResults <- mapM (registerDefaultMethod classTyCon defaults defaultSignatures) methods
   associatedTypes <-
     catMaybes
       <$> mapM
@@ -3568,18 +3602,18 @@ registerClassDecl origin classDecl = do
       }
   pure (methodResults <> catMaybes defaultResults)
   where
-    registeredMethod methodName = do
-      binder <- lookupModuleTerm methodName
+    registeredMethod classTyCon methodName = do
+      binder <- lookupTermKey (tyConMemberTermKey classTyCon methodName)
       case binder of
         Just (TcIdBinder scheme _) -> pure (methodName, scheme)
         _ -> missingTypeInfo ("class method " <> T.unpack methodName)
 
-    registerDefaultMethod defaults defaultSignatures (methodName, scheme)
+    registerDefaultMethod classTyCon defaults defaultSignatures (methodName, scheme)
       | methodName `elem` defaults = do
           let workerName = defaultMethodName methodName
               workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
               workerType = schemeToType workerScheme
-          extendModuleTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
+          extendTyConTermEnvPermanent classTyCon workerName (TcIdBinder workerScheme Closed)
           pure (Just (TcBindingResult workerName workerName workerType))
       | otherwise = pure Nothing
 
@@ -3958,6 +3992,21 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
     _ -> do
       emitError NoSourceSpan (OtherError ("invalid data-family instance head: " <> show familyType))
       pure []
+
+-- | The data family that one instance head names.
+dataFamilyInstHeadTyCon :: DataFamilyInst -> TcM TyCon
+dataFamilyInstHeadTyCon familyInst = go (dataFamilyInstHead familyInst)
+  where
+    go ty =
+      case peelTypeHead ty of
+        TCon name _ -> resolvedHeadTyCon name
+        TInfix _ name _ _ -> resolvedHeadTyCon name
+        TApp function _ -> go function
+        TTypeApp function _ -> go function
+        head' -> abortTc ("data-family instance head does not name a data family: " <> show head')
+    resolvedHeadTyCon name = do
+      info <- lookupResolvedTyCon name
+      maybe (missingTypeInfo ("data family " <> T.unpack (nameText name))) (pure . tciTyCon) info
 
 dataFamilyInstanceParams :: DataFamilyInst -> TcM [ParamInfo]
 dataFamilyInstanceParams familyInst = do
@@ -4552,7 +4601,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         Nothing ->
           case resTy of
             TcTyCon resultTyCon _ -> extendTyConTermEnvPermanent resultTyCon name (TcIdBinder scheme Closed)
-            _ -> extendModuleTermEnvPermanent name (TcIdBinder scheme Closed)
+            _ -> abortTc ("a built-in constructor form declares no type constructor: " <> T.unpack name)
       zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult name name zonkedTy)
 

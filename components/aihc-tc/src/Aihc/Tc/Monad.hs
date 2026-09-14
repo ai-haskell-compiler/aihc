@@ -54,14 +54,12 @@ module Aihc.Tc.Monad
     TcBinder (..),
     TcTermKey (..),
     tyConTermKey,
+    tyConMemberTermKey,
+    termKeyName,
     Closedness (..),
     emptyTcEnv,
     mkWiredTyCon,
     implicitParamType,
-    withModuleOrigin,
-    getModuleOrigin,
-    moduleTermKey,
-    lookupModuleTerm,
     lookupResolvedTerm,
     lookupTermKey,
     resolvedTermKey,
@@ -73,7 +71,6 @@ module Aihc.Tc.Monad
     rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
-    extendModuleTermEnvPermanent,
     replaceTermKeyEnvPermanent,
     finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
@@ -172,6 +169,7 @@ import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 
 -- | The type checker monad.
@@ -245,13 +243,7 @@ data TcEnv = TcEnv
     -- emitted without a span of its own, as the checks of internal types
     -- do, reports here instead of nowhere.
     tcEnvAmbientSpan :: !SourceSpan,
-    tcEnvVisibleTerms :: !(Set.Set TcTermKey),
-    -- | The package and module whose declarations are being checked.
-    --
-    -- A binder that source text names without a resolver identity of its
-    -- own -- a class default-method worker, say -- is keyed here, so that
-    -- two members of one import cycle never share a key.
-    tcEnvModuleOrigin :: !(Maybe (PackageId, Text))
+    tcEnvVisibleTerms :: !(Set.Set TcTermKey)
   }
   deriving (Show)
 
@@ -418,7 +410,20 @@ instance NFData TcTermKey
 -- | The term key of a name that a type constructor's identity carries,
 -- such as a data constructor or a wired-in binder.
 tyConTermKey :: TyCon -> TcTermKey
-tyConTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConName tyCon)
+tyConTermKey tyCon = tyConMemberTermKey tyCon (tyConName tyCon)
+
+-- | The term key of a name that a type constructor owns: a constructor or
+-- record selector of its data type, or a method of its class. These are
+-- declared with the type, so they live in its package and module.
+tyConMemberTermKey :: TyCon -> Text -> TcTermKey
+tyConMemberTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon)
+
+-- | The name a term key spells, for a diagnostic.
+termKeyName :: TcTermKey -> Text
+termKeyName key =
+  case key of
+    TcTermGlobal _ _ name -> name
+    TcTermLocal unique -> T.pack ("<local " <> show unique <> ">")
 
 -- | An empty environment at the top level.
 emptyTcEnv :: TcConfig -> TcEnv
@@ -436,8 +441,7 @@ emptyTcEnv config =
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
       tcEnvAmbientSpan = NoSourceSpan,
-      tcEnvVisibleTerms = Set.empty,
-      tcEnvModuleOrigin = Nothing
+      tcEnvVisibleTerms = Set.empty
     }
 
 -- | The mutable state of the type checker.
@@ -591,33 +595,6 @@ lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
 
--- | Run an action while checking the declarations of one module. Names
--- that source text spells but the resolver gives no identity of its own
--- are keyed at this package and module.
-withModuleOrigin :: (Text, Text) -> TcM a -> TcM a
-withModuleOrigin (package, moduleName') =
-  local (\env -> env {tcEnvModuleOrigin = Just (PackageId package, moduleName')})
-
--- | The module whose declarations are being checked.
-getModuleOrigin :: TcM (PackageId, Text)
-getModuleOrigin = do
-  origin <- asks tcEnvModuleOrigin
-  case origin of
-    Just identity -> pure identity
-    Nothing -> abortTc "a declaration was checked outside of any module"
-
--- | The key of a top-level name of the module being checked.
-moduleTermKey :: Text -> TcM TcTermKey
-moduleTermKey name = do
-  (package, moduleName') <- getModuleOrigin
-  pure (TcTermGlobal package moduleName' name)
-
--- | Look a top-level binder of the module being checked up by its source
--- name. Only for a name the checker itself spells; an occurrence in source
--- text is looked up through its resolver identity.
-lookupModuleTerm :: Text -> TcM (Maybe TcBinder)
-lookupModuleTerm name = moduleTermKey name >>= lookupTermKey
-
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
 lookupResolvedTerm displayName resolved =
   resolvedNameTermKey displayName resolved >>= lookupTermKey
@@ -696,13 +673,6 @@ extendTermKeyEnvPermanent key binder = do
   terms' <- insertNewMap "global term environment" key binder terms
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
 
--- | Register a top-level binder of the module being checked that source
--- text does not spell, such as a class default-method worker.
-extendModuleTermEnvPermanent :: Text -> TcBinder -> TcM ()
-extendModuleTermEnvPermanent name binder = do
-  key <- moduleTermKey name
-  extendTermKeyEnvPermanent key binder
-
 -- | Replace a permanent global term entry. A synthesized binding registers
 -- a provisional type before its check and the checked type after it.
 replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
@@ -730,7 +700,7 @@ finalizeInferredTermEnvPermanent key placeholderTy scheme = do
 
 extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
 extendTyConTermEnvPermanent tyCon name =
-  extendTermKeyEnvPermanent (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
+  extendTermKeyEnvPermanent (tyConMemberTermKey tyCon name)
 
 -- | Add a source binder under its resolver identity.
 extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
