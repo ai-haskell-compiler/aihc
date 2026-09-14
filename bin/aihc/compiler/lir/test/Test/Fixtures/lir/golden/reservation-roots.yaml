@@ -84,6 +84,13 @@ expected: |
   export data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
 status: pass
 reason: |
-  Three stores with no barrier between them share one reservation, so the
-  function checks the heap once and bumps the pointer three times. A primitive
-  call is not a barrier and does not split the reservation.
+  Every primitive call is a reservation barrier, including one the backend
+  lowers to a single instruction. The addition here becomes `add i64 2, 2` and
+  cannot collect, yet it still splits the function's reservations in two: two
+  words before it and five words after, rather than the seven words the three
+  stores need together. The second reservation carries the first object as a
+  root, which the merged one would not have needed at all.
+
+  See isReservationBarrier in Aihc.Grin.Heap. Narrowing it to the primitives
+  that can allocate or collect needs effect information GRIN does not carry
+  yet.

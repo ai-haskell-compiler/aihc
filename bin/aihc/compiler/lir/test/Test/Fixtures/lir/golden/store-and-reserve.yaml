@@ -49,5 +49,5 @@ reason: |
   live roots as block parameters and the slow path is the only one that spills
   them, calls the collector and reloads what moved. The store itself loads the
   bump pointer, advances it by the words of the object, and writes the header
-  and the field. The module also pins the shared CPS update helper and the
-  info tables of a constructor and its partial stage.
+  and the field. The module also pins the info tables of a constructor and of
+  its partial stage.
