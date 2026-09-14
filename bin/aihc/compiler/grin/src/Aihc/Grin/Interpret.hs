@@ -167,7 +167,8 @@ data HeapCell
   | HeapValue !RuntimeValue
   | HeapRaised !RuntimeValue
   | HeapBlackhole
-  | HeapThread
+  | -- | A green thread, which carries the number that identifies it.
+    HeapThread !Word64
 
 data Machine = Machine
   { machineFunctions :: !(Map FunctionName GrinFunction),
@@ -179,6 +180,9 @@ data Machine = Machine
     machineTimers :: ![(Word64, GrinMutVar, RuntimeValue)],
     machineTransactions :: ![[(GrinMutVar, RuntimeValue)]],
     machineRunQueue :: !(Seq ThreadAction),
+    -- | The thread that runs now. The value is the location of its cell.
+    machineCurrentThread :: !RuntimeValue,
+    machineNextThreadId :: !Word64,
     machineStreams :: !ProgramStreams,
     machineAllocations :: !(IORef [Ptr ()])
   }
@@ -204,7 +208,8 @@ type EvalM = ExceptT EvalFailure (StateT Machine IO)
 -- | A suspended direct-style continuation. Keeping the continuation as an
 -- interpreter action lets yield# switch threads without relying on the host
 -- call stack to represent the resumed computation.
-newtype ThreadAction = ThreadAction (EvalM [RuntimeValue])
+-- | A suspended thread: the location of its cell, and how it continues.
+data ThreadAction = ThreadAction !RuntimeValue !(EvalM [RuntimeValue])
 
 newtype MVarValueWaiter = MVarValueWaiter (RuntimeValue -> ThreadAction)
 
@@ -272,18 +277,24 @@ initialMachine streams program allocations =
           ],
       machineGlobals = globals,
       machineHeap =
-        IntMap.fromList
-          [ (location, storedCell (staticNode node))
-          | ((_, node), location) <- zip globalNodes [0 ..]
-          ],
-      machineNextLocation = length globalNodes,
+        IntMap.insert mainThreadLocation (HeapThread mainThreadId) $
+          IntMap.fromList
+            [ (location, storedCell (staticNode node))
+            | ((_, node), location) <- zip globalNodes [0 ..]
+            ],
+      machineNextLocation = length globalNodes + 1,
       machineMVars = IntMap.empty,
       machineNextMVar = 0,
       machineTransactions = [],
       machineTimers = [],
-      machineRunQueue = Seq.empty
+      machineRunQueue = Seq.empty,
+      -- The program starts on the main thread, which has the first number.
+      machineCurrentThread = RuntimeLocation mainThreadLocation,
+      machineNextThreadId = mainThreadId + 1
     }
   where
+    mainThreadLocation = length globalNodes
+    mainThreadId = 1
     globalNodes = Map.toAscList globalNodeMap
     globalNodeMap =
       Map.unions
@@ -396,8 +407,9 @@ evalScheduledExpr env expr continue =
 
 evalScheduledPrimitive :: Text -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
 evalScheduledPrimitive "fork#" [action] continue = do
-  threadId <- allocateCell HeapThread
-  enqueueThread
+  threadId <- allocateThread
+  enqueueThreadAs
+    threadId
     ( -- The child thread enters its own closure. Forking a thunk is legal, and
       -- an already forced action may sit behind an indirection, so neither is
       -- a value 'applyScheduledValue' can consume directly.
@@ -431,33 +443,36 @@ evalScheduledPrimitive "readMVar#" [mvarValue] continue = do
   case grinMVarValue mvar of
     Just value -> continue [value]
     Nothing -> do
-      let waiter = MVarValueWaiter (\value -> ThreadAction (continue [value]))
+      owner <- getsMachine machineCurrentThread
+      let waiter = MVarValueWaiter (\value -> ThreadAction owner (continue [value]))
       writeMVarState identifier mvar {grinMVarReaders = grinMVarReaders mvar |> waiter}
       scheduleNextThread
 evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
   (identifier, mvar) <- expectMVarPrimitiveArgument "takeMVar#" mvarValue
   case grinMVarValue mvar of
     Nothing -> do
-      let waiter = MVarValueWaiter (\value -> ThreadAction (continue [value]))
+      owner <- getsMachine machineCurrentThread
+      let waiter = MVarValueWaiter (\value -> ThreadAction owner (continue [value]))
       writeMVarState identifier mvar {grinMVarTakers = grinMVarTakers mvar |> waiter}
       scheduleNextThread
     Just value -> do
       case Seq.viewl (grinMVarPutters mvar) of
         EmptyL -> writeMVarState identifier mvar {grinMVarValue = Nothing}
-        (nextValue, ThreadAction putter) :< remaining -> do
+        (nextValue, putter) :< remaining -> do
           writeMVarState
             identifier
             mvar
               { grinMVarValue = Just nextValue,
                 grinMVarPutters = remaining
               }
-          enqueueThread putter
+          pushThread putter
       continue [value]
 evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
   (identifier, mvar) <- expectMVarPrimitiveArgument "putMVar#" mvarValue
   case grinMVarValue mvar of
     Just _ -> do
-      let putter = ThreadAction (continue [])
+      owner <- getsMachine machineCurrentThread
+      let putter = ThreadAction owner (continue [])
       writeMVarState identifier mvar {grinMVarPutters = grinMVarPutters mvar |> (value, putter)}
       scheduleNextThread
     Nothing -> do
@@ -488,12 +503,21 @@ emptyMVarPlaceholder :: RuntimeValue
 emptyMVarPlaceholder = intRuntimeValue 0
 
 enqueueThreadAction :: ThreadAction -> EvalM ()
-enqueueThreadAction (ThreadAction action) = enqueueThread action
+enqueueThreadAction = pushThread
 
 enqueueValueWaiter :: RuntimeValue -> MVarValueWaiter -> EvalM ()
-enqueueValueWaiter value (MVarValueWaiter resume) =
-  case resume value of
-    ThreadAction action -> enqueueThread action
+enqueueValueWaiter value (MVarValueWaiter resume) = pushThread (resume value)
+
+-- | The number of the thread a value names.
+expectThreadPrimitiveArgument :: Text -> RuntimeValue -> EvalM Word64
+expectThreadPrimitiveArgument name value =
+  case value of
+    RuntimeLocation location -> do
+      cell <- readCell location
+      case cell of
+        HeapThread threadId -> pure threadId
+        _ -> throwInterpret (InterpretPrimitiveTypeError name value)
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
 expectMVarPrimitiveArgument :: Text -> RuntimeValue -> EvalM (Int, GrinMVarState)
 expectMVarPrimitiveArgument name value =
@@ -516,18 +540,36 @@ finishChild failure =
     EvalRaised _ -> scheduleNextThread
     EvalInterpret _ -> throwE failure
 
+-- | Suspend the thread that runs now, and keep its identity.
 enqueueThread :: EvalM [RuntimeValue] -> EvalM ()
-enqueueThread action =
+enqueueThread action = do
+  owner <- getsMachine machineCurrentThread
+  enqueueThreadAs owner action
+
+-- | Suspend an action as the named thread. Only fork# names another thread.
+enqueueThreadAs :: RuntimeValue -> EvalM [RuntimeValue] -> EvalM ()
+enqueueThreadAs owner action = pushThread (ThreadAction owner action)
+
+pushThread :: ThreadAction -> EvalM ()
+pushThread thread =
   modifyMachine $ \machine ->
-    machine {machineRunQueue = machineRunQueue machine |> ThreadAction action}
+    machine {machineRunQueue = machineRunQueue machine |> thread}
+
+-- | Make a cell for a new thread, and give it the next number.
+allocateThread :: EvalM RuntimeValue
+allocateThread = do
+  threadId <- getsMachine machineNextThreadId
+  modifyMachine $ \machine -> machine {machineNextThreadId = threadId + 1}
+  allocateCell (HeapThread threadId)
 
 scheduleNextThread :: EvalM [RuntimeValue]
 scheduleNextThread = do
   queue <- getsMachine machineRunQueue
   case Seq.viewl queue of
     EmptyL -> throwInterpret InterpretNoRunnableThreads
-    ThreadAction action :< remaining -> do
-      modifyMachine $ \machine -> machine {machineRunQueue = remaining}
+    ThreadAction owner action :< remaining -> do
+      modifyMachine $ \machine ->
+        machine {machineRunQueue = remaining, machineCurrentThread = owner}
       action
 
 callScheduledFunction :: FunctionName -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
@@ -588,7 +630,7 @@ forceScheduledLocation location continue = do
     HeapValue _ -> continue (RuntimeLocation location)
     HeapRaised exception -> throwE (EvalRaised exception)
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
-    HeapThread -> continue (RuntimeLocation location)
+    HeapThread _ -> continue (RuntimeLocation location)
   where
     updateThunk original values =
       case values of
@@ -690,7 +732,7 @@ fetchValue value =
         HeapValue result -> pure result
         HeapRaised exception -> throwE (EvalRaised exception)
         HeapBlackhole -> throwInterpret (InterpretBlackhole location)
-        HeapThread -> pure (RuntimeLocation location)
+        HeapThread _ -> pure (RuntimeLocation location)
     other -> throwInterpret (InterpretExpectedLocation other)
 
 updateValue :: RuntimeValue -> RuntimeValue -> EvalM RuntimeValue
@@ -960,6 +1002,12 @@ evalPrimitive "noDuplicate#" [] = pure []
 evalPrimitive "makeStableName#" [value] = do
   name <- liftEvalIO (Host.makeStableName value)
   pure [RuntimeStableName (GrinStableName name)]
+evalPrimitive "myThreadId#" [] = do
+  thread <- getsMachine machineCurrentThread
+  pure [thread]
+evalPrimitive "aihcThreadIdNumber#" [thread] = do
+  threadId <- expectThreadPrimitiveArgument "aihcThreadIdNumber#" thread
+  pure [RuntimeLit (GrinLitInt Word64Rep (toInteger threadId))]
 evalPrimitive "stableNameToInt#" [name] = do
   GrinStableName stableName <- expectStableNamePrimitiveArgument "stableNameToInt#" name
   pure [intRuntimeValue (toInteger (Host.hashStableName stableName))]

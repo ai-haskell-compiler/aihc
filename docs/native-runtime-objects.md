@@ -147,6 +147,17 @@ dispatches with a tail call. All retained closure values and pending-request
 continuations are precise collector roots; live values of generated code reach
 the collector only through the root vector of an explicit safepoint.
 
+Each thread record carries the number that identifies the thread. The machine
+holds a counter, and `aihc_thread_new` gives the next number to each new
+thread. The counter starts at one, thus the main thread has the number one, and
+the runtime does not give a number again. The field is directly after the
+header of the thread record, at offset 8 on every target, because the header
+and the field are both eight bytes. Thus the `aihcThreadIdNumber#` primitive is
+one load, and `GHC.Conc.Sync.fromThreadId` reads the number without a runtime
+call. The address of a thread record is not an identifier: the record is an
+auxiliary allocation, and its address gives no order and is different in each
+run. `myThreadId#` reads the current thread from the machine.
+
 `MVar#` uses a runtime-owned empty/full cell with separate FIFO queues for
 blocked readers, takers, and putters. Putting into an empty cell wakes every
 blocked reader with the same value and either hands the value directly to the

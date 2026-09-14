@@ -3,7 +3,13 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Conc.Sync
-  ( STM (..),
+  ( ThreadId (..),
+    forkIO,
+    fromThreadId,
+    myThreadId,
+    showThreadId,
+    yield,
+    STM (..),
     TVar (..),
     atomically,
     retry,
@@ -24,7 +30,73 @@ import Control.Exception (BlockedIndefinitelyOnSTM (..), Exception, SomeExceptio
 import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.IO (IO (..))
 import GHC.Prim
+import GHC.Word (Word64 (..))
 import Prelude
+
+-- | An opaque green-thread identifier.
+data ThreadId = ThreadId ThreadId#
+
+-- | The number of a green thread.
+--
+-- The runtime gives a different number to each green thread. The numbers start
+-- at one, and the main thread has the number one. The runtime does not give the
+-- number of a thread to another thread later. The number is not related to an
+-- operating-system thread.
+fromThreadId :: ThreadId -> Word64
+fromThreadId (ThreadId threadId) = W64# (aihcThreadIdNumber# threadId)
+
+-- | Read the number of a green thread.
+--
+-- GHC uses a foreign call to its runtime for this operation. The aihc foreign
+-- interface accepts only C types, and a thread is a runtime object. Thus aihc
+-- uses a primitive, and GHC.Prim does not export it.
+foreign import prim aihcThreadIdNumber# :: ThreadId# -> Word64#
+
+instance Eq ThreadId where
+  left == right = fromThreadId left == fromThreadId right
+
+instance Ord ThreadId where
+  compare left right = compare (fromThreadId left) (fromThreadId right)
+
+instance Show ThreadId where
+  showsPrec precedence threadId =
+    showString "ThreadId " . showsPrec precedence (fromThreadId threadId)
+
+-- | Show a green-thread identifier.
+showThreadId :: ThreadId -> String
+showThreadId = show
+
+-- | The identifier of the green thread that runs this action.
+myThreadId :: IO ThreadId
+myThreadId =
+  IO
+    ( \state ->
+        case myThreadId# state of
+          (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
+    )
+
+-- | Schedule an action on a new green thread.
+forkIO :: IO () -> IO ThreadId
+forkIO (IO action) =
+  IO
+    ( \state ->
+        -- Explicit GRIN apply does not enter operands, and unpacking the IO
+        -- newtype alone does not enter its state transformer.
+        seq
+          action
+          ( case fork# action state of
+              (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
+          )
+    )
+
+-- | Cooperatively yield to the next runnable green thread.
+yield :: IO ()
+yield =
+  IO
+    ( \state ->
+        case yield# state of
+          nextState -> (# nextState, () #)
+    )
 
 newtype STM a = STM (State# RealWorld -> (# State# RealWorld, a #))
 

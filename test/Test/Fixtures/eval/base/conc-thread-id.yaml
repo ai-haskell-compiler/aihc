@@ -1,0 +1,30 @@
+evaluators:
+  - grin
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (forkIO, myThreadId, newEmptyMVar, putMVar, takeMVar)
+    import GHC.Conc.Sync (fromThreadId)
+
+    -- The main thread has the number one. Each new thread has a larger number,
+    -- and the number of a thread does not change.
+    threadIdReport :: IO (Bool, Bool, Bool, Bool)
+    threadIdReport = do
+      mainThread <- myThreadId
+      mainThreadAgain <- myThreadId
+      childBox <- newEmptyMVar
+      child <- forkIO (myThreadId >>= putMVar childBox)
+      childThread <- takeMVar childBox
+      return
+        ( mainThread == mainThreadAgain,
+          child == childThread,
+          mainThread < childThread && fromThreadId childThread == 2,
+          show mainThread == "ThreadId 1"
+        )
+expression: threadIdReport
+output: |
+  (True,True,True,True)
+status: pass
+reason: each green thread keeps one number, the main thread has the number one, and a new thread has a larger number

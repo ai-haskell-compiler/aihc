@@ -36,6 +36,7 @@ _Static_assert(offsetof(AihcResume, continuation) == 16,
                "resume continuation ABI");
 _Static_assert(offsetof(AihcResume, value) == 24, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 32, "resume count ABI");
+_Static_assert(offsetof(AihcThread, id) == 8, "thread identifier ABI");
 _Static_assert(offsetof(AihcStableName, value) == 8, "stable-name value ABI");
 _Static_assert(offsetof(AihcStableName, hash) == 16, "stable-name hash ABI");
 _Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
@@ -71,6 +72,7 @@ _Static_assert(offsetof(AihcResume, continuation) == 12,
                "resume continuation ABI");
 _Static_assert(offsetof(AihcResume, value) == 16, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 24, "resume count ABI");
+_Static_assert(offsetof(AihcThread, id) == 8, "thread identifier ABI");
 _Static_assert(offsetof(AihcStableName, value) == 8, "stable-name value ABI");
 _Static_assert(offsetof(AihcStableName, hash) == 16, "stable-name hash ABI");
 _Static_assert(offsetof(AihcMVar, full) == 8, "MVar full-flag ABI");
@@ -596,7 +598,12 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
 static AihcThread *aihc_thread_new(AihcMachine *machine) {
   AihcThread *thread = aihc_allocate_auxiliary(machine, sizeof(*thread));
   thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
+  thread->id = ++machine->next_thread_id;
   return thread;
+}
+
+AihcSlot aihc_my_thread_id(AihcMachine *machine) {
+  return (AihcSlot)(uintptr_t)machine->current_thread;
 }
 
 static void aihc_enqueue_thread(AihcMachine *machine, AihcThread *thread) {

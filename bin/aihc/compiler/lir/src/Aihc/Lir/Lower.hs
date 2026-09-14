@@ -1963,6 +1963,11 @@ mvarValueOffset = 16
 stableNameHashOffset :: Integer
 stableNameHashOffset = 16
 
+-- | The number of a thread. It is directly after the header of the thread
+-- object, and both fields are eight bytes on every target.
+threadIdOffset :: Integer
+threadIdOffset = 8
+
 -- | Reads of one field of a runtime object. Each entry gives the type of
 -- the field and its byte offset.
 objectFieldPrimitives :: [(Text, (Type, Integer))]
@@ -1980,7 +1985,8 @@ objectFieldPrimitives =
     ("mutableByteArrayContents#", (Ptr, byteArrayContentsOffset)),
     ("isByteArrayPinned#", (I64, byteArrayPinnedOffset)),
     ("isMutableByteArrayPinned#", (I64, byteArrayPinnedOffset)),
-    ("stableNameToInt#", (I64, stableNameHashOffset))
+    ("stableNameToInt#", (I64, stableNameHashOffset)),
+    ("aihcThreadIdNumber#", (I64, threadIdOffset))
   ]
 
 -- | Reads and writes of one element of a boxed array. The small-array

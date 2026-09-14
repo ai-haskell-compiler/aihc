@@ -154,6 +154,9 @@ struct AihcMachine {
   AihcMVar *mvars;
   AihcStableName *stable_names;
   uint64_t next_stable_name;
+  /* The number of the next new thread. The counter starts at one, it gives the
+     main thread the number one, and it does not give a number again. */
+  uint64_t next_thread_id;
   AihcIoRequest *io_requests_head;
   AihcIoRequest *io_requests_tail;
   uint64_t io_request_count;
@@ -335,6 +338,7 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
 const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
                              AihcValue *continuation);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
+AihcSlot aihc_my_thread_id(AihcMachine *machine);
 void *aihc_mvar_new(AihcMachine *machine);
 const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,
                                  AihcValue *continuation);

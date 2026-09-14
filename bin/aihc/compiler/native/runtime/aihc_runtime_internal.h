@@ -41,6 +41,10 @@ typedef enum {
 
 struct AihcThread {
   AihcSlot header;
+  /* The number that identifies the thread. The field is directly after the
+     header, and both are eight bytes on every target. Thus compiled code can
+     read it at one offset. Refer to docs/native-runtime-objects.md. */
+  uint64_t id;
   AihcResumeKind resume_kind;
   AihcValue *resume_function;
   AihcValue *resume_continuation;
