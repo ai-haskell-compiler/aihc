@@ -337,6 +337,7 @@ void aihc_runtime_statistics_report(void) {
   }
   aihc_statistics_reported = 1;
   aihc_gc_record_peak(machine);
+  aihc_heap_account(machine);
   /* The fixed text is 86 bytes and the four numbers take at most 80. */
   char text[256];
   char *cursor = text;

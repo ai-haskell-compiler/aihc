@@ -194,6 +194,10 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);
 /* Raise heap_peak_bytes to what the current space holds now. */
 void aihc_gc_record_peak(AihcMachine *machine);
+/* Fold the bytes the mutator has taken since the last account into
+   heap_allocated_bytes and move the base up. Idempotent: a second call in a
+   row adds nothing. */
+void aihc_heap_account(AihcMachine *machine);
 
 _Noreturn void aihc_host_fail(const char *message);
 const AihcIoBackend *aihc_host_io_backend(void);

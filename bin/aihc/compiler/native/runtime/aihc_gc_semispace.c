@@ -360,10 +360,21 @@ static void aihc_grow_target(AihcMachine *machine, size_t occupied_bytes) {
   machine->semispace_bytes = target;
 }
 
+void aihc_heap_account(AihcMachine *machine) {
+  size_t taken = (size_t)(machine->heap_next - machine->heap_alloc_base);
+  if ((uint64_t)taken > UINT64_MAX - machine->heap_allocated_bytes) {
+    aihc_fail("allocated byte counter overflow");
+  }
+  machine->heap_allocated_bytes += (uint64_t)taken;
+  machine->heap_alloc_base = machine->heap_next;
+}
+
 static void aihc_collect(AihcMachine *machine, size_t required_bytes,
                          uint64_t root_count, AihcSlot *roots) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   aihc_gc_record_peak(machine);
+  /* Everything the mutator took from the space it is about to leave. */
+  aihc_heap_account(machine);
   if (machine->gc_count == UINT64_MAX) {
     aihc_fail("collection counter overflow");
   }
@@ -393,6 +404,9 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 
   machine->other_space = from_start;
   machine->other_space_bytes = from_bytes;
+  /* The live data the collector copied in is not something the mutator
+     allocated, so the next account starts above it. */
+  machine->heap_alloc_base = machine->heap_next;
   size_t live_bytes = (size_t)(machine->heap_next - machine->heap_start);
   if (required_bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_semispace_exhausted(machine);
@@ -409,6 +423,7 @@ void aihc_gc_init(AihcMachine *machine) {
   }
   machine->heap_start = aihc_semispace_new(machine->semispace_bytes);
   machine->heap_next = machine->heap_start;
+  machine->heap_alloc_base = machine->heap_start;
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
   machine->other_space = NULL;
   machine->other_space_bytes = 0;
@@ -425,15 +440,6 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
   }
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, bytes, root_count, roots);
-  }
-  /* The allocation statistics are kept here, once per reservation: compiled
-     code bumps the heap pointer itself and reports nothing. */
-  if (bytes != 0) {
-    if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
-      aihc_fail("allocated byte counter overflow");
-    }
-    machine->heap_allocated_bytes += bytes;
-    aihc_record_allocation(machine);
   }
 }
 

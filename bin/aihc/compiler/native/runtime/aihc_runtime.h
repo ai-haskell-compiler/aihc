@@ -163,12 +163,17 @@ struct AihcMachine {
   int64_t exit_status;
   uint64_t other_space_bytes;
   /* The runtime statistics. heap_allocated_bytes above counts every byte
-     reserved on the managed heap: compiled code bumps the heap pointer
-     itself, so the reservation is the only allocation the runtime sees.
-     heap_peak_bytes is the most the current space ever held: the live data
-     after a collection plus the allocations since, sampled before each
-     collection and when the statistics are reported. The collector counts its
-     runs and their monotonic time. */
+     compiled code has taken from the managed heap. Compiled code reserves
+     and bumps the heap pointer itself and reports nothing, so the runtime
+     reads the total off the bump pointer instead of counting reservations:
+     heap_alloc_base is where the mutator started filling the current space,
+     and heap_next minus that base is what it has taken since. The collector
+     adds that span before it flips, and aihc_heap_account adds it again
+     whenever the total is read. heap_peak_bytes is the most the current space
+     ever held: the live data after a collection plus the allocations since,
+     sampled before each collection and when the statistics are reported. The
+     collector counts its runs and their monotonic time. */
+  uint8_t *heap_alloc_base;
   uint64_t heap_peak_bytes;
   uint64_t gc_count;
   uint64_t gc_time_ns;

@@ -677,6 +677,12 @@ machineExitCodeOffset = 16
 machineHeapNextOffset :: LowerTarget -> Integer
 machineHeapNextOffset target = machineExitCodeOffset + toInteger (lowerWordSize target)
 
+-- | The end of the space the bump pointer runs into, the field after it. A
+-- reservation compares the two itself and only calls the runtime when the
+-- words it wants do not fit.
+machineHeapLimitOffset :: LowerTarget -> Integer
+machineHeapLimitOffset target = machineHeapNextOffset target + toInteger (lowerWordSize target)
+
 -- Coercion
 
 -- | Convert a typed operand to a type. Pointers and words convert both ways.
@@ -1204,13 +1210,7 @@ compileBinding ctx env vars expression =
               ([], _) -> pure (OperandLiteral LitNull)
               (_, Just array) -> pure array
               _ -> failWith (LowerUnsupportedExpression "internal: roots without a root array")
-          forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-            storeSlot Ptr root array (toInteger (8 * index))
-          _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
-          relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) -> do
-            typed <- loadSlot (varBase var) Ptr array (toInteger (8 * index))
-            pure (var, typed)
-          pure (Map.fromList relocated `Map.union` env)
+          reserveHeap ctx env vars requiredWords words' roots rootOperands array
       | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
@@ -1227,6 +1227,60 @@ compileBinding ctx env vars expression =
       _ <- callRuntime symbol (map (const Ptr) arguments) [] arguments
       bindResults [valueTyped]
     bindResults = bindVars env vars
+
+-- | Take the words of a reservation from the current space. The fast path is
+-- the compare of the bump pointer against the end of the space and the branch
+-- alone: it keeps every root in the register it already sits in, so a
+-- safepoint that does not collect costs the same whatever is live across it.
+-- Only the slow path spills the roots to the root array, calls the collector,
+-- and reloads the roots it moved. The two paths meet at a block whose
+-- parameters carry the roots, which are the relocated names the body uses.
+reserveHeap ::
+  FunctionCtx ->
+  ValueEnv ->
+  [GrinVar] ->
+  GrinValue ->
+  Operand ->
+  [GrinValue] ->
+  [Operand] ->
+  Operand ->
+  LowerM ValueEnv
+reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
+  target <- targetM
+  next <- loadMachinePointer "heap" (machineHeapNextOffset target)
+  limit <- loadMachinePointer "heap_end" (machineHeapLimitOffset target)
+  nextWord <- emitValue "heap_word" I64 (PtrToInt (typedOperand next))
+  limitWord <- emitValue "heap_end_word" I64 (PtrToInt (typedOperand limit))
+  -- The bump pointer never passes the end of the space, so this subtraction
+  -- does not wrap and the free bytes are exact.
+  room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
+  fits <- case requiredWords of
+    GrinLitValue (GrinLitInt _ requested) ->
+      emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand room) (OperandLiteral (LitInt (8 * requested))))
+    _ -> do
+      -- A dynamic size brings the room down to words rather than the words up
+      -- to bytes: a reservation the address space cannot hold then fails the
+      -- compare instead of wrapping past it into the unchecked store behind.
+      roomWords <- emitValue "heap_room_words" I64 (Binary ShrU I64 (typedOperand room) (OperandLiteral (LitInt 3)))
+      emitValue "heap_fits" I1 (Compare GeU I64 (typedOperand roomWords) words')
+  collect <- freshLabel "gc_collect"
+  reserved <- freshLabel "gc_reserved"
+  parameters <- forM vars $ \var -> do
+    parameter <- fresh (varBase var)
+    pure (var, parameter)
+  terminate (Branch (typedOperand fits) (Target reserved rootOperands) (Target collect []))
+  beginBlock collect []
+  forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
+    storeSlot Ptr root array (toInteger (8 * index))
+  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
+  relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
+    loadSlot (varBase var) Ptr array (toInteger (8 * index))
+  terminate (Jump (Target reserved (map typedOperand relocated)))
+  beginBlock reserved [(parameter, Ptr) | (_, parameter) <- parameters]
+  pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
+  where
+    loadMachinePointer base offset =
+      emitValue base Ptr (Load Ptr (byteAddress (ctxMachine ctx) offset) (wordAlignment 1))
 
 -- | Bind the result variables of a direct expression, converting each value
 -- to the representation of its variable.
