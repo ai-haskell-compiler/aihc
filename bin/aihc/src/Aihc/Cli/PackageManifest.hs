@@ -8,10 +8,12 @@ module Aihc.Cli.PackageManifest
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Aeson ((.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import System.FilePath ((</>))
 
 data PackageManifest = PackageManifest
@@ -29,7 +31,9 @@ data PackageManifest = PackageManifest
     -- for an output the entry lacks must rebuild it.
     packageManifestFlags :: ![Text]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData PackageManifest
 
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =

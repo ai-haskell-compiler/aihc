@@ -156,6 +156,7 @@ import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
+import Control.DeepSeq (NFData)
 import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
@@ -167,10 +168,11 @@ import Data.IntSet qualified as IntSet
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 -- | The type checker monad.
 --
@@ -409,7 +411,9 @@ data TcBinder
 data TcTermKey
   = TcTermLocal !Int
   | TcTermGlobal !PackageId !Text !Text
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TcTermKey
 
 -- | The term key of a name that a type constructor's identity carries,
 -- such as a data constructor or a wired-in binder.

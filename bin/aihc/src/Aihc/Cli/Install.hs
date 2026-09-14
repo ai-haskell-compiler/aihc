@@ -175,6 +175,7 @@ import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
+import GHC.Generics (Generic)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
@@ -191,7 +192,9 @@ data InstallResult = InstallResult
     installWrittenModules :: ![Text],
     installReusedModules :: ![Text]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData InstallResult
 
 data SourceModule = SourceModule
   { sourceModulePath :: !FilePath,
@@ -234,6 +237,9 @@ data InstalledPackage = InstalledPackage
     installedInstanceFacts :: !TcInterface,
     installedInstanceProviders :: !(Map.Map Text (Set.Set InstanceProvider))
   }
+  deriving (Generic)
+
+instance NFData InstalledPackage
 
 type InstanceProvider = (PackageId, Text)
 
@@ -276,7 +282,9 @@ data PendingBackend = PendingBackend
   }
 
 newtype UnitId = UnitId Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance NFData UnitId
 
 data SourceUnit = SourceUnit
   { sourceUnitId :: !UnitId,
@@ -842,9 +850,13 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
   (parsed, importTimings) <- loadSourceModules (compileHeaderDirectory config) (max 1 capabilities) packageRoot versions files
-  loadedDependencies <- loadRequiredDependencies parsed dependencies
-  let units = sourceModuleUnits parsed
-      dependencyExports = Map.unions (map installedExports loadedDependencies)
+  -- The two serial stretches between the task graphs. Neither runs a task,
+  -- so both show as idle workers on the timeline, and both build their
+  -- result lazily: forcing them here is what puts the time on the line
+  -- that names the work rather than on whichever task first asks for it.
+  setupStart <- getMonotonicTimeNSec
+  loadedDependencies <- evaluate . force =<< loadRequiredDependencies parsed dependencies
+  let dependencyExports = Map.unions (map installedExports loadedDependencies)
       dependencyTypes = LazyMap.unions (map installedTypes loadedDependencies)
       dependencyScopeHashes = Map.unions (map installedScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedTypeHashes loadedDependencies)
@@ -855,6 +867,27 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
       dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
+  _ <-
+    evaluate
+      ( force
+          ( dependencyExports,
+            dependencyTypes,
+            dependencyScopeHashes,
+            dependencyTypeHashes,
+            dependencyPackages,
+            dependencyInstanceFacts,
+            dependencyInstanceProviders
+          )
+      )
+  setupEnd <- getMonotonicTimeNSec
+  depgraphStart <- getMonotonicTimeNSec
+  units <- evaluate (sourceModuleUnits parsed)
+  -- The graph this phase builds is which units there are and which units
+  -- each waits on. The modules in them are its input, forced when they
+  -- were parsed; forcing them here would only move that work out of the
+  -- parse tasks that run in parallel.
+  _ <- evaluate (force [(sourceUnitId unit, sourceUnitDependencies unit) | unit <- units])
+  depgraphEnd <- getMonotonicTimeNSec
   backendPhaseTimings <- newIORef mempty
   let taskContext =
         PackageTaskContext
@@ -879,7 +912,12 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   phaseTimings <- readIORef backendPhaseTimings
   compilePrintTimings
     config
-    ( renderTaskTimeline (compileUseColor config) (importTimings <> taskTimings)
+    ( renderTaskTimeline
+        (compileUseColor config)
+        [ ("Setup", setupEnd - setupStart),
+          ("Depgraph", depgraphEnd - depgraphStart)
+        ]
+        (importTimings <> taskTimings)
         <> renderBackendPhaseTotals phaseTimings
     )
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
@@ -1264,7 +1302,7 @@ loadSourceModules headerDir workers root versions files = do
   where
     loadTask order fileInfo result =
       Task
-        { taskId = TaskId ("imports:" <> HackageCabal.fileInfoPath fileInfo),
+        { taskId = TaskId order,
           taskKind = TaskParse,
           taskOrder = order,
           taskDependencies = Set.empty,
@@ -1489,20 +1527,27 @@ runPackageTasks context workers units = do
     forM units $ \unit ->
       UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO
   let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
-      tasks = concatMap (unitTasks runtimeMap) runtimes
+      -- The task numbering of the package. The parse tasks take the indices
+      -- of the modules, which the units partition in order, and the three
+      -- phases of a unit take three indices each above them.
+      sourceBases = scanl (+) 0 (map (length . sourceUnitSources) units)
+      sourceCount = sum (map (length . sourceUnitSources) units)
+      tasks = concat (zipWith (unitTasks runtimeMap sourceCount) sourceBases runtimes)
   timings <- runTaskGraph workers tasks
   pure (runtimes, timings)
   where
-    unitTasks runtimeMap runtime =
-      map (parseTask runtime) (sourceUnitSources unit)
-        <> [resolveTask runtimeMap runtime, typeTask runtimeMap runtime]
-        <> [backendTask runtime | not (compileNoCode config)]
+    unitTasks runtimeMap sourceCount sourceBase runtime =
+      zipWith (parseTask runtime) [sourceBase ..] (sourceUnitSources unit)
+        <> [ resolveTask runtimeMap sourceCount sourceBase runtime,
+             typeTask runtimeMap sourceCount runtime
+           ]
+        <> [backendTask sourceCount runtime | not (compileNoCode config)]
       where
         unit = runtimeUnit runtime
 
-    parseTask runtime source =
+    parseTask runtime index source =
       Task
-        { taskId = parseTaskId source,
+        { taskId = TaskId index,
           taskKind = TaskParse,
           taskOrder = sourceUnitOrder (runtimeUnit runtime),
           taskDependencies = Set.empty,
@@ -1511,15 +1556,15 @@ runPackageTasks context workers units = do
             evaluate (rnf (modu, sourceModuleParseDiagnostics source))
         }
 
-    resolveTask runtimeMap runtime =
+    resolveTask runtimeMap sourceCount sourceBase runtime =
       Task
-        { taskId = resolveTaskId (runtimeUnit runtime),
+        { taskId = resolveTaskId sourceCount (sourceUnitId (runtimeUnit runtime)),
           taskKind = TaskResolve,
           taskOrder = sourceUnitOrder (runtimeUnit runtime),
           taskDependencies =
             Set.fromList
-              ( map parseTaskId (sourceUnitSources (runtimeUnit runtime))
-                  <> map (resolveTaskId . runtimeUnit . lookupRuntime runtimeMap) (sourceUnitDependencies (runtimeUnit runtime))
+              ( [TaskId index | index <- take (length (sourceUnitSources (runtimeUnit runtime))) [sourceBase ..]]
+                  <> map (resolveTaskId sourceCount) (sourceUnitDependencies (runtimeUnit runtime))
               ),
           taskAction =
             runResolveUnit
@@ -1528,15 +1573,15 @@ runPackageTasks context workers units = do
               runtime
         }
 
-    typeTask runtimeMap runtime =
+    typeTask runtimeMap sourceCount runtime =
       Task
-        { taskId = typeTaskId (runtimeUnit runtime),
+        { taskId = typeTaskId sourceCount (sourceUnitId (runtimeUnit runtime)),
           taskKind = TaskTypeCheck,
           taskOrder = sourceUnitOrder (runtimeUnit runtime),
           taskDependencies =
             Set.fromList
-              ( resolveTaskId (runtimeUnit runtime)
-                  : map (typeTaskId . runtimeUnit . lookupRuntime runtimeMap) (sourceUnitDependencies (runtimeUnit runtime))
+              ( resolveTaskId sourceCount (sourceUnitId (runtimeUnit runtime))
+                  : map (typeTaskId sourceCount) (sourceUnitDependencies (runtimeUnit runtime))
               ),
           taskAction =
             runTypeUnit
@@ -1545,27 +1590,25 @@ runPackageTasks context workers units = do
               runtime
         }
 
-    backendTask runtime =
+    backendTask sourceCount runtime =
       Task
-        { taskId = backendTaskId (runtimeUnit runtime),
+        { taskId = backendTaskId sourceCount (sourceUnitId (runtimeUnit runtime)),
           taskKind = TaskBackend,
           taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources (runtimeUnit runtime)))),
-          taskDependencies = Set.singleton (typeTaskId (runtimeUnit runtime)),
+          taskDependencies = Set.singleton (typeTaskId sourceCount (sourceUnitId (runtimeUnit runtime))),
           taskAction = runBackendUnit context runtime
         }
     config = taskModuleCompileConfig context
 
-parseTaskId :: SourceModule -> TaskId
-parseTaskId = TaskId . ("parse:" <>) . sourceModulePath
+-- | The three task indices a unit owns, above the indices of the modules.
+resolveTaskId :: Int -> UnitId -> TaskId
+resolveTaskId sourceCount (UnitId order) = TaskId (sourceCount + 3 * order)
 
-resolveTaskId :: SourceUnit -> TaskId
-resolveTaskId = TaskId . ("resolve:" <>) . T.unpack . unitLabel
+typeTaskId :: Int -> UnitId -> TaskId
+typeTaskId sourceCount (UnitId order) = TaskId (sourceCount + 3 * order + 1)
 
-typeTaskId :: SourceUnit -> TaskId
-typeTaskId = TaskId . ("type-check:" <>) . T.unpack . unitLabel
-
-backendTaskId :: SourceUnit -> TaskId
-backendTaskId = TaskId . ("backend:" <>) . T.unpack . unitLabel
+backendTaskId :: Int -> UnitId -> TaskId
+backendTaskId sourceCount (UnitId order) = TaskId (sourceCount + 3 * order + 2)
 
 unitLabel :: SourceUnit -> Text
 unitLabel = T.intercalate "+" . map sourceName . sourceUnitSources

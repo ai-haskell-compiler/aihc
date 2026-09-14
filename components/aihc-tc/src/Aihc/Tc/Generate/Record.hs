@@ -28,7 +28,7 @@ import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.List (nub)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 

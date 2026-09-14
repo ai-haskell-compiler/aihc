@@ -70,6 +70,7 @@ library
     aihc-resolve,
     base >=4.16 && <5,
     containers,
+    deepseq,
     text >=1.2,
     transformers,
 
