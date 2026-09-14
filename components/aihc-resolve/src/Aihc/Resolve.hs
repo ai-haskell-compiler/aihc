@@ -180,9 +180,9 @@ resolveModule builtinScope package exports extensions nextLocal modu =
           (resolveBindingGroup (topLevelTermDefinition scope) Map.empty (moduleDecls modu))
       visibleTerms =
         VisibleTermIdentities
-          [ (packageId, fromMaybe "" (nameQualifier name), nameText name)
+          [ (packageId, moduleName', nameText name)
           | visibleScope <- scope : Map.elems (scopeQualifiedModules scope),
-            ResolvedTopLevel packageId name <- Map.elems (scopeTerms visibleScope)
+            ResolvedTopLevel packageId moduleName' name <- Map.elems (scopeTerms visibleScope)
           ]
    in (nextLocal', modu' {moduleDecls = decls', moduleAnns = mkAnnotation visibleTerms : moduleAnns modu'})
 
@@ -1058,8 +1058,8 @@ builtinSyntaxTerm info name =
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
 rebindableSyntaxTerm info scope name =
   case lookupTerm name scope of
-    ResolvedTopLevel _ resolved
-      | nameQualifier resolved == Just "Prelude",
+    ResolvedTopLevel _ resolvedModule _
+      | resolvedModule == "Prelude",
         not (moduleInfoExplicitPreludeImport info) ->
           ResolvedError "unbound"
     resolved -> resolved

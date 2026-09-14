@@ -893,7 +893,7 @@ intLiteral gen value =
       (referenceExpr gen derivingIntCon)
       ( at gen $
           EAnn
-            (mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (ResolvedTopLevel primTypePackage (Name (Just primTypeModule) NameConId primTypeName []))))
+            (mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (ResolvedTopLevel primTypePackage primTypeModule (Name Nothing NameConId primTypeName []))))
             (EInt value TIntHash (T.pack (show value) <> "#"))
       )
   where
@@ -907,7 +907,7 @@ resolvedName sp packageId moduleName' nameType namespace text =
     nameType
     text
     [ mkAnnotation sp,
-      mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (ResolvedTopLevel packageId (Name (Just moduleName') nameType text [])))
+      mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (ResolvedTopLevel packageId moduleName' (Name Nothing nameType text [])))
     ]
 
 tyConNameSyntax :: SourceSpan -> TyCon -> Name

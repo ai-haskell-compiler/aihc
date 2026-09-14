@@ -28,7 +28,7 @@ import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.List (nub)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -42,9 +42,9 @@ lookupRecordConstructor :: Name -> TcM DataConInfo
 lookupRecordConstructor conSyntax = do
   target <- resolvedTermTarget conSyntax
   case target of
-    ResolvedTopLevel packageId resolvedName -> do
+    ResolvedTopLevel packageId resolvedModule resolvedName -> do
       let conName = nameText resolvedName
-          origin = (packageId, fromMaybe "" (nameQualifier resolvedName))
+          origin = (packageId, resolvedModule)
       dataTypes <- getDataTypes
       let matches =
             [ con
@@ -125,7 +125,7 @@ synthesizedRecordLocal text = do
 -- of a record update expansion use it.
 constructorNameSyntax :: DataConInfo -> Name
 constructorNameSyntax con =
-  Name (Just moduleName') nameType' text [mkAnnotation (ResolutionAnnotation NoSourceSpan (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedTopLevel packageId resolved))]
+  Name (Just moduleName') nameType' text [mkAnnotation (ResolutionAnnotation NoSourceSpan (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedTopLevel packageId moduleName' resolved))]
   where
     (packageId, moduleName') = dciOrigin con
     text = dciName con
@@ -133,4 +133,4 @@ constructorNameSyntax con =
       case T.uncons text of
         Just (first, _) | first == ':' -> NameConSym
         _ -> NameConId
-    resolved = Name (Just moduleName') nameType' text []
+    resolved = Name Nothing nameType' text []

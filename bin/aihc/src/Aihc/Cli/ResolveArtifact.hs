@@ -16,7 +16,6 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -124,8 +123,8 @@ getResolvedMap = do
 encodeResolvedName :: ResolvedName -> Builder.Builder
 encodeResolvedName resolved =
   case resolved of
-    ResolvedTopLevel (PackageId packageId) name ->
-      cborArray 5 <> cborWord 0 <> cborText packageId <> cborText (fromMaybe "" (nameQualifier name)) <> cborWord (nameTypeTag (nameType name)) <> cborText (nameText name)
+    ResolvedTopLevel (PackageId packageId) moduleName' name ->
+      cborArray 5 <> cborWord 0 <> cborText packageId <> cborText moduleName' <> cborWord (nameTypeTag (nameType name)) <> cborText (nameText name)
     ResolvedSyntax -> cborArray 1 <> cborWord 1
     ResolvedLocal unique name ->
       cborArray 4 <> cborWord 2 <> cborWord (fromIntegral unique) <> cborWord (nameTypeTag (unqualifiedNameType name)) <> cborText (unqualifiedNameText name)
@@ -138,11 +137,10 @@ getResolvedName = do
   case (length', tag) of
     (5, 0) -> do
       packageId <- PackageId <$!> getText
-      qualifierText <- getText
+      moduleName' <- getText
       nameType' <- getNameType
       text <- getText
-      let qualifier = if T.null qualifierText then Nothing else Just qualifierText
-      pure (ResolvedTopLevel packageId (Name qualifier nameType' text []))
+      pure (ResolvedTopLevel packageId moduleName' (Name Nothing nameType' text []))
     (1, 1) -> pure ResolvedSyntax
     (4, 2) -> do
       unique <- getWord

@@ -4119,12 +4119,12 @@ desugarResolvedOccurrence annotation resolution = do
 resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
-    ResolvedTopLevel package target ->
+    ResolvedTopLevel package moduleName' target ->
       pure
         ( Name
             (Syn.nameText target)
             (sourceNameSort target)
-            (OriginTop package (fromMaybe "" (Syn.nameQualifier target)))
+            (OriginTop package moduleName')
         )
     ResolvedLocal unique localName ->
       binderName . fst <$> lookupLocal (TcTermLocal unique) (Syn.unqualifiedNameText localName)
@@ -4256,12 +4256,12 @@ resolvedTermName sourceName =
   case termResolution sourceName of
     Just resolution ->
       case resolutionTarget resolution of
-        ResolvedTopLevel package target ->
+        ResolvedTopLevel package moduleName' target ->
           pure
             ( Name
                 (Syn.nameText target)
                 (sourceNameSort target)
-                (OriginTop package (fromMaybe "" (Syn.nameQualifier target)))
+                (OriginTop package moduleName')
             )
         ResolvedSyntax -> failValue ("syntax identifier reached ordinary term " <> T.unpack (Syn.nameText sourceName))
         ResolvedLocal unique localName ->
@@ -4358,12 +4358,12 @@ requiredNameTermKey sourceName =
 binderTermKey :: Syn.UnqualifiedName -> Maybe TcTermKey
 binderTermKey name = do
   resolution <- unqualifiedTermResolution name
-  resolutionTermKey (Syn.unqualifiedNameText name) resolution
+  resolutionTermKey resolution
 
 nameTermKey :: Syn.Name -> Maybe TcTermKey
 nameTermKey sourceName = do
   resolution <- termResolution sourceName
-  resolutionTermKey (Syn.nameText sourceName) resolution
+  resolutionTermKey resolution
 
 unqualifiedTermResolution :: Syn.UnqualifiedName -> Maybe ResolutionAnnotation
 unqualifiedTermResolution name =
@@ -4373,13 +4373,15 @@ unqualifiedTermResolution name =
       resolutionNamespace resolution == ResolutionNamespaceTerm
     ]
 
-resolutionTermKey :: Text -> ResolutionAnnotation -> Maybe TcTermKey
-resolutionTermKey displayName resolution =
+-- | Built-in syntax denotes a wired constructor rather than a binder, so
+-- it has no term key; an occurrence of one is desugared from its shape.
+resolutionTermKey :: ResolutionAnnotation -> Maybe TcTermKey
+resolutionTermKey resolution =
   case resolutionTarget resolution of
     ResolvedLocal unique _ -> Just (TcTermLocal unique)
-    ResolvedTopLevel package target ->
-      Just (TcTermGlobal package (fromMaybe "" (Syn.nameQualifier target)) (Syn.nameText target))
-    ResolvedSyntax -> Just (TcTermGlobal (PackageId "") "" displayName)
+    ResolvedTopLevel package moduleName' target ->
+      Just (TcTermGlobal package moduleName' (Syn.nameText target))
+    ResolvedSyntax -> Nothing
     ResolvedError _ -> Nothing
 
 lookupLocal :: TcTermKey -> Text -> ValueM (Binder, TcType)

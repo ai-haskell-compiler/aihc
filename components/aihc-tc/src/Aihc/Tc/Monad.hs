@@ -53,12 +53,13 @@ module Aihc.Tc.Monad
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
-    unqualifiedTermKey,
+    tyConTermKey,
+    tyConMemberTermKey,
+    termKeyName,
     Closedness (..),
     emptyTcEnv,
     mkWiredTyCon,
     implicitParamType,
-    lookupTerm,
     lookupResolvedTerm,
     lookupTermKey,
     resolvedTermKey,
@@ -70,7 +71,6 @@ module Aihc.Tc.Monad
     rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
-    extendTermEnvPermanent,
     replaceTermKeyEnvPermanent,
     finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
@@ -154,7 +154,7 @@ import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
 import Control.DeepSeq (NFData)
-import Control.Monad (foldM, when)
+import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
@@ -165,10 +165,11 @@ import Data.IntSet qualified as IntSet
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 
 -- | The type checker monad.
@@ -340,8 +341,7 @@ arrowType = do
 -- | The binder of a term that a wiring entry names. The wiring gives the
 -- whole identity, so the term is found by key and never by scope.
 lookupWiredTerm :: TyCon -> TcM (Maybe TcBinder)
-lookupWiredTerm wired =
-  lookupTermKey (TcTermGlobal (tyConPackageId wired) (tyConModuleName wired) (tyConName wired))
+lookupWiredTerm wired = lookupTermKey (tyConTermKey wired)
 
 -- | The @Bool@ type that a guard and an @if@ condition have.
 boolType :: TcM TcType
@@ -407,8 +407,23 @@ data TcTermKey
 
 instance NFData TcTermKey
 
-unqualifiedTermKey :: Text -> TcTermKey
-unqualifiedTermKey = TcTermGlobal (PackageId "") ""
+-- | The term key of a name that a type constructor's identity carries,
+-- such as a data constructor or a wired-in binder.
+tyConTermKey :: TyCon -> TcTermKey
+tyConTermKey tyCon = tyConMemberTermKey tyCon (tyConName tyCon)
+
+-- | The term key of a name that a type constructor owns: a constructor or
+-- record selector of its data type, or a method of its class. These are
+-- declared with the type, so they live in its package and module.
+tyConMemberTermKey :: TyCon -> Text -> TcTermKey
+tyConMemberTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon)
+
+-- | The name a term key spells, for a diagnostic.
+termKeyName :: TcTermKey -> Text
+termKeyName key =
+  case key of
+    TcTermGlobal _ _ name -> name
+    TcTermLocal unique -> T.pack ("<local " <> show unique <> ">")
 
 -- | An empty environment at the top level.
 emptyTcEnv :: TcConfig -> TcEnv
@@ -580,17 +595,9 @@ lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
 
--- | Look up a global term by its selected global name.
-lookupTerm :: Text -> TcM (Maybe TcBinder)
-lookupTerm name =
-  lift $ gets $ \s -> Map.lookup (unqualifiedTermKey name) (tcsGlobalTerms s)
-
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
-lookupResolvedTerm displayName resolved = do
-  exact <- resolvedNameTermKey displayName resolved >>= lookupTermKey
-  case (exact, resolved) of
-    (Nothing, ResolvedTopLevel _ name) -> lookupTerm (nameText name)
-    _ -> pure exact
+lookupResolvedTerm displayName resolved =
+  resolvedNameTermKey displayName resolved >>= lookupTermKey
 
 lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
 lookupTermKey key =
@@ -620,10 +627,10 @@ resolvedNameTermKey displayName resolved =
   case resolved of
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
-    ResolvedTopLevel packageId name ->
-      pure (TcTermGlobal packageId (fromMaybe "" (nameQualifier name)) (nameText name))
+    ResolvedTopLevel packageId moduleName' name ->
+      pure (TcTermGlobal packageId moduleName' (nameText name))
     ResolvedSyntax ->
-      pure (unqualifiedTermKey displayName)
+      abortTc ("built-in syntax has no term key: " <> show displayName)
     ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
@@ -666,9 +673,6 @@ extendTermKeyEnvPermanent key binder = do
   terms' <- insertNewMap "global term environment" key binder terms
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
 
-extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
-extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
-
 -- | Replace a permanent global term entry. A synthesized binding registers
 -- a provisional type before its check and the checked type after it.
 replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
@@ -677,10 +681,10 @@ replaceTermKeyEnvPermanent key binder =
 
 -- | Replace the temporary monomorphic entries for one inferred top-level
 -- binding. No other permanent term entry can use this operation.
-finalizeInferredTermEnvPermanent :: Text -> TcTermKey -> TcType -> TypeScheme -> TcM ()
-finalizeInferredTermEnvPermanent name key placeholderTy scheme = do
+finalizeInferredTermEnvPermanent :: TcTermKey -> TcType -> TypeScheme -> TcM ()
+finalizeInferredTermEnvPermanent key placeholderTy scheme = do
   terms <- lift $ gets tcsGlobalTerms
-  terms' <- foldM finalizePlaceholder terms [unqualifiedTermKey name, key]
+  terms' <- finalizePlaceholder terms key
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
   where
     finalizedBinder = TcIdBinder scheme Closed
@@ -695,22 +699,14 @@ finalizeInferredTermEnvPermanent name key placeholderTy scheme = do
           abortTc ("missing inferred term placeholder key: " <> show placeholderKey)
 
 extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
-extendTyConTermEnvPermanent tyCon name binder = do
-  extendTermEnvPermanent name binder
-  extendTermKeyEnvPermanent
-    (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
-    binder
+extendTyConTermEnvPermanent tyCon name =
+  extendTermKeyEnvPermanent (tyConMemberTermKey tyCon name)
 
--- | Add a source binder under its resolver identity and its source name.
+-- | Add a source binder under its resolver identity.
 extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
 extendResolvedTermEnvPermanent name binder = do
-  extendTermEnvPermanent (unqualifiedNameText name) binder
-  case termResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
-      extendTermKeyEnvPermanent
-        (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
-        binder
-    _ -> pure ()
+  key <- resolvedUnqualifiedTermKey name
+  extendTermKeyEnvPermanent key binder
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =
@@ -762,8 +758,8 @@ lookupTyConQualifiedInNamespace namespace moduleName name =
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
   case typeUseResolution (nameAnns name) of
-    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} -> do
+      exact <- lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
       maybe (lookupTyConInNamespace namespace (nameText name)) (pure . Just) exact
     Just ResolutionAnnotation {resolutionTarget = ResolvedError {}} -> pure Nothing
     Just ResolutionAnnotation {resolutionNamespace = namespace} ->
@@ -778,9 +774,9 @@ lookupResolvedTypeSyntax resolution =
   case resolution of
     ResolutionAnnotation
       { resolutionNamespace = namespace,
-        resolutionTarget = ResolvedTopLevel packageId resolvedName
+        resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName
       } ->
-        lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+        lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
     ResolutionAnnotation
       { resolutionTarget = ResolvedError {}
       } -> pure Nothing
@@ -792,8 +788,8 @@ lookupResolvedTypeSyntax resolution =
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
   case typeResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin ResolutionNamespaceType packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} -> do
+      exact <- lookupTyConOrigin ResolutionNamespaceType packageId resolvedModule (nameText resolvedName)
       maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
     _ -> lookupTyCon (unqualifiedNameText name)
 
@@ -861,8 +857,8 @@ getPatSyns = lift $ gets (Map.elems . tcsPatSyns)
 lookupPatSynTarget :: ResolvedName -> TcM (Maybe PatSynInfo)
 lookupPatSynTarget target =
   case target of
-    ResolvedTopLevel packageId resolvedName ->
-      lookupPatSyn (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+    ResolvedTopLevel packageId resolvedModule resolvedName ->
+      lookupPatSyn (TcTermGlobal packageId resolvedModule (nameText resolvedName))
     _ -> pure Nothing
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)

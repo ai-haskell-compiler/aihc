@@ -29,7 +29,6 @@ import Aihc.Parser.Syntax
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
-    nameQualifier,
     peelDeclAnn,
     tyVarBinderName,
     unqualifiedNameAnns,
@@ -1146,8 +1145,8 @@ resolvedModuleOrigin resolvedModule =
   fromMaybe ("", fromMaybe "Main" (Syn.moduleName resolvedModule)) $ do
     resolved <- listToMaybe (mapMaybe definitionResolution (Syn.moduleDecls resolvedModule))
     case resolutionTarget resolved of
-      ResolvedTopLevel packageId name ->
-        pure (packageId, fromMaybe (fromMaybe "Main" (Syn.moduleName resolvedModule)) (nameQualifier name))
+      ResolvedTopLevel packageId moduleName' _ ->
+        pure (packageId, moduleName')
       _ -> Nothing
 
 definitionResolution :: Syn.Decl -> Maybe ResolutionAnnotation
@@ -1161,6 +1160,9 @@ definitionResolution declaration =
     Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
     Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
     Syn.DeclForeign foreignDecl -> nameResolution (Syn.foreignName foreignDecl)
+    Syn.DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
+    Syn.DeclPatSyn patSynDeclaration -> nameResolution (Syn.patSynDeclName patSynDeclaration)
+    Syn.DeclTypeSig names _ -> listToMaybe (mapMaybe nameResolution names)
     _ -> Nothing
 
 patternResolution :: Syn.Pattern -> Maybe ResolutionAnnotation
