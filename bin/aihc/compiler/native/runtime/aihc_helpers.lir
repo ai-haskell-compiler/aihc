@@ -461,7 +461,7 @@ word:
 ; target, so a pointer travels into and out of one as an i64.
 
 extern data @aihc_current_srt
-extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
+extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
 extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
 extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
 
@@ -485,7 +485,7 @@ collect:
   store i64 %outer_word, [%roots + 8] align 8
   %result_word = ptr.to_int %result
   store i64 %result_word, [%roots + 16] align 8
-  call @aihc_ensure_heap(%machine, 3, 3, %roots)
+  call @aihc_heap_collect(%machine, 3, 3, %roots)
   %blackhole_moved_word = load i64 [%roots] align 8
   %blackhole_moved = ptr.from_int %blackhole_moved_word
   %outer_moved_word = load i64 [%roots + 8] align 8

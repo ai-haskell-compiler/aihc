@@ -255,6 +255,11 @@ extern const AihcSrt *aihc_current_srt;
 /* Reserve heap for the objects that follow. Compiled code then takes each
    object by bumping the heap pointer itself, so the runtime exports no
    allocator. */
+/* Collect for a caller that has already compared the bump pointer against the
+   end of the space and found the words do not fit. Compiled code takes this
+   entry point; aihc_ensure_heap is for a caller that has compared nothing. */
+void aihc_heap_collect(AihcMachine *machine, uint64_t words,
+                       uint64_t root_count, AihcSlot *roots);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);

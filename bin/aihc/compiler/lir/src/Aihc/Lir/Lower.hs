@@ -1290,7 +1290,9 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   beginBlock collect []
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
     storeSlot Ptr root array (toInteger (8 * index))
-  _ <- callRuntime "aihc_ensure_heap" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
+  -- The compare above is the reservation, so this is the collector rather
+  -- than a second reservation that would repeat it.
+  _ <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr] [] [ctxMachine ctx, words', OperandLiteral (LitInt (toInteger (length roots))), array]
   relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
     loadSlot (varBase var) Ptr array (toInteger (8 * index))
   terminate (Jump (Target reserved (map typedOperand relocated)))

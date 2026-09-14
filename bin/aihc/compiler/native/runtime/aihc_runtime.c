@@ -455,6 +455,11 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
   aihc_gc_ensure(machine, words, root_count, roots);
 }
 
+void aihc_heap_collect(AihcMachine *machine, uint64_t words,
+                       uint64_t root_count, AihcSlot *roots) {
+  aihc_gc_collect(machine, words, root_count, roots);
+}
+
 /* Place one object in heap the caller has already reserved. Compiled code
    inlines the same two steps - bump the heap pointer, write the header - and
    the slow apply path below is the only caller left in the runtime. */

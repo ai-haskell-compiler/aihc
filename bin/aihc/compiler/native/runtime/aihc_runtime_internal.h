@@ -189,6 +189,8 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
 extern const AihcInfo aihc_runtime_object_info;
 
 void aihc_gc_init(AihcMachine *machine);
+void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
+                     AihcSlot *roots);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots);
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);

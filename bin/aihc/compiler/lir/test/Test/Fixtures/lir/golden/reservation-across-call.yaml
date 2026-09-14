@@ -10,7 +10,7 @@ program: |
     (value%2 :: IntRep) <- call @IntRep $other
     store (CPair (first%1 :: BoxedRep Lifted) (first%1 :: BoxedRep Lifted))
 expected: |
-  extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
 
   extern func @aihc_lir_continue_i(ptr, ptr, i64)
 
@@ -38,7 +38,7 @@ expected: |
 
   gc_collect_11:
     store ptr %$cps_return_3, [%roots_4] align 8
-    call @aihc_ensure_heap(%machine_2, 5, 1, %roots_4)
+    call @aihc_heap_collect(%machine_2, 5, 1, %roots_4)
     %$cps_return$gc_14 = load ptr [%roots_4] align 8
     jump gc_reserved_12(%$cps_return$gc_14)
 
@@ -72,7 +72,7 @@ expected: |
   gc_collect_30:
     store ptr %$cps_return_20, [%roots_23] align 8
     store ptr %first_21, [%roots_23 + 8] align 8
-    call @aihc_ensure_heap(%machine_19, 3, 2, %roots_23)
+    call @aihc_heap_collect(%machine_19, 3, 2, %roots_23)
     %$cps_return$gc_34 = load ptr [%roots_23] align 8
     %first$gc_35 = load ptr [%roots_23 + 8] align 8
     jump gc_reserved_31(%$cps_return$gc_34, %first$gc_35)

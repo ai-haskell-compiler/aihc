@@ -4,7 +4,7 @@ program: |
   $entry -> BoxedRep Lifted =
     store (CBox (1 :: IntRep))
 expected: |
-  extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr)
 
@@ -24,7 +24,7 @@ expected: |
 
   gc_collect_9:
     store ptr %$cps_return_1, [%roots_2] align 8
-    call @aihc_ensure_heap(%machine_0, 2, 1, %roots_2)
+    call @aihc_heap_collect(%machine_0, 2, 1, %roots_2)
     %$cps_return$gc_12 = load ptr [%roots_2] align 8
     jump gc_reserved_10(%$cps_return$gc_12)
 

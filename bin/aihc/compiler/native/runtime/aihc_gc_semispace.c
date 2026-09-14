@@ -429,8 +429,12 @@ void aihc_gc_init(AihcMachine *machine) {
   machine->other_space_bytes = 0;
 }
 
-void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                    AihcSlot *roots) {
+/* The bytes of a reservation, which a request the address space or the heap
+   limit cannot hold does not return from. Both entry points below need these
+   two diagnostics: a request that reaches either of them is one no amount of
+   collection could satisfy. */
+static size_t aihc_reservation_bytes(const AihcMachine *machine,
+                                     uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("heap reservation is too large");
   }
@@ -438,6 +442,24 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
   if (machine->heap_limit_enabled && bytes > machine->heap_max_bytes) {
     aihc_fail("heap limit exceeded");
   }
+  return bytes;
+}
+
+/* Collect for a caller that has already found the words do not fit. Compiled
+   code compares the bump pointer against the end of the space itself and only
+   calls the runtime on the slow path, so repeating the comparison here would
+   always take the same branch. */
+void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
+                     AihcSlot *roots) {
+  aihc_collect(machine, aihc_reservation_bytes(machine, words), root_count,
+               roots);
+}
+
+/* Reserve for a caller that has not compared anything: the machine start-up
+   path, the runtime units, and the C programs of the tests. */
+void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
+                    AihcSlot *roots) {
+  size_t bytes = aihc_reservation_bytes(machine, words);
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, bytes, root_count, roots);
   }
