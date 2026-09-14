@@ -26,6 +26,7 @@ library
     aihc-parser,
     base >=4.16 && <5,
     containers,
+    deepseq,
     text >=1.2,
 
   ghc-options: -Wall

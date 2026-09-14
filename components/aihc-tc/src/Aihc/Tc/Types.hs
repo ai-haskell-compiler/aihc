@@ -100,21 +100,27 @@ module Aihc.Tc.Types
 where
 
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
+import Control.DeepSeq (NFData)
 import Control.Monad (zipWithM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 
 newtype Unique = Unique Int
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData Unique
 
 -- | A type variable and its type-level kind. Equality is structural: two
 -- occurrences of one variable whose kinds differ (a GADT match can refine
 -- the kind of a variable in scope) are two values. Code that asks whether
 -- two occurrences are the same variable uses 'sameTyVar'.
 data TyVarId = TyVarIdInternal !Text !Unique !TcType
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TyVarId
 
 -- The identity of a variable: its name and unique, without its kind.
 tyVarIdentity :: TyVarId -> (Unique, Text)
@@ -140,7 +146,9 @@ setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique 
 
 -- | A type-constructor identity. Kind schemes live in the type-constructor environment.
 data TyCon = TyConInternal !PackageId !Text !ResolutionNamespace !Text !Int
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TyCon
 
 pattern TyCon :: Text -> Int -> TyCon
 pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ _ tyConName tyConArity
@@ -155,7 +163,9 @@ data TcAxiomKey = TcAxiomKey
     axiomKeyModule :: !Text,
     axiomKeyName :: !Text
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TcAxiomKey
 
 type TcKindEnv = Map TcTypeKey TypeScheme
 
@@ -207,10 +217,14 @@ data TcType
   | TcForAllTy !TyVarId !TcType
   | TcQualTy ![Pred] !TcType
   | TcAppTy !TcType !TcType
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TcType
 
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TypeScheme
 
 -- | Whether a type is a polytype: a leading quantifier or context. A
 -- meta-variable never stands for a polytype, so an argument of such a
@@ -231,7 +245,9 @@ data Pred
   | QuantifiedPred ![TyVarId] ![Pred] !Pred
   | -- | An implicit parameter such as @?x :: Int@. The name keeps its @?@ prefix.
     IParamPred !Text !TcType
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData Pred
 
 -- | Convert a constraint-kinded type to a predicate.
 constraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
