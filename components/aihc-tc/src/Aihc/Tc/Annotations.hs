@@ -75,8 +75,10 @@ import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 
 -- | A checked cast on the result of a right-hand side.
 newtype TcCastAnnotation = TcCastAnnotation Coercion
@@ -144,7 +146,9 @@ data TcForeignImportAnnotation = TcForeignImportAnnotation
     -- than through the platform ABI.  A @ccall@ import has none.
     tcForeignCApi :: !(Maybe TcForeignCApi)
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignImportAnnotation
 
 -- | What a @capi@ import says about how its entity is reached.
 --
@@ -157,7 +161,9 @@ data TcForeignCApi = TcForeignCApi
     tcForeignCApiHeader :: !(Maybe Text),
     tcForeignCApiKind :: !TcForeignCApiKind
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignCApi
 
 -- | Whether a @capi@ entity is called or read as a value.
 data TcForeignCApiKind
@@ -165,7 +171,9 @@ data TcForeignCApiKind
     TcForeignCApiFunction
   | -- | @foreign import capi "header.h value x"@: @x@ is a constant.
     TcForeignCApiValue
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignCApiKind
 
 -- | The checked calling convention of a foreign import. The interface keeps
 -- this fact for each foreign import, so a module that uses the import can
@@ -175,27 +183,35 @@ data TcForeignImportInfo
     TcForeignPrimImport
   | -- | A @foreign import ccall@ with its safety mark and checked plan.
     TcForeignCCallImport !TcForeignSafety !TcForeignImportAnnotation
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignImportInfo
 
 -- | The safety mark of a @ccall@ foreign import. A missing mark is safe.
 data TcForeignSafety
   = TcForeignSafe
   | TcForeignUnsafe
   | TcForeignInterruptible
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignSafety
 
 -- | Whether a foreign import calls the C symbol or takes its address.
 data TcForeignTarget
   = TcForeignCall
   | TcForeignAddress
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignTarget
 
 -- | Whether a raw foreign call is pure or explicitly threads the real-world
 -- state token.
 data TcForeignEffect
   = TcForeignPure
   | TcForeignRealWorld
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignEffect
 
 -- | A source value's path to its primitive ABI representation.  Constructor
 -- names are ordered outermost to innermost; for example, a @CInt@ is lowered
@@ -206,7 +222,9 @@ data TcForeignMarshal = TcForeignMarshal
     tcForeignConstructors :: ![Text],
     tcForeignAbiType :: !TcForeignAbiType
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignMarshal
 
 -- | Primitive values understood by the C ABI bridge.  This is deliberately
 -- independent from lifted Haskell wrapper types.
@@ -226,7 +244,9 @@ data TcForeignAbiType
   | TcForeignAddr
   | -- | The unit result of a C procedure.
     TcForeignVoid
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcForeignAbiType
 
 -- | Type-checker annotation payload before constraint solving has finished.
 --

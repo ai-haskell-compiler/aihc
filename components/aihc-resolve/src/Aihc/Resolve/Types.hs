@@ -39,14 +39,16 @@ import Aihc.Parser.Syntax
     UnqualifiedName (..),
     fromAnnotation,
   )
+import Control.DeepSeq (NFData)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 
 -- | An opaque identity for one installed package instance.
 newtype PackageId = PackageId {packageIdText :: Text}
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 instance IsString PackageId where
   fromString = PackageId . T.pack
@@ -56,7 +58,7 @@ data Package = Package
   { packageName :: !Text,
     packageId :: !PackageId
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
 
 unnamedPackage :: Package
 unnamedPackage = Package "" (PackageId "main")
@@ -90,14 +92,14 @@ data ResolvedName
   | ResolvedLocal Int UnqualifiedName
   | ResolvedSyntax
   | ResolvedError String
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The source identifier that caused one resolution request.
 data Identifier
   = IdentifierTuple !TupleFlavor !Int
   | IdentifierList
   | IdentifierNamed !Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Render an identifier for diagnostics and other user output.
 displayIdentifier :: Identifier -> Text
@@ -114,7 +116,17 @@ data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
   | ResolutionNamespaceModule
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData PackageId
+
+instance NFData Package
+
+instance NFData ResolvedName
+
+instance NFData Identifier
+
+instance NFData ResolutionNamespace
 
 data ResolutionAnnotation = ResolutionAnnotation
   { resolutionSpan :: !SourceSpan,

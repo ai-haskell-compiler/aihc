@@ -55,10 +55,12 @@ where
 
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 
 -- | Information about a type constructor.
 data TyConFlavor
@@ -68,7 +70,9 @@ data TyConFlavor
   | NewtypeTyCon
   | SynonymTyCon
   | TypeFamilyTyCon
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TyConFlavor
 
 data TyConInfo = TyConInfo
   { tciName :: !Text,
@@ -78,13 +82,17 @@ data TyConInfo = TyConInfo
     tciFlavor :: !TyConFlavor,
     tciTypeSynonym :: !(Maybe TypeSynonymInfo)
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TyConInfo
 
 data TypeSynonymInfo = TypeSynonymInfo
   { tsiParams :: ![TyVarId],
     tsiBody :: !(Maybe TcType)
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TypeSynonymInfo
 
 -- | Checked information about a data or newtype declaration. This is the
 -- semantic constructor layout consumed by deriving and exported through
@@ -99,7 +107,9 @@ data DataTypeInfo = DataTypeInfo
     -- | Parameters with an explicit nominal role.
     dtiNominalRoles :: ![Bool]
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData DataTypeInfo
 
 dataTypeKey :: DataTypeInfo -> TcTypeKey
 dataTypeKey = tyConKey . dtiTyCon
@@ -114,7 +124,9 @@ data DataConSourceForm
   | RecordDataCon
   | -- | Built-in syntax such as @(,)@, @(# | #)@ or @[]@.
     SyntaxDataCon
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData DataConSourceForm
 
 -- | Source unpacking intent for a constructor field. This is kept separate
 -- from strictness because the source syntax permits both facts to be stated.
@@ -122,7 +134,9 @@ data DataConFieldUnpack
   = NoFieldUnpack
   | UnpackField
   | NoUnpackField
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData DataConFieldUnpack
 
 -- | Checked type and source layout of one constructor field.
 data DataConFieldInfo = DataConFieldInfo
@@ -132,7 +146,9 @@ data DataConFieldInfo = DataConFieldInfo
     dcfiLazy :: !Bool,
     dcfiUnpack :: !DataConFieldUnpack
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData DataConFieldInfo
 
 -- | Information about a data constructor.
 --
@@ -155,7 +171,9 @@ data DataConInfo = DataConInfo
     dciResTy :: !TcType,
     dciSourceForm :: !DataConSourceForm
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData DataConInfo
 
 dataConArgTypes :: DataConInfo -> [TcType]
 dataConArgTypes = map dcfiType . dciFields
@@ -168,7 +186,9 @@ data PatSynDirection
     PatSynImplicitBidirectionalInfo
   | -- | @pattern P x <- pat where P x = expr@
     PatSynExplicitBidirectionalInfo
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData PatSynDirection
 
 -- | Checked information about a pattern synonym. The scheme has the
 -- shape of a constructor type: the argument types and then the scrutinee
@@ -188,7 +208,9 @@ data PatSynInfo = PatSynInfo
     -- | Constraints that a match provides to its branch.
     psiProvTheta :: ![Pred]
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData PatSynInfo
 
 -- | Information about a type class.
 data ClassInfo = ClassInfo
@@ -217,7 +239,9 @@ data ClassInfo = ClassInfo
     -- | Functional dependencies that the class declares.
     ciFunDeps :: ![FunDep]
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData ClassInfo
 
 -- | A functional dependency of a class. Both sides are positions into
 -- 'ciTyVars', so the dependency survives the renaming that an interface
@@ -226,7 +250,9 @@ data FunDep = FunDep
   { fdDeterminers :: ![Int],
     fdDetermined :: ![Int]
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData FunDep
 
 -- | An associated type family of a class.
 data AssociatedTypeInfo = AssociatedTypeInfo
@@ -239,7 +265,9 @@ data AssociatedTypeInfo = AssociatedTypeInfo
     -- left-hand side applies the family to distinct type variables.
     atiDefault :: !(Maybe TypeFamilyInstanceInfo)
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData AssociatedTypeInfo
 
 -- | The identity of a class: the key of its type constructor. Two modules
 -- can each declare a class with the same source name.
@@ -261,7 +289,9 @@ data InstanceInfo = InstanceInfo
     -- | Instance head types.
     iiHead :: ![TcType]
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData InstanceInfo
 
 instanceInfoKey :: InstanceInfo -> ((Text, Text), Text)
 instanceInfoKey instanceInfo = (iiDictOrigin instanceInfo, iiDictName instanceInfo)
@@ -335,7 +365,9 @@ data DataFamilyInstanceInfo = DataFamilyInstanceInfo
     dfiiConstructorNames :: ![Text],
     dfiiIsNewtype :: !Bool
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData DataFamilyInstanceInfo
 
 dataFamilyAxiomKey :: DataFamilyInstanceInfo -> TcAxiomKey
 dataFamilyAxiomKey info =
@@ -363,7 +395,9 @@ data TypeFamilyInstanceInfo = TypeFamilyInstanceInfo
     tfiiRight :: !TcType,
     tfiiClosed :: !Bool
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TypeFamilyInstanceInfo
 
 typeFamilyAxiomKey :: TypeFamilyInstanceInfo -> TcAxiomKey
 typeFamilyAxiomKey info =

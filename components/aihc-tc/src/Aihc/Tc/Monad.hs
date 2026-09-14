@@ -153,6 +153,7 @@ import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
+import Control.DeepSeq (NFData)
 import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
@@ -168,6 +169,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 -- | The type checker monad.
 --
@@ -401,7 +403,9 @@ data TcBinder
 data TcTermKey
   = TcTermLocal !Int
   | TcTermGlobal !PackageId !Text !Text
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TcTermKey
 
 unqualifiedTermKey :: Text -> TcTermKey
 unqualifiedTermKey = TcTermGlobal (PackageId "") ""

@@ -160,6 +160,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData)
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data)
@@ -170,6 +171,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (cast)
+import GHC.Generics (Generic)
 
 -- | Result of type checking.
 data TcResult = TcResult
@@ -201,7 +203,9 @@ data TcInterface = TcInterface
     -- | The checked calling convention of each foreign import.
     tcInterfaceForeignImportMap :: !(Map.Map TcTermKey TcForeignImportInfo)
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData TcInterface
 
 -- | The identity of an instance: its dictionary origin and name.
 type InstanceKey = ((Text, Text), Text)

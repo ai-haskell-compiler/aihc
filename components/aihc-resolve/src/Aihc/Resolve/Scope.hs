@@ -77,6 +77,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve.Span (spanStartNameSpan)
 import Aihc.Resolve.Types
+import Control.DeepSeq (NFData)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
@@ -84,6 +85,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Generics (Generic)
 
 data Scope = Scope
   { scopeTerms :: Map.Map Text ResolvedName,
@@ -96,19 +98,25 @@ data Scope = Scope
     scopeFixities :: Map.Map Text OperatorFixity,
     scopeQualifiedModules :: Map.Map Text Scope
   }
-  deriving (Eq)
+  deriving (Eq, Generic)
+
+instance NFData Scope
 
 data OperatorFixity = OperatorFixity
   { operatorFixityAssoc :: !FixityAssoc,
     operatorFixityPrecedence :: !Int
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData OperatorFixity
 
 data ModuleKey = ModuleKey
   { moduleKeyPackage :: !Package,
     moduleKeyName :: !Text
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance NFData ModuleKey
 
 type ModuleExports = Map.Map ModuleKey Scope
 
