@@ -91,6 +91,6 @@ reason: |
   stores need together. The second reservation carries the first object as a
   root, which the merged one would not have needed at all.
 
-  See isReservationBarrier in Aihc.Grin.Heap. Narrowing it to the primitives
-  that can allocate or collect needs effect information GRIN does not carry
-  yet.
+  See isReservationBarrier in Aihc.Grin.Heap, and issue #2055: narrowing it to
+  the primitives that can allocate or collect needs effect information GRIN
+  does not carry yet.
