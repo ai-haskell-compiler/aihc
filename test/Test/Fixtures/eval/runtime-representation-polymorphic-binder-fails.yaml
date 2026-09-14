@@ -1,0 +1,20 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+  - MagicHash
+  - PolyKinds
+modules:
+  - |
+    module Test where
+
+    import GHC.Types (RuntimeRep, TYPE)
+
+    -- The result may be forwarded, but binding it needs a layout that the
+    -- function does not have.
+    bad :: forall (rep :: RuntimeRep) (a :: TYPE rep). (() -> a) -> a
+    bad k = let x = k () in x
+output: "()"
+expression: ()
+error: 'value Name {nameText = "bad", nameSort = SortValue, nameOrigin = OriginTop (PackageId {packageIdText = "main"}) "Test"}: GRIN does not support a variable runtime representation: Name {nameText = "rep", nameSort = SortTypeVariable, nameOrigin = OriginLocal (Unique 0)}'
+status: fail
+reason: a binder must have a fixed runtime representation even when the function's result need not

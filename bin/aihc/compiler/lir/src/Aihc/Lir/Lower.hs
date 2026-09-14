@@ -499,7 +499,7 @@ globalSymbol = Symbol . renderLinkedGlobalSymbol
 -- | The Lir types of the values one GRIN function returns to its
 -- continuation.
 functionResultTypes :: GrinFunction -> [Type]
-functionResultTypes = map repType . runtimeRepComponents . grinFunctionResultRep
+functionResultTypes = maybe [] (map repType) . resultRepComponents . grinFunctionResultRep
 
 -- State helpers
 
@@ -2609,7 +2609,7 @@ programRuntimeReps program =
     <> concatMap (map grinValueRuntimeRep . grinNodeFields) (programNodes program)
     <> concatMap functionReps (grinFunctions program)
   where
-    functionReps function = grinFunctionResultRep function : map grinVarRuntimeRep (grinFunctionParameters function) <> exprReps (grinFunctionBody function)
+    functionReps function = [rep | ResultRep rep <- [grinFunctionResultRep function]] <> map grinVarRuntimeRep (grinFunctionParameters function) <> exprReps (grinFunctionBody function)
     exprReps expression =
       case expression of
         GrinBind vars value body -> map grinVarRuntimeRep vars <> exprReps value <> exprReps body

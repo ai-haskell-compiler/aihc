@@ -1,0 +1,55 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+  - MagicHash
+  - PolyKinds
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim (Double#, Int#, (+#), (*#), (+##), int2Double#, double2Int#)
+    import GHC.Types (Bool (..), RuntimeRep, TYPE)
+
+    -- A function whose result has no fixed runtime representation. Its body
+    -- is a tail call, so it never places the result itself: the caller's
+    -- continuation and the callee that produces the value know the layout.
+    runK :: forall (rep :: RuntimeRep) (a :: TYPE rep). (() -> a) -> a
+    runK k = k ()
+
+    -- The same through a case whose alternatives all tail-call.
+    pick :: forall (rep :: RuntimeRep) (a :: TYPE rep). Bool -> (() -> a) -> (() -> a) -> a
+    pick b t f = case b of
+      True -> t ()
+      False -> f ()
+
+    atInt :: Int# -> Int
+    atInt x = case runK (\() -> x +# 1#) of n -> I# (n *# 2#)
+
+    atTuple :: Int# -> Double# -> Int
+    atTuple i d = case runK (\() -> (# i, d #)) of
+      (# a, b #) -> I# (double2Int# (b +## int2Double# a))
+
+    atLifted :: Bool -> Int
+    atLifted b = pick b (\() -> I# 1#) (\() -> I# 2#)
+
+    atUnboxedChoice :: Bool -> Int
+    atUnboxedChoice b = I# (pick b (\() -> 10#) (\() -> 20#))
+
+    data Results = Results Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (atInt 20#)
+        (atTuple 2# (int2Double# 40#))
+        (atLifted True)
+        (atLifted False)
+        (atUnboxedChoice True)
+        (atUnboxedChoice False)
+output: |
+  Results (I# 42) (I# 42) (I# 1) (I# 2) (I# 10) (I# 20)
+expression: results
+status: pass
+reason: a function may return a value of any runtime representation when every exit forwards its continuation; the layout belongs to the call site and the producer
