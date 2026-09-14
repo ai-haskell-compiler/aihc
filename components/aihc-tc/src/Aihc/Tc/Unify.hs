@@ -84,7 +84,7 @@ unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
   -- One variable whose two occurrences carry different kinds (a given
   -- kind refinement rewrites the kinds of occurrences) is still one
   -- variable.
-  | tyVarIdentity v1 == tyVarIdentity v2 = pure (Right [])
+  | sameTyVar v1 v2 = pure (Right [])
 unifyCollecting loc t1 t2
   | t1 == t2 = pure (Right [])
   | otherwise = do

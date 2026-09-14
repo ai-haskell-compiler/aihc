@@ -8,7 +8,6 @@ module Aihc.Tc.Types
     TyVarId (TyVarId, tvName, tvUnique),
     mkTyVarId,
     tvKind,
-    tyVarIdentity,
     sameTyVar,
     TypeShape,
     PredShape,
@@ -113,11 +112,11 @@ newtype Unique = Unique Int
 -- | A type variable and its type-level kind. Equality is structural: two
 -- occurrences of one variable whose kinds differ (a GADT match can refine
 -- the kind of a variable in scope) are two values. Code that asks whether
--- two occurrences are the same variable compares 'tyVarIdentity'.
+-- two occurrences are the same variable uses 'sameTyVar'.
 data TyVarId = TyVarIdInternal !Text !Unique !TcType
   deriving (Eq, Ord, Show, Read)
 
--- | The identity of a variable: its name and unique, without its kind.
+-- The identity of a variable: its name and unique, without its kind.
 tyVarIdentity :: TyVarId -> (Unique, Text)
 tyVarIdentity (TyVarIdInternal name unique _) = (unique, name)
 

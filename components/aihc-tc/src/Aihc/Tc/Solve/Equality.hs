@@ -99,7 +99,7 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   -- Meta on right: solve by binding.
   (_, TcMetaTv u) -> solveMetaEq ct u t1
   -- Same rigid variable, whatever kinds its two occurrences carry.
-  (TcTyVar v1, TcTyVar v2) | tyVarIdentity v1 == tyVarIdentity v2 -> do
+  (TcTyVar v1, TcTyVar v2) | sameTyVar v1 v2 -> do
     bindEvidence (ctEvVar ct) (EvCoercion (Refl t1))
     pure EqSolved
   -- Two polymorphic types are equal up to the names of their bound
