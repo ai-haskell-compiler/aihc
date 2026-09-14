@@ -83,9 +83,6 @@ data-files:
   compiler/native/runtime/aihc_runtime_internal.h
   compiler/native/runtime/aihc_runtime_options.lir
   compiler/native/runtime/aihc_stable_name.lir
-  compiler/native/runtime/include/HsFFI.h
-  compiler/native/runtime/include/MachDeps.h
-  compiler/native/runtime/include/ghcplatform.h
   compiler/wasm/runtime/aihc_wasip3.c
   compiler/wasm/runtime/aihc_wasm_internal.h
   compiler/wasm/runtime/wit/command.wit
@@ -117,6 +114,7 @@ library
     Aihc.Cli.BuildModule
     Aihc.Cli.BuildStamp
     Aihc.Cli.CapiStub
+    Aihc.Cli.CompilerHeaders
     Aihc.Cli.Install
     Aihc.Cli.Lto
     Aihc.Cli.Options

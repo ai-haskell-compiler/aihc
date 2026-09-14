@@ -20,6 +20,7 @@ module Aihc.Cli.BuildModule
 where
 
 import Aihc.Cli.CapiStub (noCapiStubOptions)
+import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Cli.Install
   ( InstallLocations (..),
     InstallResult (..),
@@ -130,6 +131,7 @@ runBuildModule options = do
       sourceDirectories = case buildSourceDirectories options of [] -> ["."]; values -> values
       output = fromMaybe (dropExtension (buildInput options)) (buildOutput options)
   buildIdentity <- buildEnvironmentIdentity target
+  headerDirectory <- ensureCompilerHeaders target buildRoot
   let compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
@@ -142,6 +144,7 @@ runBuildModule options = do
             compileNoCode = False,
             compileOptimization = buildOptimization options,
             compileTarget = target,
+            compileHeaderDirectory = headerDirectory,
             compileVerbose = when (buildVerbose options) . putStrLn,
             compilePrintTimings = const (pure ()),
             compileUseColor = False

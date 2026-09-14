@@ -46,6 +46,7 @@ import Aihc.Cli.BuildStamp
     writeStamp,
   )
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
+import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, headerTargetFor, hostPlatformMacros)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -61,13 +62,12 @@ import Aihc.Cli.TaskGraph
     runTaskGraph,
   )
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeArtifactParts)
-import Aihc.DataFiles (getDataFileName)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
-import Aihc.Hackage.Headers (compilerHeaderDirectory)
+import Aihc.Hackage.Headers (HeaderTarget)
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -170,7 +170,6 @@ import Distribution.PackageDescription (GenericPackageDescription, HookedBuildIn
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
-import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
@@ -324,6 +323,10 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
     compileTarget :: !NativeTarget,
+    -- | Where the headers of the target are, for the C compiles of a
+    -- package: its @c-sources@, the wrappers of its @capi@ imports and
+    -- @hsc2hs@.
+    compileHeaderDirectory :: !FilePath,
     compileVerbose :: String -> IO (),
     compilePrintTimings :: String -> IO (),
     compileUseColor :: !Bool
@@ -430,6 +433,9 @@ installWith output options = do
   plan <- buildPackagePlanWithResolver resolver spec
   buildRoot <- maybe (pure (defaultBuildRoot root)) pure (installBuildRoot options)
   buildIdentity <- buildEnvironmentIdentity target
+  -- The headers go under the store and not under the build directory,
+  -- because an immutable install writes no build directory at all.
+  headerDirectory <- ensureCompilerHeaders target (storeRoot </> targetDirectory)
   let config =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
@@ -442,6 +448,7 @@ installWith output options = do
             compileNoCode = installNoCode options,
             compileOptimization = installOptimization options,
             compileTarget = target,
+            compileHeaderDirectory = headerDirectory,
             compileVerbose = verbose,
             compilePrintTimings = printTimings,
             compileUseColor = useColor
@@ -713,7 +720,7 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
     let current = not (Set.null written) || not archiveExists || previous /= Just archiveInputs
     if current
       then do
-        cObjects <- compilePackageCFiles target (compileOptimization config) verbose root storePath cCompileInfo
+        cObjects <- compilePackageCFiles target (compileOptimization config) (compileHeaderDirectory config) verbose root storePath cCompileInfo
         buildLibraryArchive target verbose archive (moduleObjects <> cObjects)
         BS8.writeFile stampPath (BS8.pack archiveInputs)
       else verbose ("Reuse archive: " <> archive)
@@ -811,7 +818,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   let versions =
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
-  (parsed, importTimings) <- loadSourceModules (max 1 capabilities) packageRoot versions files
+  (parsed, importTimings) <- loadSourceModules (headerTargetFor (compileTarget config)) (max 1 capabilities) packageRoot versions files
   loadedDependencies <- loadRequiredDependencies parsed dependencies
   let units = sourceModuleUnits parsed
       dependencyExports = Map.unions (map installedExports loadedDependencies)
@@ -1003,15 +1010,7 @@ buildEnvironmentIdentity target = do
   archiver <- backendArchiver target
   compilerHash <- executableIdentity compiler
   archiverHash <- executableIdentity archiver
-  runtimeHeaders <-
-    mapM
-      getDataFileName
-      [ "compiler/native/runtime/include/HsFFI.h",
-        "compiler/native/runtime/include/MachDeps.h",
-        "compiler/native/runtime/include/ghcplatform.h"
-      ]
-  headerDir <- compilerHeaderDirectory
-  headerHash <- stableHash <$> mapM BS.readFile (runtimeHeaders <> [headerDir </> "ghcautoconf.h"])
+  let headerHash = compilerHeaderIdentity target
   pure (stableHash (map BS8.pack [compilerBuildIdentity, compilerHash, archiverHash, headerHash, show arguments]))
 
 -- | The part of the configuration that changes what a package is: the
@@ -1186,8 +1185,8 @@ loadInstalledPackage requirements immutable storePath = do
               visibleProviders = Set.unions (Map.elems providers)
           pure (selectInstanceProviders (typeArtifactInterface artifact) visibleProviders, providers)
 
-parseSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
-parseSource root versions fileInfo = do
+parseSource :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO SourceModule
+parseSource headerTarget root versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
   ParsedInterfaceFile
     { parsedFilePath = path,
@@ -1198,7 +1197,7 @@ parseSource root versions fileInfo = do
       parsedFileExtensions = extensions,
       parsedFileDeps = deps
     } <-
-    parseInterfaceBytes root versions fileInfo bytes
+    parseInterfaceBytes headerTarget root versions fileInfo bytes
   let (cppWarnings, cppErrors) = partition isCppWarning cppDiagnostics
   mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
   unless (null cppErrors) $
@@ -1213,8 +1212,8 @@ isCppWarning :: Value -> Bool
 isCppWarning (Object diagnostic) = KeyMap.lookup "severity" diagnostic == Just (String "Warning")
 isCppWarning _ = False
 
-loadSourceModules :: Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
-loadSourceModules workers root versions files = do
+loadSourceModules :: HeaderTarget -> Int -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
+loadSourceModules headerTarget workers root versions files = do
   results <- mapM (const newEmptyTMVarIO) files
   let tasks = zipWith3 loadTask [0 ..] files results
   timings <- runTaskGraph workers tasks
@@ -1228,7 +1227,7 @@ loadSourceModules workers root versions files = do
           taskOrder = order,
           taskDependencies = Set.empty,
           taskAction = do
-            source <- parseSource root versions fileInfo
+            source <- parseSource headerTarget root versions fileInfo
             let ast = sourceModuleAst source
                 imports = map importDeclModule (Syntax.moduleImports ast)
             _ <- evaluate (rnf (moduleName ast, imports))
@@ -2081,7 +2080,7 @@ compileCheckedModules config capiOptions verbose primIdentity interface outputPa
         Just source -> do
           createDirectoryIfMissing True (takeDirectory (outputCapiSourcePath paths))
           TIO.writeFile (outputCapiSourcePath paths) source
-          arguments <- capiStubArguments target (compileOptimization config) capiOptions
+          arguments <- capiStubArguments target (compileOptimization config) capiOptions (compileHeaderDirectory config)
           verbose ("Compile capi wrappers: " <> T.unpack name)
           (compiler, _) <- backendCompiler target
           runTool
@@ -2256,14 +2255,6 @@ withFinalNewline rendered
   | "\n" `isSuffixOf` rendered = rendered
   | otherwise = rendered <> "\n"
 
-cabalPlatformForTarget :: NativeTarget -> (OS, Arch)
-cabalPlatformForTarget target =
-  case target of
-    AppleArm64 -> (OSX, AArch64)
-    LinuxAmd64 -> (Linux, X86_64)
-    Llvm -> (buildOS, buildArch)
-    Wasm32Wasip3 -> (Wasi, Wasm32)
-
 -- | What a module's capi wrappers were compiled from and what they read.
 --
 -- The headers come from the dependency file the compile wrote, so a wrapper
@@ -2298,19 +2289,16 @@ removeFileIfPresent path = do
   exists <- doesFileExist path
   when exists (removeFile path)
 
-compilePackageCFiles :: NativeTarget -> OptimizationLevel -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
-compilePackageCFiles target level verbose packageRoot storePath info
+compilePackageCFiles :: NativeTarget -> OptimizationLevel -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
+compilePackageCFiles target level headerDirectory verbose packageRoot storePath info
   | null (HackageCabal.cCompileSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
-      ffiHeader <- getDataFileName "compiler/native/runtime/include/HsFFI.h"
-      headerDir <- compilerHeaderDirectory
       sysrootIncludes <- wasmSysrootIncludeArguments target
-      let ffiIncludeDir = takeDirectory ffiHeader
-          includeArguments =
+      let includeArguments =
             sysrootIncludes
               <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
-              <> ["-I" <> ffiIncludeDir, "-I" <> headerDir]
+              <> ["-I" <> headerDirectory]
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
       forM (HackageCabal.cCompileSources info) $ \source -> do
@@ -2520,9 +2508,7 @@ hsc2hsArguments config cInfo file output = do
   let target = compileTarget config
       input = HackageCabal.fileInfoPath file
   (compiler, cflags) <- targetCCompiler target (compileOptimization config)
-  runtimeInclude <- takeDirectory <$> getDataFileName "compiler/native/runtime/include/HsFFI.h"
-  headerDir <- compilerHeaderDirectory
-  let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [runtimeInclude, headerDir])
+  let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
     ( ["--cross-compile", "--cc=" <> compiler, "--ld=" <> compiler]
@@ -2530,17 +2516,6 @@ hsc2hsArguments config cInfo file output = do
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
     )
-
--- | The @-D@ flags that name the platform a target's code runs on, in the
--- spelling GHC and Cabal use: @darwin_HOST_OS@, not @osx@.
-hostPlatformMacros :: NativeTarget -> [String]
-hostPlatformMacros target =
-  let (os, arch) = cabalPlatformForTarget target
-      osName = case os of
-        OSX -> "darwin"
-        other -> prettyShow other
-      archName = prettyShow arch
-   in ["-D" <> osName <> "_HOST_OS=1", "-D" <> archName <> "_HOST_ARCH=1"]
 
 -- | Where a preprocessor's executable is: the environment variable named
 -- for it, or else the search path.

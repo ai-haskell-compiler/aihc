@@ -16,6 +16,7 @@ where
 
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions)
+import Aihc.Hackage.Headers (posix64HeaderTarget)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Haddock.Build (BuildInput (..), buildModuleDoc)
@@ -72,7 +73,7 @@ loadModule root versions exposed fileInfo = do
       parsedFileExtensions = extensions,
       parsedFileSource = source
     } <-
-    parseInterfaceFile root versions fileInfo
+    parseInterfaceFile posix64HeaderTarget root versions fileInfo
   let relative = normalise (makeRelative root path)
       fallbackName = T.intercalate "." (map T.pack (splitDirectories (dropExtension relative)))
       name = fromMaybe fallbackName (moduleName modu)

@@ -21,6 +21,7 @@ where
 
 import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
 import Aihc.Cli.CapiStub (capiStubArguments, noCapiStubOptions)
+import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser
@@ -305,7 +306,8 @@ loadCapiWrappers wrappers =
           library = directory </> "libstub.so"
       TIO.writeFile stubSource source
       (compiler, _) <- backendCompiler target
-      arguments <- capiStubArguments target O2 noCapiStubOptions
+      headerDirectory <- ensureCompilerHeaders target directory
+      arguments <- capiStubArguments target O2 noCapiStubOptions headerDirectory
       (code, _, errors) <-
         readProcessWithExitCode compiler (arguments <> ["-fPIC", "-shared", stubSource, "-o", library]) ""
       if code /= ExitSuccess

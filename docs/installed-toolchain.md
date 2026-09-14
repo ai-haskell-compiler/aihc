@@ -69,21 +69,22 @@ for that target, in `preprocess/`, next to the `configure/` directory of a
 
 ## Compiler headers
 
-C code of a package expects the headers that a GHC installation gives. These
-are `HsFFI.h` and `MachDeps.h`. GHC also writes `ghcplatform.h` and
-`ghcautoconf.h` for its own host. aihc supplies all four headers. The
-`c-sources` of a package, the C wrappers of its `capi` imports, and `hsc2hs`
-all get the same include directories. Thus a header that one of them includes
-also resolves for the others.
+C code of a package expects the headers that a GHC installation gives:
+`HsFFI.h`, `MachDeps.h`, and the two that GHC writes for its own host,
+`ghcplatform.h` and `ghcautoconf.h`. aihc holds the text of each header once,
+in `Aihc.Hackage.Headers`, and answers both readers from it. The CPP pass over
+the Haskell sources takes the text directly. A C compile needs a file, so aihc
+writes the headers into `include/` under the build root of the target and
+gives that directory to the `c-sources` of the package, to the C wrappers of
+its `capi` imports and to `hsc2hs`.
 
-The CPP pass over the Haskell sources answers most of these includes from its
-own definitions, because those definitions describe the Haskell word and not
-the C one. `ghcautoconf.h` is the exception. aihc runs no configure script, so
-that header has no feature macros, and one file in the headers directory of
-`aihc-hackage` serves the C compiler and the CPP pass together. The file
-includes `ghcplatform.h`, which gives the word size and the byte order. A C
-compile finds the header of the runtime there. The CPP pass finds the
-synthesized header.
+Every answer comes from the target, and none from the host that runs aihc.
+The pointer size and the Haskell word are separate, because they differ: a
+`wasm32` pointer is four bytes, while an `Int#` and a heap slot are eight
+bytes on every target. `ghcplatform.h` gives the pointer, the byte order and
+the `*_HOST_OS` and `*_HOST_ARCH` macros. `MachDeps.h` gives the Haskell
+sizes. `ghcautoconf.h` has no feature macros, because aihc runs no configure
+script.
 
 ## Linking on another host
 

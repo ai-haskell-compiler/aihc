@@ -17,8 +17,8 @@ where
 
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Hackage.Cpp (DependencyVersions, compilerCppHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
-import Aihc.Hackage.Headers (compilerHeaderDirectory)
+import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Headers (HeaderTarget, compilerHeader)
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -47,7 +47,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Numeric (showHex)
 import System.Directory (doesFileExist)
-import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
+import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
 
 -- | One loaded source file. 'parsedFileSource' is what the parser saw, so
 -- offsets in the module's spans index into it directly.
@@ -112,14 +112,14 @@ digestChunks =
     field bytes = [BS8.pack (show (BS.length bytes) <> ":"), bytes]
     hex byte = let value = showHex byte "" in replicate (2 - length value) '0' <> value
 
-parseInterfaceFile :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
-parseInterfaceFile packageRoot versions fileInfo = do
+parseInterfaceFile :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
+parseInterfaceFile target packageRoot versions fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  parseInterfaceBytes packageRoot versions fileInfo bytes
+  parseInterfaceBytes target packageRoot versions fileInfo bytes
 
 -- | Parse the same source bytes that the caller uses for its input hash.
-parseInterfaceBytes :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
-parseInterfaceBytes packageRoot versions fileInfo bytes = do
+parseInterfaceBytes :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
+parseInterfaceBytes target packageRoot versions fileInfo bytes = do
   let normalized = normalizeSource path (TE.decodeUtf8With lenientDecode bytes)
       -- The extensions of the source as it stands, which decide whether CPP
       -- runs on it. A module turns CPP off with @{-# LANGUAGE NoCPP #-}@ the
@@ -128,7 +128,7 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
       cppEnabled = CPP `elem` normalizedExtensions
   (source, cppDiagnostics, includes) <-
     if cppEnabled
-      then preprocessInterfaceSource packageRoot versions fileInfo normalized
+      then preprocessInterfaceSource target packageRoot versions fileInfo normalized
       else pure (normalized, [], M.empty)
   -- The preprocessor may add or remove pragmas, so the extensions are
   -- computed once more from its output. Without it the source is unchanged
@@ -184,8 +184,8 @@ parseInterfaceBytes packageRoot versions fileInfo bytes = do
 
 -- | Preprocess one module and report, besides the output and the
 -- diagnostics, every package header it included.
-preprocessInterfaceSource :: FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value], Map FilePath Text)
-preprocessInterfaceSource packageRoot versions fileInfo source = do
+preprocessInterfaceSource :: HeaderTarget -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Aeson.Value], Map FilePath Text)
+preprocessInterfaceSource target packageRoot versions fileInfo source = do
   drive M.empty (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
   where
     path = HackageCabal.fileInfoPath fileInfo
@@ -194,7 +194,7 @@ preprocessInterfaceSource packageRoot versions fileInfo source = do
     cppConfig =
       Cpp.defaultConfig
         { Cpp.configInputFile = path,
-          Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions cppOptions))
+          Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions target cppOptions))
         }
 
     drive includes step =
@@ -202,7 +202,7 @@ preprocessInterfaceSource packageRoot versions fileInfo source = do
         Cpp.Done result ->
           pure (TE.decodeUtf8With lenientDecode (Cpp.resultOutput result), map cppDiagnosticValue (Cpp.resultDiagnostics result), includes)
         Cpp.NeedInclude req k -> do
-          resolved <- resolveInclude packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
+          resolved <- resolveInclude target packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
           case resolved of
             -- A header the package ships is an input of this module: record
             -- it so that editing the header rebuilds every module that reads
@@ -233,27 +233,14 @@ data ResolvedInclude
   | IncludeFromCompiler !BS.ByteString
   | IncludeMissing
 
-resolveInclude :: FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO ResolvedInclude
-resolveInclude packageRoot includeDirs currentFile req =
+resolveInclude :: HeaderTarget -> FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO ResolvedInclude
+resolveInclude target packageRoot includeDirs currentFile req =
   findFirst (includeCandidates packageRoot includeDirs currentFile req)
   where
-    headerPath = normalise (Cpp.includePath req)
-    -- A header the compiler synthesizes comes first, because its definitions
-    -- describe the Haskell word and not the C one. The compiler also ships
-    -- headers as files, for the C compiler to read as well, and one of those
-    -- answers a name that no synthesized header covers.
+    -- A header of the package comes first.  The compiler answers the rest
+    -- from the headers of the target, which the C compiles read as files.
     findFirst [] =
-      case compilerCppHeader headerPath of
-        Just text -> pure (IncludeFromCompiler (TE.encodeUtf8 text))
-        Nothing
-          | headerPath /= takeFileName headerPath -> pure IncludeMissing
-          | otherwise -> do
-              headerDir <- compilerHeaderDirectory
-              let shipped = headerDir </> headerPath
-              exists <- doesFileExist shipped
-              if exists
-                then IncludeFromCompiler <$> BS.readFile shipped
-                else pure IncludeMissing
+      pure (maybe IncludeMissing (IncludeFromCompiler . TE.encodeUtf8) (compilerHeader target (normalise (Cpp.includePath req))))
     findFirst (candidate : rest) = do
       exists <- doesFileExist candidate
       if exists

@@ -13,6 +13,7 @@ import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Headers (posix64HeaderTarget)
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
@@ -162,7 +163,7 @@ test_moduleDepsIncludedHeader =
               HackageCabal.fileInfoDependencies = [],
               HackageCabal.fileInfoPreprocessor = Nothing
             }
-        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile root mempty fileInfo
+        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile posix64HeaderTarget root mempty fileInfo
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile (sourceDir </> "Demo.hs") (unlines ["module Demo (demo) where", "#include \"demo.h\"", "demo = VALUE"])
@@ -1111,7 +1112,7 @@ test_installHsc2hs getStore = do
       assertBool "hsc2hs runs in cross-compilation mode" ("--cross-compile" `elem` arguments)
       assertBool "hsc2hs compiles for the target" (any ("--cflag=--target=arm64-apple-darwin" `isPrefixOf`) arguments)
       assertBool "hsc2hs sees the package include directory" (("-I" <> fixtureRoot </> "include") `elem` arguments)
-      assertBool "hsc2hs sees the runtime include directory" (any (\argument -> "-I" `isPrefixOf` argument && "runtime/include" `isSuffixOf` argument) arguments)
+      assertBool "hsc2hs sees the compiler headers" (any (\argument -> "-I" `isPrefixOf` argument && "include" `isSuffixOf` argument) arguments)
       assertBool "hsc2hs sees the platform macros" ("--cflag=-Ddarwin_HOST_OS=1" `elem` arguments && "--cflag=-Daarch64_HOST_ARCH=1" `elem` arguments)
       assertEqual "hsc2hs writes the module and reads the fixture" ["-o", generated, fixtureRoot </> "src" </> "Demo.hsc"] (drop (length arguments - 3) arguments)
       assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)

@@ -3,6 +3,7 @@ module Main (main) where
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Headers (posix64HeaderTarget)
 import Aihc.Hackage.Index (latestPreferredVersions, parseHackageIndex, parseHackageIndexUpdatedSince, parsePreferredRanges)
 import Aihc.Hackage.IndexCache (parsePreferredVersionsCache, renderPreferredVersions)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
@@ -157,7 +158,7 @@ test_evaluatesImplConditions = do
       cabalSource = implConditionalCabal (showVersionBranch major) (showVersionBranch next)
   gpd <- parseTestCabal cabalSource
   assertEqual "exposed modules" ["Current.Branch"] (map T.unpack (HC.collectLibraryExposedModules gpd))
-  let macro name = T.unpack <$> Map.lookup (T.pack name) builtinCppMacros
+  let macro name = T.unpack <$> Map.lookup (T.pack name) (builtinCppMacros posix64HeaderTarget)
   let ghcVersionMacro = case major of
         (majorFirst : majorSecond : _) -> show (majorFirst * 100 + majorSecond)
         _ -> "the emulated GHC version needs two components"
@@ -199,7 +200,7 @@ test_diagnosticsUseSourceLineNumbers = do
       config =
         Cpp.defaultConfig
           { Cpp.configInputFile = path,
-            Cpp.configMacros = Map.mapKeys TE.encodeUtf8 (Map.map TE.encodeUtf8 (cppMacrosFromOptions []))
+            Cpp.configMacros = Map.mapKeys TE.encodeUtf8 (Map.map TE.encodeUtf8 (cppMacrosFromOptions posix64HeaderTarget []))
           }
   assertBool "the header must actually prepend lines" (length (T.lines injected) > length (T.lines source))
   case Cpp.preprocess config (TE.encodeUtf8 injected) of

@@ -11,7 +11,6 @@
 -- compiler that built aihc.
 module Aihc.Hackage.Cpp
   ( builtinCppMacros,
-    compilerCppHeader,
     cppMacrosFromOptions,
     DependencyVersions,
     minVersionMacroName,
@@ -19,6 +18,7 @@ module Aihc.Hackage.Cpp
   )
 where
 
+import Aihc.Hackage.Headers (HeaderTarget, machineCppMacros)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, releaseVersionText)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
@@ -31,77 +31,17 @@ import Data.Text qualified as T
 
 -- | GHC version macros that every preprocessed file sees.
 -- Mirrors what GHC itself defines when invoking @cpp@.
-builtinCppMacros :: Map Text Text
-builtinCppMacros =
+builtinCppMacros :: HeaderTarget -> Map Text Text
+builtinCppMacros target =
   M.fromList
     [ ("__GLASGOW_HASKELL__", T.pack (show (major * 100 + minor))),
       ("__GLASGOW_HASKELL_FULL_VERSION__", T.pack (show (releaseVersionText emulatedGhc))),
       ("__GLASGOW_HASKELL_PATCHLEVEL1__", T.pack (show patch1)),
       ("__GLASGOW_HASKELL_PATCHLEVEL2__", T.pack (show patch2))
     ]
-    `M.union` M.restrictKeys machineCppMacros (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
+    `M.union` M.restrictKeys (machineCppMacros target) (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
   where
     (major, minor, patch1, patch2) = compilerVersionComponents
-
--- | Compiler headers for Haskell source use the same 64-bit model as CPP macros.
--- Native C compilation uses its separate target ABI headers.
-compilerCppHeader :: FilePath -> Maybe Text
-compilerCppHeader path = case path of
-  -- @ghcautoconf.h@ is not here.  The package ships that header as a file,
-  -- because the C compiler must read it too.  See 'Aihc.Hackage.Headers'.
-  --
-  -- Modern GHC's base package reduces this legacy header to a redirect.
-  "HsBaseConfig.h" -> Just (header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] [])
-  "MachDeps.h" -> Just (header "MACHDEPS_H" ["#include \"ghcplatform.h\""] (M.toList machineCppMacros))
-  "ghcplatform.h" ->
-    Just
-      ( header
-          "GHCPLATFORM_H"
-          []
-          [ ("SIZEOF_VOID_P", wordBytes),
-            ("SIZEOF_UNSIGNED_LONG", wordBytes),
-            ("SIZEOF_UNSIGNED_LONG_LONG", "8")
-          ]
-      )
-  _ -> Nothing
-  where
-    wordBytes = T.pack (show haskellWordBytes)
-    header guard includes definitions =
-      T.unlines
-        (["#ifndef " <> guard, "#define " <> guard] <> includes <> map define definitions <> ["#endif"])
-    define (name, value) = "#define " <> name <> " " <> value
-
-haskellWordBytes :: Int
-haskellWordBytes = 8
-
-machineCppMacros :: Map Text Text
-machineCppMacros =
-  M.fromList
-    ( [("WORD_SIZE_IN_BITS", bits), ("WORD_SIZE_IN_BITS_FLOAT", bits <> ".0")]
-        <> concatMap
-          sizeAndAlignment
-          [ ("HSCHAR", 4),
-            ("HSINT", haskellWordBytes),
-            ("HSWORD", haskellWordBytes),
-            ("HSFLOAT", 4),
-            ("HSDOUBLE", 8),
-            ("HSPTR", haskellWordBytes),
-            ("HSFUNPTR", haskellWordBytes),
-            ("HSSTABLEPTR", haskellWordBytes),
-            ("INT8", 1),
-            ("WORD8", 1),
-            ("INT16", 2),
-            ("WORD16", 2),
-            ("INT32", 4),
-            ("WORD32", 4),
-            ("INT64", 8),
-            ("WORD64", 8)
-          ]
-    )
-  where
-    bits = T.pack (show (haskellWordBytes * 8))
-    sizeAndAlignment (name, bytes) =
-      [("SIZEOF_" <> name, T.pack (show bytes)), ("ALIGNMENT_" <> name, T.pack (show bytes))]
 
 -- | The four components GHC exposes through its version macros.
 compilerVersionComponents :: (Int, Int, Int, Int)
@@ -116,9 +56,9 @@ compilerVersionComponents =
 --
 -- Starts from 'builtinCppMacros' and applies any @-D@ and @-U@ flags found
 -- in the option list.
-cppMacrosFromOptions :: [String] -> Map Text Text
-cppMacrosFromOptions cppOptions =
-  foldl apply builtinCppMacros (mapMaybe parseCppMacroOption cppOptions)
+cppMacrosFromOptions :: HeaderTarget -> [String] -> Map Text Text
+cppMacrosFromOptions target cppOptions =
+  foldl apply (builtinCppMacros target) (mapMaybe parseCppMacroOption cppOptions)
   where
     apply macros option =
       case option of
