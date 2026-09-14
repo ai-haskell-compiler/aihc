@@ -1,0 +1,38 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.Fingerprint
+
+    -- The pinned values are FNV-1a over the UTF-8 bytes, one lane from the
+    -- standard offset basis and one from that basis xored with the golden
+    -- ratio. They are aihc's own; GHC would print MD5 digests here.
+    digests :: [Bool]
+    digests =
+      [ show (fingerprintString "hello") == "a430d84680aabd0bd80e69ef89515aa8",
+        show (fingerprintString "") == "cbf29ce48422232555c5e55dfb685f30",
+        show fingerprint0 == "00000000000000000000000000000000"
+      ]
+
+    -- A fingerprint depends on the whole input and on the order and the
+    -- number of the parts it is combined from.
+    distinctions :: [Bool]
+    distinctions =
+      [ fingerprintString "hello" == fingerprintString "hello",
+        fingerprintString "hello" /= fingerprintString "hellp",
+        fingerprintString "hello" /= fingerprintString "olleh",
+        fingerprintFingerprints [a, b] == fingerprintFingerprints [a, b],
+        fingerprintFingerprints [a, b] /= fingerprintFingerprints [b, a],
+        fingerprintFingerprints [a] /= fingerprintFingerprints [a, a],
+        fingerprintFingerprints [] /= fingerprintFingerprints [a],
+        -- A character is hashed as its UTF-8 bytes, not as its code point.
+        fingerprintString "\955" /= fingerprintString "\206\187"
+      ]
+      where
+        a = fingerprintString "a"
+        b = fingerprintString "b"
+output: |
+  True
+expression: and (digests ++ distinctions)
+status: pass
+reason: GHC.Fingerprint hashes with FNV-1a rather than MD5; the digests are pinned so the algorithm cannot drift unnoticed.

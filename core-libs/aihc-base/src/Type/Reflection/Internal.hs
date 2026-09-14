@@ -28,6 +28,7 @@ module Type.Reflection.Internal
     eqTypeRep,
     typeOf,
     splitApps,
+    typeRepKindArguments,
     typeRepTyCon,
     tyConPackage,
     tyConModule,
@@ -72,6 +73,13 @@ someTypeRep _ = SomeTypeRep (typeRep :: TypeRep a)
 
 typeRepTyCon :: forall k (a :: k). TypeRep a -> TyCon
 typeRepTyCon (TypeRep tyCon _ _) = tyCon
+
+-- | The invisible kind arguments of a type constructor application. They
+-- sit beside the visible arguments that 'splitApps' returns, and two types
+-- can differ in nothing else, so a caller comparing or hashing a
+-- representation has to take them into account.
+typeRepKindArguments :: forall k (a :: k). TypeRep a -> [SomeTypeRep]
+typeRepKindArguments (TypeRep _ kinds _) = kinds
 
 -- | The type constructor of a type and its arguments.
 splitApps :: forall k (a :: k). TypeRep a -> (TyCon, [SomeTypeRep])
