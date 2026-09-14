@@ -8,15 +8,7 @@ program: |
       _ ->
         constant (30 :: IntRep)
 expected: |
-  extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
-
   extern func @aihc_lir_continue_i(ptr, ptr, i64)
-
-  extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
-
-  extern func @aihc_lir_eval(ptr, ptr, ptr, ptr)
-
-  extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
 
   extern data @aihc_current_srt
 
@@ -38,47 +30,6 @@ expected: |
   alt_5:
     tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 30)
   }
-
-  func @aihc_f_aihc_entry___scps__uupdate(%machine_6: ptr, %$cps_outer_7: ptr, %$cps_blackhole_8: ptr, %$cps_thunk_result_9: ptr) {
-  entry:
-    store ptr null, [@aihc_current_srt] align 8
-    %roots_10 = stack.alloc 24 align 8
-    %heap_11 = load ptr [%machine_6 + 24] align 1 word
-    %heap_end_12 = load ptr [%machine_6 + 32] align 1 word
-    %heap_word_13 = ptr.to_int %heap_11
-    %heap_end_word_14 = ptr.to_int %heap_end_12
-    %heap_room_15 = sub i64 %heap_end_word_14, %heap_word_13
-    %heap_fits_16 = ge.u i64 %heap_room_15, 24
-    br %heap_fits_16, gc_reserved_18(%$cps_blackhole_8, %$cps_outer_7, %$cps_thunk_result_9), gc_collect_17
-
-  gc_collect_17:
-    store ptr %$cps_blackhole_8, [%roots_10] align 8
-    store ptr %$cps_outer_7, [%roots_10 + 8] align 8
-    store ptr %$cps_thunk_result_9, [%roots_10 + 16] align 8
-    call @aihc_ensure_heap(%machine_6, 3, 3, %roots_10)
-    %$cps_blackhole$gc_22 = load ptr [%roots_10] align 8
-    %$cps_outer$gc_23 = load ptr [%roots_10 + 8] align 8
-    %$cps_thunk_result$gc_24 = load ptr [%roots_10 + 16] align 8
-    jump gc_reserved_18(%$cps_blackhole$gc_22, %$cps_outer$gc_23, %$cps_thunk_result$gc_24)
-
-  gc_reserved_18(%$cps_blackhole$gc_19: ptr, %$cps_outer$gc_20: ptr, %$cps_thunk_result$gc_21: ptr):
-    call @aihc_update_blackhole(%machine_6, %$cps_blackhole$gc_19, %$cps_thunk_result$gc_21)
-    %object_25 = load ptr [%machine_6 + 24] align 1 word
-    %heap_26 = ptr.add %object_25, 24
-    store ptr %heap_26, [%machine_6 + 24] align 1 word
-    store ptr @aihc_lir_info_0, [%object_25] align 8
-    store ptr %$cps_outer$gc_20, [%object_25 + 8] align 8
-    store ptr %$cps_thunk_result$gc_21, [%object_25 + 16] align 8
-    tailcall @aihc_lir_eval(%machine_6, %$cps_thunk_result$gc_21, %$cps_outer$gc_20, %object_25)
-  }
-
-  data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
-
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_0, ptr @aihc_lir_info_1, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 3, i8 1 }
-
-  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01\x01" }
-
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 3, i8 0, i8 3, i8 1 }
 status: pass
 reason: |
   A case on an unboxed scalar is one switch with the default alternative as the

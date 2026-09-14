@@ -442,3 +442,103 @@ pointer:
 word:
   tailcall @aihc_lir_apply_i(%machine, %current, %continuation, %value)
 }
+
+; The update continuation of a thunk under evaluation. Every module used to
+; generate its own copy of this function and its two info tables, because the
+; CPS conversion appends the function to every program whether or not that
+; program evaluates anything. The body is the same in every module, so one
+; copy lives here and a module names these tables instead.
+;
+; The closure holds the outer continuation and the blackhole, and the enter
+; stub applies the thunk's result to it: aihc_lir_enter_2_1 tail-calls this
+; function with the machine, the two stored fields, and the result. The body
+; writes the result into the blackhole, stores the next update frame, and
+; evaluates the result under it, because the result may be another thunk.
+;
+; The machine fields are word-scaled addends so the same text is right on a
+; 32-bit and on a 64-bit target: heap_next is the field after the exit code
+; and heap_limit the one after that. A root slot is eight bytes on every
+; target, so a pointer travels into and out of one as an i64.
+
+extern data @aihc_current_srt
+extern func @aihc_ensure_heap(ptr, i64, i64, ptr) cc c
+extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
+extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
+
+export func @aihc_lir_cps_update(%machine: ptr, %outer: ptr, %blackhole: ptr, %result: ptr) {
+entry:
+  ; This function reaches no static object of its own.
+  store ptr null, [@aihc_current_srt] align 8
+  %roots = stack.alloc 24 align 8
+  %heap = load ptr [%machine + 1 word + 16] align 1 word
+  %heap_end = load ptr [%machine + 2 words + 16] align 1 word
+  %heap_word = ptr.to_int %heap
+  %heap_end_word = ptr.to_int %heap_end
+  %heap_room = sub i64 %heap_end_word, %heap_word
+  %heap_fits = ge.u i64 %heap_room, 24
+  br %heap_fits, reserved(%blackhole, %outer, %result), collect
+
+collect:
+  %blackhole_word = ptr.to_int %blackhole
+  store i64 %blackhole_word, [%roots] align 8
+  %outer_word = ptr.to_int %outer
+  store i64 %outer_word, [%roots + 8] align 8
+  %result_word = ptr.to_int %result
+  store i64 %result_word, [%roots + 16] align 8
+  call @aihc_ensure_heap(%machine, 3, 3, %roots)
+  %blackhole_moved_word = load i64 [%roots] align 8
+  %blackhole_moved = ptr.from_int %blackhole_moved_word
+  %outer_moved_word = load i64 [%roots + 8] align 8
+  %outer_moved = ptr.from_int %outer_moved_word
+  %result_moved_word = load i64 [%roots + 16] align 8
+  %result_moved = ptr.from_int %result_moved_word
+  jump reserved(%blackhole_moved, %outer_moved, %result_moved)
+
+reserved(%live_blackhole: ptr, %live_outer: ptr, %live_result: ptr):
+  call @aihc_update_blackhole(%machine, %live_blackhole, %live_result)
+  %object = load ptr [%machine + 1 word + 16] align 1 word
+  %bumped = ptr.add %object, 24
+  store ptr %bumped, [%machine + 1 word + 16] align 1 word
+  %info_word = ptr.to_int @aihc_lir_cps_update_info
+  store i64 %info_word, [%object] align 8
+  %stored_outer = ptr.to_int %live_outer
+  store i64 %stored_outer, [%object + 8] align 8
+  %stored_result = ptr.to_int %live_result
+  store i64 %stored_result, [%object + 16] align 8
+  tailcall @aihc_lir_eval(%machine, %live_result, %live_outer, %object)
+}
+
+data @aihc_lir_cps_update_bitmap align 1 = {
+  bytes "\x01\x01"
+}
+
+data @aihc_lir_cps_update_applied_bitmap align 1 = {
+  bytes "\x01\x01\x01"
+}
+
+; The closure before the thunk's result is applied to it: two stored fields
+; and one still wanted.
+export data @aihc_lir_cps_update_info align 8 = {
+  code @aihc_lir_cps_update,              ; identity
+  ptr @aihc_lir_cps_update_bitmap,        ; field_is_pointer
+  ptr @aihc_lir_cps_update_applied_info,  ; next
+  code @aihc_lir_enter_2_1,               ; backend_entry
+  ptr null,                               ; srt
+  i8 2,                                   ; field_count
+  i8 1,                                   ; remaining_arity
+  i8 @AIHC_FRAME_UPDATE,                  ; frame_kind
+  i8 @AIHC_OBJECT_CLOSURE                 ; object_kind
+}
+
+; The saturated stage the collector reads the full width from.
+export data @aihc_lir_cps_update_applied_info align 8 = {
+  code @aihc_lir_cps_update,
+  ptr @aihc_lir_cps_update_applied_bitmap,
+  ptr null,
+  code null,
+  ptr null,
+  i8 3,
+  i8 0,
+  i8 @AIHC_FRAME_UPDATE,
+  i8 @AIHC_OBJECT_CLOSURE
+}

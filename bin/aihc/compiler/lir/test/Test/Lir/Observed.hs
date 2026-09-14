@@ -31,7 +31,7 @@ lowerObservedProgram target entryName gcProgram = do
   metadata <-
     renderObservedMetadata
       LowerUnsupportedRuntimeRep
-      (pure . unSymbol . functionSymbol)
+      observedFunctionLabel
       (\name -> unSymbol (constructorInfoSymbol name 0))
       id
       program
@@ -48,6 +48,12 @@ lowerObservedProgram target entryName gcProgram = do
     program = gcGrinProgram gcProgram
     options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
+    -- The update continuation is not lowered into the module any more, so the
+    -- snapshot descriptor names the shared runtime function that every
+    -- module's update frames now point at.
+    observedFunctionLabel name
+      | name == gcUpdateFunction gcProgram = pure "aihc_lir_cps_update"
+      | otherwise = pure (unSymbol (functionSymbol name))
     threadDoneTarget = Symbol "aihc_lir_thread_done_continuation"
     snapshotInfo = Symbol "aihc_lir_snapshot_info"
     snapshotTarget = Symbol "aihc_lir_snapshot_result"

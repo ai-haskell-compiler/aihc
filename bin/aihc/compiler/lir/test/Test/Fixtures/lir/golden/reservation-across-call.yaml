@@ -16,12 +16,6 @@ expected: |
 
   extern func @aihc_lir_continue_p(ptr, ptr, ptr)
 
-  extern func @aihc_lir_enter_2_1(ptr, ptr, ptr, ptr)
-
-  extern func @aihc_lir_eval(ptr, ptr, ptr, ptr)
-
-  extern func @aihc_update_blackhole(ptr, ptr, ptr) cc c
-
   extern data @aihc_current_srt
 
   func @aihc_f_aihc_entry___sother(%machine_0: ptr, %$cps_return_1: ptr) {
@@ -57,7 +51,7 @@ expected: |
     %object_17 = load ptr [%machine_2 + 24] align 1 word
     %heap_18 = ptr.add %object_17, 24
     store ptr %heap_18, [%machine_2 + 24] align 1 word
-    store ptr @aihc_lir_info_2, [%object_17] align 8
+    store ptr @aihc_lir_info_0, [%object_17] align 8
     store ptr %$cps_return$gc_13, [%object_17 + 8] align 8
     store ptr %object_15, [%object_17 + 16] align 8
     tailcall @aihc_f_aihc_entry___sother(%machine_2, %object_17)
@@ -93,39 +87,6 @@ expected: |
     tailcall @aihc_lir_continue_p(%machine_19, %$cps_return$gc_32, %object_36)
   }
 
-  func @aihc_f_aihc_entry___scps__uupdate(%machine_38: ptr, %$cps_outer_39: ptr, %$cps_blackhole_40: ptr, %$cps_thunk_result_41: ptr) {
-  entry:
-    store ptr null, [@aihc_current_srt] align 8
-    %roots_42 = stack.alloc 24 align 8
-    %heap_43 = load ptr [%machine_38 + 24] align 1 word
-    %heap_end_44 = load ptr [%machine_38 + 32] align 1 word
-    %heap_word_45 = ptr.to_int %heap_43
-    %heap_end_word_46 = ptr.to_int %heap_end_44
-    %heap_room_47 = sub i64 %heap_end_word_46, %heap_word_45
-    %heap_fits_48 = ge.u i64 %heap_room_47, 24
-    br %heap_fits_48, gc_reserved_50(%$cps_blackhole_40, %$cps_outer_39, %$cps_thunk_result_41), gc_collect_49
-
-  gc_collect_49:
-    store ptr %$cps_blackhole_40, [%roots_42] align 8
-    store ptr %$cps_outer_39, [%roots_42 + 8] align 8
-    store ptr %$cps_thunk_result_41, [%roots_42 + 16] align 8
-    call @aihc_ensure_heap(%machine_38, 3, 3, %roots_42)
-    %$cps_blackhole$gc_54 = load ptr [%roots_42] align 8
-    %$cps_outer$gc_55 = load ptr [%roots_42 + 8] align 8
-    %$cps_thunk_result$gc_56 = load ptr [%roots_42 + 16] align 8
-    jump gc_reserved_50(%$cps_blackhole$gc_54, %$cps_outer$gc_55, %$cps_thunk_result$gc_56)
-
-  gc_reserved_50(%$cps_blackhole$gc_51: ptr, %$cps_outer$gc_52: ptr, %$cps_thunk_result$gc_53: ptr):
-    call @aihc_update_blackhole(%machine_38, %$cps_blackhole$gc_51, %$cps_thunk_result$gc_53)
-    %object_57 = load ptr [%machine_38 + 24] align 1 word
-    %heap_58 = ptr.add %object_57, 24
-    store ptr %heap_58, [%machine_38 + 24] align 1 word
-    store ptr @aihc_lir_info_0, [%object_57] align 8
-    store ptr %$cps_outer$gc_52, [%object_57 + 8] align 8
-    store ptr %$cps_thunk_result$gc_53, [%object_57 + 16] align 8
-    tailcall @aihc_lir_eval(%machine_38, %$cps_thunk_result$gc_53, %$cps_outer$gc_52, %object_57)
-  }
-
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
   export data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
@@ -138,24 +99,18 @@ expected: |
 
   export data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_enter_2_1, ptr null, i8 2, i8 1, i8 3, i8 1 }
-
-  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x01" }
-
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___scps__uupdate, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 3, i8 1 }
-
-  func @aihc_lir_info_2_e(%machine_59: ptr, %object_60: ptr, %continuation_61: ptr, %supplied_62: i64) {
+  func @aihc_lir_info_0_e(%machine_38: ptr, %object_39: ptr, %continuation_40: ptr, %supplied_41: i64) {
   entry:
-    %stored_63 = load ptr [%object_60 + 8] align 8
-    %stored_64 = load ptr [%object_60 + 16] align 8
-    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_59, %stored_63, %stored_64, %supplied_62)
+    %stored_42 = load ptr [%object_39 + 8] align 8
+    %stored_43 = load ptr [%object_39 + 16] align 8
+    tailcall @aihc_f_aihc_entry___sentry__ucont(%machine_38, %stored_42, %stored_43, %supplied_41)
   }
 
-  data @aihc_lir_info_2 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_3, code @aihc_lir_info_2_e, ptr null, i8 2, i8 1, i8 1, i8 1 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr @aihc_lir_info_1, code @aihc_lir_info_0_e, ptr null, i8 2, i8 1, i8 1, i8 1 }
 
-  data @aihc_lir_bitmap_3 align 1 = { bytes "\x01\x01\x00" }
+  data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
 
-  data @aihc_lir_info_3 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_3, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1 }
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code null, ptr null, i8 3, i8 0, i8 1, i8 1 }
 status: pass
 reason: |
   A call can collect, so it ends the caller's reservation and the store after it

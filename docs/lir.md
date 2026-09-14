@@ -545,6 +545,12 @@ The lowering keeps the control model of CPS-GRIN:
 - A store takes its object from that reservation itself: it loads the heap
   pointer of the machine, advances it by the words of the object, and writes
   the header and the fields. The runtime exports no allocator.
+- The update continuation of a thunk under evaluation is the shared
+  `aihc_lir_cps_update` of `aihc_helpers.lir`, and a module names its two
+  info tables rather than lowering a copy. The CPS conversion appends an
+  update function to every program whether or not the program evaluates
+  anything, and the body does not depend on the module, so a module that
+  lowered its own carried a function nothing in it could reach.
 - Evaluation and scheduler resumption use shared runtime functions.
   Application and continuation use shared functions for `[]`, `[ptr]`, and
   `[i64]`. The compiler emits local helpers for all other argument shapes.
@@ -617,8 +623,9 @@ it.
 The units are:
 
 - `aihc_helpers.lir` defines `eval`, `resume`, the slot dispatchers,
-  `quotrem2`, and `cstring_length`. It also defines `apply` and `continue`
-  for `[]`, `[ptr]`, and `[i64]`. Library modules declare these functions
+  `quotrem2`, `cstring_length`, and the shared update continuation
+  `aihc_lir_cps_update` with its two info tables. It also defines `apply`
+  and `continue` for `[]`, `[ptr]`, and `[i64]`. Library modules declare these functions
   as externs. Other shapes remain local, without a fixed shape limit.
   C accessors read pointer-sized info-table fields. `aihc_lir_take_resume`
   copies a scheduler record to five eight-byte slots and clears the record.
