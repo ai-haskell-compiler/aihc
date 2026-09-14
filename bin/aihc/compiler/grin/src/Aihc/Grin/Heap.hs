@@ -4,6 +4,7 @@ module Aihc.Grin.Heap
   )
 where
 
+import Aihc.Grin.Primitive (primitiveAllocates)
 import Aihc.Grin.Syntax
 
 normalizeHeapReservations :: GrinProgram -> GrinProgram
@@ -73,6 +74,9 @@ staticReservationWords expression =
       | requiredWords >= 0 -> Just requiredWords
     _ -> Nothing
 
+-- | Whether an operation ends the reservation that reaches it. A primitive
+-- that cannot allocate does not: the stores on either side of it share one
+-- reservation.
 isReservationBarrier :: GrinExpr -> Bool
 isReservationBarrier expression =
   case expression of
@@ -80,7 +84,7 @@ isReservationBarrier expression =
     GrinEval {} -> True
     GrinCpsEval {} -> True
     GrinCall {} -> True
-    GrinPrimitiveCall {} -> True
+    GrinPrimitiveCall _ name _ -> primitiveAllocates name
     GrinCpsPrimitiveCall {} -> True
     GrinApply {} -> True
     GrinCpsApply {} -> True

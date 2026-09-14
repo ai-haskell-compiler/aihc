@@ -150,6 +150,7 @@ library
     Aihc.Grin.Lower
     Aihc.Grin.Parser
     Aihc.Grin.Pretty
+    Aihc.Grin.Primitive
     Aihc.Grin.Srt
     Aihc.Grin.Syntax
     Aihc.Grin.Tidy
