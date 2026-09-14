@@ -3,7 +3,10 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Conc.Sync
-  ( STM (..),
+  ( ThreadId (..),
+    forkIO,
+    yield,
+    STM (..),
     TVar (..),
     atomically,
     retry,
@@ -25,6 +28,32 @@ import Control.Monad (MonadPlus (..), ap, liftM2)
 import GHC.IO (IO (..))
 import GHC.Prim
 import Prelude
+
+-- | An opaque green-thread identifier.
+data ThreadId = ThreadId ThreadId#
+
+-- | Schedule an action on a new green thread.
+forkIO :: IO () -> IO ThreadId
+forkIO (IO action) =
+  IO
+    ( \state ->
+        -- Explicit GRIN apply does not enter operands, and unpacking the IO
+        -- newtype alone does not enter its state transformer.
+        seq
+          action
+          ( case fork# action state of
+              (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
+          )
+    )
+
+-- | Cooperatively yield to the next runnable green thread.
+yield :: IO ()
+yield =
+  IO
+    ( \state ->
+        case yield# state of
+          nextState -> (# nextState, () #)
+    )
 
 newtype STM a = STM (State# RealWorld -> (# State# RealWorld, a #))
 
