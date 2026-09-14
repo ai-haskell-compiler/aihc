@@ -1,0 +1,52 @@
+extensions: [ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Maybe (isJust)
+    import Data.Proxy (Proxy)
+    import GHC.Fingerprint (Fingerprint)
+    import Type.Reflection
+    import Type.Reflection.Unsafe (typeRepFingerprint)
+
+    -- A fingerprint has to agree with structural equality: the same type
+    -- twice fingerprints alike, and none of these distinct types may
+    -- collide.
+    representations :: [SomeTypeRep]
+    representations =
+      [ SomeTypeRep (typeRep :: TypeRep Bool),
+        SomeTypeRep (typeRep :: TypeRep Int),
+        SomeTypeRep (typeRep :: TypeRep [Bool]),
+        SomeTypeRep (typeRep :: TypeRep [Int]),
+        SomeTypeRep (typeRep :: TypeRep [[Bool]]),
+        SomeTypeRep (typeRep :: TypeRep Maybe),
+        SomeTypeRep (typeRep :: TypeRep (Maybe Bool)),
+        SomeTypeRep (typeRep :: TypeRep (Bool -> Int)),
+        SomeTypeRep (typeRep :: TypeRep (Int -> Bool)),
+        SomeTypeRep (typeRep :: TypeRep (Proxy Bool)),
+        SomeTypeRep (typeRep :: TypeRep (Proxy Maybe))
+      ]
+
+    agrees :: SomeTypeRep -> SomeTypeRep -> Bool
+    agrees (SomeTypeRep left) (SomeTypeRep right) =
+      (typeRepFingerprint left == typeRepFingerprint right) == isJust (eqTypeRep left right)
+
+    fingerprintOf :: SomeTypeRep -> Fingerprint
+    fingerprintOf (SomeTypeRep representation) = typeRepFingerprint representation
+
+    checks :: [Bool]
+    checks =
+      [ and [agrees left right | left <- representations, right <- representations],
+        length (distinct (map fingerprintOf representations)) == length representations,
+        fingerprintOf (SomeTypeRep (typeRep :: TypeRep Bool)) == fingerprintOf (SomeTypeRep (typeRep :: TypeRep Bool))
+      ]
+
+    distinct :: [Fingerprint] -> [Fingerprint]
+    distinct [] = []
+    distinct (value : values) = value : distinct (filter (/= value) values)
+output: |
+  True
+expression: and checks
+status: pass
+reason: typeRepFingerprint agrees with eqTypeRep over type constructors, applications, arrows and kind arguments.
