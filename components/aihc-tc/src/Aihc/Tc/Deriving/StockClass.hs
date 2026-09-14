@@ -158,7 +158,9 @@ stockClasses =
     (extension "Lift" DeriveLift NewtypeNever)
       { stockClassMethods = Just StockLiftMethods,
         stockClassReferences =
-          [ derivingLiftConE,
+          [ derivingBind,
+            derivingPure,
+            derivingLiftConE,
             derivingLiftAppE,
             derivingLiftDataConName,
             derivingLiftCodeCoerce

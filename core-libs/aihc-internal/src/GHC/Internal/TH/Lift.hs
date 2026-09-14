@@ -41,6 +41,7 @@ module GHC.Internal.TH.Lift
   )
 where
 
+import Data.Array.Byte (ByteArray)
 import Data.Data hiding (Fixity, Infix)
 import Data.Either
 import Data.Foldable
@@ -158,6 +159,13 @@ instance Lift Word64 where
 instance Lift Natural where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift _ = error "Template Haskell Natural lifting is not available"
+
+-- | GHC lifts a byte array through the primitive bytes literal, which this
+-- standin has no builder for. The instance is still declared, because a
+-- datatype with a byte array field derives its own instance from it.
+instance Lift ByteArray where
+  liftTyped x = unsafeCodeCoerce (lift x)
+  lift _ = error "Template Haskell ByteArray lifting is not available"
 
 instance (Integral a) => Lift (Ratio a) where
   liftTyped x = unsafeCodeCoerce (lift x)

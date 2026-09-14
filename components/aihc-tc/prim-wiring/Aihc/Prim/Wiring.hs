@@ -140,9 +140,13 @@ unboxedSumDataConName alternative arity =
 -- identity of the @aihc-prim@ package.
 --
 -- Most generated bodies name values of the primitive package, which every
--- module can see. The Template Haskell helpers of a derived @Lift@ are the
+-- module can see. The Template Haskell names of a derived @Lift@ are the
 -- exception: they live beside the class, in the package a module that
--- derives @Lift@ already depends on.
+-- derives @Lift@ already depends on. Each of them is exported by
+-- @Language.Haskell.TH.Syntax@, which such a module imports, because a
+-- derived body builds the expression from the constructors of @Exp@ rather
+-- than from the combinators of @GHC.Internal.TH.Lib@, which it would have
+-- no reason to import.
 primDerivingReferences :: PackageId -> DerivingReferences
 primDerivingReferences prim =
   DerivingReferences
@@ -172,8 +176,8 @@ primDerivingReferences prim =
       derivingLexemePunc = term readModule NameConId "Punc",
       derivingPure = term "GHC.Prim.Base" NameVarId "pure",
       derivingApply = term "GHC.Prim.Base" NameVarSym "<*>",
-      derivingLiftConE = classTerm "GHC.Internal.TH.Lib" NameVarId "conE",
-      derivingLiftAppE = classTerm "GHC.Internal.TH.Lib" NameVarId "appE",
+      derivingLiftConE = classTerm thSyntaxModule NameConId "ConE",
+      derivingLiftAppE = classTerm thSyntaxModule NameConId "AppE",
       derivingLiftDataConName = classTerm thSyntaxModule NameVarId "mkNameG_d",
       derivingLiftCodeCoerce = classTerm thSyntaxModule NameVarId "unsafeCodeCoerce",
       derivingStockClasses = coreStockClasses prim,

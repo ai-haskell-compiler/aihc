@@ -563,7 +563,10 @@ boundedItems gen constructors
 
 -- | @lift@ rebuilds the value as a Template Haskell expression: the
 -- constructor by its package, module and spelling, applied to the lifted
--- fields. @liftTyped@ is the same expression, coerced.
+-- fields. The fields are lifted in the quoting monad, which the @Quote@
+-- constraint of the method makes a @Monad@, and the expression itself is
+-- built from the constructors of @Exp@. @liftTyped@ is the same expression,
+-- coerced.
 liftItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
 liftItems gen constructors = do
   matches <- mapM constructorMatch constructors
@@ -582,18 +585,26 @@ liftItems gen constructors = do
   where
     constructorMatch constructor = do
       fields <- fieldLocals gen "a" constructor
+      lifted <- mapM (const (freshLocal gen "e")) fields
+      let application = foldl applyLifted (liftedConstructor constructor) lifted
+          delivered = applyN gen (referenceExpr gen derivingPure) [application]
       pure
         ( simpleMatch
             gen
             [constructorPattern gen constructor (map Just fields)]
-            (foldl (liftApplication gen) (liftedConstructor constructor) fields)
+            (foldr liftField delivered (zip fields lifted))
         )
+    -- Each field is lifted before the expression is assembled, because a
+    -- lift happens in the quoting monad.
+    liftField (field, binder) rest =
+      applyN
+        gen
+        (referenceExpr gen derivingBind)
+        [methodApp gen "lift" [localExpr gen field], lambda gen binder rest]
+    applyLifted function argument =
+      applyN gen (referenceExpr gen derivingLiftAppE) [function, localExpr gen argument]
     liftedConstructor constructor =
       applyN gen (referenceExpr gen derivingLiftConE) [constructorNameExpr gen constructor]
-
-liftApplication :: Gen -> Expr -> UnqualifiedName -> Expr
-liftApplication gen function field =
-  applyN gen (referenceExpr gen derivingLiftAppE) [function, methodApp gen "lift" [localExpr gen field]]
 
 -- | The Template Haskell name of a data constructor, which carries the
 -- package and the module it is declared in.

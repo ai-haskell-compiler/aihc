@@ -1,19 +1,5 @@
 annotated:
 - |-
-  module GHC.Internal.TH.Lib where
-  import GHC.Internal.TH.Syntax (Exp, Name, Quote)
-  conE :: Quote m => Name -> m Exp
-  conE name = conE name
-  │    │      └─ type: GHC.Internal.TH.Syntax.Name → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
-  │    └─ type: GHC.Internal.TH.Syntax.Name
-  └─ type: ∀ m. (GHC.Internal.TH.Syntax.Quote m) ⇒ GHC.Internal.TH.Syntax.Name → m GHC.Internal.TH.Syntax.Exp
-  appE :: Quote m => m Exp -> m Exp -> m Exp
-  appE function argument = appE function argument
-  │    │        │          └─ type: m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
-  │    │        └─ type: m GHC.Internal.TH.Syntax.Exp
-  │    └─ type: m GHC.Internal.TH.Syntax.Exp
-  └─ type: ∀ m. (GHC.Internal.TH.Syntax.Quote m) ⇒ m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp
-- |-
   {-# LANGUAGE KindSignatures, PolyKinds #-}
   module GHC.Internal.TH.Lift where
   import GHC.Internal.TH.Syntax (Code, Exp, Quote)
@@ -25,7 +11,8 @@ annotated:
 - |-
   {-# LANGUAGE KindSignatures, PolyKinds #-}
   module GHC.Internal.TH.Syntax where
-  import GHC.Types (Char, RuntimeRep, TYPE)
+  import GHC.Prim.Base (Monad)
+  import GHC.Types (Char)
   data Name = Name
        │      └─ type: Name
        └─ type: Type
@@ -33,7 +20,7 @@ annotated:
        │     │           └─ type: Exp → Exp → Exp
        │     └─ type: Name → Exp
        └─ type: Type
-  class Quote m where
+  class Monad m => Quote m where
   └─ class methods: newName ∷ ∀ m. (Quote m) ⇒ [Char] → m Name
     newName :: [Char] -> m Name
   data Code m a = Code (m Exp)
@@ -53,7 +40,6 @@ annotated:
 - |-
   {-# LANGUAGE DeriveLift #-}
   module Main where
-  import GHC.Internal.TH.Lib ()
   import GHC.Internal.TH.Lift (Lift)
   import GHC.Internal.TH.Syntax ()
   data Colour = Red | Green
@@ -76,9 +62,9 @@ annotated:
              └─ type: [GHC.Types.Char]; type-args: Char
              └─ type: Colour → m GHC.Internal.TH.Syntax.Exp; type-args: 'BoxedRep 'Lifted, Colour, m; evidence: $fLiftColour, given Quote m
              └─ type: [GHC.Types.Char]; type-args: Char
-             └─ type: GHC.Internal.TH.Syntax.Name → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
+             └─ type: GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp; type-args: m, Exp; evidence: super[0](super[0](given Quote m))
              └─ type: GHC.Types.Char
-             └─ type: GHC.Internal.TH.Syntax.Name → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
+             └─ type: GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp; type-args: m, Exp; evidence: super[0](super[0](given Quote m))
              └─ type: GHC.Types.Char
              └─ type: GHC.Types.Char
              └─ type: GHC.Types.Char
@@ -100,20 +86,20 @@ annotated:
   └─ deriving plans: stock Lift (Pair a) [context: Lift a] [methods: lift, liftTyped]
     deriving Lift
              └─ $fLiftPaira ∷ ∀ a. (Lift a) ⇒ Lift (Pair a)
-             └─ type: m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
-             └─ lift ∷ ∀ m. (Quote m) ⇒ Pair a → m Exp
-             └─ type: m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
-             └─ liftTyped ∷ ∀ m. (Quote m) ⇒ Pair a → Code m (Pair a)
              └─ type: m GHC.Internal.TH.Syntax.Exp → GHC.Internal.TH.Syntax.Code m (Pair a); type-args: m, Type, Pair a; evidence: given Quote m
-             └─ type: GHC.Internal.TH.Syntax.Name → m GHC.Internal.TH.Syntax.Exp; type-args: m; evidence: given Quote m
+             └─ lift ∷ ∀ m. (Quote m) ⇒ Pair a → m Exp
+             └─ type: m GHC.Internal.TH.Syntax.Exp → (GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp) → m GHC.Internal.TH.Syntax.Exp; type-args: m, Exp, Exp; evidence: super[0](given Quote m)
+             └─ liftTyped ∷ ∀ m. (Quote m) ⇒ Pair a → Code m (Pair a)
+             └─ type: m GHC.Internal.TH.Syntax.Exp → (GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp) → m GHC.Internal.TH.Syntax.Exp; type-args: m, Exp, Exp; evidence: super[0](given Quote m)
+             └─ type: GHC.Internal.TH.Syntax.Exp
              └─ type: a → m GHC.Internal.TH.Syntax.Exp; type-args: 'BoxedRep 'Lifted, a, m; evidence: given Lift a, given Quote m
-             └─ type: GHC.Types.Char
+             └─ type: GHC.Internal.TH.Syntax.Exp
              └─ type: a → m GHC.Internal.TH.Syntax.Exp; type-args: 'BoxedRep 'Lifted, a, m; evidence: given Lift a, given Quote m
-             └─ type: GHC.Types.Char
+             └─ type: GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp
              └─ type: a
-             └─ type: GHC.Types.Char
+             └─ type: GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp
              └─ type: a
-             └─ type: GHC.Types.Char
+             └─ type: GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp; type-args: m, Exp; evidence: super[0](super[0](given Quote m))
              └─ type: [GHC.Types.Char]; type-args: Char
              └─ type: GHC.Types.Char
              └─ type: [GHC.Types.Char]; type-args: Char
@@ -123,7 +109,11 @@ annotated:
              └─ type: Pair a → m GHC.Internal.TH.Syntax.Exp; type-args: 'BoxedRep 'Lifted, Pair a, m; evidence: $fLiftPaira @a (given Lift a), given Quote m
              └─ type: GHC.Types.Char
              └─ type: Pair a
+             └─ type: GHC.Types.Char
              └─ type: Pair a
+             └─ type: GHC.Types.Char
+             └─ type: GHC.Types.Char
+             └─ type: GHC.Types.Char
 extensions:
 - DeriveLift
 - KindSignatures
@@ -132,23 +122,17 @@ modules:
 - |
   {-# LANGUAGE KindSignatures, PolyKinds #-}
   module GHC.Internal.TH.Syntax where
-  import GHC.Types (Char, RuntimeRep, TYPE)
+  import GHC.Prim.Base (Monad)
+  import GHC.Types (Char)
   data Name = Name
   data Exp = ConE Name | AppE Exp Exp
-  class Quote m where
+  class Monad m => Quote m where
     newName :: [Char] -> m Name
   data Code m a = Code (m Exp)
   mkNameG_d :: [Char] -> [Char] -> [Char] -> Name
   mkNameG_d _ _ _ = Name
   unsafeCodeCoerce :: Quote m => m Exp -> Code m a
   unsafeCodeCoerce expression = Code expression
-- |
-  module GHC.Internal.TH.Lib where
-  import GHC.Internal.TH.Syntax (Exp, Name, Quote)
-  conE :: Quote m => Name -> m Exp
-  conE name = conE name
-  appE :: Quote m => m Exp -> m Exp -> m Exp
-  appE function argument = appE function argument
 - |
   {-# LANGUAGE KindSignatures, PolyKinds #-}
   module GHC.Internal.TH.Lift where
@@ -160,7 +144,6 @@ modules:
 - |
   {-# LANGUAGE DeriveLift #-}
   module Main where
-  import GHC.Internal.TH.Lib ()
   import GHC.Internal.TH.Lift (Lift)
   import GHC.Internal.TH.Syntax ()
   data Colour = Red | Green
