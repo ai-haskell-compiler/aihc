@@ -49,6 +49,7 @@ module Aihc.Tc
     tcInterfaceFromLists,
     emptyTcInterface,
     MergeCheck (..),
+    mergeTcInterface,
     mergeTcInterfaces,
     unionTcInterfaces,
     restrictTcInterfaceToModules,
@@ -270,12 +271,6 @@ emptyTcInterface =
       tcInterfacePatSynMap = Map.empty,
       tcInterfaceForeignImportMap = Map.empty
     }
-
-instance Semigroup TcInterface where
-  (<>) = mergeTcInterface CheckMergedFacts
-
-instance Monoid TcInterface where
-  mempty = emptyTcInterface
 
 -- | Whether a merge checks the sides against each other.
 --

@@ -128,6 +128,7 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     derivingReferenceList,
+    emptyTcInterface,
     mergeTcInterfaces,
     mkTcKinds,
     renderFunDepNames,
@@ -1191,7 +1192,7 @@ loadInstalledPackage requirements immutable storePath = do
   entries <- mapM loadModule selectedModules
   (decodedFacts, instanceProviders) <-
     if null selectedModules
-      then pure (mempty, Map.empty)
+      then pure (emptyTcInterface, Map.empty)
       else loadPackageInstances selectedModules
   -- A written interface holds each of its parts once and names it
   -- everywhere it is used, so the interfaces read above are already
@@ -1242,7 +1243,7 @@ loadInstalledPackage requirements immutable storePath = do
       let path = storePath </> "instances.cbor"
       exists <- doesFileExist path
       if not exists
-        then pure (mempty, Map.empty)
+        then pure (emptyTcInterface, Map.empty)
         else do
           bytes <- BL.readFile path
           artifact <- readTypeArtifact path bytes
@@ -2047,7 +2048,7 @@ unitBackendPaths config unit = concatMap paths (sourceUnitSources unit)
 
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
-  mempty
+  emptyTcInterface
     { tcInterfaceInstanceMap = tcInterfaceInstanceMap interface,
       tcInterfaceDataFamilyInstanceMap = tcInterfaceDataFamilyInstanceMap interface,
       tcInterfaceTypeFamilyInstanceMap = tcInterfaceTypeFamilyInstanceMap interface
@@ -2066,11 +2067,11 @@ interfaceInstanceProviders interface =
 
 selectInstanceProviders :: TcInterface -> Set.Set InstanceProvider -> TcInterface
 selectInstanceProviders complete providers
-  | Set.null providers = mempty
+  | Set.null providers = emptyTcInterface
   | otherwise =
       addReferencedFacts
         complete
-        mempty
+        emptyTcInterface
           { tcInterfaceInstanceMap = Map.filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstanceMap complete),
             tcInterfaceDataFamilyInstanceMap = Map.filter ((`Set.member` providers) . tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap complete),
             tcInterfaceTypeFamilyInstanceMap = Map.filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstanceMap complete)

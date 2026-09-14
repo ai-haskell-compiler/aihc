@@ -44,10 +44,12 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
-  ( TcConfig,
+  ( MergeCheck (..),
+    TcConfig,
     TcInterface,
     TcWiring (..),
     emptyTcInterface,
+    mergeTcInterfaces,
     tcModuleDiagnostics,
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
@@ -348,7 +350,7 @@ typecheckModuleGraph config baseInterface units = do
                   `Set.difference` componentIndices
               )
       dependencyInterfaces <- traverse (lookupDependencyInterface interfacesByIndex) dependencyIndices
-      let importedInterface = mconcat (baseInterface : dependencyInterfaces)
+      let importedInterface = mergeTcInterfaces CheckMergedFacts (baseInterface : dependencyInterfaces)
           (checked, checkedInterface) =
             typecheckModuleSccWithInterface config importedInterface (map nodeModule componentNodes)
           checkedByIndex' = foldl' (\acc (node, modu) -> Map.insert (nodeIndex node) modu acc) checkedByIndex (zip componentNodes checked)

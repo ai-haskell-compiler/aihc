@@ -29,10 +29,12 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
 import Aihc.Tc
-  ( TcInterface,
+  ( MergeCheck (..),
+    TcInterface,
     TcKinds,
     TcWiring,
     emptyTcInterface,
+    mergeTcInterfaces,
     mkTcKinds,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -249,7 +251,7 @@ renderFcCase tc =
                   (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (primTcConfig (PackageId "aihc-prim")) primitiveInterface fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then do
-                      let availableInterface = primitiveInterface <> tcInterface
+                      let availableInterface = mergeTcInterfaces CheckMergedFacts [primitiveInterface, tcInterface]
                           fixtureExports =
                             collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureModules modules)
                           fixtureResults =
