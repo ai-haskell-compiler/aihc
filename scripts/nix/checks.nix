@@ -335,8 +335,11 @@
     fi
   '';
 
+  # 4G rather than 2G: refreshing the Hackage index peaks at 3.0 GB in use
+  # (1.39 GB resident), which overflowed the old 2 GB cap and failed every
+  # invocation that had to refetch the index.
   aihcExe = pkgs.writeShellScript "aihc-with-memory-limit" ''
-    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M2G -RTS "$@"
+    exec ${pkgs.lib.getExe' hsPkgs.aihc "aihc"} +RTS -M4G -RTS "$@"
   '';
 
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -544,10 +547,10 @@
       # at -N1, 5.1s at -N4, 3.8s at -N8. Only the three toolchains and the two
       # core-library derivations run in this window.
       #
-      # What bounds memory is not the capability count but the -M2G that
+      # What bounds memory is not the capability count but the -M4G that
       # aihc-with-memory-limit puts on every invocation. Measured, this install
       # peaks at 0.47 GB resident at -N1 against 0.53 GB at -N4, so the ceiling
-      # is jobs times that 2 GB cap, and a runaway becomes a heap-overflow
+      # is jobs times that 4 GB cap, and a runaway becomes a heap-overflow
       # failure rather than work for the OOM killer.
       #
       # Every other derivation that runs aihc uses -N too, for one rule rather

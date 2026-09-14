@@ -53,7 +53,7 @@
     '';
 
   aihcApp = mkAppWithInputs "aihc" [pkgs.bash] ''
-    exec ${aihcExe} +RTS -M2G -RTS "$@"
+    exec ${aihcExe} +RTS -M4G -RTS "$@"
   '';
 in {
   fmt = mkFmtApp "fmt" ''
