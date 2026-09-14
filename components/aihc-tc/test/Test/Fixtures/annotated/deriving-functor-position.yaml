@@ -1,0 +1,58 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveFunctor #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  import GHC.Types (Bool)
+  data Pair b a = Pair b a
+       │          └─ type: ∀ b a. b → a → Pair b a
+       └─ type: Type → Type → Type
+  data Swapped a = Swapped (Pair a Bool)
+  │    │           └─ type: ∀ a. Pair a GHC.Types.Bool → Swapped a
+  │    └─ type: Type → Type
+  └─ deriving plans: stock Functor Swapped [context: infer] [methods: fmap, <$]
+    deriving Functor
+             └─ error: stock Functor deriving requires a to appear only as the last argument of a type, but a constructor field has type Pair a Bool
+  data Argument a = Argument (a -> Bool)
+  │    │            └─ type: ∀ a. (a → GHC.Types.Bool) → Argument a
+  │    └─ type: Type → Type
+  └─ deriving plans: stock Functor Argument [context: infer] [methods: fmap, <$]
+    deriving Functor
+             └─ error: stock Functor deriving requires a to appear only as the last argument of a type, but a constructor field has type a → Bool
+  data Nested f a = Nested (f a) (f (f a)) Bool
+  │    │            └─ type: ∀ f a. f a → f (f a) → GHC.Types.Bool → Nested f a
+  │    └─ type: (Type → Type) → Type → Type
+  └─ deriving plans: stock Functor (Nested f) [context: Functor f] [methods: fmap, <$]
+    deriving Functor
+             └─ $fFunctorNestedf ∷ ∀ f. (Functor f) ⇒ Functor (Nested f)
+             └─ type: f b → f (f b) → GHC.Types.Bool → Nested f b; type-args: f, b
+             └─ fmap ∷ ∀ a b. (a → b) → Nested f a → Nested f b
+             └─ type: f a → f b
+             └─ type: (a → b) → f a → f b; type-args: f, a, b; evidence: given Functor f
+             └─ type: f a
+             └─ type: (a → b) → f a → f b; type-args: f, a, b; evidence: given Functor f
+             └─ type: f a
+             └─ type: (f a → f b) → f (f a) → f (f b); type-args: f, f a, f b; evidence: given Functor f
+             └─ type: f (f a)
+             └─ type: GHC.Types.Bool
+             └─ type: a → b
+             └─ type: Nested f a
+extensions:
+- DeriveFunctor
+modules:
+- |
+  {-# LANGUAGE DeriveFunctor #-}
+  module Main where
+  import GHC.Prim.Base (Functor)
+  import GHC.Types (Bool)
+  data Pair b a = Pair b a
+  data Swapped a = Swapped (Pair a Bool)
+    deriving Functor
+  data Argument a = Argument (a -> Bool)
+    deriving Functor
+  data Nested f a = Nested (f a) (f (f a)) Bool
+    deriving Functor
+reason: the last parameter of a datatype has to sit in the last argument of a type,
+  where the instance of that type can reach it; the types around a nested one
+  become the context
+status: pass

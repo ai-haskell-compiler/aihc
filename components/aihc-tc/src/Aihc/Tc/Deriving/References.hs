@@ -141,6 +141,22 @@ data DerivingReferences = DerivingReferences
     derivingLexemeSymbol :: !DerivingReference,
     -- | The @Punc@ lexeme constructor, for punctuation.
     derivingLexemePunc :: !DerivingReference,
+    -- | The @pure@ method of @Applicative@, which a derived @traverse@
+    -- delivers a constructor and its unvisited fields with.
+    derivingPure :: !DerivingReference,
+    -- | The @(\<*\>)@ method of @Applicative@, which a derived @traverse@
+    -- applies a constructor to one visited field with.
+    derivingApply :: !DerivingReference,
+    -- | @conE@, which lifts a constructor into a Template Haskell
+    -- expression.
+    derivingLiftConE :: !DerivingReference,
+    -- | @appE@, which applies one lifted expression to another.
+    derivingLiftAppE :: !DerivingReference,
+    -- | @mkNameG_d@, which names a data constructor by its package, its
+    -- module, and its spelling.
+    derivingLiftDataConName :: !DerivingReference,
+    -- | @unsafeCodeCoerce@, which makes a typed lift out of an untyped one.
+    derivingLiftCodeCoerce :: !DerivingReference,
     -- | The classes that stock deriving writes code for, and where each is
     -- declared. A location that names a package makes all three agree, so a
     -- user module that repeats a core-library module name does not make its
@@ -183,5 +199,11 @@ derivingReferenceList references =
     derivingReadSymField references,
     derivingLexemeIdent references,
     derivingLexemeSymbol references,
-    derivingLexemePunc references
+    derivingLexemePunc references,
+    derivingPure references,
+    derivingApply references,
+    derivingLiftConE references,
+    derivingLiftAppE references,
+    derivingLiftDataConName references,
+    derivingLiftCodeCoerce references
   ]

@@ -1,0 +1,32 @@
+extensions:
+  - DeriveFoldable
+modules:
+  - |
+    {-# LANGUAGE DeriveFoldable #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool
+
+    data Tree a = Leaf | Node (Tree a) a (Tree a)
+      deriving Foldable
+
+    data Shapes b a = Shapes b a (Maybe a) [Maybe a]
+      deriving Foldable
+
+    tree :: Tree Int
+    tree = Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf)
+
+    shapes :: Shapes Bool Int
+    shapes = Shapes True 1 (Just 2) [Just 3, Nothing, Just 4]
+
+    result :: Results
+    result =
+      Results
+        (foldr (:) [] tree == [1, 2, 3])
+        (foldr (:) [] shapes == [1, 2, 3, 4])
+        (sum tree == 6 && length tree == 3)
+        (null (Leaf :: Tree Int) && foldMap (: []) tree == [1, 2, 3])
+expression: result
+output: Results True True True True
+status: pass
+reason: derived foldr visits the fields left to right and folds nested positions through the instance of the type around them, which the other Foldable methods default to

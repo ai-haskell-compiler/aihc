@@ -15,6 +15,7 @@ module Aihc.Tc.Deriving.Context
     derivingObligations,
     newtypeRepresentation,
     stockFieldTypes,
+    stockFunctorialFields,
     typeTyVars,
     moduleDerivingPlans,
     replaceModulePlans,
@@ -36,7 +37,8 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
   )
 import Aihc.Tc.Constraint (CtOrigin (..))
-import Aihc.Tc.Deriving.StockClass (generatesStockMethods)
+import Aihc.Tc.Deriving.Functorial (fieldUse, fieldUseObligations)
+import Aihc.Tc.Deriving.StockClass (StockObligations (..), generatesStockMethods, stockClassObligationsOf)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
@@ -133,8 +135,11 @@ derivingObligations kinds plan =
   case tcDerivingStrategy plan of
     TcDerivingAnyclass -> Just (Right (anyClassObligations kinds plan))
     TcDerivingStock
-      | generatesStockMethods (tcDerivingClassName plan) ->
-          Just (map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan)
+      | generatesStockMethods (tcDerivingClassName plan),
+        Just shape <- stockClassObligationsOf (tcDerivingClassName plan) ->
+          Just $ case shape of
+            FieldObligations -> map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan
+            FunctorialObligations -> functorialObligations plan
       | otherwise -> Nothing
     TcDerivingNewtype ->
       Just (coercedObligations kinds plan <$> newtypeRepresentation plan)
@@ -256,6 +261,49 @@ anyClassObligations kinds plan =
         [ (tvUnique tyVar, headType)
         | (tyVar, headType) <- zip (tcDerivingClassTyVars plan) (tcDerivingHeadTypes plan)
         ]
+
+-- | The classes that the fields of a functor-like plan need at the types
+-- that stand between them and the last datatype parameter.
+functorialObligations :: TcDerivingPlan -> Either String [Pred]
+functorialObligations plan = do
+  (parameter, fields) <- stockFunctorialFields plan
+  uses <- mapM (fieldUse mechanism parameter) (concat fields)
+  pure (nub (concatMap (fieldUseObligations (tcDerivingClassTyCon plan)) uses))
+  where
+    mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
+
+-- | The parameter a functor-like plan is derived over and the field types
+-- of every constructor, with the parameters the instance head keeps
+-- instantiated to it. The head must drop exactly the last parameter: a
+-- class such as @Functor@ takes a type of one argument, so an instance for
+-- a datatype of no parameters, or one that leaves more than one out, has no
+-- position to map over.
+stockFunctorialFields :: TcDerivingPlan -> Either String (TyVarId, [[TcType]])
+stockFunctorialFields plan = do
+  dataType <-
+    maybe
+      (Left (mechanism <> " requires checked datatype metadata"))
+      Right
+      (tcDerivingDataType plan)
+  targetArguments <- targetTypeArguments mechanism dataType plan
+  validateStockDataType mechanism dataType
+  parameter <-
+    case drop (length targetArguments) (dtiTyVars dataType) of
+      [parameter] -> Right parameter
+      _ -> Left (mechanism <> " requires a datatype whose last parameter the instance head leaves out")
+  let substitution =
+        Map.fromList
+          [ (tvUnique tyVar, argument)
+          | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
+          ]
+  pure
+    ( parameter,
+      [ [applySubst substitution (dcfiType field) | field <- dciFields constructor]
+      | constructor <- dtiConstructors dataType
+      ]
+    )
+  where
+    mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
 
 -- | The field types of every constructor of a stock deriving target, with
 -- the datatype parameters instantiated to the instance head.
