@@ -5,15 +5,19 @@ module Test.Native.Primitive
   )
 where
 
+import Aihc.Grin.Primitive (allocatingPrimitives, primitiveAllocates)
 import Aihc.Grin.Syntax (grinForeignCallSymbol)
 import Aihc.Native
   ( NativeCpsCall (..),
     NativeCpsTransfer (..),
     NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
+    nativeCpsPrimitiveCalls,
     nativeRuntimePrimitiveCall,
+    nativeRuntimePrimitiveCalls,
     supportedNativePrimitiveNames,
   )
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -172,8 +176,50 @@ tests =
       testCase "accepts the Char# comparison and Int# division primitives in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["eqChar#", "neChar#", "ltChar#", "leChar#", "gtChar#", "geChar#", "quotInt#", "remInt#"]
+          ["eqChar#", "neChar#", "ltChar#", "leChar#", "gtChar#", "geChar#", "quotInt#", "remInt#"],
+      -- Aihc.Grin.Primitive decides which primitives a heap reservation may
+      -- span. It sits below this module and cannot read these tables, so it
+      -- states the answer again, and these two cases hold the copies
+      -- together. Getting it wrong is quiet: a primitive that allocates
+      -- outside a reservation aborts inside aihc_gc_allocate rather than
+      -- failing a lint.
+      --
+      -- The first case is the one that matters. It is a lower bound rather
+      -- than an equality, because a primitive may allocate off the managed
+      -- heap -- a byte array does today -- and still belong in the list.
+      testCase "every primitive that is handed the machine allocates" $
+        mapM_
+          (\primitive -> assertEqual ("allocates: " <> show primitive) True (primitiveAllocates primitive))
+          machinePrimitiveNames,
+      testCase "every allocating primitive is a runtime call of some kind" $
+        assertEqual
+          "primitives classified as allocating that no runtime table mentions"
+          []
+          (filter (`notElem` runtimePrimitiveNames) (Set.toAscList allocatingPrimitives))
     ]
+
+-- | The primitives whose lowering is handed the machine pointer, and so can
+-- reach @aihc_gc_allocate@: the runtime calls that pass it, and the CPS
+-- calls, which hand over the thread. The control primitives never arrive as
+-- a primitive call at all, so they are named alongside them.
+machinePrimitiveNames :: [Text]
+machinePrimitiveNames =
+  [name | (name, call) <- nativeRuntimePrimitiveCalls, nativeRuntimeCallPassMachine call]
+    <> map fst nativeCpsPrimitiveCalls
+    <> controlPrimitiveNames
+
+-- | Every primitive that becomes a call rather than straight-line code. A
+-- primitive outside this set cannot allocate, whatever the runtime does
+-- with its memory later.
+runtimePrimitiveNames :: [Text]
+runtimePrimitiveNames =
+  map fst nativeRuntimePrimitiveCalls
+    <> map fst nativeCpsPrimitiveCalls
+    <> controlPrimitiveNames
+
+controlPrimitiveNames :: [Text]
+controlPrimitiveNames =
+  ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#", "keepAlive#", "seq#"]
 
 runtimeCallSymbol :: NativeRuntimeCall -> Text
 runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
