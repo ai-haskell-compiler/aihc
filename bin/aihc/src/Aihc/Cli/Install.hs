@@ -70,7 +70,6 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
@@ -169,7 +168,7 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (GenericPackageDescription, HookedBuildInfo, emptyHookedBuildInfo, package, packageDescription)
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
+import Distribution.PackageDescription.Parsec (parseHookedBuildInfo, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
 import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
@@ -576,8 +575,8 @@ installPlanNode config locations installed root plan = do
       dependencies <- mapM (installPlanNode config locations installed False) (planDependencyPlans plan)
       package <-
         if locationImmutable locations || planOrigin plan /= PlanLocal
-          then installStorePackage config root reinstall (locationStoreRoot locations) dependencies (planSourcePath plan)
-          else installLocalPackage config reinstall (locationBuildRoot locations) dependencies (planSourcePath plan)
+          then installStorePackage config root reinstall (locationStoreRoot locations) dependencies plan
+          else installLocalPackage config reinstall (locationBuildRoot locations) dependencies plan
       modifyIORef' installed (Map.insert key package)
       pure package
 
@@ -592,16 +591,13 @@ data PackageInputs = PackageInputs
     inputAutogenIncludes :: ![FilePath]
   }
 
-readPackageInputs :: ModuleCompileConfig -> FilePath -> IO PackageInputs
-readPackageInputs config root = do
-  cabalFiles <- HackageUtil.findCabalFiles root
-  cabalFile <- case cabalFiles of
-    [] -> ioError (userError ("No .cabal file found under " <> root))
-    files -> pure (HackageUtil.chooseBestCabalFile root files)
-  cabalBytes <- BS.readFile cabalFile
-  gpd <- case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right value) -> pure value
-    (_, Left (_, errors)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errors))
+-- | Read what the installer needs from a planned package. The @.cabal@ file
+-- is the one the plan already parsed, so it is not read again here.
+readPackageInputs :: ModuleCompileConfig -> PackagePlan -> IO PackageInputs
+readPackageInputs config plan = do
+  let root = planSourcePath plan
+      cabalFile = planCabalFile plan
+      gpd = planDescription plan
   let (targetOs, targetArch) = cabalPlatformForTarget (compileTarget config)
   files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
   configureScript <- case HackageCabal.packageBuildType gpd of
@@ -623,9 +619,9 @@ readPackageInputs config root = do
       }
 
 -- | Install an immutable package into the store, unless the store has it.
-installStorePackage :: ModuleCompileConfig -> Bool -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
-installStorePackage config named reinstall storeRoot dependencies root = do
-  inputs <- readPackageInputs config root
+installStorePackage :: ModuleCompileConfig -> Bool -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
+installStorePackage config named reinstall storeRoot dependencies plan = do
+  inputs <- readPackageInputs config plan
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
     unless (installedImmutable dependency) $
@@ -653,7 +649,7 @@ installStorePackage config named reinstall storeRoot dependencies root = do
         (buildAndPublish inputs packageDirectory unitIdentity storePath exists)
   where
     buildAndPublish inputs packageDirectory unitIdentity storePath exists temporaryRoot = do
-      built <- installPackageDirect config packageDirectory unitIdentity True temporaryRoot dependencies root inputs
+      built <- installPackageDirect config packageDirectory unitIdentity True temporaryRoot dependencies (planSourcePath plan) inputs
       when exists (removeDirectoryRecursive storePath)
       publishResult <- try (renameDirectory (installStorePath (installedResult built)) storePath)
       case publishResult of
@@ -665,9 +661,10 @@ installStorePackage config named reinstall storeRoot dependencies root = do
             else throwIO (err :: IOException)
 
 -- | Build a local package in place under the build root.
-installLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> FilePath -> IO InstalledPackage
-installLocalPackage config reinstall buildRoot dependencies root = do
-  inputs <- readPackageInputs config root
+installLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> IO InstalledPackage
+installLocalPackage config reinstall buildRoot dependencies plan = do
+  let root = planSourcePath plan
+  inputs <- readPackageInputs config plan
   let (packageDirectory, unitIdentity) = localPackageIdentity inputs
       buildPath = buildRoot </> packageDirectory
   exists <- doesDirectoryExist buildPath
