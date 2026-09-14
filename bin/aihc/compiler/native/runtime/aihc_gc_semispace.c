@@ -360,10 +360,21 @@ static void aihc_grow_target(AihcMachine *machine, size_t occupied_bytes) {
   machine->semispace_bytes = target;
 }
 
+void aihc_heap_account(AihcMachine *machine) {
+  size_t taken = (size_t)(machine->heap_next - machine->heap_alloc_base);
+  if ((uint64_t)taken > UINT64_MAX - machine->heap_allocated_bytes) {
+    aihc_fail("allocated byte counter overflow");
+  }
+  machine->heap_allocated_bytes += (uint64_t)taken;
+  machine->heap_alloc_base = machine->heap_next;
+}
+
 static void aihc_collect(AihcMachine *machine, size_t required_bytes,
                          uint64_t root_count, AihcSlot *roots) {
   uint64_t started_ns = aihc_host_monotonic_ns();
   aihc_gc_record_peak(machine);
+  /* Everything the mutator took from the space it is about to leave. */
+  aihc_heap_account(machine);
   if (machine->gc_count == UINT64_MAX) {
     aihc_fail("collection counter overflow");
   }
@@ -393,6 +404,9 @@ static void aihc_collect(AihcMachine *machine, size_t required_bytes,
 
   machine->other_space = from_start;
   machine->other_space_bytes = from_bytes;
+  /* The live data the collector copied in is not something the mutator
+     allocated, so the next account starts above it. */
+  machine->heap_alloc_base = machine->heap_next;
   size_t live_bytes = (size_t)(machine->heap_next - machine->heap_start);
   if (required_bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_semispace_exhausted(machine);
@@ -409,13 +423,18 @@ void aihc_gc_init(AihcMachine *machine) {
   }
   machine->heap_start = aihc_semispace_new(machine->semispace_bytes);
   machine->heap_next = machine->heap_start;
+  machine->heap_alloc_base = machine->heap_start;
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
   machine->other_space = NULL;
   machine->other_space_bytes = 0;
 }
 
-void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
-                    AihcSlot *roots) {
+/* The bytes of a reservation, which a request the address space or the heap
+   limit cannot hold does not return from. Both entry points below need these
+   two diagnostics: a request that reaches either of them is one no amount of
+   collection could satisfy. */
+static size_t aihc_reservation_bytes(const AihcMachine *machine,
+                                     uint64_t words) {
   if (words > SIZE_MAX / sizeof(AihcSlot)) {
     aihc_fail("heap reservation is too large");
   }
@@ -423,17 +442,26 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
   if (machine->heap_limit_enabled && bytes > machine->heap_max_bytes) {
     aihc_fail("heap limit exceeded");
   }
+  return bytes;
+}
+
+/* Collect for a caller that has already found the words do not fit. Compiled
+   code compares the bump pointer against the end of the space itself and only
+   calls the runtime on the slow path, so repeating the comparison here would
+   always take the same branch. */
+void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
+                     AihcSlot *roots) {
+  aihc_collect(machine, aihc_reservation_bytes(machine, words), root_count,
+               roots);
+}
+
+/* Reserve for a caller that has not compared anything: the machine start-up
+   path, the runtime units, and the C programs of the tests. */
+void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
+                    AihcSlot *roots) {
+  size_t bytes = aihc_reservation_bytes(machine, words);
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, bytes, root_count, roots);
-  }
-  /* The allocation statistics are kept here, once per reservation: compiled
-     code bumps the heap pointer itself and reports nothing. */
-  if (bytes != 0) {
-    if (bytes > UINT64_MAX - machine->heap_allocated_bytes) {
-      aihc_fail("allocated byte counter overflow");
-    }
-    machine->heap_allocated_bytes += bytes;
-    aihc_record_allocation(machine);
   }
 }
 

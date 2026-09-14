@@ -1,0 +1,53 @@
+program: |
+  constructor Box/1 [IntRep]
+
+  $entry -> BoxedRep Lifted =
+    store (CBox (1 :: IntRep))
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_2 = stack.alloc 8 align 8
+    %heap_3 = load ptr [%machine_0 + 24] align 1 word
+    %heap_end_4 = load ptr [%machine_0 + 32] align 1 word
+    %heap_word_5 = ptr.to_int %heap_3
+    %heap_end_word_6 = ptr.to_int %heap_end_4
+    %heap_room_7 = sub i64 %heap_end_word_6, %heap_word_5
+    %heap_fits_8 = ge.u i64 %heap_room_7, 16
+    br %heap_fits_8, gc_reserved_10(%$cps_return_1), gc_collect_9
+
+  gc_collect_9:
+    store ptr %$cps_return_1, [%roots_2] align 8
+    call @aihc_heap_collect(%machine_0, 2, 1, %roots_2)
+    %$cps_return$gc_12 = load ptr [%roots_2] align 8
+    jump gc_reserved_10(%$cps_return$gc_12)
+
+  gc_reserved_10(%$cps_return$gc_11: ptr):
+    %object_13 = load ptr [%machine_0 + 24] align 1 word
+    %heap_14 = ptr.add %object_13, 16
+    store ptr %heap_14, [%machine_0 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Box_0, [%object_13] align 8
+    store i64 1, [%object_13 + 8] align 8
+    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return$gc_11, %object_13)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  export data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+status: pass
+reason: |
+  The shape every managed allocation takes. The reservation compares the bump
+  pointer against the end of the space and branches; the fast path carries the
+  live roots as block parameters and the slow path is the only one that spills
+  them, calls the collector and reloads what moved. The store itself loads the
+  bump pointer, advances it by the words of the object, and writes the header
+  and the field. The module also pins the info tables of a constructor and of
+  its partial stage.

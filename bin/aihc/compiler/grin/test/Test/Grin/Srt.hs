@@ -151,8 +151,8 @@ program =
         ]
     }
   where
-    call name = GrinCall liftedGrinRep (FunctionName name) []
-    function name parameters = GrinFunction (FunctionName name) parameters liftedGrinRep
+    call name = GrinCall liftedResultRep (FunctionName name) []
+    function name parameters = GrinFunction (FunctionName name) parameters liftedResultRep
 
 boxed :: Text -> GrinVar
 boxed name = GrinVar name 0 liftedGrinRep

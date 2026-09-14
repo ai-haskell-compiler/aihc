@@ -14,7 +14,7 @@ program: |
     call @IntRep $loop (0 :: IntRep)
 return: "10000000"
 heap: "[]"
-allocations:
+allocated-bytes:
   macos-arm64: 0
   linux-amd64: 0
 status: pass

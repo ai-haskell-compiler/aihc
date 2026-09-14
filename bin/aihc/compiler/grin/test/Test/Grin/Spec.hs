@@ -23,6 +23,7 @@ import System.FilePath (takeExtension, (</>))
 import System.IO (stderr, stdin)
 import Test.Grin.Anf qualified as Anf
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
+import Test.Grin.Heap qualified as Heap
 import Test.Grin.Lint qualified as Lint
 import Test.Grin.Srt qualified as Srt
 import Test.Tasty (TestTree, testGroup, withResource)
@@ -44,6 +45,7 @@ tests = do
         "aihc-grin"
         [ testProperty "generated GRIN pretty-printer round-trip" prop_grinPrettyRoundTrip,
           Anf.tests,
+          Heap.tests,
           Lint.tests,
           testGroup "GRIN lint fixtures" lintFixtures,
           Srt.tests,

@@ -17,7 +17,7 @@ program: |
     call @IntRep $sum10 (1 :: IntRep) (2 :: IntRep) (3 :: IntRep) (4 :: IntRep) (5 :: IntRep) (6 :: IntRep) (7 :: IntRep) (8 :: IntRep) (9 :: IntRep) (10 :: IntRep)
 return: "55"
 heap: "[]"
-allocations:
+allocated-bytes:
   macos-arm64: 0
   linux-amd64: 0
 status: pass

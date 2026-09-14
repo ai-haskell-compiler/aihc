@@ -28,25 +28,25 @@ synchronousExceptionProgram =
         [ GrinFunction
             { grinFunctionName = mainFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody = GrinCatch lifted (global outerActionClosure) (global outerHandlerClosure) []
             },
           GrinFunction
             { grinFunctionName = outerActionFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody = GrinCatch lifted (global failingActionClosure) (global rethrowHandlerClosure) []
             },
           GrinFunction
             { grinFunctionName = failingActionFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody = GrinEval lifted (global failingThunk)
             },
           GrinFunction
             { grinFunctionName = failingThunkFunction,
               grinFunctionParameters = [],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind
                   [exception]
@@ -56,13 +56,13 @@ synchronousExceptionProgram =
           GrinFunction
             { grinFunctionName = rethrowHandlerFunction,
               grinFunctionParameters = [innerException],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody = GrinThrow (GrinVarValue innerException)
             },
           GrinFunction
             { grinFunctionName = outerHandlerFunction,
               grinFunctionParameters = [outerException],
-              grinFunctionResultRep = lifted,
+              grinFunctionResultRep = ResultRep lifted,
               grinFunctionBody =
                 GrinBind
                   [output]

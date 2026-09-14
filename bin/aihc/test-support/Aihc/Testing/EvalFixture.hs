@@ -62,7 +62,7 @@ import Aihc.Resolve
     unionScope,
     unnamedPackage,
   )
-import Aihc.Tc (TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
@@ -329,7 +329,7 @@ compileEvalCaseWithWrappers env tc = do
       let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) resolvedModules
       unless (all tcModuleSuccess tcResults) $
         Left ("typecheck error: " <> renderTcErrors tcResults)
-      let interface = envInterface env <> localInterface
+      let interface = mergeTcInterfaces CheckMergedFacts [envInterface env, localInterface]
           bindings = envBindings env <> moduleGroupBindings tcResults
           configs =
             desugarConfigsByModule (collectModuleExportsWithDeps (envExports env) packageModules) packageModules
@@ -514,7 +514,7 @@ typecheckCoreModules units =
         typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)
       (checkedOther, localInterface) =
         typecheckModulesWithInterface evalTcConfig primInterface orderedOtherModules
-   in (checkedPrim <> checkedOther, primInterface <> localInterface)
+   in (checkedPrim <> checkedOther, mergeTcInterfaces CheckMergedFacts [primInterface, localInterface])
   where
     primModules = filter (isWired . moduleUnitAst) units
     orderedOtherModules = filter (not . isWired . moduleUnitAst) units

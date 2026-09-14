@@ -25,9 +25,18 @@ data GrinLintError
   | GrinLintFunctionArity !FunctionName !Int !Int
   | GrinLintSaturatedClosure !FunctionName
   | GrinLintContinuationParameter !FunctionName
-  | GrinLintThunkResult !FunctionName !GrinRep
+  | GrinLintThunkResult !FunctionName !GrinResultRep
   | GrinLintRepresentationMismatch !String !GrinRep !GrinRep
   | GrinLintResultLayout !String ![GrinRep] ![GrinRep]
+  | -- | A forwarded result reached a position that places a value: a bind,
+    -- or the tail of a function that has a layout for its result.
+    GrinLintForwardedResultPlaced !String
+  | -- | A function with a forwarded result placed a value in tail position
+    -- instead of handing its continuation to a callee.
+    GrinLintForwardedFunctionPlaces ![GrinRep]
+  | -- | A call expects a result the callee does not declare. A callee with
+    -- a forwarded result serves every call site.
+    GrinLintCallResult !FunctionName !GrinResultRep !GrinResultRep
   | GrinLintEvalNonLifted !GrinRep
   | GrinLintUpdateNonLifted !GrinRep
   | GrinLintForeignArity !Text !Int !Int
@@ -39,7 +48,7 @@ data GrinLintError
 data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
     lintFunctionNodeArities :: !(Map FunctionName Int),
-    lintFunctionResults :: !(Map FunctionName GrinRep),
+    lintFunctionResults :: !(Map FunctionName GrinResultRep),
     lintPrimitiveArities :: !(Map Text Int),
     lintConstructorLayouts :: !(Map Text [[GrinRep]]),
     lintForeignCalls :: !(Map Text GrinForeignCall)
@@ -125,14 +134,16 @@ lintFunction env function =
     <> lintExpr env bound (grinFunctionBody function)
   where
     bound = Set.fromList (grinFunctionParameters function)
+    results = exprResults (grinFunctionBody function)
     resultErrors =
-      [ GrinLintResultLayout "function result" expected actual
-      | actual <- exprResultLayouts (grinFunctionBody function),
-        actual /= expected
-      ]
-    expected = runtimeRepComponents (grinFunctionResultRep function)
+      case grinFunctionResultRep function of
+        ResultRep runtimeRep ->
+          let expected = runtimeRepComponents runtimeRep
+           in [GrinLintResultLayout "function result" expected actual | Placed actual <- results, actual /= expected]
+                <> [GrinLintForwardedResultPlaced "function result" | Forwarded <- results]
+        ResultForwarded -> [GrinLintForwardedFunctionPlaces actual | Placed actual <- results]
 
-lintFunctionResult :: LintEnv -> GrinRep -> GrinExpr -> [GrinLintError]
+lintFunctionResult :: LintEnv -> GrinResultRep -> GrinExpr -> [GrinLintError]
 lintFunctionResult env resultRep expr =
   case expr of
     GrinBind _ _ body -> lintFunctionResult env resultRep body
@@ -187,8 +198,8 @@ lintExpr env bound expr =
         <> lintValue bound value
         <> lintValue bound continuation
         <> lintValue bound updateContinuation
-    GrinCall _ functionName arguments ->
-      lintKnownCall env bound functionName arguments
+    GrinCall resultRep functionName arguments ->
+      lintKnownCall env bound resultRep functionName arguments
     GrinPrimitiveCall _ name arguments ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue bound) arguments
@@ -236,9 +247,9 @@ lintExpr env bound expr =
                ]
             <> concatMap (lintValue bound) arguments
 
-lintKnownCall :: LintEnv -> Set GrinVar -> FunctionName -> [GrinValue] -> [GrinLintError]
-lintKnownCall env bound functionName arguments =
-  functionErrors <> concatMap (lintValue bound) arguments
+lintKnownCall :: LintEnv -> Set GrinVar -> GrinResultRep -> FunctionName -> [GrinValue] -> [GrinLintError]
+lintKnownCall env bound resultRep functionName arguments =
+  functionErrors <> resultErrors <> concatMap (lintValue bound) arguments
   where
     functionErrors =
       case Map.lookup functionName (lintFunctionArities env) of
@@ -246,14 +257,30 @@ lintKnownCall env bound functionName arguments =
         Just expected
           | expected /= length arguments -> [GrinLintFunctionArity functionName expected (length arguments)]
         Just _ -> []
+    -- A callee that forwards its result serves a call site of any layout:
+    -- the value goes to the continuation the call site reified. A callee
+    -- with a layout must be called for that layout. After the CPS pass a
+    -- call never returns, and its empty result says so.
+    resultErrors =
+      case Map.lookup functionName (lintFunctionResults env) of
+        Just declared
+          | declared /= ResultForwarded,
+            declared /= resultRep,
+            resultRep /= ResultRep cpsCallResultRep ->
+              [GrinLintCallResult functionName declared resultRep]
+        _ -> []
+
+-- | The result of every call after the CPS pass, which hands the callee a
+-- continuation and never returns.
+cpsCallResultRep :: GrinRep
+cpsCallResultRep = TupleRep []
 
 bindRepresentationErrors :: [GrinVar] -> GrinExpr -> [GrinLintError]
 bindRepresentationErrors vars valueExpr =
-  [ GrinLintResultLayout "bind" expected actual
-  | actual <- exprResultLayouts valueExpr,
-    actual /= expected
-  ]
+  [GrinLintResultLayout "bind" expected actual | Placed actual <- results, actual /= expected]
+    <> [GrinLintForwardedResultPlaced "bind" | Forwarded <- results]
   where
+    results = exprResults valueExpr
     expected = map grinVarRuntimeRep vars
 
 lintAlt :: LintEnv -> Set GrinVar -> GrinAlt -> [GrinLintError]
@@ -306,11 +333,14 @@ lintNodeFunction env node =
           | otherwise -> [GrinLintFunctionArity functionName expected actual]
     checkClosureArity functionName argumentLayouts =
       checkFunctionArity functionName (fieldCount + length (concat argumentLayouts))
+    -- A thunk's result is placed by the update, so it has a layout, and a
+    -- lifted one.
     checkThunkResult functionName =
       case Map.lookup functionName (lintFunctionResults env) of
-        Just runtimeRep
-          | not (isLiftedRuntimeRep runtimeRep) -> [GrinLintThunkResult functionName runtimeRep]
-        _ -> []
+        Just (ResultRep runtimeRep)
+          | isLiftedRuntimeRep runtimeRep -> []
+        Just resultRep -> [GrinLintThunkResult functionName resultRep]
+        Nothing -> []
 
 duplicates :: (Ord a) => [a] -> [a]
 duplicates = go Set.empty Set.empty
@@ -320,37 +350,44 @@ duplicates = go Set.empty Set.empty
       | value `Set.member` seen = go seen (Set.insert value repeated) rest
       | otherwise = go (Set.insert value seen) repeated rest
 
--- | Each returning case alternative contributes its own result layout.
+-- | What one exit of an expression produces: values of a layout, or a
+-- result a callee forwards to the continuation of the enclosing function.
+data ExprResult
+  = Placed ![GrinRep]
+  | Forwarded
+
+-- | Each returning case alternative contributes its own result.
 -- Control transfers do not produce a result at this expression.
-exprResultLayouts :: GrinExpr -> [[GrinRep]]
-exprResultLayouts expr =
+exprResults :: GrinExpr -> [ExprResult]
+exprResults expr =
   case expr of
-    GrinConstant values -> [map grinValueRuntimeRep values]
-    GrinBind _ _ body -> exprResultLayouts body
-    GrinStore {} -> [[liftedGrinRep]]
-    GrinEnsureHeap _ roots -> [map grinValueRuntimeRep roots]
-    GrinStoreUnchecked {} -> [[liftedGrinRep]]
-    GrinStoreRec _ body -> exprResultLayouts body
-    GrinStoreRecUnchecked _ body -> exprResultLayouts body
-    GrinUpdate _ value -> [[grinValueRuntimeRep value]]
-    GrinUpdateBlackhole _ value -> [[grinValueRuntimeRep value]]
-    GrinEval runtimeRep _ -> [runtimeRepComponents runtimeRep]
+    GrinConstant values -> [Placed (map grinValueRuntimeRep values)]
+    GrinBind _ _ body -> exprResults body
+    GrinStore {} -> [Placed [liftedGrinRep]]
+    GrinEnsureHeap _ roots -> [Placed (map grinValueRuntimeRep roots)]
+    GrinStoreUnchecked {} -> [Placed [liftedGrinRep]]
+    GrinStoreRec _ body -> exprResults body
+    GrinStoreRecUnchecked _ body -> exprResults body
+    GrinUpdate _ value -> [Placed [grinValueRuntimeRep value]]
+    GrinUpdateBlackhole _ value -> [Placed [grinValueRuntimeRep value]]
+    GrinEval runtimeRep _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinCpsEval {} -> []
-    GrinCall runtimeRep _ _ ->
-      case runtimeRepComponents runtimeRep of
-        [] -> []
-        components -> [components]
-    GrinPrimitiveCall runtimeRep _ _ -> [runtimeRepComponents runtimeRep]
+    GrinCall resultRep _ _ ->
+      case resultRepComponents resultRep of
+        Nothing -> [Forwarded]
+        Just [] -> []
+        Just components -> [Placed components]
+    GrinPrimitiveCall runtimeRep _ _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinCpsPrimitiveCall {} -> []
-    GrinApply runtimeRep _ _ -> [runtimeRepComponents runtimeRep]
+    GrinApply resultRep _ _ -> maybe [Forwarded] (pure . Placed) (resultRepComponents resultRep)
     GrinCpsApply {} -> []
     GrinContinue {} -> []
     GrinCpsRaise {} -> []
     GrinHalt {} -> []
     GrinExit {} -> []
     GrinCase _ _ alternatives ->
-      concatMap (exprResultLayouts . grinAltRhs) alternatives
+      concatMap (exprResults . grinAltRhs) alternatives
     GrinThrow {} -> []
-    GrinCatch runtimeRep _ _ _ -> [runtimeRepComponents runtimeRep]
+    GrinCatch runtimeRep _ _ _ -> [Placed (runtimeRepComponents runtimeRep)]
     GrinForeignCallExpr foreignCall _ ->
-      [grinForeignCallResultReps (grinForeignCallSignature foreignCall)]
+      [Placed (grinForeignCallResultReps (grinForeignCallSignature foreignCall))]

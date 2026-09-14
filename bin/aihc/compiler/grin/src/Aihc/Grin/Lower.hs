@@ -45,7 +45,7 @@ data LocalFunction = LocalFunction
   { localFunctionEntry :: !FunctionName,
     -- | The runtime layout of every logical parameter.
     localFunctionLayouts :: ![[GrinRep]],
-    localFunctionResultRep :: !GrinRep,
+    localFunctionResultRep :: !GrinResultRep,
     -- | Whether another module can name this function. Only an exported
     -- function gets a global; see 'privateFunctionNode'.
     localFunctionExported :: !Bool
@@ -224,7 +224,7 @@ lowerForeignCallExpr env call types arguments = do
     -- example when @unsafeCoerce#@ gives a state transformer.
     GT -> do
       let (callArguments, extraArguments) = splitAt (length argumentTypes) arguments
-      resultRep <- expressionRuntimeRep env (Fc.ExForeignCall call types arguments)
+      resultRep <- expressionResultRep env (Fc.ExForeignCall call types arguments)
       evaluated <- freshVar "function_whnf" liftedGrinRep
       functionExpression <- lowerForeignCallExpr env call types callArguments
       rest <- lowerDynamicApplication env resultRep (GrinVarValue evaluated) extraArguments
@@ -232,8 +232,8 @@ lowerForeignCallExpr env call types arguments = do
     EQ
       | Fc.Prim <- Fc.foreignCallConvention call,
         Map.member (Fc.nameText name) specialPrimitiveArities -> do
-          -- A call that never returns keeps a polymorphic representation.
-          resultRep <- expressionRuntimeRep env (Fc.ExForeignCall call types arguments)
+          -- A call that never returns may forward its result.
+          resultRep <- expressionResultRep env (Fc.ExForeignCall call types arguments)
           lowerSpecialApplication env resultRep (Fc.nameText name) arguments
       | otherwise -> do
           resultRep <- liftEither (runtimeRep foreignEnv resultType)
@@ -292,7 +292,7 @@ foreignFunction env call axioms constructors argumentTypes resultType resultRep 
         GrinFunction
           { grinFunctionName = functionName,
             grinFunctionParameters = concat argumentGroups,
-            grinFunctionResultRep = resultRep,
+            grinFunctionResultRep = ResultRep resultRep,
             grinFunctionBody = body
           }
       pure functionName
@@ -337,7 +337,7 @@ lowerPrimitiveBody resultRep name valueGroups
 
 -- | Apply a state transformer to the real world token. The token has no
 -- runtime value, so the transformer gets no argument.
-lowerRunRW :: GrinRep -> GrinValue -> LowerM GrinExpr
+lowerRunRW :: GrinResultRep -> GrinValue -> LowerM GrinExpr
 lowerRunRW resultRep action = do
   evaluatedAction <- freshVar "run_rw_action" liftedGrinRep
   pure
@@ -650,18 +650,16 @@ hasGlobal env name =
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
   let application = Fc.ExApp function argument
-  -- An application is the one expression that can be a whole function body,
-  -- so its result is the one that may never be placed.
-  resultRep <- expressionResultRuntimeRep env application
+  resultRep <- expressionResultRep env application
   case (resultRep, collectApplications application) of
     (_, (Fc.ExVar name, arguments))
       | Just arity <- Map.lookup (Fc.nameText name) specialPrimitiveArities,
         length arguments == arity ->
           lowerSpecialApplication env resultRep (Fc.nameText name) arguments
-    (TupleRep {}, (Fc.ExVar name, arguments))
+    (ResultRep TupleRep {}, (Fc.ExVar name, arguments))
       | isUnboxedConstructor (Fc.nameText name) -> lowerTupleArguments env arguments
     (_, (Fc.ExVar name, arguments))
-      | resultRep == liftedGrinRep,
+      | resultRep == liftedResultRep,
         not (isUnboxedConstructor (Fc.nameText name)),
         Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity ->
@@ -723,19 +721,19 @@ lowerConstructorApplication env name remaining = go []
     go values (argument : arguments) =
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
-lowerLocalFunctionApplication :: LowerEnv -> GrinRep -> Fc.Name -> LocalFunction -> [Fc.Expr] -> LowerM GrinExpr
+lowerLocalFunctionApplication :: LowerEnv -> GrinResultRep -> Fc.Name -> LocalFunction -> [Fc.Expr] -> LowerM GrinExpr
 lowerLocalFunctionApplication env resultRep name function arguments
   | length arguments < arity =
       lowerArguments env arguments $ \argumentValues ->
         pure (GrinStore (GrinNode (GrinClosure entry (drop (length arguments) (localFunctionLayouts function))) argumentValues))
-  | localFunctionResultRep function == directResultRep =
+  | directCall =
       lowerArguments env saturatedArguments $ \argumentValues ->
         case remainingArguments of
           [] -> pure (GrinCall resultRep entry argumentValues)
           _ -> do
             applied <- freshVar "function_application" liftedGrinRep
             rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
-            pure (GrinBind [applied] (GrinCall liftedGrinRep entry argumentValues) rest)
+            pure (GrinBind [applied] (GrinCall liftedResultRep entry argumentValues) rest)
   | Just node <- privateFunctionNode env name = do
       pointer <- freshVar "function" liftedGrinRep
       rest <- lowerDynamicApplication env resultRep (GrinVarValue pointer) arguments
@@ -747,11 +745,17 @@ lowerLocalFunctionApplication env resultRep name function arguments
     entry = localFunctionEntry function
     arity = localFunctionArity function
     (saturatedArguments, remainingArguments) = splitAt arity arguments
+    -- A function that forwards its result serves every call site: the
+    -- value goes to the continuation this call site provides. A function
+    -- with a layout is called directly only for that layout.
+    directCall =
+      localFunctionResultRep function == ResultForwarded
+        || localFunctionResultRep function == directResultRep
     directResultRep
       | null remainingArguments = resultRep
-      | otherwise = liftedGrinRep
+      | otherwise = liftedResultRep
 
-lowerDynamicApplication :: LowerEnv -> GrinRep -> GrinValue -> [Fc.Expr] -> LowerM GrinExpr
+lowerDynamicApplication :: LowerEnv -> GrinResultRep -> GrinValue -> [Fc.Expr] -> LowerM GrinExpr
 lowerDynamicApplication env resultRep = go
   where
     go functionValue [argument] = lowerArgument env argument (pure . GrinApply resultRep functionValue)
@@ -759,7 +763,7 @@ lowerDynamicApplication env resultRep = go
       lowerArgument env argument $ \argumentValues -> do
         applied <- freshVar "function_application" liftedGrinRep
         rest <- go (GrinVarValue applied) remaining
-        pure (GrinBind [applied] (GrinApply liftedGrinRep functionValue argumentValues) rest)
+        pure (GrinBind [applied] (GrinApply liftedResultRep functionValue argumentValues) rest)
     go _ [] = throwLower "GRIN local function application needs an argument"
 
 lowerArguments :: LowerEnv -> [Fc.Expr] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
@@ -772,7 +776,7 @@ lowerArguments env = go []
 specialPrimitiveArities :: Map Text Int
 specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("runRW#", 1), ("keepAlive#", 3), ("seq#", 2)]
 
-lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
+lowerSpecialApplication :: LowerEnv -> GrinResultRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
   case (name, arguments) of
     ("aihcExit#", status : state : _) ->
@@ -782,14 +786,15 @@ lowerSpecialApplication env resultRep name arguments =
     ("unsafeCoerce#", value : _) ->
       lowerArgument env value $ \values ->
         case values of
-          [result] | isLiftedRuntimeRep resultRep -> pure (GrinEval resultRep result)
+          [result] | resultRep == liftedResultRep -> pure (GrinEval liftedGrinRep result)
           _ -> pure (GrinConstant values)
     ("raise#", exception : _) ->
       lowerLazy env "exception" exception (pure . GrinThrow)
-    ("catch#", action : handler : state : _) ->
+    ("catch#", action : handler : state : _) -> do
+      placedRep <- placedResult
       lowerLazy env "action" action $ \actionValue ->
         lowerLazy env "handler" handler $ \handlerValue ->
-          lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
+          lowerArgument env state (lowerCatch placedRep actionValue handlerValue)
     ("runRW#", action : _) ->
       lowerLazy env "action" action (lowerRunRW resultRep)
     -- The collector uses explicit root lists, so the kept-alive value needs
@@ -798,10 +803,17 @@ lowerSpecialApplication env resultRep name arguments =
     ("keepAlive#", _kept : state : continuation : _) ->
       lowerLazy env "keep_alive_continuation" continuation $ \continuationValue ->
         lowerArgument env state (const (lowerRunRW resultRep continuationValue))
-    ("seq#", value : state : _) ->
+    ("seq#", value : state : _) -> do
+      placedRep <- placedResult
       lowerLazy env "seq_value" value $ \valueThunk ->
-        lowerArgument env state (const (pure (GrinEval resultRep valueThunk)))
+        lowerArgument env state (const (pure (GrinEval placedRep valueThunk)))
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
+  where
+    -- The primitives that place their result need its layout.
+    placedResult =
+      case resultRep of
+        ResultRep placedRep -> pure placedRep
+        ResultForwarded -> throwLower ("GRIN compiler primitive " <> T.unpack name <> " places a result the function forwards")
 
 lowerCatch :: GrinRep -> GrinValue -> GrinValue -> [GrinValue] -> LowerM GrinExpr
 lowerCatch resultRep action handler stateValues = do
@@ -817,7 +829,7 @@ lowerCatch resultRep action handler stateValues = do
     GrinFunction
       { grinFunctionName = functionName,
         grinFunctionParameters = handlerCapture : stateCaptures <> [exception],
-        grinFunctionResultRep = resultRep,
+        grinFunctionResultRep = ResultRep resultRep,
         grinFunctionBody =
           -- The handler is forced here rather than before the protected
           -- action, so that a bottom handler only raises once the action
@@ -827,11 +839,11 @@ lowerCatch resultRep action handler stateValues = do
             (GrinEval liftedGrinRep (GrinVarValue handlerCapture))
             ( GrinBind
                 [handlerAction]
-                (GrinApply liftedGrinRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
+                (GrinApply liftedResultRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
                 ( GrinBind
                     [evaluatedAction]
                     (GrinEval liftedGrinRep (GrinVarValue handlerAction))
-                    (GrinApply resultRep (GrinVarValue evaluatedAction) (map GrinVarValue stateCaptures))
+                    (GrinApply (ResultRep resultRep) (GrinVarValue evaluatedAction) (map GrinVarValue stateCaptures))
                 )
             )
       }
@@ -989,7 +1001,7 @@ lazyNodeShape env expression =
             ( case compare (length arguments) (localFunctionArity function) of
                 LT -> Just (GrinClosure (localFunctionEntry function) (drop (length arguments) (localFunctionLayouts function)), arguments)
                 EQ
-                  | isLiftedRuntimeRep (localFunctionResultRep function) ->
+                  | localFunctionResultRep function == liftedResultRep ->
                       Just (GrinThunk (localFunctionEntry function), arguments)
                 _ -> Nothing
             )
@@ -1154,7 +1166,7 @@ makeThunk env hint expression = do
         GrinFunction
           { grinFunctionName = functionName,
             grinFunctionParameters = captures,
-            grinFunctionResultRep = representation,
+            grinFunctionResultRep = ResultRep representation,
             grinFunctionBody = body
           }
       pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
@@ -1171,7 +1183,7 @@ stripValueWrappers expression =
 data ClosureShape = ClosureShape
   { closureBodyEnv :: !LowerEnv,
     closureParameters :: ![[GrinVar]],
-    closureResultRep :: !GrinRep,
+    closureResultRep :: !GrinResultRep,
     closureBody :: !Fc.Expr
   }
 
@@ -1183,7 +1195,7 @@ closureShape env expression = do
   let (bodyEnv0, binders, body) = collectLambdas env expression
   parameterGroups <- mapM (freshVarsForBinder bodyEnv0) binders
   let bodyEnv = foldl bindPair bodyEnv0 (zip binders parameterGroups)
-  bodyRep <- expressionResultRuntimeRep bodyEnv body
+  bodyRep <- expressionResultRep bodyEnv body
   pure (ClosureShape bodyEnv parameterGroups bodyRep body)
   where
     bindPair current (binder, vars) = bindLocal current binder vars
@@ -1204,21 +1216,6 @@ makeClosure env entry expression = do
         grinFunctionBody = loweredBody
       }
   pure (GrinNode (GrinClosure functionName (closureLayouts shape)) (map GrinVarValue captures))
-
--- | An expression that is a call of a primitive that never returns.
-divergingExpression :: Fc.Expr -> Bool
-divergingExpression expression =
-  case applicationHead expression of
-    Just name -> Fc.nameText name `elem` ["raise#", "aihcExit#"]
-    Nothing -> False
-  where
-    applicationHead current =
-      case current of
-        Fc.ExApp function _ -> applicationHead function
-        Fc.ExTyApp function _ -> applicationHead function
-        Fc.ExVar name -> Just name
-        Fc.ExForeignCall call _ _ -> Just (Fc.foreignCallName call)
-        _ -> Nothing
 
 collectLambdas :: LowerEnv -> Fc.Expr -> (LowerEnv, [Fc.Binder], Fc.Expr)
 collectLambdas env expression =
@@ -1262,26 +1259,22 @@ freeAltVariables alternative =
   freeVariables (Fc.altRhs alternative)
     `Set.difference` Set.fromList (map Fc.binderName (Fc.altBinders alternative))
 
+-- | The layout of a value an expression places: one that is bound, stored
+-- in a node, scrutinised, or passed as an argument.
 expressionRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
 expressionRuntimeRep env expression =
   case expression of
     Fc.ExLit literal -> literalRep env literal
-    -- A call that always raises never returns a value, so its runtime
-    -- representation can stay polymorphic. This is what makes a
-    -- representation-polymorphic @error@ possible.
-    _ | divergingExpression expression -> pure liftedGrinRep
     _ -> expressionType env expression >>= liftEither . runtimeRep env
 
--- | The runtime representation of an expression that is a function's
--- result, which may still be a variable. See 'resultRuntimeRep'. Only the
--- body of a function and the application that a function's body may be use
--- this; every other position uses 'expressionRuntimeRep'.
-expressionResultRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
-expressionResultRuntimeRep env expression =
+-- | What an expression in result position produces: the body of a function,
+-- or the call that a body may be. A representation that is still a type
+-- variable is a result the function forwards; see 'GrinResultRep'.
+expressionResultRep :: LowerEnv -> Fc.Expr -> LowerM GrinResultRep
+expressionResultRep env expression =
   case expression of
-    Fc.ExLit {} -> expressionRuntimeRep env expression
-    _ | divergingExpression expression -> expressionRuntimeRep env expression
-    _ -> expressionType env expression >>= liftEither . resultRuntimeRep env
+    Fc.ExLit literal -> ResultRep <$> literalRep env literal
+    _ -> expressionType env expression >>= liftEither . typeResultRep env
 
 expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type
 expressionType env expression =
@@ -1330,28 +1323,22 @@ expressionType env expression =
         Just (_, target) -> pure (applySubstitution env target)
         Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
 
--- | The runtime representation of a value the code generator has to place.
--- It refuses a representation that is still a variable, so a value of such
--- a type can never reach a binder, a node field or a case scrutinee.
+-- | The layout of a value of a type. A representation that is still a type
+-- variable has no layout, and a value of such a type is never placed: the
+-- FC lint rejects the binder, and this refuses the rest.
 runtimeRep :: LowerEnv -> Fc.Type -> Either String GrinRep
-runtimeRep env sourceType = do
-  representation <- lookupRuntimeRep env sourceType
-  convertRep env representation
+runtimeRep env sourceType = typeRuntimeRep env sourceType >>= convertRep env
 
--- | The runtime representation of a function's result, which the function
--- may never place: one whose every exit is a tail call produces no values
--- of its own, and the empty tuple says exactly that. This is the only
--- position where a representation may still be a variable, and it is how a
--- representation-polymorphic pattern synonym matcher compiles.
-resultRuntimeRep :: LowerEnv -> Fc.Type -> Either String GrinRep
-resultRuntimeRep env sourceType = do
-  representation <- lookupRuntimeRep env sourceType
+-- | What a function with a result of a type produces where it returns.
+typeResultRep :: LowerEnv -> Fc.Type -> Either String GrinResultRep
+typeResultRep env sourceType = do
+  representation <- typeRuntimeRep env sourceType
   case reduce env representation of
-    Fc.TyVar _ -> Right (TupleRep [])
-    _ -> convertRep env representation
+    Fc.TyVar _ -> Right ResultForwarded
+    _ -> ResultRep <$> convertRep env representation
 
-lookupRuntimeRep :: LowerEnv -> Fc.Type -> Either String Fc.Type
-lookupRuntimeRep env sourceType =
+typeRuntimeRep :: LowerEnv -> Fc.Type -> Either String Fc.Type
+typeRuntimeRep env sourceType =
   maybe
     (Left ("GRIN cannot find a runtime representation for type: " <> show appliedType))
     pure

@@ -1,0 +1,56 @@
+program: |
+  constructor Nothing/0 []
+  constructor Just/1 [IntRep]
+
+  $entry (value%1 :: BoxedRep Lifted) -> IntRep =
+    case (value%1 :: BoxedRep Lifted) as scrutinee%2 :: BoxedRep Lifted of
+      data Nothing ->
+        constant (0 :: IntRep)
+      data Just (payload%3 :: IntRep) ->
+        constant (payload%3 :: IntRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, i64)
+
+  extern func @aihc_no_match() cc c
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %value_1: ptr, %$cps_return_2: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %header_6 = load ptr [%value_1] align 8
+    %identity_7 = load ptr [%header_6] align 1 word
+    %matches_8 = eq ptr %identity_7, @aihc_c_aihc_entry_Nothing_0
+    br %matches_8, alt_3, check_9
+
+  check_9:
+    %matches_10 = eq ptr %identity_7, @aihc_c_aihc_entry_Just_0
+    br %matches_10, alt_4, no_match_5
+
+  no_match_5:
+    call @aihc_no_match()
+    trap "no matching case alternative"
+
+  alt_3:
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, 0)
+
+  alt_4:
+    %payload_11 = load i64 [%value_1 + 8] align 8
+    tailcall @aihc_lir_continue_i(%machine_0, %$cps_return_2, %payload_11)
+  }
+
+  export data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }
+
+  export data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0 }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  export data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Just_partial align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Just_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+status: pass
+reason: |
+  A case on a pointer loads the header and the identity field of the object and
+  compares it with each constructor table in turn, so the alternatives become a
+  chain of two-way branches rather than a switch. A bound field is loaded from
+  its slot only in the alternative that uses it.

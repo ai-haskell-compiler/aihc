@@ -20,11 +20,13 @@ import Aihc.Tc
     DataTypeInfo (..),
     FunDep (..),
     InstanceInfo (..),
+    MergeCheck (..),
     TcInterface (..),
     TcTermKey (..),
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    mergeTcInterface,
     mkTcKinds,
     tcInterfaceFromLists,
   )
@@ -50,11 +52,13 @@ tcProperties =
       testProperty "interface merge is idempotent" prop_interfaceMergeIdempotent
     ]
 
--- | Repeated module views must not change a semantic interface.
+-- | Repeated module views must not change a semantic interface, whether
+-- or not the merge checks the sides against each other.
 prop_interfaceMergeIdempotent :: Property
 prop_interfaceMergeIdempotent = property $ do
   interface <- forAll genInterface
-  interface <> interface === interface
+  mergeTcInterface CheckMergedFacts interface interface === interface
+  mergeTcInterface TrustMergedFacts interface interface === interface
 
 genInterface :: Gen TcInterface
 genInterface = do

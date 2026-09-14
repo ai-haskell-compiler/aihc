@@ -1,0 +1,96 @@
+program: |
+  primitive +#%1 :: IntRep/2
+  constructor Box/1 [IntRep]
+  constructor Pair/2 [BoxedRep Lifted, BoxedRep Lifted]
+
+  $entry -> BoxedRep Lifted =
+    (first%2 :: BoxedRep Lifted) <- store (CBox (1 :: IntRep))
+    (doubled%3 :: IntRep) <- primitive-call @IntRep +# (2 :: IntRep) (2 :: IntRep)
+    (second%4 :: BoxedRep Lifted) <- store (CBox (doubled%3 :: IntRep))
+    store (CPair (first%2 :: BoxedRep Lifted) (second%4 :: BoxedRep Lifted))
+expected: |
+  extern func @aihc_heap_collect(ptr, i64, i64, ptr) cc c
+
+  extern func @aihc_lir_continue_p(ptr, ptr, ptr)
+
+  extern data @aihc_current_srt
+
+  func @aihc_f_aihc_entry___sentry(%machine_0: ptr, %$cps_return_1: ptr) {
+  entry:
+    store ptr null, [@aihc_current_srt] align 8
+    %roots_2 = stack.alloc 16 align 8
+    %heap_3 = load ptr [%machine_0 + 24] align 1 word
+    %heap_end_4 = load ptr [%machine_0 + 32] align 1 word
+    %heap_word_5 = ptr.to_int %heap_3
+    %heap_end_word_6 = ptr.to_int %heap_end_4
+    %heap_room_7 = sub i64 %heap_end_word_6, %heap_word_5
+    %heap_fits_8 = ge.u i64 %heap_room_7, 16
+    br %heap_fits_8, gc_reserved_10(%$cps_return_1), gc_collect_9
+
+  gc_collect_9:
+    store ptr %$cps_return_1, [%roots_2] align 8
+    call @aihc_heap_collect(%machine_0, 2, 1, %roots_2)
+    %$cps_return$gc_12 = load ptr [%roots_2] align 8
+    jump gc_reserved_10(%$cps_return$gc_12)
+
+  gc_reserved_10(%$cps_return$gc_11: ptr):
+    %object_13 = load ptr [%machine_0 + 24] align 1 word
+    %heap_14 = ptr.add %object_13, 16
+    store ptr %heap_14, [%machine_0 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Box_0, [%object_13] align 8
+    store i64 1, [%object_13 + 8] align 8
+    %result_15 = add i64 2, 2
+    %heap_16 = load ptr [%machine_0 + 24] align 1 word
+    %heap_end_17 = load ptr [%machine_0 + 32] align 1 word
+    %heap_word_18 = ptr.to_int %heap_16
+    %heap_end_word_19 = ptr.to_int %heap_end_17
+    %heap_room_20 = sub i64 %heap_end_word_19, %heap_word_18
+    %heap_fits_21 = ge.u i64 %heap_room_20, 40
+    br %heap_fits_21, gc_reserved_23(%$cps_return$gc_11, %object_13), gc_collect_22
+
+  gc_collect_22:
+    store ptr %$cps_return$gc_11, [%roots_2] align 8
+    store ptr %object_13, [%roots_2 + 8] align 8
+    call @aihc_heap_collect(%machine_0, 5, 2, %roots_2)
+    %$cps_return$gc$gc_26 = load ptr [%roots_2] align 8
+    %first$gc_27 = load ptr [%roots_2 + 8] align 8
+    jump gc_reserved_23(%$cps_return$gc$gc_26, %first$gc_27)
+
+  gc_reserved_23(%$cps_return$gc$gc_24: ptr, %first$gc_25: ptr):
+    %object_28 = load ptr [%machine_0 + 24] align 1 word
+    %heap_29 = ptr.add %object_28, 16
+    store ptr %heap_29, [%machine_0 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Box_0, [%object_28] align 8
+    store i64 %result_15, [%object_28 + 8] align 8
+    %object_30 = load ptr [%machine_0 + 24] align 1 word
+    %heap_31 = ptr.add %object_30, 24
+    store ptr %heap_31, [%machine_0 + 24] align 1 word
+    store ptr @aihc_c_aihc_entry_Pair_0, [%object_30] align 8
+    store ptr %first$gc_25, [%object_30 + 8] align 8
+    store ptr %object_28, [%object_30 + 16] align 8
+    tailcall @aihc_lir_continue_p(%machine_0, %$cps_return$gc$gc_24, %object_30)
+  }
+
+  data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
+
+  export data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Box_partial align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr @aihc_c_aihc_entry_Box_0, code null, ptr null, i8 1, i8 1, i8 0, i8 3 }
+
+  data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
+
+  export data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0 }
+
+  export data @aihc_constructor_aihc_entry_Pair_partial align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr @aihc_c_aihc_entry_Pair_0, code null, ptr null, i8 2, i8 2, i8 0, i8 3 }
+status: pass
+reason: |
+  Every primitive call is a reservation barrier, including one the backend
+  lowers to a single instruction. The addition here becomes `add i64 2, 2` and
+  cannot collect, yet it still splits the function's reservations in two: two
+  words before it and five words after, rather than the seven words the three
+  stores need together. The second reservation carries the first object as a
+  root, which the merged one would not have needed at all.
+
+  See isReservationBarrier in Aihc.Grin.Heap, and issue #2055: narrowing it to
+  the primitives that can allocate or collect needs effect information GRIN
+  does not carry yet.

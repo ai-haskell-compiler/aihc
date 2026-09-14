@@ -45,7 +45,7 @@ genFunction =
   GrinFunction
     <$> genFunctionName
     <*> smallList genVar
-    <*> genRuntimeRep
+    <*> genResultRep
     <*> genExpr
 
 genExpr :: Gen GrinExpr
@@ -59,11 +59,11 @@ genExpr =
       GrinUpdate <$> genValue <*> genValue,
       GrinEval <$> genRuntimeRep <*> genValue,
       GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue <*> genValue,
-      GrinCall <$> genRuntimeRep <*> genFunctionName <*> smallList genValue,
+      GrinCall <$> genResultRep <*> genFunctionName <*> smallList genValue,
       GrinPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue,
       GrinCpsPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> genValue,
-      GrinApply <$> genRuntimeRep <*> genValue <*> smallList genValue,
-      GrinCpsApply <$> genRuntimeRep <*> genValue <*> smallList genValue <*> genValue,
+      GrinApply <$> genResultRep <*> genValue <*> smallList genValue,
+      GrinCpsApply <$> genResultRep <*> genValue <*> smallList genValue <*> genValue,
       GrinContinue <$> genValue <*> smallList genValue,
       GrinCpsRaise <$> genValue <*> genValue,
       GrinUpdateBlackhole <$> genValue <*> genValue,
@@ -134,6 +134,9 @@ genForeignEffect = Gen.element [GrinForeignPure, GrinForeignRealWorld]
 
 genForeignType :: Gen GrinForeignType
 genForeignType = Gen.element [minBound .. maxBound]
+
+genResultRep :: Gen GrinResultRep
+genResultRep = Gen.frequency [(1, pure ResultForwarded), (7, ResultRep <$> genRuntimeRep)]
 
 genRuntimeRep :: Gen GrinRep
 genRuntimeRep =

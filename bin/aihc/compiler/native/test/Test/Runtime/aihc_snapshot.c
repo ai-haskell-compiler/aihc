@@ -292,7 +292,7 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
 
 void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
                         const AihcSnapshotRep *result_reps,
-                        uint64_t allocation_count, uint64_t constructor_count,
+                        uint64_t allocated_bytes, uint64_t constructor_count,
                         const AihcSnapshotConstructor *constructors,
                         uint64_t function_count,
                         const AihcSnapshotFunction *functions) {
@@ -333,6 +333,6 @@ void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
       putchar('\n');
     }
   }
-  printf("allocations: %" PRIu64 "\n", allocation_count);
+  printf("allocated bytes: %" PRIu64 "\n", allocated_bytes);
   free(state.objects);
 }

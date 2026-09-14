@@ -32,12 +32,11 @@ data LintError
   = UnboundName !Name
   | TypeMismatch !String !Type !Type
   | KindMismatch !String !Type !Type
-  | -- | A term binder whose type has no fixed runtime representation. The
-    -- code generator has to place the value, so it has to know its width
-    -- and its register class. A function's /result/ carries no such rule,
-    -- which is what lets a pattern synonym matcher be
-    -- representation-polymorphic: it never binds its result, it tail-calls
-    -- a continuation with it.
+  | -- | A term binder whose type has no fixed runtime representation: the
+    -- representation is the named type variable. The code generator has to
+    -- place every bound value, so it needs the layout. A function's result
+    -- carries no such rule; a function whose every exit is a tail call
+    -- never places its result.
     RepresentationPolymorphicBinder !Name !Name
   | ShadowedBinder !Name
   | UnusedImport !Name

@@ -14,8 +14,16 @@ import synonyms
   2.sLiftedRep = 2.cBoxedRep 2.cLifted;
   2.sType = 2.tTYPE 2.sLiftedRep
 
-val 1.vbad :: ∀(r : 2.tRuntimeRep) (a : 2.tTYPE r). FUN @r @r a a
- = Λ(r : 2.tRuntimeRep).
-  Λ(a : 2.tTYPE r).
-    λ(x : a).
+pub type 1.tUnit :: 2.sType {
+    pub 1.cUnit :: 1.tUnit
+}
+
+val 1.vbad :: ∀(rep : 2.tRuntimeRep) (a : 2.tTYPE rep). FUN @2.sLiftedRep @rep (FUN @2.sLiftedRep @rep 1.tUnit a) a
+ = Λ(rep : 2.tRuntimeRep).
+  Λ(a : 2.tTYPE rep).
+    λ(k : FUN @2.sLiftedRep @rep 1.tUnit a).
+      let {
+          x : a =
+              k 1.cUnit
+      } in
       x

@@ -18,8 +18,8 @@ pub type 1.tUnit :: 2.sType {
     pub 1.cUnit :: 1.tUnit
 }
 
-val 1.vtransfer :: ∀(r : 2.tRuntimeRep) (a : 2.tTYPE r). FUN @2.sLiftedRep @r (FUN @2.sLiftedRep @r 1.tUnit a) a
- = Λ(r : 2.tRuntimeRep).
-  Λ(a : 2.tTYPE r).
-    λ(k : FUN @2.sLiftedRep @r 1.tUnit a).
+val 1.vrunK :: ∀(rep : 2.tRuntimeRep) (a : 2.tTYPE rep). FUN @2.sLiftedRep @rep (FUN @2.sLiftedRep @rep 1.tUnit a) a
+ = Λ(rep : 2.tRuntimeRep).
+  Λ(a : 2.tTYPE rep).
+    λ(k : FUN @2.sLiftedRep @rep 1.tUnit a).
       k 1.cUnit

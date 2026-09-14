@@ -118,6 +118,7 @@ import Aihc.Tc
     DataFamilyInstanceInfo (..),
     DerivingReference (..),
     InstanceInfo (..),
+    MergeCheck (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
@@ -127,6 +128,7 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     derivingReferenceList,
+    emptyTcInterface,
     mergeTcInterfaces,
     mkTcKinds,
     renderFunDepNames,
@@ -864,7 +866,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
         [ (installedName dependency, installedInstanceDigest dependency, Map.keysSet (installedTypeHashes dependency))
         | dependency <- loadedDependencies
         ]
-      dependencyInstanceFacts = mergeTcInterfaces (map installedInstanceFacts loadedDependencies)
+      dependencyInstanceFacts = mergeTcInterfaces (configMergeCheck config) (map installedInstanceFacts loadedDependencies)
       dependencyInstanceProviders = Map.unions (map installedInstanceProviders loadedDependencies)
       primIdentity = packagePrimIdentity resolvePackage dependencyExports
   _ <-
@@ -939,7 +941,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
       allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
       allTypes = localTypes `LazyMap.union` dependencyTypes
       allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
-      packageInstanceInterface = mergeTcInterfaces (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
+      packageInstanceInterface = mergeTcInterfaces (configMergeCheck config) (dependencyInstanceFacts : map typeUnitOwnInstanceInterface typeResults)
       instanceProviders =
         Map.fromList
           [ (sourceName source, interfaceInstanceProviders (typeUnitInstanceInterface result))
@@ -1190,15 +1192,13 @@ loadInstalledPackage requirements immutable storePath = do
   entries <- mapM loadModule selectedModules
   (decodedFacts, instanceProviders) <-
     if null selectedModules
-      then pure (mempty, Map.empty)
+      then pure (emptyTcInterface, Map.empty)
       else loadPackageInstances selectedModules
-  -- The interfaces of a package live for the whole install, so they share
-  -- their equal parts with one another.
-  let shared = shareTcInterfaces (decodedFacts : [interface | (_, _, interface) <- entries])
-      (instanceFacts', interfaces) =
-        case shared of
-          facts : rest -> (facts, rest)
-          [] -> (decodedFacts, [])
+  -- A written interface holds each of its parts once and names it
+  -- everywhere it is used, so the interfaces read above are already
+  -- shared within themselves; nothing here has to look for equal parts.
+  let instanceFacts' = decodedFacts
+      interfaces = [interface | (_, _, interface) <- entries]
       package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
       types = LazyMap.fromList (zip [name | (name, _, _) <- entries] interfaces)
@@ -1243,7 +1243,7 @@ loadInstalledPackage requirements immutable storePath = do
       let path = storePath </> "instances.cbor"
       exists <- doesFileExist path
       if not exists
-        then pure (mempty, Map.empty)
+        then pure (emptyTcInterface, Map.empty)
         else do
           bytes <- BL.readFile path
           artifact <- readTypeArtifact path bytes
@@ -1275,7 +1275,12 @@ parseSource headerDir root versions fileInfo = do
   let name = fromMaybe "Main" (moduleName modu)
       imports = [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- Syntax.moduleImports modu]
   parsed <- newMVar modu
-  pure
+  -- Built here rather than returned as a thunk: the strict fields below
+  -- are what the phases after this one read instead of the parse tree,
+  -- and they only run when the record is built. Left to 'pure', the
+  -- first read of any of them built every module's -- the digest, the
+  -- name, the imports -- on the serial stretch before the task graph.
+  evaluate
     SourceModule
       { sourceModulePath = path,
         sourceModuleSize = BS.length bytes,
@@ -1806,6 +1811,7 @@ runTypeUnit context runtimes runtime = do
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
       importedTypes =
         mergeTcInterfaces
+          (configMergeCheck config)
           ( importedInstanceInterface
               : [ interface
                 | name <- dependencyNames,
@@ -1838,10 +1844,8 @@ runTypeUnit context runtimes runtime = do
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       decodedFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
-      let (ownFacts, interfaces) =
-            case shareTcInterfaces (decodedFacts : map typeArtifactInterface artifacts) of
-              facts : rest -> (facts, rest)
-              [] -> (decodedFacts, [])
+      let ownFacts = decodedFacts
+          interfaces = map typeArtifactInterface artifacts
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $ do
         putTMVar
@@ -1861,7 +1865,7 @@ runTypeUnit context runtimes runtime = do
         putTMVar (runtimeBackendInput runtime) Nothing
     Nothing -> do
       ((checkedModules, checkedInterface), diagnostics) <- checkUnit
-      let completeInterface = mergeTcInterfaces [importedTypes, checkedInterface]
+      let completeInterface = mergeTcInterfaces (configMergeCheck config) [importedTypes, checkedInterface]
           -- What the unit publishes outlives this task, so its equal
           -- parts are made one object each; the checking state is not.
           (ownInstanceInterface, unitTypes) =
@@ -2049,7 +2053,7 @@ unitBackendPaths config unit = concatMap paths (sourceUnitSources unit)
 
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
-  mempty
+  emptyTcInterface
     { tcInterfaceInstanceMap = tcInterfaceInstanceMap interface,
       tcInterfaceDataFamilyInstanceMap = tcInterfaceDataFamilyInstanceMap interface,
       tcInterfaceTypeFamilyInstanceMap = tcInterfaceTypeFamilyInstanceMap interface
@@ -2068,11 +2072,11 @@ interfaceInstanceProviders interface =
 
 selectInstanceProviders :: TcInterface -> Set.Set InstanceProvider -> TcInterface
 selectInstanceProviders complete providers
-  | Set.null providers = mempty
+  | Set.null providers = emptyTcInterface
   | otherwise =
       addReferencedFacts
         complete
-        mempty
+        emptyTcInterface
           { tcInterfaceInstanceMap = Map.filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstanceMap complete),
             tcInterfaceDataFamilyInstanceMap = Map.filter ((`Set.member` providers) . tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap complete),
             tcInterfaceTypeFamilyInstanceMap = Map.filter ((`Set.member` providers) . tfiiOrigin) (tcInterfaceTypeFamilyInstanceMap complete)
@@ -2148,6 +2152,14 @@ renderBackendPhaseTotals timings =
       "native total: " <> renderDuration (backendNativeNs timings),
       "other total: " <> renderDuration (backendOtherNs timings)
     ]
+
+-- | Whether the interface merges of a compile verify the sides against
+-- each other. The check costs a comparison of every fact two merged
+-- interfaces share, so it runs under @--lint@ and nowhere else.
+configMergeCheck :: ModuleCompileConfig -> MergeCheck
+configMergeCheck config
+  | compileLint config = CheckMergedFacts
+  | otherwise = TrustMergedFacts
 
 -- | Desugar the checked modules of a unit to System FC, lint it when asked,
 -- and write it when a later build or a @--lto@ link reads it. This is the
@@ -2974,4 +2986,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-24"
+packageArtifactFormatVersion = "aihc-artifacts-25"
