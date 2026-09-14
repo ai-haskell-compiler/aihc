@@ -84,7 +84,6 @@ import Aihc.Parser.Syntax
     mkUnqualifiedName,
     moduleExports,
     moduleName,
-    nameQualifier,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
@@ -224,8 +223,8 @@ resolvedModuleOrigin resolvedModule =
   fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
     resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
     case resolutionTarget resolved of
-      ResolvedTopLevel packageId name ->
-        pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
+      ResolvedTopLevel packageId moduleName' _ ->
+        pure (packageIdText packageId, moduleName')
       _ -> Nothing
 
 definitionResolution :: Decl -> Maybe ResolutionAnnotation
@@ -236,6 +235,7 @@ definitionResolution declaration =
     DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
     DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
     DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
+    DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (dataFamilyDeclHead familyDeclaration))
     DeclForeign foreignDeclaration -> nameResolution (foreignName foreignDeclaration)
     DeclTypeSyn typeSynDeclaration -> nameResolution (binderHeadName (typeSynHead typeSynDeclaration))
     DeclTypeData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
@@ -777,8 +777,7 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
       | annotation <- annotationList declaration <> kindAnnotations declaration,
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
         resolutionNamespace resolution == ResolutionNamespaceType,
-        ResolvedTopLevel package name <- [resolutionTarget resolution],
-        Just moduleName' <- [nameQualifier name],
+        ResolvedTopLevel package moduleName' name <- [resolutionTarget resolution],
         Just owner <- [Map.lookup (package, moduleName', ResolutionNamespaceType, nameText name) owners]
       ]
     flatten (AcyclicSCC declaration) = [declaration]
@@ -3334,8 +3333,7 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
 
 resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
 resolvedTypeKey name = do
-  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedName} <- nameResolution name
-  moduleName' <- nameQualifier resolvedName
+  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId moduleName' resolvedName} <- nameResolution name
   pure (packageId, moduleName', namespace, nameText resolvedName)
 
 registerTypeDeclHeader :: Map TcTypeKey TypeScheme -> Decl -> TcM [TcBindingResult]
@@ -4020,9 +4018,8 @@ sourceTypeKey home ty =
 typeConKey :: (Text, Text) -> Name -> Text
 typeConKey home name =
   case nameResolution (unqualifiedFromResolvedName name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
-      | Just definingModuleName <- nameQualifier resolvedName,
-        (packageIdText packageId, definingModuleName) /= home ->
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId definingModuleName resolvedName}
+      | (packageIdText packageId, definingModuleName) /= home ->
           packageIdText packageId <> ":" <> definingModuleName <> "." <> nameText resolvedName
     _ -> nameText name
 
@@ -4455,9 +4452,8 @@ typeResultKind _ kind = kind
 mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
 mkDeclaredTyCon binder name arity =
   case nameResolution binder of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
-      | Just definingModuleName <- nameQualifier resolvedName ->
-          wiredDeclarationIdentity (mkTyConWithOrigin packageId definingModuleName name arity)
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId definingModuleName _} ->
+      wiredDeclarationIdentity (mkTyConWithOrigin packageId definingModuleName name arity)
     _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
 -- | Register a single data constructor as a polymorphic binding.

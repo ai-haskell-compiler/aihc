@@ -25,11 +25,9 @@ import Aihc.Parser.Syntax
     Extension,
     LanguageEdition (Haskell2010Edition),
     Module,
-    Name (..),
     fromAnnotation,
     moduleName,
     parseExtensionName,
-    renderName,
   )
 import Aihc.Resolve
   ( Identifier,
@@ -284,9 +282,9 @@ renderConciseNamespace namespace =
 renderConciseOrigin :: Identifier -> ResolvedName -> Text
 renderConciseOrigin identifier resolvedName =
   case resolvedName of
-    ResolvedTopLevel identity name
-      | packageIdText identity `elem` ["", "main"] -> fromMaybe (renderName name) (nameQualifier name)
-      | otherwise -> packageIdText identity <> ":" <> fromMaybe (renderName name) (nameQualifier name)
+    ResolvedTopLevel identity moduleName' _
+      | packageIdText identity `elem` ["", "main"] -> moduleName'
+      | otherwise -> packageIdText identity <> ":" <> moduleName'
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
     ResolvedSyntax -> "Builtin " <> displayIdentifier identifier
     ResolvedError msg -> T.pack ("Error " <> msg)

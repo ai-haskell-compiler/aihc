@@ -646,8 +646,8 @@ resolvedNameTermKey displayName resolved =
   case resolved of
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
-    ResolvedTopLevel packageId name ->
-      pure (TcTermGlobal packageId (fromMaybe "" (nameQualifier name)) (nameText name))
+    ResolvedTopLevel packageId moduleName' name ->
+      pure (TcTermGlobal packageId moduleName' (nameText name))
     ResolvedSyntax ->
       abortTc ("built-in syntax has no term key: " <> show displayName)
     ResolvedError msg ->
@@ -784,8 +784,8 @@ lookupTyConQualifiedInNamespace namespace moduleName name =
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
   case typeUseResolution (nameAnns name) of
-    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} -> do
+      exact <- lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
       maybe (lookupTyConInNamespace namespace (nameText name)) (pure . Just) exact
     Just ResolutionAnnotation {resolutionTarget = ResolvedError {}} -> pure Nothing
     Just ResolutionAnnotation {resolutionNamespace = namespace} ->
@@ -800,9 +800,9 @@ lookupResolvedTypeSyntax resolution =
   case resolution of
     ResolutionAnnotation
       { resolutionNamespace = namespace,
-        resolutionTarget = ResolvedTopLevel packageId resolvedName
+        resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName
       } ->
-        lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+        lookupTyConOrigin namespace packageId resolvedModule (nameText resolvedName)
     ResolutionAnnotation
       { resolutionTarget = ResolvedError {}
       } -> pure Nothing
@@ -814,8 +814,8 @@ lookupResolvedTypeSyntax resolution =
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
   case typeResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin ResolutionNamespaceType packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedModule resolvedName} -> do
+      exact <- lookupTyConOrigin ResolutionNamespaceType packageId resolvedModule (nameText resolvedName)
       maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
     _ -> lookupTyCon (unqualifiedNameText name)
 
@@ -883,8 +883,8 @@ getPatSyns = lift $ gets (Map.elems . tcsPatSyns)
 lookupPatSynTarget :: ResolvedName -> TcM (Maybe PatSynInfo)
 lookupPatSynTarget target =
   case target of
-    ResolvedTopLevel packageId resolvedName ->
-      lookupPatSyn (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+    ResolvedTopLevel packageId resolvedModule resolvedName ->
+      lookupPatSyn (TcTermGlobal packageId resolvedModule (nameText resolvedName))
     _ -> pure Nothing
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)

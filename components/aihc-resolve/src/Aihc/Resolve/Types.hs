@@ -86,7 +86,11 @@ newtype VisibleTermIdentities = VisibleTermIdentities [(PackageId, Text, Text)]
   deriving (Eq, Show)
 
 data ResolvedName
-  = ResolvedTopLevel PackageId Name
+  = -- | A top-level entity, by the package and the module that define it
+    -- and its name there. Every top-level entity has a defining module, so
+    -- the module is a field of its own rather than the optional qualifier
+    -- of the source name, which is only the spelling of an occurrence.
+    ResolvedTopLevel PackageId Text Name
   | ResolvedLocal Int UnqualifiedName
   | ResolvedSyntax
   | ResolvedError String

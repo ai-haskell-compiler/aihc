@@ -168,9 +168,9 @@ exportedLocalNames package name exports =
             [ (ResolutionNamespaceTerm, scopeTerms scope),
               (ResolutionNamespaceType, scopeTypes scope)
             ],
-          ResolvedTopLevel resolvedPackage resolved <- Map.elems entries,
+          ResolvedTopLevel resolvedPackage resolvedModule resolved <- Map.elems entries,
           resolvedPackage == packageId package,
-          fromMaybe name (nameQualifier resolved) == name
+          resolvedModule == name
         ]
 
 exportedScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
@@ -285,7 +285,7 @@ topLevelScope importedFields package modu =
   List.foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
-    qualify = ResolvedTopLevel (packageId package) . qualifyName (Just moduleKeyText)
+    qualify = ResolvedTopLevel (packageId package) moduleKeyText . qualifyName Nothing
     -- A pattern binding can come before the data declaration that gives it
     -- the record fields, so collect all fields of the module first.
     visibleFields =
@@ -679,7 +679,7 @@ resolveQualifiedName scope lookupName qualifier name =
     Nothing -> ResolvedError ("unknown qualified import: " <> T.unpack qualifier)
     Just qualifiedScope ->
       case lookupName (nameText name) qualifiedScope of
-        ResolvedTopLevel packageId resolved -> ResolvedTopLevel packageId resolved
+        resolved@ResolvedTopLevel {} -> resolved
         other -> other
 
 moduleKey :: Module -> Text

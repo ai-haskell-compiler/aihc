@@ -2833,7 +2833,7 @@ moduleTypeInterface exports package interface source =
     visibleDataFamilyInstance = localTyCon . dfiiRepresentationTyCon
     visibleTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
     resolvedIdentity resolved = case resolved of
-      ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
+      ResolvedTopLevel packageId' resolvedModule resolvedName -> Just (packageId', resolvedModule, nameText resolvedName)
       _ -> Nothing
 
 addReferencedFacts :: TcInterface -> TcInterface -> TcInterface

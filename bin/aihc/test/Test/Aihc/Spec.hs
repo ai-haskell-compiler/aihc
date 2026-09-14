@@ -187,7 +187,7 @@ test_resolveArtifactRoundTrip :: Assertion
 test_resolveArtifactRoundTrip = do
   let qualified =
         emptyScope
-          { scopeTypes = Map.singleton "Box" (ResolvedTopLevel (PackageId "demo") (Syntax.mkName (Just "Demo") Syntax.NameConId "Box"))
+          { scopeTypes = Map.singleton "Box" (ResolvedTopLevel (PackageId "demo") "Demo" (Syntax.mkName Nothing Syntax.NameConId "Box"))
           }
       scope =
         emptyScope

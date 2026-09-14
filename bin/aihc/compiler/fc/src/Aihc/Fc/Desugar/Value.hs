@@ -4119,12 +4119,12 @@ desugarResolvedOccurrence annotation resolution = do
 resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
-    ResolvedTopLevel package target ->
+    ResolvedTopLevel package moduleName' target ->
       pure
         ( Name
             (Syn.nameText target)
             (sourceNameSort target)
-            (OriginTop package (fromMaybe "" (Syn.nameQualifier target)))
+            (OriginTop package moduleName')
         )
     ResolvedLocal unique localName ->
       binderName . fst <$> lookupLocal (TcTermLocal unique) (Syn.unqualifiedNameText localName)
@@ -4256,12 +4256,12 @@ resolvedTermName sourceName =
   case termResolution sourceName of
     Just resolution ->
       case resolutionTarget resolution of
-        ResolvedTopLevel package target ->
+        ResolvedTopLevel package moduleName' target ->
           pure
             ( Name
                 (Syn.nameText target)
                 (sourceNameSort target)
-                (OriginTop package (fromMaybe "" (Syn.nameQualifier target)))
+                (OriginTop package moduleName')
             )
         ResolvedSyntax -> failValue ("syntax identifier reached ordinary term " <> T.unpack (Syn.nameText sourceName))
         ResolvedLocal unique localName ->
@@ -4379,8 +4379,8 @@ resolutionTermKey :: ResolutionAnnotation -> Maybe TcTermKey
 resolutionTermKey resolution =
   case resolutionTarget resolution of
     ResolvedLocal unique _ -> Just (TcTermLocal unique)
-    ResolvedTopLevel package target ->
-      Just (TcTermGlobal package (fromMaybe "" (Syn.nameQualifier target)) (Syn.nameText target))
+    ResolvedTopLevel package moduleName' target ->
+      Just (TcTermGlobal package moduleName' (Syn.nameText target))
     ResolvedSyntax -> Nothing
     ResolvedError _ -> Nothing
 
