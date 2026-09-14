@@ -7,7 +7,7 @@ annotated:
        │       └─ type: ∀ a. a → Box a
        └─ type: Type → Type
   newtype N a = N (Box a) deriving Functor
-  │       │     │                  └─ warning: stock deriving of Functor is not supported yet; no instance is generated
+  │       │     │                  └─ error: unsolved constraint Functor Box
   │       │     └─ type: ∀ a. Box a → N a
   │       └─ type: Type → Type
   └─ deriving plans: stock Functor N [context: infer] [methods: fmap, <$]
@@ -21,5 +21,7 @@ modules:
   import GHC.Prim.Base (Functor)
   data Box a = Box a
   newtype N a = N (Box a) deriving Functor
-reason: use the stock plan when default newtype context inference fails
+reason: use the stock plan when default newtype context inference fails; the
+  stock plan is then checked on its own, and here it needs the instance of the
+  representation that the newtype plan was missing
 status: pass

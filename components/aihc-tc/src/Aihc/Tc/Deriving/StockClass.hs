@@ -22,11 +22,13 @@
 module Aihc.Tc.Deriving.StockClass
   ( StockClass (..),
     StockMethods (..),
+    StockObligations (..),
     NewtypeDefaulting (..),
     stockClasses,
     lookupStockClass,
     stockClassRequirement,
     stockClassMethodsOf,
+    stockClassObligationsOf,
     generatesStockMethods,
     newtypeDefaultingOf,
   )
@@ -48,6 +50,8 @@ data StockClass = StockClass
     stockClassExtension :: !(Maybe Extension),
     -- | What a clause without an explicit strategy means at a newtype.
     stockClassNewtypeDefaulting :: !NewtypeDefaulting,
+    -- | The shape of the context that a generated instance needs.
+    stockClassObligations :: !StockObligations,
     -- | The method bodies the generator writes, or 'Nothing' for a class
     -- that is recognized as stock but not generated yet. A plan for such a
     -- class infers no context and reports that the class is not supported.
@@ -66,6 +70,22 @@ data StockMethods
   | StockShowMethods
   | StockReadMethods
   | StockBoundedMethods
+  | StockLiftMethods
+  | StockFunctorMethods
+  | StockFoldableMethods
+  | StockTraversableMethods
+  deriving (Eq, Show)
+
+-- | The shape of the context a derived instance needs.
+data StockObligations
+  = -- | The class at the type of every constructor field, which is what a
+    -- body that visits each field in place needs.
+    FieldObligations
+  | -- | The class at every type that stands between a field and the last
+    -- parameter of the datatype, which is what a body that hands nested
+    -- positions to another instance needs. The instance head drops the
+    -- parameter, so the fields are read against the remaining ones.
+    FunctorialObligations
   deriving (Eq, Show)
 
 -- | What a @deriving@ clause without a strategy selects at a newtype.
@@ -118,17 +138,37 @@ stockClasses =
     (report "Bounded" NewtypeAlways) {stockClassMethods = Just StockBoundedMethods},
     report "Enum" NewtypeWithGnd,
     report "Ix" NewtypeAlways,
-    extension "Functor" DeriveFunctor NewtypeWithGnd,
-    extension "Foldable" DeriveFoldable NewtypeWithGnd,
-    extension "Traversable" DeriveTraversable NewtypeNever,
+    (extension "Functor" DeriveFunctor NewtypeWithGnd)
+      { stockClassObligations = FunctorialObligations,
+        stockClassMethods = Just StockFunctorMethods
+      },
+    (extension "Foldable" DeriveFoldable NewtypeWithGnd)
+      { stockClassObligations = FunctorialObligations,
+        stockClassMethods = Just StockFoldableMethods
+      },
+    (extension "Traversable" DeriveTraversable NewtypeNever)
+      { stockClassObligations = FunctorialObligations,
+        stockClassMethods = Just StockTraversableMethods,
+        stockClassReferences = [derivingPure, derivingApply]
+      },
     extension "Data" DeriveDataTypeable NewtypeNever,
     extension "Typeable" DeriveDataTypeable NewtypeNever,
     extension "Generic" DeriveGeneric NewtypeNever,
     extension "Generic1" DeriveGeneric NewtypeNever,
-    extension "Lift" DeriveLift NewtypeNever
+    (extension "Lift" DeriveLift NewtypeNever)
+      { stockClassMethods = Just StockLiftMethods,
+        stockClassReferences =
+          [ derivingBind,
+            derivingPure,
+            derivingLiftConE,
+            derivingLiftAppE,
+            derivingLiftDataConName,
+            derivingLiftCodeCoerce
+          ]
+      }
   ]
   where
-    report name defaulting = StockClass name Nothing defaulting Nothing []
+    report name defaulting = StockClass name Nothing defaulting FieldObligations Nothing []
     extension name required defaulting = (report name defaulting) {stockClassExtension = Just required}
 
 -- | The row of a class, or 'Nothing' when stock deriving does not know it.
@@ -145,6 +185,11 @@ stockClassRequirement className = stockClassExtension <$> lookupStockClass class
 -- none for it.
 stockClassMethodsOf :: Text -> Maybe StockMethods
 stockClassMethodsOf className = lookupStockClass className >>= stockClassMethods
+
+-- | The context shape of a class, which only matters for a class the
+-- generator writes bodies for.
+stockClassObligationsOf :: Text -> Maybe StockObligations
+stockClassObligationsOf className = stockClassObligations <$> lookupStockClass className
 
 -- | Whether the generator writes an instance body for a class. A plan for
 -- a class without one infers no context and generates nothing.

@@ -16,6 +16,12 @@
 -- the classes of GHC that aihc does not generate code for yet -- @Lift@ in
 -- the Template Haskell package, @Generic@ and @Data@ in the base one --
 -- have their helpers next to themselves, outside the primitive package.
+--
+-- A reference of that kind has to be one the module deriving the class can
+-- already see. Only an identity a module imports, or that a module it
+-- imports re-exports, is in its type environment, so these name the types
+-- and the constructors a user of the class handles rather than the
+-- combinators of a library module they would have no reason to import.
 module Aihc.Tc.Deriving.References
   ( DerivingReference (..),
     ReferencePackage (..),
@@ -141,6 +147,21 @@ data DerivingReferences = DerivingReferences
     derivingLexemeSymbol :: !DerivingReference,
     -- | The @Punc@ lexeme constructor, for punctuation.
     derivingLexemePunc :: !DerivingReference,
+    -- | The @pure@ method of @Applicative@, which a derived @traverse@
+    -- delivers a constructor and its unvisited fields with.
+    derivingPure :: !DerivingReference,
+    -- | The @(\<*\>)@ method of @Applicative@, which a derived @traverse@
+    -- applies a constructor to one visited field with.
+    derivingApply :: !DerivingReference,
+    -- | The @ConE@ expression, which names a data constructor.
+    derivingLiftConE :: !DerivingReference,
+    -- | The @AppE@ expression, which applies one expression to another.
+    derivingLiftAppE :: !DerivingReference,
+    -- | @mkNameG_d@, which names a data constructor by its package, its
+    -- module, and its spelling.
+    derivingLiftDataConName :: !DerivingReference,
+    -- | @unsafeCodeCoerce@, which makes a typed lift out of an untyped one.
+    derivingLiftCodeCoerce :: !DerivingReference,
     -- | The classes that stock deriving writes code for, and where each is
     -- declared. A location that names a package makes all three agree, so a
     -- user module that repeats a core-library module name does not make its
@@ -183,5 +204,11 @@ derivingReferenceList references =
     derivingReadSymField references,
     derivingLexemeIdent references,
     derivingLexemeSymbol references,
-    derivingLexemePunc references
+    derivingLexemePunc references,
+    derivingPure references,
+    derivingApply references,
+    derivingLiftConE references,
+    derivingLiftAppE references,
+    derivingLiftDataConName references,
+    derivingLiftCodeCoerce references
   ]

@@ -1,0 +1,34 @@
+extensions:
+  - DeriveFunctor
+  - DeriveFoldable
+  - DeriveTraversable
+modules:
+  - |
+    {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool
+
+    data Tree a = Leaf | Node (Tree a) a (Tree a)
+      deriving (Eq, Functor, Foldable, Traversable)
+
+    data Shapes b a = Shapes b a (Maybe a) [a]
+      deriving (Eq, Functor, Foldable, Traversable)
+
+    positive :: Int -> Maybe Int
+    positive value = if value > 0 then Just value else Nothing
+
+    tree :: Tree Int
+    tree = Node (Node Leaf 1 Leaf) 2 Leaf
+
+    result :: Results
+    result =
+      Results
+        (traverse positive tree == Just tree)
+        (traverse positive (Node Leaf 0 Leaf) == Nothing)
+        (traverse positive (Shapes True 1 (Just 2) [3]) == Just (Shapes True 1 (Just 2) [3]))
+        (traverse positive (Shapes True 1 (Just 0) [3]) == Nothing)
+expression: result
+output: Results True True True True
+status: pass
+reason: derived traverse rebuilds the constructor in the applicative, visiting the parameter and handing nested positions to the instance of the type around them

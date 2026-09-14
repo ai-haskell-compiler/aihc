@@ -56,7 +56,8 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (newtypeRepresentation, stockFieldTypes)
+import Aihc.Tc.Deriving.Context (newtypeRepresentation, stockFieldTypes, stockFunctorialFields)
+import Aihc.Tc.Deriving.Functorial (FieldUse (..), fieldUse)
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf)
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
@@ -64,7 +65,8 @@ import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Control.Monad (forM)
+import Control.Monad (forM, zipWithM)
+import Data.Foldable (foldrM)
 import Data.Functor ((<&>))
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
@@ -214,6 +216,10 @@ generateItems gen =
                 Just StockShowMethods -> Just <$> showItems gen constructors
                 Just StockReadMethods -> Just <$> readItems gen constructors
                 Just StockBoundedMethods -> boundedItems gen constructors
+                Just StockLiftMethods -> Just <$> liftItems gen constructors
+                Just StockFunctorMethods -> functorialItems gen functorItems constructors
+                Just StockFoldableMethods -> functorialItems gen foldableItems constructors
+                Just StockTraversableMethods -> functorialItems gen traversableItems constructors
                 Nothing -> failWith ("stock deriving of " <> T.unpack (tcDerivingClassName plan) <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
     TcDerivingVia viaType -> associatedItems gen viaType
@@ -552,6 +558,187 @@ boundedItems gen constructors
       pure Nothing
   where
     bound name body = methodBind gen name [simpleMatch gen [] body]
+
+-- * Lift
+
+-- | @lift@ rebuilds the value as a Template Haskell expression: the
+-- constructor by its package, module and spelling, applied to the lifted
+-- fields. The fields are lifted in the quoting monad, which the @Quote@
+-- constraint of the method makes a @Monad@, and the expression itself is
+-- built from the constructors of @Exp@. @liftTyped@ is the same expression,
+-- coerced.
+liftItems :: Gen -> [DataConInfo] -> TcM [InstanceDeclItem]
+liftItems gen constructors = do
+  matches <- mapM constructorMatch constructors
+  value <- freshLocal gen "x"
+  pure
+    [ methodBind gen "lift" matches,
+      methodBind
+        gen
+        "liftTyped"
+        [ simpleMatch
+            gen
+            [atPattern gen (PVar value)]
+            (applyN gen (referenceExpr gen derivingLiftCodeCoerce) [methodApp gen "lift" [localExpr gen value]])
+        ]
+    ]
+  where
+    constructorMatch constructor = do
+      fields <- fieldLocals gen "a" constructor
+      lifted <- mapM (const (freshLocal gen "e")) fields
+      let application = foldl applyLifted (liftedConstructor constructor) lifted
+          delivered = applyN gen (referenceExpr gen derivingPure) [application]
+      pure
+        ( simpleMatch
+            gen
+            [constructorPattern gen constructor (map Just fields)]
+            (foldr liftField delivered (zip fields lifted))
+        )
+    -- Each field is lifted before the expression is assembled, because a
+    -- lift happens in the quoting monad.
+    liftField (field, binder) rest =
+      applyN
+        gen
+        (referenceExpr gen derivingBind)
+        [methodApp gen "lift" [localExpr gen field], lambda gen binder rest]
+    applyLifted function argument =
+      applyN gen (referenceExpr gen derivingLiftAppE) [function, localExpr gen argument]
+    liftedConstructor constructor =
+      applyN gen (referenceExpr gen derivingLiftConE) [constructorNameExpr gen constructor]
+
+-- | The Template Haskell name of a data constructor, which carries the
+-- package and the module it is declared in.
+constructorNameExpr :: Gen -> DataConInfo -> Expr
+constructorNameExpr gen constructor =
+  applyN
+    gen
+    (referenceExpr gen derivingLiftDataConName)
+    [stringExpr gen (packageIdText packageId), stringExpr gen moduleName', stringExpr gen (dciName constructor)]
+  where
+    (packageId, moduleName') = dciOrigin constructor
+
+-- * Functor, Foldable and Traversable
+
+-- | The equations of a functor-like class, or 'Nothing' after reporting a
+-- field that uses the last datatype parameter somewhere no instance can
+-- reach.
+functorialItems :: Gen -> (Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]) -> [DataConInfo] -> TcM (Maybe [InstanceDeclItem])
+functorialItems gen build constructors =
+  case functorialUses (genPlan gen) constructors of
+    Left message -> do
+      emitError (genSpan gen) (OtherError message)
+      pure Nothing
+    Right uses -> Just <$> build gen uses
+
+-- | What every field of every constructor does with the last parameter.
+functorialUses :: TcDerivingPlan -> [DataConInfo] -> Either String [(DataConInfo, [FieldUse])]
+functorialUses plan constructors = do
+  (parameter, fieldTypes) <- stockFunctorialFields plan
+  uses <- mapM (mapM (fieldUse mechanism parameter)) fieldTypes
+  pure (zip constructors uses)
+  where
+    mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
+
+functorItems :: Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]
+functorItems gen constructors = do
+  matches <- mapM constructorMatch constructors
+  pure [methodBind gen "fmap" matches]
+  where
+    constructorMatch (constructor, uses) = do
+      function <- freshLocal gen "f"
+      fields <- fieldLocals gen "a" constructor
+      mapped <- zipWithM (mapField function) uses (map (localExpr gen) fields)
+      pure
+        ( simpleMatch
+            gen
+            [atPattern gen (PVar function), constructorPattern gen constructor (map Just fields)]
+            (applyN gen (constructorExpr gen constructor) mapped)
+        )
+    mapField function use value =
+      case use of
+        FieldAbsent -> pure value
+        FieldParameter -> pure (applyN gen (localExpr gen function) [value])
+        FieldContainer _ inner -> do
+          step <- fieldFunction gen (mapField function) function inner
+          pure (methodApp gen "fmap" [step, value])
+
+foldableItems :: Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]
+foldableItems gen constructors = do
+  matches <- mapM constructorMatch constructors
+  pure [methodBind gen "foldr" matches]
+  where
+    constructorMatch (constructor, uses) = do
+      function <- freshLocal gen "f"
+      initial <- freshLocal gen "z"
+      fields <- fieldLocals gen "a" constructor
+      -- The fields fold from the right, so each one wraps what the fields
+      -- after it have already folded.
+      body <-
+        foldrM
+          (\(use, field) rest -> foldField function use (localExpr gen field) rest)
+          (localExpr gen initial)
+          (zip uses fields)
+      pure
+        ( simpleMatch
+            gen
+            [ atPattern gen (PVar function),
+              atPattern gen (PVar initial),
+              constructorPattern gen constructor (map Just fields)
+            ]
+            body
+        )
+    foldField function use value rest =
+      case use of
+        FieldAbsent -> pure rest
+        FieldParameter -> pure (applyN gen (localExpr gen function) [value, rest])
+        FieldContainer _ inner -> do
+          step <- foldStep function inner
+          pure (methodApp gen "foldr" [step, rest, value])
+    -- The step of a nested fold takes the element and what follows it.
+    foldStep function inner =
+      case inner of
+        FieldParameter -> pure (localExpr gen function)
+        _ -> do
+          element <- freshLocal gen "y"
+          rest <- freshLocal gen "r"
+          body <- foldField function inner (localExpr gen element) (localExpr gen rest)
+          pure (lambda gen element (lambda gen rest body))
+
+traversableItems :: Gen -> [(DataConInfo, [FieldUse])] -> TcM [InstanceDeclItem]
+traversableItems gen constructors = do
+  matches <- mapM constructorMatch constructors
+  pure [methodBind gen "traverse" matches]
+  where
+    constructorMatch (constructor, uses) = do
+      function <- freshLocal gen "f"
+      fields <- fieldLocals gen "a" constructor
+      visited <- zipWithM (visitField function) uses (map (localExpr gen) fields)
+      let applied = applyN gen (referenceExpr gen derivingPure) [constructorExpr gen constructor]
+      pure
+        ( simpleMatch
+            gen
+            [atPattern gen (PVar function), constructorPattern gen constructor (map Just fields)]
+            (foldl (\left right -> applyN gen (referenceExpr gen derivingApply) [left, right]) applied visited)
+        )
+    visitField function use value =
+      case use of
+        FieldAbsent -> pure (applyN gen (referenceExpr gen derivingPure) [value])
+        FieldParameter -> pure (applyN gen (localExpr gen function) [value])
+        FieldContainer _ inner -> do
+          step <- fieldFunction gen (visitField function) function inner
+          pure (methodApp gen "traverse" [step, value])
+
+-- | The function a nested position is visited with: the function the method
+-- was given when the position is the parameter itself, and a lambda that
+-- goes one level deeper otherwise.
+fieldFunction :: Gen -> (FieldUse -> Expr -> TcM Expr) -> UnqualifiedName -> FieldUse -> TcM Expr
+fieldFunction gen visit function inner =
+  case inner of
+    FieldParameter -> pure (localExpr gen function)
+    _ -> do
+      element <- freshLocal gen "y"
+      body <- visit inner (localExpr gen element)
+      pure (lambda gen element body)
 
 -- * Newtype
 

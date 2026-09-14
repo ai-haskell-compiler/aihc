@@ -93,7 +93,7 @@ import Aihc.Parser.Syntax
     moduleName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
+import Aihc.Prim.Wiring (primDerivingReferences, primTcConfig, primTcWiring)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
@@ -116,6 +116,7 @@ import Aihc.Resolve
 import Aihc.Tc
   ( ClassInfo (..),
     DataFamilyInstanceInfo (..),
+    DerivingReference (..),
     InstanceInfo (..),
     TcDiagnostic (..),
     TcErrorKind (..),
@@ -125,6 +126,7 @@ import Aihc.Tc
     TcTermKey (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    derivingReferenceList,
     mergeTcInterfaces,
     mkTcKinds,
     renderFunDepNames,
@@ -2050,11 +2052,18 @@ wiredTypeModules = ["GHC.CString", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "
 
 -- | Modules whose names generated code refers to, but whose order the
 -- dependency graph must not fix: a derived @Read@ instance calls the reader
--- of the primitive package, and a module that derives @Read@ does not
--- import it. The primitive package itself compiles this module in its own
+-- of the primitive package and a derived @Lift@ the Template Haskell
+-- builders, and a module that derives either does not import them. A
+-- package that compiles one of these modules itself does so in its own
 -- import order.
+--
+-- The deriving reference table is the list: a reference added there becomes
+-- visible without an import, so the two cannot disagree. The identity of
+-- the package does not matter here, because only the module names are
+-- taken.
 wiredDerivingModules :: [Text]
-wiredDerivingModules = ["GHC.Prim.Read"]
+wiredDerivingModules =
+  nub (map referenceModule (derivingReferenceList (primDerivingReferences (PackageId "aihc-prim"))))
 
 -- | Every module whose type interface a compilation needs without an
 -- import.

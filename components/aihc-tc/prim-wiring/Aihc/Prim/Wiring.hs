@@ -139,9 +139,14 @@ unboxedSumDataConName alternative arity =
 -- | The deriving-reference table of the aihc core libraries, given the
 -- identity of the @aihc-prim@ package.
 --
--- Every generated body names values of the primitive package, which every
--- module can see, so no reference here is taken from the package of the
--- class being derived.
+-- Most generated bodies name values of the primitive package, which every
+-- module can see. The Template Haskell names of a derived @Lift@ are the
+-- exception: they live beside the class, in the package a module that
+-- derives @Lift@ already depends on. Each of them is exported by
+-- @Language.Haskell.TH.Syntax@, which such a module imports, because a
+-- derived body builds the expression from the constructors of @Exp@ rather
+-- than from the combinators of @GHC.Internal.TH.Lib@, which it would have
+-- no reason to import.
 primDerivingReferences :: PackageId -> DerivingReferences
 primDerivingReferences prim =
   DerivingReferences
@@ -169,13 +174,24 @@ primDerivingReferences prim =
       derivingLexemeIdent = term readModule NameConId "Ident",
       derivingLexemeSymbol = term readModule NameConId "Symbol",
       derivingLexemePunc = term readModule NameConId "Punc",
+      derivingPure = term "GHC.Prim.Base" NameVarId "pure",
+      derivingApply = term "GHC.Prim.Base" NameVarSym "<*>",
+      derivingLiftConE = classTerm thSyntaxModule NameConId "ConE",
+      derivingLiftAppE = classTerm thSyntaxModule NameConId "AppE",
+      derivingLiftDataConName = classTerm thSyntaxModule NameVarId "mkNameG_d",
+      derivingLiftCodeCoerce = classTerm thSyntaxModule NameVarId "unsafeCodeCoerce",
       derivingStockClasses = coreStockClasses prim,
       derivingRecognizedClasses = coreRecognizedClasses
     }
   where
     readModule = "GHC.Prim.Read"
+    thSyntaxModule = "GHC.Internal.TH.Syntax"
     term moduleName nameType name =
       DerivingReference ReferencePrimPackage moduleName name nameType ResolutionNamespaceTerm
+    -- The Template Haskell helpers live beside the Lift class, in a package
+    -- whose identity this table cannot name.
+    classTerm moduleName nameType name =
+      DerivingReference ReferenceClassPackage moduleName name nameType ResolutionNamespaceTerm
 
 -- | The stock classes that the aihc core libraries declare in the primitive
 -- package, where each is defined. GHC keeps the same list as known-key
@@ -191,10 +207,14 @@ coreStockClasses prim =
     primClass "GHC.Prim.Enum" "Bounded",
     primClass "GHC.Prim.Show" "Show",
     primClass "GHC.Prim.Read" "Read",
-    primClass "GHC.Prim.Base" "Functor"
+    primClass "GHC.Prim.Base" "Functor",
+    coreClass "GHC.Internal.Foldable" "Foldable",
+    coreClass "GHC.Internal.Traversable" "Traversable",
+    coreClass "GHC.Internal.TH.Lift" "Lift"
   ]
   where
     primClass = StockClassLocation (Just prim)
+    coreClass = StockClassLocation Nothing
 
 -- | The stock classes of GHC that the core libraries declare outside the
 -- primitive package. The generator writes no code for them, so they carry
@@ -202,12 +222,9 @@ coreStockClasses prim =
 coreRecognizedClasses :: [(Text, Text)]
 coreRecognizedClasses =
   [ ("GHC.Ix", "Ix"),
-    ("GHC.Internal.Foldable", "Foldable"),
-    ("GHC.Internal.Traversable", "Traversable"),
     ("Data.Data", "Data"),
     ("Type.Reflection", "Typeable"),
     ("Type.Reflection.Internal", "Typeable"),
     ("GHC.Generics", "Generic"),
-    ("GHC.Generics", "Generic1"),
-    ("GHC.Internal.TH.Lift", "Lift")
+    ("GHC.Generics", "Generic1")
   ]
