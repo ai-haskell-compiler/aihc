@@ -338,7 +338,7 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
 const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
                              AihcValue *continuation);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
-AihcSlot aihc_my_thread_id(AihcMachine *machine);
+AihcThread *aihc_my_thread_id(AihcMachine *machine);
 void *aihc_mvar_new(AihcMachine *machine);
 const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,
                                  AihcValue *continuation);

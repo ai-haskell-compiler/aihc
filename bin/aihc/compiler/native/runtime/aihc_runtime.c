@@ -602,8 +602,10 @@ static AihcThread *aihc_thread_new(AihcMachine *machine) {
   return thread;
 }
 
-AihcSlot aihc_my_thread_id(AihcMachine *machine) {
-  return (AihcSlot)(uintptr_t)machine->current_thread;
+/* The result is a pointer, because the lowering declares the result of this
+   call as an address. A pointer is four bytes on a 32-bit target. */
+AihcThread *aihc_my_thread_id(AihcMachine *machine) {
+  return machine->current_thread;
 }
 
 static void aihc_enqueue_thread(AihcMachine *machine, AihcThread *thread) {
