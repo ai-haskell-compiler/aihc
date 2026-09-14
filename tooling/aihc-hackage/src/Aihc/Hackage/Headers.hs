@@ -36,13 +36,17 @@ import System.IO (hClose, openBinaryTempFile)
 
 -- | What the headers of one target say.
 --
--- The C pointer is here and the Haskell word is not, because the Haskell word
--- is the same everywhere: an @Int#@ and a heap slot are eight bytes on every
--- target, and a @wasm32@ pointer is four.  A header must not derive one from
--- the other.
+-- Each width is its own field, because a platform is free to give them
+-- different values.  A pointer is not a word: the x32 and AArch64 ILP32 ABIs
+-- put 32-bit pointers on a 64-bit machine, and a CHERI pointer is wider than
+-- the word.  A @long@ is not a pointer either: Windows keeps @long@ at four
+-- bytes with eight-byte pointers.  The Haskell word is none of the three and
+-- lives in 'haskellWordBytes'.
 data HeaderTarget = HeaderTarget
-  { -- | @sizeof(void*)@ and @sizeof(unsigned long)@ of the target.
+  { -- | @sizeof(void*)@ of the target.
     headerPointerBytes :: !Int,
+    -- | @sizeof(unsigned long)@ of the target.
+    headerLongBytes :: !Int,
     -- | Whether the target stores the high byte first.
     headerBigEndian :: !Bool,
     -- | The operating system, spelled as the @<name>_HOST_OS@ macro spells
@@ -60,12 +64,15 @@ defaultHeaderTarget :: HeaderTarget
 defaultHeaderTarget =
   HeaderTarget
     { headerPointerBytes = 8,
+      headerLongBytes = 8,
       headerBigEndian = False,
       headerOs = "linux",
       headerArch = "x86_64"
     }
 
--- | The width of @Int#@ and of a heap slot, which no target changes.
+-- | The width of @Int#@ and of a heap slot.  The code generator gives every
+-- target the same one: @repType@ lowers @IntRep@ and @WordRep@ to @i64@, and
+-- a heap slot is eight bytes even where a pointer is four.
 haskellWordBytes :: Int
 haskellWordBytes = 8
 
@@ -134,14 +141,12 @@ ghcplatformHeader target =
     []
     ( [ (headerOs target <> "_HOST_OS", "1"),
         (headerArch target <> "_HOST_ARCH", "1"),
-        ("SIZEOF_VOID_P", pointerBytes),
-        ("SIZEOF_UNSIGNED_LONG", pointerBytes),
+        ("SIZEOF_VOID_P", tshow (headerPointerBytes target)),
+        ("SIZEOF_UNSIGNED_LONG", tshow (headerLongBytes target)),
         ("SIZEOF_UNSIGNED_LONG_LONG", "8")
       ]
         <> [("WORDS_BIGENDIAN", "1") | headerBigEndian target]
     )
-  where
-    pointerBytes = tshow (headerPointerBytes target)
 
 -- | The sizes and alignments of the Haskell types.  A pointer follows the
 -- target and everything else follows the Haskell word.

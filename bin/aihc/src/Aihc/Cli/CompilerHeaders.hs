@@ -45,13 +45,18 @@ platformNames target =
         other -> prettyShow other
    in (osName, prettyShow arch)
 
--- | What the headers of a target say.  Only the C pointer follows the
--- target: @wasm32@ has four-byte pointers and every other target has
--- eight-byte ones.
+-- | What the headers of a target say.
+--
+-- @wasm32@ is ILP32: four-byte pointers and a four-byte @long@.  Every other
+-- target is LP64.  The two widths agree on both, which is why each one is
+-- written out rather than derived from the other.
 headerTargetFor :: NativeTarget -> HeaderTarget
 headerTargetFor target =
   HeaderTarget
     { headerPointerBytes = case target of
+        Wasm32Wasip3 -> 4
+        _ -> 8,
+      headerLongBytes = case target of
         Wasm32Wasip3 -> 4
         _ -> 8,
       headerBigEndian = False,
