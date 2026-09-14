@@ -1,5 +1,7 @@
 module Data.Tuple
-  ( fst,
+  ( Solo (MkSolo, Solo),
+    getSolo,
+    fst,
     snd,
     curry,
     uncurry,
@@ -7,6 +9,7 @@ module Data.Tuple
   )
 where
 
+import GHC.Tuple (Solo (MkSolo, Solo), getSolo)
 import Prelude (curry, fst, snd, uncurry)
 
 swap :: (a, b) -> (b, a)
