@@ -8,6 +8,7 @@ module Aihc.Cli.TypeArtifact
 where
 
 import Aihc.Cli.Cbor (cborArray, cborInt, cborText, cborWord, getArrayLength, getInt, getText, getWord, (<*!>))
+import Aihc.Cli.InterfaceParts (InterfacePart (..), PartIndex (..), interfaceParts)
 import Aihc.Cli.InterfaceTyCons (interfaceTyCons)
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
@@ -54,6 +55,8 @@ import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, maybeToList)
@@ -68,7 +71,12 @@ data TypeArtifact = TypeArtifact
   }
   deriving (Show)
 
-type TyConTable = Array Int TyCon
+-- | What a decoder resolves a reference against: the type constructors of
+-- the artifact and the parts numbered before the one being read.
+data PartTable = PartTable
+  { tableTyCons :: !(Array Int TyCon),
+    tableParts :: !(IntMap InterfacePart)
+  }
 
 encodeTypeArtifact :: TypeArtifact -> BL.ByteString
 encodeTypeArtifact = fst . encodeTypeArtifactParts
@@ -92,7 +100,12 @@ encodeTypeInterface :: TcInterface -> BL.ByteString
 encodeTypeInterface interface =
   let tyCons = Set.toAscList (interfaceTyCons interface)
       tyConTable = Map.fromList (zip tyCons [0 ..])
-   in Builder.toLazyByteString (encodeList putTyConDefinition tyCons <> putInterface tyConTable interface)
+      (parts, index) = interfaceParts tyConTable interface
+   in Builder.toLazyByteString
+        ( encodeList putTyConDefinition tyCons
+            <> encodeList (putPart index) parts
+            <> putInterface index interface
+        )
 
 decodeTypeArtifact :: BL.ByteString -> Either String TypeArtifact
 decodeTypeArtifact bytes =
@@ -119,13 +132,13 @@ getArtifact = do
 
 -- | The interface part of an artifact. It is decoded on its own because the
 -- type constructor table comes before it.
-runInterface :: TyConTable -> BL.ByteString -> Either String TcInterface
-runInterface table bytes =
-  case Get.runGetOrFail (getInterface table) bytes of
+runInterface :: Array Int TyCon -> BL.ByteString -> Either String TcInterface
+runInterface tyCons bytes =
+  case Get.runGetOrFail (getPartTable tyCons >>= getInterface) bytes of
     Left (_, _, message) -> Left message
     Right (_, _, interface) -> Right interface
 
-putInterface :: Map TyCon Word64 -> TcInterface -> Builder.Builder
+putInterface :: PartIndex -> TcInterface -> Builder.Builder
 putInterface table interface =
   cborArray 9
     <> encodeList (putTerm table) (tcInterfaceTerms interface)
@@ -138,7 +151,7 @@ putInterface table interface =
     <> encodeList (putPatSynInfo table) (tcInterfacePatSyns interface)
     <> encodeList (putForeignImport table) (tcInterfaceForeignImports interface)
 
-getInterface :: TyConTable -> Get.Get TcInterface
+getInterface :: PartTable -> Get.Get TcInterface
 getInterface table = do
   length' <- getArrayLength
   terms <- getList (getTerm table)
@@ -163,20 +176,20 @@ getInterface table = do
     fail ("unsupported type interface array length: " <> show length')
   pure (tcInterfaceFromLists terms tyCons dataTypes classes instances dataFamilyInstances typeFamilyInstances patSyns foreignImports)
 
-putForeignImport :: Map TyCon Word64 -> (TcTermKey, TcForeignImportInfo) -> Builder.Builder
+putForeignImport :: PartIndex -> (TcTermKey, TcForeignImportInfo) -> Builder.Builder
 putForeignImport table (key, info) = cborArray 2 <> putTermKey key <> putForeignImportInfo table info
 
-getForeignImport :: TyConTable -> Get.Get (TcTermKey, TcForeignImportInfo)
+getForeignImport :: PartTable -> Get.Get (TcTermKey, TcForeignImportInfo)
 getForeignImport table = expectArray 2 >> ((,) <$!> getTermKey <*!> getForeignImportInfo table)
 
-putForeignImportInfo :: Map TyCon Word64 -> TcForeignImportInfo -> Builder.Builder
+putForeignImportInfo :: PartIndex -> TcForeignImportInfo -> Builder.Builder
 putForeignImportInfo table info =
   case info of
     TcForeignPrimImport -> cborArray 1 <> cborWord 0
     TcForeignCCallImport safety plan ->
       cborArray 3 <> cborWord 1 <> putForeignSafety safety <> putForeignPlan table plan
 
-getForeignImportInfo :: TyConTable -> Get.Get TcForeignImportInfo
+getForeignImportInfo :: PartTable -> Get.Get TcForeignImportInfo
 getForeignImportInfo table = do
   length' <- getArrayLength
   tag <- getWord
@@ -202,7 +215,7 @@ getForeignSafety = do
     2 -> pure TcForeignInterruptible
     _ -> fail "unsupported foreign safety"
 
-putForeignPlan :: Map TyCon Word64 -> TcForeignImportAnnotation -> Builder.Builder
+putForeignPlan :: PartIndex -> TcForeignImportAnnotation -> Builder.Builder
 putForeignPlan table plan =
   cborArray 6
     <> encodeList (putForeignMarshal table) (tcForeignArguments plan)
@@ -212,7 +225,7 @@ putForeignPlan table plan =
     <> putForeignTarget (tcForeignTarget plan)
     <> encodeList putForeignCApi (maybeToList (tcForeignCApi plan))
 
-getForeignPlan :: TyConTable -> Get.Get TcForeignImportAnnotation
+getForeignPlan :: PartTable -> Get.Get TcForeignImportAnnotation
 getForeignPlan table = do
   expectArray 6
   tcForeignArguments <- getList (getForeignMarshal table)
@@ -243,7 +256,7 @@ getForeignCApi = do
       _ -> fail "unsupported capi foreign import kind"
   pure TcForeignCApi {tcForeignCApiHeader, tcForeignCApiKind}
 
-putForeignMarshal :: Map TyCon Word64 -> TcForeignMarshal -> Builder.Builder
+putForeignMarshal :: PartIndex -> TcForeignMarshal -> Builder.Builder
 putForeignMarshal table marshal =
   cborArray 4
     <> putType table (tcForeignSourceType marshal)
@@ -251,7 +264,7 @@ putForeignMarshal table marshal =
     <> encodeList cborText (tcForeignConstructors marshal)
     <> putForeignAbiType (tcForeignAbiType marshal)
 
-getForeignMarshal :: TyConTable -> Get.Get TcForeignMarshal
+getForeignMarshal :: PartTable -> Get.Get TcForeignMarshal
 getForeignMarshal table = do
   expectArray 4
   tcForeignSourceType <- getType table
@@ -329,7 +342,7 @@ getForeignAbiType = do
     13 -> pure TcForeignDouble
     _ -> fail "unsupported foreign ABI type"
 
-putPatSynInfo :: Map TyCon Word64 -> PatSynInfo -> Builder.Builder
+putPatSynInfo :: PartIndex -> PatSynInfo -> Builder.Builder
 putPatSynInfo table info =
   cborArray 7
     <> cborText (psiName info)
@@ -340,7 +353,7 @@ putPatSynInfo table info =
     <> encodeList (putPred table) (psiReqTheta info)
     <> encodeList (putPred table) (psiProvTheta info)
 
-getPatSynInfo :: TyConTable -> Get.Get PatSynInfo
+getPatSynInfo :: PartTable -> Get.Get PatSynInfo
 getPatSynInfo table = do
   expectArray 7
   psiName <- getText
@@ -369,10 +382,10 @@ getPatSynDirection = do
     2 -> pure PatSynExplicitBidirectionalInfo
     _ -> fail "unsupported pattern synonym direction"
 
-putTerm :: Map TyCon Word64 -> (TcTermKey, TypeScheme) -> Builder.Builder
+putTerm :: PartIndex -> (TcTermKey, TypeScheme) -> Builder.Builder
 putTerm table (key, scheme) = cborArray 2 <> putTermKey key <> putTypeScheme table scheme
 
-getTerm :: TyConTable -> Get.Get (TcTermKey, TypeScheme)
+getTerm :: PartTable -> Get.Get (TcTermKey, TypeScheme)
 getTerm table = expectArray 2 >> ((,) <$!> getTermKey <*!> getTypeScheme table)
 
 putTermKey :: TcTermKey -> Builder.Builder
@@ -389,22 +402,17 @@ getTermKey = do
     (4, 1) -> (TcTermGlobal . PackageId <$!> getText) <*!> getText <*!> getText
     _ -> fail "unsupported term key"
 
-putTypeScheme :: Map TyCon Word64 -> TypeScheme -> Builder.Builder
-putTypeScheme table (ForAll variables predicates body) = cborArray 3 <> encodeList (putTyVar table) variables <> encodeList (putPred table) predicates <> putType table body
+putTypeScheme :: PartIndex -> TypeScheme -> Builder.Builder
+putTypeScheme index scheme = putNumber "type scheme" (Map.lookup scheme (partIndexSchemes index))
 
-getTypeScheme :: TyConTable -> Get.Get TypeScheme
-getTypeScheme table = expectArray 3 >> (ForAll <$!> getList (getTyVar table) <*!> getList (getPred table) <*!> getType table)
+getTypeScheme :: PartTable -> Get.Get TypeScheme
+getTypeScheme table = getWord >>= partScheme (tableParts table)
 
-putTyVar :: Map TyCon Word64 -> TyVarId -> Builder.Builder
-putTyVar table variable = cborArray 3 <> cborText (tvName variable) <> putUnique (tvUnique variable) <> putType table (tvKind variable)
+putTyVar :: PartIndex -> TyVarId -> Builder.Builder
+putTyVar index variable = putNumber "type variable" (Map.lookup variable (partIndexTyVars index))
 
-getTyVar :: TyConTable -> Get.Get TyVarId
-getTyVar table = do
-  expectArray 3
-  name <- getText
-  unique <- getUnique
-  kind <- getType table
-  pure (mkTyVarId name unique kind)
+getTyVar :: PartTable -> Get.Get TyVarId
+getTyVar table = getWord >>= partTyVar (tableParts table)
 
 putUnique :: Unique -> Builder.Builder
 putUnique (Unique value) = cborInt value
@@ -429,11 +437,11 @@ getTyConDefinition = do
   namespace <- getResolutionNamespace
   mkTyConWithNamespace namespace packageId moduleName <$!> getText <*!> getInt
 
-putTyCon :: Map TyCon Word64 -> TyCon -> Builder.Builder
-putTyCon table tyCon = cborWord (Map.findWithDefault (error "missing type constructor index") tyCon table)
+putTyCon :: PartIndex -> TyCon -> Builder.Builder
+putTyCon index tyCon = putNumber "type constructor" (Map.lookup tyCon (partIndexTyCons index))
 
-getTyCon :: TyConTable -> Get.Get TyCon
-getTyCon table = (table !) . fromIntegral <$!> getWord
+getTyCon :: PartTable -> Get.Get TyCon
+getTyCon table = (tableTyCons table !) . fromIntegral <$!> getWord
 
 putResolutionNamespace :: ResolutionNamespace -> Builder.Builder
 putResolutionNamespace namespace =
@@ -458,55 +466,117 @@ putPackageId (PackageId identity) = cborText identity
 getPackageId :: Get.Get PackageId
 getPackageId = PackageId <$!> getText
 
-putType :: Map TyCon Word64 -> TcType -> Builder.Builder
-putType table ty = case ty of
-  TcTyVar variable -> sum1 0 (putTyVar table variable)
-  TcMetaTv unique -> sum1 1 (putUnique unique)
-  TcTyCon tyCon arguments -> sum2 2 (putTyCon table tyCon) (encodeList (putType table) arguments)
-  TcFunTy argument result -> sum2 3 (putType table argument) (putType table result)
-  TcForAllTy variable body -> sum2 4 (putTyVar table variable) (putType table body)
-  TcQualTy predicates body -> sum2 5 (encodeList (putPred table) predicates) (putType table body)
-  TcAppTy function argument -> sum2 6 (putType table function) (putType table argument)
-  TcArrowTy -> cborArray 1 <> cborWord 7
+putType :: PartIndex -> TcType -> Builder.Builder
+putType index ty = putNumber "type" (Map.lookup ty (partIndexTypes index))
 
-getType :: TyConTable -> Get.Get TcType
-getType table = do
+getType :: PartTable -> Get.Get TcType
+getType table = getWord >>= partType (tableParts table)
+
+putPred :: PartIndex -> Pred -> Builder.Builder
+putPred index predicate = putNumber "predicate" (Map.lookup predicate (partIndexPreds index))
+
+getPred :: PartTable -> Get.Get Pred
+getPred table = getWord >>= partPred (tableParts table)
+
+-- | The number of a part, as the encoder writes it in place of the part.
+-- Every part an interface holds is numbered before the body is written,
+-- so a missing number means the numbering pass in
+-- "Aihc.Cli.InterfaceParts" no longer reaches a field that this module
+-- writes.
+putNumber :: String -> Maybe Word64 -> Builder.Builder
+putNumber what = maybe (error ("missing interface " <> what <> " number")) cborWord
+
+-- | The table of parts: each is built from the parts before it, so one
+-- pass over the table is enough to read it.
+putPart :: PartIndex -> InterfacePart -> Builder.Builder
+putPart index part = case part of
+  PartTyVar variable ->
+    cborArray 4 <> cborWord 0 <> cborText (tvName variable) <> putUnique (tvUnique variable) <> putType index (tvKind variable)
+  PartType ty -> case ty of
+    TcTyVar variable -> sum1 1 (putTyVar index variable)
+    TcMetaTv unique -> sum1 2 (putUnique unique)
+    TcTyCon tyCon arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
+    TcFunTy argument result -> sum2 4 (putType index argument) (putType index result)
+    TcForAllTy variable body -> sum2 5 (putTyVar index variable) (putType index body)
+    TcQualTy predicates body -> sum2 6 (encodeList (putPred index) predicates) (putType index body)
+    TcAppTy function argument -> sum2 7 (putType index function) (putType index argument)
+    TcArrowTy -> cborArray 1 <> cborWord 8
+  PartPred predicate -> case predicate of
+    ClassPred tyCon arguments -> sum2 9 (putTyCon index tyCon) (encodeList (putType index) arguments)
+    EqPred left right -> sum2 10 (putType index left) (putType index right)
+    QuantifiedPred variables antecedents consequent ->
+      cborArray 4 <> cborWord 11 <> encodeList (putTyVar index) variables <> encodeList (putPred index) antecedents <> putPred index consequent
+    IParamPred name payload -> sum2 12 (cborText name) (putType index payload)
+  PartScheme (ForAll variables predicates body) ->
+    cborArray 4 <> cborWord 13 <> encodeList (putTyVar index) variables <> encodeList (putPred index) predicates <> putType index body
+
+getPartTable :: Array Int TyCon -> Get.Get PartTable
+getPartTable tyCons = do
+  count <- getArrayLength
+  PartTable tyCons <$!> readParts 0 count IntMap.empty
+  where
+    readParts position count parts
+      | position >= count = pure parts
+      | otherwise = do
+          part <- getPart tyCons parts
+          readParts (position + 1) count (IntMap.insert position part parts)
+
+getPart :: Array Int TyCon -> IntMap InterfacePart -> Get.Get InterfacePart
+getPart tyCons parts = do
   length' <- getArrayLength
   tag <- getWord
   case (length', tag) of
-    (2, 0) -> TcTyVar <$!> getTyVar table
-    (2, 1) -> TcMetaTv <$!> getUnique
-    (3, 2) -> TcTyCon <$!> getTyCon table <*!> getList (getType table)
-    (3, 3) -> TcFunTy <$!> getType table <*!> getType table
-    (3, 4) -> TcForAllTy <$!> getTyVar table <*!> getType table
-    (3, 5) -> TcQualTy <$!> getList (getPred table) <*!> getType table
-    (3, 6) -> TcAppTy <$!> getType table <*!> getType table
-    (1, 7) -> pure TcArrowTy
-    _ -> fail "unsupported type"
+    (4, 0) -> do
+      name <- getText
+      unique <- getUnique
+      kind <- refType
+      pure $! PartTyVar (mkTyVarId name unique kind)
+    (2, 1) -> typePart (TcTyVar <$!> refTyVar)
+    (2, 2) -> typePart (TcMetaTv <$!> getUnique)
+    (3, 3) -> typePart (TcTyCon <$!> refTyCon <*!> getList refType)
+    (3, 4) -> typePart (TcFunTy <$!> refType <*!> refType)
+    (3, 5) -> typePart (TcForAllTy <$!> refTyVar <*!> refType)
+    (3, 6) -> typePart (TcQualTy <$!> getList refPred <*!> refType)
+    (3, 7) -> typePart (TcAppTy <$!> refType <*!> refType)
+    (1, 8) -> pure (PartType TcArrowTy)
+    (3, 9) -> predPart (ClassPred <$!> refTyCon <*!> getList refType)
+    (3, 10) -> predPart (EqPred <$!> refType <*!> refType)
+    (4, 11) -> predPart (QuantifiedPred <$!> getList refTyVar <*!> getList refPred <*!> refPred)
+    (3, 12) -> predPart (IParamPred <$!> getText <*!> refType)
+    (4, 13) -> PartScheme <$!> (ForAll <$!> getList refTyVar <*!> getList refPred <*!> refType)
+    _ -> fail "unsupported interface part"
+  where
+    typePart getValue = PartType <$!> getValue
+    predPart getValue = PartPred <$!> getValue
+    refType = getWord >>= partType parts
+    refTyVar = getWord >>= partTyVar parts
+    refPred = getWord >>= partPred parts
+    refTyCon = (tyCons !) . fromIntegral <$!> getWord
 
-putPred :: Map TyCon Word64 -> Pred -> Builder.Builder
-putPred table predicate = case predicate of
-  ClassPred tyCon arguments -> sum2 0 (putTyCon table tyCon) (encodeList (putType table) arguments)
-  EqPred left right -> sum2 1 (putType table left) (putType table right)
-  QuantifiedPred variables antecedents consequent ->
-    cborArray 4 <> cborWord 2 <> encodeList (putTyVar table) variables <> encodeList (putPred table) antecedents <> putPred table consequent
-  IParamPred name payload -> sum2 3 (cborText name) (putType table payload)
+partType :: IntMap InterfacePart -> Word64 -> Get.Get TcType
+partType parts number = case IntMap.lookup (fromIntegral number) parts of
+  Just (PartType ty) -> pure ty
+  _ -> fail "invalid interface type reference"
 
-getPred :: TyConTable -> Get.Get Pred
-getPred table = do
-  length' <- getArrayLength
-  tag <- getWord
-  case (length', tag) of
-    (3, 0) -> ClassPred <$!> getTyCon table <*!> getList (getType table)
-    (3, 1) -> EqPred <$!> getType table <*!> getType table
-    (4, 2) -> QuantifiedPred <$!> getList (getTyVar table) <*!> getList (getPred table) <*!> getPred table
-    (3, 3) -> IParamPred <$!> getText <*!> getType table
-    _ -> fail "unsupported predicate"
+partTyVar :: IntMap InterfacePart -> Word64 -> Get.Get TyVarId
+partTyVar parts number = case IntMap.lookup (fromIntegral number) parts of
+  Just (PartTyVar variable) -> pure variable
+  _ -> fail "invalid interface type variable reference"
 
-putTyConInfo :: Map TyCon Word64 -> TyConInfo -> Builder.Builder
+partPred :: IntMap InterfacePart -> Word64 -> Get.Get Pred
+partPred parts number = case IntMap.lookup (fromIntegral number) parts of
+  Just (PartPred predicate) -> pure predicate
+  _ -> fail "invalid interface predicate reference"
+
+partScheme :: IntMap InterfacePart -> Word64 -> Get.Get TypeScheme
+partScheme parts number = case IntMap.lookup (fromIntegral number) parts of
+  Just (PartScheme scheme) -> pure scheme
+  _ -> fail "invalid interface type scheme reference"
+
+putTyConInfo :: PartIndex -> TyConInfo -> Builder.Builder
 putTyConInfo table info = cborArray 6 <> cborText (tciName info) <> cborInt (tciArity info) <> putTyCon table (tciTyCon info) <> putTypeScheme table (tciKindScheme info) <> putTyConFlavor (tciFlavor info) <> putMaybe (putTypeSynonymInfo table) (tciTypeSynonym info)
 
-getTyConInfo :: TyConTable -> Get.Get TyConInfo
+getTyConInfo :: PartTable -> Get.Get TyConInfo
 getTyConInfo table = do
   expectArray 6
   tciName <- getText
@@ -517,16 +587,16 @@ getTyConInfo table = do
   tciTypeSynonym <- getMaybe (getTypeSynonymInfo table)
   pure TyConInfo {tciName, tciArity, tciTyCon, tciKindScheme, tciFlavor, tciTypeSynonym}
 
-putTypeSynonymInfo :: Map TyCon Word64 -> TypeSynonymInfo -> Builder.Builder
+putTypeSynonymInfo :: PartIndex -> TypeSynonymInfo -> Builder.Builder
 putTypeSynonymInfo table info = cborArray 2 <> encodeList (putTyVar table) (tsiParams info) <> putMaybe (putType table) (tsiBody info)
 
-getTypeSynonymInfo :: TyConTable -> Get.Get TypeSynonymInfo
+getTypeSynonymInfo :: PartTable -> Get.Get TypeSynonymInfo
 getTypeSynonymInfo table = expectArray 2 >> (TypeSynonymInfo <$!> getList (getTyVar table) <*!> getMaybe (getType table))
 
-putDataTypeInfo :: Map TyCon Word64 -> DataTypeInfo -> Builder.Builder
+putDataTypeInfo :: PartIndex -> DataTypeInfo -> Builder.Builder
 putDataTypeInfo table info = cborArray 7 <> cborText (dtiName info) <> putTyCon table (dtiTyCon info) <> encodeList (putTyVar table) (dtiTyVars info) <> putType table (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList (putDataConInfo table) (dtiConstructors info) <> encodeList putBool (dtiNominalRoles info)
 
-getDataTypeInfo :: TyConTable -> Get.Get DataTypeInfo
+getDataTypeInfo :: PartTable -> Get.Get DataTypeInfo
 getDataTypeInfo table = do
   expectArray 7
   dtiName <- getText
@@ -538,7 +608,7 @@ getDataTypeInfo table = do
   dtiNominalRoles <- getList getBool
   pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors, dtiNominalRoles}
 
-putDataConInfo :: Map TyCon Word64 -> DataConInfo -> Builder.Builder
+putDataConInfo :: PartIndex -> DataConInfo -> Builder.Builder
 putDataConInfo table info =
   cborArray 8
     <> cborText (dciName info)
@@ -550,7 +620,7 @@ putDataConInfo table info =
     <> putType table (dciResTy info)
     <> putDataConSourceForm (dciSourceForm info)
 
-getDataConInfo :: TyConTable -> Get.Get DataConInfo
+getDataConInfo :: PartTable -> Get.Get DataConInfo
 getDataConInfo table = do
   expectArray 8
   dciName <- getText
@@ -563,10 +633,10 @@ getDataConInfo table = do
   dciSourceForm <- getDataConSourceForm
   pure DataConInfo {dciName, dciOrigin, dciUnivTyVars, dciExTyVars, dciTheta, dciFields, dciResTy, dciSourceForm}
 
-putDataConFieldInfo :: Map TyCon Word64 -> DataConFieldInfo -> Builder.Builder
+putDataConFieldInfo :: PartIndex -> DataConFieldInfo -> Builder.Builder
 putDataConFieldInfo table info = cborArray 5 <> putMaybe cborText (dcfiLabel info) <> putType table (dcfiType info) <> putBool (dcfiStrict info) <> putBool (dcfiLazy info) <> putDataConFieldUnpack (dcfiUnpack info)
 
-getDataConFieldInfo :: TyConTable -> Get.Get DataConFieldInfo
+getDataConFieldInfo :: PartTable -> Get.Get DataConFieldInfo
 getDataConFieldInfo table = do
   expectArray 5
   dcfiLabel <- getMaybe getText
@@ -576,7 +646,7 @@ getDataConFieldInfo table = do
   dcfiUnpack <- getDataConFieldUnpack
   pure DataConFieldInfo {dcfiLabel, dcfiType, dcfiStrict, dcfiLazy, dcfiUnpack}
 
-putClassInfo :: Map TyCon Word64 -> ClassInfo -> Builder.Builder
+putClassInfo :: PartIndex -> ClassInfo -> Builder.Builder
 putClassInfo table info =
   cborArray 11
     <> cborText (ciName info)
@@ -604,14 +674,14 @@ getFunDep = do
   fdDetermined <- getList getInt
   pure FunDep {fdDeterminers, fdDetermined}
 
-putAssociatedTypeInfo :: Map TyCon Word64 -> AssociatedTypeInfo -> Builder.Builder
+putAssociatedTypeInfo :: PartIndex -> AssociatedTypeInfo -> Builder.Builder
 putAssociatedTypeInfo table info =
   cborArray 3
     <> putTyCon table (atiTyCon info)
     <> encodeList (putMaybe cborInt) (atiClassParams info)
     <> putMaybe (putTypeFamilyInstanceInfo table) (atiDefault info)
 
-getAssociatedTypeInfo :: TyConTable -> Get.Get AssociatedTypeInfo
+getAssociatedTypeInfo :: PartTable -> Get.Get AssociatedTypeInfo
 getAssociatedTypeInfo table = do
   expectArray 3
   atiTyCon <- getTyCon table
@@ -619,7 +689,7 @@ getAssociatedTypeInfo table = do
   atiDefault <- getMaybe (getTypeFamilyInstanceInfo table)
   pure AssociatedTypeInfo {atiTyCon, atiClassParams, atiDefault}
 
-getClassInfo :: TyConTable -> Get.Get ClassInfo
+getClassInfo :: PartTable -> Get.Get ClassInfo
 getClassInfo table = do
   expectArray 11
   ciName <- getText
@@ -635,7 +705,7 @@ getClassInfo table = do
   ciFunDeps <- getList getFunDep
   pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures, ciAssociatedTypes, ciFunDeps}
 
-putInstanceInfo :: Map TyCon Word64 -> InstanceInfo -> Builder.Builder
+putInstanceInfo :: PartIndex -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =
   cborArray 7
     <> cborText (iiClassName info)
@@ -646,7 +716,7 @@ putInstanceInfo table info =
     <> encodeList (putPred table) (iiContext info)
     <> encodeList (putType table) (iiHead info)
 
-getInstanceInfo :: TyConTable -> Get.Get InstanceInfo
+getInstanceInfo :: PartTable -> Get.Get InstanceInfo
 getInstanceInfo table = do
   expectArray 7
   iiClassName <- getText
@@ -658,7 +728,7 @@ getInstanceInfo table = do
   iiHead <- getList (getType table)
   pure InstanceInfo {iiClassName, iiDictName, iiDictOrigin, iiDictType, iiTyVars, iiContext, iiHead}
 
-putDataFamilyInstanceInfo :: Map TyCon Word64 -> DataFamilyInstanceInfo -> Builder.Builder
+putDataFamilyInstanceInfo :: PartIndex -> DataFamilyInstanceInfo -> Builder.Builder
 putDataFamilyInstanceInfo table info =
   cborArray 7
     <> cborText (dfiiFamilyName info)
@@ -669,7 +739,7 @@ putDataFamilyInstanceInfo table info =
     <> encodeList cborText (dfiiConstructorNames info)
     <> putBool (dfiiIsNewtype info)
 
-getDataFamilyInstanceInfo :: TyConTable -> Get.Get DataFamilyInstanceInfo
+getDataFamilyInstanceInfo :: PartTable -> Get.Get DataFamilyInstanceInfo
 getDataFamilyInstanceInfo table = do
   expectArray 7
   dfiiFamilyName <- getText
@@ -681,7 +751,7 @@ getDataFamilyInstanceInfo table = do
   dfiiIsNewtype <- getBool
   pure DataFamilyInstanceInfo {dfiiFamilyName, dfiiFamilyType, dfiiTyVars, dfiiRepresentationTyCon, dfiiAxiomName, dfiiConstructorNames, dfiiIsNewtype}
 
-putTypeFamilyInstanceInfo :: Map TyCon Word64 -> TypeFamilyInstanceInfo -> Builder.Builder
+putTypeFamilyInstanceInfo :: PartIndex -> TypeFamilyInstanceInfo -> Builder.Builder
 putTypeFamilyInstanceInfo table info =
   cborArray 7
     <> cborText (tfiiFamilyName info)
@@ -692,7 +762,7 @@ putTypeFamilyInstanceInfo table info =
     <> putType table (tfiiRight info)
     <> putBool (tfiiClosed info)
 
-getTypeFamilyInstanceInfo :: TyConTable -> Get.Get TypeFamilyInstanceInfo
+getTypeFamilyInstanceInfo :: PartTable -> Get.Get TypeFamilyInstanceInfo
 getTypeFamilyInstanceInfo table = do
   expectArray 7
   tfiiFamilyName <- getText
@@ -716,10 +786,10 @@ putTextOrigin (packageId, moduleName) = cborArray 2 <> cborText packageId <> cbo
 getTextOrigin :: Get.Get (Text, Text)
 getTextOrigin = expectArray 2 >> ((,) <$!> getText <*!> getText)
 
-putNamedScheme :: Map TyCon Word64 -> (Text, TypeScheme) -> Builder.Builder
+putNamedScheme :: PartIndex -> (Text, TypeScheme) -> Builder.Builder
 putNamedScheme table (name, scheme) = cborArray 2 <> cborText name <> putTypeScheme table scheme
 
-getNamedScheme :: TyConTable -> Get.Get (Text, TypeScheme)
+getNamedScheme :: PartTable -> Get.Get (Text, TypeScheme)
 getNamedScheme table = expectArray 2 >> ((,) <$!> getText <*!> getTypeScheme table)
 
 encodeList :: (value -> Builder.Builder) -> [value] -> Builder.Builder

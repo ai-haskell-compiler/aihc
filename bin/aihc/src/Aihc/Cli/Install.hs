@@ -1192,13 +1192,11 @@ loadInstalledPackage requirements immutable storePath = do
     if null selectedModules
       then pure (mempty, Map.empty)
       else loadPackageInstances selectedModules
-  -- The interfaces of a package live for the whole install, so they share
-  -- their equal parts with one another.
-  let shared = shareTcInterfaces (decodedFacts : [interface | (_, _, interface) <- entries])
-      (instanceFacts', interfaces) =
-        case shared of
-          facts : rest -> (facts, rest)
-          [] -> (decodedFacts, [])
+  -- A written interface holds each of its parts once and names it
+  -- everywhere it is used, so the interfaces read above are already
+  -- shared within themselves; nothing here has to look for equal parts.
+  let instanceFacts' = decodedFacts
+      interfaces = [interface | (_, _, interface) <- entries]
       package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
       exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
       types = LazyMap.fromList (zip [name | (name, _, _) <- entries] interfaces)
@@ -1838,10 +1836,8 @@ runTypeUnit context runtimes runtime = do
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       decodedFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
-      let (ownFacts, interfaces) =
-            case shareTcInterfaces (decodedFacts : map typeArtifactInterface artifacts) of
-              facts : rest -> (facts, rest)
-              [] -> (decodedFacts, [])
+      let ownFacts = decodedFacts
+          interfaces = map typeArtifactInterface artifacts
       verbose ("Reuse type and backend artifacts: " <> T.unpack (unitLabel unit))
       atomically $ do
         putTMVar
@@ -2974,4 +2970,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-24"
+packageArtifactFormatVersion = "aihc-artifacts-25"
