@@ -67,6 +67,25 @@ program is run. The generated module lands under the package's output path
 for that target, in `preprocess/`, next to the `configure/` directory of a
 `build-type: Configure` package, whose headers it can include.
 
+## Compiler headers
+
+C code of a package expects the headers that a GHC installation gives:
+`HsFFI.h`, `MachDeps.h`, and the two that GHC writes for its own host,
+`ghcplatform.h` and `ghcautoconf.h`. aihc holds the text of each header once,
+in `Aihc.Hackage.Headers`, and answers both readers from it. The CPP pass over
+the Haskell sources takes the text directly. A C compile needs a file, so aihc
+writes the headers into `include/` under the build root of the target and
+gives that directory to the `c-sources` of the package, to the C wrappers of
+its `capi` imports and to `hsc2hs`.
+
+Every answer comes from the target, and none from the host that runs aihc.
+The pointer size and the Haskell word are separate, because they differ: a
+`wasm32` pointer is four bytes, while an `Int#` and a heap slot are eight
+bytes on every target. `ghcplatform.h` gives the pointer, the byte order and
+the `*_HOST_OS` and `*_HOST_ARCH` macros. `MachDeps.h` gives the Haskell
+sizes. `ghcautoconf.h` has no feature macros, because aihc runs no configure
+script.
+
 ## Linking on another host
 
 `aihc build --no-link` stops before the link and writes a bundle directory

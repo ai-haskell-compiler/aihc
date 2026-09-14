@@ -30,6 +30,7 @@ import Aihc.Cli.BuildModule
     runBuildModule,
     validateSelectedPackageNames,
   )
+import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Cli.Install
   ( InstallLocations (..),
     ModuleCompileConfig (..),
@@ -111,6 +112,7 @@ buildPackage options = do
   when (null executables) $
     ioError (userError ("The package " <> pkgName spec <> " has no buildable executable"))
   buildIdentity <- buildEnvironmentIdentity target
+  headerDirectory <- ensureCompilerHeaders target buildRoot
   let compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
@@ -123,6 +125,7 @@ buildPackage options = do
             compileNoCode = False,
             compileOptimization = buildOptimization options,
             compileTarget = target,
+            compileHeaderDirectory = headerDirectory,
             compileVerbose = verbose,
             compilePrintTimings = const (pure ()),
             compileUseColor = False
@@ -174,7 +177,7 @@ buildPackage options = do
               compileCapiStubOptions = capiStubOptions sourceFiles cCompileInfo
             }
     compiled <- compileModules compileConfig compileRequest
-    cObjects <- compilePackageCFiles target (buildOptimization options) verbose root outputRoot cCompileInfo
+    cObjects <- compilePackageCFiles target (buildOptimization options) headerDirectory verbose root outputRoot cCompileInfo
     let output = outputDirectory </> executableFileName target name
     finishExecutable
       compileConfig

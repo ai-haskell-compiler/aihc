@@ -9,13 +9,15 @@
 -- module is loaded, exposed or not, so that later re-export resolution has
 -- the hidden modules available.
 module Aihc.Haddock.Package
-  ( loadPackageDoc,
+  ( documentationHeaderTarget,
+    loadPackageDoc,
     packageSpecOf,
   )
 where
 
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions)
+import Aihc.Hackage.Headers (HeaderTarget (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Haddock.Build (BuildInput (..), buildModuleDoc)
@@ -34,10 +36,28 @@ import System.FilePath (dropExtension, makeRelative, normalise, splitDirectories
 packageSpecOf :: FilePath -> IO PackageSpec
 packageSpecOf = packageSpecFromSource
 
+-- | The machine that documentation describes.
+--
+-- A module reaches the CPP pass with @#if SIZEOF_VOID_P == 8@ and the like,
+-- so the headers must answer for some machine.  This tool documents sources
+-- and compiles none, and it takes no target from its caller, so it documents
+-- for LP64, which every target of aihc except @wasm32@ matches.
+documentationHeaderTarget :: HeaderTarget
+documentationHeaderTarget =
+  HeaderTarget
+    { headerPointerBytes = 8,
+      headerLongBytes = 8,
+      headerBigEndian = False,
+      headerOs = "linux",
+      headerArch = "x86_64"
+    }
+
 -- | Document the library of the package at the given root. The dependency
--- specs supply the versions that @MIN_VERSION_*@ macros report during CPP.
-loadPackageDoc :: FilePath -> [PackageSpec] -> IO PackageDoc
-loadPackageDoc root dependencies = do
+-- specs supply the versions that @MIN_VERSION_*@ macros report during CPP,
+-- and the header directory holds the headers of the compiler, which a module
+-- may include.
+loadPackageDoc :: FilePath -> FilePath -> [PackageSpec] -> IO PackageDoc
+loadPackageDoc headerDir root dependencies = do
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <-
     case cabalFiles of
@@ -52,7 +72,7 @@ loadPackageDoc root dependencies = do
   files <- HackageCabal.collectLibraryFiles gpd root
   let exposed = HackageCabal.collectLibraryExposedModules gpd
       versions = dependencyVersionsFromManifests [(T.pack (pkgName dep), T.pack (pkgVersion dep)) | dep <- dependencies]
-  modules <- mapM (loadModule root versions exposed) files
+  modules <- mapM (loadModule headerDir root versions exposed) files
   pure
     PackageDoc
       { packageDocFormatVersion = docModelFormatVersion,
@@ -62,8 +82,8 @@ loadPackageDoc root dependencies = do
         packageDocModules = modules
       }
 
-loadModule :: FilePath -> DependencyVersions -> [Text] -> HackageCabal.FileInfo -> IO ModuleDoc
-loadModule root versions exposed fileInfo = do
+loadModule :: FilePath -> FilePath -> DependencyVersions -> [Text] -> HackageCabal.FileInfo -> IO ModuleDoc
+loadModule headerDir root versions exposed fileInfo = do
   ParsedInterfaceFile
     { parsedFilePath = path,
       parsedFileModule = modu,
@@ -72,7 +92,7 @@ loadModule root versions exposed fileInfo = do
       parsedFileExtensions = extensions,
       parsedFileSource = source
     } <-
-    parseInterfaceFile root versions fileInfo
+    parseInterfaceFile headerDir root versions fileInfo
   let relative = normalise (makeRelative root path)
       fallbackName = T.intercalate "." (map T.pack (splitDirectories (dropExtension relative)))
       name = fromMaybe fallbackName (moduleName modu)

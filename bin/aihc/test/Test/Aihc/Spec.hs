@@ -162,7 +162,9 @@ test_moduleDepsIncludedHeader =
               HackageCabal.fileInfoDependencies = [],
               HackageCabal.fileInfoPreprocessor = Nothing
             }
-        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile root mempty fileInfo
+        -- The module includes a header of its own, so the compiler headers
+        -- are not needed and their directory stays empty.
+        digest = moduleDepsDigest . parsedFileDeps <$> parseInterfaceFile (root </> "headers") root mempty fileInfo
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile (sourceDir </> "Demo.hs") (unlines ["module Demo (demo) where", "#include \"demo.h\"", "demo = VALUE"])
@@ -1111,7 +1113,7 @@ test_installHsc2hs getStore = do
       assertBool "hsc2hs runs in cross-compilation mode" ("--cross-compile" `elem` arguments)
       assertBool "hsc2hs compiles for the target" (any ("--cflag=--target=arm64-apple-darwin" `isPrefixOf`) arguments)
       assertBool "hsc2hs sees the package include directory" (("-I" <> fixtureRoot </> "include") `elem` arguments)
-      assertBool "hsc2hs sees the runtime include directory" (any (\argument -> "-I" `isPrefixOf` argument && "runtime/include" `isSuffixOf` argument) arguments)
+      assertBool "hsc2hs sees the compiler headers" (any (\argument -> "-I" `isPrefixOf` argument && "include" `isSuffixOf` argument) arguments)
       assertBool "hsc2hs sees the platform macros" ("--cflag=-Ddarwin_HOST_OS=1" `elem` arguments && "--cflag=-Daarch64_HOST_ARCH=1" `elem` arguments)
       assertEqual "hsc2hs writes the module and reads the fixture" ["-o", generated, fixtureRoot </> "src" </> "Demo.hsc"] (drop (length arguments - 3) arguments)
       assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
@@ -1296,7 +1298,15 @@ test_installCapi getStore =
       )
     let headerText answer =
           unlines
-            [ "#define DEMO_ANSWER " <> show (answer :: Int),
+            [ -- A package header can include the configuration headers of
+              -- the compiler.  The compile of a wrapper thus searches the
+              -- include directory of the runtime.  A C source of the package
+              -- searches the same directory.
+              "#include <ghcautoconf.h>",
+              "#if !defined(SIZEOF_VOID_P)",
+              "#error ghcautoconf.h must define the word size",
+              "#endif",
+              "#define DEMO_ANSWER " <> show (answer :: Int),
               "static inline int demo_double(int value) { return value * 2; }"
             ]
     writeFile header (headerText 42)
