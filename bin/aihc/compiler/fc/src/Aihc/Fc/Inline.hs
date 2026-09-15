@@ -30,12 +30,12 @@ import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
-import Aihc.Fc.TypeOf (TypeEnv (..), extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, viewForAll, viewFun)
+import Aihc.Fc.TypeOf (TypeEnv (..), coercionEndpoints, extendBinder, lookupHeaderType, reduceType, repOf, substType, substTypes, typeEnvFromProgram, viewForAll, viewFun)
 import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (foldM)
+import Control.Monad (foldM, guard)
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState, state)
 import Data.Either (lefts, rights)
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -351,6 +351,7 @@ isKnownConstructor arities expr =
   case expr of
     ExTyLam _ body -> isKnownConstructor arities body
     ExLam _ body -> isKnownConstructor arities body
+    ExCast body _ -> isKnownConstructor arities body
     _ ->
       case collectSpine expr of
         (ExVar name, args)
@@ -505,10 +506,6 @@ constructorApplication env con scrutineeType alternative = do
           | Just ty <- Map.lookup (binderName binder) fixed -> (ty :) <$> fill rest existentials fixed
           | existential : more <- existentials -> (TyVar (binderName existential) :) <$> fill rest more fixed
           | otherwise -> Nothing
-    typeSpine ty =
-      case ty of
-        TyApp function argument -> let (headType, args) = typeSpine function in (headType, args <> [argument])
-        _ -> (ty, [])
 
 extendTypeBinder :: Simpl -> Binder -> Simpl
 extendTypeBinder env binder = env {spEnv = extendBinder (spEnv env) binder}
@@ -716,12 +713,17 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
 -- bindings that the unfolding needs come back with the application.
 knownConstructor :: Simpl -> Expr -> SimplM (Maybe ([Bind], Name, [Type], [Expr]))
 knownConstructor env expr =
-  case collectSpine expr of
-    (ExVar name, args)
-      | isConstructorName name -> pure (Just ([], name, lefts args, rights args))
-      | Just body <- Map.lookup name (spLocals env) -> unfold body args
-      | Just body <- Map.lookup name (spKnown env) -> unfold body args
-    _ -> pure Nothing
+  case expr of
+    ExCast body coercion -> do
+      inner <- knownConstructor env body
+      pure (inner >>= pushCast (spEnv env) coercion)
+    _ ->
+      case collectSpine expr of
+        (ExVar name, args)
+          | isConstructorName name -> pure (Just ([], name, lefts args, rights args))
+          | Just body <- Map.lookup name (spLocals env) -> unfold body args
+          | Just body <- Map.lookup name (spKnown env) -> unfold body args
+        _ -> pure Nothing
   where
     unfold body args = do
       copy <- freshenExpr body
@@ -734,6 +736,7 @@ knownConstructor env expr =
           | otherwise -> peel (Bind binder argument : binds) inner rest
         (ExLam {}, []) -> Nothing
         (ExTyLam {}, []) -> Nothing
+        (ExCast inner coercion, []) -> peel binds inner [] >>= pushCast (spEnv env) coercion
         _ ->
           case collectSpine body of
             (ExVar con, conArgs)
@@ -741,6 +744,104 @@ knownConstructor env expr =
                 null args ->
                   Just (reverse binds, con, lefts conArgs, rights conArgs)
             _ -> Nothing
+
+-- | Push a cast on a constructor application into the application.
+--
+-- A coercion between two applications of one type constructor carries a
+-- coercion for each of its arguments, so the same constructor stands at
+-- the right-hand arguments once each field carries the coercion that the
+-- argument coercions lift its type to. The rule needs the constructor to
+-- be a plain one of that type constructor: a constructor with an
+-- existential or a refined result type keeps its cast.
+pushCast :: TypeEnv -> Coercion -> ([Bind], Name, [Type], [Expr]) -> Maybe ([Bind], Name, [Type], [Expr])
+pushCast env coercion (binds, con, types, fields) = do
+  (tyCon, argumentCoercions) <- case coercion of
+    CoTyConApp name arguments -> Just (name, arguments)
+    _ -> Nothing
+  conType <- lookupHeaderType env con
+  let (binders, fieldTypes, result) = splitConstructorType env conType
+      (resultHead, resultArgs) = typeSpine (reduceType env result)
+  guard (resultHead == TyCon tyCon)
+  guard (resultArgs == map (TyVar . binderName) binders)
+  guard (length binders == length types)
+  guard (length binders == length argumentCoercions)
+  guard (length fieldTypes == length fields)
+  types' <- mapM (fmap snd . coercionEndpoints env) argumentCoercions
+  let subst = Map.fromList (zip (map binderName binders) argumentCoercions)
+  fieldCoercions <- mapM (liftCoercion env subst) fieldTypes
+  Just (binds, con, types', zipWith cast fields fieldCoercions)
+  where
+    cast field fieldCoercion =
+      case fieldCoercion of
+        CoRefl _ -> field
+        _ -> ExCast field fieldCoercion
+
+-- | The coercion that a substitution of coercions for type variables
+-- lifts a type to. A type that the substitution does not touch lifts to
+-- reflexivity.
+--
+-- A shape that has no coercion form has no lifting, and neither has one
+-- that would put a representational coercion where the form takes a
+-- nominal one. An application is such a form, so a class whose fields
+-- are not all function types keeps its cast until the lint reads the
+-- roles of a type constructor instead of asking every argument of a
+-- 'CoTyConApp' to be nominal.
+liftCoercion :: TypeEnv -> Map Name Coercion -> Type -> Maybe Coercion
+liftCoercion env subst ty
+  | Set.disjoint (typeVariables ty) (Map.keysSet subst) = Just (CoRefl ty)
+  | otherwise =
+      case ty of
+        TyVar name -> Map.lookup name subst
+        TyApp function argument -> do
+          function' <- liftCoercion env subst function
+          argument' <- liftCoercion env subst argument
+          if isNominalCoercion env function' && isNominalCoercion env argument'
+            then Just (CoApp function' argument')
+            else Nothing
+        TyFun rep1 rep2 argument result
+          | Set.disjoint (typeVariables rep1 <> typeVariables rep2) (Map.keysSet subst) ->
+              CoFun <$> liftCoercion env subst argument <*> liftCoercion env subst result
+        _ -> Nothing
+
+-- | Whether a coercion proves a nominal equality: the forms that take a
+-- nominal argument accept only such a coercion.
+isNominalCoercion :: TypeEnv -> Coercion -> Bool
+isNominalCoercion env coercion =
+  case coercion of
+    CoVar _ -> True
+    CoRefl _ -> True
+    CoSym inner -> isNominalCoercion env inner
+    CoTrans left right -> isNominalCoercion env left && isNominalCoercion env right
+    CoApp function argument -> isNominalCoercion env function && isNominalCoercion env argument
+    CoNth _ inner -> isNominalCoercion env inner
+    CoFun domain range -> isNominalCoercion env domain && isNominalCoercion env range
+    CoTyConApp _ arguments -> all (isNominalCoercion env) arguments
+    CoAxiom name _ ->
+      case Map.lookup name (teAxioms env) of
+        Just declaration -> axiomRole declaration == Nominal
+        Nothing -> False
+
+-- | The universal binders, the field types, and the result type of the
+-- header type of a constructor.
+splitConstructorType :: TypeEnv -> Type -> ([Binder], [Type], Type)
+splitConstructorType env ty =
+  case ty of
+    TyForAll binder body ->
+      let (binders, fields, result) = splitConstructorType env body
+       in (binder : binders, fields, result)
+    TyFun _ _ argument body ->
+      let (binders, fields, result) = splitConstructorType env body
+       in (binders, argument : fields, result)
+    _ ->
+      let reduced = reduceType env ty
+       in if reduced == ty then ([], [], ty) else splitConstructorType env reduced
+
+-- | The head of a type application and its arguments, outermost last.
+typeSpine :: Type -> (Type, [Type])
+typeSpine ty =
+  case ty of
+    TyApp function argument -> let (headType, args) = typeSpine function in (headType, args <> [argument])
+    _ -> (ty, [])
 
 -- | The types of the existential binders of a constructor application: the
 -- type arguments that the result type of the constructor does not fix.
