@@ -49,6 +49,7 @@ module GHC.Prim.Read
     lexP,
     expectP,
     lexDigits,
+    digitsToInteger,
     lexLitChar,
     readLitChar,
     parseSignedInteger,

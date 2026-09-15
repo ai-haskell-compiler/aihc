@@ -467,12 +467,16 @@ lintAlt env scrutType expected alt =
       case lookupHeaderType env name of
         Nothing -> Left (UnboundName name)
         Just constructorType -> do
-          (existentials, fields) <- matchConstructor env constructorType scrutType
+          (existentials, fields, universals) <- matchConstructor env constructorType scrutType
           scopeEnv <- foldM bindLocal env (altTypeBinders alt)
           mapM_ (lintType scopeEnv . binderType) (altBinders alt)
           unless (length existentials == length (altTypeBinders alt)) (Left (LintFailure ("case alternative type binder count does not match constructor: " <> show name)))
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
-          (envEx, substitution) <- foldM (bindExistential name) (env, Map.empty) (zip existentials (altTypeBinders alt))
+          -- The universal and the existential variables are substituted at the
+          -- same time, because a variable that the scrutinee supplies for a
+          -- universal can share its name with an existential of the
+          -- declaration; substituting in two passes would capture it.
+          (envEx, substitution) <- foldM (bindExistential name) (env, universals) (zip existentials (altTypeBinders alt))
           envFields <- foldM (bindField name) envEx (zip (map (substTypes substitution) fields) (altBinders alt))
           checkExpr envFields "case alternative" expected (altRhs alt)
 
@@ -493,13 +497,16 @@ bindExistential constructorName (env, substitution) (expected, actual) = do
   unless (typesEqual env' expectedKind (binderType actual)) (Left (KindMismatch ("case alternative type binder for " <> show constructorName) expectedKind (binderType actual)))
   Right (env', Map.insert (binderName expected) (TyVar (binderName actual)) substitution)
 
-matchConstructor :: TypeEnv -> Type -> Type -> Either LintError ([Binder], [Type])
+-- | The existential binders, the field types and the substitution that the
+-- scrutinee gives the universal variables. The binders and the field types are
+-- returned as the declaration spells them, so that the caller can substitute
+-- the universals and the existentials in a single pass.
+matchConstructor :: TypeEnv -> Type -> Type -> Either LintError ([Binder], [Type], Map Name Type)
 matchConstructor env constructorType scrutType = do
   let (foralls, fields, result) = splitConType env constructorType
   subst <- matchExpected env (map binderName foralls) Map.empty result scrutType
-  let existentials = [binder {binderType = substTypes subst (binderType binder)} | binder <- foralls, binderName binder `Map.notMember` subst]
-      substituted = map (substTypes subst) fields
-  Right (existentials, substituted)
+  let existentials = [binder | binder <- foralls, binderName binder `Map.notMember` subst]
+  Right (existentials, fields, subst)
 
 splitConType :: TypeEnv -> Type -> ([Binder], [Type], Type)
 splitConType env ty =

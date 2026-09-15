@@ -45,6 +45,7 @@ would no longer point at a change in aihc.
 | th-abstraction | 0.7.2.0 |
 | OneTuple | 0.4.3 |
 | splitmix | 0.1.3.2 |
+| parsec | 3.1.18.0 |
 
 ## Running it locally
 

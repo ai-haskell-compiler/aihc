@@ -12,20 +12,24 @@ module GHC.Internal.Read
     choose,
     readNumber,
     readFieldHash,
+    numberToRational,
   )
 where
 
 import Data.Either (Either (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
+import GHC.Float (Double, Float)
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Internal.Integer (Integer)
 import GHC.Num (Num (..))
 import GHC.Prim.Read
   ( Lexeme (..),
+    NumberToken (..),
     Read (..),
     ReadPrec,
     ReadS,
+    digitsToInteger,
     expectP,
     lexP,
     list,
@@ -42,7 +46,7 @@ import GHC.Prim.Read
     stringEqual,
     (+++),
   )
-import GHC.Real (Integral, Ratio, (%))
+import GHC.Real (Fractional (..), Integral, Ratio, Rational, (%), (^), (^^))
 import GHC.Types (Bool (..), Char, Ordering (..))
 import GHC.Word (Word, Word16, Word32, Word64, Word8)
 
@@ -98,6 +102,46 @@ convertIntegralResults :: (Num a) => [(Integer, String)] -> [(a, String)]
 convertIntegralResults [] = []
 convertIntegralResults ((value, rest) : results) =
   (fromInteger value, rest) : convertIntegralResults results
+
+-- | The exact value of a literal. A decimal literal keeps its digits until
+-- here, so that it only loses precision once, when it is converted to the
+-- type that is read.
+numberToRational :: NumberToken -> Rational
+numberToRational (NumberToken value) = fromInteger value
+numberToRational (DecimalToken whole fraction exponentValue) =
+  scaled * (10 ^^ exponentValue)
+  where
+    fractionLength = lengthOfDigits fraction
+    mantissa = whole * (10 ^ fractionLength) + digitsToInteger 10 fraction
+    scaled = mantissa % (10 ^ fractionLength)
+
+lengthOfDigits :: String -> Integer
+lengthOfDigits [] = 0
+lengthOfDigits (_ : rest) = 1 + lengthOfDigits rest
+
+readFractionalPrec :: (Fractional a) => ReadPrec a
+readFractionalPrec = readNumber convertFractional
+
+convertFractional :: (Fractional a) => Lexeme -> ReadPrec a
+convertFractional (Number token) = return (fromRational (numberToRational token))
+convertFractional (Ident name) =
+  case stringEqual name "NaN" of
+    True -> return (0 / 0)
+    False ->
+      case stringEqual name "Infinity" of
+        True -> return (1 / 0)
+        False -> pfail
+convertFractional _ = pfail
+
+instance Read Double where
+  readPrec = readFractionalPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Float where
+  readPrec = readFractionalPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
 
 instance Read Bool where
   readPrec = parens (choose [("False", return False), ("True", return True)])
