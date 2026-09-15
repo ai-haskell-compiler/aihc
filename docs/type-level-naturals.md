@@ -76,7 +76,7 @@ value with no new runtime work.
 The literal plumbing is one change for all three sorts; splitting it would
 mean touching the same thirty files twice. `Symbol` is also wanted by the
 parallel `GHC.Generics` metadata work, so `TyLitSymbol`, `KnownSymbol` and
-`symbolVal` ride along in the same stack (PR 2). `TyLitChar` gets the
+`symbolVal` ride along in the same stack (PR 3). `TyLitChar` gets the
 constructor and the kind, but `KnownChar`/`charVal` are deferred — nothing
 needs them yet.
 
@@ -95,94 +95,171 @@ past `maxWord` via `integerShiftL#`/`integerAdd`) through
 `Unsafe.Coerce.unsafeCoerce`, as GHC writes them; no further compiler support
 is needed for them.
 
-### `<=` uses the pre-9.4 definition
+### `<=` is GHC 9.12's, and the machinery it needs comes first
 
-GHC 9.12 defines `type x <= y = Assert (x <=? y) (LE x y)`, which needs
-`GHC.TypeError` — itself an empty module here. This stack defines
-`type x <= y = (x <=? y) ~ True` instead. The *exports* of `GHC.TypeNats`
-and `GHC.TypeLits` still mirror 9.12, which is what the core-libs API
-divergence ratchet checks; only the definition differs. Wiring `TypeError`
-into the ratchet-visible modules is a follow-up.
+GHC 9.12 defines the comparison chain in `GHC.Internal.Data.Type.Ord` and
+`GHC.Internal.TypeError` as
 
-### Arithmetic reduces in the solver, not through equations
+```haskell
+type x <= y  = Assert (x <=? y) (LeErrMsg x y)
+type x <=? y = OrdCond (Compare x y) 'True 'True 'False
+type LeErrMsg x y = TypeError ('Text "Cannot satisfy: " ':<>: 'ShowType x ':<>: …)
 
-`+`, `*`, `-`, `Div`, `Mod`, `Log2`, `CmpNat` and `OrdCond` are declared as
-equation-less `type family`s in `GHC.TypeNats` and reduced by a new builtin
-case in `Tc.Solve.Family.reduceHead`, keyed on type-constructor identity
-through a new `tcWiringTypeNatFamilies` table in `Aihc.Prim.Wiring` (the type
-checker knows no library; every such name reaches it as wiring). Reduction
-applies only when every argument is a literal.
+type Assert :: Bool -> Constraint -> Constraint
+type family Assert check errMsg where
+  Assert 'True _      = ()
+  Assert _     errMsg = errMsg
 
-Inverting an application — GHC's solving of `n + 1 ~ 5` for `n` — is **out of
-scope**. `random` needs `1 <= SeedSize g` with `SeedSize g` reducing to a
-literal, which forward reduction covers.
+type family TypeError (a :: ErrorMessage) :: b where   -- no equations; solver magic
+```
+
+`Compare`, `OrdCond`, `(<=?)`, `CmpNat` and the arithmetic families cost
+nothing beyond the kind-polymorphic closed families this stack adds anyway.
+`(<=)` is the exception, and it is worth being precise about why.
+
+`Assert (x <=? y) (LeErrMsg x y)` is a **bare type-family application at kind
+`Constraint`** in constraint position. In `random` it is stuck:
+`1 <= SeedSize g` is a superclass of `SeedGen`, with `g` the class variable,
+so nothing reduces until an instance fixes `SeedSize`. Today
+`Tc.Kind.surfaceClassPredToPred` expands a constraint synonym and demands
+exactly one `Pred`, and `Pred` is `ClassPred`/`EqPred`/`QuantifiedPred`/
+`IParamPred` — there is no irreducible form. The pre-9.4 spelling
+`type x <= y = (x <=? y) ~ True` would sidestep the whole problem, because a
+stuck `<=?` application is an `EqPred` whose evidence is an erased coercion;
+this stack deliberately does not take that exit.
+
+Four capabilities are therefore prerequisites rather than follow-ups:
+
+1. **`IrredPred !TcType`** in `Pred`: a stuck constraint-kinded application,
+   with evidence, reduced when its arguments become known. `SeedGen`'s
+   dictionary gains a field of that type, so the FC side has to carry a
+   `Constraint`-kinded family application as a binder type.
+2. **Constraint tuples.** `Assert 'True _ = ()` reduces to the empty
+   *constraint*; `Tc.Kind.convertTupleType` currently yields the boxed `Unit`
+   at kind `Type`. This is independently valuable: a constraint synonym
+   standing for more than one constraint is a known aihc-base limit, and it is
+   the same machinery.
+3. **`TypeError` reporting.** A wanted whose head is the `TypeError` family
+   must render its `ErrorMessage` rather than fail as a missing instance.
+   `ErrorMessage` also needs the existential `ShowType` promoted and the
+   infix `:<>:`/`:$$:` constructors.
+4. **Kind-indexed family instances.** `Compare` is selected purely by the
+   kind of its arguments (`type instance Compare (a :: Natural) b = CmpNat a b`),
+   and `Tc.Solve.Family.matchTypes` matches types while ignoring kinds. With
+   only `CmpNat` wired the misfire is invisible; it becomes wrong the moment
+   `CmpSymbol` exists.
+
+`Unsatisfiable` is exported and so must exist by name. Its GHC definition
+instantiates `unsatisfiableLifted` at `(##) -> a` for representation
+polymorphism; the first cut gives it a lifted-only signature and records the
+divergence, since the ratchet checks names.
 
 ## PR stack
 
 Each PR is independently buildable and testable. Conventional Commits; branch
 per PR off the previous one.
 
+### PR 0 — `feat(tc): irreducible predicates and constraint tuples`
+
+A spike that settles the riskiest piece before anything is built on it. It
+needs no type-level literals and no core-libs changes: the fixtures declare
+their own `Assert`-shaped closed family.
+
+- `Aihc.Tc.Types`: `IrredPred !TcType` in `Pred`, and `ShapePred` alongside.
+- `Tc.Kind.surfaceClassPredToPred`: a constraint-kinded application that is
+  neither a class nor an equality becomes an `IrredPred` instead of the
+  current "constraint synonym does not expand to one constraint" abort.
+- `Tc.Solve`: an `IrredPred` wanted is reduced through
+  `Solve.Family.reducePredFamilies` and re-canonicalized; a stuck one is kept,
+  matched against givens structurally, and reported readably when unsolved.
+- `Tc.Kind.convertTupleType`: a boxed tuple checked against kind `Constraint`
+  becomes the constraint tuple; `CTuple0` solves trivially and `CTupleN`
+  splits into its components. Declare the constraint tuples in `aihc-prim`.
+- Evidence and FC: an `IrredPred` field carries a dictionary-shaped value; the
+  reduction from `Assert 'True _` to the empty constraint tuple has to be a
+  well-typed cast in FC, not a silent retype.
+- Tests: an annotated fixture shaped exactly like the target —
+  `type family F (b :: Bool) (c :: Constraint) :: Constraint` with
+  `F 'True _ = ()`, a class `class F (G g) () => C g` with an associated
+  family, and an instance that fixes `G` so the constraint reduces; plus the
+  unsolved case, and an FC lint fixture for the dictionary field.
+
+**Exit criterion.** If FC cannot carry a `Constraint`-kinded family
+application as a binder type without a coercion story, stop and revisit the
+sequencing before PR 1.
+
 ### PR 1 — `feat(tc): type-level literals in the kind checker`
 
-The whole plumbing change, no user-visible feature beyond kind-checking a
-literal.
+The literal plumbing, no user-visible feature beyond kind-checking a literal.
 
-- `Aihc.Tc.Types`: `TyLit`, `TcTyLit`, plus the `TypeShape` counterpart
+- `Aihc.Tc.Types`: `TyLit`, `TcTyLit`, and the `TypeShape` counterpart
   (`ShapeTyLit`) so structural `Eq`/`Ord` stay honest.
 - `Aihc.Tc.Kind.convertNonSynonymTypeWithKinds`: a `TTypeLit` case returning
-  the literal and its kind, replacing part of the unsupported fallthrough.
-  Kind constructors come from new `tcWiringNaturalTyCon` / `tcWiringSymbolTyCon`
-  entries in `TcWiring` (`Aihc.Prim.Wiring`).
+  the literal and its kind, from new `tcWiringNaturalTyCon` /
+  `tcWiringSymbolTyCon` entries in `TcWiring` (`Aihc.Prim.Wiring`).
 - `Aihc.Tc.Unify`, `Zonk`, `Tidy`, `Solve.Decompose`, `Solve.Congruence`:
-  literals unify only with equal literals.
-- `Aihc.Fc.Syntax`: `TyLit`; every FC consumer listed above.
-- `Aihc.Fc.Lint.lintType`: a literal's kind is its sort's type constructor.
-- `Aihc.Fc.Parser`/`Pretty`: a round-trippable syntax for literals (the FC
-  name-sort prefix convention is text-only, so the literal needs its own
-  token shape; regenerate the FC golden fixtures from the tasty `actual:`
-  blocks).
+  a literal unifies only with an equal literal.
+- `Aihc.Fc.Syntax`: `TyLit`, and every FC consumer listed above;
+  `Fc.Lint.lintType` gives a literal its sort's kind; `Fc.Parser`/`Pretty`
+  get a round-trippable token (regenerate the FC goldens from the tasty
+  `actual:` blocks).
 - `Cli.TypeArtifact` CBOR codec; bump `packageArtifactFormatVersion`.
 - `core-libs/aihc-prim/src/GHC/Types.hs`: `data Symbol`, exported.
-- Tests: annotated fixtures under
-  `components/aihc-tc/test/Test/Fixtures/annotated/` for a literal in a kind
-  signature, a literal argument to a data type, a literal in a type synonym,
-  and a kind mismatch (`Vec "x"` where `Vec :: Natural -> Type`); an FC lint
-  pass fixture; an FC parser round-trip property.
+- Tests: annotated fixtures for a literal in a kind signature, as a data-type
+  argument, in a type synonym, and a kind mismatch (`Vec "x"` where
+  `Vec :: Natural -> Type`); an FC lint pass fixture and a parser round-trip
+  property.
 
-### PR 2 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats`
+### PR 2 — `feat(base): GHC.TypeError`
 
-- `Aihc.Tc.Evidence`: `EvTypeLit`; `Tc.Finalize` and `Tc.Solve.Dict` cases
-  alongside the `Typeable` ones.
-- `Fc.Desugar.Value`: `desugarTypeLitEvidence`, building
-  `$Dict$KnownNat @n (naturalFromInteger …)` and
-  `$Dict$KnownSymbol @s (unpackCString# …)`.
-- `GHC.Internal.TypeNats` gets the real definitions (`Natural`, `Nat`,
-  `KnownNat`, `natVal`, `natVal'`, `SNat`, `withSomeSNat`, `SomeNat`,
-  `someNatVal`, `fromSNat`); `GHC.TypeNats` re-exports, per the 9.12 layering.
-  Same for `GHC.Internal.TypeLits`/`GHC.TypeLits` (`Symbol`, `KnownSymbol`,
-  `symbolVal`, `symbolVal'`, `SSymbol`, `SomeSymbol`, `someSymbolVal`), which
-  also re-exports the `GHC.TypeNats` names that 9.12's `GHC.TypeLits` exports
-  with `Integer`-returning `natVal`.
+- `GHC.Internal.TypeError`: `ErrorMessage` (`Text`, `ShowType`, `:<>:`,
+  `:$$:` with GHC's fixities), `TypeError` as an equation-less family,
+  `Assert`, `Unsatisfiable`/`unsatisfiable`; `GHC.TypeError` re-exports.
+  Promoting the existential `ShowType` is the unknown here.
+- `Tc.Solve`: a wanted whose head reduces to `TypeError` renders its
+  `ErrorMessage` as the diagnostic.
+- Tests: annotated fixtures for a `TypeError` in an instance context and on a
+  family right-hand side, each checked for the rendered text.
+
+### PR 3 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats`
+
+- `Aihc.Tc.Evidence`: `EvTypeLit`, with `Tc.Finalize` and `Tc.Solve.Dict`
+  cases beside the `Typeable` ones.
+- `Fc.Desugar.Value.desugarTypeLitEvidence`, building
+  `$Dict$KnownNat @n (naturalFromInteger …)` — reusing
+  `desugarIntegerLiteral`, which already handles values past `maxWord` —
+  and `$Dict$KnownSymbol @s (unpackCString# …)`.
+- `GHC.Internal.TypeNats` gets `Natural`, `Nat`, `KnownNat`, `natVal`,
+  `natVal'`, `SNat`, `withSomeSNat`, `SomeNat`, `someNatVal`, `fromSNat`;
+  `GHC.TypeNats` re-exports, per the 9.12 layering. Same for
+  `GHC.Internal.TypeLits`/`GHC.TypeLits` (`Symbol`, `KnownSymbol`,
+  `symbolVal`, `symbolVal'`, `SSymbol`, `SomeSymbol`, `someSymbolVal`, and the
+  `Integer`-returning `natVal` that 9.12's `GHC.TypeLits` exports).
 - Tests: annotated fixtures for `natVal (Proxy :: Proxy 3)`; an eval fixture
-  printing `natVal`'s result; a local reproducer package built with
-  `aihc build`.
+  printing the result; a local reproducer package built with `aihc build`.
 
 `natVal'` takes a `Proxy#`. Its *definition* needs nothing new; only a call
 site written as `natVal' (proxy# :: Proxy# (SeedSize g))` needs the parallel
-unlifted-expression-signature fix. PR 2 does not block on it; PR 4 does.
+unlifted-expression-signature fix. PR 3 does not block on it; PR 5 does.
 
-### PR 3 — `feat(tc): type-level natural arithmetic and comparison`
+### PR 4 — `feat(tc): type-level comparison and arithmetic`
 
 - `tcWiringTypeNatFamilies` and the builtin reduction in
-  `Tc.Solve.Family.reduceHead`.
-- `GHC.TypeNats` declarations for `CmpNat`, `OrdCond`, `(<=?)`, `(<=)`,
-  `(+)`, `(-)`, `(*)`, `Div`, `Mod`, `Log2`, and the `GHC.TypeLits`
-  re-exports.
+  `Tc.Solve.Family.reduceHead`, applied only when every argument is a literal.
+- Kind-indexed family instance matching, so `Compare`'s `Natural`, `Symbol`
+  and `Char` instances are told apart.
+- `Data.Type.Ord` with `Compare`, `OrderingI`, `OrdCond`, `(<=?)`, `(<=)`,
+  `(<)`, `(>=)`, `(>)`, `Max`, `Min`, verbatim from 9.12; `GHC.TypeNats`
+  declarations for `CmpNat`, `(+)`, `(-)`, `(*)`, `(^)`, `Div`, `Mod`,
+  `Log2`, and the `GHC.TypeLits` re-exports.
 - Tests: annotated fixtures discharging `1 <= 4`, `2 + 3 ~ 5`,
-  `CmpNat 1 2 ~ LT`, a literal-reducing type family (`SeedSize`-shaped), and
-  a *failing* `1 <= 0` with a readable message.
+  `CmpNat 1 2 ~ LT`, a literal-reducing associated family, and a failing
+  `4 <= 2` asserting GHC's "Cannot satisfy" text.
 
-### PR 4 — `feat(core-libs): resolve and check random's SeedGen`
+Inverting an application — GHC's solving of `n + 1 ~ 5` for `n` — stays out
+of scope. `random` needs only forward reduction.
+
+### PR 5 — `feat(core-libs): resolve and check random's SeedGen`
 
 - Verify `System/Random/Seed.hs` (read-only, in `~/.cache/aihc/hackage`)
   resolves and type-checks; record what the install fails on next in
@@ -202,7 +279,7 @@ unlifted-expression-signature fix. PR 2 does not block on it; PR 4 does.
 - `cabal build all` fails on `aihc-prim` (GHC.Prim). Build `exe:aihc`, test
   `aihc:spec` and the `aihc-tc` suite specifically.
 - Any change to the FC type or to a stamp shape needs
-  `packageArtifactFormatVersion` bumped (PR 1 does it once; PR 2 and PR 3 add
-  no type shape).
+  `packageArtifactFormatVersion` bumped. PR 0 and PR 1 each change a type
+  shape; the later PRs do not.
 - The FC golden fixtures have no accept flag; paste the tasty `actual:` block
   into the yaml.
