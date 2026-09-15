@@ -94,6 +94,7 @@ dceGrinProgram program =
       close
         Set.empty
         (map GlobalKey (grinGlobalRoots program) <> map ConstructorKey (grinConstructorRoots program))
+    close :: Set Key -> [Key] -> Set Key
     close visited pending =
       case pending of
         [] -> visited
