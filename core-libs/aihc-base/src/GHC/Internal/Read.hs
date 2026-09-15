@@ -17,7 +17,7 @@ where
 
 import Data.Either (Either (..))
 import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
-import GHC.Int (Int)
+import GHC.Int (Int, Int16, Int32, Int64, Int8)
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Internal.Integer (Integer)
 import GHC.Num (Num (..))
@@ -44,6 +44,7 @@ import GHC.Prim.Read
   )
 import GHC.Real (Integral, Ratio, (%))
 import GHC.Types (Bool (..), Char, Ordering (..))
+import GHC.Word (Word, Word16, Word32, Word64, Word8)
 
 readListDefault :: (Read a) => ReadS [a]
 readListDefault = readPrec_to_S readListPrec minPrec
@@ -114,6 +115,54 @@ instance Read Int where
   readList = readListDefault
 
 instance Read Integer where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+-- The sized integral types read like 'Int' and 'Integer': the digits become
+-- an 'Integer' that 'fromInteger' narrows to the type, which is what GHC's
+-- instances do.
+instance Read Int8 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Int16 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Int32 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Int64 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Word where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Word8 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Word16 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Word32 where
+  readPrec = readIntegralPrec
+  readListPrec = readListPrecDefault
+  readList = readListDefault
+
+instance Read Word64 where
   readPrec = readIntegralPrec
   readListPrec = readListPrecDefault
   readList = readListDefault
