@@ -46,6 +46,7 @@ module Data.List
     intercalate,
     transpose,
     subsequences,
+    permutations,
     foldl1',
     concat,
     concatMap,
@@ -128,6 +129,7 @@ import Prelude
     errorWithoutStackTrace,
     flip,
     fromIntegral,
+    id,
     lines,
     snd,
     unlines,
@@ -168,6 +170,30 @@ nonEmptySubsequences :: [a] -> [[a]]
 nonEmptySubsequences [] = []
 nonEmptySubsequences (value : values) =
   [value] : foldr (\subsequence rest -> subsequence : (value : subsequence) : rest) [] (nonEmptySubsequences values)
+
+permutations :: [a] -> [[a]]
+permutations values = values : permutationsAfter values []
+
+-- Every permutation other than the input itself: pick each element in turn and
+-- interleave it into the permutations of the elements picked before it.
+permutationsAfter :: [a] -> [a] -> [[a]]
+permutationsAfter [] _ = []
+permutationsAfter (value : values) taken =
+  foldr
+    (interleaveEverywhere value values)
+    (permutationsAfter values (value : taken))
+    (permutations taken)
+
+interleaveEverywhere :: a -> [a] -> [a] -> [[a]] -> [[a]]
+interleaveEverywhere value values permutation rest =
+  snd (interleaveInto value values id permutation rest)
+
+interleaveInto :: a -> [a] -> ([a] -> [a]) -> [a] -> [[a]] -> ([a], [[a]])
+interleaveInto _ values _ [] rest = (values, rest)
+interleaveInto value values prefix (first : others) rest =
+  (first : rebuilt, prefix (value : first : rebuilt) : expanded)
+  where
+    (rebuilt, expanded) = interleaveInto value values (\prefixed -> prefix (first : prefixed)) others rest
 
 unfoldr :: (b -> Maybe (a, b)) -> b -> [a]
 unfoldr step seed =
