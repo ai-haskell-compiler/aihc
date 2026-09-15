@@ -811,8 +811,13 @@ resolveExpr expr =
       ECase <$> resolveExpr scrutinee <*> mapM resolveCaseAlt alts
     EArithSeq arithSeq ->
       EArithSeq <$> resolveArithSeq arithSeq
-    ERecordCon name fields wildcard ->
-      ERecordCon <$> resolveTermUse name <*> resolveRecordFields fields <*> pure wildcard
+    ERecordCon name fields wildcard -> do
+      name' <- resolveTermUse name
+      fields' <- resolveRecordFields fields
+      ambient <- currentSpan
+      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      wildcardFields <- resolveRecordConWildcardFields sp name fields wildcard
+      pure (ERecordCon name' (fields' <> wildcardFields) False)
     ERecordUpd record fields ->
       ERecordUpd <$> resolveExpr record <*> resolveRecordFields fields
     EGetField record name ->
@@ -1134,6 +1139,23 @@ resolveRecordFields =
         value' <- resolveExpr (recordFieldValue field)
         pure field {recordFieldValue = value'}
     )
+
+-- | A record wildcard in a construction fills each remaining field with the
+-- variable that has the field name. The construction lists these fields as
+-- puns, so a later phase sees an ordinary record construction.
+resolveRecordConWildcardFields :: SourceSpan -> Name -> [RecordField Expr] -> Bool -> ResolveM [RecordField Expr]
+resolveRecordConWildcardFields sp conName fields wildcard = do
+  scope <- currentScope
+  mapM fieldPun (recordWildcardFieldNames (scopeRecordFields scope) conName fields wildcard)
+  where
+    fieldPun fieldName = do
+      value <- resolveTermUse (Name Nothing NameVarId fieldName [mkAnnotation sp])
+      pure
+        RecordField
+          { recordFieldName = Name Nothing NameVarId fieldName [],
+            recordFieldValue = EVar value,
+            recordFieldPun = True
+          }
 
 resolveDoStmts :: [DoStmt Expr] -> ResolveM (Scope, [DoStmt Expr])
 resolveDoStmts stmts = do
