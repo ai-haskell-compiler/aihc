@@ -53,7 +53,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
@@ -181,16 +181,21 @@ convertSurfaceType tvMap ty = do
 
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
 checkSurfaceType tvEnv ty expected = do
-  (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
-  unifyKindsAt (surfaceTypeSpan ty) expected actual
-  pure tcTy
-
--- | The first source span that a list of surface types gives.
-surfaceTypeSpans :: [Type] -> SourceSpan
-surfaceTypeSpans tys =
-  case filter (/= NoSourceSpan) (map surfaceTypeSpan tys) of
-    sp : _ -> sp
-    [] -> NoSourceSpan
+  -- @()@ is the unit type at kind 'Type' and the empty constraint tuple at
+  -- kind 'Constraint'. Only the expected kind tells them apart, so a boxed
+  -- tuple checked against 'Constraint' is converted here rather than in
+  -- 'convertTupleType', which has no expectation to consult.
+  kinds <- getKinds
+  expected' <- zonkKind expected
+  case peelTypeHead ty of
+    TTuple Boxed _ [] | expected' == constraintKind kinds -> do
+      wiring <- getWiring
+      tyCon <- mkWiredTyCon (tcWiringConstraintTupleTyCon wiring) (constraintKind kinds)
+      pure (TcTyCon tyCon [])
+    _ -> do
+      (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
+      unifyKindsAt (surfaceTypeSpan ty) expected actual
+      pure tcTy
 
 -- | The source span of a surface type, when its annotations give one.
 surfaceTypeSpan :: Type -> SourceSpan
@@ -248,19 +253,11 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TStar {} ->
       knownType tcWiringTypeTyCon
     TApp f a -> do
-      (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
-      (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
-      resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
-      resultKind' <- zonkKind resultKind
-      pure (mkAppTy fTy aTy, resultKind')
+      function <- convertSurfaceTypeWithKinds tvEnv f
+      applyOneArgument tvEnv function a
     TTypeApp f a -> do
-      (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
-      (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
-      resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
-      resultKind' <- zonkKind resultKind
-      pure (mkAppTy fTy aTy, resultKind')
+      function <- convertSurfaceTypeWithKinds tvEnv f
+      applyOneArgument tvEnv function a
     TInfix lhs name _ rhs -> do
       constructor <- inferTypeConstructor name
       applySurfaceTypeArguments tvEnv constructor [lhs, rhs]
@@ -371,12 +368,33 @@ convertResolvedConstructorApplication tvEnv resolution arguments = do
       applySurfaceTypeArguments tvEnv (TcTyCon (tciTyCon info) [], constructorKind) arguments
 
 applySurfaceTypeArguments :: TvKindEnv -> (TcType, TcType) -> [Type] -> TcM (TcType, TcType)
-applySurfaceTypeArguments tvEnv = foldM applyArgument
-  where
-    applyArgument (functionType, functionKind) argument = do
+applySurfaceTypeArguments tvEnv = foldM (applyOneArgument tvEnv)
+
+-- | Apply a converted type to one surface argument.
+--
+-- Only the expected kind tells @()@ at kind 'Type' from @()@ at kind
+-- 'Constraint', so an argument of a constraint-kinded family such as
+-- @Assert b ()@ has to be /checked/ against the kind the function demands
+-- rather than converted on its own and unified afterwards.
+--
+-- The expectation is pushed down only when that kind is 'Constraint', which
+-- is closed and holds no meta variables. Pushing every argument kind down
+-- would unify a use site against the kind variables of a poly-kinded
+-- declaration -- @Compose (f :: k -> Type) (g :: l -> k)@ -- and pin them,
+-- which the convert-and-unify path below does not do.
+applyOneArgument :: TvKindEnv -> (TcType, TcType) -> Type -> TcM (TcType, TcType)
+applyOneArgument tvEnv (functionType, functionKind) argument = do
+  functionKind' <- zonkKind functionKind
+  kinds <- getKinds
+  case functionKind' of
+    KFun argumentKind resultKind | argumentKind == constraintKind kinds -> do
+      argumentType <- checkSurfaceType tvEnv argument argumentKind
+      resultKind' <- zonkKind resultKind
+      pure (mkAppTy functionType argumentType, resultKind')
+    _ -> do
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
+      unifyKindsAt (surfaceTypeSpan argument) functionKind' (KFun argumentKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (mkAppTy functionType argumentType, resultKind')
 
@@ -479,6 +497,7 @@ expandTcTypeSynonyms expanding ty = do
         ClassPred className arguments -> ClassPred className <$> mapM (expandTcTypeSynonyms expanding) arguments
         EqPred left right -> EqPred <$> expandTcTypeSynonyms expanding left <*> expandTcTypeSynonyms expanding right
         IParamPred name payload -> IParamPred name <$> expandTcTypeSynonyms expanding payload
+        IrredPred constraint -> IrredPred <$> expandTcTypeSynonyms expanding constraint
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM expandVariable variables
@@ -813,6 +832,7 @@ zonkKind kind =
         ClassPred className arguments -> ClassPred className <$> mapM zonkKind arguments
         EqPred left right -> EqPred <$> zonkKind left <*> zonkKind right
         IParamPred name payload -> IParamPred name <$> zonkKind payload
+        IrredPred constraint -> IrredPred <$> zonkKind constraint
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM zonkVariable variables
@@ -898,6 +918,7 @@ settleKindMetas defer kind =
         ClassPred className arguments -> ClassPred className <$> mapM recur arguments
         EqPred left right -> EqPred <$> recur left <*> recur right
         IParamPred name payload -> IParamPred name <$> recur payload
+        IrredPred constraint -> IrredPred <$> recur constraint
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM defaultVariable variables
@@ -928,6 +949,7 @@ occursInKind needle kind =
         ClassPred _ arguments -> any (occursInKind needle) arguments
         EqPred left right -> occursInKind needle left || occursInKind needle right
         IParamPred _ payload -> occursInKind needle payload
+        IrredPred constraint -> occursInKind needle constraint
         QuantifiedPred variables antecedents consequent ->
           any (occursInKind needle . tvKind) variables
             || any occursInPred antecedents
@@ -1092,6 +1114,12 @@ surfaceClassPredToPred tvEnv ty = do
               (rightType, rightKind) <- convertSurfaceTypeWithKinds tvEnv right
               when (tciTyCon classInfo == kindsEqualityTyCon kinds) (unifyKinds leftKind rightKind)
               pure (EqPred leftType rightType)
+        Just classInfo
+          | tciFlavor classInfo == TypeFamilyTyCon -> do
+              -- A constraint whose head is a type family names no class yet.
+              -- It is kept whole and reclassified once the family reduces.
+              constraint <- checkSurfaceType tvEnv ty (constraintKind kinds)
+              pure (IrredPred constraint)
         Just classInfo -> do
           classKind <- predicateClassKind classInfo
           let argKinds = takeClassArgKinds kinds (length headArgs) classKind

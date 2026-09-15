@@ -29,6 +29,7 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
+import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, mkAppTy)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -61,6 +62,7 @@ addWork ct = case ctPred ct of
   ClassPred {} -> addDict ct
   QuantifiedPred {} -> addDict ct
   IParamPred {} -> addDict ct
+  IrredPred {} -> addDict ct
 
 -- | Main solver loop.
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
@@ -85,15 +87,22 @@ solveLoop wl inerts = case popWork wl of
     solveLoop wl' (foldr addInertDict inerts deferred)
 
 -- | No work is left. An equality that waits on a type family application
--- gets another attempt when a solved meta variable changed it. Otherwise it
--- is a residual that the enclosing scope solves or reports.
+-- gets another attempt when a solved meta variable changed it. Failing
+-- that, the injectivity annotation of a family it mentions may still
+-- determine an argument, which changes it. Otherwise it is a residual that
+-- the enclosing scope solves or reports.
 drained :: InertSet -> TcM SolveResult
 drained inerts
   | null (inertEqs inerts) = pure SolveResult {srResidual = [], srInerts = inerts}
   | otherwise = do
       (progressed, stuck) <- partitionProgress (inertEqs inerts)
       if null progressed
-        then pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
+        then do
+          givens <- getGivenPredicates
+          improved <- improveInjectivity givens (map ctPred stuck)
+          if improved
+            then solveLoop (foldr addEq emptyWorkList stuck) inerts {inertEqs = []}
+            else pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
         else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
 
 -- | Split the stuck equalities into those that a solved meta variable
@@ -194,7 +203,13 @@ solveImplicationEqualities skolems predicates equalities constraints = do
   let remaining = [constraint | (constraint, result) <- zip constraints results, case result of EqSolved -> False; _ -> True]
   if length remaining < length constraints
     then solveImplicationEqualities skolems predicates equalities remaining
-    else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
+    else do
+      -- The givens of the branch can name a family application that an
+      -- injectivity annotation then reads back into a family argument.
+      improved <- improveInjectivity predicates (map ctPred remaining)
+      if improved
+        then solveImplicationEqualities skolems predicates equalities remaining
+        else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
 partitionWanteds = foldr partitionOne ([], [])
@@ -205,6 +220,7 @@ partitionWanteds = foldr partitionOne ([], [])
         ClassPred {} -> (equalities, ct : dictionaries)
         QuantifiedPred {} -> (equalities, ct : dictionaries)
         IParamPred {} -> (equalities, ct : dictionaries)
+        IrredPred {} -> (equalities, ct : dictionaries)
 
 -- | Decompose a given constraint into atomic equalities.
 -- For example, @GADT a ~ GADT Bool@ decomposes into @[(a, Bool)]@.
@@ -245,6 +261,7 @@ applyGivenSubst givens ty = foldr applyOne ty givens
         ClassPred className arguments -> ClassPred className (map (applyOne equality) arguments)
         EqPred left right -> EqPred (applyOne equality left) (applyOne equality right)
         IParamPred name payload -> IParamPred name (applyOne equality payload)
+        IrredPred constraint -> IrredPred (applyOne equality constraint)
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred variables (map (applyOnePred equality) antecedents) (applyOnePred equality consequent)
 
@@ -280,6 +297,13 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     case result of
       DictSolved -> pure []
       DictStuck stuck -> deferOrReport skolems stuck
+  irreducible@IrredPred {} -> do
+    kinds <- getKinds
+    let rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
+    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred kinds givenEqualities irreducible})
+    case result of
+      DictSolved -> pure []
+      DictStuck stuck -> deferOrReport skolems stuck
   IParamPred name payload -> do
     kinds <- getKinds
     payload' <- zonkType payload
@@ -309,6 +333,7 @@ predMetaVars predicate =
     ClassPred _ arguments -> concatMap typeMetaVars arguments
     EqPred left right -> typeMetaVars left <> typeMetaVars right
     IParamPred _ payload -> typeMetaVars payload
+    IrredPred constraint -> typeMetaVars constraint
     QuantifiedPred _ antecedents consequent -> concatMap predMetaVars antecedents <> predMetaVars consequent
 
 typeMetaVars :: TcType -> [Unique]
@@ -329,6 +354,7 @@ predTyVars predicate =
     ClassPred _ arguments -> concatMap typeTyVars arguments
     EqPred left right -> typeTyVars left <> typeTyVars right
     IParamPred _ payload -> typeTyVars payload
+    IrredPred constraint -> typeTyVars constraint
     QuantifiedPred variables antecedents consequent ->
       filter (`notElem` variables) (concatMap predTyVars antecedents <> predTyVars consequent)
 
@@ -352,6 +378,7 @@ rewritePred kinds equalities predicate =
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables (map (rewritePred kinds equalities) antecedents) (rewritePred kinds equalities consequent)
     IParamPred name payload -> IParamPred name (applyGivenSubst equalities payload)
+    IrredPred constraint -> IrredPred (applyGivenSubst equalities constraint)
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =

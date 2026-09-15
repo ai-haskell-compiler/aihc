@@ -1,0 +1,46 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.IORef
+      ( atomicModifyIORef'
+      , atomicModifyIORef'_
+      , atomicModifyIORef2
+      , atomicModifyIORef2Lazy
+      , atomicSwapIORef
+      , newIORef
+      , readIORef
+      )
+    import Prelude
+
+    main :: IO ()
+    main = do
+      reference <- newIORef (10 :: Int)
+      lazyResult <- atomicModifyIORef2Lazy reference (\old -> (old + 1, old * 2))
+      case lazyResult of
+        (old, (new, extra)) -> print (old, new, extra)
+      readIORef reference >>= print
+      pairResult <- atomicModifyIORef2 reference (\old -> (old * 10, ()))
+      case pairResult of
+        (old, (new, ())) -> print (old, new)
+      swapped <- atomicSwapIORef reference 7
+      print swapped
+      readIORef reference >>= print
+      strictResult <- atomicModifyIORef'_ reference (+ 5)
+      print strictResult
+      atomicModifyIORef' reference (\old -> (old - 2, old)) >>= print
+      readIORef reference >>= print
+expression: main
+stdout: |
+  (10,11,20)
+  11
+  (11,110)
+  110
+  7
+  (7,12)
+  12
+  10
+output: |
+  ()
+status: pass
+reason: the atomic IORef operations install the new value and report the old one the way base does

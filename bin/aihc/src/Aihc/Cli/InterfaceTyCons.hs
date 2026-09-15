@@ -96,6 +96,7 @@ predTyCons predicate = case predicate of
   ClassPred tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
   EqPred left right -> typeTyCons left <> typeTyCons right
   IParamPred _ payload -> typeTyCons payload
+  IrredPred constraint -> typeTyCons constraint
   QuantifiedPred variables antecedents consequent ->
     Set.unions (map tyVarTyCons variables)
       <> Set.unions (map predTyCons antecedents)

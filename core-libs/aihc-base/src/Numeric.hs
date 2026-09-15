@@ -12,10 +12,12 @@ module Numeric
     readHex,
     readSigned,
     lexDigits,
+    floatToDigits,
   )
 where
 
 import Data.Char (digitToInt, isDigit, isHexDigit, isOctDigit, isSpace)
+import GHC.Float (floatToDigits)
 import GHC.Show (intToDigit)
 import Prelude (Bool (..), Char, Eq (..), Int, Integral (..), Num (..), Ord (..), ReadS, Real (..), Show (..), ShowS, String, dropWhile, errorWithoutStackTrace, fromIntegral, negate, readParen, showChar, showParen, span, (.), (||))
 

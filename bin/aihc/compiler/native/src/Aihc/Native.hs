@@ -790,7 +790,9 @@ nativeCpsPrimitiveCalls =
     resumes "takeMVar#" "aihc_mvar_take" 1,
     resumes "putMVar#" "aihc_mvar_put" 2,
     resumes "yield#" "aihc_yield" 0,
-    resumes "awaitIO#" "aihc_await_io" 1
+    resumes "awaitIO#" "aihc_await_io" 1,
+    resumes "aihcControl0#" "aihc_control0" 2,
+    resumes "aihcResume#" "aihc_continuation_resume" 2
   ]
   where
     enters primitive symbol operands =
@@ -819,6 +821,7 @@ nativeRuntimePrimitiveCalls =
     machineCall "stmActive#" "aihc_stm_active" [] GrinForeignWord64,
     machineCall "newMutVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
+    machineCall "newPromptTag#" "aihc_prompt_tag_new" [] GrinForeignAddr,
     -- The thread that runs now is a field of the machine, so this call takes
     -- the machine. It only reads that field, and it allocates nothing.
     machineCall "myThreadId#" "aihc_my_thread_id" [] GrinForeignAddr,

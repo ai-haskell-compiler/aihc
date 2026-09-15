@@ -6,6 +6,8 @@ library
   exposed-modules:
     Aardvark
     Alpha
+    Beetle
+    Bravo
     ParseAlpha
     ParseZulu
     Zulu

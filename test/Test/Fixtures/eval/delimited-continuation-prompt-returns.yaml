@@ -1,0 +1,19 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (PromptTag#, State#, RealWorld, newPromptTag#, prompt#, realWorld#)
+
+    run :: State# RealWorld -> (# State# RealWorld, Int #)
+    run s0 =
+      case newPromptTag# s0 of
+        (# s1, tag #) -> prompt# tag (\s -> (# s, 42 #)) s1
+output: |
+  I# 42
+expression: |
+  case run realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: a prompt that nothing aborts to returns its action's value

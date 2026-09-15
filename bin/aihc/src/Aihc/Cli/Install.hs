@@ -31,7 +31,7 @@ where
 
 import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
-import Aihc.Cli.Backend (compileGrinTo, nativeSourceExtension)
+import Aihc.Cli.Backend (compileGrinTo, nativeSourceExtension, nativeSourceIsLir)
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
     FileStamp (..),
@@ -250,6 +250,9 @@ data ModuleOutputPaths = ModuleOutputPaths
     outputGrinPath :: !FilePath,
     outputCpsGrinPath :: !FilePath,
     outputGcGrinPath :: !FilePath,
+    -- | The Lir text of the module. On a target whose object the backend
+    -- writes itself this is also the native source of the module.
+    outputLirPath :: !FilePath,
     outputNativePath :: !FilePath,
     outputObjectPath :: !FilePath,
     -- | The C wrappers of the module's @capi@ imports, the object they
@@ -345,6 +348,7 @@ data ModuleCompileConfig = ModuleCompileConfig
   { compileBuildIdentity :: !String,
     compileKeepCore :: !Bool,
     compileKeepGrin :: !Bool,
+    compileKeepLir :: !Bool,
     compileKeepNative :: !Bool,
     compileLint :: !Bool,
     -- | Check the index of every array primitive, as @--check-prim-bounds@
@@ -476,6 +480,7 @@ installWith output options = do
           { compileBuildIdentity = buildIdentity,
             compileKeepCore = installKeepCore options,
             compileKeepGrin = installKeepGrin options,
+            compileKeepLir = False,
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileCheckPrimBounds = installCheckPrimBounds options,
@@ -701,7 +706,12 @@ requireInstalledFlags config named package = do
       missing =
         [ flag
         | named,
-          (wanted, flag) <- [(compileKeepCore config, "keep-core"), (compileKeepGrin config, "keep-grin"), (compileKeepNative config, "keep-native")],
+          (wanted, flag) <-
+            [ (compileKeepCore config, "keep-core"),
+              (compileKeepGrin config, "keep-grin"),
+              (compileKeepLir config, "keep-lir"),
+              (compileKeepNative config, "keep-native")
+            ],
           wanted,
           flag `notElem` built
         ]
@@ -796,6 +806,16 @@ readStampText path = do
   exists <- doesFileExist path
   if exists then Just . BS8.unpack <$> BS.readFile path else pure Nothing
 
+-- | Whether @--keep-native@ and @--keep-lir@ name the same file for the
+-- target of the build. An object backend writes its object itself, so the
+-- Lir text is the only source there is to keep beside it.
+keepNativeIsKeepLir :: ModuleCompileConfig -> Bool
+keepNativeIsKeepLir config = nativeSourceIsLir (compileTarget config)
+
+-- | Whether the build keeps the Lir text of each module.
+keepsLirText :: ModuleCompileConfig -> Bool
+keepsLirText config = compileKeepLir config || (compileKeepNative config && keepNativeIsKeepLir config)
+
 -- | The names of the flags an installed package records in its manifest.
 compileFlagNames :: ModuleCompileConfig -> [Text]
 compileFlagNames config =
@@ -803,6 +823,7 @@ compileFlagNames config =
   | (set, flag) <-
       [ (compileKeepCore config, "keep-core"),
         (compileKeepGrin config, "keep-grin"),
+        (compileKeepLir config, "keep-lir"),
         (compileKeepNative config, "keep-native"),
         (compileLint config, "lint"),
         (compileCheckPrimBounds config, "check-prim-bounds"),
@@ -1841,6 +1862,35 @@ runTypeUnit context runtimes runtime = do
       then reuseTypeUnit config storePath stampPath inputs
       else pure Nothing
   case reused of
+    -- A unit only reaches the checker with a resolved tree and with the
+    -- checked types of everything it imports. Resolve success already
+    -- covers both: it is false for a unit whose own names did not resolve
+    -- and for one that imports such a unit. Checking anyway would report
+    -- knock-ons of errors the resolver already located, and would trip
+    -- internal invariants ("resolver error reached type checker",
+    -- "missing checked type constructor") that stay assertions for real
+    -- compiler bugs. A unit whose dependency merely failed to type check
+    -- is still checked: its types are published either way, and the unit
+    -- has its own errors to report in this same run.
+    Nothing
+      | not resolveSuccess -> do
+          verbose ("Skip type check after failed name resolution: " <> T.unpack (unitLabel unit))
+          atomically $ do
+            putTMVar
+              (runtimeTypeResult runtime)
+              TypeUnitResult
+                { typeUnitTypes = Map.empty,
+                  typeUnitHashes = Map.empty,
+                  typeUnitOwnInstanceInterface = emptyTcInterface,
+                  typeUnitFactsDigest = "",
+                  typeUnitInstanceInterface = importedInstanceInterface,
+                  typeUnitDiagnostics = [],
+                  typeUnitWritten = Set.empty,
+                  typeUnitReused = Set.empty,
+                  typeUnitPendingStamp = Nothing,
+                  typeUnitSuccess = False
+                }
+            putTMVar (runtimeBackendInput runtime) Nothing
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       decodedFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
@@ -2048,7 +2098,8 @@ unitBackendPaths config unit = concatMap paths (sourceUnitSources unit)
           [outputObjectPath (output source)]
             <> [outputFcPath (output source) | compileKeepCore config]
             <> concat [[outputGrinPath (output source), outputCpsGrinPath (output source), outputGcGrinPath (output source)] | compileKeepGrin config]
-            <> [outputNativePath (output source) | compileKeepNative config]
+            <> [outputLirPath (output source) | keepsLirText config]
+            <> [outputNativePath (output source) | compileKeepNative config, not (keepNativeIsKeepLir config)]
     output source = moduleOutputPaths "" (compileTarget config) (sourceName source)
 
 instanceFacts :: TcInterface -> TcInterface
@@ -2342,6 +2393,9 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
   where
     keepGrin = compileKeepGrin config
     keepNative = compileKeepNative config
+    -- The Lir text is written for @--keep-lir@, and on a target whose
+    -- native source is that same text for @--keep-native@ as well.
+    keepLir = keepsLirText config
     target = compileTarget config
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
@@ -2360,9 +2414,10 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
     writeModule name gcProgram = do
       let paths = outputPaths name
       createDirectoryIfMissing True (takeDirectory (outputObjectPath paths))
-      source <- compileGrinTo (compileLint config) (compileCheckPrimBounds config) target (if keepNative then Just (outputNativePath paths) else Nothing) gcProgram (outputObjectPath paths)
+      source <- compileGrinTo (compileLint config) (compileCheckPrimBounds config) target (if keepLir then Just (outputLirPath paths) else Nothing) gcProgram (outputObjectPath paths)
+      when keepLir (verbose ("Write Lir: " <> T.unpack name))
       mapM_ (TIO.writeFile (outputNativePath paths)) source
-      when (keepNative || isJust source) (verbose ("Write native source: " <> T.unpack name))
+      when (isJust source) (verbose ("Write native source: " <> T.unpack name))
       when (isJust source) $ do
         (compiler, arguments) <- backendCompiler target
         let levelArguments = [optimizationArgument (compileOptimization config) | target == Llvm]
@@ -2379,7 +2434,8 @@ compileFcModules config verbose outputPaths = foldM compileOne (0, 0)
         writeFile (outputGrinPath paths) ""
         writeFile (outputCpsGrinPath paths) ""
         writeFile (outputGcGrinPath paths) ""
-      when (compileKeepNative config) (writeFile (outputNativePath paths) "")
+      when keepLir (writeFile (outputLirPath paths) "")
+      when keepNative (writeFile (outputNativePath paths) "")
       verbose ("Write empty object: " <> T.unpack name)
 
     lowerGrinModule fcModule = do
@@ -2417,6 +2473,7 @@ moduleOutputPaths storePath target name =
       outputGrinPath = directory </> "grin",
       outputCpsGrinPath = directory </> "cps.grin",
       outputGcGrinPath = directory </> "gc.grin",
+      outputLirPath = objectPath <> ".lir",
       outputNativePath = objectPath <> nativeSourceExtension target,
       outputObjectPath = objectPath,
       outputCapiSourcePath = capiPath <> ".c",
@@ -2987,4 +3044,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-25"
+packageArtifactFormatVersion = "aihc-artifacts-27"

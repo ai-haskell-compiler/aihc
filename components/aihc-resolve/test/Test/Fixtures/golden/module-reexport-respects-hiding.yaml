@@ -1,0 +1,36 @@
+extensions: []
+modules:
+- |
+  module Origin (kept, dropped) where
+  kept = kept
+  dropped = dropped
+- |
+  module Reexport (module Origin) where
+  import Origin hiding (dropped)
+- |
+  module Main where
+  import Reexport (kept, dropped)
+  main = (kept, dropped)
+annotated:
+- |-
+  module Main where
+  import Reexport (kept, dropped)
+                         └─ v Error not exported
+  main = (kept, dropped)
+  │      ││     └─ v Error unbound
+  │      │└─ v Origin
+  │      └─ v Builtin (,)
+  └─ v Main
+- |-
+  module Origin (kept, dropped) where
+  kept = kept
+  │      └─ v Origin
+  └─ v Origin
+  dropped = dropped
+  │         └─ v Origin
+  └─ v Origin
+- |-
+  module Reexport (module Origin) where
+  import Origin hiding (dropped)
+reason: a module re-export carries the names the import brought in, so a hiding clause on that import also narrows the re-export
+status: pass

@@ -173,7 +173,12 @@ convertKind env kind =
     KTYPE runtimeRep
       | BoxedRep Lifted <- runtimeRep -> Right (typeSynonym (cePrimPackage env))
       | otherwise -> TyApp (TyCon (typeConstructor (cePrimPackage env))) <$> convertRep env runtimeRep
-    KConstraint -> Right (TyCon (constraintName (cePrimPackage env)))
+    -- System FC has no constraints: a dictionary is an ordinary lifted
+    -- value and a class type constructor is a data type of kind 'Type'. A
+    -- constraint-kinded type family -- @Assert :: Bool -> Constraint ->
+    -- Constraint@ -- therefore has to erase to 'Type' too, or its equations
+    -- relate an axiom whose sides the lint reads at different kinds.
+    KConstraint -> Right (typeSynonym (cePrimPackage env))
     KRuntimeRep -> Right (TyCon (runtimeRepConstructor (cePrimPackage env)))
     KLevity -> Right (TyCon (levityConstructor (cePrimPackage env)))
     KVecCount -> Right (TyCon (wiredGhcTypes (cePrimPackage env) "VecCount" SortTypeConstructor))
@@ -284,6 +289,10 @@ convertPred env predicate =
       TyEq <$> convertType env left <*> convertType env right
     -- The evidence for an implicit parameter is a plain value of its type.
     IParamPred _ payload -> convertType env payload
+    -- A stuck constraint is a dictionary whose type is the constraint
+    -- itself: the family application stands until it reduces, and the type
+    -- it reduces to is the dictionary type of whatever it becomes.
+    IrredPred constraint -> convertType env constraint
     QuantifiedPred variables antecedents consequent -> do
       let quantifiedEnv = withTyVars variables env
       binders <- mapM (tyVarBinder quantifiedEnv) variables

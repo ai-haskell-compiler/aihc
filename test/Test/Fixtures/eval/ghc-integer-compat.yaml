@@ -1,0 +1,47 @@
+extensions:
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Integer (divInteger, divModInteger, modInteger, quotInteger, quotRemInteger, remInteger)
+    import Numeric (floatToDigits)
+    import Prelude
+
+    quotRemI :: Integer -> Integer -> (Integer, Integer)
+    quotRemI numerator denominator =
+      case quotRemInteger numerator denominator of
+        (# quotient, remainder #) -> (quotient, remainder)
+
+    divModI :: Integer -> Integer -> (Integer, Integer)
+    divModI numerator denominator =
+      case divModInteger numerator denominator of
+        (# quotient, modulus #) -> (quotient, modulus)
+
+    pairs :: [(Integer, Integer)]
+    pairs = [(7, 2), (-7, 2), (7, -2), (-7, -2), (123456789012345678901234567890, 1000000007)]
+
+    main :: IO ()
+    main = do
+      print [quotInteger n d | (n, d) <- pairs]
+      print [remInteger n d | (n, d) <- pairs]
+      print [divInteger n d | (n, d) <- pairs]
+      print [modInteger n d | (n, d) <- pairs]
+      print [quotRemI n d | (n, d) <- pairs]
+      print [divModI n d | (n, d) <- pairs]
+      print (floatToDigits 10 (0.125 :: Double))
+      print (floatToDigits 10 (1234.5 :: Double))
+stdout: |
+  [3,-3,-3,3,123456788148148161864]
+  [1,-1,1,-1,197434842]
+  [3,-4,-4,3,123456788148148161864]
+  [1,1,-1,-1,197434842]
+  [(3,1),(-3,-1),(-3,1),(3,-1),(123456788148148161864,197434842)]
+  [(3,1),(-4,1),(-4,-1),(3,-1),(123456788148148161864,197434842)]
+  ([1,2,5],0)
+  ([1,2,3,4,5],4)
+output: |
+  ()
+expression: main
+status: pass
+reason: GHC.Integer offers the legacy integer-gmp division API and Numeric re-exports floatToDigits

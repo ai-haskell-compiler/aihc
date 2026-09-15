@@ -158,6 +158,7 @@ internPred predicate = do
         ClassPred _ arguments -> traverse_ internType arguments
         EqPred left right -> traverse_ internType [left, right]
         IParamPred _ payload -> void (internType payload)
+        IrredPred constraint -> void (internType constraint)
         QuantifiedPred variables antecedents consequent ->
           traverse_ internTyVar variables
             *> traverse_ internPred antecedents

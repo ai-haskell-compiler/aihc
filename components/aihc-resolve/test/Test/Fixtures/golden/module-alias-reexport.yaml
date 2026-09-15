@@ -1,0 +1,47 @@
+extensions: []
+modules:
+- |
+  module Alpha (alpha, hidden) where
+  alpha = alpha
+  hidden = hidden
+- |
+  module Beta (beta) where
+  beta = beta
+- |
+  module Reexport (module X) where
+  import Alpha as X (alpha)
+  import Beta as X (beta)
+- |
+  module Main where
+  import Reexport (alpha, beta, hidden)
+  main = (alpha, beta, hidden)
+annotated:
+- |-
+  module Alpha (alpha, hidden) where
+  alpha = alpha
+  │       └─ v Alpha
+  └─ v Alpha
+  hidden = hidden
+  │        └─ v Alpha
+  └─ v Alpha
+- |-
+  module Beta (beta) where
+  beta = beta
+  │      └─ v Beta
+  └─ v Beta
+- |-
+  module Main where
+  import Reexport (alpha, beta, hidden)
+                                └─ v Error not exported
+  main = (alpha, beta, hidden)
+  │      ││      │     └─ v Error unbound
+  │      ││      └─ v Beta
+  │      │└─ v Alpha
+  │      └─ v Builtin (,,)
+  └─ v Main
+- |-
+  module Reexport (module X) where
+  import Alpha as X (alpha)
+  import Beta as X (beta)
+reason: a module re-export names an import alias, so it re-exports what every import under that alias brought in and nothing the import lists left out
+status: pass

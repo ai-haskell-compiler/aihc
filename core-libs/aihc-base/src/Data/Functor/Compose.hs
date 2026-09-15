@@ -9,6 +9,7 @@ where
 
 import Control.Applicative (Alternative (..))
 import Data.Foldable (Foldable (..))
+import Data.Functor.Classes (Eq1 (..), Ord1 (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
@@ -19,6 +20,12 @@ newtype Compose (f :: k -> Type) (g :: l -> k) (a :: l) = Compose {getCompose ::
   deriving newtype (Eq, Ord, Bounded, Enum, Monoid)
 
 infixr 9 `Compose`
+
+instance (Eq1 f, Eq1 g) => Eq1 (Compose f g) where
+  liftEq eq (Compose left) (Compose right) = liftEq (liftEq eq) left right
+
+instance (Ord1 f, Ord1 g) => Ord1 (Compose f g) where
+  liftCompare comp (Compose left) (Compose right) = liftCompare (liftCompare comp) left right
 
 instance (Read (f (g a))) => Read (Compose f g a) where
   readsPrec precedence = readParen (precedence > 10) readCompose

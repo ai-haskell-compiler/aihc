@@ -1,0 +1,19 @@
+extensions:
+- TypeFamilies
+- TypeFamilyDependencies
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Tag = Tag
+  data Proxy a = Proxy
+  type family F a = r | r -> a
+  type instance F Tag = Flag
+  mk :: Proxy a -> Proxy (F a)
+  mk Proxy = Proxy
+  useFlag :: Proxy Flag -> Flag
+  useFlag Proxy = On
+  result = useFlag (mk Proxy)
+status: pass
+reason: An injectivity annotation reads the argument of a family application back out of the equation that produced its result.
