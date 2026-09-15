@@ -2169,12 +2169,16 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
   do
     let kinds = primKinds primIdentity
-        bindings = concatMap (tcModuleBindings (primTcWiring primIdentity)) checkedModules
         -- A module the resolver did not report on keeps every name public.
         desugarConfig name =
           Map.findWithDefault (Fc.allPublicDesugarConfig kinds primIdentity) name desugarConfigs
+        -- Each module is desugared against its own bindings. They are keyed
+        -- by the module being desugared, so passing the whole unit's would
+        -- give one module's binding the type of another module's binding of
+        -- the same name; the other modules of the unit are in the interface,
+        -- keyed by the module that declares them.
         desugarResults =
-          [ Fc.desugarModuleFc (desugarConfig name) bindings interface checked
+          [ Fc.desugarModuleFc (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
           | (name, checked) <- zip moduleNames checkedModules
           ]
         desugarErrors =

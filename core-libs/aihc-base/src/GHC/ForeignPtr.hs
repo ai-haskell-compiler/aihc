@@ -27,6 +27,7 @@ module GHC.ForeignPtr
   )
 where
 
+import Data.Kind (Type)
 import Data.Maybe (Maybe (..))
 import Foreign.Ptr (FunPtr, Ptr (..))
 import Foreign.Storable (Storable (..))
@@ -41,7 +42,8 @@ import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#,
 sequence_ :: [IO ()] -> IO ()
 sequence_ = foldr (>>) (return ())
 
-data ForeignPtr a = ForeignPtr Addr# ForeignPtrContents
+-- | Monokinded, like 'Foreign.Ptr.Ptr': see the note there.
+data ForeignPtr (a :: Type) = ForeignPtr Addr# ForeignPtrContents
 
 data Finalizers
   = NoFinalizers

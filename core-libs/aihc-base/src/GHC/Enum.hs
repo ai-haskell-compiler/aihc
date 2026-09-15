@@ -73,6 +73,35 @@ succError = succError
 predError :: [Char] -> a
 predError = predError
 
+instance Bounded () where
+  minBound = ()
+  maxBound = ()
+
+-- | The unit type has one inhabitant, so it enumerates to @0@ and every
+-- unbounded enumeration of it repeats forever, as in @base@.
+instance Enum () where
+  succ _ = succError "Prelude.Enum.().succ"
+
+  pred _ = predError "Prelude.Enum.().pred"
+
+  toEnum (I# value) =
+    case value of
+      0# -> ()
+      _ -> toEnumError "()" (I# value) ((), ())
+
+  fromEnum () = I# 0#
+
+  enumFrom () = [()]
+
+  enumFromThen () () = unitCycle
+
+  enumFromTo () () = [()]
+
+  enumFromThenTo () () () = unitCycle
+
+unitCycle :: [()]
+unitCycle = () : unitCycle
+
 instance Bounded Bool where
   minBound = False
   maxBound = True

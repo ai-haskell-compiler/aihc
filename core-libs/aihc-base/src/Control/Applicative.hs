@@ -17,7 +17,7 @@ module Control.Applicative
 where
 
 import Data.Semigroup.Internal (Monoid (..))
-import Prelude (Applicative (..), Functor (..), Maybe (..), (++), (<$>))
+import Prelude (Applicative (..), Eq (..), Functor (..), Maybe (..), Ord (..), (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
@@ -35,6 +35,21 @@ optional :: (Alternative f) => f a -> f (Maybe a)
 optional action = fmap Just action <|> pure Nothing
 
 newtype Const a b = Const {getConst :: a}
+
+-- | The phantom second parameter plays no part: a 'Const' compares as the
+-- value it wraps.
+instance (Eq a) => Eq (Const a b) where
+  Const left == Const right = left == right
+  Const left /= Const right = left /= right
+
+instance (Ord a) => Ord (Const a b) where
+  compare (Const left) (Const right) = compare left right
+  Const left < Const right = left < right
+  Const left <= Const right = left <= right
+  Const left > Const right = left > right
+  Const left >= Const right = left >= right
+  max (Const left) (Const right) = Const (max left right)
+  min (Const left) (Const right) = Const (min left right)
 
 instance Functor (Const a) where
   fmap _ (Const value) = Const value

@@ -1,5 +1,47 @@
 module Data.List
-  ( module GHC.List,
+  ( -- @GHC.List@ is re-exported name by name rather than as a module, so
+    -- that its list-only @foldl'@ can be left out in favour of the
+    -- 'Foldable' one, as in @base@.
+    map,
+    (++),
+    head,
+    last,
+    tail,
+    init,
+    uncons,
+    unsnoc,
+    null,
+    length,
+    (!!),
+    foldl,
+    foldl',
+    foldl1,
+    foldr,
+    foldr1,
+    scanl,
+    scanl1,
+    scanl',
+    scanr,
+    scanr1,
+    iterate,
+    iterate',
+    repeat,
+    replicate,
+    cycle,
+    take,
+    drop,
+    splitAt,
+    takeWhile,
+    dropWhile,
+    span,
+    break,
+    reverse,
+    zip,
+    zip3,
+    zipWith,
+    zipWith3,
+    unzip,
+    unzip3,
     intersperse,
     intercalate,
     transpose,
@@ -68,8 +110,12 @@ module Data.List
   )
 where
 
+import Data.Foldable (foldl')
 import Data.Traversable (mapAccumL, mapAccumR)
-import GHC.List
+-- @foldl'@ comes from 'Data.Foldable' here, as it does in @base@: the rest of
+-- the fold vocabulary this module re-exports is already the 'Foldable'
+-- method, and only 'GHC.List' keeps a list-only @foldl'@.
+import GHC.List hiding (foldl')
 import Prelude
   ( Bool (..),
     Eq (..),
