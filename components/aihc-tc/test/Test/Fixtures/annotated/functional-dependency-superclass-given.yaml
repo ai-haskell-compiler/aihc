@@ -1,0 +1,41 @@
+annotated:
+- |-
+  module Test where
+  class Options regex compOpt
+  └─ class methods: defaultCompOpt ∷ ∀ regex compOpt. (Options regex compOpt) ⇒ compOpt; fundeps: regex → compOpt, compOpt → regex
+    | regex -> compOpt
+    , compOpt -> regex
+    where
+    defaultCompOpt :: compOpt
+  class Options regex compOpt => Maker regex compOpt source
+  └─ class methods: makeRegex ∷ ∀ regex compOpt source. (Maker regex compOpt source) ⇒ source → regex, makeRegexOpts ∷ ∀ regex compOpt source. (Maker regex compOpt source) ⇒ compOpt → source → regex; fundeps: regex → compOpt, compOpt → regex
+    | regex -> compOpt
+    , compOpt -> regex
+    where
+    makeRegex :: source -> regex
+    makeRegexOpts :: compOpt -> source -> regex
+    makeRegex = makeRegexOpts defaultCompOpt
+    │           │             └─ type: compOpt; type-args: regex, compOpt; evidence: super[0](given Maker regex compOpt source)
+    │           └─ type: compOpt → source → regex; type-args: regex, compOpt, source; evidence: given Maker regex compOpt source
+    └─ makeRegex ∷ ∀ regex compOpt source. (Maker regex compOpt source) ⇒ source → regex
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+modules:
+- |
+  module Test where
+  class Options regex compOpt
+    | regex -> compOpt
+    , compOpt -> regex
+    where
+    defaultCompOpt :: compOpt
+  class Options regex compOpt => Maker regex compOpt source
+    | regex -> compOpt
+    , compOpt -> regex
+    where
+    makeRegex :: source -> regex
+    makeRegexOpts :: compOpt -> source -> regex
+    makeRegex = makeRegexOpts defaultCompOpt
+status: pass
+reason: the default method takes the option type from the superclass of the class
+  it belongs to, which only a functional dependency of that superclass determines

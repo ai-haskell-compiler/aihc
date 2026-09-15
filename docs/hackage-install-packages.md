@@ -46,6 +46,7 @@ would no longer point at a change in aihc.
 | OneTuple | 0.4.3 |
 | splitmix | 0.1.3.2 |
 | parsec | 3.1.18.0 |
+| regex-base | 0.94.0.3 |
 
 ## Running it locally
 
