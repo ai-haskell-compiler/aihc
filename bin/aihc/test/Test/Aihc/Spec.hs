@@ -871,6 +871,10 @@ captureInstallOutput options =
       void (installWith outputHandle options)
     T.unpack <$> TIO.readFile outputPath
 
+-- | Every module that fails on its own is reported in one run, and every
+-- knock-on is suppressed: a module whose names did not resolve, and a
+-- module importing one, are skipped by the type checker rather than
+-- reaching it and tripping an internal invariant with no source span.
 test_installResolveError :: IO SeedStore -> Assertion
 test_installResolveError getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/resolve-error"

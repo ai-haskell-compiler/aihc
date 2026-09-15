@@ -1841,6 +1841,35 @@ runTypeUnit context runtimes runtime = do
       then reuseTypeUnit config storePath stampPath inputs
       else pure Nothing
   case reused of
+    -- A unit only reaches the checker with a resolved tree and with the
+    -- checked types of everything it imports. Resolve success already
+    -- covers both: it is false for a unit whose own names did not resolve
+    -- and for one that imports such a unit. Checking anyway would report
+    -- knock-ons of errors the resolver already located, and would trip
+    -- internal invariants ("resolver error reached type checker",
+    -- "missing checked type constructor") that stay assertions for real
+    -- compiler bugs. A unit whose dependency merely failed to type check
+    -- is still checked: its types are published either way, and the unit
+    -- has its own errors to report in this same run.
+    Nothing
+      | not resolveSuccess -> do
+          verbose ("Skip type check after failed name resolution: " <> T.unpack (unitLabel unit))
+          atomically $ do
+            putTMVar
+              (runtimeTypeResult runtime)
+              TypeUnitResult
+                { typeUnitTypes = Map.empty,
+                  typeUnitHashes = Map.empty,
+                  typeUnitOwnInstanceInterface = emptyTcInterface,
+                  typeUnitFactsDigest = "",
+                  typeUnitInstanceInterface = importedInstanceInterface,
+                  typeUnitDiagnostics = [],
+                  typeUnitWritten = Set.empty,
+                  typeUnitReused = Set.empty,
+                  typeUnitPendingStamp = Nothing,
+                  typeUnitSuccess = False
+                }
+            putTMVar (runtimeBackendInput runtime) Nothing
     Just recorded -> do
       artifacts <- mapM (readTypeArtifactFile . (storePath </>) . typePath) sources
       decodedFacts <- typeArtifactInterface <$> readTypeArtifactFile (storePath </> factsPath)
