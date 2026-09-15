@@ -24,7 +24,7 @@ import Data.Semigroup
     WrappedMonoid (..),
   )
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Maybe (..))
+import GHC.Base (Functor (..), Maybe (..))
 import GHC.Enum (Bounded (..))
 import GHC.Internal.Classes (Ord (..))
 import GHC.Num (Num (..))
@@ -102,3 +102,21 @@ instance (Alternative f) => Semigroup (Alt f a) where
 
 instance (Alternative f) => Monoid (Alt f a) where
   mempty = Alt empty
+
+instance Functor Dual where
+  fmap f (Dual value) = Dual (f value)
+
+instance Functor Sum where
+  fmap f (Sum value) = Sum (f value)
+
+instance Functor Product where
+  fmap f (Product value) = Product (f value)
+
+instance Functor First where
+  fmap f (First value) = First (fmap f value)
+
+instance Functor Last where
+  fmap f (Last value) = Last (fmap f value)
+
+instance (Functor f) => Functor (Alt f) where
+  fmap f (Alt values) = Alt (fmap f values)
