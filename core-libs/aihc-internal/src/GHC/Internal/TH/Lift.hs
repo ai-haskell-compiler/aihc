@@ -44,6 +44,7 @@ where
 import Data.Array.Byte (ByteArray)
 import Data.Data hiding (Fixity, Infix)
 import Data.Either
+import Data.Fixed (Fixed (MkFixed))
 import Data.Foldable
 import Data.Int
 import Data.List.NonEmpty (NonEmpty (..))
@@ -170,6 +171,14 @@ instance Lift ByteArray where
 instance (Integral a) => Lift (Ratio a) where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift _ = error "Template Haskell Ratio lifting is not available"
+
+-- | @since template-haskell-2.17.0.0
+instance Lift (Fixed a) where
+  liftTyped x = unsafeCodeCoerce (lift x)
+  lift (MkFixed units) = AppE (ConE mkFixedName) <$> lift units
+
+mkFixedName :: Name
+mkFixedName = mkNameG_d "ghc-internal" "GHC.Internal.Data.Fixed" "MkFixed"
 
 instance Lift Float where
   liftTyped x = unsafeCodeCoerce (lift x)
