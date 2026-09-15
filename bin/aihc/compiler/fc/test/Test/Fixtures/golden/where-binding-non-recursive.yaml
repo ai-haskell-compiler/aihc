@@ -1,0 +1,74 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (pair, ones) where
+  import GHC.Types (Int (..))
+
+  data Box = Box Int
+  data Pair = Pair Int Box
+
+  pair :: Int -> Pair
+  pair x = Pair size boxed
+    where
+      size = I# 3#
+      boxed = Box size
+
+  data Stream = Cons Int Stream
+
+  ones :: Int -> Stream
+  ones x = stream
+    where
+      stream = Cons x stream
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.tBox :: 3.sType {
+      1.cBox :: 3.tInt 3.→ 1.tBox
+  }
+
+  type 1.tPair :: 3.sType {
+      1.cPair :: 3.tInt 3.→ 1.tBox 3.→ 1.tPair
+  }
+
+  type 1.tStream :: 3.sType {
+      1.cCons :: 3.tInt 3.→ 1.tStream 3.→ 1.tStream
+  }
+
+  pub val 1.vpair :: 3.tInt 3.→ 1.tPair
+   = λ(x : 3.tInt).
+    let {
+        size : 3.tInt =
+            3.cI# 3#3.cIntRep
+    } in
+        1.cPair size (1.cBox size)
+
+  pub val 1.vones :: 3.tInt 3.→ 1.tStream
+   = λ(x : 3.tInt).
+    rec {
+        stream : 1.tStream =
+            1.cCons x stream
+    } in
+        stream
+status: pass
+reason: A where binding that refers only to earlier bindings is a plain let; a binding that refers to itself stays a recursive group.

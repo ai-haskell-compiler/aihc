@@ -50,7 +50,12 @@ lowered to ordinary GRIN control flow before CPS conversion. This keeps
 CPS-GRIN's continuation model singular instead of retaining an implicit second
 exception continuation.
 
-The ordinary `.grin` artifact remains the direct-style input to the pass. When
+The ordinary `.grin` artifact remains the direct-style input to the pass. It
+is the lowered program after `Aihc.Grin.Simplify`, which resolves what a body
+statically knows about its heap objects: an `eval` of a constructor or closure
+node is the pointer itself, an `apply` of a known closure is a direct call or a
+larger closure, a `case` on a known constructor takes its alternative, and a
+`store-rec` group keeps only its cycles. When
 `--keep-grin` is used, AIHC also writes `.cps.grin` and `.gc.grin`. The latter
 is the exact program consumed by the native backend: each managed `store` is
 preceded by `ensure-heap`, whose live pointer operands are returned under fresh

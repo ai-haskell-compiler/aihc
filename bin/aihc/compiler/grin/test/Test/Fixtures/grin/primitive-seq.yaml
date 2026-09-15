@@ -15,11 +15,7 @@ expected: |-
         eval @(BoxedRep Lifted) (seq_second :: BoxedRep Lifted)
 
   $value_thunk -> BoxedRep Lifted =
-    function_whnf :: BoxedRep Lifted <-
-      store (P$value_closure/2)
-    function_whnf%1 :: BoxedRep Lifted <-
-      apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) global-ref 1.First
-    apply @(BoxedRep Lifted) (function_whnf%1 :: BoxedRep Lifted) global-ref 1.Second
+    call @(BoxedRep Lifted) $value_closure global-ref 1.First global-ref 1.Second
 extensions: []
 source: |
   module Test where

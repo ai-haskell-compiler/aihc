@@ -16,6 +16,7 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/fc/*.fc
   compiler/fc/test/Test/Fixtures/golden/*.yaml
   compiler/grin/test/Test/Fixtures/grin-lint/*.yaml
+  compiler/grin/test/Test/Fixtures/grin-simplify/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
   compiler/lir/test/Test/Fixtures/lir/asm/*.lir
@@ -151,6 +152,7 @@ library
     Aihc.Grin.Parser
     Aihc.Grin.Pretty
     Aihc.Grin.Primitive
+    Aihc.Grin.Simplify
     Aihc.Grin.Srt
     Aihc.Grin.Syntax
     Aihc.Grin.Tidy

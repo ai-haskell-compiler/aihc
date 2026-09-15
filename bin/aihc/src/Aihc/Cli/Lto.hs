@@ -20,6 +20,7 @@ import Control.Exception (evaluate)
 import Control.Monad (forM_, unless, when)
 import Data.ByteString.Char8 qualified as BS8
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, (</>))
@@ -66,6 +67,12 @@ compileLtoProgram config buildRoot corePaths = do
         let errors = Fc.lintProgram pruned
         unless (null errors) (ioError (userError ("FC lint failed after pruning the program:\n" <> unlines (map (("    " <>) . show) errors))))
       createDirectoryIfMissing True (takeDirectory object)
+      -- The merged program is what the object compiles from, so it is the
+      -- System FC a @--keep-core@ build wants to see.
+      when (compileKeepCore config) $ do
+        let rendered = Fc.renderProgram pruned
+        TIO.writeFile (outputFcPath paths) (if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n")
+        verbose ("Write FC: " <> outputFcPath paths)
       _ <- compileFcModules config verbose (const paths) [FcModule "program" pruned]
       writeFile stampPath current
   pure object

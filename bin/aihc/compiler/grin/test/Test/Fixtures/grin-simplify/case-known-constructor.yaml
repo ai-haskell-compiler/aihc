@@ -1,0 +1,82 @@
+program: |
+  constructor Dict [BoxedRep Lifted, BoxedRep Lifted]
+  constructor Box [IntRep]
+  constructor Nil []
+
+  global dict = (CDict global-ref eq global-ref ne)
+  global eq = (P$eq/2)
+  global ne = (P$ne/2)
+
+  $eq (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $ne (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (y :: BoxedRep Lifted)
+
+  $method (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    d :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref dict
+    case (d :: BoxedRep Lifted) as dictionary :: BoxedRep Lifted of
+      data Dict (m0 :: BoxedRep Lifted) (m1 :: BoxedRep Lifted) ->
+        f :: BoxedRep Lifted <-
+          eval @(BoxedRep Lifted) (m1 :: BoxedRep Lifted)
+        g :: BoxedRep Lifted <-
+          apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (a :: BoxedRep Lifted)
+        apply @(BoxedRep Lifted) (g :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $local -> IntRep =
+    b :: BoxedRep Lifted <-
+      store (CBox (7 :: IntRep))
+    case (b :: BoxedRep Lifted) as boxed :: BoxedRep Lifted of
+      data Nil ->
+        constant (0 :: IntRep)
+      data Box (n :: IntRep) ->
+        constant (n :: IntRep)
+
+  $default -> BoxedRep Lifted =
+    case global-ref Nil as scrutinee :: BoxedRep Lifted of
+      data Box (n :: IntRep) ->
+        store (CBox (n :: IntRep))
+      _ ->
+        constant (scrutinee :: BoxedRep Lifted)
+
+  $literal -> IntRep =
+    case (2 :: IntRep) as n :: IntRep of
+      (1 :: IntRep) ->
+        constant (10 :: IntRep)
+      (2 :: IntRep) ->
+        constant (n :: IntRep)
+      _ ->
+        constant (30 :: IntRep)
+expected: |-
+  constructor Dict [BoxedRep Lifted, BoxedRep Lifted]
+
+  constructor Box [IntRep]
+
+  constructor Nil []
+
+  global dict = (CDict global-ref eq global-ref ne)
+
+  global eq = (P$eq/2)
+
+  global ne = (P$ne/2)
+
+  $eq (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $ne (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (y :: BoxedRep Lifted)
+
+  $method (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $ne (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $local -> IntRep =
+    constant (7 :: IntRep)
+
+  $default -> BoxedRep Lifted =
+    constant global-ref Nil
+
+  $literal -> IntRep =
+    constant (2 :: IntRep)
+status: pass
+reason: a case on a known constructor or literal takes its alternative, with the binders bound to the fields

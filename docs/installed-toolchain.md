@@ -166,6 +166,8 @@ Each keeps the output of one compiler phase beside the object of the module it b
 Its installed packages are built the way `aihc install` builds them, so a dependency already in the store is never rejected for lacking those outputs.
 Use `aihc install --keep-core` on the package itself to keep the output of a library.
 
+A whole-program build (`--lto`, which `-O2` and `-Os` imply) compiles one merged program, so its kept output is under `lto/program/` in the build root instead: `core` is the merged program after inlining and pruning, and `grin`, `cps.grin`, `gc.grin` and `program.o.lir` are the phases below it.
+
 ## Optimization level
 
 `aihc build` and `aihc install` take `-O LEVEL`.

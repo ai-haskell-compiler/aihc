@@ -3755,6 +3755,7 @@ desugarLocalDecls declarations bodyType body = do
       innerExpression <- inner
       case component of
         LocalRecursiveBinds binds -> pure (ExRec binds innerExpression)
+        LocalLazyBinds binds -> pure (foldr ExLet innerExpression binds)
         LocalStrictBinds binds -> pure (foldr ExLet innerExpression binds)
     allocationHasUnliftedBinder allocation = do
       kinds <- valueKinds
@@ -3806,6 +3807,11 @@ desugarLocalDecls declarations bodyType body = do
 data LocalBindingComponent
   = -- | Lifted bindings that can refer to each other.
     LocalRecursiveBinds [Bind]
+  | -- | Lifted bindings of which each refers only to the ones before it.
+    -- They are lazy but not recursive, so each gets a plain let: the
+    -- inliner substitutes and drops a plain let, and GRIN allocates it in
+    -- place, where a recursive group hides its right-hand side from both.
+    LocalLazyBinds [Bind]
   | -- | Bindings with an unlifted binder. They are strict and not recursive.
     LocalStrictBinds [Bind]
 
@@ -3834,10 +3840,25 @@ localBindingComponents groups =
       case scc of
         Graph.AcyclicSCC (binds, unlifted)
           | unlifted -> Right (LocalStrictBinds binds)
+          | refersOnlyBackwards binds -> Right (LocalLazyBinds binds)
           | otherwise -> Right (LocalRecursiveBinds binds)
         Graph.CyclicSCC members
           | any snd members -> Left ("System FC does not accept a recursive local binding with an unlifted binder: " <> show [binderName (bindBinder bind) | (binds, _) <- members, bind <- binds])
           | otherwise -> Right (LocalRecursiveBinds (concatMap fst members))
+
+-- | Whether each binding of a group refers to no binder of the group but
+-- the ones listed before it, so that a chain of plain lets in the listed
+-- order scopes every reference.
+refersOnlyBackwards :: [Bind] -> Bool
+refersOnlyBackwards binds = go Set.empty binds
+  where
+    names = Set.fromList (map (binderName . bindBinder) binds)
+    go earlier remaining =
+      case remaining of
+        [] -> True
+        bind : rest ->
+          Set.null ((expressionFreeNames (bindRhs bind) `Set.intersection` names) `Set.difference` earlier)
+            && go (Set.insert (binderName (bindBinder bind)) earlier) rest
 
 -- | The free value names of a System FC expression.
 expressionFreeNames :: Expr -> Set Name

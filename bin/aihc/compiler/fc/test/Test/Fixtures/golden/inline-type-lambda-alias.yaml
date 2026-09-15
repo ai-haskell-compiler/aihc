@@ -1,0 +1,67 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  data Box a = Box a
+
+  class Pick f where
+    pick :: f a -> a
+
+  unbox :: Box a -> a
+  unbox (Box a) = a
+
+  instance Pick Box where
+    pick = unbox
+
+  run :: Box Bool -> Bool
+  run b = pick b
+inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.tBox (a : 2.sType) :: 2.sType {
+      1.cBox :: ∀(a : 2.sType). a 2.→ 1.tBox a
+  }
+
+  type 1.t$Dict$Pick (f : 2.sType 2.→ 2.sType) :: 2.sType {
+      1.c$Dict$Pick :: ∀(f : 2.sType 2.→ 2.sType). (∀(a : 2.sType). f a 2.→ a) 2.→ 1.t$Dict$Pick f
+  }
+
+  pub val 1.v$fPickBox :: 1.t$Dict$Pick 1.tBox
+   = 1.c$Dict$Pick @1.tBox (Λ(a : 2.sType).
+    1.vunbox @a)
+
+  val 1.vunbox :: ∀(a : 2.sType). 1.tBox a 2.→ a
+   = Λ(a : 2.sType).
+    λ(x : 1.tBox a).
+      case x as (_scrut : 1.tBox a) return (a) of {
+          1.cBox (a{1} : a) →
+              a{1}
+      }
+
+  pub val 1.vrun :: 1.tBox 2.tBool 2.→ 2.tBool
+   = λ(x : 1.tBox 2.tBool).
+    case x as (_scrut : 1.tBox 2.tBool) return (2.tBool) of {
+        1.cBox (a : 2.tBool) →
+            a
+    }
+status: pass
+reason: An instance method that names a function at its own types is an alias of that function, so a call through the known dictionary becomes a direct call.
