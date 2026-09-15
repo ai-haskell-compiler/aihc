@@ -1,7 +1,9 @@
 extensions:
   - TypeOperators
+  - DataKinds
 modules:
   - |
+    {-# LANGUAGE DataKinds #-}
     {-# LANGUAGE TypeOperators #-}
     module Test where
 
@@ -19,7 +21,7 @@ modules:
     constValue :: K1 R Bool p
     constValue = K1 True
 
-    metaValue :: M1 D () U1 p
+    metaValue :: M1 D ('MetaData 'False) U1 p
     metaValue = M1 U1
 
     leftValue :: (U1 :+: Par1) Bool
