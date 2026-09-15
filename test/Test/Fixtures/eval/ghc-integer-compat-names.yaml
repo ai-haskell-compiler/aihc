@@ -1,0 +1,23 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Integer (divInteger, modInteger, quotInteger, quotRemInteger, remInteger)
+    import Numeric (floatToDigits)
+
+    boxedQuotRem :: Integer -> Integer -> (Integer, Integer)
+    boxedQuotRem numerator denominator =
+      case quotRemInteger numerator denominator of
+        (# quotient, remainder #) -> (quotient, remainder)
+
+    digits :: ([Int], Int)
+    digits = floatToDigits 10 (0.125 :: Double)
+output: |
+  (((IS 3),(IS 2)),((IS -3),(IS -2)),(IS -3),(IS -4),(IS -2),(IS 3),((: (I# 1) (: (I# 2) (: (I# 5) []))),(I# 0)))
+expression: |
+  (boxedQuotRem 17 5, boxedQuotRem (-17) 5, quotInteger (-17) 5, divInteger (-17) 5, remInteger (-17) 5, modInteger (-17) 5, digits)
+status: pass
+reason: the legacy GHC.Integer names and Numeric.floatToDigits follow GHC semantics
