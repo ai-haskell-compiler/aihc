@@ -1,0 +1,46 @@
+extensions:
+- TypeFamilies
+- TypeFamilyDependencies
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Tag = Tag
+  data Proxy a = Proxy
+  type family F a
+  type instance F Tag = Flag
+  mk :: Proxy a -> Proxy (F a)
+  mk Proxy = Proxy
+  useFlag :: Proxy Flag -> Flag
+  useFlag Proxy = On
+  result = useFlag (mk Proxy)
+status: pass
+reason: Without an injectivity annotation the argument of a family application stays undetermined.
+annotated:
+- |
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Tag = Tag
+       │     └─ type: Tag
+       └─ type: Type
+  data Proxy a = Proxy
+       │         └─ type: ∀ a. Proxy a
+       └─ type: Type → Type
+  type family F a
+              └─ type: Type → Type
+  type instance F Tag = Flag
+  mk :: Proxy a -> Proxy (F a)
+  mk Proxy = Proxy
+  │  │       └─ type: Proxy (F a); type-args: F a
+  │  └─ type: Proxy a
+  └─ type: ∀ a. Proxy a → Proxy (F a)
+  useFlag :: Proxy Flag -> Flag
+  useFlag Proxy = On
+  │       └─ type: Proxy Flag
+  └─ type: Proxy Flag → Flag
+  result = useFlag (mk Proxy)
+           └─ error: unsolved constraint Proxy Flag ~ Proxy (F t0)

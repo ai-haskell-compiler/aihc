@@ -574,18 +574,19 @@ partScheme parts number = case IntMap.lookup (fromIntegral number) parts of
   _ -> fail "invalid interface type scheme reference"
 
 putTyConInfo :: PartIndex -> TyConInfo -> Builder.Builder
-putTyConInfo table info = cborArray 6 <> cborText (tciName info) <> cborInt (tciArity info) <> putTyCon table (tciTyCon info) <> putTypeScheme table (tciKindScheme info) <> putTyConFlavor (tciFlavor info) <> putMaybe (putTypeSynonymInfo table) (tciTypeSynonym info)
+putTyConInfo table info = cborArray 7 <> cborText (tciName info) <> cborInt (tciArity info) <> putTyCon table (tciTyCon info) <> putTypeScheme table (tciKindScheme info) <> putTyConFlavor (tciFlavor info) <> putMaybe (putTypeSynonymInfo table) (tciTypeSynonym info) <> putMaybe (encodeList cborInt) (tciInjectivity info)
 
 getTyConInfo :: PartTable -> Get.Get TyConInfo
 getTyConInfo table = do
-  expectArray 6
+  expectArray 7
   tciName <- getText
   tciArity <- getInt
   tciTyCon <- getTyCon table
   tciKindScheme <- getTypeScheme table
   tciFlavor <- getTyConFlavor
   tciTypeSynonym <- getMaybe (getTypeSynonymInfo table)
-  pure TyConInfo {tciName, tciArity, tciTyCon, tciKindScheme, tciFlavor, tciTypeSynonym}
+  tciInjectivity <- getMaybe (getList getInt)
+  pure TyConInfo {tciName, tciArity, tciTyCon, tciKindScheme, tciFlavor, tciTypeSynonym, tciInjectivity}
 
 putTypeSynonymInfo :: PartIndex -> TypeSynonymInfo -> Builder.Builder
 putTypeSynonymInfo table info = cborArray 2 <> encodeList (putTyVar table) (tsiParams info) <> putMaybe (putType table) (tsiBody info)

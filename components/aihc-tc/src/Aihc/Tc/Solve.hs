@@ -29,6 +29,7 @@ import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
+import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, mkAppTy)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -85,15 +86,22 @@ solveLoop wl inerts = case popWork wl of
     solveLoop wl' (foldr addInertDict inerts deferred)
 
 -- | No work is left. An equality that waits on a type family application
--- gets another attempt when a solved meta variable changed it. Otherwise it
--- is a residual that the enclosing scope solves or reports.
+-- gets another attempt when a solved meta variable changed it. Failing
+-- that, the injectivity annotation of a family it mentions may still
+-- determine an argument, which changes it. Otherwise it is a residual that
+-- the enclosing scope solves or reports.
 drained :: InertSet -> TcM SolveResult
 drained inerts
   | null (inertEqs inerts) = pure SolveResult {srResidual = [], srInerts = inerts}
   | otherwise = do
       (progressed, stuck) <- partitionProgress (inertEqs inerts)
       if null progressed
-        then pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
+        then do
+          givens <- getGivenPredicates
+          improved <- improveInjectivity givens (map ctPred stuck)
+          if improved
+            then solveLoop (foldr addEq emptyWorkList stuck) inerts {inertEqs = []}
+            else pure SolveResult {srResidual = stuck, srInerts = inerts {inertEqs = []}}
         else solveLoop (foldr addEq emptyWorkList progressed) inerts {inertEqs = stuck}
 
 -- | Split the stuck equalities into those that a solved meta variable
@@ -194,7 +202,13 @@ solveImplicationEqualities skolems predicates equalities constraints = do
   let remaining = [constraint | (constraint, result) <- zip constraints results, case result of EqSolved -> False; _ -> True]
   if length remaining < length constraints
     then solveImplicationEqualities skolems predicates equalities remaining
-    else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
+    else do
+      -- The givens of the branch can name a family application that an
+      -- injectivity annotation then reads back into a family argument.
+      improved <- improveInjectivity predicates (map ctPred remaining)
+      if improved
+        then solveImplicationEqualities skolems predicates equalities remaining
+        else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
 partitionWanteds = foldr partitionOne ([], [])
