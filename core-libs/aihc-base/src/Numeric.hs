@@ -1,6 +1,5 @@
 module Numeric
-  ( floatToDigits,
-    showSigned,
+  ( showSigned,
     showInt,
     showIntAtBase,
     showHex,
@@ -13,6 +12,7 @@ module Numeric
     readHex,
     readSigned,
     lexDigits,
+    floatToDigits,
   )
 where
 

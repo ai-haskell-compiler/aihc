@@ -10,6 +10,7 @@ module Aihc.Cli.Backend
     compileGrinTo,
     lowerTargetFor,
     nativeSourceExtension,
+    nativeSourceIsLir,
   )
 where
 
@@ -18,12 +19,14 @@ import Aihc.Arm64.Lir qualified as Arm64
 import Aihc.Grin.Gc (GcGrinProgram)
 import Aihc.Lir.Lower (LowerTarget, posixTarget64, wasip3Target)
 import Aihc.Lir.Lower qualified as Lower
-import Aihc.Lir.Syntax (Module)
+import Aihc.Lir.Pretty (renderModule)
+import Aihc.Lir.Syntax (Module (..))
 import Aihc.Llvm.Lir qualified as Llvm
 import Aihc.Native (NativeTarget (..))
 import Aihc.Wasm.Lir qualified as Wasm
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
+import Data.Text.IO qualified as TIO
 
 data BackendOutput
   = -- | A finished object file.
@@ -63,14 +66,24 @@ compileLirTo lint target lirModule path = case target of
       BackendObject bytes -> BL.writeFile path bytes >> pure Nothing
       BackendSource source -> pure (Just source)
 
--- | Use shared incremental conversion for both native object paths.
+-- | Use shared incremental conversion for both native object paths. The Lir
+-- of the module is written to @lirPath@ when one is given: an object
+-- backend writes each item as conversion produces it, and a source backend
+-- writes the module it lowered.
 compileGrinTo :: Bool -> Bool -> NativeTarget -> Maybe FilePath -> GcGrinProgram -> FilePath -> IO (Maybe Text)
-compileGrinTo lint checkBounds target dumpPath gcProgram path = case target of
-  AppleArm64 -> Arm64.writeGrinObjectWith lint checkBounds dumpPath gcProgram path >> pure Nothing
-  LinuxAmd64 -> Amd64.writeGrinObjectWith lint checkBounds dumpPath gcProgram path >> pure Nothing
+compileGrinTo lint checkBounds target lirPath gcProgram path = case target of
+  AppleArm64 -> Arm64.writeGrinObjectWith lint checkBounds lirPath gcProgram path >> pure Nothing
+  LinuxAmd64 -> Amd64.writeGrinObjectWith lint checkBounds lirPath gcProgram path >> pure Nothing
   _ -> do
     lirModule <- either (ioError . userError . ("Lir generation failed: " <>) . show) pure (Lower.lowerModule (lowerTargetFor target) checkBounds gcProgram)
+    mapM_ (\dump -> TIO.writeFile dump (renderLirModule lirModule)) lirPath
     compileLirTo lint target lirModule path
+
+-- | The Lir text of a module, as the object backends dump it: one item to
+-- a line group, with a final newline.
+renderLirModule :: Module -> Text
+renderLirModule lirModule =
+  foldMap (\item -> renderModule (Module [item]) <> "\n") (moduleItems lirModule)
 
 -- | The extension of the source kept next to an object. An object target
 -- keeps the Lir text.
@@ -81,3 +94,14 @@ nativeSourceExtension target =
     LinuxAmd64 -> ".lir"
     Llvm -> ".ll"
     Wasm32Wasip3 -> ".s"
+
+-- | Whether the source kept beside the object of a target is the Lir text.
+-- An object backend writes the object itself, so Lir is the last form of
+-- the module there is to keep.
+nativeSourceIsLir :: NativeTarget -> Bool
+nativeSourceIsLir target =
+  case target of
+    AppleArm64 -> True
+    LinuxAmd64 -> True
+    Llvm -> False
+    Wasm32Wasip3 -> False

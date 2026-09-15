@@ -69,6 +69,9 @@ enum {
   AIHC_FRAME_UPDATE = 3,
   AIHC_FRAME_RESTORE_MASK = 4,
   AIHC_FRAME_STOP = 5,
+  /* The delimiter that prompt# pushes: [parent, tag]. Exception unwinding
+     passes through it; control0# captures the frames above it. */
+  AIHC_FRAME_PROMPT = 6,
 };
 typedef uint8_t AihcFrameKind;
 
@@ -335,6 +338,20 @@ const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
 void aihc_update(AihcValue *object, AihcValue *value);
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
+/* Delimited continuations. See "Delimited continuations" in
+   docs/exceptions.md. A prompt tag is a heap node without fields, compared
+   by address. control0# walks the continuation to the nearest prompt frame
+   with its tag, records the frames above that prompt in a heap node, and
+   resumes by applying the function to that node in the prompt's context.
+   Applying the captured continuation copies the recorded frames onto the
+   caller's continuation, so a capture can be resumed any number of times. */
+AihcValue *aihc_prompt_tag_new(AihcMachine *machine);
+const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
+                                AihcValue *function, AihcValue *continuation);
+const AihcResume *aihc_continuation_resume(AihcMachine *machine,
+                                           AihcValue *captured,
+                                           AihcValue *action,
+                                           AihcValue *continuation);
 const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
                              AihcValue *continuation);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);

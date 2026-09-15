@@ -127,7 +127,13 @@ concurrencyPrimitives =
     "takeMVar#",
     "putMVar#",
     "tryTakeMVar#",
-    "tryPutMVar#"
+    "tryPutMVar#",
+    -- The delimited-continuation runtime calls. A prompt tag is a heap
+    -- object, a capture allocates the record of the captured frames, and a
+    -- resume copies them.
+    "newPromptTag#",
+    "aihcControl0#",
+    "aihcResume#"
   ]
 
 -- | The primitives the lowering compiles from their argument expressions
@@ -144,5 +150,8 @@ controlPrimitives =
     "catch#",
     "runRW#",
     "keepAlive#",
-    "seq#"
+    "seq#",
+    -- The CPS conversion turns prompt# into a prompt frame, so like catch#
+    -- it never reaches a backend as a call.
+    "prompt#"
   ]

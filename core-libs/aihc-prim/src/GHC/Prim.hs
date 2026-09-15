@@ -22,6 +22,7 @@ module GHC.Prim
     ByteArray#,
     byteArrayContents#,
     catch#,
+    control0#,
     casMutVar#,
     Char#,
     compareInt#,
@@ -158,6 +159,9 @@ module GHC.Prim
     newArray#,
     newByteArray#,
     newMVar#,
+    newPromptTag#,
+    prompt#,
+    PromptTag#,
     newMutVar#,
     newPinnedByteArray#,
     noDuplicate#,
@@ -510,6 +514,15 @@ data ThreadId#
 
 type StableName# :: Type -> UnliftedType
 data StableName# a
+
+type PromptTag# :: Type -> UnliftedType
+data PromptTag# a
+
+-- | The part of a continuation that 'control0#' captured: the frames between
+-- the call and the prompt it aborted to. Only 'aihcResume#' consumes it, so
+-- the type is private to this module.
+type AihcContinuation# :: UnliftedType
+data AihcContinuation#
 
 type StablePtr# :: Type -> TYPE 'AddrRep
 data StablePtr# a
@@ -1322,6 +1335,67 @@ foreign import prim
     (b -> State# RealWorld -> (# State# RealWorld, a #)) ->
     State# RealWorld ->
     (# State# RealWorld, a #)
+
+-- | A fresh prompt tag. Tags compare by identity.
+foreign import prim newPromptTag# :: State# RealWorld -> (# State# RealWorld, PromptTag# a #)
+
+-- | Run the action under a prompt frame carrying the tag. When the action
+-- returns normally the frame forwards the result, so a prompt that no
+-- 'control0#' aborts to is a no-op.
+foreign import prim
+  prompt# ::
+    PromptTag# a ->
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, a #)
+
+-- | Capture the continuation up to the nearest prompt frame with the tag,
+-- pop it together with the prompt frame, and run the function with the
+-- captured part in the context of the prompt. The function receives the
+-- state token the caller held, so it has exactly one application stage and
+-- the runtime applies it to the captured part alone.
+foreign import prim
+  aihcControl0# ::
+    PromptTag# a ->
+    (AihcContinuation# -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, b #)
+
+-- | Push a copy of the captured frames onto the current continuation and run
+-- the action under them. The action must be in weak head normal form: the
+-- runtime applies it without evaluating it first.
+foreign import prim
+  aihcResume# ::
+    AihcContinuation# ->
+    (State# RealWorld -> (# State# RealWorld, b #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, a #)
+
+-- | GHC's @control0#@. The captured continuation excludes the prompt frame,
+-- and applying it does not install one, so it obeys
+--
+-- > prompt# tag (control0# tag f >>= k)  ==  f (\m -> m >>= k)
+--
+-- and a continuation may be applied any number of times. Capture fails
+-- when no prompt with the tag is in the current state thread, or when a
+-- thunk under evaluation lies between the call and the prompt.
+--
+-- GHC types the result @b@ representation-polymorphically. This definition
+-- is ordinary Haskell rather than a primitive, and GRIN needs a fixed
+-- representation for the result of a definition, so @b@ is lifted here.
+control0# ::
+  PromptTag# a ->
+  (((State# RealWorld -> (# State# RealWorld, b #)) -> State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, a #)) ->
+  State# RealWorld ->
+  (# State# RealWorld, b #)
+control0# tag f s =
+  aihcControl0# tag (\k -> f (resume k) s) s
+  where
+    -- The runtime applies the action without evaluating it, so it is
+    -- evaluated here; seq# hands back the evaluated value itself.
+    resume k m s' =
+      case seq# m s' of
+        (# s'', evaluated #) -> aihcResume# k evaluated s''
 
 foreign import prim newTVar# :: a -> State# d -> (# State# d, TVar# d a #)
 
