@@ -466,12 +466,20 @@ test_buildLto getStore =
         target = buildTarget options
         targetRoot = root </> ".aihc-target" </> nativeTargetStoreDirectory target
         programObject = targetRoot </> "lto" </> "program" </> "program.o"
-        ltoOptions = options {buildOptimization = O2}
+        programCore = targetRoot </> "lto" </> "program" </> "core"
+        ltoOptions = options {buildOptimization = O2, buildKeepCore = True}
     void (withCurrentDirectory root (build ltoOptions))
     -- The modules of the executable stop at System FC.
-    assertCoreFile (targetRoot </> "Main" </> "core")
+    mainCore <- readCoreFile (targetRoot </> "Main" </> "core")
     assertFileDoesNotExist (targetRoot </> "Main" </> "Main.o")
     assertFileExists programObject
+    -- @--keep-core@ keeps the merged program as well as the modules it was
+    -- merged from, so the kept program holds more than the executable's own
+    -- module does.
+    programCoreProgram <- readCoreFile programCore
+    assertBool
+      "the kept program holds the merged declarations"
+      (length (Fc.programDecls programCoreProgram) > length (Fc.programDecls mainCore))
     -- The program object holds the entry and no value the entry does not
     -- reach: the fixture never uses the Data.Complex instances. Nor does it
     -- hold a constructor that no value it keeps names, so the info tables of
@@ -1072,12 +1080,16 @@ test_installTargetArchives getStore = do
           (all ((== takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
 
 assertCoreFile :: FilePath -> Assertion
-assertCoreFile path = do
+assertCoreFile = void . readCoreFile
+
+-- | The System FC a kept @core@ file holds, which must parse.
+readCoreFile :: FilePath -> IO Fc.Program
+readCoreFile path = do
   assertFileExists path
   core <- TIO.readFile path
   case Fc.parseProgram core of
     Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
-    Right _ -> pure ()
+    Right program -> pure program
 
 test_installArchSourceDirs :: IO SeedStore -> Assertion
 test_installArchSourceDirs getStore = do
