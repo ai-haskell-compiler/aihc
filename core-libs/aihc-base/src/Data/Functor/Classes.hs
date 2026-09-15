@@ -48,6 +48,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Ord (Down (..))
 import Data.Proxy (Proxy (..))
 import GHC.Read (expectP, list, paren, parens)
+import GHC.Tuple (Solo (MkSolo))
 import Text.ParserCombinators.ReadPrec (ReadPrec, prec, readPrec_to_S, readS_to_Prec, step, (+++))
 import Text.Read.Lex (Lexeme (..))
 import Text.Show (showListWith)
@@ -336,6 +337,50 @@ instance (Read a) => Read1 ((,) a) where
 
 instance (Show a) => Show1 ((,) a) where
   liftShowsPrec = liftShowsPrec2 showsPrec showList
+
+instance Eq1 Solo where
+  liftEq eq (MkSolo a) (MkSolo b) = eq a b
+
+instance Ord1 Solo where
+  liftCompare comp (MkSolo a) (MkSolo b) = comp a b
+
+instance (Eq a, Eq b) => Eq1 ((,,) a b) where
+  liftEq = liftEq2 (==)
+
+instance (Eq a1) => Eq2 ((,,) a1) where
+  liftEq2 e1 e2 (u1, x1, y1) (u2, x2, y2) =
+    u1 == u2 && e1 x1 x2 && e2 y1 y2
+
+instance (Ord a, Ord b) => Ord1 ((,,) a b) where
+  liftCompare = liftCompare2 compare
+
+instance (Ord a1) => Ord2 ((,,) a1) where
+  liftCompare2 comp1 comp2 (u1, x1, y1) (u2, x2, y2) =
+    case compare u1 u2 of
+      EQ -> case comp1 x1 x2 of
+        EQ -> comp2 y1 y2
+        other -> other
+      other -> other
+
+instance (Eq a, Eq b, Eq c) => Eq1 ((,,,) a b c) where
+  liftEq = liftEq2 (==)
+
+instance (Eq a1, Eq a2) => Eq2 ((,,,) a1 a2) where
+  liftEq2 e1 e2 (u1, v1, x1, y1) (u2, v2, x2, y2) =
+    u1 == u2 && v1 == v2 && e1 x1 x2 && e2 y1 y2
+
+instance (Ord a, Ord b, Ord c) => Ord1 ((,,,) a b c) where
+  liftCompare = liftCompare2 compare
+
+instance (Ord a1, Ord a2) => Ord2 ((,,,) a1 a2) where
+  liftCompare2 comp1 comp2 (u1, v1, x1, y1) (u2, v2, x2, y2) =
+    case compare u1 u2 of
+      EQ -> case compare v1 v2 of
+        EQ -> case comp1 x1 x2 of
+          EQ -> comp2 y1 y2
+          other -> other
+        other -> other
+      other -> other
 
 instance Eq2 Either where
   liftEq2 e1 _ (Left x) (Left y) = e1 x y
