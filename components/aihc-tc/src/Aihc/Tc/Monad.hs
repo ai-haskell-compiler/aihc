@@ -383,7 +383,7 @@ mkWiredTyCon tyCon kind = do
   case maybeInfo of
     Just info -> pure (tciTyCon info)
     Nothing -> do
-      let info = TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon (ForAll [] [] kind) DataTyCon Nothing
+      let info = TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon (ForAll [] [] kind) DataTyCon Nothing Nothing
       lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey tyCon) info (tcsGlobalTyCons state)}
       pure tyCon
 

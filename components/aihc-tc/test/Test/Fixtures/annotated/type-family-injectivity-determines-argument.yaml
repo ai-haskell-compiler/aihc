@@ -1,0 +1,17 @@
+extensions:
+- TypeFamilies
+- TypeFamilyDependencies
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Proxy a = Proxy
+  type family F a = r | r -> a
+  mk :: Proxy a -> Proxy (F a)
+  mk Proxy = Proxy
+  useF :: Proxy (F Flag) -> Flag
+  useF Proxy = On
+  result = useF (mk Proxy)
+status: pass
+reason: An injectivity annotation determines the argument of a family application from another application of the same family.

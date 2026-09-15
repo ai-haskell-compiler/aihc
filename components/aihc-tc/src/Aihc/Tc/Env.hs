@@ -80,7 +80,12 @@ data TyConInfo = TyConInfo
     tciTyCon :: !TyCon,
     tciKindScheme :: !TypeScheme,
     tciFlavor :: !TyConFlavor,
-    tciTypeSynonym :: !(Maybe TypeSynonymInfo)
+    tciTypeSynonym :: !(Maybe TypeSynonymInfo),
+    -- | The injectivity annotation of a type family, when it declares one:
+    -- the argument positions that the result determines. @type family F a b
+    -- = r | r -> a@ records @Just [0]@. @Nothing@ means the family declares
+    -- no injectivity, and every other flavor of type constructor uses it.
+    tciInjectivity :: !(Maybe [Int])
   }
   deriving (Eq, Show, Read, Generic)
 

@@ -37,7 +37,7 @@ tcInterfaceTests =
     kinds = mkTcKinds (primTcWiring (PackageId "aihc-prim"))
     listTyCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1
     listKind = ForAll [] [] (TcFunTy (typeKind kinds) (typeKind kinds))
-    canonicalInfo = TyConInfo "List" 1 listTyCon listKind DataTyCon Nothing
-    supportInfo = TyConInfo "[]" 1 listTyCon listKind DataTyCon Nothing
+    canonicalInfo = TyConInfo "List" 1 listTyCon listKind DataTyCon Nothing Nothing
+    supportInfo = TyConInfo "[]" 1 listTyCon listKind DataTyCon Nothing Nothing
     canonicalInterface = emptyTcInterface {tcInterfaceTyConMap = Map.singleton (tyConKey listTyCon) canonicalInfo}
     supportInterface = emptyTcInterface {tcInterfaceTyConMap = Map.singleton (tyConKey listTyCon) supportInfo}

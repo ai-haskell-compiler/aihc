@@ -11,6 +11,7 @@ module Aihc.Tc.Solve.Family
     isTypeFamilyTyCon,
     isTypeFamilyApplication,
     unsaturateFamilyApplication,
+    familyEquations,
     matchTypes,
   )
 where

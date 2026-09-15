@@ -70,6 +70,7 @@ import Aihc.Parser.Syntax
     Type (..),
     TypeFamilyDecl (..),
     TypeFamilyEq (..),
+    TypeFamilyInjectivity (..),
     TypeFamilyInst (..),
     TypeFamilyResultSig (..),
     TypeSynDecl (..),
@@ -145,6 +146,7 @@ import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isCallStackPred, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
@@ -1735,17 +1737,33 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
         sequence
           [ do
               ForAll _ methodPredicates methodBody <- methodExpectedScheme info headTys methodName
-              let signatureSubstitution =
-                    fromMaybe Map.empty (matchTypes [applySubst classSubstitution signatureBody] [methodBody])
+              -- A variable the default signature quantifies on its own and
+              -- keeps out of the method type -- @f@ in @(RandomGen f,
+              -- FrozenGen f m, g ~ MutableGen f m)@ -- is chosen when the
+              -- instance takes the default, not fixed by it. It stands for
+              -- whatever the signature's own constraints determine, so it is
+              -- solved here rather than held rigid. A variable the method
+              -- type does mention is determined by the match below instead.
+              signatureMetas <-
+                Map.fromList
+                  <$> sequence
+                    [ (tvUnique variable,) <$> freshMetaTvOfKind (tvKind variable)
+                    | variable <- signatureVariables,
+                      tvUnique variable `notElem` map tvUnique (ciTyVars info),
+                      not (typeMentionsTyVar variable signatureBody)
+                    ]
+              let openSubstitution = Map.union signatureMetas classSubstitution
+                  signatureSubstitution =
+                    fromMaybe Map.empty (matchTypes [applySubst openSubstitution signatureBody] [methodBody])
                   predicates =
                     filter
                       (not . isPredicateOfClass (ciTyCon info))
-                      (map (applySubstPred signatureSubstitution . applySubstPred classSubstitution) signaturePredicates)
-              (methodName,) <$> mapM (solveInstanceSuperClass classNameText (context <> methodPredicates)) predicates
+                      (map (applySubstPred signatureSubstitution . applySubstPred openSubstitution) signaturePredicates)
+              (methodName,) <$> solveInstanceDefaultSignature classNameText (context <> methodPredicates) predicates
           | methodName <- defaults,
             methodName `notElem` definedMethods,
             isNothing coercedPlan,
-            Just (ForAll _ signaturePredicates signatureBody) <- [lookup methodName (ciDefaultSignatures info)]
+            Just (ForAll signatureVariables signaturePredicates signatureBody) <- [lookup methodName (ciDefaultSignatures info)]
           ]
       -- GHC warns when an instance leaves out a method with no default and
       -- fills the slot with a body that raises; the desugarer does the same.
@@ -1839,6 +1857,20 @@ isPredicateOfClass classTyCon predicate =
   case predicate of
     ClassPred predicateClass _ -> tyConKey predicateClass == tyConKey classTyCon
     _ -> False
+
+-- | Discharge the context of the default signature that an instance takes
+-- for a method it leaves out.
+--
+-- The predicates are solved one at a time, but they are one set: an
+-- equality among them can name a type family whose injectivity annotation
+-- determines a variable that the dictionary predicates mention. Improving
+-- the equalities first gives the dictionaries that variable; without it
+-- @f@ in @(RandomGen f, FrozenGen f m, g ~ MutableGen f m)@ would stay a
+-- meta variable that no predicate on its own can solve.
+solveInstanceDefaultSignature :: Text -> [Pred] -> [Pred] -> TcM [EvTerm]
+solveInstanceDefaultSignature className givens predicates = do
+  _ <- improveInjectivity givens [predicate | predicate@EqPred {} <- predicates]
+  mapM (solveInstanceSuperClass className givens) predicates
 
 solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do
@@ -3503,7 +3535,8 @@ predeclareTypeConstructor declaration =
             tciTyCon = tyCon,
             tciKindScheme = ForAll [] [] provisionalKind,
             tciFlavor = flavor,
-            tciTypeSynonym = Nothing
+            tciTypeSynonym = Nothing,
+            tciInjectivity = Nothing
           }
 
 storeTyConInfo :: TyConInfo -> TcM ()
@@ -3570,7 +3603,8 @@ predeclareTypeLevelDataConstructors declaration =
             tciTyCon = dataConTyCon,
             tciKindScheme = kindScheme,
             tciFlavor = DataTyCon,
-            tciTypeSynonym = Nothing
+            tciTypeSynonym = Nothing,
+            tciInjectivity = Nothing
           }
 
 isForeignImport :: ForeignDecl -> Bool
@@ -3629,7 +3663,8 @@ registerClassDecl origin classDecl = do
         tciTyCon = classTyCon,
         tciKindScheme = ForAll (map paramTyVar kindParams) [] classKind,
         tciFlavor = ClassTyCon,
-        tciTypeSynonym = Nothing
+        tciTypeSynonym = Nothing,
+        tciInjectivity = Nothing
       }
   methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv allClassTyVars) (classDeclItems classDecl)
   methods <- mapM (registeredMethod classTyCon) (classDeclMethodNames classDecl)
@@ -3985,7 +4020,8 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
         tciTyCon = familyTyCon,
         tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = DataFamilyTyCon,
-        tciTypeSynonym = Nothing
+        tciTypeSynonym = Nothing,
+        tciInjectivity = Nothing
       }
   void (defaultKindMetas declaredKind)
 
@@ -4026,7 +4062,8 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                         tciTyCon = representationTyCon,
                         tciKindScheme = ForAll [] [] representationKind,
                         tciFlavor = DataTyCon,
-                        tciTypeSynonym = Nothing
+                        tciTypeSynonym = Nothing,
+                        tciInjectivity = Nothing
                       }
                   instanceInfo =
                     DataFamilyInstanceInfo
@@ -4156,7 +4193,8 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
             tciTyCon = familyTyCon,
             tciKindScheme = ForAll [] [] declaredKind,
             tciFlavor = TypeFamilyTyCon,
-            tciTypeSynonym = Nothing
+            tciTypeSynonym = Nothing,
+            tciInjectivity = typeFamilyInjectivePositions familyDecl
           }
       if Map.null sharedKinds
         then void (defaultKindMetas declaredKind)
@@ -4166,6 +4204,23 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
           forM_ paramInfos $ \param ->
             unless (Map.member (paramName param) sharedKinds) (void (defaultKindMetas (paramKind param)))
           void (defaultKindMetas (typeResultKind arity declaredKind))
+
+-- | The argument positions that an injectivity annotation says the result
+-- determines. @type family F a b = r | r -> a@ gives @Just [0]@.
+--
+-- The annotation is taken on trust: nothing here checks that the equations
+-- of the family really are injective in those arguments, the way GHC's
+-- injectivity check does.
+typeFamilyInjectivePositions :: TypeFamilyDecl -> Maybe [Int]
+typeFamilyInjectivePositions familyDecl =
+  case typeFamilyDeclResultSig familyDecl of
+    Just (TypeFamilyInjectiveSig _ injectivity) ->
+      Just
+        [ position
+        | (position, param) <- zip [0 ..] (typeFamilyDeclParams familyDecl),
+          tyVarBinderName param `elem` typeFamilyInjectivityDetermined injectivity
+        ]
+    _ -> Nothing
 
 typeFamilyResultKindType :: TypeFamilyDecl -> Maybe Type
 typeFamilyResultKindType familyDecl =
@@ -4345,7 +4400,8 @@ registerDataDeclHeader maybeKindScheme dd = do
         tciTyCon = tc,
         tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = DataTyCon,
-        tciTypeSynonym = Nothing
+        tciTypeSynonym = Nothing,
+        tciInjectivity = Nothing
       }
   -- The parameter kinds stay open until the constructor fields of the whole
   -- declaration group are checked; 'defaultGlobalKindMetas' closes them.
@@ -4398,7 +4454,8 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
         tciTyCon = tc,
         tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = NewtypeTyCon,
-        tciTypeSynonym = Nothing
+        tciTypeSynonym = Nothing,
+        tciInjectivity = Nothing
       }
   -- The parameter kinds stay open until the constructor fields of the whole
   -- declaration group are checked; 'defaultGlobalKindMetas' closes them.
@@ -4450,7 +4507,8 @@ registerTypeLevelDataCon constructor = do
             tciTyCon = dataConTyCon,
             tciKindScheme = kindScheme,
             tciFlavor = DataTyCon,
-            tciTypeSynonym = Nothing
+            tciTypeSynonym = Nothing,
+            tciInjectivity = Nothing
           }
   storeTyConInfo info
 
@@ -4502,7 +4560,8 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
         tciTyCon = tyCon,
         tciKindScheme = declaredKindScheme,
         tciFlavor = SynonymTyCon,
-        tciTypeSynonym = Just synonym
+        tciTypeSynonym = Just synonym,
+        tciInjectivity = Nothing
       }
 
 registerTypeSynonymBody :: Decl -> TcM ()
