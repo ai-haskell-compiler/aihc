@@ -11,9 +11,11 @@ expected: |-
 
   global 1.second = (P$second/1)
 
-  global 1."$fArrow(->)" = (F"$$fArrow(->)_thunk")
+  global 1."$fArrow(->)" = (C1.$Dict$Arrow global-ref 1."$fArrow(->)$csecond")
 
   global 1.apply = (P$apply/1)
+
+  global 1."$fArrow(->)$csecond" = (P"$$fArrow(->)$csecond"/2)
 
   $second ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
@@ -21,11 +23,6 @@ expected: |-
     case (case_value :: BoxedRep Lifted) as $dict :: BoxedRep Lifted of
       data 1.$Dict$Arrow ($method0 :: BoxedRep Lifted) ->
         eval @(BoxedRep Lifted) ($method0 :: BoxedRep Lifted)
-
-  "$$fArrow(->)_thunk" -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (P"$$fArrow(->)$csecond"/2)
-    store (C1.$Dict$Arrow (argument :: BoxedRep Lifted))
 
   "$$fArrow(->)$csecond_argument_thunk" (b :: BoxedRep Lifted) (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-

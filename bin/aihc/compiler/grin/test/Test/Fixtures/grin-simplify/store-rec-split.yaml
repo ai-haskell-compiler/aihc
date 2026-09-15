@@ -1,0 +1,24 @@
+program: |
+  constructor Cons [BoxedRep Lifted, BoxedRep Lifted]
+  constructor Box [BoxedRep Lifted]
+
+  $entry (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store-rec
+      unused :: BoxedRep Lifted = (CBox (x :: BoxedRep Lifted))
+      boxed :: BoxedRep Lifted = (CBox (ones :: BoxedRep Lifted))
+      ones :: BoxedRep Lifted = (CCons (x :: BoxedRep Lifted) (twos :: BoxedRep Lifted))
+      twos :: BoxedRep Lifted = (CCons (x :: BoxedRep Lifted) (ones :: BoxedRep Lifted))
+      dead :: BoxedRep Lifted = (CBox (ones :: BoxedRep Lifted))
+    eval @(BoxedRep Lifted) (boxed :: BoxedRep Lifted)
+expected: |-
+  constructor Cons [BoxedRep Lifted, BoxedRep Lifted]
+
+  constructor Box [BoxedRep Lifted]
+
+  $entry (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store-rec
+      ones :: BoxedRep Lifted = (CCons (x :: BoxedRep Lifted) (twos :: BoxedRep Lifted))
+      twos :: BoxedRep Lifted = (CCons (x :: BoxedRep Lifted) (ones :: BoxedRep Lifted))
+    store (CBox (ones :: BoxedRep Lifted))
+status: pass
+reason: a recursive group keeps only its cycles; a node outside a cycle is a plain store, and one nothing uses is dropped

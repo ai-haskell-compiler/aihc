@@ -5,6 +5,8 @@ expected: |-
 
   global 1.visible = (P$visible/[[IntRep]])
 
+  global 1.helper = (P$helper/[[IntRep]])
+
   $helper (x :: IntRep) -> IntRep =
     primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
 
@@ -18,9 +20,7 @@ expected: |-
     apply @IntRep (function_whnf%1 :: BoxedRep Lifted) (argument :: IntRep)
 
   $visible (x :: IntRep) -> IntRep =
-    argument :: BoxedRep Lifted <-
-      store (P$helper/[[IntRep]])
-    call @IntRep $twice (argument :: BoxedRep Lifted) (x :: IntRep)
+    call @IntRep $twice global-ref 1.helper (x :: IntRep)
 extensions:
 - MagicHash
 modules:
@@ -33,5 +33,5 @@ modules:
   twice f x = f (f x)
   visible :: Int# -> Int#
   visible x = twice helper x
-reason: passing an unexported function builds its partial application in place
+reason: passing an unexported function names the one static closure that every use of it as a value shares
 status: pass

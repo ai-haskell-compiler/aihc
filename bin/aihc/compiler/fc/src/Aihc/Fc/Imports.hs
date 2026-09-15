@@ -4,6 +4,7 @@ module Aihc.Fc.Imports
     declReferences,
     emptyImports,
     importsForProgramLookup,
+    pruneImports,
     referencesFromImports,
     typeReferences,
     unusedImports,
@@ -269,3 +270,37 @@ coercionReferences coercion =
 
 nameReference :: Name -> References
 nameReference = Set.singleton
+
+-- | Keep only the imports that the declarations reach. Normalization and
+-- inlining drop bindings, and with them the last use of an import.
+pruneImports :: Program -> Program
+pruneImports program = program {programImports = imports'}
+  where
+    imports = programImports program
+    direct = foldMap declReferences (programDecls program)
+    used = close direct
+    close current =
+      let next = current <> importReferences current
+       in if Set.size next == Set.size current then current else close next
+    importReferences current =
+      Set.unions
+        [ typeReferences ty
+        | (name, ty) <- Map.toList (importHeaders imports) <> Map.toList (importSynonyms imports) <> Map.toList (importBinders imports),
+          Set.member name current
+        ]
+        <> Set.unions
+          [ axiomReferences axiom
+          | (name, axiom) <- Map.toList (importAxioms imports),
+            keepAxiom current name axiom
+          ]
+    -- An equation of a family that the program uses stays with the family.
+    keepAxiom current name axiom =
+      Set.member name current
+        || (axiomRole axiom == Nominal && not (Set.disjoint current (typeReferences (axiomLeft axiom))))
+    imports' =
+      Imports
+        { importHeaders = Map.filterWithKey (\name _ -> Set.member name used) (importHeaders imports),
+          importSynonyms = Map.filterWithKey (\name _ -> Set.member name used) (importSynonyms imports),
+          importAxioms = Map.filterWithKey (keepAxiom used) (importAxioms imports),
+          importBinders = Map.filterWithKey (\name _ -> Set.member name used) (importBinders imports)
+        }

@@ -15,11 +15,17 @@ expected: |-
 
   global 1.$dmlift2 = (P$$dmlift2/4)
 
-  global 1."$fFun(->)r" = (F"$$fFun(->)r_thunk")
+  global 1."$fFun(->)r" = (C1.$Dict$Fun global-ref 1."$fFun(->)r$cfmap'")
 
-  global 1."$fAp(->)r" = (F"$$fAp(->)r_thunk")
+  global 1."$fAp(->)r" = (C1.$Dict$Ap global-ref 1."$fFun(->)r" global-ref 1."$fAp(->)r$cunit" global-ref 1."$fAp(->)r$cap" global-ref 1."$fAp(->)r$clift2")
 
   global 1."$fAp(->)r$clift2" = (P$$dmlift2/3 global-ref 1."$fAp(->)r")
+
+  global 1."$fAp(->)r$cap" = (P"$$fAp(->)r$cap"/3)
+
+  global 1."$fAp(->)r$cunit" = (P"$$fAp(->)r$cunit"/2)
+
+  global 1."$fFun(->)r$cfmap'" = (P"$$fFun(->)r$cfmap'"/3)
 
   $fmap' ($d0 :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-
@@ -74,11 +80,6 @@ expected: |-
       apply @(BoxedRep Lifted) (function_application :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_application%1 :: BoxedRep Lifted) (z :: BoxedRep Lifted)
 
-  "$$fFun(->)r_thunk" -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (P"$$fFun(->)r$cfmap'"/3)
-    store (C1.$Dict$Fun (argument :: BoxedRep Lifted))
-
   "$$fFun(->)r$cfmap'_argument_thunk" (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
@@ -90,13 +91,6 @@ expected: |-
     function_whnf :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
     apply @(BoxedRep Lifted) (function_whnf :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
-
-  "$$fAp(->)r_thunk" -> BoxedRep Lifted =
-    argument :: BoxedRep Lifted <-
-      store (P"$$fAp(->)r$cunit"/2)
-    argument%1 :: BoxedRep Lifted <-
-      store (P"$$fAp(->)r$cap"/3)
-    store (C1.$Dict$Ap global-ref 1."$fFun(->)r" (argument :: BoxedRep Lifted) (argument%1 :: BoxedRep Lifted) global-ref 1."$fAp(->)r$clift2")
 
   "$$fAp(->)r$cunit" (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)

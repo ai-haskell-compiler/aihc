@@ -13,7 +13,7 @@ where
 
 import Aihc.Fc.Convert
 import Aihc.Fc.Desugar.Value (desugarValues, prepareValueInterface)
-import Aihc.Fc.Imports (emptyImports, importsForProgramLookup)
+import Aihc.Fc.Imports (emptyImports, importsForProgramLookup, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeProgram)
 import Aihc.Fc.Syntax
@@ -257,8 +257,11 @@ desugarFromInterface config moduleBindings interface checked = do
       (primPackageId config)
       (lookupHeader convertEnv bindings headers)
       baseProgram
-  let scopes = buildScopes (primPackageId config) moduleOrigin imports decls
-  pure (tidyProgramWithTidiedImports (normalizeProgram (primPackageId config) (Program scopes imports decls)))
+  -- Normalization drops a binding nothing uses, and with it the last use of
+  -- an import, so the imports are pruned after it and the scopes follow.
+  let normalized = pruneImports (normalizeProgram (primPackageId config) (Program emptyScopeTable imports decls))
+      scopes = buildScopes (primPackageId config) moduleOrigin (programImports normalized) (programDecls normalized)
+  pure (tidyProgramWithTidiedImports normalized {programScopes = scopes})
 
 headerIndex :: ConvertEnv -> TcInterface -> Map.Map Name HeaderSource
 headerIndex convertEnv interface =

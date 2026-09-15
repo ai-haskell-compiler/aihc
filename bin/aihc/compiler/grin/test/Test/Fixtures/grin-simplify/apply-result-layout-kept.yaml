@@ -1,0 +1,37 @@
+program: |
+  global unboxed = (P$unboxed/1)
+  global forwarded = (P$forwarding/1)
+
+  $unboxed (x :: BoxedRep Lifted) -> IntRep =
+    constant (0 :: IntRep)
+
+  $forwarding (x :: BoxedRep Lifted) -> forwarded =
+    call @forwarded $forwarding (x :: BoxedRep Lifted)
+
+  $entry (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    n :: IntRep <-
+      apply @IntRep global-ref unboxed (a :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) global-ref forwarded (a :: BoxedRep Lifted)
+
+  $mismatch (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref unboxed (a :: BoxedRep Lifted)
+expected: |-
+  global unboxed = (P$unboxed/1)
+
+  global forwarded = (P$forwarding/1)
+
+  $unboxed (x :: BoxedRep Lifted) -> IntRep =
+    constant (0 :: IntRep)
+
+  $forwarding (x :: BoxedRep Lifted) -> forwarded =
+    call @forwarded $forwarding (x :: BoxedRep Lifted)
+
+  $entry (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    n :: IntRep <-
+      call @IntRep $unboxed (a :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) $forwarding (a :: BoxedRep Lifted)
+
+  $mismatch (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref unboxed (a :: BoxedRep Lifted)
+status: pass
+reason: a direct call takes the layout the callee declares, or any layout when the callee forwards its result, and an application for another layout stays

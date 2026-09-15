@@ -1,0 +1,37 @@
+program: |
+  constructor Box [IntRep]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $entry (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as w :: BoxedRep Lifted of
+      data Box (n :: IntRep) ->
+        again :: BoxedRep Lifted <-
+          eval @(BoxedRep Lifted) (w :: BoxedRep Lifted)
+        inner :: IntRep <-
+          case (v :: BoxedRep Lifted) as w2 :: BoxedRep Lifted of
+            data Box (m :: IntRep) ->
+              constant (m :: IntRep)
+        boxed :: BoxedRep Lifted <-
+          store (CBox (inner :: IntRep))
+        store (CPair (again :: BoxedRep Lifted) (boxed :: BoxedRep Lifted))
+      _ ->
+        eval @(BoxedRep Lifted) (v :: BoxedRep Lifted)
+expected: |-
+  constructor Box [IntRep]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  $entry (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    case (v :: BoxedRep Lifted) as w :: BoxedRep Lifted of
+      data Box (n :: IntRep) ->
+        boxed :: BoxedRep Lifted <-
+          store (CBox (n :: IntRep))
+        store (CPair (w :: BoxedRep Lifted) (boxed :: BoxedRep Lifted))
+      _ ->
+        constant (v :: BoxedRep Lifted)
+status: pass
+reason: inside an alternative the scrutinee and the case binder are evaluated, and in a constructor alternative they are that constructor

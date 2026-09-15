@@ -26,7 +26,7 @@ module Aihc.Fc.Inline
   )
 where
 
-import Aihc.Fc.Imports (declReferences)
+import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgram)
@@ -790,6 +790,10 @@ isTrivial expr =
     ExLit {} -> True
     ExCoercion {} -> True
     ExTyApp body _ -> isTrivial body
+    -- A type abstraction runs no code: an instance method that names a
+    -- function at its own types, @Λa Λb. bindIO @a @b@, is an alias of
+    -- that function.
+    ExTyLam _ body -> isTrivial body
     ExCast body _ -> isTrivial body
     _ -> False
 
@@ -1118,48 +1122,3 @@ exprBinderNames = go
         ExCast body _ -> go body
         ExForeignCall call types arguments -> typeBinderNames (foreignCallType call) <> foldMap typeBinderNames types <> foldMap go arguments
     altNames alternative = foldMap binderNames (altTypeBinders alternative <> altBinders alternative) <> go (altRhs alternative)
-
--- * Imports
-
--- | Keep only the imports that the declarations reach.
-pruneImports :: Program -> Program
-pruneImports program = program {programImports = imports'}
-  where
-    imports = programImports program
-    direct = foldMap declReferences (programDecls program)
-    used = close direct
-    close current =
-      let next = current <> importReferences current
-       in if Set.size next == Set.size current then current else close next
-    importReferences current =
-      Set.unions
-        [ typeReferences ty
-        | (name, ty) <- Map.toList (importHeaders imports) <> Map.toList (importSynonyms imports) <> Map.toList (importBinders imports),
-          Set.member name current
-        ]
-        <> Set.unions
-          [ axiomReferences axiom
-          | (name, axiom) <- Map.toList (importAxioms imports),
-            keepAxiom current name axiom
-          ]
-    axiomReferences axiom =
-      foldMap (typeReferences . binderType) (axiomBinders axiom) <> typeReferences (axiomLeft axiom) <> typeReferences (axiomRight axiom)
-    -- An equation of a family that the program uses stays with the family.
-    keepAxiom current name axiom =
-      Set.member name current
-        || (axiomRole axiom == Nominal && not (Set.disjoint current (typeReferences (axiomLeft axiom))))
-    imports' =
-      Imports
-        { importHeaders = Map.filterWithKey (\name _ -> Set.member name used) (importHeaders imports),
-          importSynonyms = Map.filterWithKey (\name _ -> Set.member name used) (importSynonyms imports),
-          importAxioms = Map.filterWithKey (keepAxiom used) (importAxioms imports),
-          importBinders = Map.filterWithKey (\name _ -> Set.member name used) (importBinders imports)
-        }
-    typeReferences ty =
-      case ty of
-        TyVar {} -> Set.empty
-        TyCon name -> Set.singleton name
-        TyApp function argument -> typeReferences function <> typeReferences argument
-        TyFun r1 r2 argument result -> foldMap typeReferences [r1, r2, argument, result]
-        TyForAll binder body -> typeReferences (binderType binder) <> typeReferences body
-        TyEq left right -> typeReferences left <> typeReferences right

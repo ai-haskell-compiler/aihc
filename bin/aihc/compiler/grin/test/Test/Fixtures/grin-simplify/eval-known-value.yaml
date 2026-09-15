@@ -1,0 +1,60 @@
+program: |
+  constructor Unit []
+  constructor Triple [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  global fn = (P$code/2)
+  global caf = (F$caf)
+
+  $code (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $caf -> BoxedRep Lifted =
+    constant global-ref Unit
+
+  $entry (t :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref fn
+    u :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref Unit
+    c :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref caf
+    local :: BoxedRep Lifted <-
+      store (F$caf)
+    l :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (local :: BoxedRep Lifted)
+    e :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    again :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (e :: BoxedRep Lifted)
+    first :: BoxedRep Lifted <-
+      store (CTriple (f :: BoxedRep Lifted) (u :: BoxedRep Lifted) (c :: BoxedRep Lifted))
+    store (CTriple (first :: BoxedRep Lifted) (l :: BoxedRep Lifted) (again :: BoxedRep Lifted))
+expected: |-
+  constructor Unit []
+
+  constructor Triple [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  global fn = (P$code/2)
+
+  global caf = (F$caf)
+
+  $code (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $caf -> BoxedRep Lifted =
+    constant global-ref Unit
+
+  $entry (t :: BoxedRep Lifted) -> BoxedRep Lifted =
+    c :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref caf
+    local :: BoxedRep Lifted <-
+      store (F$caf)
+    l :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (local :: BoxedRep Lifted)
+    e :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (t :: BoxedRep Lifted)
+    first :: BoxedRep Lifted <-
+      store (CTriple global-ref fn global-ref Unit (c :: BoxedRep Lifted))
+    store (CTriple (first :: BoxedRep Lifted) (l :: BoxedRep Lifted) (e :: BoxedRep Lifted))
+status: pass
+reason: evaluating a closure global, a nullary constructor, or an evaluated variable is the identity, while a thunk still needs the eval

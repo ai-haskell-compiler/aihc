@@ -4,8 +4,9 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram)
+import Aihc.Grin (GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram)
 import Aihc.Grin.Parser qualified as GrinParser
+import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Testing.EvalFixture qualified as EvalFixture
 import Control.Exception (evaluate)
@@ -17,6 +18,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
 import GrinGolden qualified
+import Prettyprinter (defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.String (renderString)
 import System.Directory (listDirectory)
 import System.Environment (getEnv)
 import System.FilePath (takeExtension, (</>))
@@ -38,6 +41,7 @@ data GrinEvalEnvironment = GrinEvalEnvironment
 tests :: IO TestTree
 tests = do
   lintFixtures <- loadLintFixtures
+  simplifyFixtures <- loadSimplifyFixtures
   fixtures <- GrinGolden.loadGrinCases
   evalFixtures <- filter (("grin" `elem`) . EvalFixture.evalCaseEvaluators) <$> EvalFixture.loadEvalCases
   pure
@@ -48,6 +52,7 @@ tests = do
           Heap.tests,
           Lint.tests,
           testGroup "GRIN lint fixtures" lintFixtures,
+          testGroup "GRIN simplify fixtures" simplifyFixtures,
           Srt.tests,
           testGroup "GRIN golden tests" (map fixtureTest fixtures),
           withResource loadGrinEvalEnvironment (const (pure ())) $ \getEnvironment ->
@@ -91,6 +96,46 @@ checkLintFixture path = do
         else fail "invalid GRIN lint fixture status or error"
     isResultLayout GrinLintResultLayout {} = True
     isResultLayout _ = False
+
+-- | Simplify each textual GRIN fixture and compare it with the expected
+-- program. The simplifier leaves copy binds behind for the normalizer, so
+-- the fixture shows the normalized result, and that result must lint.
+loadSimplifyFixtures :: IO [TestTree]
+loadSimplifyFixtures = do
+  root <- getEnv "AIHC_TEST_ROOT"
+  let directory = root </> "bin/aihc/compiler/grin/test/Test/Fixtures/grin-simplify"
+  paths <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory directory
+  pure [testCase path (checkSimplifyFixture (directory </> path)) | path <- paths]
+
+checkSimplifyFixture :: FilePath -> IO ()
+checkSimplifyFixture path = do
+  decoded <- Y.decodeFileEither path
+  case decoded of
+    Left problem -> assertFailure (Y.prettyPrintParseException problem)
+    Right value ->
+      case parseEither parseFixture value of
+        Left problem -> assertFailure problem
+        Right (source, expected) ->
+          case GrinParser.parseProgram source of
+            Left problem -> assertFailure (GrinParser.renderParseError problem)
+            Right program -> do
+              let simplified = normalizeGrinProgram (simplifyGrinProgram program)
+                  actual = T.strip (T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram simplified))))
+              case lintProgram simplified of
+                [] -> pure ()
+                problems -> assertFailure ("the simplified program does not lint: " <> show problems)
+              if actual == T.strip expected
+                then pure ()
+                else assertFailure ("output mismatch\nexpected:\n" <> T.unpack expected <> "\nactual:\n" <> T.unpack actual)
+  where
+    parseFixture = withObject "GRIN simplify fixture" $ \object -> do
+      source <- object .: "program"
+      expected <- object .: "expected"
+      status <- object .: "status"
+      reason <- object .: "reason"
+      if status == ("pass" :: Text) && not (T.null reason)
+        then pure (source, expected :: Text)
+        else fail "invalid GRIN simplify fixture status"
 
 -- | Lower aihc-prim and aihc-base to GRIN one time.
 loadGrinEvalEnvironment :: IO GrinEvalEnvironment

@@ -11,6 +11,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
+import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
@@ -67,7 +68,10 @@ data LowerState = LowerState
     lowerForeignCalls :: !(Map Text GrinForeignCall),
     -- | The function of each foreign import that the module applies to too
     -- few arguments. The function takes every argument of the import.
-    lowerForeignFunctions :: !(Map Text FunctionName)
+    lowerForeignFunctions :: !(Map Text FunctionName),
+    -- | The static closure of each private function that the module uses as
+    -- a value, by the name of its global. See 'valueGlobalName'.
+    lowerValueGlobals :: !(Map Text GrinNode)
   }
 
 type LowerM = StateT LowerState (Either String)
@@ -94,21 +98,27 @@ lowerProgram program = do
       globals = globalNameTable types
       constructorArities = constructorArityTable types
       baseEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty
-      initialState = LowerState (-1000000000) "" Set.empty [] Map.empty Map.empty Map.empty
+      initialState = LowerState (-1000000000) "" Set.empty [] Map.empty Map.empty Map.empty Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
+  -- Normalizing first gives the simplifier flat bind spines, and normalizing
+  -- again folds the copy binds it leaves behind.
   pure
     ( tidyGrinProgram
         ( normalizeGrinProgram
-            GrinProgram
-              { grinConstructors = topConstructors parts,
-                grinPrimitives = Map.elems (lowerPrimitives finalState),
-                grinForeignCalls = Map.elems (lowerForeignCalls finalState),
-                grinGlobals = topGlobals parts,
-                grinFunctions = reverse (lowerFunctionsRev finalState)
-              }
+            ( simplifyGrinProgram
+                ( normalizeGrinProgram
+                    GrinProgram
+                      { grinConstructors = topConstructors parts,
+                        grinPrimitives = Map.elems (lowerPrimitives finalState),
+                        grinForeignCalls = Map.elems (lowerForeignCalls finalState),
+                        grinGlobals = topGlobals parts <> Map.toList (lowerValueGlobals finalState),
+                        grinFunctions = reverse (lowerFunctionsRev finalState)
+                      }
+                )
+            )
         )
     )
 
@@ -618,17 +628,21 @@ lowerVariable env name = do
       | isNullaryConstructor env name,
         isLiftedRuntimeRep representation ->
           GrinConstant . pure . GrinGlobalValue <$> lookupGlobalName env name
-      | Just node <- privateFunctionNode env name -> pure (GrinStore node)
+      -- The static closure of a private function is a value already.
+      | isJust (privateFunctionNode env name) ->
+          GrinConstant . pure . GrinGlobalValue <$> valueGlobalName env name
       | otherwise -> do
           globalName <- lookupGlobalName env name
           pure (GrinEval representation (GrinGlobalValue globalName))
 
 -- | The partial-application node of a private top-level function, or
--- 'Nothing' for a name that has a global to point at instead.
+-- 'Nothing' for a name that has a global of its own.
 --
--- A private function is never a symbol, so every use of one as a value —
--- passing it, suspending it, storing it in a field — builds this node. It
--- has no fields because a top-level binding captures nothing.
+-- A private function gets no global from its declaration: nearly every use
+-- of one is a saturated call, which never touches a cell. A use as a value
+-- — passing it, suspending it, storing it in a field — needs this node,
+-- and 'valueGlobalName' makes it one static object that every such use
+-- shares. It has no fields because a top-level binding captures nothing.
 privateFunctionNode :: LowerEnv -> Fc.Name -> Maybe GrinNode
 privateFunctionNode env name =
   case Map.lookup name (lowerLocalFunctions env) of
@@ -637,15 +651,35 @@ privateFunctionNode env name =
           Just (GrinNode (GrinClosure (localFunctionEntry function) (localFunctionLayouts function)) [])
     _ -> Nothing
 
--- | Whether a top-level name of this module gets a global.
+-- | Whether a top-level name of this module gets a global from its
+-- declaration.
 --
--- Two kinds of name do not. A private function is not a symbol at all, and
--- a constructor of one field or more is only ever a node built where it is
--- used; both are rebuilt at each use rather than named. Every declaration
--- form and every use site asks this rather than deciding for itself.
+-- Two kinds of name do not. A private function gets one only where a use
+-- needs a value, through 'valueGlobalName'; a constructor of one field or
+-- more is only ever a node built where it is used. Every declaration form
+-- and every use site asks this rather than deciding for itself.
 hasGlobal :: LowerEnv -> Fc.Name -> Bool
 hasGlobal env name =
   isNothing (partialConstructorArity env name) && isNothing (privateFunctionNode env name)
+
+-- | Whether a top-level name of this module has a global at a use site:
+-- everything but a constructor of one field or more. See 'valueGlobalName'.
+hasValueGlobal :: LowerEnv -> Fc.Name -> Bool
+hasValueGlobal env name = isNothing (partialConstructorArity env name)
+
+-- | The global that names a top-level value at a use site: the one its
+-- declaration gets, or, for a private function, the static closure that
+-- its first use as a value gives it. A static node can only refer to a
+-- static object, so a private function that a dictionary or another
+-- top-level constructor application names as a field must be one, and a
+-- local use then shares that object instead of allocating a closure.
+valueGlobalName :: LowerEnv -> Fc.Name -> LowerM Text
+valueGlobalName env name = do
+  globalName <- lookupGlobalName env name
+  case privateFunctionNode env name of
+    Just node -> modify' (\state -> state {lowerValueGlobals = Map.insert globalName node (lowerValueGlobals state)})
+    Nothing -> pure ()
+  pure globalName
 
 lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
@@ -734,12 +768,8 @@ lowerLocalFunctionApplication env resultRep name function arguments
             applied <- freshVar "function_application" liftedGrinRep
             rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
             pure (GrinBind [applied] (GrinCall liftedResultRep entry argumentValues) rest)
-  | Just node <- privateFunctionNode env name = do
-      pointer <- freshVar "function" liftedGrinRep
-      rest <- lowerDynamicApplication env resultRep (GrinVarValue pointer) arguments
-      pure (GrinBind [pointer] (GrinStore node) rest)
   | otherwise = do
-      globalName <- lookupGlobalName env name
+      globalName <- valueGlobalName env name
       lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
   where
     entry = localFunctionEntry function
@@ -892,16 +922,16 @@ lowerLazy env0 hint expression0 continuation = do
     Nothing -> lowerLazyExpr
   where
     lowerLazyExpr = case expression of
-      -- A name with no global of its own — a partially applied constructor,
-      -- a private function — falls through to the node shape below, which
-      -- builds the very node the global would have held.
+      -- A partially applied constructor has no global and falls through to
+      -- the node shape below, which builds the very node a global would
+      -- have held.
       Fc.ExVar name
         | Just variables <- Map.lookup name (lowerLocals env) ->
             case variables of
               [variable] -> continuation (GrinVarValue variable)
               _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
-        | hasGlobal env name ->
-            lookupGlobalName env name >>= continuation . GrinGlobalValue
+        | hasValueGlobal env name ->
+            valueGlobalName env name >>= continuation . GrinGlobalValue
       Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
       Fc.ExLet binding body -> do
         representation <- binderRep env (Fc.bindBinder binding)
@@ -1028,11 +1058,11 @@ classifyOperand env expression = do
     _ | null (runtimeRepComponents representation) -> pure (Just (SettledOperand []))
     Fc.ExVar name
       | Just variables <- Map.lookup name (lowerLocals env) -> pure (Just (SettledOperand (map GrinVarValue variables)))
-      -- A name with no global has no cell to settle on, so the operand is
-      -- built by 'lowerLazy', where a pointer can be bound.
-      | not (hasGlobal env name) ->
+      -- A partially applied constructor has no cell to settle on, so the
+      -- operand is built by 'lowerLazy', where a pointer can be bound.
+      | not (hasValueGlobal env name) ->
           pure (if isLiftedRuntimeRep representation then Just (LazyOperand expression) else Nothing)
-      | isLiftedRuntimeRep representation -> Just . SettledOperand . pure . GrinGlobalValue <$> lookupGlobalName env name
+      | isLiftedRuntimeRep representation -> Just . SettledOperand . pure . GrinGlobalValue <$> valueGlobalName env name
       | otherwise -> pure Nothing
     Fc.ExLit literal
       | not (isLiftedRuntimeRep representation) -> Just . SettledOperand . pure . GrinLitValue <$> lowerLiteral env literal

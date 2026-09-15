@@ -1,0 +1,36 @@
+program: |
+  global bind = (P$bindIO/2)
+
+  $bindIO (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $saturated (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref bind
+    g :: BoxedRep Lifted <-
+      apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (a :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (g :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $partial (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    apply @(BoxedRep Lifted) global-ref bind (a :: BoxedRep Lifted)
+
+  $local (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    f :: BoxedRep Lifted <-
+      store (P$bindIO/1 (a :: BoxedRep Lifted))
+    apply @(BoxedRep Lifted) (f :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+expected: |-
+  global bind = (P$bindIO/2)
+
+  $bindIO (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    constant (x :: BoxedRep Lifted)
+
+  $saturated (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $bindIO (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+
+  $partial (a :: BoxedRep Lifted) -> BoxedRep Lifted =
+    store (P$bindIO/1 (a :: BoxedRep Lifted))
+
+  $local (a :: BoxedRep Lifted) (b :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $bindIO (a :: BoxedRep Lifted) (b :: BoxedRep Lifted)
+status: pass
+reason: applying a known closure enters its code once the last argument arrives and grows the closure before that; the closures the chain built are dropped
