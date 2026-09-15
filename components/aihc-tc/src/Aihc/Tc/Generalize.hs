@@ -65,9 +65,9 @@ generalizeAndCommitIgnoring ignoredKeys ty preds = do
 -- of the first binding, and the later bindings would then mention a type
 -- variable that they do not quantify. Each scheme quantifies the shared
 -- type variables that its own type or predicates mention.
-generalizeGroupAndCommitIgnoring :: Set.Set TcTermKey -> [(TcType, [Pred])] -> TcM [TypeScheme]
-generalizeGroupAndCommitIgnoring ignoredKeys bindings = do
-  envMetaVars <- environmentMetaVars ignoredKeys
+generalizeGroupAndCommitIgnoring :: Set.Set TcTermKey -> [Unique] -> [(TcType, [Pred])] -> TcM [TypeScheme]
+generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
+  envMetaVars <- (++ monoMetaVars) <$> environmentMetaVars ignoredKeys
   zonked <- mapM zonkBinding bindings
   forM_ zonked (uncurry (defaultRuntimeRepMetas envMetaVars))
   zonked' <- mapM zonkBinding zonked

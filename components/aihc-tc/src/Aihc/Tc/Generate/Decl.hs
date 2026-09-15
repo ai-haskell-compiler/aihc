@@ -2650,7 +2650,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
     then pure (TcDeclGroupResult groupId [] Nothing)
     else do
       ignored <- patternBindEnvironmentKeys placeholders
-      schemes <- generalizeGroupAndCommitIgnoring ignored ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
+      schemes <- generalizeGroupAndCommitIgnoring ignored [] ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
       case schemes of
         [] -> abortTc "pattern binding lost its generalized right-hand side"
         rhsScheme@(ForAll rhsTyVars _ _) : binderSchemes -> do
