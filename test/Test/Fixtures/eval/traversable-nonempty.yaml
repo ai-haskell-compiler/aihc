@@ -1,0 +1,24 @@
+modules:
+  - |
+    module Test where
+
+    import Data.List.NonEmpty (NonEmpty (..))
+
+    doubled :: Maybe (NonEmpty Int)
+    doubled = traverse (\value -> if value > 0 then Just (value * 2) else Nothing) (1 :| [2, 3])
+
+    refused :: Maybe (NonEmpty Int)
+    refused = traverse (\value -> if value > 0 then Just value else Nothing) (1 :| [0, 3])
+
+    main :: IO ()
+    main = do
+      print doubled
+      print refused
+expression: main
+stdout: |
+  Just (2 :| [4,6])
+  Nothing
+output: |
+  ()
+status: pass
+reason: NonEmpty has a Traversable instance, as in base

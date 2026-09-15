@@ -1,0 +1,24 @@
+modules:
+  - |
+    module Test where
+
+    values :: [Double]
+    values = [read "1.5", read "-2.25", read "1e3", read "1.5e-2", read "42"]
+
+    floats :: [Float]
+    floats = [read "0.5", read "-1.25"]
+
+    main :: IO ()
+    main = do
+      print values
+      print floats
+      print (read "3.0" + (1 :: Double))
+expression: main
+stdout: |
+  [1.5,-2.25,1000.0,1.5e-2,42.0]
+  [0.5,-1.25]
+  4.0
+output: |
+  ()
+status: pass
+reason: Double and Float have a Read instance, as in base

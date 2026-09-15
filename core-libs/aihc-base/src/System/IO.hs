@@ -111,7 +111,7 @@ import GHC.IO.Handle
 import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, hGetContents, hGetContents', hGetLine, hPutBuf, hPutBufNonBlocking, hPutChar, hPutStr, hPutStrLn, hWaitForInput)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.StdHandles (openBinaryFile, openFile, stderr, stdin, stdout, withBinaryFile, withFile)
-import Prelude (Bool (..), Char, FilePath, IO, Read (..), Show (..), String, error, pure, read, return, (>>=))
+import Prelude (Bool (..), Char, FilePath, IO, Read (..), Show (..), String, appendFile, error, getChar, getContents, getLine, interact, print, pure, putChar, putStr, putStrLn, readFile, readIO, readLn, writeFile, (>>=))
 
 -- | Handles cannot tell whether they are terminals.
 hIsTerminalDevice :: Handle -> IO Bool
@@ -123,52 +123,11 @@ hReady handle = hWaitForInput handle 0
 hPrint :: (Show a) => Handle -> a -> IO ()
 hPrint handle value = hPutStrLn handle (show value)
 
-putChar :: Char -> IO ()
-putChar = hPutChar stdout
-
-putStr :: String -> IO ()
-putStr = hPutStr stdout
-
-putStrLn :: String -> IO ()
-putStrLn = hPutStrLn stdout
-
-print :: (Show a) => a -> IO ()
-print value = putStrLn (show value)
-
-getChar :: IO Char
-getChar = hGetChar stdin
-
-getLine :: IO String
-getLine = hGetLine stdin
-
-getContents :: IO String
-getContents = hGetContents stdin
-
 getContents' :: IO String
 getContents' = hGetContents' stdin
 
-interact :: (String -> String) -> IO ()
-interact function = do
-  input <- getContents
-  putStr (function input)
-
-readFile :: FilePath -> IO String
-readFile path = openFile path ReadMode >>= hGetContents
-
 readFile' :: FilePath -> IO String
 readFile' path = withFile path ReadMode hGetContents'
-
-writeFile :: FilePath -> String -> IO ()
-writeFile path text = withFile path WriteMode (`hPutStr` text)
-
-appendFile :: FilePath -> String -> IO ()
-appendFile path text = withFile path AppendMode (`hPutStr` text)
-
-readLn :: (Read a) => IO a
-readLn = getLine >>= readIO
-
-readIO :: (Read a) => String -> IO a
-readIO text = return (read text)
 
 fixIO :: (a -> IO a) -> IO a
 fixIO _ = error "System.IO.fixIO: not available"

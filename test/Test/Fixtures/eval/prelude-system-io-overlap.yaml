@@ -1,0 +1,39 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+    import System.IO
+
+    -- Both modules are imported without qualification, so every name that
+    -- System.IO shares with Prelude has to be the same name.
+    reader :: FilePath -> IO String
+    reader = readFile
+
+    writer :: FilePath -> String -> IO ()
+    writer = writeFile
+
+    appender :: FilePath -> String -> IO ()
+    appender = appendFile
+
+    reporter :: String -> IO ()
+    reporter = putStrLn
+
+    prompt :: IO String
+    prompt = getLine
+
+    main :: IO ()
+    main = do
+      reporter (show (length (lines "one\ntwo")))
+      hPutStrLn stdout (show (null [reader, reader]))
+      putStr (unlines ["done"])
+expression: main
+stdout: |
+  2
+  False
+  done
+output: |
+  ()
+status: pass
+reason: Prelude and System.IO share one definition of the file and terminal
+  actions, so importing both leaves the names unambiguous

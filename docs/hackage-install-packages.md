@@ -44,6 +44,7 @@ would no longer point at a change in aihc.
 | prettyprinter | 1.7.2 |
 | th-abstraction | 0.7.2.0 |
 | OneTuple | 0.4.3 |
+| parsec | 3.1.18.0 |
 
 ## Running it locally
 

@@ -1,0 +1,26 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+import headers
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity
+
+import synonyms
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
+
+pub type 1.tBranch :: 2.sType 2.→ 2.sType {
+    pub 1.cBranch :: ∀(a : 2.sType). ∀(b : 2.sType). (b 2.→ a) 2.→ 1.tBranch a
+}
+
+val 1.vkeep :: ∀(b : 2.sType). 1.tBranch b 2.→ 1.tBranch b
+ = Λ(b : 2.sType). λ(x : 1.tBranch b).
+  case x as (w : 1.tBranch b) return (1.tBranch b) of {
+      1.cBranch @(c : 2.sType) (f : c 2.→ b) →
+          x
+  }

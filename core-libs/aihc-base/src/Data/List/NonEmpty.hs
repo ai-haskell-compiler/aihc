@@ -89,6 +89,7 @@ import Prelude
     Ord (..),
     Ordering (..),
     Show (..),
+    Traversable (..),
     showParen,
     showString,
     (++),
@@ -132,6 +133,9 @@ instance Monad NonEmpty where
   values >>= next = bindNonEmpty values next
   values >> next = bindNonEmpty values (keepValue next)
   return = singleton
+
+instance Traversable NonEmpty where
+  traverse f (value :| values) = liftA2 (:|) (f value) (traverse f values)
 
 instance Semigroup (NonEmpty a) where
   (<>) = append
