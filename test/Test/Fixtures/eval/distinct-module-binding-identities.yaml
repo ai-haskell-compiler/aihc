@@ -1,0 +1,48 @@
+extensions: []
+modules:
+  - |
+    module Plain where
+
+    data Flag = Flag
+    data Label = Label Flag Flag
+
+    -- Polymorphic, so a use records type arguments against the declared
+    -- type: that is the lookup a mis-keyed binding table gets wrong.
+    describe :: a -> Flag -> Label
+    describe _ second = Label second second
+
+    -- The use is in the module that declares this @describe@, so it is the
+    -- use that a mis-keyed binding table would give the other module's type.
+    labelled :: Label
+    labelled = describe Flag Flag
+  - |
+    module Method where
+
+    data Tag = Tag
+
+    class Describe a where
+      describe :: a -> Tag
+
+    instance Describe Tag where
+      describe value = value
+
+    -- Used here too, so the fixture breaks whichever way a mis-keyed
+    -- binding table resolves the clash.
+    tagged :: Tag
+    tagged = describe Tag
+  - |
+    module Test where
+
+    import qualified Method
+    import qualified Plain
+
+    data Result = Result Plain.Label Method.Tag
+
+    result :: Result
+    result = Result Plain.labelled Method.tagged
+output: |
+  Result (Label Flag Flag) Tag
+expression: |
+  result
+status: pass
+reason: a class method and a top-level function of the same name in one unit keep distinct binding identities
