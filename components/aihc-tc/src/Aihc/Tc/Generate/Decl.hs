@@ -1743,7 +1743,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
               InstanceItemBind valueDecl <- [peelInstanceDeclItemAnn item],
               name <- valueDeclBinderNames valueDecl
             ]
-      defaultMethodEvidence <-
+      defaultMethodUses <-
         sequence
           [ do
               ForAll _ methodPredicates methodBody <- methodExpectedScheme info headTys methodName
@@ -1754,22 +1754,31 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
               -- whatever the signature's own constraints determine, so it is
               -- solved here rather than held rigid. A variable the method
               -- type does mention is determined by the match below instead.
+              let classVariables = map tvUnique (ciKindTyVars info <> ciTyVars info)
+                  signatureOwnVariables = [variable | variable <- signatureVariables, tvUnique variable `notElem` classVariables]
               signatureMetas <-
                 Map.fromList
                   <$> sequence
                     [ (tvUnique variable,) <$> freshMetaTvOfKind (tvKind variable)
-                    | variable <- signatureVariables,
-                      tvUnique variable `notElem` map tvUnique (ciTyVars info),
+                    | variable <- signatureOwnVariables,
                       not (typeMentionsTyVar variable signatureBody)
                     ]
               let openSubstitution = Map.union signatureMetas classSubstitution
                   signatureSubstitution =
                     fromMaybe Map.empty (matchTypes [applySubst openSubstitution signatureBody] [methodBody])
+                  instantiateSignature = applySubst signatureSubstitution . applySubst openSubstitution
                   predicates =
                     filter
                       (not . isPredicateOfClass (ciTyCon info))
                       (map (applySubstPred signatureSubstitution . applySubstPred openSubstitution) signaturePredicates)
-              (methodName,) <$> solveInstanceDefaultSignature classNameText (context <> methodPredicates) predicates
+              evidence <- solveInstanceDefaultSignature classNameText (context <> methodPredicates) predicates
+              -- The worker quantifies the class binders and then the
+              -- signature's own, so the instance head fills the first group
+              -- and these fill the second. A binder the method type shares
+              -- is the method's own variable, which the wrapper binds; one
+              -- the signature keeps to itself is whatever solving chose.
+              signatureTypes <- mapM (zonkType . instantiateSignature . TcTyVar) signatureOwnVariables
+              pure (methodName, signatureTypes, evidence)
           | methodName <- defaults,
             methodName `notElem` definedMethods,
             isNothing coercedPlan,
@@ -1840,7 +1849,8 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
                 tcInstanceSuperClasses = zip superClassBinders superClassEvidence,
                 tcInstanceMethodOrder = methodOrder,
                 tcInstanceDefaultMethods = defaults,
-                tcInstanceDefaultMethodEvidence = defaultMethodEvidence,
+                tcInstanceDefaultMethodEvidence = [(methodName, evidence) | (methodName, _, evidence) <- defaultMethodUses],
+                tcInstanceDefaultMethodTypes = [(methodName, signatureTypes) | (methodName, signatureTypes, _) <- defaultMethodUses],
                 tcInstanceAssociatedTypes = associatedEquations,
                 tcInstanceCoerced = Nothing
               }

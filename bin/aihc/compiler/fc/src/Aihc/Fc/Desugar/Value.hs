@@ -1240,11 +1240,19 @@ desugarDefaultMethod annotation dictionaries methodName = do
   signatureEvidence <-
     withDictionaries (zipWith Dictionary extraPredicates extraDictionaries) $
       traverse (mapM desugarEvidence) (lookup methodName (tcInstanceDefaultMethodEvidence annotation))
+  -- A default signature quantifies binders of its own. One the method type
+  -- shares is the method's own variable, bound here; one the signature keeps
+  -- to itself -- @f@ in @(RandomGen f, FrozenGen f m, g ~ MutableGen f m)@ --
+  -- is not in the method type at all, and only the type checker knows what it
+  -- solved it to.
+  signatureTypes <-
+    traverse (mapM convertCheckedType) (lookup methodName (tcInstanceDefaultMethodTypes annotation))
   let workerOrigin =
         case tcInstanceClassOrigin annotation of
           Just (packageName, moduleName') -> OriginTop (PackageId packageName) moduleName'
           Nothing -> OriginLocal (Unique 0)
-      worker = foldl ExTyApp (ExVar (Name (defaultMethodName methodName) SortValue workerOrigin)) (convertedHeadTypes <> convertedExtraTypes)
+      workerTypes = convertedHeadTypes <> fromMaybe convertedExtraTypes signatureTypes
+      worker = foldl ExTyApp (ExVar (Name (defaultMethodName methodName) SortValue workerOrigin)) workerTypes
       dictionaryArguments = map (ExVar . binderName . dictionaryBinder) dictionaries
   moduleOrigin <- gets vsModuleOrigin
   let selfName = topName moduleOrigin (tcInstanceDictName annotation)
