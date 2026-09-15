@@ -481,7 +481,7 @@ withReboundLocalBinders ((name, binder) : rest) action = do
 generalizedBinders :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> LocalResiduals -> [UnqualifiedName] -> TcM [(UnqualifiedName, TcBinder)]
 generalizedBinders sigs ignored placeholders residuals binders = do
   classified <- traverse classify binders
-  schemes <- generalizeGroupAndCommitIgnoring ignored [(ty, preds) | Right (_, ty, preds) <- classified]
+  schemes <- generalizeGroupAndCommitIgnoring ignored (localResidualMonoMetas residuals) [(ty, preds) | Right (_, ty, preds) <- classified]
   pure (assemble classified schemes)
   where
     classify name = do
@@ -514,7 +514,15 @@ data LocalResiduals = LocalResiduals
     -- | Binders that the monomorphism restriction keeps monomorphic.
     localResidualMonomorphic :: Set.Set TcTermKey,
     -- | Constraints that the enclosing scope must solve.
-    localResidualOuterCts :: [Ct]
+    localResidualOuterCts :: [Ct],
+    -- | Meta-variables that a retained constraint keeps monomorphic.
+    --
+    -- A constraint that the group cannot abstract over, such as an
+    -- equality, is solved by the enclosing scope. Generalizing a
+    -- meta-variable that such a constraint mentions would turn it into a
+    -- skolem the enclosing scope can never fix, so the group leaves it
+    -- alone; a later use of the binder settles it.
+    localResidualMonoMetas :: [Unique]
   }
 
 -- | Split the residual constraints of a local binding group.
@@ -530,9 +538,24 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   envMetaVars <- environmentMetaVars binderSet
   restricted <- restrictedBinderKeys groups
   binderInfos <- traverse (binderMetaInfo placeholders) binders
-  let step (preds, monomorphic, outerCts, givens) ct =
+  -- A constraint the group cannot abstract over, such as an equality, is
+  -- left to the enclosing scope. Its meta-variables must stay
+  -- meta-variables: the enclosing scope solves the constraint by fixing
+  -- them, which a quantified skolem would make impossible.
+  let monoMetaVars =
+        Set.toList
+          ( Set.fromList
+              [ unique
+              | ct <- residualCts,
+                not (isClassPred (ctPred ct)),
+                unique <- predMetaVars (ctPred ct),
+                unique `notElem` envMetaVars
+              ]
+          )
+      fixedMetaVars = envMetaVars ++ monoMetaVars
+      step (preds, monomorphic, outerCts, givens) ct =
         let predicate = ctPred ct
-            generalizable = filter (`notElem` envMetaVars) (predMetaVars predicate)
+            generalizable = filter (`notElem` fixedMetaVars) (predMetaVars predicate)
             owners = [key | (key, metas) <- binderInfos, any (`elem` metas) generalizable]
             restrictedOwners = filter (`Set.member` restricted) owners
             -- Haskell 2010 rule 1 keeps the constrained type variables of a
@@ -551,7 +574,8 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
     LocalResiduals
       { localResidualPreds = localPreds,
         localResidualMonomorphic = monomorphicKeys,
-        localResidualOuterCts = outer
+        localResidualOuterCts = outer,
+        localResidualMonoMetas = monoMetaVars
       }
   where
     zonkCtPred ct = do
