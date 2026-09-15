@@ -181,9 +181,21 @@ convertSurfaceType tvMap ty = do
 
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
 checkSurfaceType tvEnv ty expected = do
-  (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
-  unifyKindsAt (surfaceTypeSpan ty) expected actual
-  pure tcTy
+  -- @()@ is the unit type at kind 'Type' and the empty constraint tuple at
+  -- kind 'Constraint'. Only the expected kind tells them apart, so a boxed
+  -- tuple checked against 'Constraint' is converted here rather than in
+  -- 'convertTupleType', which has no expectation to consult.
+  kinds <- getKinds
+  expected' <- zonkKind expected
+  case peelTypeHead ty of
+    TTuple Boxed _ [] | expected' == constraintKind kinds -> do
+      wiring <- getWiring
+      tyCon <- mkWiredTyCon (tcWiringConstraintTupleTyCon wiring) (constraintKind kinds)
+      pure (TcTyCon tyCon [])
+    _ -> do
+      (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
+      unifyKindsAt (surfaceTypeSpan ty) expected actual
+      pure tcTy
 
 -- | The first source span that a list of surface types gives.
 surfaceTypeSpans :: [Type] -> SourceSpan
@@ -248,19 +260,11 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
     TStar {} ->
       knownType tcWiringTypeTyCon
     TApp f a -> do
-      (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
-      (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
-      resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
-      resultKind' <- zonkKind resultKind
-      pure (mkAppTy fTy aTy, resultKind')
+      function <- convertSurfaceTypeWithKinds tvEnv f
+      applyOneArgument tvEnv function a
     TTypeApp f a -> do
-      (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
-      (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
-      resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpans [a, f]) fKind (KFun aKind resultKind)
-      resultKind' <- zonkKind resultKind
-      pure (mkAppTy fTy aTy, resultKind')
+      function <- convertSurfaceTypeWithKinds tvEnv f
+      applyOneArgument tvEnv function a
     TInfix lhs name _ rhs -> do
       constructor <- inferTypeConstructor name
       applySurfaceTypeArguments tvEnv constructor [lhs, rhs]
@@ -371,12 +375,27 @@ convertResolvedConstructorApplication tvEnv resolution arguments = do
       applySurfaceTypeArguments tvEnv (TcTyCon (tciTyCon info) [], constructorKind) arguments
 
 applySurfaceTypeArguments :: TvKindEnv -> (TcType, TcType) -> [Type] -> TcM (TcType, TcType)
-applySurfaceTypeArguments tvEnv = foldM applyArgument
-  where
-    applyArgument (functionType, functionKind) argument = do
+applySurfaceTypeArguments tvEnv = foldM (applyOneArgument tvEnv)
+
+-- | Apply a converted type to one surface argument.
+--
+-- When the function kind already says what the argument kind is, the
+-- argument is /checked/ against it rather than converted on its own and
+-- unified afterwards. Only the expected kind tells @()@ at kind 'Type'
+-- from @()@ at kind 'Constraint', so an argument of a constraint-kinded
+-- family such as @Assert b ()@ has to be given the expectation.
+applyOneArgument :: TvKindEnv -> (TcType, TcType) -> Type -> TcM (TcType, TcType)
+applyOneArgument tvEnv (functionType, functionKind) argument = do
+  functionKind' <- zonkKind functionKind
+  case functionKind' of
+    KFun argumentKind resultKind -> do
+      argumentType <- checkSurfaceType tvEnv argument argumentKind
+      resultKind' <- zonkKind resultKind
+      pure (mkAppTy functionType argumentType, resultKind')
+    _ -> do
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
-      unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
+      unifyKindsAt (surfaceTypeSpan argument) functionKind' (KFun argumentKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (mkAppTy functionType argumentType, resultKind')
 

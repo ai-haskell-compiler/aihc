@@ -4265,9 +4265,12 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
           [ (paramName param, (paramTyVar param, paramKind param))
           | param <- paramInfos
           ]
-  kinds <- getKinds
-  lhs <- checkSurfaceType tvEnv (typeFamilyEqLhs equation) (typeKind kinds)
-  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) (typeKind kinds)
+  -- The equation is checked at the family's own result kind, which is not
+  -- always 'Type': @Assert :: Bool -> Constraint -> Constraint@ has equations
+  -- whose sides are constraints. Converting both sides without an expectation
+  -- and unifying their kinds keeps a poly-kinded family open as well.
+  (lhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
+  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) lhsKind
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon

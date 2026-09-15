@@ -64,6 +64,9 @@ data TcWiring = TcWiring
     tcWiringTypeTyCon :: TyCon,
     -- | The kind of constraints, which a bare @Constraint@ denotes.
     tcWiringConstraintTyCon :: TyCon,
+    -- | The empty constraint tuple, which @()@ denotes at kind
+    -- @Constraint@ rather than at kind @Type@.
+    tcWiringConstraintTupleTyCon :: TyCon,
     -- | The type of a guard and of an @if@ condition.
     tcWiringBoolTyCon :: TyCon,
     -- | The type of a character literal.

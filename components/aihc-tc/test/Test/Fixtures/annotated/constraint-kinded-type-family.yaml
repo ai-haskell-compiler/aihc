@@ -1,0 +1,17 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- KindSignatures
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, KindSignatures, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Bool (..), Constraint)
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  type family Demand (b :: Bool) :: Constraint where
+    Demand b = Assert b ()
+status: pass
+reason: a type family equation is checked at the family's own result kind, and @()@ at kind Constraint is the empty constraint tuple
