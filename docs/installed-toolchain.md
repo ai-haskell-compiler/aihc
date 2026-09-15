@@ -147,6 +147,25 @@ cannot run the programs it compiles. The script itself, the compiler, and
 those arguments are hashed into `configure.hash`, so a local package only
 reconfigures when one of them changes.
 
+## Kept intermediate output
+
+`aihc build` and `aihc install` take `--keep-core`, `--keep-grin` and `--keep-native`, and `aihc build` also takes `--keep-lir`.
+Each keeps the output of one compiler phase beside the object of the module it belongs to, as a debugging aid; nothing reads any of them back.
+
+| Flag | Files |
+| --- | --- |
+| `--keep-core` | `core`, the System FC of the module |
+| `--keep-grin` | `grin`, `cps.grin` and `gc.grin` |
+| `--keep-lir` | `<Module>.o.lir`, the Lir of the module |
+| `--keep-native` | the source the C driver of the target compiles: `<Module>.o.ll` for `llvm` and `<Module>.o.s` for `wasm32-wasip3` |
+
+`apple-arm64` and `linux-amd64` have no such source, because their backends write the object themselves.
+`--keep-native` keeps the Lir text there, which is the same file `--keep-lir` keeps.
+
+`aihc build` keeps the output of the modules of the executable alone.
+Its installed packages are built the way `aihc install` builds them, so a dependency already in the store is never rejected for lacking those outputs.
+Use `aihc install --keep-core` on the package itself to keep the output of a library.
+
 ## Optimization level
 
 `aihc build` and `aihc install` take `-O LEVEL`.
