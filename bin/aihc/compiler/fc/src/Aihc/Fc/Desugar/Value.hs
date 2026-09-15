@@ -2687,19 +2687,31 @@ desugarAnnotatedExpr annotation inner = do
         Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
         Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
         Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
+        -- An expression signature that is a polytype desugars to a type
+        -- lambda. The expression itself stands where a monotype is
+        -- expected, so the annotation instantiates that polytype again.
+        Syn.ETypeSig {}
+          | not (null (tcAnnTypeArgs annotation)) || not (null (tcAnnEvidenceTerms annotation)) ->
+              instantiateAnnotated annotation inner
         -- An application with a polymorphic type is instantiated where it
         -- is applied. The annotation gives the type arguments and the
         -- evidence.
         _
           | isApplicationExpression inner,
-            not (null (tcAnnTypeArgs annotation)) || not (null (tcAnnEvidenceTerms annotation)) -> do
-              inner' <- desugarExpr inner
-              types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
-              evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-              pure (foldl ExApp (foldl ExTyApp inner' types) evidence)
+            not (null (tcAnnTypeArgs annotation)) || not (null (tcAnnEvidenceTerms annotation)) ->
+              instantiateAnnotated annotation inner
         _ -> desugarExpr inner
   typeBinders <- convertTypeBinders (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam (foldr ExLam body evidenceBinders) typeBinders)
+
+-- | Apply the type arguments and the evidence of an annotation to the
+-- expression it instantiates.
+instantiateAnnotated :: TcAnnotation -> Syn.Expr -> ValueM Expr
+instantiateAnnotated annotation inner = do
+  inner' <- desugarExpr inner
+  types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
+  evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+  pure (foldl ExApp (foldl ExTyApp inner' types) evidence)
 
 isIfThenElseResolution :: ResolutionAnnotation -> Bool
 isIfThenElseResolution resolution =

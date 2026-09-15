@@ -1,0 +1,48 @@
+extensions: [ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    newtype Id a = Id a
+
+    unId :: Id a -> a
+    unId (Id value) = value
+
+    instance Functor Id where
+      fmap f (Id value) = Id (f value)
+
+    class Collect g where
+      collect :: (Functor f) => (a -> g b) -> f a -> g (f b)
+
+    wrap :: (Functor f) => (a -> Id b) -> f a -> Id (f b)
+    wrap f values = Id (fmap (unId . f) values)
+
+    -- The right-hand side is an expression whose signature is a polytype:
+    -- it is checked against the skolemized signature and instantiated
+    -- again where the method expects a monotype.
+    instance Collect Id where
+      collect = wrap :: forall f a b. (Functor f) => (a -> Id b) -> f a -> Id (f b)
+
+    newtype Box a = Box a
+
+    unBox :: Box a -> a
+    unBox (Box value) = value
+
+    instance Functor Box where
+      fmap f (Box value) = Box (f value)
+
+    -- A lambda takes the expected type, so the checking path runs too, and
+    -- the explicit forall variables scope over the body.
+    instance Collect Box where
+      collect =
+        (\f values -> Box (fmap (unBox . f) values))
+          :: forall f a b. (Functor f) => (a -> Box b) -> f a -> Box (f b)
+
+    result :: [Int]
+    result = unId (collect Id [1, 2, 3]) ++ unBox (collect Box [4, 5])
+
+expression: result
+output: ": (I# 1) (: (I# 2) (: (I# 3) (: (I# 4) (: (I# 5) []))))"
+status: pass
+reason: An expression signature that is a polytype is skolemized for the expression and instantiated for its use

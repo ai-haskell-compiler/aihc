@@ -50,7 +50,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
+import Aihc.Tc.Kind (checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -284,9 +284,42 @@ occurrenceAnnotation ty typeArgs evidenceVars
 inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do
   kinds <- getKinds
-  (inner', innerTy, cts) <- inferExprAt sp inner
   scoped <- getScopedTyVars
   sigTy <- checkSurfaceType scoped tyAnn (typeKind kinds)
+  if isPolyType sigTy
+    then inferPolyTypeSig sp inner tyAnn sigTy
+    else inferMonoTypeSig sp inner tyAnn sigTy
+
+-- | An expression signature that is a polytype cannot be equated with the
+-- inferred type of the expression: the expression is checked against the
+-- skolemized signature, with its context as givens and its explicit
+-- @forall@ variables in scope, exactly as a higher-rank argument is. The
+-- signature is then instantiated again, because the expression itself
+-- stands where a monotype is expected.
+inferPolyTypeSig :: SourceSpan -> Expr -> Type -> TcType -> TcM (Expr, TcType, [Ct])
+inferPolyTypeSig sp inner tyAnn sigTy = do
+  boundary <- getUniqueBoundary
+  skolemized@(skolems, _, sigBody) <- skolemizeSigmaType sigTy
+  let scope = scopedSigTyVars (explicitForallNames tyAnn) skolems
+  (inner', innerTy, innerCts) <-
+    withScopedTyVars scope $
+      if checksExpectedResult inner
+        then checkExpr sigBody inner
+        else inferExprAt sp inner
+  (annotatedInner, residualCts) <-
+    finishHigherRankArgument sp boundary sigTy skolemized inner' innerTy innerCts
+  (instantiatedTy, typeArgs, predicates) <- instantiateSigmaType sigTy
+  instantiationCts <- mapM (predToCt sp "<expression>") predicates
+  let pending = pendingAnnotation instantiatedTy typeArgs (map ctEvVar instantiationCts) []
+  pure
+    ( annotatePendingExprAt sp pending (ETypeSig annotatedInner tyAnn),
+      instantiatedTy,
+      residualCts <> instantiationCts
+    )
+
+inferMonoTypeSig :: SourceSpan -> Expr -> Type -> TcType -> TcM (Expr, TcType, [Ct])
+inferMonoTypeSig sp inner tyAnn sigTy = do
+  (inner', innerTy, cts) <- inferExprAt sp inner
   ev <- freshEvVar
   let sigCt =
         mkWantedEqCt
