@@ -162,6 +162,8 @@ Each keeps the output of one compiler phase beside the object of the module it b
 `apple-arm64` and `linux-amd64` have no such source, because their backends write the object themselves.
 `--keep-native` keeps the Lir text there, which is the same file `--keep-lir` keeps.
 
+A `--lto` build compiles the merged program rather than the modules, so `--keep-grin`, `--keep-lir` and `--keep-native` keep the output of that program under `lto/program`, and `--keep-core` keeps the merged System FC there as well as the System FC of each module.
+
 `aihc build` keeps the output of the modules of the executable alone.
 Its installed packages are built the way `aihc install` builds them, so a dependency already in the store is never rejected for lacking those outputs.
 Use `aihc install --keep-core` on the package itself to keep the output of a library.
@@ -221,6 +223,7 @@ A type keeps its header where a type the program keeps mentions it, because the 
 A type family keeps every equation of the family, because an equation is found by the head of its left side and never by name.
 The program is pruned again after it is inlined, so that a constructor whose last use inlining removed emits no info table.
 It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
+`--keep-core` writes the merged program, as it stands after inlining and the second prune, to `lto/program/core`, beside the `core` file of each module it was merged from.
 The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
 A `--no-link` bundle carries the program object in place of the module objects.
 A package build gives each of its executables a program object of its own, under `exe/<name>/lto`.
