@@ -332,12 +332,17 @@ derivingStrategyTypes :: Maybe DerivingStrategy -> [Type]
 derivingStrategyTypes (Just (DerivingVia viaType)) = [viaType]
 derivingStrategyTypes _ = []
 
+-- | The flavor of the type that a standalone deriving declaration targets.
+-- The lookup goes by the identity of the checked type constructor, not by
+-- its name: a name lookup finds whichever type of that name the environment
+-- holds first, and a newtype such as @Lit@ then loses its flavor to an
+-- unrelated @Lit@ from another package.
 standaloneTargetFlavor :: [TcType] -> TcM TyConFlavor
 standaloneTargetFlavor headTypes =
   case reverse headTypes of
     targetType : _
-      | Just targetName <- tcTypeConstructorName targetType -> do
-          maybeInfo <- lookupTyCon targetName
+      | Just targetTyCon <- tcTypeConstructor targetType -> do
+          maybeInfo <- lookupTyConByIdentity targetTyCon
           pure (maybe DataTyCon tciFlavor maybeInfo)
     _ -> pure DataTyCon
 
@@ -353,9 +358,6 @@ tcTypeConstructor ty =
     TcTyCon tyCon _ -> Just tyCon
     TcAppTy function _ -> tcTypeConstructor function
     _ -> Nothing
-
-tcTypeConstructorName :: TcType -> Maybe Text
-tcTypeConstructorName = fmap tyConName . tcTypeConstructor
 
 defaultDerivingStrategyKinds :: TcDerivingStrategy -> TcM TcDerivingStrategy
 defaultDerivingStrategyKinds strategy =

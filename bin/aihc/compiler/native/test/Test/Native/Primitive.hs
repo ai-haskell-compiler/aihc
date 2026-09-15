@@ -219,7 +219,7 @@ runtimePrimitiveNames =
 
 controlPrimitiveNames :: [Text]
 controlPrimitiveNames =
-  ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#", "keepAlive#", "seq#"]
+  ["aihcExit#", "unsafeCoerce#", "raise#", "raiseIO#", "catch#", "runRW#", "keepAlive#", "seq#"]
 
 runtimeCallSymbol :: NativeRuntimeCall -> Text
 runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
