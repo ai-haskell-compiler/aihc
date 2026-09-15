@@ -1,0 +1,61 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data N = N
+  data Ref s = Ref
+  data M s a = M
+  class Mon m where
+    type St m
+    pureM :: a -> m a
+  instance Mon (M s) where
+    type St (M s) = s
+    pureM _ = M
+  writeRef :: Mon m => Ref (St m) -> m N
+  writeRef _ = pureM N
+  test :: Ref s -> M s N
+  test r = go N
+    where
+      go n = writeRef r
+status: pass
+reason: A where binding does not generalize the type variable of a retained equality.
+annotated:
+- |
+  module Test where
+  data N = N
+       │   └─ type: N
+       └─ type: Type
+  data Ref s = Ref
+       │       └─ type: ∀ s. Ref s
+       └─ type: Type → Type
+  data M s a = M
+       │       └─ type: ∀ s a. M s a
+       └─ type: Type → Type → Type
+  class Mon m where
+  └─ class methods: pureM ∷ ∀ m a. (Mon m) ⇒ a → m a
+    type St m
+         └─ type: (Type → Type) → Type
+    pureM :: a -> m a
+  instance Mon (M s) where
+  └─ $fMonMs ∷ ∀ s. () ⇒ Mon (M s) [associated types: St (M s) = s]
+    type St (M s) = s
+    pureM _ = M
+    │     │   └─ type: M s a; type-args: s, a
+    │     └─ type: a
+    └─ pureM ∷ ∀ a. a → M s a
+  writeRef :: Mon m => Ref (St m) -> m N
+  writeRef _ = pureM N
+  │        │   └─ type: N → m N; type-args: m, N; evidence: given Mon m
+  │        └─ type: Ref (St m)
+  └─ type: ∀ m. (Mon m) ⇒ Ref (St m) → m N
+  test :: Ref s -> M s N
+  test r = go N
+  │    │   └─ type: N → M s N; type-args: N
+  │    └─ type: Ref s
+  └─ type: ∀ s. Ref s → M s N
+    where
+      go n = writeRef r
+      │  │   └─ type: Ref (St (M s)) → M s N; type-args: M s; evidence: $fMonMs @s
+      │  └─ type: a
+      └─ type: ∀ a. a → M s N
