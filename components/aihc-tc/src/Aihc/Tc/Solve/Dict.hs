@@ -27,7 +27,7 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, isTypeFamilyTyCon, matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
@@ -63,7 +63,21 @@ solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
 solveDictWithGivens = solveDictWithGivensVisited []
 
 solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
-solveDictWithGivensVisited visited givens ct
+solveDictWithGivensVisited visited givens ct0 = do
+  -- A constraint headed by a type family reaches the solver in two shapes: as
+  -- an 'IrredPred' when the source wrote it, and as a 'ClassPred' whose head
+  -- happens to be a family when it came from a stored superclass type, which
+  -- is built without access to the flavour of the head. Both are normalized
+  -- here so that a wanted and a given of the same constraint compare equal.
+  family <- isTypeFamilyTyCon
+  let normalize predicate =
+        case predicate of
+          ClassPred tyCon arguments | family tyCon -> IrredPred (TcTyCon tyCon arguments)
+          _ -> predicate
+  solveNormalizedDict visited (map normalize givens) ct0 {ctPred = normalize (ctPred ct0)}
+
+solveNormalizedDict :: [Pred] -> [Pred] -> Ct -> TcM DictResult
+solveNormalizedDict visited givens ct
   | ctPred ct `elem` visited = pure (DictStuck ct)
   | otherwise =
       case ctPred ct of
@@ -99,6 +113,24 @@ solveDictWithGivensVisited visited givens ct
                 _ -> do
                   instances <- getClassInstances className
                   tryInstances (ctPred ct : visited) className args' instances
+        IrredPred constraint -> do
+          -- A stuck constraint says nothing until its families reduce. Once
+          -- they do it is an ordinary constraint -- a class, an equality, or
+          -- the empty constraint tuple -- and the ordinary machinery solves
+          -- it and builds its dictionary.
+          reduced <- reduceTypeFamilies =<< zonkType constraint
+          kinds <- getKinds
+          reclassified <- irreduciblePred kinds reduced
+          case reclassified of
+            Just solvable ->
+              solveDictWithGivensVisited (ctPred ct : visited) givens ct {ctPred = solvable}
+            Nothing -> do
+              givens' <- mapM zonkPred givens
+              if IrredPred reduced `elem` givens'
+                then do
+                  bindEvidence (ctEvVar ct) (EvGiven (IrredPred reduced))
+                  pure DictSolved
+                else pure (DictStuck ct {ctPred = IrredPred reduced})
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -331,6 +363,7 @@ solveDictWithGivensVisited visited givens ct
           equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (constraintKind kinds)))
           pure (TcTyCon equalityTyCon [left, right])
         IParamPred name payload -> implicitParamType name payload
+        IrredPred constraint -> pure constraint
         QuantifiedPred variables antecedents consequent -> do
           consequentType <- predicateType consequent
           let qualified = if null antecedents then consequentType else TcQualTy antecedents consequentType
@@ -370,6 +403,7 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
         EqPred {} -> False
         QuantifiedPred {} -> False
         IParamPred {} -> False
+        IrredPred {} -> False
 
 -- | The evidence for a wanted implicit parameter from the evidence of its binding.
 --
@@ -558,3 +592,12 @@ matchKinds = go (Map.empty, [])
         _
           | patternKind == targetKind -> Just (substitution, metas)
           | otherwise -> Nothing
+
+-- | The predicate a reduced constraint denotes, when it is no longer headed
+-- by a type family. 'Nothing' keeps it irreducible.
+irreduciblePred :: TcKinds -> TcType -> TcM (Maybe Pred)
+irreduciblePred kinds ty = do
+  stillStuck <- isTypeFamilyApplication ty
+  if stillStuck
+    then pure Nothing
+    else pure (constraintTypeToPred kinds ty)

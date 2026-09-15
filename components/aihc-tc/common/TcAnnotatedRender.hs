@@ -302,6 +302,7 @@ renderPred pred' =
     ClassPred cls args -> T.unpack (tyConName cls) <> concatMap ((" " <>) . renderTcType) args
     EqPred left right -> renderTcType left <> " ~ " <> renderTcType right
     IParamPred name payload -> T.unpack name <> " ∷ " <> renderTcType payload
+    IrredPred constraint -> renderTcType constraint
     QuantifiedPred variables antecedents consequent ->
       "forall "
         <> unwords (map (T.unpack . tvName) variables)

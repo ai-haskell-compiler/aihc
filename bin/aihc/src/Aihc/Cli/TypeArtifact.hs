@@ -507,6 +507,7 @@ putPart index part = case part of
     QuantifiedPred variables antecedents consequent ->
       cborArray 4 <> cborWord 11 <> encodeList (putTyVar index) variables <> encodeList (putPred index) antecedents <> putPred index consequent
     IParamPred name payload -> sum2 12 (cborText name) (putType index payload)
+    IrredPred constraint -> sum1 14 (putType index constraint)
   PartScheme (ForAll variables predicates body) ->
     cborArray 4 <> cborWord 13 <> encodeList (putTyVar index) variables <> encodeList (putPred index) predicates <> putType index body
 
@@ -543,6 +544,7 @@ getPart tyCons parts = do
     (3, 10) -> predPart (EqPred <$!> refType <*!> refType)
     (4, 11) -> predPart (QuantifiedPred <$!> getList refTyVar <*!> getList refPred <*!> refPred)
     (3, 12) -> predPart (IParamPred <$!> getText <*!> refType)
+    (2, 14) -> predPart (IrredPred <$!> refType)
     (4, 13) -> PartScheme <$!> (ForAll <$!> getList refTyVar <*!> getList refPred <*!> refType)
     _ -> fail "unsupported interface part"
   where

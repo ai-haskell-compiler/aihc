@@ -420,6 +420,8 @@ firstMetaPred pred' =
       firstMetaType left <|> firstMetaType right
     IParamPred _ payload ->
       firstMetaType payload
+    IrredPred constraint ->
+      firstMetaType constraint
     QuantifiedPred variables antecedents consequent ->
       firstJusts (map (firstMetaType . tvKind) variables)
         <|> firstJusts (map firstMetaPred antecedents)

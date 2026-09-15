@@ -173,6 +173,7 @@ predMetaVars :: Pred -> [Unique]
 predMetaVars (ClassPred _ args) = concatMap collectMetaVars args
 predMetaVars (EqPred a b) = collectMetaVars a ++ collectMetaVars b
 predMetaVars (IParamPred _ payload) = collectMetaVars payload
+predMetaVars (IrredPred constraint) = collectMetaVars constraint
 predMetaVars (QuantifiedPred variables antecedents consequent) =
   concatMap (collectMetaVars . tvKind) variables
     ++ concatMap predMetaVars antecedents
@@ -246,6 +247,7 @@ zonkPred :: Pred -> TcM Pred
 zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
 zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
 zonkPred (IParamPred name payload) = IParamPred name <$> zonkType payload
+zonkPred (IrredPred constraint) = IrredPred <$> zonkType constraint
 zonkPred (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred
     <$> mapM zonkVariable variables
