@@ -35,7 +35,7 @@ module Aihc.Tc.Deriving.StockClass
 where
 
 import Aihc.Parser.Syntax (Extension (..))
-import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..))
+import Aihc.Tc.Deriving.References (DerivingReference, DerivingReferences (..), genericTermReferences)
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -74,6 +74,7 @@ data StockMethods
   | StockFunctorMethods
   | StockFoldableMethods
   | StockTraversableMethods
+  | StockGenericMethods
   deriving (Eq, Show)
 
 -- | The shape of the context a derived instance needs.
@@ -86,6 +87,9 @@ data StockObligations
     -- positions to another instance needs. The instance head drops the
     -- parameter, so the fields are read against the remaining ones.
     FunctorialObligations
+  | -- | Nothing. A derived @Generic@ instance stands on its own: its
+    -- representation names the field types but asks nothing of them.
+    NoObligations
   deriving (Eq, Show)
 
 -- | What a @deriving@ clause without a strategy selects at a newtype.
@@ -153,7 +157,11 @@ stockClasses =
       },
     extension "Data" DeriveDataTypeable NewtypeNever,
     extension "Typeable" DeriveDataTypeable NewtypeNever,
-    extension "Generic" DeriveGeneric NewtypeNever,
+    (extension "Generic" DeriveGeneric NewtypeNever)
+      { stockClassObligations = NoObligations,
+        stockClassMethods = Just StockGenericMethods,
+        stockClassReferences = [select . derivingGeneric | select <- genericTermReferences]
+      },
     extension "Generic1" DeriveGeneric NewtypeNever,
     (extension "Lift" DeriveLift NewtypeNever)
       { stockClassMethods = Just StockLiftMethods,

@@ -2,10 +2,10 @@
 
 ## Summary
 
-- Total Extensions: 59
-- Supported: 42
+- Total Extensions: 60
+- Supported: 43
 - In Progress: 17
-- Fixtures (eval): 541
+- Fixtures (eval): 542
 - Fixtures (fc): 201
 
 ## Extension Status
@@ -23,8 +23,9 @@
 | DeriveDataTypeable         |   🟢    | 1/1           |
 | DeriveFoldable             |   🟢    | 2/2           |
 | DeriveFunctor              |   🟢    | 2/2           |
+| DeriveGeneric              |   🟢    | 1/1           |
 | DeriveTraversable          |   🟢    | 1/1           |
-| DerivingStrategies         |   🟡    | 39/42         |
+| DerivingStrategies         |   🟡    | 40/43         |
 | DerivingVia                |   🔴    | 21/24         |
 | EmptyCase                  |   🟢    | 1/1           |
 | EmptyDataDecls             |   🟢    | 2/2           |

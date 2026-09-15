@@ -589,6 +589,14 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
   derivingInferred <- inferDerivingContexts derivingAnnotated
   derivingFinalized <- mapM registerDerivedInstances derivingInferred
+  -- A derived instance registers type constructors and associated type
+  -- equations of its own, after the structural pass settled the kinds of
+  -- the ones the source declared. Settle theirs too before the bodies are
+  -- checked: an instance annotation copies the equations of its associated
+  -- types as they stand when the body pass reads them, and a kind
+  -- meta-variable left open there reaches System FC.
+  defaultGlobalKindMetas structuralKeys
+  derivedKeys <- globalStateKeys <$> lift get
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
@@ -597,7 +605,7 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
-  defaultGlobalKindMetas structuralKeys
+  defaultGlobalKindMetas derivedKeys
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
   where
