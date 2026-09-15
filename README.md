@@ -17,7 +17,7 @@ Find more information here:
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `645/5013` (`12.87%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `1778/10059` (`17.68%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `1786/10059` (`17.76%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `538/539` (`99.81%`) ●●●●○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `108/108` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END resolve-progress -->                      |
