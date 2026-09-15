@@ -1,0 +1,19 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import qualified Data.List as List
+
+    results :: (Bool, Bool, Bool, Bool)
+    results =
+      ( List.permutations "abc" == ["abc", "bac", "cba", "bca", "cab", "acb"],
+        List.permutations ([] :: [Int]) == [[]],
+        length (List.permutations [1, 2, 3, 4 :: Int]) == 24,
+        map (take 2) (take 3 (List.permutations [1 ..])) == [[1, 2], [2, 1], [3, 2 :: Int]]
+      )
+output: |
+  (True,True,True,True)
+expression: results
+status: pass
+reason: Data.List exports permutations, lazily enough to work on an infinite list
