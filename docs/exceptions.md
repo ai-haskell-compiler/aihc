@@ -57,6 +57,7 @@ catch           [parent, handler]
 update          [parent, blackhole]
 restore-mask    [parent, previous-mask-state]
 stop            [no parent]
+prompt          [parent, tag]
 ```
 
 Only functions identified by `CpsGrinProgram` as continuations receive this
@@ -280,6 +281,61 @@ If a thread is blocked in the IO manager, a signal wakes the poll loop, removes
 or cancels its request, and enqueues a raise resume. Request ownership and
 buffer lifetime must still reach a terminal state; abandoning a continuation
 must not leak a submitted request indefinitely.
+
+## Delimited continuations
+
+GHC's `newPromptTag#`, `prompt#`, and `control0#` reuse the same chain. Their
+semantics are GHC's: `control0# tag f` captures the frames between the call
+and the nearest prompt frame carrying `tag`, pops them together with the
+prompt frame, and runs `f` with the captured part under the prompt's parent.
+The captured part excludes the prompt, applying it installs none, and it may
+be applied any number of times:
+
+```text
+E1[prompt# tag E2[control0# tag f]]  -->  E1[f (\m -> E2[m])]
+```
+
+`prompt#` is lowered by the CPS pass exactly like `catch#`: a prompt frame of
+kind `prompt` holds the parent and the tag, and its normal application
+forwards the action's result. Exception unwinding passes through a prompt
+frame the way it passes through a normal frame. A prompt tag is a heap node
+without fields, compared by address.
+
+`control0#` is a runtime call. `GHC.Prim` defines it on top of two private
+primitives so that the runtime never has to evaluate or apply a function in
+more than one stage:
+
+- `aihcControl0# tag g` walks the chain from the current continuation to the
+  prompt frame, records the top frame and the prompt frame in a heap node,
+  and applies `g` to that node with the prompt's parent as continuation. `g`
+  closes over the state token, so it has one application stage. The walk
+  fails at an update frame, because the thunk it belongs to is not reentrant
+  and marks the start of another state thread, and at a stop frame, because
+  no prompt with the tag exists. GHC raises an exception in both cases; AIHC
+  stops the program, since GHC documents that no program may rely on catching
+  that exception.
+- `aihcResume# captured m` copies the recorded frames, top down, onto the
+  current continuation: each copy keeps its info table and captures, its
+  parent link is rewritten to the copy below it, and the lowest copy is
+  linked where the prompt frame used to be. It then applies `m`, which the
+  wrapper has already evaluated, under the copied top. The original frames
+  are never written, which is what makes the capture multi-shot. Capture is
+  therefore constant time and every resume costs the length of the segment;
+  GHC copies at both ends.
+
+Masking state is not tracked yet, so nothing corresponds to GHC's handling of
+mask frames inside a captured continuation. When restore-mask frames land,
+capture must restore the prompt's mask state and a resume must install the
+resumer's state at the bottom of the copied segment, as GHC does.
+
+The GRIN interpreter keeps its continuations as host closures, so a catch
+handler or a prompt held on the host stack would be lost when a capture
+unwound past it. It therefore keeps an explicit control stack per thread,
+whose entries mirror the native frame kinds: catch, prompt, update, and the
+resume entry a re-pushed capture returns through. Returns pop, raises pop to
+the nearest catch, and a capture pops to the prompt and keeps the entries
+above it with the captured host continuation. See `ControlEntry` in
+`Aihc.Grin.Interpret`.
 
 ## Uncaught exceptions
 

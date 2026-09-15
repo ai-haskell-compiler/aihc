@@ -1,0 +1,35 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (State#, RealWorld, control0#, newPromptTag#, prompt#, realWorld#)
+
+    -- A continuation may be applied any number of times: each application
+    -- runs the addition again on a fresh copy of the captured frames.
+    run :: State# RealWorld -> (# State# RealWorld, Int #)
+    run s0 =
+      case newPromptTag# s0 of
+        (# s1, tag #) ->
+          prompt# tag
+            (\s2 -> case control0# tag twice s2 of
+                      (# s5, x #) -> (# s5, x + 1 #))
+            s1
+
+    twice ::
+      ((State# RealWorld -> (# State# RealWorld, Int #)) -> State# RealWorld -> (# State# RealWorld, Int #)) ->
+      State# RealWorld ->
+      (# State# RealWorld, Int #)
+    twice k s0 =
+      case k (\s -> (# s, 10 #)) s0 of
+        (# s1, a #) ->
+          case k (\s -> (# s, 20 #)) s1 of
+            (# s2, b #) -> (# s2, a * 100 + b #)
+output: |
+  I# 1121
+expression: |
+  case run realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: a captured continuation is multi-shot
