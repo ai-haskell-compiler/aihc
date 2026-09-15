@@ -1,9 +1,9 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Box [IntRep]
+  pub constructor 1.Box [IntRep]
 
-  global 1.value = (C1.Box (42 :: IntRep))
+  pub global 1.value = (C1.Box (42 :: IntRep))
 extensions:
 - MagicHash
 reason: stores a saturated constructor directly and preserves its IntRep field representation

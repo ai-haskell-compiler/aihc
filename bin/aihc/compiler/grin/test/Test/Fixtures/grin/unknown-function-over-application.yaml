@@ -5,7 +5,7 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  global 1.apply2 = (P$apply2/3)
+  pub global 1.apply2 = (P$apply2/3)
 
   $apply2 (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) (z :: BoxedRep Lifted) -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-

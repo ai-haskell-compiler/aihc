@@ -383,7 +383,10 @@ lowerEnvironment options gcProgram =
         [ (name, Symbol ("aihc_lir_srt_" <> T.pack (show index)))
         | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
         ]
-    constructorLayouts = grinConstructors program
+    constructorLayouts =
+      [ (grinConstructorName constructor, grinConstructorLayouts constructor)
+      | constructor <- grinConstructors program
+      ]
     -- The program that declares a constructor defines its info tables even
     -- when it builds no node of its own: another module that builds one has
     -- only this program to link its node against.
@@ -392,6 +395,10 @@ lowerEnvironment options gcProgram =
         ( concatMap declaredConstructorInfos constructorLayouts
             <> concatMap requiredNodeConstructorInfos (programNodes program)
         )
+    -- Every declared constructor keeps its tables, whatever its visibility:
+    -- a case alternative names one to compare a tag against without
+    -- building a node, and 'requiredNodeConstructorInfos' only reads the
+    -- nodes. Narrowing this to what the unit names is a separate change.
     declaredConstructorInfos (name, layouts)
       | null layouts = [ConstructorRuntimeInfo name SaturatedConstructor]
       | otherwise = [ConstructorRuntimeInfo name SaturatedConstructor, ConstructorRuntimeInfo name PartialConstructor]
@@ -938,9 +945,14 @@ lowerStaticObject env object = do
   fields <- concat <$> mapM (staticField target) (grinNodeFields node)
   let applied = [DataInt I64 (toInteger (length (grinNodeFields node))) | isPartialConstructorNode node]
       payload = if null fields && isThunk then [DataZero 8] else fields
-  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) Export True 8 (header <> applied <> payload)))
+  emitItem (ItemData (DataItem (globalSymbol (staticObjectName object)) linkage True 8 (header <> applied <> payload)))
   where
     node = staticObjectNode object
+    -- A private object is named only from inside this object file, so give
+    -- it internal linkage and let the assembler and the linker see that.
+    linkage = case staticObjectVis object of
+      GrinPub -> Export
+      GrinPrivate -> Internal
     isThunk = case grinNodeTag node of
       GrinThunk {} -> True
       _ -> False
@@ -2598,7 +2610,7 @@ runtimeObjectIndirection = 4
 -- Program queries
 
 programNodes :: GrinProgram -> [GrinNode]
-programNodes program = map snd (grinGlobals program) <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
+programNodes program = map grinGlobalNode (grinGlobals program) <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
 
 exprNodes :: GrinExpr -> [GrinNode]
 exprNodes expression =
@@ -2613,7 +2625,7 @@ exprNodes expression =
 
 programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =
-  concatMap (concat . snd) (grinConstructors program)
+  concatMap (concat . grinConstructorLayouts) (grinConstructors program)
     <> concatMap (map grinValueRuntimeRep . grinNodeFields) (programNodes program)
     <> concatMap functionReps (grinFunctions program)
   where

@@ -56,9 +56,13 @@ compileLtoProgram config buildRoot corePaths = do
     then verbose ("Reuse program object: " <> object)
     else do
       programs <- forConcurrently corePaths readProgram
-      -- The whole program is known here, so a value that the entry does
-      -- not reach is dropped before it is lowered.
-      let merged = Fc.pruneProgram [entryName] (Fc.mergePrograms programs)
+      -- Nothing outside a whole program can name anything in it but the
+      -- entry, so every other declaration is demoted before it is pruned.
+      -- Visibility is what the passes downstream read as the roots of
+      -- reachability, here and in GRIN alike, so stating it once here is
+      -- what makes them sweep a whole program to the entry without a flag
+      -- that says a whole program is what they are looking at.
+      let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
       verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
       -- The whole program is known here, so the inliner keeps only the
       -- entry and what it reaches.
@@ -80,6 +84,28 @@ compileLtoProgram config buildRoot corePaths = do
       _ <- compileFcModules config verbose (const paths) [FcModule "program" pruned]
       writeFile stampPath current
   pure object
+
+-- | Make the entry the one declaration another unit can name.
+--
+-- A constructor and a type go private with the rest: an info table and a
+-- layout of a whole program are named from inside it only.
+demoteToEntry :: Fc.Name -> Fc.Program -> Fc.Program
+demoteToEntry root program =
+  program {Fc.programDecls = map demote (Fc.programDecls program)}
+  where
+    demote decl =
+      case decl of
+        Fc.DeclType declaration ->
+          Fc.DeclType
+            declaration
+              { Fc.typeVis = Fc.Private,
+                Fc.typeCons = [constructor {Fc.conVis = Fc.Private} | constructor <- Fc.typeCons declaration]
+              }
+        Fc.DeclSynonym declaration -> Fc.DeclSynonym declaration {Fc.synVis = Fc.Private}
+        Fc.DeclAxiom declaration -> Fc.DeclAxiom declaration {Fc.axiomVis = Fc.Private}
+        Fc.DeclVal declaration
+          | Fc.valName declaration == root -> decl
+          | otherwise -> Fc.DeclVal declaration {Fc.valVis = Fc.Private}
 
 -- | The global that the entry archive calls: the root of the program.
 entryName :: Fc.Name

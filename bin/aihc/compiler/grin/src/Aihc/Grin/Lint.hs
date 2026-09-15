@@ -83,7 +83,7 @@ lintProgramWith continuations program =
     functions = grinFunctions program
     globals = grinGlobals program
     functionNames = map grinFunctionName functions
-    globalNames = map fst globals
+    globalNames = map grinGlobalName globals
     duplicateFunctionErrors = map GrinLintDuplicateFunction (duplicates functionNames)
     duplicateGlobalErrors = map GrinLintDuplicateGlobal (duplicates globalNames)
     env =
@@ -102,7 +102,7 @@ lintProgramWith continuations program =
               | function <- functions
               ],
           lintPrimitiveArities = Map.fromList [(grinVarName var, arity) | (var, arity) <- grinPrimitives program],
-          lintConstructorLayouts = Map.fromList (grinConstructors program),
+          lintConstructorLayouts = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program],
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
     -- The number of values that a thunk or closure node must supply.
@@ -124,8 +124,8 @@ lintProgramWith continuations program =
         parameter : _ -> Just parameter
         [] -> Nothing
 
-lintGlobal :: LintEnv -> (Text, GrinNode) -> [GrinLintError]
-lintGlobal env (_, node) = lintNode env Set.empty node
+lintGlobal :: LintEnv -> GrinGlobal -> [GrinLintError]
+lintGlobal env global = lintNode env Set.empty (grinGlobalNode global)
 
 lintFunction :: LintEnv -> GrinFunction -> [GrinLintError]
 lintFunction env function =

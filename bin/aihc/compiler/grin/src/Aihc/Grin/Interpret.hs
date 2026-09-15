@@ -350,11 +350,12 @@ initialMachine streams program allocations =
     globalNodes = Map.toAscList globalNodeMap
     globalNodeMap =
       Map.unions
-        [ Map.fromList (grinGlobals program),
+        [ Map.fromList [(grinGlobalName global, grinGlobalNode global) | global <- grinGlobals program],
           Map.fromList
             [ (constructor, GrinNode (GrinConstructor constructor 0) [])
-            | (constructor, layouts) <- grinConstructors program,
-              null layouts
+            | declaration <- grinConstructors program,
+              let constructor = grinConstructorName declaration,
+              null (grinConstructorLayouts declaration)
             ]
         ]
     globals =

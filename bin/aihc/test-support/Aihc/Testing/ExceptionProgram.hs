@@ -13,16 +13,16 @@ import Aihc.Grin.Syntax
 synchronousExceptionProgram :: GrinProgram
 synchronousExceptionProgram =
   GrinProgram
-    { grinConstructors = [("Exception", [])],
+    { grinConstructors = [pubConstructor "Exception" []],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
       grinGlobals =
-        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
-          (grinVarName outerActionClosure, GrinNode (GrinClosure outerActionFunction [[]]) []),
-          (grinVarName failingActionClosure, GrinNode (GrinClosure failingActionFunction [[]]) []),
-          (grinVarName rethrowHandlerClosure, GrinNode (GrinClosure rethrowHandlerFunction [[lifted]]) []),
-          (grinVarName outerHandlerClosure, GrinNode (GrinClosure outerHandlerFunction [[lifted]]) []),
-          (grinVarName failingThunk, GrinNode (GrinThunk failingThunkFunction) [])
+        [ pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) []),
+          pubGlobal (grinVarName outerActionClosure) (GrinNode (GrinClosure outerActionFunction [[]]) []),
+          pubGlobal (grinVarName failingActionClosure) (GrinNode (GrinClosure failingActionFunction [[]]) []),
+          pubGlobal (grinVarName rethrowHandlerClosure) (GrinNode (GrinClosure rethrowHandlerFunction [[lifted]]) []),
+          pubGlobal (grinVarName outerHandlerClosure) (GrinNode (GrinClosure outerHandlerFunction [[lifted]]) []),
+          pubGlobal (grinVarName failingThunk) (GrinNode (GrinThunk failingThunkFunction) [])
         ],
       grinFunctions =
         [ GrinFunction

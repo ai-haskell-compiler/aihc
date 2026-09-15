@@ -1,9 +1,9 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Narrow [Int8Rep, Word16Rep]
+  pub constructor 1.Narrow [Int8Rep, Word16Rep]
 
-  global 1.value = (C1.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
+  pub global 1.value = (C1.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
 extensions:
 - MagicHash
 - ExtendedLiterals

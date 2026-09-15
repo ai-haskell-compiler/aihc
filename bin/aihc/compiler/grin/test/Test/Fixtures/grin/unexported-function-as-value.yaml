@@ -3,7 +3,7 @@ expected: |-
 
   primitive +# :: IntRep/2
 
-  global 1.visible = (P$visible/[[IntRep]])
+  pub global 1.visible = (P$visible/[[IntRep]])
 
   global 1.helper = (P$helper/[[IntRep]])
 

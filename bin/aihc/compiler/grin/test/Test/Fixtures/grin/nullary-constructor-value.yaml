@@ -14,15 +14,15 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.False []
+  pub constructor 1.False []
 
-  constructor 1.True []
+  pub constructor 1.True []
 
-  constructor 1.Box [BoxedRep Lifted]
+  pub constructor 1.Box [BoxedRep Lifted]
 
-  global 1.not = (P$not/1)
+  pub global 1.not = (P$not/1)
 
-  global 1.box = (P$box/1)
+  pub global 1.box = (P$box/1)
 
   $not (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-

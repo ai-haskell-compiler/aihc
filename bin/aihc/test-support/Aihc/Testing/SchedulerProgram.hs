@@ -12,15 +12,15 @@ import Aihc.Grin.Syntax
 schedulerProgram :: GrinProgram
 schedulerProgram =
   GrinProgram
-    { grinConstructors = [("()", [])],
+    { grinConstructors = [pubConstructor "()" []],
       grinPrimitives =
         [ (GrinVar "fork#" 1 lifted, 2),
           (GrinVar "yield#" 2 lifted, 1)
         ],
       grinForeignCalls = [putcharCall],
       grinGlobals =
-        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
-          (grinVarName childClosure, GrinNode (GrinClosure childFunction [[]]) [])
+        [ pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) []),
+          pubGlobal (grinVarName childClosure) (GrinNode (GrinClosure childFunction [[]]) [])
         ],
       grinFunctions =
         [ GrinFunction
@@ -68,14 +68,14 @@ schedulerProgram =
 stdioSchedulerProgram :: GrinProgram
 stdioSchedulerProgram =
   GrinProgram
-    { grinConstructors = [("()", [])],
+    { grinConstructors = [pubConstructor "()" []],
       grinPrimitives =
         [ (GrinVar "awaitIO#" 30 lifted, 2),
           (GrinVar "newPinnedByteArray#" 31 (BoxedRep Unlifted), 2),
           (GrinVar "mutableByteArrayContents#" 32 AddrRep, 1)
         ],
       grinForeignCalls = [stdinCall, stdoutCall, submitReadCall, submitWriteCall, takeResultCall],
-      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinGlobals = [pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
@@ -147,9 +147,9 @@ blackholeSchedulerProgram :: GrinProgram
 blackholeSchedulerProgram =
   schedulerProgram
     { grinGlobals =
-        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
-          (grinVarName childClosure, GrinNode (GrinClosure childFunction [[]]) []),
-          (grinVarName sharedThunk, GrinNode (GrinThunk sharedFunction) [])
+        [ pubGlobal (grinVarName mainClosure) (GrinNode (GrinClosure mainFunction [[]]) []),
+          pubGlobal (grinVarName childClosure) (GrinNode (GrinClosure childFunction [[]]) []),
+          pubGlobal (grinVarName sharedThunk) (GrinNode (GrinThunk sharedFunction) [])
         ],
       grinFunctions =
         [ GrinFunction

@@ -1,19 +1,19 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Z []
+  pub constructor 1.Z []
 
-  constructor 1.S [BoxedRep Lifted]
+  pub constructor 1.S [BoxedRep Lifted]
 
-  constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
+  pub constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
 
-  constructor 1.$Dict$Arrow [BoxedRep Lifted]
+  pub constructor 1.$Dict$Arrow [BoxedRep Lifted]
 
-  global 1.second = (P$second/1)
+  pub global 1.second = (P$second/1)
 
-  global 1."$fArrow(->)" = (C1.$Dict$Arrow global-ref 1."$fArrow(->)$csecond")
+  pub global 1."$fArrow(->)" = (C1.$Dict$Arrow global-ref 1."$fArrow(->)$csecond")
 
-  global 1.apply = (P$apply/1)
+  pub global 1.apply = (P$apply/1)
 
   global 1."$fArrow(->)$csecond" = (P"$$fArrow(->)$csecond"/2)
 

@@ -1,16 +1,16 @@
 expected: |-
   scope 1 = "" Family
 
-  constructor 1.Z []
+  pub constructor 1.Z []
 
-  constructor 1.S [BoxedRep Lifted]
+  pub constructor 1.S [BoxedRep Lifted]
 
-  constructor 1.Box [BoxedRep Lifted]
+  pub constructor 1.Box [BoxedRep Lifted]
   scope 1 = "" Family
 
   scope 2 = "" Test
 
-  global 2.unbox = (P$unbox/1)
+  pub global 2.unbox = (P$unbox/1)
 
   $unbox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-

@@ -114,15 +114,15 @@ tests =
 program :: GrinProgram
 program =
   GrinProgram
-    { grinConstructors = [("Unit", []), ("Box", [[liftedGrinRep]]), ("Counter", [[IntRep]])],
+    { grinConstructors = [pubConstructor "Unit" [], pubConstructor "Box" [[liftedGrinRep]], pubConstructor "Counter" [[IntRep]]],
       grinPrimitives = [],
       grinForeignCalls = [],
       grinGlobals =
-        [ ("box", GrinNode (GrinConstructor "Box" 0) [GrinGlobalValue "caf"]),
-          ("caf", GrinNode (GrinThunk (FunctionName "cafEntry")) []),
-          ("closure", GrinNode (GrinClosure (FunctionName "usesCaf") [[]]) []),
-          ("nil", GrinNode (GrinConstructor "Unit" 0) []),
-          ("unboxed", GrinNode (GrinConstructor "Counter" 0) [GrinLitValue (GrinLitInt IntRep 3)])
+        [ pubGlobal "box" (GrinNode (GrinConstructor "Box" 0) [GrinGlobalValue "caf"]),
+          pubGlobal "caf" (GrinNode (GrinThunk (FunctionName "cafEntry")) []),
+          pubGlobal "closure" (GrinNode (GrinClosure (FunctionName "usesCaf") [[]]) []),
+          pubGlobal "nil" (GrinNode (GrinConstructor "Unit" 0) []),
+          pubGlobal "unboxed" (GrinNode (GrinConstructor "Counter" 0) [GrinLitValue (GrinLitInt IntRep 3)])
         ],
       grinFunctions =
         [ function "cafEntry" [] (GrinConstant [GrinGlobalValue "nil"]),

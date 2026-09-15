@@ -1,11 +1,11 @@
 expected: |-
   scope 1 = "" Dependency
 
-  constructor 1.Box [IntRep]
+  pub constructor 1.Box [IntRep]
 
-  global 1.identity = (P$identity/1)
+  pub global 1.identity = (P$identity/1)
 
-  global 1.caf = (C1.Box (7 :: IntRep))
+  pub global 1.caf = (C1.Box (7 :: IntRep))
 
   $identity (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
@@ -13,9 +13,9 @@ expected: |-
 
   scope 2 = "" Target
 
-  global 2.useFunction = (F$useFunction_thunk)
+  pub global 2.useFunction = (F$useFunction_thunk)
 
-  global 2.useCaf = (F$useCaf_thunk)
+  pub global 2.useCaf = (F$useCaf_thunk)
 
   $useFunction_thunk -> BoxedRep Lifted =
     function_whnf :: BoxedRep Lifted <-

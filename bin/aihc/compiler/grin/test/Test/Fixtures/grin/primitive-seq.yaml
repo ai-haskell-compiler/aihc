@@ -1,11 +1,11 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.First []
+  pub constructor 1.First []
 
-  constructor 1.Second []
+  pub constructor 1.Second []
 
-  global 1.value = (F$value_thunk)
+  pub global 1.value = (F$value_thunk)
 
   $value_closure (seq_first :: BoxedRep Lifted) (seq_second :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-

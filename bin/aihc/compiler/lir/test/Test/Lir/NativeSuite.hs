@@ -342,8 +342,8 @@ compileProgramUnits backend program = do
   let linkedProgram =
         program
           { grinGlobals =
-              [ (if name == "main" then executableEntryName else name, node)
-              | (name, node) <- grinGlobals program
+              [ global {grinGlobalName = if grinGlobalName global == "main" then executableEntryName else grinGlobalName global}
+              | global <- grinGlobals program
               ]
           }
   assertEqual "direct GRIN lint" [] (lintProgram linkedProgram)

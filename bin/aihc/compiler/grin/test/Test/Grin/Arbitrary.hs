@@ -34,11 +34,28 @@ prop_grinPrettyRoundTrip = property $ do
 genGrinProgram :: Gen GrinProgram
 genGrinProgram =
   GrinProgram
-    <$> smallList ((,) <$> genName <*> smallList (smallList genRuntimeRep))
+    <$> smallList genConstructorDecl
     <*> smallList ((,) <$> genVar <*> genInt)
     <*> smallList genForeignCall
-    <*> smallList ((,) <$> genName <*> genNode)
+    <*> smallList genGlobal
     <*> smallList genFunction
+
+genConstructorDecl :: Gen GrinConstructorDecl
+genConstructorDecl =
+  GrinConstructorDecl
+    <$> genName
+    <*> smallList (smallList genRuntimeRep)
+    <*> genVis
+
+genVis :: Gen GrinVis
+genVis = Gen.element [GrinPub, GrinPrivate]
+
+genGlobal :: Gen GrinGlobal
+genGlobal =
+  GrinGlobal
+    <$> genName
+    <*> genNode
+    <*> genVis
 
 genFunction :: Gen GrinFunction
 genFunction =

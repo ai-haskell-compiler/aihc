@@ -10,9 +10,9 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Box [BoxedRep Lifted]
+  pub constructor 1.Box [BoxedRep Lifted]
 
-  global 1.copyBox = (P$copyBox/1)
+  pub global 1.copyBox = (P$copyBox/1)
 
   $copyBox (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     case_value :: BoxedRep Lifted <-

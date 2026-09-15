@@ -11,17 +11,17 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.T []
+  pub constructor 1.T []
 
-  constructor 1.$Dict$Cls [BoxedRep Lifted, BoxedRep Lifted]
+  pub constructor 1.$Dict$Cls [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.one = (P$one/1)
+  pub global 1.one = (P$one/1)
 
-  global 1.two = (P$two/1)
+  pub global 1.two = (P$two/1)
 
-  global 1.$dmtwo = (P$$dmtwo/1)
+  pub global 1.$dmtwo = (P$$dmtwo/1)
 
-  global 1.$fClsT = (C1.$Dict$Cls global-ref 1.$fClsT$cone global-ref 1.$fClsT$ctwo)
+  pub global 1.$fClsT = (C1.$Dict$Cls global-ref 1.$fClsT$cone global-ref 1.$fClsT$ctwo)
 
   global 1.$fClsT$cone = (C1.T)
 

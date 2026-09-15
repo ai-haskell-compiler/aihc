@@ -72,7 +72,7 @@ maximumProgramVarUnique program =
           <> concatMap functionUniques (grinFunctions program)
     )
   where
-    staticUniques (_, node) = concatMap valueUnique (grinNodeFields node)
+    staticUniques global = concatMap valueUnique (grinNodeFields (grinGlobalNode global))
     functionUniques function = map grinVarUnique (grinFunctionParameters function) <> exprUniques (grinFunctionBody function)
     valueUnique value =
       case value of

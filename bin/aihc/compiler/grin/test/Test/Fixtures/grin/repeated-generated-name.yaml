@@ -7,9 +7,9 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Box [BoxedRep Lifted, BoxedRep Lifted]
+  pub constructor 1.Box [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.boxes = (F$boxes_thunk)
+  pub global 1.boxes = (F$boxes_thunk)
 
   $boxes_closure (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)

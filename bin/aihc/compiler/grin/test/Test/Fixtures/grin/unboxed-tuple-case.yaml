@@ -1,9 +1,9 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Box [IntRep]
+  pub constructor 1.Box [IntRep]
 
-  global 1.value = (F$value_thunk)
+  pub global 1.value = (F$value_thunk)
 
   $value_thunk -> BoxedRep Lifted =
     store (C1.Box (1 :: IntRep))
