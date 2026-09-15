@@ -24,6 +24,11 @@ LLVM IR), and `Aihc.Wasm.Lir` (WebAssembly assembly for WASI P3). The module
 `aihc prepare-runtime`, and `aihc build`. The sections "Lowering from
 GC-GRIN" and "Backends" describe them.
 
+`aihc build --keep-lir` writes the Lir of each module of the executable to
+`<Module>.o.lir` beside its object, whatever the target. On `apple-arm64`
+and `linux-amd64` that text is also what `--keep-native` keeps, because
+their backends write the object themselves and produce no other source.
+
 ## Design rules
 
 - Lir is a control-flow graph in static single assignment form.
