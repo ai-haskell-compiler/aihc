@@ -236,6 +236,7 @@ substMetasPred :: [(Unique, TcType)] -> Pred -> Pred
 substMetasPred subst (ClassPred cls args) = ClassPred cls (map (substMetas subst) args)
 substMetasPred subst (EqPred a b) = EqPred (substMetas subst a) (substMetas subst b)
 substMetasPred subst (IParamPred name payload) = IParamPred name (substMetas subst payload)
+substMetasPred subst (IrredPred constraint) = IrredPred (substMetas subst constraint)
 substMetasPred subst (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred
     (map (\variable -> setTyVarKind (substMetas subst (tvKind variable)) variable) variables)

@@ -922,6 +922,7 @@ predTyVars predicate =
     ClassPred _ arguments -> Set.unions (map typeTyVars arguments)
     EqPred left right -> typeTyVars left <> typeTyVars right
     IParamPred _ payload -> typeTyVars payload
+    IrredPred constraint -> typeTyVars constraint
     QuantifiedPred variables antecedents consequent ->
       foldr
         (Set.delete . tvUnique)

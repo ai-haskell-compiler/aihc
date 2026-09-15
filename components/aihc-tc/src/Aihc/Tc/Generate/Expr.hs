@@ -1075,6 +1075,7 @@ predicateMetaVariables predicate =
     ClassPred _ arguments -> concatMap typeMetaVariables arguments
     EqPred left right -> typeMetaVariables left <> typeMetaVariables right
     IParamPred _ payload -> typeMetaVariables payload
+    IrredPred constraint -> typeMetaVariables constraint
     QuantifiedPred variables antecedents consequent ->
       concatMap (typeMetaVariables . tvKind) variables
         <> concatMap predicateMetaVariables antecedents
