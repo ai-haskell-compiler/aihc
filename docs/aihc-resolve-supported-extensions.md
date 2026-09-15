@@ -27,7 +27,7 @@
 | PackageImports            |   🟢    | 2/2           |
 | PatternSynonyms           |   🟢    | 11/11         |
 | RebindableSyntax          |   🟢    | 2/2           |
-| RecordWildCards           |   🟢    | 4/4           |
+| RecordWildCards           |   🟢    | 5/5           |
 | RoleAnnotations           |   🟢    | 1/1           |
 | ScopedTypeVariables       |   🟢    | 2/2           |
 | StandaloneDeriving        |   🟢    | 1/1           |

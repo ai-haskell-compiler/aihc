@@ -140,6 +140,7 @@ controlPrimitives =
   [ "aihcExit#",
     "unsafeCoerce#",
     "raise#",
+    "raiseIO#",
     "catch#",
     "runRW#",
     "keepAlive#",

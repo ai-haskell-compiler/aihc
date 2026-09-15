@@ -1,0 +1,19 @@
+extensions:
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+- DerivingStrategies
+modules:
+- |
+  module Elsewhere where
+  data Lit = Elsewhere
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingStrategies #-}
+  module Test where
+  newtype Lit = MkLit Int
+  deriving newtype instance Eq Lit
+  result :: Bool
+  result = MkLit 1 == MkLit 1
+expression: result
+output: 'True'
+status: pass
+reason: the standalone deriving target is the local newtype, not the data type of the same name elsewhere

@@ -1017,6 +1017,8 @@ evalPrimitive "eqStableName#" [left, right] = do
   pure [intRuntimeValue (if Host.eqStableName leftName rightName then 1 else 0)]
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
+evalPrimitive "raiseIO#" [exception] =
+  throwE (EvalRaised exception)
 evalPrimitive "catch#" [action, handler] =
   applyValue action [] `catchE` handleRaised handler []
 evalPrimitive "runRW#" [action] =

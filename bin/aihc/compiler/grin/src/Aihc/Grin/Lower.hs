@@ -324,7 +324,7 @@ foreignConstructorNames dependencies =
   [name | Fc.ForeignConstructor name <- dependencies]
 
 compilerPrimitives :: [Text]
-compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "runRW#", "keepAlive#", "seq#"]
+compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "raiseIO#", "catch#", "runRW#", "keepAlive#", "seq#"]
 
 -- | A primitive call with the values of every argument. A compiler primitive
 -- never comes here: its call is always saturated, so 'lowerSpecialApplication'
@@ -774,7 +774,7 @@ lowerArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments continuation)
 
 specialPrimitiveArities :: Map Text Int
-specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("runRW#", 1), ("keepAlive#", 3), ("seq#", 2)]
+specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("raiseIO#", 2), ("catch#", 3), ("runRW#", 1), ("keepAlive#", 3), ("seq#", 2)]
 
 lowerSpecialApplication :: LowerEnv -> GrinResultRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
@@ -790,6 +790,11 @@ lowerSpecialApplication env resultRep name arguments =
           _ -> pure (GrinConstant values)
     ("raise#", exception : _) ->
       lowerLazy env "exception" exception (pure . GrinThrow)
+    -- The state token orders the raise inside the @IO@ thread; the throw
+    -- itself needs nothing from it.
+    ("raiseIO#", exception : state : _) ->
+      lowerLazy env "exception" exception $ \thrown ->
+        lowerArgument env state (const (pure (GrinThrow thrown)))
     ("catch#", action : handler : state : _) -> do
       placedRep <- placedResult
       lowerLazy env "action" action $ \actionValue ->

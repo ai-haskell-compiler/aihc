@@ -172,6 +172,7 @@ module GHC.Prim
     quotInt#,
     remInt#,
     raise#,
+    raiseIO#,
     reallyUnsafePtrEquality#,
     Proxy#,
     proxy#,
@@ -524,6 +525,16 @@ foreign import prim proxy# :: forall k (a :: k). Proxy# a
 foreign import prim reallyUnsafePtrEquality# :: a -> b -> Int#
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
+
+-- | Raise an exception at a precise point in the @IO@ state thread. The
+-- state token keeps the raise from floating out of the @IO@ action that
+-- wrote it, which is what separates a precise exception from 'raise#'.
+foreign import prim
+  raiseIO# ::
+    forall (r :: RuntimeRep) a (b :: TYPE r).
+    a ->
+    State# RealWorld ->
+    (# State# RealWorld, b #)
 
 foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
 
