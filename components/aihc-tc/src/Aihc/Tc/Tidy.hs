@@ -121,6 +121,7 @@ predMetas predicate =
     ClassPred _ args -> concatMap typeMetas args
     EqPred left right -> typeMetas left ++ typeMetas right
     IParamPred _ payload -> typeMetas payload
+    IrredPred constraint -> typeMetas constraint
     QuantifiedPred _ antecedents consequent -> concatMap predMetas antecedents ++ predMetas consequent
 
 typeNames :: TcType -> [Text]
@@ -141,6 +142,7 @@ predNames predicate =
     ClassPred _ args -> concatMap typeNames args
     EqPred left right -> typeNames left ++ typeNames right
     IParamPred _ payload -> typeNames payload
+    IrredPred constraint -> typeNames constraint
     QuantifiedPred variables antecedents consequent ->
       map tvName variables ++ concatMap predNames antecedents ++ predNames consequent
 
@@ -164,5 +166,6 @@ tidyPredWith env predicate =
     ClassPred tyCon args -> ClassPred tyCon (map (tidyTypeWith env) args)
     EqPred left right -> EqPred (tidyTypeWith env left) (tidyTypeWith env right)
     IParamPred name payload -> IParamPred name (tidyTypeWith env payload)
+    IrredPred constraint -> IrredPred (tidyTypeWith env constraint)
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables (map (tidyPredWith env) antecedents) (tidyPredWith env consequent)

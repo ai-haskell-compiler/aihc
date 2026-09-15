@@ -194,8 +194,8 @@ exportedScope package exports extensions modu =
       case spec of
         ExportAnn _ inner -> exportSpecScope inner
         ExportModule _ exportModuleName
-          | exportModuleName == moduleKey modu -> ownScope
-          | otherwise -> lookupImportedModule package Nothing exportModuleName exports
+          | exportModuleName == moduleKey modu -> ownScope `unionScope` reexportedQualifier exportModuleName
+          | otherwise -> reexportedQualifier exportModuleName
         ExportVar _ _ name -> selectTerm (nameText name) (exportSource name)
         ExportAbs _ (Just namespace) name
           | isTermNamespace namespace -> selectTerm (nameText name) (exportSource name)
@@ -204,6 +204,16 @@ exportedScope package exports extensions modu =
         ExportWith _ _ name members -> selectTypeWithMembers (nameText name) (exportSource name) (map exportBundledMemberName members)
         ExportWithAll _ _ name _ members ->
           selectTypeWithMembers (nameText name) (exportSource name) (map exportBundledMemberName members <> allTypeMembers (nameText name) (exportSource name))
+
+    -- @module X@ re-exports every name that the module has in scope both
+    -- unqualified and qualified by @X@, where both spellings name the same
+    -- entity (Haskell 2010 5.5.2). @X@ is an import qualifier rather than a
+    -- module name: several imports can share one alias, and an import list
+    -- or a @hiding@ clause on them narrows what the alias re-exports.
+    reexportedQualifier qualifier =
+      reexportedModuleScope
+        (Map.findWithDefault emptyScope qualifier (scopeQualifiedModules availableScope))
+        availableScope
 
     -- A qualified export item such as @L.smallChunkSize@ names an entity
     -- of the module that the qualifier imports. The module can also use
@@ -214,6 +224,21 @@ exportedScope package exports extensions modu =
         Just qualifier
           | qualifier == moduleKey modu -> availableScope
           | otherwise -> Map.findWithDefault availableScope qualifier (scopeQualifiedModules availableScope)
+
+-- | The part of a qualified scope that a @module X@ export item names: the
+-- entries that the unqualified scope resolves to the same entity. A name
+-- that the qualifier brought in but that no unqualified import made visible
+-- is not re-exported, and neither is one that some other entity shadows
+-- unqualified.
+reexportedModuleScope :: Scope -> Scope -> Scope
+reexportedModuleScope qualified available =
+  (filterScopeByNames reexported qualified) {scopeQualifiedModules = Map.empty}
+  where
+    reexported name =
+      sameEntity (Map.lookup name (scopeTerms qualified)) (Map.lookup name (scopeTerms available))
+        || sameEntity (Map.lookup name (scopeTypes qualified)) (Map.lookup name (scopeTypes available))
+    sameEntity (Just qualifiedName) (Just availableName) = qualifiedName == availableName
+    sameEntity _ _ = False
 
 selectTerm :: Text -> Scope -> Scope
 selectTerm name scope =

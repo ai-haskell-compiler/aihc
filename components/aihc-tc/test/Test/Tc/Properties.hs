@@ -70,7 +70,7 @@ genInterface = do
   firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", ForAll [] [] ty)
   secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", ForAll [] [] ty)
   let tcInterfaceTerms = firstTerm <> secondTerm
-  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] testTypeKind) DataTyCon Nothing)
+  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] testTypeKind) DataTyCon Nothing Nothing)
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [])
   tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [] [FunDep [0] [1]])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])

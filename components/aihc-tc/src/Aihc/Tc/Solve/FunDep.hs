@@ -18,15 +18,15 @@ where
 import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions)
-import Aihc.Tc.Monad (TcM, getClassInstances, lookupClass)
+import Aihc.Tc.Monad (TcM, getClassInstances, getKinds, lookupClass)
 import Aihc.Tc.Solve.Family (matchTypes)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred)
-import Control.Monad (forM_, unless, void, zipWithM_)
+import Control.Monad (foldM, forM_, unless, void, zipWithM_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 
 -- | Improve the given dictionary constraints against each other, the givens
 -- in scope, and the instances of their classes.
@@ -39,11 +39,45 @@ improveFunDeps givens constraints = do
   if null improvable
     then pure False
     else do
+      expandedGivens <- superClassClosure givens
       let siblings = map fst improvable
       before <- mapM (zonkPred . ctPred) siblings
-      forM_ improvable (uncurry (improveConstraint givens siblings))
+      forM_ improvable (uncurry (improveConstraint expandedGivens siblings))
       after <- mapM (zonkPred . ctPred) siblings
       pure (before /= after)
+
+-- | The givens together with the superclasses they entail, transitively.
+--
+-- A superclass of a given holds wherever the given does, so its functional
+-- dependencies improve a wanted just as the given's own do. Evidence lookup
+-- projects a superclass out of a given on demand, but improvement compares
+-- predicates rather than searching for evidence, so the superclasses have to
+-- be present in the list it compares against.
+superClassClosure :: [Pred] -> TcM [Pred]
+superClassClosure givens = reverse <$> foldM add [] givens
+  where
+    add seen predicate
+      | predicate `elem` seen = pure seen
+      | otherwise = do
+          parents <- superClassesOf predicate
+          foldM add (predicate : seen) parents
+
+-- | The superclass constraints of a class given, instantiated at its
+-- arguments. Every other predicate has none.
+superClassesOf :: Pred -> TcM [Pred]
+superClassesOf predicate =
+  case predicate of
+    ClassPred className arguments -> do
+      classInfo <- lookupClass className
+      case classInfo of
+        Nothing -> pure []
+        Just info -> do
+          kinds <- getKinds
+          let substitution =
+                Map.fromList
+                  [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) arguments]
+          pure (mapMaybe (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info))
+    _ -> pure []
 
 -- | The class of a constraint, when it is a class constraint whose class
 -- declares a functional dependency. Every other constraint is left alone.

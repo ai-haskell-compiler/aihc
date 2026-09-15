@@ -12,6 +12,8 @@ module GHC.Prim.Integer
     integerComplement,
     integerFromTwoWords#,
     integerFromWord#,
+    integerLog2#,
+    integerLogBase#,
     integerMul,
     integerNegate,
     integerQuotRem,
@@ -25,6 +27,7 @@ module GHC.Prim.Integer
     integerTestBit#,
     integerToInt#,
     integerXor,
+    wordLog2#,
   )
 where
 
@@ -38,10 +41,12 @@ import GHC.Prim
     addIntC#,
     addWordC#,
     and#,
+    clz#,
     eqWord#,
     indexWordArray#,
     int2Word#,
     ltWord#,
+    minusWord#,
     newByteArray#,
     not#,
     or#,
@@ -55,6 +60,7 @@ import GHC.Prim
     sizeofByteArray#,
     subIntC#,
     subWordC#,
+    timesWord#,
     timesWord2#,
     uncheckedShiftL#,
     uncheckedShiftRL#,
@@ -398,6 +404,51 @@ integerToInt# :: Integer -> Int#
 integerToInt# (IS value) = value
 integerToInt# (IP magnitude) = word2Int# (indexWordArray# magnitude 0#)
 integerToInt# (IN magnitude) = (-#) 0# (word2Int# (indexWordArray# magnitude 0#))
+
+-- | The base 2 logarithm of a 'Word#', rounded down.  @wordLog2# 0##@ is
+-- @-1@ read as an 'Int#'.
+wordLog2# :: Word# -> Word#
+wordLog2# value = minusWord# (int2Word# 63#) (clz# value)
+
+-- | The base 2 logarithm of a positive 'Integer', rounded down.  The
+-- magnitude is canonical, so only its most significant limb matters.
+integerLog2# :: Integer -> Word#
+integerLog2# value =
+  case magnitudeSize# value of
+    0# -> wordLog2# (int2Word# 0#)
+    wordCount ->
+      case (-#) wordCount 1# of
+        top ->
+          plusWord#
+            (wordLog2# (magnitudeWord# value top))
+            (int2Word# ((*#) top 64#))
+
+-- | The logarithm of a positive 'Integer' to a base greater than one,
+-- rounded down.  Other arguments give a meaningless result.
+integerLogBase# :: Integer -> Integer -> Word#
+integerLogBase# base value =
+  case eqInteger# base (IS 2#) of
+    1# -> integerLog2# value
+    _ ->
+      case logBaseStep# value base of
+        (# _, exponent #) -> exponent
+
+-- | @logBaseStep# m pw@ divides @m@ by the largest power of @pw@ below it,
+-- returning the remaining quotient and how many times @pw@ went into @m@.
+logBaseStep# :: Integer -> Integer -> (# Integer, Word# #)
+logBaseStep# value power =
+  case (<#) (compareInteger# value power) 0# of
+    1# -> (# value, int2Word# 0# #)
+    _ ->
+      case logBaseStep# value (integerMul power power) of
+        (# rest, exponent #) ->
+          case timesWord# exponent (int2Word# 2#) of
+            doubled ->
+              case (<#) (compareInteger# rest power) 0# of
+                1# -> (# rest, doubled #)
+                _ ->
+                  case integerQuotRem rest power of
+                    (quotient, _) -> (# quotient, plusWord# doubled (int2Word# 1#) #)
 
 integerQuotRem :: Integer -> Integer -> (Integer, Integer)
 integerQuotRem numerator denominator =

@@ -1203,6 +1203,8 @@ cpsCallSignature name =
     "readMVar#" -> ([Ptr], Ptr)
     "takeMVar#" -> ([Ptr], Ptr)
     "yield#" -> ([], Ptr)
+    "aihcControl0#" -> ([Ptr, Ptr], Ptr)
+    "aihcResume#" -> ([Ptr, Ptr], Ptr)
     _ -> ([Ptr], Ptr)
 
 compileBinding :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinExpr -> LowerM ValueEnv

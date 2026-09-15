@@ -45,6 +45,13 @@ data BuildOptions = BuildOptions
     buildStoreRoot :: !(Maybe FilePath),
     buildBuildRoot :: !(Maybe FilePath),
     buildWorkspace :: !(Maybe FilePath),
+    -- | Retain the intermediate output of each phase beside the object of
+    -- the module it belongs to. Only the modules of the executable keep
+    -- them: an installed dependency is built as @install@ builds it.
+    buildKeepCore :: !Bool,
+    buildKeepGrin :: !Bool,
+    buildKeepLir :: !Bool,
+    buildKeepNative :: !Bool,
     buildLint :: !Bool,
     buildCheckPrimBounds :: !Bool,
     buildLto :: !Bool,
@@ -173,6 +180,10 @@ buildOptionsParser =
               <> OA.help "Take the sources of a dependency from DIR/NAME before Hackage"
           )
       )
+    <*> keepCoreOption
+    <*> keepGrinOption
+    <*> keepLirOption
+    <*> keepNativeOption
     <*> lintOption
     <*> checkPrimBoundsOption
     <*> ltoOption
@@ -223,6 +234,39 @@ sourceDirectoryOptions =
   where
     defaultDirectory [] = ["."]
     defaultDirectory directories = directories
+
+-- | The flags that keep the output of a compiler phase beside the object of
+-- the module. Each phase writes its own files: @core@ for System FC, the
+-- three @grin@ files for GRIN, @.lir@ for Lir, and the source the C driver
+-- of the target compiles. A target whose object the backend writes itself
+-- has no such source, so its @--keep-native@ output is the Lir text.
+keepCoreOption :: OA.Parser Bool
+keepCoreOption =
+  OA.switch
+    ( OA.long "keep-core"
+        <> OA.help "Retain Core (System FC) files"
+    )
+
+keepGrinOption :: OA.Parser Bool
+keepGrinOption =
+  OA.switch
+    ( OA.long "keep-grin"
+        <> OA.help "Retain GRIN files"
+    )
+
+keepLirOption :: OA.Parser Bool
+keepLirOption =
+  OA.switch
+    ( OA.long "keep-lir"
+        <> OA.help "Retain Lir files"
+    )
+
+keepNativeOption :: OA.Parser Bool
+keepNativeOption =
+  OA.switch
+    ( OA.long "keep-native"
+        <> OA.help "Retain native output files"
+    )
 
 lintOption :: OA.Parser Bool
 lintOption =
@@ -334,18 +378,9 @@ installOptionsParser =
       ( OA.long "immutable"
           <> OA.help "Install a local package into the store, as if it were a Hackage release"
       )
-    <*> OA.switch
-      ( OA.long "keep-core"
-          <> OA.help "Retain Core (System FC) files"
-      )
-    <*> OA.switch
-      ( OA.long "keep-grin"
-          <> OA.help "Retain GRIN files"
-      )
-    <*> OA.switch
-      ( OA.long "keep-native"
-          <> OA.help "Retain native output files"
-      )
+    <*> keepCoreOption
+    <*> keepGrinOption
+    <*> keepNativeOption
     <*> lintOption
     <*> checkPrimBoundsOption
     <*> ltoOption

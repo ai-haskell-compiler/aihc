@@ -25,3 +25,4 @@ classifyConstraint ct = case ctPred ct of
   ClassPred {} -> CanonDict ct
   QuantifiedPred {} -> CanonDict ct
   IParamPred {} -> CanonDict ct
+  IrredPred {} -> CanonDict ct

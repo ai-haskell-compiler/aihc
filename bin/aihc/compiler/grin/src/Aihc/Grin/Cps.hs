@@ -51,6 +51,9 @@ data ContinuationFrameKind
   | ContinuationFrameCatch
   | ContinuationFrameUpdate
   | ContinuationFrameStop
+  | -- | The delimiter of @prompt#@: @[parent, tag]@. Exception unwinding
+    -- passes through it like a normal frame; @control0#@ captures up to it.
+    ContinuationFramePrompt
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 -- | Stable value stored in the shared runtime info-table ABI. Zero is reserved
@@ -65,6 +68,7 @@ continuationFrameKindCode frameKind =
     Just ContinuationFrameCatch -> 2
     Just ContinuationFrameUpdate -> 3
     Just ContinuationFrameStop -> 5
+    Just ContinuationFramePrompt -> 6
 
 data CpsGrinError
   = CpsGrinAlreadyTransformed !FunctionName
@@ -216,6 +220,23 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinCpsEval {} -> alreadyTransformed
     GrinCall _ functionName arguments ->
       pure (GrinCall (ResultRep cpsResultRep) functionName (arguments <> [continuation]))
+    GrinPrimitiveCall runtimeRep name [tag, action]
+      | name == "prompt#" -> do
+          (promptVar, promptNode) <- makePromptContinuation parent runtimeRep continuation tag
+          evaluatedAction <- freshVar "$cps_prompt_action" (grinValueRuntimeRep action)
+          delimitedAction <-
+            transformTail
+              updateName
+              parent
+              (Set.insert promptVar bound)
+              (ResultRep runtimeRep)
+              (GrinVarValue promptVar)
+              ( GrinBind
+                  [evaluatedAction]
+                  (GrinEval (grinValueRuntimeRep action) action)
+                  (GrinApply (ResultRep runtimeRep) (GrinVarValue evaluatedAction) [])
+              )
+          pure (GrinBind [promptVar] (GrinStore promptNode) delimitedAction)
     GrinPrimitiveCall runtimeRep name arguments
       | isControlPrimitive name ->
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
@@ -352,6 +373,34 @@ makeCatchContinuation parent resultRep outerContinuation handler = do
   addContinuationFunction ContinuationFrameCatch catchFunction
   pure (pointer, catchNode)
 
+-- | The prompt frame of @prompt# tag action@. Like a catch frame it forwards
+-- the action's result to its parent; the tag in field one is what
+-- @control0#@ compares when it walks the chain.
+makePromptContinuation :: FunctionName -> GrinRep -> GrinValue -> GrinValue -> CpsM (GrinVar, GrinNode)
+makePromptContinuation parent resultRep outerContinuation tag = do
+  parentContinuation <-
+    case outerContinuation of
+      GrinVarValue var -> pure var
+      GrinGlobalValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
+      GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
+  promptName <- freshContinuationName parent
+  pointer <- freshVar "$cps_prompt" liftedGrinRep
+  capturedTag <- freshVar "$cps_prompt_tag" (grinValueRuntimeRep tag)
+  resultVars <- mapM (freshVar "$cps_prompt_result") (runtimeRepComponents resultRep)
+  let promptFunction =
+        GrinFunction
+          { grinFunctionName = promptName,
+            grinFunctionParameters = parentContinuation : capturedTag : resultVars,
+            grinFunctionResultRep = ResultRep resultRep,
+            grinFunctionBody = GrinContinue (GrinVarValue parentContinuation) (map GrinVarValue resultVars)
+          }
+      promptNode =
+        GrinNode
+          (GrinClosure promptName [runtimeRepComponents resultRep])
+          [outerContinuation, tag]
+  addContinuationFunction ContinuationFramePrompt promptFunction
+  pure (pointer, promptNode)
+
 makeUpdateFunction :: FunctionName -> CpsM GrinFunction
 makeUpdateFunction updateName = do
   outerContinuation <- freshVar "$cps_outer" liftedGrinRep
@@ -439,4 +488,4 @@ varsRuntimeRep vars =
 
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
-  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#"]
+  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "prompt#", "aihcControl0#", "aihcResume#"]

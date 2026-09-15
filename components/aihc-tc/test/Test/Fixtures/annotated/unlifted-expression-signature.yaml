@@ -1,0 +1,44 @@
+annotated:
+- |-
+  module Test where
+  import GHC.Prim (Int#, Proxy#, proxy#)
+  data Tag = Tag
+       │     └─ type: Tag
+       └─ type: Type
+  data Int = I# Int#
+       │     └─ type: GHC.Prim.Int# → Int
+       └─ type: Type
+
+  useProxy :: Proxy# Tag -> Tag
+  useProxy _ = Tag
+  │        └─ type: GHC.Prim.Proxy# Tag
+  └─ type: GHC.Prim.Proxy# Tag → Tag
+
+  tagged :: Tag
+  tagged = useProxy (proxy# :: Proxy# Tag)
+  └─ type: Tag       └─ type: GHC.Prim.Proxy# Tag; type-args: Type, Tag
+
+  three :: Int
+  three = I# (3# :: Int#)
+  │           └─ type: GHC.Prim.Int#
+  └─ type: Int
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+  import GHC.Prim (Int#, Proxy#, proxy#)
+  data Tag = Tag
+  data Int = I# Int#
+
+  useProxy :: Proxy# Tag -> Tag
+  useProxy _ = Tag
+
+  tagged :: Tag
+  tagged = useProxy (proxy# :: Proxy# Tag)
+
+  three :: Int
+  three = I# (3# :: Int#)
+status: pass
+reason: an expression signature stands in a result position, so it accepts a zero-width
+  Proxy# and an Int# rather than requiring a lifted representation

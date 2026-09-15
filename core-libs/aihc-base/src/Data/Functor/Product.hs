@@ -7,6 +7,7 @@ where
 
 import Control.Applicative (Alternative (..))
 import Data.Foldable (Foldable (..))
+import Data.Functor.Classes (Eq1 (..), Ord1 (..))
 import Data.Kind (Type)
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
@@ -14,6 +15,16 @@ import Data.Traversable (Traversable (..))
 import Prelude
 
 data Product (f :: k -> Type) (g :: k -> Type) (a :: k) = Pair (f a) (g a)
+
+instance (Eq1 f, Eq1 g) => Eq1 (Product f g) where
+  liftEq eq (Pair leftFirst leftSecond) (Pair rightFirst rightSecond) =
+    liftEq eq leftFirst rightFirst && liftEq eq leftSecond rightSecond
+
+instance (Ord1 f, Ord1 g) => Ord1 (Product f g) where
+  liftCompare comp (Pair leftFirst leftSecond) (Pair rightFirst rightSecond) =
+    case liftCompare comp leftFirst rightFirst of
+      EQ -> liftCompare comp leftSecond rightSecond
+      other -> other
 
 instance (Eq (f a), Eq (g a)) => Eq (Product f g a) where
   Pair leftFirst leftSecond == Pair rightFirst rightSecond =

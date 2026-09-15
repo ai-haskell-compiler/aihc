@@ -1302,6 +1302,14 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
                              exception);
       continuation = (AihcValue *)(uintptr_t)fields[0];
       break;
+    case AIHC_FRAME_PROMPT:
+      /* An exception passes through a prompt as GHC's does: the prompt
+         delimits control0#, not raise#. */
+      if (info->field_count < 2) {
+        aihc_fail("prompt continuation has an invalid layout");
+      }
+      continuation = (AihcValue *)(uintptr_t)fields[0];
+      break;
     case AIHC_FRAME_STOP:
       aihc_fail("uncaught Haskell exception");
     case AIHC_FRAME_RESTORE_MASK:
@@ -1310,6 +1318,164 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
       aihc_fail("exception chain contains a non-frame closure");
     }
   }
+}
+
+/* A prompt tag has no fields, so every tag is one header word whose address
+   is its identity. The collector copies it like any node. */
+static const AihcInfo aihc_prompt_tag_info = {
+    .frame_kind = AIHC_FRAME_NONE,
+    .object_kind = AIHC_OBJECT_NODE,
+};
+
+/* What control0# hands its function: the topmost captured frame and the
+   prompt frame the capture stopped at. The frames between the two are the
+   continuation; they stay where they are, and every resume copies them. */
+static const uint8_t aihc_continuation_field_is_pointer[] = {1, 1};
+static const AihcInfo aihc_continuation_info = {
+    .field_count = 2,
+    .field_is_pointer = aihc_continuation_field_is_pointer,
+    .frame_kind = AIHC_FRAME_NONE,
+    .object_kind = AIHC_OBJECT_NODE,
+};
+
+AihcValue *aihc_prompt_tag_new(AihcMachine *machine) {
+  aihc_ensure_heap(machine, 1, 0, NULL);
+  return aihc_place_node(machine, &aihc_prompt_tag_info, 1);
+}
+
+/* The parent of a frame in a chain that control0# or a resume walks. Both
+   walks stop at a prompt frame, so the frames they cross are the ones an
+   exception would cross too, minus the ones a capture must refuse: an update
+   frame, because the thunk it belongs to is not reentrant and the frame
+   marks the start of another state thread, and a stop frame, because the
+   chain has ended without a prompt. */
+static AihcValue *aihc_captured_frame_parent(AihcValue *frame, int capturing) {
+  if (frame == NULL || aihc_value_kind(frame) != AIHC_OBJECT_CLOSURE) {
+    aihc_fail("continuation chain contains a non-continuation value");
+  }
+  const AihcInfo *info = aihc_value_info_table(frame);
+  switch (info->frame_kind) {
+  case AIHC_FRAME_NORMAL:
+  case AIHC_FRAME_CATCH:
+  case AIHC_FRAME_PROMPT:
+    if (info->field_count < 1) {
+      aihc_fail("continuation frame has no parent");
+    }
+    return (AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[0];
+  case AIHC_FRAME_UPDATE:
+    aihc_fail(capturing ? "control0# cannot capture a continuation that "
+                          "contains a thunk under evaluation"
+                        : "captured continuation contains an update frame");
+  case AIHC_FRAME_STOP:
+    aihc_fail(capturing ? "control0# found no prompt frame with its tag"
+                        : "captured continuation reached a stop frame");
+  case AIHC_FRAME_RESTORE_MASK:
+    aihc_fail("restore-mask continuation is not implemented");
+  default:
+    aihc_fail("continuation chain contains a non-frame closure");
+  }
+}
+
+static int aihc_is_prompt_frame(const AihcValue *frame, const AihcValue *tag) {
+  const AihcInfo *info = aihc_value_info_table(frame);
+  return info->frame_kind == AIHC_FRAME_PROMPT && info->field_count >= 2 &&
+         (const AihcValue *)(uintptr_t)aihc_value_fields_const(frame)[1] == tag;
+}
+
+const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
+                                AihcValue *function, AihcValue *continuation) {
+  if (tag == NULL) {
+    aihc_fail("control0# received a null prompt tag");
+  }
+  AihcValue *prompt = continuation;
+  while (!(aihc_value_kind(prompt) == AIHC_OBJECT_CLOSURE &&
+           aihc_is_prompt_frame(prompt, tag))) {
+    prompt = aihc_captured_frame_parent(prompt, 1);
+  }
+
+  AihcSlot roots[3] = {(AihcSlot)(uintptr_t)function,
+                       (AihcSlot)(uintptr_t)continuation,
+                       (AihcSlot)(uintptr_t)prompt};
+  aihc_ensure_heap(machine, 1 + aihc_continuation_info.field_count, 3, roots);
+  function = (AihcValue *)(uintptr_t)roots[0];
+  continuation = (AihcValue *)(uintptr_t)roots[1];
+  prompt = (AihcValue *)(uintptr_t)roots[2];
+
+  AihcValue *captured = aihc_place_node(machine, &aihc_continuation_info,
+                                        1 + aihc_continuation_info.field_count);
+  AihcSlot *captured_fields = aihc_value_fields(captured);
+  captured_fields[0] = (AihcSlot)(uintptr_t)continuation;
+  captured_fields[1] = (AihcSlot)(uintptr_t)prompt;
+
+  /* The prompt frame is popped with the frames above it: the function runs
+     under the prompt's parent, and the copy a resume makes ends there too. */
+  AihcResume *resume = &machine->selected_resume;
+  resume->kind = AIHC_RESUME_APPLY;
+  resume->function = function;
+  resume->continuation =
+      (AihcValue *)(uintptr_t)aihc_value_fields_const(prompt)[0];
+  resume->value = (AihcSlot)(uintptr_t)captured;
+  resume->count = 1;
+  return resume;
+}
+
+const AihcResume *aihc_continuation_resume(AihcMachine *machine,
+                                           AihcValue *captured,
+                                           AihcValue *action,
+                                           AihcValue *continuation) {
+  if (captured == NULL ||
+      aihc_value_info_table(captured) != &aihc_continuation_info) {
+    aihc_fail("resumed value is not a captured continuation");
+  }
+  AihcValue *top = (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[0];
+  AihcValue *prompt =
+      (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[1];
+
+  uint64_t words = 0;
+  for (AihcValue *frame = top; frame != prompt;
+       frame = aihc_captured_frame_parent(frame, 0)) {
+    words += aihc_object_words(aihc_value_info_table(frame));
+  }
+
+  AihcSlot roots[3] = {(AihcSlot)(uintptr_t)captured,
+                       (AihcSlot)(uintptr_t)action,
+                       (AihcSlot)(uintptr_t)continuation};
+  aihc_ensure_heap(machine, words, 3, roots);
+  captured = (AihcValue *)(uintptr_t)roots[0];
+  action = (AihcValue *)(uintptr_t)roots[1];
+  continuation = (AihcValue *)(uintptr_t)roots[2];
+  top = (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[0];
+  prompt = (AihcValue *)(uintptr_t)aihc_value_fields_const(captured)[1];
+
+  /* Copy the frames top down. Each copy keeps its info table and captures,
+     and its parent link is rewritten to the copy below it; the lowest copy
+     is linked to the resumer's continuation, where the prompt frame used to
+     be. The originals are never written, so the record stays resumable. */
+  AihcValue *resumed = continuation;
+  AihcValue *previous = NULL;
+  for (AihcValue *frame = top; frame != prompt;
+       frame = aihc_captured_frame_parent(frame, 0)) {
+    uint64_t frame_words = aihc_object_words(aihc_value_info_table(frame));
+    AihcValue *copy = aihc_gc_allocate(machine, frame_words);
+    memcpy(copy, frame, frame_words * sizeof(AihcSlot));
+    if (previous == NULL) {
+      resumed = copy;
+    } else {
+      aihc_value_fields(previous)[0] = (AihcSlot)(uintptr_t)copy;
+    }
+    previous = copy;
+  }
+  if (previous != NULL) {
+    aihc_value_fields(previous)[0] = (AihcSlot)(uintptr_t)continuation;
+  }
+
+  AihcResume *resume = &machine->selected_resume;
+  resume->kind = AIHC_RESUME_APPLY;
+  resume->function = action;
+  resume->continuation = resumed;
+  resume->value = 0;
+  resume->count = 0;
+  return resume;
 }
 
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action) {

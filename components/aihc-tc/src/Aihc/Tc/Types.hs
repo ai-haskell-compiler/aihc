@@ -245,6 +245,11 @@ data Pred
   | QuantifiedPred ![TyVarId] ![Pred] !Pred
   | -- | An implicit parameter such as @?x :: Int@. The name keeps its @?@ prefix.
     IParamPred !Text !TcType
+  | -- | A constraint whose head is a type family, and so says nothing yet
+    -- about which class or equality it demands: @Assert (1 <=? n) msg@ with
+    -- @n@ still a variable. It is kept whole until its arguments are known
+    -- enough for the family to reduce, and is then reclassified.
+    IrredPred !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData Pred
@@ -501,6 +506,7 @@ applySubstPred substitution predicate =
     ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
     EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
     IParamPred name payload -> IParamPred name (applySubst substitution payload)
+    IrredPred constraint -> IrredPred (applySubst substitution constraint)
     QuantifiedPred variables antecedents consequent ->
       let scopedSubstitution = foldr (Map.delete . tvUnique) substitution variables
        in QuantifiedPred
@@ -532,6 +538,7 @@ predicateMentionsTyVar target predicate =
     ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
     EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
     IParamPred _ payload -> typeMentionsTyVar target payload
+    IrredPred constraint -> typeMentionsTyVar target constraint
     QuantifiedPred variables antecedents consequent ->
       not (any (sameTyVar target) variables)
         && (any (predicateMentionsTyVar target) antecedents || predicateMentionsTyVar target consequent)
@@ -564,6 +571,7 @@ data PredShape
   | ShapeEqPred !TypeShape !TypeShape
   | ShapeQuantifiedPred ![(Unique, Text)] ![PredShape] !PredShape
   | ShapeIParamPred !Text !TypeShape
+  | ShapeIrredPred !TypeShape
   deriving (Eq, Ord, Show)
 
 typeShape :: TcType -> TypeShape
@@ -586,6 +594,7 @@ predShape predicate =
     QuantifiedPred variables antecedents consequent ->
       ShapeQuantifiedPred (map tyVarIdentity variables) (map predShape antecedents) (predShape consequent)
     IParamPred name payload -> ShapeIParamPred name (typeShape payload)
+    IrredPred constraint -> ShapeIrredPred (typeShape constraint)
 
 -- | Whether two types are one type, whatever kinds their variable
 -- occurrences carry.
@@ -616,6 +625,7 @@ kindMentionsUnique target kind =
         ClassPred _ arguments -> any (kindMentionsUnique unique) arguments
         EqPred left right -> kindMentionsUnique unique left || kindMentionsUnique unique right
         IParamPred _ payload -> kindMentionsUnique unique payload
+        IrredPred constraint -> kindMentionsUnique unique constraint
         QuantifiedPred variables antecedents consequent ->
           all ((/= unique) . tvUnique) variables
             && (any (predicateMentionsUnique unique) antecedents || predicateMentionsUnique unique consequent)

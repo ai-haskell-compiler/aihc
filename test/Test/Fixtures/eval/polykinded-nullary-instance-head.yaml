@@ -1,0 +1,22 @@
+extensions:
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Other where
+  data Tag (a :: k) = Tag
+  -- The head applies the poly-kinded 'Tag' to no visible arguments, so its
+  -- invisible kind argument comes from the kind of the class parameter.
+  instance Functor Tag where
+    fmap _ _ = Tag
+- |
+  module Test where
+  import Other (Tag (..))
+  count :: Tag Int -> Int
+  count Tag = 7
+  result :: Int
+  result = count (fmap (\x -> x) Tag)
+expression: result
+output: 'I# 7'
+status: pass
+reason: a poly-kinded type constructor with no visible arguments in an instance head takes its kind from the class parameter

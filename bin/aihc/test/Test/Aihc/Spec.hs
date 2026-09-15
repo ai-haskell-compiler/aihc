@@ -94,6 +94,7 @@ tests =
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
               testCase "parses the package build options" test_buildCommandOptions,
+              testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
               withResource acquireLtoStore releaseSeedStore $ \ltoStore ->
@@ -277,6 +278,10 @@ withBuildModuleSandbox getStore prefix action = do
               buildStoreRoot = Just storeRoot,
               buildBuildRoot = Nothing,
               buildWorkspace = Nothing,
+              buildKeepCore = False,
+              buildKeepGrin = False,
+              buildKeepLir = False,
+              buildKeepNative = False,
               buildLint = False,
               buildCheckPrimBounds = False,
               buildLto = False,
@@ -586,6 +591,10 @@ withBuildPackageSandbox getStore prefix action = do
               buildStoreRoot = Just storeRoot,
               buildBuildRoot = Just buildRoot,
               buildWorkspace = Nothing,
+              buildKeepCore = False,
+              buildKeepGrin = False,
+              buildKeepLir = False,
+              buildKeepNative = False,
               buildLint = False,
               buildCheckPrimBounds = False,
               buildLto = False,
@@ -673,12 +682,56 @@ test_buildCommandOptions = do
       assertEqual "output" (Just "out") (buildOutput options)
     other -> assertFailure ("build parse: " <> show other)
   case parseCommandPure ["build", "demo", "--target", "apple-arm64"] of
-    Right (CmdBuild options) -> assertEqual "default output" Nothing (buildOutput options)
+    Right (CmdBuild options) -> do
+      assertEqual "default output" Nothing (buildOutput options)
+      assertBool "no kept output by default" (not (or (keepFlags options)))
+    other -> assertFailure ("build parse: " <> show other)
+  case parseCommandPure ["build", "demo", "--target", "apple-arm64", "--keep-core", "--keep-grin", "--keep-lir", "--keep-native"] of
+    Right (CmdBuild options) -> assertEqual "kept output" [True, True, True, True] (keepFlags options)
     other -> assertFailure ("build parse: " <> show other)
   forM_ ["build-exe", "build-module"] $ \old ->
     case parseCommandPure [old, "Main.hs", "--target", "apple-arm64"] of
       Left _ -> pure ()
       Right command -> assertFailure (old <> " is still a command: " <> show command)
+  where
+    keepFlags options =
+      [ buildKeepCore options,
+        buildKeepGrin options,
+        buildKeepLir options,
+        buildKeepNative options
+      ]
+
+-- | The @--keep-*@ flags of @build@ keep the output of each phase beside
+-- the object of the module. They name the modules of the executable alone:
+-- the installed packages are built as @install@ builds them, so a store
+-- entry that holds none of these outputs still serves the build.
+test_buildModuleKeepIntermediates :: IO SeedStore -> Assertion
+test_buildModuleKeepIntermediates getStore =
+  withBuildModuleSandbox getStore "aihc-build-keep" $ \sandbox _fixtureRoot _storeRoot options -> do
+    let root = sandboxRoot sandbox
+        target = buildTarget options
+        keepOptions =
+          options
+            { buildKeepCore = True,
+              buildKeepGrin = True,
+              buildKeepLir = True,
+              buildKeepNative = True
+            }
+        moduleRoot = root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "Main"
+    void (withCurrentDirectory root (build keepOptions))
+    assertCoreFile (moduleRoot </> "core")
+    forM_ ["grin", "cps.grin", "gc.grin"] $ \name -> assertFileExists (moduleRoot </> name)
+    -- The object backends of the host write the object themselves, so the
+    -- Lir text is also the native source there.
+    assertFileExists (moduleRoot </> "Main.o" <> ".lir")
+    assertFileExists (moduleRoot </> "Main.o" <> nativeArtifactExtension target)
+    -- A build without the flags leaves no kept output behind.
+    let plainRoot = root </> "plain"
+    void (withCurrentDirectory root (build options {buildBuildRoot = Just plainRoot}))
+    let plainModuleRoot = plainRoot </> nativeTargetStoreDirectory target </> "Main"
+    assertFileExists (plainModuleRoot </> "Main.o")
+    forM_ ["core", "grin", "cps.grin", "gc.grin", "Main.o.lir"] $ \name ->
+      assertFileDoesNotExist (plainModuleRoot </> name)
 
 test_installIncremental :: IO SeedStore -> Assertion
 test_installIncremental getStore = do
@@ -871,6 +924,10 @@ captureInstallOutput options =
       void (installWith outputHandle options)
     T.unpack <$> TIO.readFile outputPath
 
+-- | Every module that fails on its own is reported in one run, and every
+-- knock-on is suppressed: a module whose names did not resolve, and a
+-- module importing one, are skipped by the type checker rather than
+-- reaching it and tripping an internal invariant with no source span.
 test_installResolveError :: IO SeedStore -> Assertion
 test_installResolveError getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/resolve-error"

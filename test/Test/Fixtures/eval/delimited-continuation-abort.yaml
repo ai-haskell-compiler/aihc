@@ -1,0 +1,25 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (State#, RealWorld, control0#, newPromptTag#, prompt#, realWorld#)
+
+    -- The captured continuation is dropped, so the multiplication after the
+    -- capture never runs and the prompt yields what the function returned.
+    run :: State# RealWorld -> (# State# RealWorld, Int #)
+    run s0 =
+      case newPromptTag# s0 of
+        (# s1, tag #) ->
+          prompt# tag
+            (\s2 -> case control0# tag (\_k s3 -> (# s3, 7 #)) s2 of
+                      (# s4, x #) -> (# s4, x * 100 #))
+            s1
+output: |
+  I# 7
+expression: |
+  case run realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: control0# aborts to its prompt when the function ignores the continuation

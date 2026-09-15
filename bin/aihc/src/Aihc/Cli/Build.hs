@@ -116,9 +116,10 @@ buildPackage options = do
   let compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
-            compileKeepCore = False,
-            compileKeepGrin = False,
-            compileKeepNative = False,
+            compileKeepCore = buildKeepCore options,
+            compileKeepGrin = buildKeepGrin options,
+            compileKeepLir = buildKeepLir options,
+            compileKeepNative = buildKeepNative options,
             compileLint = buildLint options,
             compileCheckPrimBounds = buildCheckPrimBounds options,
             compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
@@ -129,6 +130,17 @@ buildPackage options = do
             compileVerbose = verbose,
             compilePrintTimings = const (pure ()),
             compileUseColor = False
+          }
+      -- The installed packages of an executable are built the way
+      -- @install@ builds them. The flags that keep the output of a phase
+      -- name the modules of the executable alone, so a dependency already
+      -- in the store is never rejected for lacking those outputs.
+      dependencyConfig =
+        compileConfig
+          { compileKeepCore = False,
+            compileKeepGrin = False,
+            compileKeepLir = False,
+            compileKeepNative = False
           }
       -- The package itself and its siblings resolve locally before the
       -- workspace and Hackage, so an executable that depends on the library
@@ -155,7 +167,7 @@ buildPackage options = do
     -- it local. What the user asked for decides instead: a directory is
     -- local, a Hackage release is not.
     rootedPlans <- mapM (markRootPlan canonicalRoot origin) plans
-    installed <- installPlanPackages compileConfig locations rootedPlans
+    installed <- installPlanPackages dependencyConfig locations rootedPlans
     let selected = map installedPackage installed
     validateSelectedPackageNames selected
     mapM_ requirePackageArchive selected

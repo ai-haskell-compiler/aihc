@@ -1,0 +1,22 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Constraint)
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  class Assert (Big g) () => Sized g where
+    type Big g :: Bool
+  data S = S
+  instance Sized S where
+    type Big S = 'True
+status: pass
+reason: a superclass whose head is a type family stays irreducible until the instance fixes the associated family, and then reduces to the empty constraint tuple

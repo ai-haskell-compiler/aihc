@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (State#, RealWorld, catch#, raiseIO#, realWorld#)
+
+    throwing :: State# RealWorld -> (# State# RealWorld, Int #)
+    throwing s = raiseIO# (10 :: Int) s
+
+    handler :: Int -> State# RealWorld -> (# State# RealWorld, Int #)
+    handler e s = (# s, e + 32 #)
+output: |
+  I# 42
+expression: |
+  case catch# throwing handler realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: raiseIO# raises inside the state thread and catch# hands the value to the handler

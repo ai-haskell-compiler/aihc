@@ -11,6 +11,7 @@ module Aihc.Tc.Solve.Family
     isTypeFamilyTyCon,
     isTypeFamilyApplication,
     unsaturateFamilyApplication,
+    familyEquations,
     matchTypes,
   )
 where
@@ -52,6 +53,7 @@ reducePredFamilies predicate =
     ClassPred className arguments -> ClassPred className <$> mapM reduceTypeFamilies arguments
     EqPred left right -> EqPred <$> reduceTypeFamilies left <*> reduceTypeFamilies right
     IParamPred name payload -> IParamPred name <$> reduceTypeFamilies payload
+    IrredPred constraint -> IrredPred <$> reduceTypeFamilies constraint
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables <$> mapM reducePredFamilies antecedents <*> reducePredFamilies consequent
 

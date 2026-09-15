@@ -3946,6 +3946,7 @@ desugarSuperClass evidence =
           EqPred {} -> failValue "cannot select a superclass from equality evidence"
           QuantifiedPred {} -> failValue "cannot select a superclass from quantified evidence before application"
           IParamPred {} -> failValue "cannot select a superclass from implicit-parameter evidence"
+          IrredPred {} -> failValue "cannot select a superclass from an irreducible constraint before it reduces"
       sourceBinder <- freshBinder "$super_source" sourceType
       fieldBinders <- zipWithM (freshIndexedBinder "$super_field") [0 :: Int ..] fieldTypes
       selected <-
@@ -4680,6 +4681,10 @@ predicateKey predicate =
     QuantifiedPred {} -> "quantified:" <> T.pack (show predicate)
     -- The name alone identifies an implicit parameter.
     IParamPred name _ -> "implicit:" <> name
+    -- A stuck constraint is identified by the whole constraint type: its
+    -- head names a family, not a class, so two of them differ exactly when
+    -- their arguments do.
+    IrredPred constraint -> "irreducible:" <> typeKey constraint
 
 dictionaryKey :: TyCon -> [TcType] -> Text
 dictionaryKey classTyCon arguments =

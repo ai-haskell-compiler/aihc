@@ -135,9 +135,10 @@ runBuildModule options = do
   let compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
-            compileKeepCore = False,
-            compileKeepGrin = False,
-            compileKeepNative = False,
+            compileKeepCore = buildKeepCore options,
+            compileKeepGrin = buildKeepGrin options,
+            compileKeepLir = buildKeepLir options,
+            compileKeepNative = buildKeepNative options,
             compileLint = buildLint options,
             compileCheckPrimBounds = buildCheckPrimBounds options,
             compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
@@ -148,6 +149,17 @@ runBuildModule options = do
             compileVerbose = when (buildVerbose options) . putStrLn,
             compilePrintTimings = const (pure ()),
             compileUseColor = False
+          }
+      -- The installed packages of an executable are built the way
+      -- @install@ builds them. The flags that keep the output of a phase
+      -- name the modules of the executable alone, so a dependency already
+      -- in the store is never rejected for lacking those outputs.
+      dependencyConfig =
+        compileConfig
+          { compileKeepCore = False,
+            compileKeepGrin = False,
+            compileKeepLir = False,
+            compileKeepNative = False
           }
   constraints <- mapM parsePackageConstraint (buildPackageConstraints options)
   -- The packages of an executable are installed like any other: the plan
@@ -164,7 +176,7 @@ runBuildModule options = do
             locationReinstall = False
           }
   plans <- mapM (planConstraint resolver) (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
-  installed <- installPlanPackages compileConfig locations plans
+  installed <- installPlanPackages dependencyConfig locations plans
   let selected = map installedPackage installed
   validateSelectedPackageNames selected
   mapM_ requirePackageArchive selected

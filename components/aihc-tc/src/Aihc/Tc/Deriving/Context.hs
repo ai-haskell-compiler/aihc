@@ -456,6 +456,7 @@ predClassName predicate =
     EqPred {} -> "~"
     QuantifiedPred {} -> "quantified"
     IParamPred name _ -> name
+    IrredPred {} -> "irreducible"
 
 predArguments :: Pred -> [TcType]
 predArguments predicate =
@@ -464,6 +465,7 @@ predArguments predicate =
     EqPred left right -> [left, right]
     QuantifiedPred _ antecedents consequent -> concatMap predArguments antecedents <> predArguments consequent
     IParamPred _ payload -> [payload]
+    IrredPred constraint -> [constraint]
 
 typeableArguments :: Pred -> Maybe [TcType]
 typeableArguments predicate =
@@ -490,6 +492,7 @@ isBareVariablePredicate tyVars predicate =
     EqPred {} -> False
     QuantifiedPred {} -> False
     IParamPred {} -> False
+    IrredPred {} -> False
   where
     isPlanTyVar (TcTyVar tyVar) = tyVar `elem` tyVars
     isPlanTyVar _ = False

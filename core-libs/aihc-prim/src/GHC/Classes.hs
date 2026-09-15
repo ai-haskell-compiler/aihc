@@ -5,7 +5,8 @@
 {-# HLINT ignore "Use min" #-}
 
 module GHC.Classes
-  ( Eq (..),
+  ( CTuple0,
+    Eq (..),
     Ord (..),
     (&&),
     (||),
@@ -14,6 +15,16 @@ module GHC.Classes
 where
 
 import GHC.Types (Bool (..), Ordering (..))
+
+-- | The empty constraint tuple: what @()@ means at kind @Constraint@,
+-- as opposed to the unit type @()@ at kind @Type@. A type family whose
+-- result kind is @Constraint@ reduces to it when it has nothing to
+-- demand, as @Assert 'True _@ does. GHC wires this class in; here it is
+-- an ordinary class with no methods and one instance, so that solving it
+-- and giving it an empty dictionary need no special cases.
+class CTuple0
+
+instance CTuple0
 
 class Eq a where
   (==) :: a -> a -> Bool
