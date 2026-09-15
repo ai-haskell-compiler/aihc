@@ -1,0 +1,22 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (State#, RealWorld, catch#, newPromptTag#, prompt#, raise#, realWorld#)
+
+    -- An exception raised inside a prompt unwinds through it to the catch
+    -- outside.
+    run :: State# RealWorld -> (# State# RealWorld, Int #)
+    run s0 =
+      case newPromptTag# s0 of
+        (# s1, tag #) ->
+          catch# (\s2 -> prompt# tag (\_ -> raise# (1 :: Int)) s2) (\e s -> (# s, (e :: Int) + 2 #)) s1
+output: |
+  I# 3
+expression: |
+  case run realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: raise# unwinds through a prompt frame to the enclosing catch

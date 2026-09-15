@@ -68,6 +68,13 @@ data InterpretError
   | InterpretInvalidLocation !Int
   | InterpretBlackhole !Int
   | InterpretNoRunnableThreads
+  | -- | control0# found no prompt with its tag in the current state thread.
+    InterpretNoMatchingPrompt
+  | -- | control0# would have captured the evaluation of the thunk at the
+    -- location: an update entry lay between the call and its prompt.
+    InterpretCaptureAcrossThunk !Int
+  | -- | The control stack did not hold the entry a return expected.
+    InterpretControlStack !Text
   | InterpretCpsExpression !GrinExpr
   | InterpretProcessExit !Integer
   | InterpretRaisedException !Text
@@ -86,8 +93,22 @@ data RuntimeValue
   | RuntimeLocation !Int
   | RuntimeMutVar !GrinMutVar
   | RuntimeStableName !GrinStableName
+  | RuntimePromptTag !Int
+  | RuntimeContinuation !GrinContinuation
   | RuntimeStateToken
   deriving (Eq, Show)
+
+-- | The part of a computation that control0# captured: the control entries
+-- between the call and the prompt, top first, and the interpreter
+-- continuation of the call. The number identifies the capture. See
+-- 'raiseScheduled' for the control stack.
+data GrinContinuation = GrinContinuation !Int ![ControlEntry] !ScheduledContinuation
+
+instance Eq GrinContinuation where
+  GrinContinuation left _ _ == GrinContinuation right _ _ = left == right
+
+instance Show GrinContinuation where
+  show _ = "<continuation>"
 
 newtype GrinMutVar = GrinMutVar (IORef RuntimeValue)
 
@@ -177,6 +198,11 @@ data Machine = Machine
     machineNextLocation :: !Int,
     machineMVars :: !(IntMap GrinMVarState),
     machineNextMVar :: !Int,
+    -- | The next number for a prompt tag or a capture.
+    machineNextPromptNumber :: !Int,
+    -- | The control stack of the thread that runs now, top first. See
+    -- 'raiseScheduled'.
+    machineControlStack :: ![ControlEntry],
     machineTimers :: ![(Word64, GrinMutVar, RuntimeValue)],
     machineTransactions :: ![[(GrinMutVar, RuntimeValue)]],
     machineRunQueue :: !(Seq ThreadAction),
@@ -208,8 +234,32 @@ type EvalM = ExceptT EvalFailure (StateT Machine IO)
 -- | A suspended direct-style continuation. Keeping the continuation as an
 -- interpreter action lets yield# switch threads without relying on the host
 -- call stack to represent the resumed computation.
--- | A suspended thread: the location of its cell, and how it continues.
-data ThreadAction = ThreadAction !RuntimeValue !(EvalM [RuntimeValue])
+-- | A suspended thread: the location of its cell, its control stack, and how
+-- it continues.
+data ThreadAction = ThreadAction !RuntimeValue ![ControlEntry] !(EvalM [RuntimeValue])
+
+-- | One entry of a thread's control stack: what a raise, a return, or a
+-- capture finds between the running code and the rest of the program.
+--
+-- The interpreter's continuations are host closures, so a catch handler or
+-- a prompt kept on the host stack would be lost as soon as a capture
+-- unwound past it. Instead every catch, prompt, and thunk under evaluation
+-- pushes an entry, and returns, raises, and captures pop them: the same
+-- discipline as the native continuation chain, whose frame kinds these
+-- entries mirror.
+data ControlEntry
+  = -- | The handler of a catch, the state it is applied with, and where the
+    -- catch returns to.
+    ControlCatch !RuntimeValue ![RuntimeValue] !ScheduledContinuation
+  | -- | A prompt with the numbered tag, and where it returns to.
+    ControlPrompt !Int !ScheduledContinuation
+  | -- | A thunk under evaluation: its location and the cell to restore if
+    -- the evaluation raises.
+    ControlUpdate !Int !HeapCell
+  | -- | Where a resumed capture returns to when its body reaches the return
+    -- of the prompt it was captured up to. A raise and a capture both pass
+    -- through it, since a resume installs no prompt.
+    ControlResume !ScheduledContinuation
 
 newtype MVarValueWaiter = MVarValueWaiter (RuntimeValue -> ThreadAction)
 
@@ -285,6 +335,8 @@ initialMachine streams program allocations =
       machineNextLocation = length globalNodes + 1,
       machineMVars = IntMap.empty,
       machineNextMVar = 0,
+      machineNextPromptNumber = 0,
+      machineControlStack = [],
       machineTransactions = [],
       machineTimers = [],
       machineRunQueue = Seq.empty,
@@ -386,7 +438,7 @@ evalScheduledExpr env expr continue =
       matchScheduledAlternative (Map.insert binder value env) value alternatives continue
     GrinThrow exception -> do
       exceptionValue <- materializeValue env exception
-      throwE (EvalRaised exceptionValue)
+      raiseScheduled exceptionValue
     GrinCatch runtimeRep action handler state -> do
       actionValue <- materializeValue env action
       handlerValue <- materializeValue env handler
@@ -397,8 +449,8 @@ evalScheduledExpr env expr continue =
               0 -> continue results
               1 -> continue (drop 1 results)
               _ -> throwInterpret (InterpretResultArity expectedCount (length results))
-      forceScheduledValue actionValue (\forcedAction -> applyScheduledValue forcedAction stateValues receive)
-        `catchE` handleScheduledRaised handlerValue stateValues receive
+      pushControl (ControlCatch handlerValue stateValues receive)
+      forceScheduledValue actionValue (\forcedAction -> applyScheduledValue forcedAction stateValues returnThroughControl)
     GrinForeignCallExpr foreignCall arguments -> do
       argumentValues <- mapM (materializeValue env) arguments
       continue =<< executeForeignCall foreignCall argumentValues
@@ -408,14 +460,17 @@ evalScheduledExpr env expr continue =
 evalScheduledPrimitive :: Text -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
 evalScheduledPrimitive "fork#" [action] continue = do
   threadId <- allocateThread
-  enqueueThreadAs
-    threadId
-    ( -- The child thread enters its own closure. Forking a thunk is legal, and
-      -- an already forced action may sit behind an indirection, so neither is
-      -- a value 'applyScheduledValue' can consume directly.
-      forceScheduledValue action (\entered -> applyScheduledValue entered [] (const scheduleNextThread))
-        `catchE` finishChild
-    )
+  -- A new thread starts with an empty control stack.
+  pushThread $
+    ThreadAction
+      threadId
+      []
+      ( -- The child thread enters its own closure. Forking a thunk is legal, and
+        -- an already forced action may sit behind an indirection, so neither is
+        -- a value 'applyScheduledValue' can consume directly.
+        forceScheduledValue action (\entered -> applyScheduledValue entered [] (const scheduleNextThread))
+          `catchE` finishChild
+      )
   continue [threadId]
 evalScheduledPrimitive "yield#" [] continue = do
   enqueueThread (continue [])
@@ -444,7 +499,8 @@ evalScheduledPrimitive "readMVar#" [mvarValue] continue = do
     Just value -> continue [value]
     Nothing -> do
       owner <- getsMachine machineCurrentThread
-      let waiter = MVarValueWaiter (\value -> ThreadAction owner (continue [value]))
+      stack <- getsMachine machineControlStack
+      let waiter = MVarValueWaiter (\value -> ThreadAction owner stack (continue [value]))
       writeMVarState identifier mvar {grinMVarReaders = grinMVarReaders mvar |> waiter}
       scheduleNextThread
 evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
@@ -452,7 +508,8 @@ evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
   case grinMVarValue mvar of
     Nothing -> do
       owner <- getsMachine machineCurrentThread
-      let waiter = MVarValueWaiter (\value -> ThreadAction owner (continue [value]))
+      stack <- getsMachine machineControlStack
+      let waiter = MVarValueWaiter (\value -> ThreadAction owner stack (continue [value]))
       writeMVarState identifier mvar {grinMVarTakers = grinMVarTakers mvar |> waiter}
       scheduleNextThread
     Just value -> do
@@ -472,7 +529,8 @@ evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
   case grinMVarValue mvar of
     Just _ -> do
       owner <- getsMachine machineCurrentThread
-      let putter = ThreadAction owner (continue [])
+      stack <- getsMachine machineControlStack
+      let putter = ThreadAction owner stack (continue [])
       writeMVarState identifier mvar {grinMVarPutters = grinMVarPutters mvar |> (value, putter)}
       scheduleNextThread
     Nothing -> do
@@ -494,8 +552,101 @@ evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
                 grinMVarTakers = remaining
               }
       continue []
+evalScheduledPrimitive "newPromptTag#" [] continue = do
+  number <- freshPromptNumber
+  continue [RuntimePromptTag number]
+evalScheduledPrimitive "prompt#" [tagValue, action] continue = do
+  tag <- expectPromptTagPrimitiveArgument "prompt#" tagValue
+  pushControl (ControlPrompt tag continue)
+  forceScheduledValue action (\entered -> applyScheduledValue entered [] returnThroughControl)
+evalScheduledPrimitive "aihcControl0#" [tagValue, function] continue = do
+  tag <- expectPromptTagPrimitiveArgument "aihcControl0#" tagValue
+  (entries, promptContinue) <- captureControl tag []
+  number <- freshPromptNumber
+  let captured = RuntimeContinuation (GrinContinuation number entries continue)
+  -- The prompt is popped with the entries above it, so the function runs
+  -- where the prompt returned to.
+  applyScheduledValue function [captured] promptContinue
+evalScheduledPrimitive "aihcResume#" [capturedValue, action] continue = do
+  GrinContinuation _ entries body <- expectContinuationPrimitiveArgument "aihcResume#" capturedValue
+  modifyMachine $ \machine ->
+    machine {machineControlStack = entries <> (ControlResume continue : machineControlStack machine)}
+  forceScheduledValue action (\entered -> applyScheduledValue entered [] body)
 evalScheduledPrimitive name arguments continue =
   continue =<< evalPrimitive name arguments
+
+pushControl :: ControlEntry -> EvalM ()
+pushControl entry =
+  modifyMachine $ \machine -> machine {machineControlStack = entry : machineControlStack machine}
+
+popControl :: EvalM (Maybe ControlEntry)
+popControl = do
+  stack <- getsMachine machineControlStack
+  case stack of
+    [] -> pure Nothing
+    entry : rest -> do
+      modifyMachine $ \machine -> machine {machineControlStack = rest}
+      pure (Just entry)
+
+-- | Raise an exception to the nearest catch on the control stack. The catch
+-- entry is popped before its handler runs, so an exception the handler
+-- raises reaches the next catch out. A prompt and a resume are passed
+-- through, and a thunk under evaluation gets its cell back. With no catch
+-- left the exception leaves the thread.
+raiseScheduled :: RuntimeValue -> EvalM [RuntimeValue]
+raiseScheduled exception = do
+  entry <- popControl
+  case entry of
+    Nothing -> throwE (EvalRaised exception)
+    Just (ControlCatch handler state continue) -> applyScheduledValue handler (exception : state) continue
+    Just (ControlPrompt {}) -> raiseScheduled exception
+    Just (ControlResume {}) -> raiseScheduled exception
+    Just (ControlUpdate location cell) -> do
+      writeCell location cell
+      raiseScheduled exception
+
+-- | Return normally through the entry on top of the control stack: the
+-- catch, prompt, or resume whose body has just produced these values.
+returnThroughControl :: ScheduledContinuation
+returnThroughControl results = do
+  entry <- popControl
+  case entry of
+    Just (ControlCatch _ _ continue) -> continue results
+    Just (ControlPrompt _ continue) -> continue results
+    Just (ControlResume continue) -> continue results
+    Just (ControlUpdate {}) -> throwInterpret (InterpretControlStack "a body returned through a thunk update")
+    Nothing -> throwInterpret (InterpretControlStack "a body returned through an empty control stack")
+
+-- | Pop the control stack down to and including the nearest prompt with the
+-- tag. The entries above it are the captured part, top first; the prompt's
+-- continuation is where the capturing function runs.
+captureControl :: Int -> [ControlEntry] -> EvalM ([ControlEntry], ScheduledContinuation)
+captureControl tag captured = do
+  entry <- popControl
+  case entry of
+    Nothing -> throwInterpret InterpretNoMatchingPrompt
+    Just (ControlPrompt promptTag continue)
+      | promptTag == tag -> pure (reverse captured, continue)
+    Just (ControlUpdate location _) -> throwInterpret (InterpretCaptureAcrossThunk location)
+    Just other -> captureControl tag (other : captured)
+
+freshPromptNumber :: EvalM Int
+freshPromptNumber = do
+  number <- getsMachine machineNextPromptNumber
+  modifyMachine $ \machine -> machine {machineNextPromptNumber = number + 1}
+  pure number
+
+expectPromptTagPrimitiveArgument :: Text -> RuntimeValue -> EvalM Int
+expectPromptTagPrimitiveArgument name value =
+  case value of
+    RuntimePromptTag number -> pure number
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+expectContinuationPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinContinuation
+expectContinuationPrimitiveArgument name value =
+  case value of
+    RuntimeContinuation captured -> pure captured
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
 -- | The value field a failed try-take or try-read hands back. The caller must
 -- not look at it, and GHC leaves it undefined for the same reason.
@@ -540,15 +691,13 @@ finishChild failure =
     EvalRaised _ -> scheduleNextThread
     EvalInterpret _ -> throwE failure
 
--- | Suspend the thread that runs now, and keep its identity.
+-- | Suspend the thread that runs now, and keep its identity and its control
+-- stack.
 enqueueThread :: EvalM [RuntimeValue] -> EvalM ()
 enqueueThread action = do
   owner <- getsMachine machineCurrentThread
-  enqueueThreadAs owner action
-
--- | Suspend an action as the named thread. Only fork# names another thread.
-enqueueThreadAs :: RuntimeValue -> EvalM [RuntimeValue] -> EvalM ()
-enqueueThreadAs owner action = pushThread (ThreadAction owner action)
+  stack <- getsMachine machineControlStack
+  pushThread (ThreadAction owner stack action)
 
 pushThread :: ThreadAction -> EvalM ()
 pushThread thread =
@@ -567,9 +716,9 @@ scheduleNextThread = do
   queue <- getsMachine machineRunQueue
   case Seq.viewl queue of
     EmptyL -> throwInterpret InterpretNoRunnableThreads
-    ThreadAction owner action :< remaining -> do
+    ThreadAction owner stack action :< remaining -> do
       modifyMachine $ \machine ->
-        machine {machineRunQueue = remaining, machineCurrentThread = owner}
+        machine {machineRunQueue = remaining, machineCurrentThread = owner, machineControlStack = stack}
       action
 
 callScheduledFunction :: FunctionName -> [RuntimeValue] -> ScheduledContinuation -> EvalM [RuntimeValue]
@@ -624,15 +773,21 @@ forceScheduledLocation location continue = do
         ResultRep resultRep | isLiftedRuntimeRep resultRep -> pure ()
         resultRep -> throwInterpret (InterpretInvalidThunkResultRep functionName resultRep)
       writeCell location HeapBlackhole
+      -- The entry restores the cell if the evaluation raises, and refuses a
+      -- capture that would cross it.
+      pushControl (ControlUpdate location cell)
       callScheduledFunction functionName fields (updateThunk cell)
-        `catchE` \failure -> writeCell location cell >> throwE failure
     HeapValue (RuntimeLocation target) -> forceScheduledLocation target continue
     HeapValue _ -> continue (RuntimeLocation location)
-    HeapRaised exception -> throwE (EvalRaised exception)
+    HeapRaised exception -> raiseScheduled exception
     HeapBlackhole -> throwInterpret (InterpretBlackhole location)
     HeapThread _ -> continue (RuntimeLocation location)
   where
-    updateThunk original values =
+    updateThunk original values = do
+      entry <- popControl
+      case entry of
+        Just (ControlUpdate updated _) | updated == location -> pure ()
+        _ -> throwInterpret (InterpretControlStack "a thunk finished without its update entry on top")
       case values of
         [value] -> do
           writeCell location (HeapValue value)
@@ -652,17 +807,11 @@ matchScheduledAlternative env value alternatives continue = do
         Just bindings -> evalScheduledExpr (bindings `Map.union` env) (grinAltRhs alt) continue
         Nothing -> go inspected rest
 
-handleScheduledRaised :: RuntimeValue -> [RuntimeValue] -> ScheduledContinuation -> EvalFailure -> EvalM [RuntimeValue]
-handleScheduledRaised handler state continue failure =
-  case failure of
-    EvalRaised exception -> applyScheduledValue handler (exception : state) continue
-    EvalInterpret err -> throwE (EvalInterpret err)
-
 handleRaised :: RuntimeValue -> [RuntimeValue] -> EvalFailure -> EvalM [RuntimeValue]
 handleRaised handler state failure =
   case failure of
     EvalRaised exception -> applyValue handler (exception : state)
-    EvalInterpret err -> throwE (EvalInterpret err)
+    _ -> throwE failure
 
 -- | Resolve an atomic GRIN value into its runtime representation. This only
 -- captures variables and constructs nodes; it never forces a heap location or
@@ -781,6 +930,8 @@ isLiftedRuntimeValue value =
     RuntimeLocation {} -> True
     RuntimeMutVar {} -> False
     RuntimeStableName {} -> False
+    RuntimePromptTag {} -> False
+    RuntimeContinuation {} -> False
     RuntimeStateToken -> False
 
 evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
@@ -2435,6 +2586,8 @@ renderRawValueM value = do
     RuntimeLocation location -> throwInterpret (InterpretInvalidLocation location)
     RuntimeMutVar {} -> pure "<mutvar>"
     RuntimeStableName {} -> pure "<stable-name>"
+    RuntimePromptTag {} -> pure "<prompt-tag>"
+    RuntimeContinuation {} -> pure "<continuation>"
     RuntimeStateToken -> pure "<state>"
 
 renderRawArgument :: RuntimeValue -> EvalM Text

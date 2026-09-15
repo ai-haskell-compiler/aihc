@@ -1,0 +1,31 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    import GHC.Prim (State#, RealWorld, control0#, newPromptTag#, prompt#, realWorld#)
+
+    -- The capture to the outer tag runs through the inner prompt, so the
+    -- captured continuation contains the inner prompt frame. Resuming it
+    -- multiplies, returns through the inner prompt, and adds.
+    run :: State# RealWorld -> (# State# RealWorld, Int #)
+    run s0 =
+      case newPromptTag# s0 of
+        (# s1, outerTag #) ->
+          case newPromptTag# s1 of
+            (# s2, innerTag #) ->
+              prompt# outerTag
+                (\s3 -> case prompt# innerTag
+                               (\s4 -> case control0# outerTag (\k s5 -> k (\s6 -> (# s6, 2 #)) s5) s4 of
+                                         (# s7, x #) -> (# s7, x * 10 #))
+                               s3 of
+                          (# s8, y #) -> (# s8, y + 5 #))
+                s2
+output: |
+  I# 25
+expression: |
+  case run realWorld# of
+    (# _, x #) -> x
+status: pass
+reason: a captured continuation that contains another prompt resumes through it
