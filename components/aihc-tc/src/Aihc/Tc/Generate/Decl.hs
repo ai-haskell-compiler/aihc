@@ -4111,7 +4111,24 @@ sourceTypeKey home ty =
     TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
     TTypeApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
     TInfix left name _ right -> sourceTypeKey home left <> "$" <> typeConKey home name <> "$" <> sourceTypeKey home right
+    -- The types with their own syntax have no name to contribute, so each
+    -- shape names itself. A module that instantiates one associated family
+    -- at @()@ and again at @[a]@ would otherwise put both equations on the
+    -- same axiom key, and the second would be reported as a duplicate.
+    TFun _ argument result -> "Fun$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
+    TList _ arguments -> arguments `keyedUnder` "List"
+    TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
+    TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
+    TStar {} -> "Star"
+    TKindSig inner _ -> sourceTypeKey home inner
     _ -> "T"
+  where
+    arguments `keyedUnder` tag = T.concat (tag : [T.cons '$' (sourceTypeKey home argument) | argument <- arguments])
+    tupleFlavorKey flavor =
+      case flavor of
+        Boxed -> "Tuple"
+        Unboxed -> "UnboxedTuple"
+    intKey = T.pack . show
 
 -- | The axiom-key fragment of one type constructor. A constructor the home
 -- module declares itself contributes its bare name, and an imported one
@@ -4210,9 +4227,12 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
           [ (paramName param, (paramTyVar param, paramKind param))
           | param <- paramInfos
           ]
-  kinds <- getKinds
-  lhs <- checkSurfaceType tvEnv (typeFamilyEqLhs equation) (typeKind kinds)
-  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) (typeKind kinds)
+  -- The equation is not necessarily at kind @Type@: a family whose result
+  -- kind is higher, such as @Rep a :: Type -> Type@, has both sides at that
+  -- kind. The applied head gives it, and the right-hand side is read
+  -- against it.
+  (lhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
+  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) =<< zonkKind lhsKind
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon

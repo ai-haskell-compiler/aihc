@@ -157,7 +157,12 @@ lintAxiomDecl env declaration =
         (Left err, _) -> [err]
         (_, Left err) -> [err]
         (Right leftKind, Right rightKind) ->
-          [KindMismatch "axiom sides" leftKind rightKind | not (typesEqual binderEnv leftKind rightKind)]
+          -- The two sides are compared as kinds: a type family such as
+          -- @Rep a :: Type -> Type@ has a FUN kind, while the partially
+          -- applied constructor on the right takes its kind from a header
+          -- that binds every parameter with a forall. The two spell the
+          -- same non-dependent kind function.
+          [KindMismatch "axiom sides" leftKind rightKind | not (kindsEqual binderEnv leftKind rightKind)]
 
 bindLocal :: TypeEnv -> Binder -> Either LintError TypeEnv
 bindLocal env binder = do
