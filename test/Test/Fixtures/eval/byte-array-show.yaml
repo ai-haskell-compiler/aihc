@@ -1,0 +1,27 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Array.Byte (ByteArray)
+    import GHC.IsList (fromList)
+    import Prelude
+
+    -- GHC renders a byte array as a bracketed list of two-digit hexadecimal
+    -- bytes separated by ", ", so every byte keeps a leading zero.
+    bytes :: ByteArray
+    bytes = fromList [0, 15, 16, 171, 255]
+
+    main :: IO ()
+    main = do
+      print bytes
+      print (fromList [] :: ByteArray)
+      print (fromList [1] :: ByteArray)
+expression: main
+stdout: |
+  [0x00, 0x0f, 0x10, 0xab, 0xff]
+  []
+  [0x01]
+output: |
+  ()
+status: pass
+reason: Show ByteArray matches base's hexadecimal rendering, including the empty array

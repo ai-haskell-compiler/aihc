@@ -11,12 +11,14 @@ where
 
 import Data.Data (Data (..), mkNoRepType)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
+import GHC.Base (id, (.))
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.IsList (IsList (..))
 import GHC.Num (Num (..))
-import GHC.Prim (ByteArray#, MutableByteArray#, compareByteArrays#, copyByteArray#, indexWord8Array#, newByteArray#, sizeofByteArray#, unsafeFreezeByteArray#, writeWord8Array#, (+#), (-#), (<#), (==#))
+import GHC.Prim (ByteArray#, Int#, MutableByteArray#, compareByteArrays#, copyByteArray#, indexWord8Array#, newByteArray#, quotInt#, remInt#, sizeofByteArray#, unsafeFreezeByteArray#, word2Int#, word8ToWord#, writeWord8Array#, (+#), (-#), (<#), (==#))
 import GHC.ST (ST (..), runST)
+import GHC.Show (Show (..), ShowS, intToDigit, showChar, showString)
 import GHC.Types (Bool (..), Int (..), Ordering (..), isTrue#)
 import GHC.Word (Word8 (..))
 
@@ -120,6 +122,27 @@ lengthList = go 0
     go :: Int -> [b] -> Int
     go n [] = n
     go n (_ : rest) = go (n + 1) rest
+
+-- | Render a byte array the way @base@ does: a bracketed, comma-separated
+-- list of two-digit hexadecimal bytes, for example @[0x00, 0xff]@.
+instance Show ByteArray where
+  showsPrec _ bytes@(ByteArray arr#) = showChar '[' . go 0#
+    where
+      !(I# n#) = sizeofByteArray bytes
+      go i# =
+        if isTrue# (i# <# n#)
+          then
+            (if isTrue# (i# ==# 0#) then id else showString ", ")
+              . showHexByte (word2Int# (word8ToWord# (indexWord8Array# arr# i#)))
+              . go (i# +# 1#)
+          else showChar ']'
+
+-- | Show one byte as @0x@ followed by exactly two hexadecimal digits.
+showHexByte :: Int# -> ShowS
+showHexByte value# =
+  showString "0x"
+    . showChar (intToDigit (I# (quotInt# value# 16#)))
+    . showChar (intToDigit (I# (remInt# value# 16#)))
 
 -- | A byte array has no generic representation.
 instance Data ByteArray where
