@@ -6,6 +6,8 @@ module Control.Applicative
   ( Applicative (..),
     Alternative (..),
     Const (..),
+    WrappedMonad (WrapMonad, unwrapMonad),
+    WrappedArrow (WrapArrow, unwrapArrow),
     ZipList (..),
     liftA,
     liftA2,
@@ -16,8 +18,9 @@ module Control.Applicative
   )
 where
 
+import Control.Arrow (Arrow (..), (>>>))
 import Data.Semigroup.Internal (Monoid (..))
-import Prelude (Applicative (..), Eq (..), Functor (..), Maybe (..), Ord (..), (++), (<$>))
+import Prelude (Applicative (..), Eq (..), Functor (..), Maybe (..), Monad (..), Ord (..), const, (++), (<$>))
 
 liftA :: (Applicative f) => (a -> b) -> f a -> f b
 liftA = fmap
@@ -57,6 +60,31 @@ instance Functor (Const a) where
 instance (Monoid a) => Applicative (Const a) where
   pure _ = Const mempty
   Const left <*> Const right = Const (left `mappend` right)
+
+-- | Any 'Monad' can be made an 'Applicative' by sequencing its actions.
+newtype WrappedMonad m a = WrapMonad {unwrapMonad :: m a}
+
+instance (Monad m) => Functor (WrappedMonad m) where
+  fmap f (WrapMonad action) = WrapMonad (action >>= \value -> return (f value))
+
+instance (Monad m) => Applicative (WrappedMonad m) where
+  pure value = WrapMonad (return value)
+  WrapMonad functions <*> WrapMonad values =
+    WrapMonad (functions >>= \function -> values >>= \value -> return (function value))
+
+instance (Monad m) => Monad (WrappedMonad m) where
+  WrapMonad action >>= f = WrapMonad (action >>= \value -> unwrapMonad (f value))
+
+-- | Any 'Arrow' gives rise to an 'Applicative' in its output.
+newtype WrappedArrow a b c = WrapArrow {unwrapArrow :: a b c}
+
+instance (Arrow a) => Functor (WrappedArrow a b) where
+  fmap f (WrapArrow arrow) = WrapArrow (arrow >>> arr f)
+
+instance (Arrow a) => Applicative (WrappedArrow a b) where
+  pure value = WrapArrow (arr (const value))
+  WrapArrow functions <*> WrapArrow values =
+    WrapArrow ((functions &&& values) >>> arr (\(function, value) -> function value))
 
 newtype ZipList a = ZipList {getZipList :: [a]}
   deriving newtype (Functor)

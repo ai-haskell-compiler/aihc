@@ -1,0 +1,22 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int16, Int32, Int64, Int8)
+    import Data.Word (Word16, Word32, Word64, Word8)
+
+    data Results = Results Bool Bool Bool Bool Bool Bool
+
+    result :: Results
+    result =
+      Results
+        (read "7" == (7 :: Word8) && read "40000" == (40000 :: Word16))
+        (readsPrec 11 "4294967295 rest" == [(maxBound :: Word32, " rest")])
+        (readsPrec 11 "18446744073709551615" == [(maxBound :: Word64, "")])
+        (read "12345" == (12345 :: Word) && read "-128" == (-128 :: Int8))
+        (read "-32768" == (minBound :: Int16) && read "2147483647" == (maxBound :: Int32))
+        (readsPrec 11 "-9223372036854775808" == [(minBound :: Int64, "")])
+expression: result
+output: Results True True True True True True
+status: pass
+reason: The sized word and int types read their digits like Int and Integer do

@@ -1,3 +1,4 @@
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -28,6 +29,7 @@ module GHC.Generics
 where
 
 import Data.Kind (Type)
+import Prelude (Functor (..))
 
 data V1 p
 
@@ -80,3 +82,31 @@ class Generic a where
 class Generic1 (f :: Type -> Type) where
   from1 :: f a -> Rep1 f a
   to1 :: Rep1 f a -> f a
+
+instance Functor V1 where
+  fmap _ v = case v of {}
+
+instance Functor U1 where
+  fmap _ _ = U1
+
+instance Functor Par1 where
+  fmap f (Par1 value) = Par1 (f value)
+
+instance (Functor f) => Functor (Rec1 f) where
+  fmap f (Rec1 values) = Rec1 (fmap f values)
+
+instance Functor (K1 i c) where
+  fmap _ (K1 value) = K1 value
+
+instance (Functor f) => Functor (M1 i c f) where
+  fmap f (M1 values) = M1 (fmap f values)
+
+instance (Functor f, Functor g) => Functor (f :+: g) where
+  fmap f (L1 values) = L1 (fmap f values)
+  fmap f (R1 values) = R1 (fmap f values)
+
+instance (Functor f, Functor g) => Functor (f :*: g) where
+  fmap f (left :*: right) = fmap f left :*: fmap f right
+
+instance (Functor f, Functor g) => Functor (f :.: g) where
+  fmap f (Comp1 values) = Comp1 (fmap (fmap f) values)

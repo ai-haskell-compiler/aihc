@@ -22,7 +22,7 @@ import Data.Semigroup.Internal
     stimesMonoid,
   )
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import Prelude (Bool (..), Eq (..), Ord (..), Ordering (..))
+import Prelude (Bool (..), Eq (..), Functor (..), Ord (..), Ordering (..))
 
 newtype Min a = Min {getMin :: a}
 
@@ -140,3 +140,18 @@ instance (Ord a) => Ord (Arg a b) where
     case leftKey >= rightKey of
       True -> left
       False -> right
+
+instance Functor Min where
+  fmap f (Min value) = Min (f value)
+
+instance Functor Max where
+  fmap f (Max value) = Max (f value)
+
+instance Functor First where
+  fmap f (First value) = First (f value)
+
+instance Functor Last where
+  fmap f (Last value) = Last (f value)
+
+instance Functor (Arg a) where
+  fmap f (Arg key value) = Arg key (f value)
