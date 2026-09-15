@@ -140,6 +140,7 @@ derivingObligations kinds plan =
           Just $ case shape of
             FieldObligations -> map (ClassPred (tcDerivingClassTyCon plan) . (: [])) . concat <$> stockFieldTypes plan
             FunctorialObligations -> functorialObligations plan
+            NoObligations -> Right []
       | otherwise -> Nothing
     TcDerivingNewtype ->
       Just (coercedObligations kinds plan <$> newtypeRepresentation plan)

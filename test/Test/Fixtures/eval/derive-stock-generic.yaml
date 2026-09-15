@@ -1,0 +1,44 @@
+extensions:
+  - DeriveGeneric
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    import GHC.Generics (Generic (..))
+
+    data Colour = Red | Green | Blue
+      deriving stock (Eq, Show, Generic)
+
+    data Pair a = Pair a Bool
+      deriving stock (Eq, Show, Generic)
+
+    data Record = Record {left :: !Int, right :: Char}
+      deriving stock (Eq, Show, Generic)
+
+    newtype Wrap = Wrap Char
+      deriving stock (Eq, Show, Generic)
+
+    data Nested a = One a | Two Bool | Three | Four a Char
+      deriving stock (Eq, Show, Generic)
+
+    roundTrip :: (Generic a) => a -> a
+    roundTrip value = to (from value)
+
+    same :: (Eq a, Generic a) => a -> Bool
+    same value = roundTrip value == value
+
+    result :: Bool
+    result =
+      all same [Red, Green, Blue]
+        && same (Pair (7 :: Int) True)
+        && same (Record 3 'r')
+        && same (Wrap 'w')
+        && all same [One (1 :: Int), Two False, Three, Four 2 'z']
+expression: result
+output: |
+  True
+status: pass
+reason: a derived Generic instance takes every constructor apart into its representation and puts it back together

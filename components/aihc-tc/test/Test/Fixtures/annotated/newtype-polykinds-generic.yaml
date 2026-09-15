@@ -16,4 +16,4 @@ modules:
   newtype Wrapper f a = Wrapper (f a) deriving (Generic, Generic1)
   newtype Constant a b = Constant a deriving (Generic, Generic1)
 status: pass
-reason: Generic1 must specialize the kind of a polymorphic newtype.
+reason: a poly-kinded newtype specializes the kind of its Generic1 head, and neither Generic nor Generic1 generates an instance for it yet.
