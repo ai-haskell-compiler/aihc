@@ -1,0 +1,78 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  class Pick a where
+    pick :: a -> Bool
+    other :: a -> Bool
+
+  data Base = Base Bool
+
+  instance Pick Base where
+    pick (Base b) = b
+    other (Base b) = b
+
+  newtype Wrap = Wrap Base deriving newtype (Pick)
+
+  run :: Wrap -> Bool
+  run w = pick w
+inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.t$Dict$Pick (a : 2.sType) :: 2.sType {
+      1.c$Dict$Pick :: ∀(a : 2.sType). (a 2.→ 2.tBool) 2.→ (a 2.→ 2.tBool) 2.→ 1.t$Dict$Pick a
+  }
+
+  type 1.tBase :: 2.sType {
+      1.cBase :: 2.tBool 2.→ 1.tBase
+  }
+
+  type 1.tWrap :: 2.sType {}
+
+  axiom 1.$ax$Wrap : 1.tWrap ~R 1.tBase
+
+  pub val 1.v$fPickBase :: 1.t$Dict$Pick 1.tBase
+   = 1.c$Dict$Pick @1.tBase 1.v$fPickBase$cpick 1.v$fPickBase$cother
+
+  val 1.v$fPickBase$cpick :: 1.tBase 2.→ 2.tBool
+   = λ(x : 1.tBase).
+    case x as (_scrut : 1.tBase) return (2.tBool) of {
+        1.cBase (b : 2.tBool) →
+            b
+    }
+
+  val 1.v$fPickBase$cother :: 1.tBase 2.→ 2.tBool
+   = λ(x : 1.tBase).
+    case x as (_scrut : 1.tBase) return (2.tBool) of {
+        1.cBase (b : 2.tBool) →
+            b
+    }
+
+  pub val 1.v$fPickWrap :: 1.t$Dict$Pick 1.tWrap
+   = 1.v$fPickBase ▷ tycon-co 1.t$Dict$Pick (sym (axiom-co 1.$ax$Wrap))
+
+  pub val 1.vrun :: 1.tWrap 2.→ 2.tBool
+   = λ(x : 1.tWrap).
+    (1.v$fPickBase$cpick ▷ fun-co (sym (axiom-co 1.$ax$Wrap)) (refl 2.tBool)) x
+status: pass
+reason: A derived newtype instance is a cast of the underlying dictionary, so a method call scrutinises a cast constructor application. Pushing the cast into the application selects the method without the case and leaves a direct call.
