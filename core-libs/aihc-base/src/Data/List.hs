@@ -1,9 +1,52 @@
 module Data.List
-  ( module GHC.List,
+  ( -- @GHC.List@ is re-exported name by name rather than as a module, so
+    -- that its list-only @foldl'@ can be left out in favour of the
+    -- 'Foldable' one, as in @base@.
+    map,
+    (++),
+    head,
+    last,
+    tail,
+    init,
+    uncons,
+    unsnoc,
+    null,
+    length,
+    (!!),
+    foldl,
+    foldl',
+    foldl1,
+    foldr,
+    foldr1,
+    scanl,
+    scanl1,
+    scanl',
+    scanr,
+    scanr1,
+    iterate,
+    iterate',
+    repeat,
+    replicate,
+    cycle,
+    take,
+    drop,
+    splitAt,
+    takeWhile,
+    dropWhile,
+    span,
+    break,
+    reverse,
+    zip,
+    zip3,
+    zipWith,
+    zipWith3,
+    unzip,
+    unzip3,
     intersperse,
     intercalate,
     transpose,
     subsequences,
+    permutations,
     foldl1',
     concat,
     concatMap,
@@ -68,8 +111,12 @@ module Data.List
   )
 where
 
+import Data.Foldable (foldl')
 import Data.Traversable (mapAccumL, mapAccumR)
-import GHC.List
+-- @foldl'@ comes from 'Data.Foldable' here, as it does in @base@: the rest of
+-- the fold vocabulary this module re-exports is already the 'Foldable'
+-- method, and only 'GHC.List' keeps a list-only @foldl'@.
+import GHC.List hiding (foldl')
 import Prelude
   ( Bool (..),
     Eq (..),
@@ -82,6 +129,7 @@ import Prelude
     errorWithoutStackTrace,
     flip,
     fromIntegral,
+    id,
     lines,
     snd,
     unlines,
@@ -122,6 +170,30 @@ nonEmptySubsequences :: [a] -> [[a]]
 nonEmptySubsequences [] = []
 nonEmptySubsequences (value : values) =
   [value] : foldr (\subsequence rest -> subsequence : (value : subsequence) : rest) [] (nonEmptySubsequences values)
+
+permutations :: [a] -> [[a]]
+permutations values = values : permutationsAfter values []
+
+-- Every permutation other than the input itself: pick each element in turn and
+-- interleave it into the permutations of the elements picked before it.
+permutationsAfter :: [a] -> [a] -> [[a]]
+permutationsAfter [] _ = []
+permutationsAfter (value : values) taken =
+  foldr
+    (interleaveEverywhere value values)
+    (permutationsAfter values (value : taken))
+    (permutations taken)
+
+interleaveEverywhere :: a -> [a] -> [a] -> [[a]] -> [[a]]
+interleaveEverywhere value values permutation rest =
+  snd (interleaveInto value values id permutation rest)
+
+interleaveInto :: a -> [a] -> ([a] -> [a]) -> [a] -> [[a]] -> ([a], [[a]])
+interleaveInto _ values _ [] rest = (values, rest)
+interleaveInto value values prefix (first : others) rest =
+  (first : rebuilt, prefix (value : first : rebuilt) : expanded)
+  where
+    (rebuilt, expanded) = interleaveInto value values (\prefixed -> prefix (first : prefixed)) others rest
 
 unfoldr :: (b -> Maybe (a, b)) -> b -> [a]
 unfoldr step seed =

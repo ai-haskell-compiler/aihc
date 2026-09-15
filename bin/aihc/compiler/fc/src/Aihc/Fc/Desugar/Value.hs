@@ -312,10 +312,11 @@ mergePreparedValueInterfaces interfaces =
 
 desugarValues :: ConvertEnv -> TypeOf.TypeEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
-  let (package, moduleName') = moduleOrigin
+  let -- Bindings carry the key they are registered under, so this indexes
+      -- them without reattaching a module of its own.
       localTypes =
         Map.fromList
-          [ (TcTermGlobal package moduleName' (tbName binding), tbType binding)
+          [ (tbKey binding, tbType binding)
           | binding <- bindings
           ]
       initialState =

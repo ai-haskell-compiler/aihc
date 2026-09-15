@@ -30,6 +30,7 @@ import GHC.Prim
     (==#),
   )
 import GHC.Prim.Base (List (..), Maybe (..))
+import GHC.Tuple (Solo (..))
 import GHC.Types (Bool (..), Char (..), Ordering (..))
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 
@@ -385,4 +386,30 @@ instance (Eq a, Eq b) => Eq (a, b) where
 instance (Eq a, Eq b, Eq c) => Eq (a, b, c) where
   (leftA, leftB, leftC) == (rightA, rightB, rightC) =
     leftA == rightA && leftB == rightB && leftC == rightC
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d) => Eq (a, b, c, d) where
+  (leftA, leftB, leftC, leftD) == (rightA, rightB, rightC, rightD) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e) => Eq (a, b, c, d, e) where
+  (leftA, leftB, leftC, leftD, leftE) == (rightA, rightB, rightC, rightD, rightE) =
+    leftA == rightA && leftB == rightB && leftC == rightC && leftD == rightD && leftE == rightE
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f) => Eq (a, b, c, d, e, f) where
+  (leftA, leftB, leftC, leftD, leftE, leftF) == (rightA, rightB, rightC, rightD, rightE, rightF) =
+    (leftA == rightA && leftB == rightB && leftC == rightC)
+      && (leftD == rightD && leftE == rightE && leftF == rightF)
+  left /= right = not (left == right)
+
+instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g) => Eq (a, b, c, d, e, f, g) where
+  (leftA, leftB, leftC, leftD, leftE, leftF, leftG) == (rightA, rightB, rightC, rightD, rightE, rightF, rightG) =
+    (leftA == rightA && leftB == rightB && leftC == rightC)
+      && (leftD == rightD && leftE == rightE && leftF == rightF && leftG == rightG)
+  left /= right = not (left == right)
+
+instance (Eq a) => Eq (Solo a) where
+  MkSolo left == MkSolo right = left == right
   left /= right = not (left == right)

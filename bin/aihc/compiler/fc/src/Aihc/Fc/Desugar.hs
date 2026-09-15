@@ -241,7 +241,7 @@ desugarFromInterface config moduleBindings interface checked = do
       tyCons = Map.fromList [(tyConSourceKey info, info) | info <- tcInterfaceTyCons interface]
       classes = Map.fromList [(classSourceKey info, info) | info <- tcInterfaceClasses interface]
       typeFamilyInstances = Map.fromList [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances interface]
-      bindings = Map.union (localBindingMap packageId currentModule moduleBindings) (bindingsFromInterface interface)
+      bindings = Map.union (localBindingMap moduleBindings) (bindingsFromInterface interface)
       headers = headerIndex convertEnv interface
   typeDecls <-
     concat
@@ -427,21 +427,23 @@ bindingsFromInterface interface =
   Map.fromList (termBindings <> instanceBindings <> defaultMethodBindings)
   where
     termBindings =
-      [ (key, TcBindingResult identifier identifier (interfaceSchemeType scheme))
+      [ (key, TcBindingResult key identifier (interfaceSchemeType scheme))
       | (key@(TcTermGlobal _ _ identifier), scheme) <- tcInterfaceTerms interface
       ]
     instanceBindings =
-      [ (TcTermGlobal (PackageId package) moduleName' (iiDictName info), TcBindingResult (iiDictName info) (iiDictName info) (iiDictType info))
+      [ (key, TcBindingResult key (iiDictName info) (iiDictType info))
       | info <- tcInterfaceInstances interface,
         let (package, moduleName') = iiDictOrigin info
+            key = TcTermGlobal (PackageId package) moduleName' (iiDictName info)
       ]
     defaultMethodBindings =
-      [ (TcTermGlobal (PackageId package) moduleName' workerName, TcBindingResult workerName workerName (interfaceSchemeType workerScheme))
+      [ (key, TcBindingResult key workerName (interfaceSchemeType workerScheme))
       | info <- tcInterfaceClasses interface,
         Just (package, moduleName') <- [ciOrigin info],
         methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = defaultMethodName methodName
+            key = TcTermGlobal (PackageId package) moduleName' workerName
             workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
@@ -463,10 +465,11 @@ failedDesugar messages =
       dsErrors = messages
     }
 
-localBindingMap :: PackageId -> Text -> [TcBindingResult] -> Map.Map TcTermKey TcBindingResult
-localBindingMap package moduleName' =
-  Map.fromList
-    . map (\binding -> (TcTermGlobal package moduleName' (tbName binding), binding))
+-- | Index bindings by the identity they carry. A binding names the module
+-- that declares it, so a list that spans several modules indexes without
+-- collision.
+localBindingMap :: [TcBindingResult] -> Map.Map TcTermKey TcBindingResult
+localBindingMap = Map.fromList . map (\binding -> (tbKey binding, binding))
 
 dsDecl ::
   ConvertEnv ->

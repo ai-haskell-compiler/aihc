@@ -96,6 +96,15 @@ module Prelude
     putChar,
     putStr,
     putStrLn,
+    getChar,
+    getLine,
+    getContents,
+    interact,
+    readFile,
+    writeFile,
+    appendFile,
+    readIO,
+    readLn,
     showChar,
     showParen,
     shows,
@@ -155,8 +164,9 @@ import GHC.Err (error, errorWithoutStackTrace, undefined)
 import GHC.Float (Double, Float, Floating (..), RealFloat (..))
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Exception (IOError, ioError, userError)
-import GHC.IO.Handle.Text (hPutStr)
-import GHC.IO.StdHandles (stdout)
+import GHC.IO.Handle.Text (hGetChar, hGetContents, hGetLine, hPutStr)
+import GHC.IO.IOMode (IOMode (..))
+import GHC.IO.StdHandles (openFile, stdin, stdout, withFile)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Char (Char (..))
@@ -692,6 +702,35 @@ putStrLn characters = do
 
 print :: (Show a) => a -> IO ()
 print value = putStrLn (show value)
+
+getChar :: IO Char
+getChar = hGetChar stdin
+
+getLine :: IO String
+getLine = hGetLine stdin
+
+getContents :: IO String
+getContents = hGetContents stdin
+
+interact :: (String -> String) -> IO ()
+interact function = do
+  input <- getContents
+  putStr (function input)
+
+readFile :: FilePath -> IO String
+readFile path = openFile path ReadMode >>= hGetContents
+
+writeFile :: FilePath -> String -> IO ()
+writeFile path text = withFile path WriteMode (`hPutStr` text)
+
+appendFile :: FilePath -> String -> IO ()
+appendFile path text = withFile path AppendMode (`hPutStr` text)
+
+readIO :: (Read a) => String -> IO a
+readIO text = return (read text)
+
+readLn :: (Read a) => IO a
+readLn = getLine >>= readIO
 
 instance Functor List where
   fmap = fmapList

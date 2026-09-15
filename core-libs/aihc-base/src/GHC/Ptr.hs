@@ -15,14 +15,19 @@ module GHC.Ptr
   )
 where
 
+import Data.Kind (Type)
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
 import GHC.Prim (Addr#, addr2Int#, eqAddr#, int2Word#, ltAddr#, minusAddr#, nullAddr#, plusAddr#, remWord#, word2Int#, (-#))
 import GHC.Types (Bool (..), Ordering (..))
 
-data Ptr a = Ptr Addr#
+-- | The element type is an ordinary lifted type, as in @base@. The kind
+-- signature keeps @Ptr@ monokinded: this module is @GHC2021@, so without it
+-- @PolyKinds@ would infer @forall k. k -> Type@ and a @Ptr a@ written in one
+-- module would not match a @Ptr a@ written in another.
+data Ptr (a :: Type) = Ptr Addr#
 
-data FunPtr a = FunPtr Addr#
+data FunPtr (a :: Type) = FunPtr Addr#
 
 nullPtr :: Ptr a
 nullPtr = Ptr nullAddr#
