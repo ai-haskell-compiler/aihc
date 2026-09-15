@@ -62,6 +62,7 @@ addWork ct = case ctPred ct of
   ClassPred {} -> addDict ct
   QuantifiedPred {} -> addDict ct
   IParamPred {} -> addDict ct
+  IrredPred {} -> addDict ct
 
 -- | Main solver loop.
 solveLoop :: WorkList -> InertSet -> TcM SolveResult
@@ -219,6 +220,7 @@ partitionWanteds = foldr partitionOne ([], [])
         ClassPred {} -> (equalities, ct : dictionaries)
         QuantifiedPred {} -> (equalities, ct : dictionaries)
         IParamPred {} -> (equalities, ct : dictionaries)
+        IrredPred {} -> (equalities, ct : dictionaries)
 
 -- | Decompose a given constraint into atomic equalities.
 -- For example, @GADT a ~ GADT Bool@ decomposes into @[(a, Bool)]@.
@@ -259,6 +261,7 @@ applyGivenSubst givens ty = foldr applyOne ty givens
         ClassPred className arguments -> ClassPred className (map (applyOne equality) arguments)
         EqPred left right -> EqPred (applyOne equality left) (applyOne equality right)
         IParamPred name payload -> IParamPred name (applyOne equality payload)
+        IrredPred constraint -> IrredPred (applyOne equality constraint)
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred variables (map (applyOnePred equality) antecedents) (applyOnePred equality consequent)
 
@@ -294,6 +297,13 @@ solveWantedWithGivens skolems givenPredicates givenEqualities ct = case ctPred c
     case result of
       DictSolved -> pure []
       DictStuck stuck -> deferOrReport skolems stuck
+  irreducible@IrredPred {} -> do
+    kinds <- getKinds
+    let rewrittenGivens = map (rewritePred kinds givenEqualities) givenPredicates
+    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritePred kinds givenEqualities irreducible})
+    case result of
+      DictSolved -> pure []
+      DictStuck stuck -> deferOrReport skolems stuck
   IParamPred name payload -> do
     kinds <- getKinds
     payload' <- zonkType payload
@@ -323,6 +333,7 @@ predMetaVars predicate =
     ClassPred _ arguments -> concatMap typeMetaVars arguments
     EqPred left right -> typeMetaVars left <> typeMetaVars right
     IParamPred _ payload -> typeMetaVars payload
+    IrredPred constraint -> typeMetaVars constraint
     QuantifiedPred _ antecedents consequent -> concatMap predMetaVars antecedents <> predMetaVars consequent
 
 typeMetaVars :: TcType -> [Unique]
@@ -343,6 +354,7 @@ predTyVars predicate =
     ClassPred _ arguments -> concatMap typeTyVars arguments
     EqPred left right -> typeTyVars left <> typeTyVars right
     IParamPred _ payload -> typeTyVars payload
+    IrredPred constraint -> typeTyVars constraint
     QuantifiedPred variables antecedents consequent ->
       filter (`notElem` variables) (concatMap predTyVars antecedents <> predTyVars consequent)
 
@@ -366,6 +378,7 @@ rewritePred kinds equalities predicate =
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables (map (rewritePred kinds equalities) antecedents) (rewritePred kinds equalities consequent)
     IParamPred name payload -> IParamPred name (applyGivenSubst equalities payload)
+    IrredPred constraint -> IrredPred (applyGivenSubst equalities constraint)
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =

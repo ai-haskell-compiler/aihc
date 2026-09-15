@@ -1,0 +1,23 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Constraint)
+  class Unsatisfied
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  class Assert (Big g) Unsatisfied => Sized g where
+    type Big g :: Bool
+  data S = S
+  instance Sized S where
+    type Big S = 'False
+status: xfail
+reason: the failing branch of the assertion reduces to the constraint it demands, and that constraint is reported unsolved -- the point where a TypeError would be rendered

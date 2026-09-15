@@ -1,0 +1,2 @@
+status: pass
+reason: A superclass headed by a type family stays irreducible until an instance fixes the associated family, and the dictionary field it becomes survives FC.

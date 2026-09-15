@@ -173,6 +173,7 @@ predMetaVars :: Pred -> [Unique]
 predMetaVars (ClassPred _ args) = concatMap collectMetaVars args
 predMetaVars (EqPred a b) = collectMetaVars a ++ collectMetaVars b
 predMetaVars (IParamPred _ payload) = collectMetaVars payload
+predMetaVars (IrredPred constraint) = collectMetaVars constraint
 predMetaVars (QuantifiedPred variables antecedents consequent) =
   concatMap (collectMetaVars . tvKind) variables
     ++ concatMap predMetaVars antecedents
@@ -235,6 +236,7 @@ substMetasPred :: [(Unique, TcType)] -> Pred -> Pred
 substMetasPred subst (ClassPred cls args) = ClassPred cls (map (substMetas subst) args)
 substMetasPred subst (EqPred a b) = EqPred (substMetas subst a) (substMetas subst b)
 substMetasPred subst (IParamPred name payload) = IParamPred name (substMetas subst payload)
+substMetasPred subst (IrredPred constraint) = IrredPred (substMetas subst constraint)
 substMetasPred subst (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred
     (map (\variable -> setTyVarKind (substMetas subst (tvKind variable)) variable) variables)
@@ -246,6 +248,7 @@ zonkPred :: Pred -> TcM Pred
 zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
 zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
 zonkPred (IParamPred name payload) = IParamPred name <$> zonkType payload
+zonkPred (IrredPred constraint) = IrredPred <$> zonkType constraint
 zonkPred (QuantifiedPred variables antecedents consequent) =
   QuantifiedPred
     <$> mapM zonkVariable variables

@@ -1703,7 +1703,9 @@ annotateInstanceDeclTc origin derived = annotateInstanceDeclWithPlan origin deri
 annotateInstanceDeclWithPlan :: (Text, Text) -> Bool -> Maybe TcDerivingPlan -> InstanceDecl -> TcM Decl
 annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
-    (_, []) -> pure (DeclInstance instanceDecl)
+    -- An instance of a nullary class has no head types and still needs to be
+    -- registered and annotated: the FC desugarer refuses an instance
+    -- declaration that carries no type-checker annotation.
     (Nothing, _) -> pure (DeclInstance instanceDecl)
     (Just className, headArgTypes) -> do
       (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
@@ -1956,7 +1958,9 @@ tcInstanceDeclBodies (DeclAnn ann inner)
   | otherwise = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
-    (_, []) -> pure (DeclInstance instanceDecl)
+    -- An instance of a nullary class has no head types and still needs to be
+    -- registered and annotated: the FC desugarer refuses an instance
+    -- declaration that carries no type-checker annotation.
     (Nothing, _) -> pure (DeclInstance instanceDecl)
     (Just className, headArgTypes) -> do
       let classNameText = nameText className
@@ -2139,6 +2143,10 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
       case predicate of
         ClassPred {} -> True
         IParamPred {} -> True
+        -- A stuck constraint is dictionary-shaped: it reduces to a class
+        -- constraint or to the empty constraint tuple, never to evidence
+        -- that is erased.
+        IrredPred {} -> True
         EqPred {} -> False
         QuantifiedPred {} -> False
 
@@ -2208,6 +2216,8 @@ predDictBinder pred' =
     QuantifiedPred {} -> do
       ty <- predType pred'
       pure (TcDictBinderAnnotation "<quantified>" [] ty)
+    IrredPred constraint ->
+      pure (TcDictBinderAnnotation "<irreducible>" [] constraint)
     IParamPred name payload -> do
       ty <- predType pred'
       pure (TcDictBinderAnnotation name [payload] ty)
@@ -3440,6 +3450,7 @@ zonkPred pred' =
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
     IParamPred name payload -> IParamPred name <$> zonkType payload
+    IrredPred constraint -> IrredPred <$> zonkType constraint
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred <$> mapM defaultTyVarKinds variables <*> mapM zonkPred antecedents <*> zonkPred consequent
 
@@ -3938,6 +3949,7 @@ predType (EqPred left right) = do
   equalityTyCon <- wiredTyCon tcWiringEqualityTyCon (KFun (typeKind kinds) (KFun (typeKind kinds) (constraintKind kinds)))
   pure (TcTyCon equalityTyCon [left, right])
 predType (IParamPred name payload) = implicitParamType name payload
+predType (IrredPred constraint) = pure constraint
 predType (QuantifiedPred variables antecedents consequent) = do
   consequentType <- predType consequent
   let qualifiedType
@@ -4265,9 +4277,12 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
           [ (paramName param, (paramTyVar param, paramKind param))
           | param <- paramInfos
           ]
-  kinds <- getKinds
-  lhs <- checkSurfaceType tvEnv (typeFamilyEqLhs equation) (typeKind kinds)
-  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) (typeKind kinds)
+  -- The equation is checked at the family's own result kind, which is not
+  -- always 'Type': @Assert :: Bool -> Constraint -> Constraint@ has equations
+  -- whose sides are constraints. Converting both sides without an expectation
+  -- and unifying their kinds keeps a poly-kinded family open as well.
+  (lhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
+  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) lhsKind
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon

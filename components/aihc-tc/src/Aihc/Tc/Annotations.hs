@@ -466,6 +466,8 @@ renderPred pred' =
       renderTcType left ++ " ~ " ++ renderTcType right
     IParamPred name payload ->
       T.unpack name ++ " ∷ " ++ renderTcType payload
+    IrredPred constraint ->
+      renderTcType constraint
     QuantifiedPred variables antecedents consequent ->
       "∀ "
         ++ unwords (map (T.unpack . tvName) variables)
@@ -522,6 +524,7 @@ renderTcTypeInModule currentModule = go 0
       go 2 t1 ++ " ~ " ++ go 2 t2
     showPred (IParamPred name payload) =
       T.unpack name ++ " ∷ " ++ go 0 payload
+    showPred (IrredPred constraint) = go 0 constraint
     showPred predicate@QuantifiedPred {} = renderPred predicate
 
     parenIf False s = s

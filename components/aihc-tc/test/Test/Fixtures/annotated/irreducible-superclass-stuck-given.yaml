@@ -1,0 +1,25 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- ScopedTypeVariables
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, ScopedTypeVariables, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Constraint)
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  class Assert (Big g) () => Sized g where
+    type Big g :: Bool
+    size :: g -> Bool
+  relay :: forall g. Sized g => g -> Bool
+  relay = size
+  useStuck :: forall g. (Sized g, Assert (Big g) ()) => g -> Bool
+  useStuck = relay
+status: pass
+reason: a stuck constraint written in a signature discharges a wanted of the same shape, so a given and a wanted of one irreducible constraint compare equal

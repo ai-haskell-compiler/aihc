@@ -173,5 +173,6 @@ mentions variable = elem (tvUnique variable) . variables
       ClassPred _ arguments -> concatMap variables arguments
       EqPred left right -> variables left <> variables right
       IParamPred _ payload -> variables payload
+      IrredPred constraint -> variables constraint
       QuantifiedPred binders antecedents consequent ->
         concatMap (filter (`notElem` map tvUnique binders) . predicateVariables) (consequent : antecedents)

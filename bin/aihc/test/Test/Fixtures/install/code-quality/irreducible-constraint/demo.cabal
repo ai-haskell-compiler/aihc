@@ -1,0 +1,17 @@
+cabal-version: 3.0
+name: irreducible-constraint
+version: 0.1.0.0
+
+library
+  exposed-modules: Sized
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions:
+    ConstraintKinds
+    DataKinds
+    FlexibleContexts
+    KindSignatures
+    NoImplicitPrelude
+    TypeFamilies
+    UndecidableInstances

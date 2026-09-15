@@ -78,6 +78,7 @@ primTcWiring prim =
       tcWiringArrowTyCon = types ResolutionNamespaceType "(->)" 2,
       tcWiringTypeTyCon = types ResolutionNamespaceType "Type" 0,
       tcWiringConstraintTyCon = types ResolutionNamespaceType "Constraint" 0,
+      tcWiringConstraintTupleTyCon = tyCon ResolutionNamespaceType "GHC.Classes" "CTuple0" 0,
       tcWiringBoolTyCon = types ResolutionNamespaceType "Bool" 0,
       tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
       tcWiringEqualityTyCon = types ResolutionNamespaceType "~" 2,

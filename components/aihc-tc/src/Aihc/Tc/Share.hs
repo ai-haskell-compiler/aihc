@@ -147,6 +147,7 @@ sharePred predicate = do
       QuantifiedPred variables antecedents consequent ->
         QuantifiedPred <$> mapM shareTyVar variables <*> mapM sharePred antecedents <*> sharePred consequent
       IParamPred name payload -> IParamPred name <$> shareType payload
+      IrredPred constraint -> IrredPred <$> shareType constraint
   intern statePreds (\table state -> state {statePreds = table}) rebuilt
 
 shareScheme :: TypeScheme -> Share TypeScheme

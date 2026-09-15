@@ -1,0 +1,21 @@
+extensions:
+- DerivingStrategies
+- FlexibleInstances
+- GeneralizedNewtypeDeriving
+- KindSignatures
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE PolyKinds, DerivingStrategies, GeneralizedNewtypeDeriving, KindSignatures, FlexibleInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  class Eq2 a where
+    eq2 :: a -> a -> Bool
+  newtype Compose (f :: k -> Type) (g :: l -> k) (a :: l) = Compose (f (g a))
+    deriving newtype (Eq2)
+  class Lift1 f where
+    lift1 :: f a -> Bool
+  instance (Lift1 f, Lift1 g) => Lift1 (Compose f g) where
+    lift1 (Compose inner) = lift1 inner
+status: pass
+reason: the kind variables of a poly-kinded declaration stay open across an instance on it; checking an argument against the declared argument kind instead of unifying afterwards would pin them
