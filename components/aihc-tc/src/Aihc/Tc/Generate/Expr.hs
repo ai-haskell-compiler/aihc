@@ -558,8 +558,10 @@ inferCase sp scrutinee alts = do
 -- field declaration order.
 inferRecordCon :: SourceSpan -> Name -> [RecordField Expr] -> Bool -> TcM (Expr, TcType, [Ct])
 inferRecordCon sp name fields wildcard = do
+  -- The resolver expands a record wildcard into puns, so one that survives
+  -- means the constructor's fields were not in scope.
   when wildcard $
-    abortTc ("record wildcard construction is not supported at " <> show sp)
+    abortTc ("the fields of the record wildcard construction of " <> T.unpack (nameText name) <> " are not in scope at " <> show sp)
   con <- lookupRecordConstructor name
   args <- orderRecordFields sp con fields missingField
   inferExprAt sp (foldl EApp (EVar name) args)

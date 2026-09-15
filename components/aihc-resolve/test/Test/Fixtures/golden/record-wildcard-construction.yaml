@@ -1,0 +1,43 @@
+extensions:
+  - RecordWildCards
+modules:
+  - |
+    module Main where
+    data Nat = Z | S Nat
+    data Point = Point { px :: Nat, py :: Nat }
+    makePoint :: Nat -> Nat -> Point
+    makePoint px py = Point{..}
+    shiftFirst :: Nat -> Nat -> Point
+    shiftFirst first py = Point{px = S first, ..}
+annotated:
+  - |-
+    module Main where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Main
+         │     │   └─ v Main
+         │     └─ v Main
+         └─ t Main
+    data Point = Point { px :: Nat, py :: Nat }
+         │       └─ v Main     └─ t Main  └─ t Main
+         └─ t Main
+    makePoint :: Nat -> Nat -> Point
+    └─ v Main    │      │      └─ t Main
+                 │      └─ t Main
+                 └─ t Main
+    makePoint px py = Point{..}
+    └─ v Main │  │    └─ v 0
+              │  │    └─ v Main
+              │  │    └─ v 1
+              │  └─ v 1
+              └─ v 0
+    shiftFirst :: Nat -> Nat -> Point
+    └─ v Main     │      │      └─ t Main
+                  │      └─ t Main
+                  └─ t Main
+    shiftFirst first py = Point{px = S first, ..}
+    └─ v Main  └─ v 2│    └─ v 3     │ └─ v 2
+                     │    └─ v Main  └─ v Main
+                     └─ v 3
+status: pass
+reason: a record wildcard construction fills each remaining field with the
+  variable that has the field name, listed as a pun

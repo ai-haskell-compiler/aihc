@@ -16,7 +16,7 @@ packages:
 
 constraints:
   aihc-cpp ==2.0.0.0,
-  aihc-parser ==3.0.1.0
+  aihc-parser ==3.0.1.1
 
 package aihc-tc
   flags: +fuzz
