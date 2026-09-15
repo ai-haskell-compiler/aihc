@@ -4,7 +4,7 @@ module Test.Grin.Spec (tests) where
 
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as FcType
-import Aihc.Grin (GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram)
+import Aihc.Grin (GrinGlobal (..), GrinLintError (..), GrinProgram (..), InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding, lintProgram, lowerProgram, normalizeGrinProgram, prettyProgram)
 import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Resolve (PackageId (..))
@@ -268,7 +268,7 @@ prepareEvalProgram sourceName program =
 
 bindingName :: Text -> GrinProgram -> Text
 bindingName name program =
-  fromMaybe name (listToMaybe [globalName | (globalName, _) <- grinGlobals program, ("\0" <> name) `T.isSuffixOf` globalName])
+  fromMaybe name (listToMaybe [globalName | global <- grinGlobals program, let globalName = grinGlobalName global, ("\0" <> name) `T.isSuffixOf` globalName])
 
 evalBindingIsIo :: Text -> Fc.Program -> Bool
 evalBindingIsIo sourceName program =

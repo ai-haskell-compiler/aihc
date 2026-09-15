@@ -14,11 +14,11 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.I# [IntRep]
+  pub constructor 1.I# [IntRep]
 
   foreign 1.identityInt = "identity_int" :: (int) -> int ! real-world
 
-  global 1.run = (P$run/1)
+  pub global 1.run = (P$run/1)
 
   $run_identityInt_foreign (foreign_argument_0 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
     foreign_box :: BoxedRep Lifted <-

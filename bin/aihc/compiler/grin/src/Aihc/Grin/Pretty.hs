@@ -39,9 +39,14 @@ prettyScopes (Scopes numbers) =
   | (scope, number) <- Map.toAscList numbers
   ]
 
-prettyConstructor :: Scopes -> (T.Text, [[GrinRep]]) -> Doc ann
-prettyConstructor scopes (name, fieldLayouts) =
-  "constructor" <+> prettyName scopes name <+> "[" <> hsep (punctuate comma (map prettyLayout fieldLayouts)) <> "]"
+prettyConstructor :: Scopes -> GrinConstructorDecl -> Doc ann
+prettyConstructor scopes constructor =
+  prettyVis (grinConstructorVis constructor)
+    <> "constructor"
+    <+> prettyName scopes (grinConstructorName constructor)
+    <+> "["
+    <> hsep (punctuate comma (map prettyLayout (grinConstructorLayouts constructor)))
+    <> "]"
   where
     prettyLayout layout =
       case layout of
@@ -56,9 +61,21 @@ prettyForeign :: Scopes -> GrinForeignCall -> Doc ann
 prettyForeign scopes foreignCall =
   "foreign" <+> prettyForeignCall scopes foreignCall
 
-prettyGlobal :: Scopes -> (T.Text, GrinNode) -> Doc ann
-prettyGlobal scopes (name, node) =
-  "global" <+> prettyName scopes name <+> "=" <+> prettyNode scopes node
+prettyGlobal :: Scopes -> GrinGlobal -> Doc ann
+prettyGlobal scopes global =
+  prettyVis (grinGlobalVis global)
+    <> "global"
+    <+> prettyName scopes (grinGlobalName global)
+    <+> "="
+    <+> prettyNode scopes (grinGlobalNode global)
+
+-- | A public global carries the keyword; a private one is the default, so it
+-- carries nothing and a program with no visibility reads back as private.
+prettyVis :: GrinVis -> Doc ann
+prettyVis vis =
+  case vis of
+    GrinPub -> "pub" <> space
+    GrinPrivate -> mempty
 
 prettyFunction :: Scopes -> GrinFunction -> Doc ann
 prettyFunction scopes function =

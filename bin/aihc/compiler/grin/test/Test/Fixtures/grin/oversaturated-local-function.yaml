@@ -8,9 +8,9 @@ expected: |-
 
   scope 2 = "aihc-prim" GHC.Tuple
 
-  global 1.identity = (P$identity/1)
+  pub global 1.identity = (P$identity/1)
 
-  global 1.unit = (F$unit_thunk)
+  pub global 1.unit = (F$unit_thunk)
 
   $identity (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)

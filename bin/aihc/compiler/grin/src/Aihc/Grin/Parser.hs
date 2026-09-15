@@ -45,10 +45,10 @@ renderParseError :: GrinParseError -> String
 renderParseError = MP.errorBundlePretty
 
 data TopDeclaration
-  = TopConstructor (Text, [[GrinRep]])
+  = TopConstructor GrinConstructorDecl
   | TopPrimitive (GrinVar, Int)
   | TopForeign GrinForeignCall
-  | TopGlobal (Text, GrinNode)
+  | TopGlobal GrinGlobal
   | TopFunction GrinFunction
 
 programParser :: Parsec Void Text GrinProgram
@@ -111,6 +111,7 @@ topDeclaration = do
 
 constructorDeclaration :: Parser TopDeclaration
 constructorDeclaration = do
+  vis <- optionalPub
   keyword "constructor"
   horizontal1
   constructorName <- scopedName
@@ -119,7 +120,7 @@ constructorDeclaration = do
   fieldLayouts <- constructorLayouts
   lineEnd
   when (maybe False (/= length fieldLayouts) legacyArity) $ fail "constructor arity does not match its layout"
-  pure (TopConstructor (constructorName, fieldLayouts))
+  pure (TopConstructor (GrinConstructorDecl constructorName fieldLayouts vis))
 
 primitiveDeclaration :: Parser TopDeclaration
 primitiveDeclaration = do
@@ -139,8 +140,9 @@ foreignDeclaration = do
   lineEnd
   pure (TopForeign foreignCall)
 
-globalDeclaration :: Parser (Text, GrinNode)
+globalDeclaration :: Parser GrinGlobal
 globalDeclaration = do
+  vis <- optionalPub
   keyword "global"
   horizontal1
   globalName <- scopedName
@@ -149,7 +151,12 @@ globalDeclaration = do
   horizontal1
   node <- grinNode
   lineEnd
-  pure (globalName, node)
+  pure (GrinGlobal globalName node vis)
+
+-- | The visibility prefix of a declaration. Private is the default, so a
+-- program written without visibility reads back as a private one.
+optionalPub :: Parser GrinVis
+optionalPub = MP.option GrinPrivate (GrinPub <$ (keyword "pub" *> horizontal1))
 
 functionDeclaration :: Parser GrinFunction
 functionDeclaration = do

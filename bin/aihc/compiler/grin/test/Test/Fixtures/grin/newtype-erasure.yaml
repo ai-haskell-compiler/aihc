@@ -1,9 +1,9 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.IS [IntRep]
+  pub constructor 1.IS [IntRep]
 
-  global 1.value = (C1.IS (42 :: IntRep))
+  pub global 1.value = (C1.IS (42 :: IntRep))
 extensions:
 - MagicHash
 reason: removes the applied newtype conversion closure and does not allocate a newtype node

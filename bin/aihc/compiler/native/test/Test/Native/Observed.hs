@@ -55,7 +55,7 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
          ]
   where
     layouts =
-      Map.fromList [(name, concat argumentLayouts) | (name, argumentLayouts) <- grinConstructors program]
+      Map.fromList [(grinConstructorName c, concat (grinConstructorLayouts c)) | c <- grinConstructors program]
     constructorEntries =
       [ (index, name, fields)
       | (index, (name, fields)) <- zip [0 :: Int ..] (Map.toAscList layouts)

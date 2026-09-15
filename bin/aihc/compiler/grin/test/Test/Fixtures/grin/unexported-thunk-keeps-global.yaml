@@ -7,7 +7,7 @@ expected: |-
 
   global 1.shared = (F$shared_thunk)
 
-  global 1.visible = (F$visible_thunk)
+  pub global 1.visible = (F$visible_thunk)
 
   $shared_thunk -> BoxedRep Lifted =
     argument :: IntRep <-

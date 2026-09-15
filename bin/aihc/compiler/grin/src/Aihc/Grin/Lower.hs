@@ -11,6 +11,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
+import Aihc.Grin.Dce (sweptGrinProgram)
 import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Grin.Tidy (tidyGrinProgram)
@@ -77,8 +78,8 @@ data LowerState = LowerState
 type LowerM = StateT LowerState (Either String)
 
 data TopParts = TopParts
-  { topConstructors :: ![(Text, [[GrinRep]])],
-    topGlobals :: ![(Text, GrinNode)]
+  { topConstructors :: ![GrinConstructorDecl],
+    topGlobals :: ![GrinGlobal]
   }
 
 instance Semigroup TopParts where
@@ -104,23 +105,28 @@ lowerProgram program = do
     let env = baseEnv {lowerLocalFunctions = localFunctions}
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
   -- Normalizing first gives the simplifier flat bind spines, and normalizing
-  -- again folds the copy binds it leaves behind.
-  pure
-    ( tidyGrinProgram
-        ( normalizeGrinProgram
-            ( simplifyGrinProgram
-                ( normalizeGrinProgram
-                    GrinProgram
-                      { grinConstructors = topConstructors parts,
-                        grinPrimitives = Map.elems (lowerPrimitives finalState),
-                        grinForeignCalls = Map.elems (lowerForeignCalls finalState),
-                        grinGlobals = topGlobals parts <> Map.toList (lowerValueGlobals finalState),
-                        grinFunctions = reverse (lowerFunctionsRev finalState)
-                      }
-                )
-            )
-        )
-    )
+  -- again folds the copy binds it leaves behind. Sweeping between the two
+  -- drops what simplification orphaned, so the rest of the pipeline never
+  -- sees it and 'tidyGrinProgram' renumbers only what survives.
+  swept <-
+    sweptGrinProgram
+      ( simplifyGrinProgram
+          ( normalizeGrinProgram
+              GrinProgram
+                { grinConstructors = topConstructors parts,
+                  grinPrimitives = Map.elems (lowerPrimitives finalState),
+                  grinForeignCalls = Map.elems (lowerForeignCalls finalState),
+                  grinGlobals =
+                    topGlobals parts
+                      -- A static closure exists only because a private
+                      -- function of this module is used as a value, so no
+                      -- other module can name it.
+                      <> [GrinGlobal name node GrinPrivate | (name, node) <- Map.toList (lowerValueGlobals finalState)],
+                  grinFunctions = reverse (lowerFunctionsRev finalState)
+                }
+          )
+      )
+  pure (tidyGrinProgram (normalizeGrinProgram swept))
 
 lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
@@ -172,7 +178,7 @@ lowerTypeDecl env declaration = do
           resultRep <- liftEither (runtimeRep constructorEnv resultType)
           case resultRep of
             TupleRep {} -> pure []
-            _ -> pure [(constructorTag name, fieldLayouts)]
+            _ -> pure [GrinConstructorDecl (constructorTag name) fieldLayouts (lowerVis (Fc.conVis constructor))]
 
 lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
@@ -190,8 +196,17 @@ lowerValueDecl env declaration = do
       if hasGlobal env (Fc.valName declaration)
         then do
           globalName <- lookupGlobalName env (Fc.valName declaration)
-          pure mempty {topGlobals = [(globalName, node)]}
+          pure mempty {topGlobals = [GrinGlobal globalName node (lowerVis (Fc.valVis declaration))]}
         else pure mempty
+
+-- | GRIN inherits the export visibility of the declaration a global comes
+-- from, so that the roots of reachability are the same names another unit
+-- can link against.
+lowerVis :: Fc.Vis -> GrinVis
+lowerVis vis =
+  case vis of
+    Fc.Pub -> GrinPub
+    Fc.Private -> GrinPrivate
 
 isFunctionExpression :: Fc.Expr -> Bool
 isFunctionExpression = (> 0) . functionArity

@@ -13,6 +13,13 @@ module Aihc.Grin.Syntax
     liftedResultRep,
     resultRepComponents,
     GrinProgram (..),
+    GrinVis (..),
+    GrinConstructorDecl (..),
+    pubConstructor,
+    GrinGlobal (..),
+    pubGlobal,
+    grinGlobalRoots,
+    grinConstructorRoots,
     GrinFunction (..),
     FunctionName (..),
     GrinVar (..),
@@ -39,6 +46,11 @@ module Aihc.Grin.Syntax
     grinProgramLiterals,
     grinExprGlobalReferences,
     grinProgramGlobalReferences,
+    grinNodeGlobalReferences,
+    grinExprFunctionNames,
+    grinNodeFunctionNames,
+    grinExprConstructorTags,
+    grinNodeConstructorTags,
     grinValueRuntimeRep,
     grinVarNameNeedsNumber,
     unusedFunctionName,
@@ -154,13 +166,80 @@ grinNameScope name =
 
 -- | A whole GRIN program.
 data GrinProgram = GrinProgram
-  { grinConstructors :: ![(Text, [[GrinRep]])],
+  { grinConstructors :: ![GrinConstructorDecl],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
-    grinGlobals :: ![(Text, GrinNode)],
+    grinGlobals :: ![GrinGlobal],
     grinFunctions :: ![GrinFunction]
   }
   deriving (Eq, Show, Read)
+
+-- | Whether another unit can name a definition. GRIN inherits this from the
+-- export visibility of the System FC declaration it was lowered from, so
+-- that reachability is well defined: the public globals are the roots of the
+-- program, and anything they do not reach is dead.
+--
+-- A whole-program build demotes every declaration but the entry to
+-- 'GrinPrivate' before lowering, which is what makes the same sweep serve a
+-- whole-program build and a separate build of one module alike.
+data GrinVis
+  = GrinPub
+  | GrinPrivate
+  deriving (Eq, Ord, Show, Read)
+
+-- | One constructor of the program: the runtime layout of each of its
+-- logical fields, and whether another unit can name it.
+--
+-- A constructor is part of the interface of the module that declares it. Its
+-- info table is named wherever a value of it is built or matched, and a
+-- nullary one has a shared static object that stands for the single value it
+-- has, so a public constructor is a root of reachability even when no value
+-- of the declaring module mentions it.
+data GrinConstructorDecl = GrinConstructorDecl
+  { grinConstructorName :: !Text,
+    grinConstructorLayouts :: ![[GrinRep]],
+    grinConstructorVis :: !GrinVis
+  }
+  deriving (Eq, Show, Read)
+
+-- | A public constructor. See 'pubGlobal'.
+pubConstructor :: Text -> [[GrinRep]] -> GrinConstructorDecl
+pubConstructor name layouts = GrinConstructorDecl name layouts GrinPub
+
+-- | One static object of the global table.
+--
+-- Only a global carries visibility. Every public value gets one — a
+-- declaration goes without only when it is a private function or a
+-- constructor of one field or more — so the public globals name every entry
+-- another unit can take into this one. A function is reached from the tag of
+-- the node that names it and never on its own, so it needs no visibility of
+-- its own and is always internal to the object that defines it.
+data GrinGlobal = GrinGlobal
+  { grinGlobalName :: !Text,
+    grinGlobalNode :: !GrinNode,
+    grinGlobalVis :: !GrinVis
+  }
+  deriving (Eq, Show, Read)
+
+-- | A public global. Programs written by hand, in tests and in the runtime
+-- support, are whole and their globals are the roots, so this is what they
+-- want; code that lowers a declaration reads the visibility of that
+-- declaration instead.
+pubGlobal :: Text -> GrinNode -> GrinGlobal
+pubGlobal name node = GrinGlobal name node GrinPub
+
+-- | The globals that reachability starts from: the ones another unit can name.
+grinGlobalRoots :: GrinProgram -> [Text]
+grinGlobalRoots program =
+  [grinGlobalName global | global <- grinGlobals program, grinGlobalVis global == GrinPub]
+
+-- | The constructors that reachability starts from.
+grinConstructorRoots :: GrinProgram -> [Text]
+grinConstructorRoots program =
+  [ grinConstructorName constructor
+  | constructor <- grinConstructors program,
+    grinConstructorVis constructor == GrinPub
+  ]
 
 -- | A first-order code definition. Closures and thunks refer to functions by
 -- name and carry their environment as node fields.
@@ -331,11 +410,11 @@ grinProgramScopes program =
   Set.toAscList (Set.fromList (mapMaybe (fmap fst . grinNameScope) names))
   where
     names =
-      map fst (grinConstructors program)
-        <> map fst (grinGlobals program)
+      map grinConstructorName (grinConstructors program)
+        <> map grinGlobalName (grinGlobals program)
         <> map grinForeignCallName (grinForeignCalls program)
         <> grinProgramGlobalReferences program
-        <> concatMap (nodeTagNames . snd) (grinGlobals program)
+        <> concatMap (nodeTagNames . grinGlobalNode) (grinGlobals program)
         <> concatMap (exprTagNames . grinFunctionBody) (grinFunctions program)
 
 -- | The constructor tags that one expression names. Node tags and case
@@ -365,7 +444,7 @@ nodeTagNames node =
 
 grinProgramLiterals :: GrinProgram -> [GrinLiteral]
 grinProgramLiterals program =
-  concatMap (nodeLiterals . snd) (grinGlobals program)
+  concatMap (nodeLiterals . grinGlobalNode) (grinGlobals program)
     <> concatMap (exprLiterals . grinFunctionBody) (grinFunctions program)
   where
     exprLiterals expression =
@@ -413,7 +492,7 @@ grinProgramLiterals program =
 -- | Every explicit global-table reference in one program.
 grinProgramGlobalReferences :: GrinProgram -> [Text]
 grinProgramGlobalReferences program =
-  concatMap (nodeReferences . snd) (grinGlobals program)
+  concatMap (nodeReferences . grinGlobalNode) (grinGlobals program)
     <> concatMap (grinExprGlobalReferences . grinFunctionBody) (grinFunctions program)
 
 -- | Every explicit global-table reference in one expression.
@@ -448,8 +527,45 @@ grinExprGlobalReferences = exprReferences
         GrinForeignCallExpr _ arguments -> valuesReferences arguments
     valuesReferences = concatMap valueReferences
 
+-- | Every explicit global-table reference in the fields of one node.
+grinNodeGlobalReferences :: GrinNode -> [Text]
+grinNodeGlobalReferences = nodeReferences
+
 nodeReferences :: GrinNode -> [Text]
 nodeReferences = concatMap valueReferences . grinNodeFields
+
+-- | The functions one node names: the entry of a closure or a thunk.
+grinNodeFunctionNames :: GrinNode -> [FunctionName]
+grinNodeFunctionNames node =
+  case grinNodeTag node of
+    GrinClosure name _ -> [name]
+    GrinThunk name -> [name]
+    GrinConstructor {} -> []
+
+-- | The functions one expression names: the target of a call, and the entry
+-- of every node it builds.
+grinExprFunctionNames :: GrinExpr -> [FunctionName]
+grinExprFunctionNames = exprNames
+  where
+    exprNames expression =
+      case expression of
+        GrinCall _ name _ -> [name]
+        GrinBind _ valueExpression body -> exprNames valueExpression <> exprNames body
+        GrinStore node -> grinNodeFunctionNames node
+        GrinStoreUnchecked node -> grinNodeFunctionNames node
+        GrinStoreRec bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
+        GrinStoreRecUnchecked bindings body -> concatMap (grinNodeFunctionNames . snd) bindings <> exprNames body
+        GrinCase _ _ alternatives -> concatMap (exprNames . grinAltRhs) alternatives
+        _ -> []
+
+-- | The constructors one node names.
+grinNodeConstructorTags :: GrinNode -> [Text]
+grinNodeConstructorTags = nodeTagNames
+
+-- | The constructors one expression names: the tag of every node it builds
+-- and the constructor of every alternative it matches.
+grinExprConstructorTags :: GrinExpr -> [Text]
+grinExprConstructorTags = exprTagNames
 
 valueReferences :: GrinValue -> [Text]
 valueReferences value =

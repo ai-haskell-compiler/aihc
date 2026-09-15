@@ -144,6 +144,7 @@ library
     Aihc.Grin
     Aihc.Grin.Anf
     Aihc.Grin.Cps
+    Aihc.Grin.Dce
     Aihc.Grin.Gc
     Aihc.Grin.Heap
     Aihc.Grin.Interpret

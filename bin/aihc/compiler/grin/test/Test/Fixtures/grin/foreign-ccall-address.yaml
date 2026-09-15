@@ -1,11 +1,11 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Ptr [AddrRep]
+  pub constructor 1.Ptr [AddrRep]
 
   foreign 1.putsAddress = address "puts" :: () -> addr ! pure
 
-  global 1.address = (F$address_thunk)
+  pub global 1.address = (F$address_thunk)
 
   $address_thunk -> BoxedRep Lifted =
     foreign_result :: AddrRep <-

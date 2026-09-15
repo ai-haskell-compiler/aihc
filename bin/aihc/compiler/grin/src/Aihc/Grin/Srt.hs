@@ -41,7 +41,11 @@ import Data.Text (Text)
 data StaticObject = StaticObject
   { staticObjectName :: !Text,
     staticObjectNode :: !GrinNode,
-    staticObjectTraced :: !Bool
+    staticObjectTraced :: !Bool,
+    -- | Whether another unit can name this object. A private object is
+    -- internal to the object file, which lets the assembler and the linker
+    -- account for it as well.
+    staticObjectVis :: !GrinVis
   }
   deriving (Eq, Show, Read)
 
@@ -72,16 +76,23 @@ lookupStaticReferenceTable references name =
 -- references.
 programStaticObjects :: GrinProgram -> [StaticObject]
 programStaticObjects program =
-  [ StaticObject name node (staticNodeIsTraced node)
-  | (name, node) <- declaredGlobals <> implicitConstructors
+  [ StaticObject name node (staticNodeIsTraced node) vis
+  | (name, node, vis) <- declaredGlobals <> implicitConstructors
   ]
   where
-    declaredGlobals = grinGlobals program
-    declaredNames = Set.fromList (map fst declaredGlobals)
+    declaredGlobals =
+      [ (grinGlobalName global, grinGlobalNode global, grinGlobalVis global)
+      | global <- grinGlobals program
+      ]
+    declaredNames = Set.fromList (map grinGlobalName (grinGlobals program))
+    -- The shared object of a nullary constructor stands for a value of that
+    -- constructor wherever one is named, including in another unit that
+    -- builds one, so it follows the constructor rather than a declaration.
     implicitConstructors =
-      [ (name, GrinNode (GrinConstructor name 0) [])
-      | (name, layouts) <- grinConstructors program,
-        null layouts,
+      [ (name, GrinNode (GrinConstructor name 0) [], GrinPub)
+      | constructor <- grinConstructors program,
+        let name = grinConstructorName constructor,
+        null (grinConstructorLayouts constructor),
         not (name `Set.member` declaredNames)
       ]
 

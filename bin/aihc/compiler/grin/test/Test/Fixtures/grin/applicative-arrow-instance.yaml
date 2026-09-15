@@ -1,23 +1,23 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.$Dict$Fun [BoxedRep Lifted]
+  pub constructor 1.$Dict$Fun [BoxedRep Lifted]
 
-  constructor 1.$Dict$Ap [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+  pub constructor 1.$Dict$Ap [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.fmap' = (P$fmap'/1)
+  pub global 1.fmap' = (P$fmap'/1)
 
-  global 1.unit = (P$unit/1)
+  pub global 1.unit = (P$unit/1)
 
-  global 1.ap = (P$ap/1)
+  pub global 1.ap = (P$ap/1)
 
-  global 1.lift2 = (P$lift2/1)
+  pub global 1.lift2 = (P$lift2/1)
 
-  global 1.$dmlift2 = (P$$dmlift2/4)
+  pub global 1.$dmlift2 = (P$$dmlift2/4)
 
-  global 1."$fFun(->)r" = (C1.$Dict$Fun global-ref 1."$fFun(->)r$cfmap'")
+  pub global 1."$fFun(->)r" = (C1.$Dict$Fun global-ref 1."$fFun(->)r$cfmap'")
 
-  global 1."$fAp(->)r" = (C1.$Dict$Ap global-ref 1."$fFun(->)r" global-ref 1."$fAp(->)r$cunit" global-ref 1."$fAp(->)r$cap" global-ref 1."$fAp(->)r$clift2")
+  pub global 1."$fAp(->)r" = (C1.$Dict$Ap global-ref 1."$fFun(->)r" global-ref 1."$fAp(->)r$cunit" global-ref 1."$fAp(->)r$cap" global-ref 1."$fAp(->)r$clift2")
 
   global 1."$fAp(->)r$clift2" = (P$$dmlift2/3 global-ref 1."$fAp(->)r")
 

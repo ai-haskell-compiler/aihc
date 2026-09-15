@@ -1,13 +1,13 @@
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Unit []
+  pub constructor 1.Unit []
 
-  constructor 1.Ptr [AddrRep]
+  pub constructor 1.Ptr [AddrRep]
 
   foreign 1.identityAddr = "identity_addr" :: (addr) -> addr ! real-world
 
-  global 1.run = (P$run/[[AddrRep]])
+  pub global 1.run = (P$run/[[AddrRep]])
 
   $run_identityAddr_foreign (foreign_argument_0 :: AddrRep) -> TupleRep [TupleRep [],BoxedRep Lifted] =
     foreign_result :: AddrRep <-

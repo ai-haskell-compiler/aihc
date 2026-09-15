@@ -15,11 +15,11 @@ expected: |-
 
   scope 2 = "aihc-prim" GHC.Types
 
-  constructor 1.Box [BoxedRep Lifted]
+  pub constructor 1.Box [BoxedRep Lifted]
 
-  constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
+  pub constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.pair = (P$pair/1)
+  pub global 1.pair = (P$pair/1)
 
   $pair (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     size :: BoxedRep Lifted <-

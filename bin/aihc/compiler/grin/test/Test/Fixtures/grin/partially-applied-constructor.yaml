@@ -6,9 +6,9 @@ source: |
 expected: |-
   scope 1 = "" Test
 
-  constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
+  pub constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
 
-  global 1.pairWith = (P$pairWith/1)
+  pub global 1.pairWith = (P$pairWith/1)
 
   $pairWith (x :: BoxedRep Lifted) -> BoxedRep Lifted =
     store (C1.Pair/1 (x :: BoxedRep Lifted))

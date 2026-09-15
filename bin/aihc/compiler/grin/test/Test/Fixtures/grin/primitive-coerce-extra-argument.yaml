@@ -1,7 +1,7 @@
 expected: |-
   scope 1 = "" Test
 
-  global 1.apply = (P$apply/[[BoxedRep Lifted], []])
+  pub global 1.apply = (P$apply/[[BoxedRep Lifted], []])
 
   $apply (x :: BoxedRep Lifted) -> TupleRep [TupleRep [],IntRep] =
     function_whnf :: BoxedRep Lifted <-

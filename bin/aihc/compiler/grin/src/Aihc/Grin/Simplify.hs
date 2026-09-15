@@ -75,11 +75,11 @@ simplifyGrinProgram program =
               [ (grinFunctionName function, (length (grinFunctionParameters function), grinFunctionResultRep function))
               | function <- grinFunctions program
               ],
-          envConstructors = Map.fromList (grinConstructors program),
+          envConstructors = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program],
           envStatics =
             Map.fromList
-              ( [(name, GrinNode (GrinConstructor name 0) []) | (name, layouts) <- grinConstructors program, null layouts]
-                  <> grinGlobals program
+              ( [(grinConstructorName c, GrinNode (GrinConstructor (grinConstructorName c) 0) []) | c <- grinConstructors program, null (grinConstructorLayouts c)]
+                  <> [(grinGlobalName global, grinGlobalNode global) | global <- grinGlobals program]
               ),
           envKnown = Map.empty,
           envEvaluated = Set.empty
