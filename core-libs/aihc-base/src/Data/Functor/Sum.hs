@@ -6,11 +6,24 @@ module Data.Functor.Sum
 where
 
 import Data.Foldable (Foldable (..))
+import Data.Functor.Classes (Eq1 (..), Ord1 (..))
 import Data.Kind (Type)
 import Data.Traversable (Traversable (..))
 import Prelude
 
 data Sum (f :: k -> Type) (g :: k -> Type) (a :: k) = InL (f a) | InR (g a)
+
+instance (Eq1 f, Eq1 g) => Eq1 (Sum f g) where
+  liftEq eq (InL left) (InL right) = liftEq eq left right
+  liftEq _ (InL _) (InR _) = False
+  liftEq _ (InR _) (InL _) = False
+  liftEq eq (InR left) (InR right) = liftEq eq left right
+
+instance (Ord1 f, Ord1 g) => Ord1 (Sum f g) where
+  liftCompare comp (InL left) (InL right) = liftCompare comp left right
+  liftCompare _ (InL _) (InR _) = LT
+  liftCompare _ (InR _) (InL _) = GT
+  liftCompare comp (InR left) (InR right) = liftCompare comp left right
 
 instance (Eq (f a), Eq (g a)) => Eq (Sum f g a) where
   InL left == InL right = left == right

@@ -12,6 +12,7 @@ module Data.Complex
 where
 
 import Data.Foldable (Foldable (..))
+import Data.Functor.Classes (Eq1 (..))
 import Prelude
 
 infix 6 :+
@@ -26,6 +27,10 @@ instance (Eq a) => Eq (Complex a) where
     leftReal == rightReal && leftImaginary == rightImaginary
 
   left /= right = not (left == right)
+
+instance Eq1 Complex where
+  liftEq eq ((:+) leftReal leftImaginary) ((:+) rightReal rightImaginary) =
+    eq leftReal rightReal && eq leftImaginary rightImaginary
 
 instance (Show a) => Show (Complex a) where
   showsPrec precedence ((:+) real imaginary) =
