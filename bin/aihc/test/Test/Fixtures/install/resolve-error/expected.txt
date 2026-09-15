@@ -21,6 +21,6 @@ Type check failed:
   5 | value = () @()
     |         ^^^^^^
 
-<unknown location in Zulu>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation
-
-<unknown location in Alpha>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type annotation
+<PACKAGE>/src/Beetle.hs:9:10: error: visible type application requires a polymorphic expression
+  9 | beetle = () @()
+    |          ^^^^^^
