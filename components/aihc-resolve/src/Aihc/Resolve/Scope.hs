@@ -844,9 +844,9 @@ collectPatVarBinders recordFields ambient pat =
     go = collectPatVarBinders recordFields ambient
     binderAt name = (spanStartNameSpan ambient (renderUnqualifiedName name), name)
 
--- | The fields that a record wildcard @..@ binds: each field of the
--- constructor that the pattern does not list.
-recordWildcardFieldNames :: Map.Map Text [Text] -> Name -> [RecordField Pattern] -> Bool -> [Text]
+-- | The fields that a record wildcard @..@ stands for: each field of the
+-- constructor that the pattern or the construction does not list.
+recordWildcardFieldNames :: Map.Map Text [Text] -> Name -> [RecordField a] -> Bool -> [Text]
 recordWildcardFieldNames recordFields conName fields wildcard
   | not wildcard = []
   | otherwise = filter (`notElem` explicitFields) (Map.findWithDefault [] (nameText conName) recordFields)
