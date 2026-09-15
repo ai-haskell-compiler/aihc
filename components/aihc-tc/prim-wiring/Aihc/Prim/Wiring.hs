@@ -30,6 +30,7 @@ import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
   ( DerivingReference (..),
     DerivingReferences (..),
+    GenericReferences (..),
     ReferencePackage (..),
     StockClassLocation (..),
     TcConfig,
@@ -181,6 +182,7 @@ primDerivingReferences prim =
       derivingLiftAppE = classTerm thSyntaxModule NameConId "AppE",
       derivingLiftDataConName = classTerm thSyntaxModule NameVarId "mkNameG_d",
       derivingLiftCodeCoerce = classTerm thSyntaxModule NameVarId "unsafeCodeCoerce",
+      derivingGeneric = genericReferences,
       derivingStockClasses = coreStockClasses prim,
       derivingRecognizedClasses = coreRecognizedClasses
     }
@@ -193,6 +195,55 @@ primDerivingReferences prim =
     -- whose identity this table cannot name.
     classTerm moduleName nameType name =
       DerivingReference ReferenceClassPackage moduleName name nameType ResolutionNamespaceTerm
+
+-- | The names of @GHC.Generics@ that a derived @Generic@ instance is built
+-- from. They sit beside the class, so the table cannot name their package.
+genericReferences :: GenericReferences
+genericReferences =
+  GenericReferences
+    { genericM1 = constructor "M1",
+      genericUnM1 = value "unM1",
+      genericK1 = constructor "K1",
+      genericUnK1 = value "unK1",
+      genericU1 = constructor "U1",
+      genericL1 = constructor "L1",
+      genericR1 = constructor "R1",
+      genericProduct = operator ":*:",
+      genericV1Type = tyCon "V1",
+      genericU1Type = tyCon "U1",
+      genericSumType = tyOperator ":+:",
+      genericProductType = tyOperator ":*:",
+      genericD1Type = tyCon "D1",
+      genericC1Type = tyCon "C1",
+      genericS1Type = tyCon "S1",
+      genericRec0Type = tyCon "Rec0",
+      genericMetaData = constructor "MetaData",
+      genericMetaCons = constructor "MetaCons",
+      genericMetaSel = constructor "MetaSel",
+      genericPrefixI = constructor "PrefixI",
+      genericInfixI = constructor "InfixI",
+      genericLeftAssociative = constructor "LeftAssociative",
+      genericRightAssociative = constructor "RightAssociative",
+      genericNotAssociative = constructor "NotAssociative",
+      genericNoSourceUnpackedness = constructor "NoSourceUnpackedness",
+      genericSourceNoUnpack = constructor "SourceNoUnpack",
+      genericSourceUnpack = constructor "SourceUnpack",
+      genericNoSourceStrictness = constructor "NoSourceStrictness",
+      genericSourceLazy = constructor "SourceLazy",
+      genericSourceStrict = constructor "SourceStrict",
+      genericDecidedLazy = constructor "DecidedLazy",
+      genericDecidedStrict = constructor "DecidedStrict",
+      genericDecidedUnpack = constructor "DecidedUnpack"
+    }
+  where
+    genericsModule = "GHC.Generics"
+    reference nameType namespace name =
+      DerivingReference ReferenceClassPackage genericsModule name nameType namespace
+    constructor = reference NameConId ResolutionNamespaceTerm
+    operator = reference NameConSym ResolutionNamespaceTerm
+    value = reference NameVarId ResolutionNamespaceTerm
+    tyCon = reference NameConId ResolutionNamespaceType
+    tyOperator = reference NameConSym ResolutionNamespaceType
 
 -- | The stock classes that the aihc core libraries declare in the primitive
 -- package, where each is defined. GHC keeps the same list as known-key
@@ -211,7 +262,8 @@ coreStockClasses prim =
     primClass "GHC.Prim.Base" "Functor",
     coreClass "GHC.Internal.Foldable" "Foldable",
     coreClass "GHC.Internal.Traversable" "Traversable",
-    coreClass "GHC.Internal.TH.Lift" "Lift"
+    coreClass "GHC.Internal.TH.Lift" "Lift",
+    coreClass "GHC.Generics" "Generic"
   ]
   where
     primClass = StockClassLocation (Just prim)
@@ -226,6 +278,5 @@ coreRecognizedClasses =
     ("Data.Data", "Data"),
     ("Type.Reflection", "Typeable"),
     ("Type.Reflection.Internal", "Typeable"),
-    ("GHC.Generics", "Generic"),
     ("GHC.Generics", "Generic1")
   ]

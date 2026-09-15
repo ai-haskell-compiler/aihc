@@ -2,10 +2,10 @@
 
 ## Summary
 
-- Total Extensions: 59
-- Supported: 42
+- Total Extensions: 60
+- Supported: 43
 - In Progress: 17
-- Fixtures (eval): 528
+- Fixtures (eval): 542
 - Fixtures (fc): 201
 
 ## Extension Status
@@ -17,14 +17,15 @@
 | BlockArguments             |   🟢    | 2/2           |
 | CApiFFI                    |   🟢    | 2/2           |
 | ConstraintKinds            |   🟢    | 3/3           |
-| DataKinds                  |   🟡    | 14/15         |
+| DataKinds                  |   🟡    | 15/16         |
 | DefaultSignatures          |   🟢    | 5/5           |
 | DeriveAnyClass             |   🟢    | 4/4           |
 | DeriveDataTypeable         |   🟢    | 1/1           |
 | DeriveFoldable             |   🟢    | 2/2           |
 | DeriveFunctor              |   🟢    | 2/2           |
+| DeriveGeneric              |   🟢    | 1/1           |
 | DeriveTraversable          |   🟢    | 1/1           |
-| DerivingStrategies         |   🟡    | 39/42         |
+| DerivingStrategies         |   🟡    | 40/43         |
 | DerivingVia                |   🔴    | 21/24         |
 | EmptyCase                  |   🟢    | 1/1           |
 | EmptyDataDecls             |   🟢    | 2/2           |
@@ -44,7 +45,7 @@
 | InstanceSigs               |   🟢    | 3/3           |
 | KindSignatures             |   🟢    | 36/36         |
 | LambdaCase                 |   🟢    | 5/5           |
-| MagicHash                  |   🟡    | 173/174       |
+| MagicHash                  |   🟡    | 182/183       |
 | MultiParamTypeClasses      |   🔴    | 30/34         |
 | MultiWayIf                 |   🟢    | 2/2           |
 | NamedFieldPuns             |   🟢    | 2/2           |
@@ -52,7 +53,7 @@
 | PackageImports             |   🟢    | 1/1           |
 | PartialTypeSignatures      |   🟢    | 2/2           |
 | PatternSynonyms            |   🟢    | 21/21         |
-| PolyKinds                  |   🟢    | 25/25         |
+| PolyKinds                  |   🟢    | 26/26         |
 | QuantifiedConstraints      |   🟢    | 1/1           |
 | RankNTypes                 |   🟢    | 16/16         |
 | RebindableSyntax           |   🟡    | 19/20         |
@@ -67,7 +68,7 @@
 | TypeApplications           |   🟢    | 6/6           |
 | TypeFamilies               |   🔴    | 25/28         |
 | TypeOperators              |   🟡    | 93/94         |
-| UnboxedTuples              |   🟡    | 56/57         |
+| UnboxedTuples              |   🟡    | 65/66         |
 | UndecidableInstances       |   🔴    | 6/9           |
 | UnliftedFFITypes           |   🟢    | 2/2           |
 | ViewPatterns               |   🟢    | 8/8           |

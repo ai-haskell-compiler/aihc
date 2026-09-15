@@ -26,10 +26,12 @@ module Aihc.Tc.Deriving.References
   ( DerivingReference (..),
     ReferencePackage (..),
     DerivingReferences (..),
+    GenericReferences (..),
     StockClassLocation (..),
     referenceIdentity,
     stockClassLocationMatches,
     derivingReferenceList,
+    genericTermReferences,
   )
 where
 
@@ -162,6 +164,9 @@ data DerivingReferences = DerivingReferences
     derivingLiftDataConName :: !DerivingReference,
     -- | @unsafeCodeCoerce@, which makes a typed lift out of an untyped one.
     derivingLiftCodeCoerce :: !DerivingReference,
+    -- | The representation types and the metadata of @GHC.Generics@, which
+    -- a derived @Generic@ instance is written entirely out of.
+    derivingGeneric :: !GenericReferences,
     -- | The classes that stock deriving writes code for, and where each is
     -- declared. A location that names a package makes all three agree, so a
     -- user module that repeats a core-library module name does not make its
@@ -176,6 +181,129 @@ data DerivingReferences = DerivingReferences
     derivingRecognizedClasses :: ![(Text, Text)]
   }
   deriving (Eq, Show)
+
+-- | The names of @GHC.Generics@ that a derived @Generic@ instance mentions.
+--
+-- They are grouped apart from the rest because there are so many of them:
+-- the representation of a datatype spells out its whole shape, and its
+-- metadata spells out one promoted constructor for every strictness and
+-- fixity mark a field or a constructor can carry.
+--
+-- The three namespaces are kept apart, because @U1@ and @(:*:)@ name both a
+-- type and a constructor, and a promoted constructor is a term name used in
+-- a type. Only 'genericTermReferences' are checked for availability: a type
+-- name is not in the term environment, and the module that derives the class
+-- imports the module all of these live in.
+data GenericReferences = GenericReferences
+  { -- | The @M1@ constructor, which wraps a node in its metadata.
+    genericM1 :: !DerivingReference,
+    -- | @unM1@, which strips one metadata node.
+    genericUnM1 :: !DerivingReference,
+    -- | The @K1@ constructor, which holds one field.
+    genericK1 :: !DerivingReference,
+    -- | @unK1@, which takes the field back out.
+    genericUnK1 :: !DerivingReference,
+    -- | The @U1@ constructor of a constructor without fields.
+    genericU1 :: !DerivingReference,
+    -- | The @L1@ constructor, which selects the left half of a sum.
+    genericL1 :: !DerivingReference,
+    -- | The @R1@ constructor, which selects the right half of a sum.
+    genericR1 :: !DerivingReference,
+    -- | The @(:*:)@ constructor, which pairs two fields.
+    genericProduct :: !DerivingReference,
+    -- | The @V1@ type of a datatype without constructors.
+    genericV1Type :: !DerivingReference,
+    -- | The @U1@ type.
+    genericU1Type :: !DerivingReference,
+    -- | The @(:+:)@ type of a choice between constructors.
+    genericSumType :: !DerivingReference,
+    -- | The @(:*:)@ type of a pair of fields.
+    genericProductType :: !DerivingReference,
+    -- | The @D1@ type, which carries the metadata of the datatype.
+    genericD1Type :: !DerivingReference,
+    -- | The @C1@ type, which carries the metadata of one constructor.
+    genericC1Type :: !DerivingReference,
+    -- | The @S1@ type, which carries the metadata of one field.
+    genericS1Type :: !DerivingReference,
+    -- | The @Rec0@ type of a field that is not the datatype parameter.
+    genericRec0Type :: !DerivingReference,
+    -- | The @MetaData@ constructor, promoted into the metadata of @D1@.
+    genericMetaData :: !DerivingReference,
+    -- | The @MetaCons@ constructor, promoted into the metadata of @C1@.
+    genericMetaCons :: !DerivingReference,
+    -- | The @MetaSel@ constructor, promoted into the metadata of @S1@.
+    genericMetaSel :: !DerivingReference,
+    -- | @PrefixI@, the fixity of a constructor written prefix.
+    genericPrefixI :: !DerivingReference,
+    -- | @InfixI@, the fixity of a constructor written infix.
+    genericInfixI :: !DerivingReference,
+    -- | @LeftAssociative@.
+    genericLeftAssociative :: !DerivingReference,
+    -- | @RightAssociative@.
+    genericRightAssociative :: !DerivingReference,
+    -- | @NotAssociative@.
+    genericNotAssociative :: !DerivingReference,
+    -- | @NoSourceUnpackedness@, a field without an unpack pragma.
+    genericNoSourceUnpackedness :: !DerivingReference,
+    -- | @SourceNoUnpack@, a field marked @{-\# NOUNPACK \#-}@.
+    genericSourceNoUnpack :: !DerivingReference,
+    -- | @SourceUnpack@, a field marked @{-\# UNPACK \#-}@.
+    genericSourceUnpack :: !DerivingReference,
+    -- | @NoSourceStrictness@, a field without a strictness mark.
+    genericNoSourceStrictness :: !DerivingReference,
+    -- | @SourceLazy@, a field marked @~@.
+    genericSourceLazy :: !DerivingReference,
+    -- | @SourceStrict@, a field marked @!@.
+    genericSourceStrict :: !DerivingReference,
+    -- | @DecidedLazy@, a field the compiler leaves lazy.
+    genericDecidedLazy :: !DerivingReference,
+    -- | @DecidedStrict@, a field the compiler makes strict.
+    genericDecidedStrict :: !DerivingReference,
+    -- | @DecidedUnpack@, a field the compiler unpacks.
+    genericDecidedUnpack :: !DerivingReference
+  }
+  deriving (Eq, Show)
+
+-- | The names of a derived @Generic@ body that stand in a term position, so
+-- that the generator can check that the module has them.
+genericTermReferences :: [GenericReferences -> DerivingReference]
+genericTermReferences =
+  [genericM1, genericUnM1, genericK1, genericUnK1, genericU1, genericL1, genericR1, genericProduct]
+
+-- | Every name of 'GenericReferences', in every namespace.
+genericReferenceList :: GenericReferences -> [DerivingReference]
+genericReferenceList references =
+  map ($ references) (genericTermReferences <> types <> promoted)
+  where
+    types =
+      [ genericV1Type,
+        genericU1Type,
+        genericSumType,
+        genericProductType,
+        genericD1Type,
+        genericC1Type,
+        genericS1Type,
+        genericRec0Type
+      ]
+    promoted =
+      [ genericMetaData,
+        genericMetaCons,
+        genericMetaSel,
+        genericPrefixI,
+        genericInfixI,
+        genericLeftAssociative,
+        genericRightAssociative,
+        genericNotAssociative,
+        genericNoSourceUnpackedness,
+        genericSourceNoUnpack,
+        genericSourceUnpack,
+        genericNoSourceStrictness,
+        genericSourceLazy,
+        genericSourceStrict,
+        genericDecidedLazy,
+        genericDecidedStrict,
+        genericDecidedUnpack
+      ]
 
 -- | Every reference in the table, for callers that make the names visible
 -- to later compiler phases.
@@ -212,3 +340,4 @@ derivingReferenceList references =
     derivingLiftDataConName references,
     derivingLiftCodeCoerce references
   ]
+    <> genericReferenceList (derivingGeneric references)

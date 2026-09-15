@@ -61,7 +61,7 @@ import Aihc.Tc.Deriving.Functorial (FieldUse (..), fieldUse)
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf)
 import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -164,6 +164,7 @@ generatePlan kinds references primPackage origin sourceDecl plan =
           genClassOrigin = fromMaybe origin (tcDerivingClassOrigin plan)
         }
     className = T.unpack (tcDerivingClassName plan)
+    datatypeDescription = maybe "datatype" (("datatype " <>) . T.unpack . dtiName) (tcDerivingDataType plan)
     mechanism =
       case tcDerivingStrategy plan of
         TcDerivingStock -> "stock " <> className <> " deriving"
@@ -181,6 +182,15 @@ generatePlan kinds references primPackage origin sourceDecl plan =
           -- generator must not write method bodies for it.
           | not (isGeneratedStockClass references (tcDerivingClassName plan) (tcDerivingClassOrigin plan)) ->
               Left ("stock deriving of " <> className <> " is not available for a class outside the core libraries")
+          -- A representation names the datatype applied to its arguments,
+          -- and the kind arguments of a poly-kinded head are not among
+          -- them: source syntax cannot write an invisible argument, so the
+          -- equation would fix each one at 'Type' while the instance
+          -- methods keep it a variable. Until the kind arguments can be
+          -- written, such a datatype gets no instance.
+          | stockClassMethodsOf (tcDerivingClassName plan) == Just StockGenericMethods,
+            not (all (null . datatypeKindVariables) (tcDerivingDataType plan)) ->
+              Left ("stock deriving of " <> className <> " is not supported for the poly-kinded " <> datatypeDescription <> "; no instance is generated")
           | generatesStockMethods (tcDerivingClassName plan) -> Right ()
           | otherwise -> Left ("stock deriving of " <> className <> " is not supported yet; no instance is generated")
         TcDerivingVia {} -> Right ()
@@ -220,6 +230,7 @@ generateItems gen =
                 Just StockFunctorMethods -> functorialItems gen functorItems constructors
                 Just StockFoldableMethods -> functorialItems gen foldableItems constructors
                 Just StockTraversableMethods -> functorialItems gen traversableItems constructors
+                Just StockGenericMethods -> genericItems gen dataType
                 Nothing -> failWith ("stock deriving of " <> T.unpack (tcDerivingClassName plan) <> " is not supported yet")
         (Right _, Nothing) -> failWith "stock deriving requires checked datatype metadata"
     TcDerivingVia viaType -> associatedItems gen viaType
@@ -772,6 +783,283 @@ associatedItems gen representation = do
         reject = do
           emitError (genSpan gen) (OtherError "newtype deriving requires supported associated type parameters")
           pure Nothing
+
+-- * Generic
+
+-- | The @Rep@ equation and the @from@ and @to@ bodies of a datatype.
+--
+-- The representation is the shape of the datatype spelled out as a type:
+-- a balanced sum of its constructors, each a balanced product of its
+-- fields, with a metadata node around the datatype, around every
+-- constructor and around every field. @from@ and @to@ walk that shape.
+--
+-- The balance matches GHC's, so that a representation aihc derives and one
+-- GHC derives are the same type rather than two spellings of one datatype.
+genericItems :: Gen -> DataTypeInfo -> TcM (Maybe [InstanceDeclItem])
+genericItems gen dataType =
+  case stockFieldTypes plan of
+    Left message -> failWith message
+    Right fieldTypes -> do
+      maybeRepTyCon <- genericRepTyCon gen
+      let surfaceHeads = mapM (surfaceType (genSpan gen)) (tcDerivingHeadTypes plan)
+          surfaceFields = mapM (mapM (surfaceType (genSpan gen))) fieldTypes
+      case (maybeRepTyCon, surfaceHeads, surfaceFields) of
+        (Nothing, _, _) -> failWith "stock Generic deriving requires the Rep associated type of the class"
+        (_, Nothing, _) -> failWith "stock Generic deriving cannot express the datatype as source syntax"
+        (_, _, Nothing) -> failWith "stock Generic deriving cannot express a constructor field as source syntax"
+        (Just repTyCon, Just headTypes, Just fieldSyntax) -> do
+          let constructors =
+                [ (constructor, zip (dciFields constructor) fields)
+                | (constructor, fields) <- zip (dtiConstructors dataType) fieldSyntax
+                ]
+              equation =
+                InstanceItemTypeFamilyInst
+                  ( TypeFamilyInst
+                      []
+                      TypeHeadPrefix
+                      (applyTypes (TCon (tyConNameSyntax (genSpan gen) repTyCon) Unpromoted) headTypes)
+                      (genericRepType gen dataType constructors)
+                  )
+          fromMatches <- mapM (genericFromMatch gen) (repTreePaths constructors)
+          toItem <- genericToItem gen constructors
+          pure (Just [equation, methodBind gen "from" fromMatches, toItem])
+  where
+    plan = genPlan gen
+    failWith message = do
+      emitError (genSpan gen) (OtherError message)
+      pure Nothing
+
+-- | The kind variables a datatype is quantified over. A poly-kinded
+-- datatype has some; one whose every parameter has a concrete kind has
+-- none.
+datatypeKindVariables :: DataTypeInfo -> [TyVarId]
+datatypeKindVariables dataType =
+  concatMap (variablesIn . tvKind) (dtiTyVars dataType) <> variablesIn (dtiResultKind dataType)
+  where
+    variablesIn = typeTyVarsWith (\tyVar -> tyVar : variablesIn (tvKind tyVar))
+
+-- | Every type variable a type mentions, replaced by what the selector
+-- makes of it.
+typeTyVarsWith :: (TyVarId -> [TyVarId]) -> TcType -> [TyVarId]
+typeTyVarsWith select = go
+  where
+    go ty =
+      case ty of
+        TcTyVar tyVar -> select tyVar
+        TcTyCon _ arguments -> concatMap go arguments
+        TcFunTy argument result -> go argument <> go result
+        TcAppTy function argument -> go function <> go argument
+        TcForAllTy tyVar body -> select tyVar <> go body
+        TcQualTy _ body -> go body
+        _ -> []
+
+-- | The @Rep@ family of the class being derived.
+genericRepTyCon :: Gen -> TcM (Maybe TyCon)
+genericRepTyCon gen = do
+  info <- lookupClass (tcDerivingClassTyCon (genPlan gen))
+  pure $ case info of
+    Just classInfo
+      | [associated] <- ciAssociatedTypes classInfo -> Just (atiTyCon associated)
+    _ -> Nothing
+
+-- | The representation type of a datatype whose constructors are paired
+-- with their fields and the surface syntax of each field type.
+genericRepType :: Gen -> DataTypeInfo -> [(DataConInfo, [(DataConFieldInfo, Type)])] -> Type
+genericRepType gen dataType constructors =
+  applyTypes (genericType gen genericD1Type) [genericMetaDataType gen dataType, sum']
+  where
+    -- A datatype without constructors would be V1. Stock deriving refuses
+    -- one before reaching here, so the default only says what the shape is.
+    sum' =
+      maybe
+        (genericType gen genericV1Type)
+        (foldRepTree (typeOperator gen genericSumType) constructorType)
+        (repTree constructors)
+    constructorType (constructor, fields) =
+      applyTypes (genericType gen genericC1Type) [genericMetaConsType gen constructor, product']
+      where
+        product' =
+          maybe
+            (genericType gen genericU1Type)
+            (foldRepTree (typeOperator gen genericProductType) fieldType)
+            (repTree fields)
+    fieldType (field, fieldSurface) =
+      applyTypes
+        (genericType gen genericS1Type)
+        [genericMetaSelType gen field, TApp (genericType gen genericRec0Type) fieldSurface]
+
+-- | @'MetaData' isNewtype@. The datatype, module and package names that GHC
+-- puts before it are type-level strings, which aihc does not have yet.
+genericMetaDataType :: Gen -> DataTypeInfo -> Type
+genericMetaDataType gen dataType =
+  TApp (genericPromoted gen genericMetaData) (promotedBool gen (dtiFlavor dataType == NewtypeTyCon))
+
+-- | @'MetaCons' fixity isRecord@, without the constructor name.
+genericMetaConsType :: Gen -> DataConInfo -> Type
+genericMetaConsType gen constructor =
+  applyTypes (genericPromoted gen genericMetaCons) [fixity, promotedBool gen isRecord]
+  where
+    isRecord = dciSourceForm constructor == RecordDataCon
+    -- No fixity declaration reaches the generator, so an infix constructor
+    -- takes the default fixity, which is left associative.
+    fixity =
+      case dciSourceForm constructor of
+        InfixDataCon -> TApp (genericPromoted gen genericInfixI) (genericPromoted gen genericLeftAssociative)
+        _ -> genericPromoted gen genericPrefixI
+
+-- | @'MetaSel' unpackedness strictness decided@, without the field label.
+genericMetaSelType :: Gen -> DataConFieldInfo -> Type
+genericMetaSelType gen field =
+  applyTypes (genericPromoted gen genericMetaSel) [unpackedness, strictness, decided]
+  where
+    unpackedness =
+      genericPromoted gen $ case dcfiUnpack field of
+        NoFieldUnpack -> genericNoSourceUnpackedness
+        UnpackField -> genericSourceUnpack
+        NoUnpackField -> genericSourceNoUnpack
+    strictness
+      | dcfiStrict field = genericPromoted gen genericSourceStrict
+      | dcfiLazy field = genericPromoted gen genericSourceLazy
+      | otherwise = genericPromoted gen genericNoSourceStrictness
+    -- aihc unpacks nothing, so a field marked for unpacking is only strict.
+    decided
+      | dcfiStrict field || dcfiUnpack field == UnpackField = genericPromoted gen genericDecidedStrict
+      | otherwise = genericPromoted gen genericDecidedLazy
+
+-- | One @from@ equation: the constructor's fields, wrapped in the metadata
+-- and the sum injections that lead to its leaf of the representation.
+genericFromMatch :: Gen -> ((DataConInfo, [(DataConFieldInfo, Type)]), [RepSide]) -> TcM Match
+genericFromMatch gen ((constructor, _), path) = do
+  fields <- fieldLocals gen "a" constructor
+  let product' =
+        maybe
+          (genericExpr gen genericU1)
+          (foldRepTree (\left right -> applyN gen (genericExpr gen genericProduct) [left, right]) fieldExpr)
+          (repTree fields)
+      fieldExpr field =
+        applyN gen (genericExpr gen genericM1) [applyN gen (genericExpr gen genericK1) [localExpr gen field]]
+      injected = foldr inject (applyN gen (genericExpr gen genericM1) [product']) path
+      inject side inner = applyN gen (referenceExpr gen (sideConstructor side)) [inner]
+  pure
+    ( simpleMatch
+        gen
+        [constructorPattern gen constructor (map Just fields)]
+        (applyN gen (genericExpr gen genericM1) [injected])
+    )
+
+-- | The @to@ equation: one alternative of the sum for each constructor,
+-- each of which takes the fields out of the product below it.
+--
+-- The metadata nodes are stripped with @unM1@ rather than matched. A
+-- pattern would be the shorter code, but the argument has the type family
+-- @Rep (T a) x@ rather than a saturated application of the newtype, and
+-- the desugarer reads the arguments of a newtype pattern's axiom off its
+-- checked type.
+genericToItem :: Gen -> [(DataConInfo, [(DataConFieldInfo, Type)])] -> TcM InstanceDeclItem
+genericToItem gen constructors = do
+  representation <- freshLocal gen "r"
+  alternatives <- mapM constructorAlternative (repTreePaths constructors)
+  pure
+    ( methodBind
+        gen
+        "to"
+        [ simpleMatch
+            gen
+            [atPattern gen (PVar representation)]
+            (caseOf gen (unwrap (localExpr gen representation)) alternatives)
+        ]
+    )
+  where
+    unwrap expr = applyN gen (genericExpr gen genericUnM1) [expr]
+    constructorAlternative ((constructor, _), path) = do
+      node <- freshLocal gen "c"
+      fields <- fieldLocals gen "a" constructor
+      let fieldPattern =
+            maybe
+              (atPattern gen PWildcard)
+              (foldRepTree pairPattern (atPattern gen . PVar))
+              (repTree fields)
+          pairPattern left right = atPattern gen (PCon (referenceSyntax gen (genericProduct . derivingGeneric)) [] [left, right])
+          field local = applyN gen (genericExpr gen genericUnK1) [unwrap (localExpr gen local)]
+          body =
+            caseOf
+              gen
+              (unwrap (localExpr gen node))
+              [(fieldPattern, applyN gen (constructorExpr gen constructor) (map field fields))]
+      pure (sumPattern gen node path, body)
+
+-- | The sum pattern that reaches one leaf of the representation, binding
+-- the node there.
+sumPattern :: Gen -> UnqualifiedName -> [RepSide] -> Pattern
+sumPattern gen node =
+  foldr (\side inner -> atPattern gen (PCon (referenceSyntax gen (sideConstructor side)) [] [inner])) (atPattern gen (PVar node))
+
+sideConstructor :: RepSide -> (DerivingReferences -> DerivingReference)
+sideConstructor side =
+  case side of
+    RepLeft -> genericL1 . derivingGeneric
+    RepRight -> genericR1 . derivingGeneric
+
+-- | Which half of a sum a leaf of the representation sits in.
+data RepSide = RepLeft | RepRight
+  deriving (Eq, Show)
+
+-- | The balanced tree that a sum or a product of a representation takes.
+data RepTree a
+  = RepLeaf a
+  | RepBranch (RepTree a) (RepTree a)
+
+-- | The balanced tree of a list, or 'Nothing' when it is empty. The split
+-- is GHC's, so a representation aihc derives has the shape GHC gives it.
+repTree :: [a] -> Maybe (RepTree a)
+repTree items = go (length items) items
+  where
+    go _ [] = Nothing
+    go 1 (item : _) = Just (RepLeaf item)
+    go count items' =
+      let half = count `div` 2
+          (left, right) = splitAt half items'
+       in RepBranch <$> go half left <*> go (count - half) right
+
+foldRepTree :: (b -> b -> b) -> (a -> b) -> RepTree a -> b
+foldRepTree branch leaf tree =
+  case tree of
+    RepLeaf item -> leaf item
+    RepBranch left right -> branch (foldRepTree branch leaf left) (foldRepTree branch leaf right)
+
+-- | Each item of a list with the path to its leaf of the balanced tree.
+repTreePaths :: [a] -> [(a, [RepSide])]
+repTreePaths items =
+  maybe [] go (repTree items)
+  where
+    go tree =
+      case tree of
+        RepLeaf item -> [(item, [])]
+        RepBranch left right ->
+          [(item, RepLeft : path) | (item, path) <- go left]
+            <> [(item, RepRight : path) | (item, path) <- go right]
+
+applyTypes :: Type -> [Type] -> Type
+applyTypes = foldl TApp
+
+-- | A type of @GHC.Generics@, as source syntax.
+genericType :: Gen -> (GenericReferences -> DerivingReference) -> Type
+genericType gen select = TCon (referenceSyntax gen (select . derivingGeneric)) Unpromoted
+
+-- | A type operator of @GHC.Generics@, as the prefix application it is
+-- built up with.
+typeOperator :: Gen -> (GenericReferences -> DerivingReference) -> Type -> Type -> Type
+typeOperator gen select left right = applyTypes (genericType gen select) [left, right]
+
+-- | A promoted constructor of @GHC.Generics@, as source syntax.
+genericPromoted :: Gen -> (GenericReferences -> DerivingReference) -> Type
+genericPromoted gen select = TCon (referenceSyntax gen (select . derivingGeneric)) Promoted
+
+promotedBool :: Gen -> Bool -> Type
+promotedBool gen value = TCon (referenceSyntax gen (if value then derivingTrue else derivingFalse)) Promoted
+
+genericExpr :: Gen -> (GenericReferences -> DerivingReference) -> Expr
+genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 
 -- * Syntax builders
 

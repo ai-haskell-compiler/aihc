@@ -589,6 +589,14 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
   derivingInferred <- inferDerivingContexts derivingAnnotated
   derivingFinalized <- mapM registerDerivedInstances derivingInferred
+  -- A derived instance registers type constructors and associated type
+  -- equations of its own, after the structural pass settled the kinds of
+  -- the ones the source declared. Settle theirs too before the bodies are
+  -- checked: an instance annotation copies the equations of its associated
+  -- types as they stand when the body pass reads them, and a kind
+  -- meta-variable left open there reaches System FC.
+  defaultGlobalKindMetas structuralKeys
+  derivedKeys <- globalStateKeys <$> lift get
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
@@ -597,7 +605,7 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
-  defaultGlobalKindMetas structuralKeys
+  defaultGlobalKindMetas derivedKeys
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
   where
@@ -2642,7 +2650,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
     then pure (TcDeclGroupResult groupId [] Nothing)
     else do
       ignored <- patternBindEnvironmentKeys placeholders
-      schemes <- generalizeGroupAndCommitIgnoring ignored ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
+      schemes <- generalizeGroupAndCommitIgnoring ignored [] ((rhsTy, []) : [(ty, []) | (_, _, ty, _) <- placeholders])
       case schemes of
         [] -> abortTc "pattern binding lost its generalized right-hand side"
         rhsScheme@(ForAll rhsTyVars _ _) : binderSchemes -> do
@@ -4160,7 +4168,24 @@ sourceTypeKey home ty =
     TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
     TTypeApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
     TInfix left name _ right -> sourceTypeKey home left <> "$" <> typeConKey home name <> "$" <> sourceTypeKey home right
+    -- The types with their own syntax have no name to contribute, so each
+    -- shape names itself. A module that instantiates one associated family
+    -- at @()@ and again at @[a]@ would otherwise put both equations on the
+    -- same axiom key, and the second would be reported as a duplicate.
+    TFun _ argument result -> "Fun$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
+    TList _ arguments -> arguments `keyedUnder` "List"
+    TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
+    TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
+    TStar {} -> "Star"
+    TKindSig inner _ -> sourceTypeKey home inner
     _ -> "T"
+  where
+    arguments `keyedUnder` tag = T.concat (tag : [T.cons '$' (sourceTypeKey home argument) | argument <- arguments])
+    tupleFlavorKey flavor =
+      case flavor of
+        Boxed -> "Tuple"
+        Unboxed -> "UnboxedTuple"
+    intKey = T.pack . show
 
 -- | The axiom-key fragment of one type constructor. A constructor the home
 -- module declares itself contributes its bare name, and an imported one
@@ -4279,10 +4304,12 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
           ]
   -- The equation is checked at the family's own result kind, which is not
   -- always 'Type': @Assert :: Bool -> Constraint -> Constraint@ has equations
-  -- whose sides are constraints. Converting both sides without an expectation
-  -- and unifying their kinds keeps a poly-kinded family open as well.
+  -- whose sides are constraints, and @Rep a :: Type -> Type@ has both sides
+  -- at a higher kind. Converting the applied head without an expectation
+  -- gives that kind, and reading the right-hand side against it keeps a
+  -- poly-kinded family open as well.
   (lhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
-  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) lhsKind
+  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) =<< zonkKind lhsKind
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon

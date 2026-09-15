@@ -39,6 +39,8 @@ compileLtoProgram config buildRoot corePaths = do
   let verbose = compileVerbose config
       paths = moduleOutputPaths (buildRoot </> "lto") (compileTarget config) "program"
       object = outputObjectPath paths
+      corePath = outputFcPath paths
+      keepCore = compileKeepCore config
       stampPath = buildRoot </> "lto" </> "program.hash"
   forM_ corePaths $ \path -> do
     exists <- doesFileExist path
@@ -47,7 +49,10 @@ compileLtoProgram config buildRoot corePaths = do
   let current = hashChunks (map BS8.pack [backendOptionsKey config, inputsHash])
   previous <- readStamp stampPath
   objectExists <- doesFileExist object
-  if objectExists && previous == Just current
+  -- A @--keep-core@ build also needs the merged System FC beside the
+  -- object, so a reused object whose core file is gone is built again.
+  coreKept <- if keepCore then doesFileExist corePath else pure True
+  if objectExists && coreKept && previous == Just current
     then verbose ("Reuse program object: " <> object)
     else do
       programs <- forConcurrently corePaths readProgram
@@ -67,12 +72,11 @@ compileLtoProgram config buildRoot corePaths = do
         let errors = Fc.lintProgram pruned
         unless (null errors) (ioError (userError ("FC lint failed after pruning the program:\n" <> unlines (map (("    " <>) . show) errors))))
       createDirectoryIfMissing True (takeDirectory object)
-      -- The merged program is what the object compiles from, so it is the
-      -- System FC a @--keep-core@ build wants to see.
-      when (compileKeepCore config) $ do
-        let rendered = Fc.renderProgram pruned
-        TIO.writeFile (outputFcPath paths) (if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n")
-        verbose ("Write FC: " <> outputFcPath paths)
+      -- The merged program is what the backend compiles, so it is the
+      -- System FC that @--keep-core@ keeps for a @--lto@ build.
+      when keepCore $ do
+        writeProgramFc corePath pruned
+        verbose "Write FC: program"
       _ <- compileFcModules config verbose (const paths) [FcModule "program" pruned]
       writeFile stampPath current
   pure object
@@ -87,6 +91,13 @@ entryName =
     }
   where
     (package, moduleName, name) = executableEntryParts
+
+writeProgramFc :: FilePath -> Fc.Program -> IO ()
+writeProgramFc path program = do
+  let rendered = Fc.renderProgram program
+      output = if "\n" `T.isSuffixOf` rendered then rendered else rendered <> "\n"
+  createDirectoryIfMissing True (takeDirectory path)
+  TIO.writeFile path output
 
 readProgram :: FilePath -> IO Fc.Program
 readProgram path = do
