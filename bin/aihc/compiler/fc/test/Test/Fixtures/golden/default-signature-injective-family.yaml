@@ -1,0 +1,25 @@
+extensions: [DefaultSignatures, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, TypeFamilyDependencies, TypeOperators]
+modules:
+  - |
+    module Test where
+
+    data Flag = Off | On
+    data StateGen g = StateGen
+    data StateGenM g = StateGenM
+
+    class FrozenGen f m where
+      type MutableGen f m = g | g -> f
+      thawed :: MutableGen f m -> f
+
+    class StatefulGen g m where
+      peek :: g -> Flag
+      default peek :: (FrozenGen f m, g ~ MutableGen f m) => g -> Flag
+      peek _ = On
+
+    instance FrozenGen (StateGen g) m where
+      type MutableGen (StateGen g) m = StateGenM g
+      thawed _ = StateGen
+
+    instance StatefulGen (StateGenM g) m
+status: pass
+reason: A default signature's own type variable reaches the default-method worker as a type argument, so the worker's evidence arguments apply to a function type.

@@ -317,6 +317,7 @@ firstMetaInstanceAnnotation ann =
            | (superClass, evidence) <- tcInstanceSuperClasses ann
            ]
         ++ concatMap (map firstMetaEvTerm . snd) (tcInstanceDefaultMethodEvidence ann)
+        ++ concatMap (map firstMetaType . snd) (tcInstanceDefaultMethodTypes ann)
         ++ map firstMetaTypeFamilyInstance (tcInstanceAssociatedTypes ann)
         ++ [firstMetaCoerced body | Just body <- [tcInstanceCoerced ann]]
     )

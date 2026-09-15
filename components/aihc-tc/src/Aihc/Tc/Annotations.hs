@@ -400,6 +400,13 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     -- in signature order. The default-method worker takes them after the
     -- instance dictionary itself.
     tcInstanceDefaultMethodEvidence :: ![(Text, [EvTerm])],
+    -- | For each default method whose class gives it a default signature,
+    -- the type arguments for the binders the signature quantifies on its
+    -- own, in signature order. The class head supplies the binders before
+    -- them; a binder the signature's constraints determine -- @f@ in
+    -- @(RandomGen f, FrozenGen f m, g ~ MutableGen f m)@ -- is solved at
+    -- the instance and has no other source.
+    tcInstanceDefaultMethodTypes :: ![(Text, [TcType])],
     -- | The checked associated type family equations of the instance,
     -- explicit ones and instantiated class defaults.
     tcInstanceAssociatedTypes :: ![TypeFamilyInstanceInfo],
