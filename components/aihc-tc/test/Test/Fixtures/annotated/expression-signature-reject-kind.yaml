@@ -1,0 +1,28 @@
+annotated:
+- |-
+  module Test where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Perhaps a = Nope | Yep a
+       │           │      └─ type: ∀ a. a → Perhaps a
+       │           └─ type: ∀ a. Perhaps a
+       └─ type: Type → Type
+
+  bad :: Unit
+  bad = (Unit :: Perhaps)
+  │     └─ error: expression has type (), but expected Perhaps from the type signature for <expression>
+  │     └─ error: expression has type Perhaps, but expected () from the type signature for bad
+  └─ error: kind mismatch: expected Type, got Type → Type
+extensions: []
+modules:
+- |
+  module Test where
+  data Unit = Unit
+  data Perhaps a = Nope | Yep a
+
+  bad :: Unit
+  bad = (Unit :: Perhaps)
+status: pass
+reason: an expression signature still rejects an annotation whose kind is not TYPE
+  applied to a representation

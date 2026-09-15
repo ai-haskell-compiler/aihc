@@ -50,7 +50,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind)
+import Aihc.Tc.Kind (checkRuntimeType, checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -281,11 +281,17 @@ occurrenceAnnotation ty typeArgs evidenceVars
   | null typeArgs && null evidenceVars = Nothing
   | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars [])
 
+-- | An expression signature stands in a result position, not at a binder,
+-- so its type needs no fixed runtime representation: any @TYPE r@ will do.
+-- Checking against @typeKind@ would reject @(proxy# :: Proxy# a)@ and
+-- @(3# :: Int#)@, which are perfectly good annotated expressions.
+-- 'checkRuntimeType' accepts every @TYPE r@ and defaults an unconstrained
+-- representation to lifted, while still rejecting an ill-kinded annotation
+-- such as @(x :: Maybe)@.
 inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do
-  kinds <- getKinds
   scoped <- getScopedTyVars
-  sigTy <- checkSurfaceType scoped tyAnn (typeKind kinds)
+  sigTy <- checkRuntimeType scoped tyAnn
   if isPolyType sigTy
     then inferPolyTypeSig sp inner tyAnn sigTy
     else inferMonoTypeSig sp inner tyAnn sigTy
