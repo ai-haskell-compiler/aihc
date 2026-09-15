@@ -376,11 +376,17 @@ tcInterfaceBindings interface =
     <> map instanceBinding (tcInterfaceInstances interface)
     <> concatMap classBindings (tcInterfaceClasses interface)
   where
-    termBinding (TcTermGlobal _ _ identifier, scheme) = Just (TcBindingResult identifier identifier (schemeToType scheme))
+    termBinding (key@(TcTermGlobal _ _ identifier), scheme) = Just (TcBindingResult key identifier (schemeToType scheme))
     termBinding (TcTermLocal {}, _) = Nothing
-    instanceBinding info = TcBindingResult (iiDictName info) (iiDictName info) (iiDictType info)
+    instanceBinding info =
+      TcBindingResult
+        (TcTermGlobal (PackageId (fst (iiDictOrigin info))) (snd (iiDictOrigin info)) (iiDictName info))
+        (iiDictName info)
+        (iiDictType info)
+    -- A default-method worker is declared with its class, so it lives in
+    -- the class's package and module.
     classBindings info =
-      [ TcBindingResult workerName workerName (schemeToType workerScheme)
+      [ TcBindingResult (tyConMemberTermKey (ciTyCon info) workerName) workerName (schemeToType workerScheme)
       | methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = defaultMethodName methodName

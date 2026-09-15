@@ -55,6 +55,73 @@ instance Semigroup (Last a) where
 instance (Semigroup m) => Semigroup (WrappedMonoid m) where
   WrapMonoid left <> WrapMonoid right = WrapMonoid (left <> right)
 
+-- | Each of these wrappers only changes how values combine, so its 'Eq' and
+-- 'Ord' are those of the value it wraps.
+instance (Eq a) => Eq (Min a) where
+  Min left == Min right = left == right
+  Min left /= Min right = left /= right
+
+instance (Ord a) => Ord (Min a) where
+  compare (Min left) (Min right) = compare left right
+  Min left < Min right = left < right
+  Min left <= Min right = left <= right
+  Min left > Min right = left > right
+  Min left >= Min right = left >= right
+  max (Min left) (Min right) = Min (max left right)
+  min (Min left) (Min right) = Min (min left right)
+
+instance (Eq a) => Eq (Max a) where
+  Max left == Max right = left == right
+  Max left /= Max right = left /= right
+
+instance (Ord a) => Ord (Max a) where
+  compare (Max left) (Max right) = compare left right
+  Max left < Max right = left < right
+  Max left <= Max right = left <= right
+  Max left > Max right = left > right
+  Max left >= Max right = left >= right
+  max (Max left) (Max right) = Max (max left right)
+  min (Max left) (Max right) = Max (min left right)
+
+instance (Eq a) => Eq (First a) where
+  First left == First right = left == right
+  First left /= First right = left /= right
+
+instance (Ord a) => Ord (First a) where
+  compare (First left) (First right) = compare left right
+  First left < First right = left < right
+  First left <= First right = left <= right
+  First left > First right = left > right
+  First left >= First right = left >= right
+  max (First left) (First right) = First (max left right)
+  min (First left) (First right) = First (min left right)
+
+instance (Eq a) => Eq (Last a) where
+  Last left == Last right = left == right
+  Last left /= Last right = left /= right
+
+instance (Ord a) => Ord (Last a) where
+  compare (Last left) (Last right) = compare left right
+  Last left < Last right = left < right
+  Last left <= Last right = left <= right
+  Last left > Last right = left > right
+  Last left >= Last right = left >= right
+  max (Last left) (Last right) = Last (max left right)
+  min (Last left) (Last right) = Last (min left right)
+
+instance (Eq m) => Eq (WrappedMonoid m) where
+  WrapMonoid left == WrapMonoid right = left == right
+  WrapMonoid left /= WrapMonoid right = left /= right
+
+instance (Ord m) => Ord (WrappedMonoid m) where
+  compare (WrapMonoid left) (WrapMonoid right) = compare left right
+  WrapMonoid left < WrapMonoid right = left < right
+  WrapMonoid left <= WrapMonoid right = left <= right
+  WrapMonoid left > WrapMonoid right = left > right
+  WrapMonoid left >= WrapMonoid right = left >= right
+  max (WrapMonoid left) (WrapMonoid right) = WrapMonoid (max left right)
+  min (WrapMonoid left) (WrapMonoid right) = WrapMonoid (min left right)
+
 instance (Eq a) => Eq (Arg a b) where
   Arg left _ == Arg right _ = left == right
   Arg left _ /= Arg right _ = left /= right
