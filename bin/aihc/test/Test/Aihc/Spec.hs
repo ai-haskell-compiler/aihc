@@ -20,6 +20,7 @@ import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFile
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
+import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, bracket_, try)
 import Control.Monad (forM, forM_, void)
@@ -169,12 +170,14 @@ tests =
 -- module's own comment says.
 test_posixTypeWidths :: Assertion
 test_posixTypeWidths = do
-  (platformDirectory, target) <- case hostNativeTarget of
-    Just AppleArm64 -> pure ("src-darwin", AppleArm64)
-    Just LinuxAmd64 -> pure ("src-linux", LinuxAmd64)
-    _ -> assertFailure "the POSIX widths are stated for a host aihc has a target for"
-  root <- findFixtureRoot ("core-libs" </> "aihc-base" </> platformDirectory)
-  widths <- readPosixTypeWidths (root </> "System" </> "Posix" </> "Types" </> "Repr.hs")
+  target <- case hostNativeTarget of
+    Just hostTarget -> pure hostTarget
+    Nothing -> assertFailure "the POSIX widths are stated for a host aihc has a target for"
+  -- The sources of aihc-base, not of the compiler: the width modules belong
+  -- to the library, and a nix build hands each its own store path.
+  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
+  let platformDirectory = posixWidthModuleDirectory
+  widths <- readPosixTypeWidths (baseRoot </> platformDirectory </> "System" </> "Posix" </> "Types" </> "Repr.hs")
   assertEqual "every POSIX alias has a width" (sort (map fst posixTypeCNames)) (sort (map fst widths))
   (compiler, targetArguments) <- backendCompiler target
   withTempDir "aihc-posix-type-widths" $ \directory -> do

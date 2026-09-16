@@ -16,6 +16,8 @@ module Aihc.Testing.EvalFixture
     evalEnvironmentProgram,
     compileEvalCase,
     evaluateEvalCase,
+    packageSourceRoot,
+    posixWidthModuleDirectory,
   )
 where
 
@@ -23,7 +25,7 @@ import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
 import Aihc.Cli.CapiStub (capiStubArguments, noCapiStubOptions)
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Fc qualified as Fc
-import Aihc.Native (NativeTarget (AppleArm64, LinuxAmd64), OptimizationLevel (O2), backendCompiler, hostNativeTarget)
+import Aihc.Native (NativeTarget (AppleArm64), OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -600,22 +602,25 @@ loadPackageModules package root = do
 
 -- | The source directories of a core library: the one that belongs to this
 -- platform, where the library has one, and the shared @src@.
---
--- A handful of modules state something that only the platform's headers
--- know, such as the width of @mode_t@, and those have one copy per platform
--- under a directory of their own. @aihc-base.cabal@ says the same thing as a
--- condition on @hs-source-dirs@, and this harness cannot read it, so a new
--- platform directory has to be added in both places.
 packageSourceDirectories :: FilePath -> IO [FilePath]
 packageSourceDirectories root = do
-  let platform = case hostNativeTarget of
-        Just AppleArm64 -> "src-darwin"
-        Just LinuxAmd64 -> "src-linux"
-        -- The fixtures only ever run on a host aihc has a target for, and
-        -- neither of the remaining targets is one a fixture runs on.
-        _ -> "src-linux"
+  let platform = posixWidthModuleDirectory
   exists <- doesDirectoryExist (root </> platform)
   pure ([root </> platform | exists] <> [root </> "src"])
+
+-- | The directory of @aihc-base@ that holds the modules stating something
+-- only this platform's headers know, such as the width of @mode_t@.
+--
+-- @aihc-base.cabal@ says the same thing as a condition on @hs-source-dirs@,
+-- and nothing here can read it, so a new platform directory has to be added
+-- in both places.
+posixWidthModuleDirectory :: FilePath
+posixWidthModuleDirectory =
+  case hostNativeTarget of
+    Just AppleArm64 -> "src-darwin"
+    -- Every other host aihc runs on is the Linux one; wasm32 is a target,
+    -- never a host.
+    _ -> "src-linux"
 
 listSourceFiles :: FilePath -> IO [FilePath]
 listSourceFiles dir = do
