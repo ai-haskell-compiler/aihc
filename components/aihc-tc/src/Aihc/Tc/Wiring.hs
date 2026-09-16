@@ -103,6 +103,11 @@ data TcWiring = TcWiring
     -- | A promoted constructor of the kind vocabulary of one name and
     -- arity, such as @BoxedRep@, @Lifted@ or @IntRep@.
     tcWiringKindDataCon :: Text -> Int -> TyCon,
+    -- | The modules whose type families the solver computes itself: the
+    -- comparison of each sort of literal and the arithmetic on naturals.
+    -- A family of one of those names declared anywhere else is an
+    -- ordinary family. Like the classes below these need no package.
+    tcWiringTypeLitFamilyModules :: [Text],
     -- | The custom-type-error family, as a module name and a family name.
     -- A wanted whose head is this family is reported as the message its
     -- argument spells rather than as an unsolved constraint. Like the

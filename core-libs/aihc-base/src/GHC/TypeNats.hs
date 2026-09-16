@@ -3,6 +3,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoStarIsType #-}
 
 -- | Type-level natural numbers.
 --
@@ -23,12 +26,20 @@ module GHC.TypeNats
     natVal',
     SNat,
     fromSNat,
+    CmpNat,
+    type (+),
+    type (-),
+    type (*),
+    type (^),
+    Div,
+    Mod,
+    Log2,
   )
 where
 
 import GHC.Num.Natural (Natural)
 import GHC.Prim (Proxy#)
-import GHC.Types (Constraint, Type)
+import GHC.Types (Constraint, Ordering, Type)
 
 -- | The kind of type-level natural literals. GHC makes this a synonym for
 -- the value type, so that @natVal@ can return one.
@@ -50,6 +61,36 @@ natVal _ = natSing @n
 -- | The value of a known type-level natural, through an unlifted proxy.
 natVal' :: forall n. (KnownNat n) => Proxy# n -> Natural
 natVal' _ = natSing @n
+
+-- | Comparison of two type-level naturals. The solver computes it.
+type CmpNat :: Nat -> Nat -> Ordering
+type family CmpNat a b
+
+-- The arithmetic families, which the solver computes when both arguments
+-- are literals. Subtraction is partial, as it is in GHC: an application
+-- that would go below zero stays stuck.
+type family (+) (a :: Nat) (b :: Nat) :: Nat
+
+type family (-) (a :: Nat) (b :: Nat) :: Nat
+
+type family (*) (a :: Nat) (b :: Nat) :: Nat
+
+type family (^) (a :: Nat) (b :: Nat) :: Nat
+
+type Div :: Nat -> Nat -> Nat
+type family Div a b
+
+type Mod :: Nat -> Nat -> Nat
+type family Mod a b
+
+type Log2 :: Nat -> Nat
+type family Log2 a
+
+infixl 6 +, -
+
+infixl 7 *, `Div`, `Mod`
+
+infixr 8 ^
 
 -- | A singleton for a known type-level natural.
 type SNat :: Nat -> Type

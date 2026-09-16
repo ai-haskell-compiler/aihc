@@ -1,0 +1,31 @@
+extensions:
+  - DataKinds
+  - ScopedTypeVariables
+  - TypeOperators
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import Data.Type.Ord (Max, Min)
+    import GHC.TypeNats (Div, Log2, Mod, natVal, type (*), type (+), type (-), type (^))
+    import Prelude
+
+    -- The solver computes each of these from the literals themselves.
+    matches :: Bool
+    matches =
+      natVal (Proxy :: Proxy (2 + 3)) == 5
+        && natVal (Proxy :: Proxy (10 - 4)) == 6
+        && natVal (Proxy :: Proxy (6 * 7)) == 42
+        && natVal (Proxy :: Proxy (2 ^ 10)) == 1024
+        && natVal (Proxy :: Proxy (Div 22 7)) == 3
+        && natVal (Proxy :: Proxy (Mod 22 7)) == 1
+        && natVal (Proxy :: Proxy (Log2 1024)) == 10
+        && natVal (Proxy :: Proxy (Max 3 9)) == 9
+        && natVal (Proxy :: Proxy (Min 3 9)) == 3
+output: |
+  True
+expression: |
+  matches
+status: pass
+reason: the built-in type-level families reduce when every argument is a literal, and Compare is computed from the literal's sort rather than selected by a kind-indexed instance
