@@ -144,6 +144,7 @@ tests =
         testGroup
           "sources"
           [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
+            testCase "the sigset_t size matches the platform headers" test_sigsetSize,
             testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
             testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
           ]
@@ -186,6 +187,47 @@ test_posixTypeWidths = do
     (status, out, err) <-
       readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
     assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | The @sigset_t@ size @aihc-base@ assumes is the size the platform's own
+-- headers give.
+--
+-- @System.Posix.Internals.Repr@ states it per platform for the same reason
+-- the widths above are stated per platform, and a wrong number is just as
+-- silent: a caller allocates a buffer of it and hands the buffer to
+-- @sigprocmask@, which writes the size the platform really uses.
+--
+-- The check is the same one: the number becomes a static assertion, compiled
+-- against the headers of the platform the test runs on. WASI has no
+-- @sigset_t@ at all, so nothing there is checked and nothing there is used.
+test_sigsetSize :: Assertion
+test_sigsetSize = do
+  target <- case hostNativeTarget of
+    Just hostTarget -> pure hostTarget
+    Nothing -> assertFailure "the sigset_t size is stated for a host aihc has a target for"
+  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
+  let platformDirectory = posixWidthModuleDirectory
+  size <- readSigsetSize (baseRoot </> platformDirectory </> "System" </> "Posix" </> "Internals" </> "Repr.hs")
+  (compiler, targetArguments) <- backendCompiler target
+  withTempDir "aihc-sigset-size" $ \directory -> do
+    let source = directory </> "sigset.c"
+    writeFile
+      source
+      ( unlines
+          [ "#include <signal.h>",
+            "_Static_assert(sizeof(sigset_t) == " <> show size <> ", \"sigset_t size\");"
+          ]
+      )
+    (status, out, err) <-
+      readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
+    assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | Read the @sizeofSigsetT = 4@ line of a platform's size module.
+readSigsetSize :: FilePath -> IO Int
+readSigsetSize path = do
+  contents <- readFile path
+  case [size | ["sizeofSigsetT", "=", size] <- map words (lines contents)] of
+    [size] -> pure (read size)
+    _ -> assertFailure ("cannot read the sigset_t size out of " <> path)
 
 -- | The C type each alias of @System.Posix.Types.Repr@ stands for.
 posixTypeCNames :: [(String, String)]
