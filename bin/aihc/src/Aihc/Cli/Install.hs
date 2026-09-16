@@ -2791,6 +2791,12 @@ preprocessorCommand config preprocessor cInfo file output macrosPath = do
 -- wasm, and the result cannot depend on which of them aihc happens to run
 -- on.
 --
+-- Cross-compilation mode is paired with @--via-asm@, which reads the
+-- constants back out of the assembly of a single compilation per file.
+-- Without it hsc2hs binary-searches for each constant separately, which
+-- costs dozens of C compiler runs per constant: a package the size of
+-- @unix@ spends minutes there instead of seconds.
+--
 -- The C compiler is the target's, with the flags handwritten C is compiled
 -- with, plus the package's @cc-options@ and @cpp-options@ and its include
 -- directories, which by now include the ones configure wrote. The template
@@ -2809,7 +2815,7 @@ hsc2hsArguments config cInfo file output macrosPath = do
   let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
-    ( ["--cross-compile", "--cc=" <> compiler, "--ld=" <> compiler]
+    ( ["--cross-compile", "--via-asm", "--cc=" <> compiler, "--ld=" <> compiler]
         <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
