@@ -1,0 +1,35 @@
+extensions:
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE DataKinds, ExistentialQuantification, KindSignatures, PolyKinds, StandaloneKindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeError where
+  import GHC.Types (Bool (..), Constraint, Symbol, Type)
+  type ErrorMessage :: Type
+  data ErrorMessage
+    = Text Symbol
+    | forall t. ShowType t
+    | ErrorMessage :<>: ErrorMessage
+    | ErrorMessage :$$: ErrorMessage
+  type TypeError :: forall b. ErrorMessage -> b
+  type family TypeError a where
+  type Assert :: Bool -> Constraint -> Constraint
+  type family Assert check errMsg where
+    Assert 'True _ = ()
+    Assert _ errMsg = errMsg
+- |
+  {-# LANGUAGE DataKinds, FlexibleContexts, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.TypeError (Assert, ErrorMessage (..), TypeError)
+  import GHC.Types (Bool (..))
+  needs :: Assert 'False (TypeError ('Text "cannot use " ':<>: 'ShowType Bool)) => Bool
+  needs = True
+  use :: Bool
+  use = needs
+status: xfail
+reason: the assertion fails, so its message constraint is demanded and reported as the text it spells rather than as an unsolved constraint

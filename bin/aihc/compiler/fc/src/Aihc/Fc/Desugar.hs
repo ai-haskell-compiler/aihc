@@ -710,14 +710,21 @@ convertNewtype env info = do
 convertEmptyFamily :: ConvertEnv -> [Text] -> Role -> TyConInfo -> Either String Decl
 convertEmptyFamily env paramNames roles info = do
   let tyCon = tciTyCon info
-      constructorKind = typeSchemeBody (tciKindScheme info)
+      -- The kind scheme's own variables are binders of the declaration, not
+      -- free names: @TypeError :: forall b. ErrorMessage -> b@ is a family
+      -- whose result kind is the variable it quantifies. Dropping them left
+      -- the result kind mentioning a name nothing bound.
+      ForAll kindTyVars _ constructorKind = tciKindScheme info
+      bindersEnv = withTyVars kindTyVars env
       argKinds = take (tciArity info) (visibleArgKinds constructorKind)
       names =
         if length paramNames == length argKinds
           then paramNames
           else ["a" <> T.pack (show index) | index <- [1 .. length argKinds]]
-  binders <- zipWithM (kindBinder env) names argKinds
-  result <- convertKind env (dropKindParams (length binders) constructorKind)
+  kindBinders <- mapM (tyVarBinder bindersEnv) kindTyVars
+  argBinders <- zipWithM (kindBinder bindersEnv) names argKinds
+  result <- convertKind bindersEnv (dropKindParams (length argBinders) constructorKind)
+  let binders = kindBinders <> argBinders
   pure
     ( DeclType
         TypeDecl

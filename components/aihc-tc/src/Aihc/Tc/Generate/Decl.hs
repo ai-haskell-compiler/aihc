@@ -4228,7 +4228,7 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       let familyName = unqualifiedNameText familyBinder
           params = typeFamilyDeclParams familyDecl
           arity = length params
-      (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+      (kindParams, paramInfos) <- typeDeclParamInfos maybeKindScheme params
       forM_ paramInfos $ \param ->
         forM_ (Map.lookup (paramName param) sharedKinds) (`unifyKinds` paramKind param)
       inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
@@ -4239,7 +4239,11 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
           { tciName = familyName,
             tciArity = arity,
             tciTyCon = familyTyCon,
-            tciKindScheme = ForAll [] [] declaredKind,
+            -- A standalone kind signature may quantify variables of its
+            -- own: @TypeError :: forall b. ErrorMessage -> b@ is a family
+            -- at every result kind. They are binders of the declaration,
+            -- as they are for a data type, so the scheme keeps them.
+            tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
             tciFlavor = TypeFamilyTyCon,
             tciTypeSynonym = Nothing,
             tciInjectivity = typeFamilyInjectivePositions familyDecl
@@ -4319,8 +4323,17 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
   -- at a higher kind. Converting the applied head without an expectation
   -- gives that kind, and reading the right-hand side against it keeps a
   -- poly-kinded family open as well.
-  (lhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
-  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) =<< zonkKind lhsKind
+  (rawLhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
+  rawRhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) =<< zonkKind lhsKind
+  -- A wildcard on the left stands for an argument the equation does not
+  -- name, which is a variable of the equation like any other: @Assert _
+  -- errMsg = errMsg@ matches every @check@. It arrives as a meta, because
+  -- only the parameter kind gave it its kind, so it is bound to a fresh
+  -- variable here and joins the equation's own.
+  wildcardParams <- bindWildcardParams rawLhs
+  lhs <- zonkType rawLhs
+  rhs <- zonkType rawRhs
+  let allParamInfos = paramInfos <> wildcardParams
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
@@ -4338,7 +4351,7 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
                       { tfiiFamilyName = familyName,
                         tfiiAxiomName = axiomName,
                         tfiiOrigin = (PackageId packageName, moduleName'),
-                        tfiiTyVars = map paramTyVar paramInfos,
+                        tfiiTyVars = map paramTyVar allParamInfos,
                         tfiiLeft = lhs,
                         tfiiRight = rhs,
                         tfiiClosed = isClosed
@@ -4350,6 +4363,36 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
     Nothing -> do
       emitError NoSourceSpan (OtherError ("invalid type-family instance head: " <> show lhs))
       pure Nothing
+
+-- | Bind every meta left in a family equation's left-hand side to a fresh
+-- variable, and report those variables. Only a wildcard leaves one: every
+-- other argument is a name the equation quantifies already.
+bindWildcardParams :: TcType -> TcM [ParamInfo]
+bindWildcardParams lhs = do
+  zonked <- zonkType lhs
+  mapM bindOne (nub (typeMetas zonked))
+  where
+    typeMetas ty =
+      case ty of
+        TcMetaTv unique -> [unique]
+        TcTyVar {} -> []
+        TcArrowTy -> []
+        TcTyLit {} -> []
+        TcTyCon _ arguments -> concatMap typeMetas arguments
+        TcFunTy argument result -> typeMetas argument <> typeMetas result
+        TcForAllTy _ body -> typeMetas body
+        TcQualTy _ body -> typeMetas body
+        TcAppTy function argument -> typeMetas function <> typeMetas argument
+    bindOne unique = do
+      kind <- zonkKind =<< readMetaTvKind unique
+      tyVar <- freshSkolemTvOfKind "_" kind
+      writeMetaTv unique (TcTyVar tyVar)
+      pure
+        ParamInfo
+          { paramName = "_",
+            paramTyVar = tyVar,
+            paramKind = kind
+          }
 
 typeFamilyApplicationHead :: TcType -> Maybe TyCon
 typeFamilyApplicationHead ty =

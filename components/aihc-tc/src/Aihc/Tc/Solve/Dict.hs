@@ -19,13 +19,14 @@ where
 
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Resolve (PackageId (..))
+import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, isTypeFamilyTyCon, matchTypes, reduceTypeFamilies)
 import Aihc.Tc.Types
@@ -441,11 +442,59 @@ isCallStackPred predicate =
 reportUnsolvedDict :: Ct -> TcM ()
 reportUnsolvedDict ct = do
   predicate <- zonkPred (ctPred ct)
+  wiring <- getWiring
   case predicate of
     IParamPred name payload
       | Just origin <- callStackOrigin name payload ->
           bindEvidence (ctEvVar ct) (implicitParamEvidence ct name payload (EvCallStackEmpty origin))
+    -- A custom type error is not an unsolved constraint but a message the
+    -- library author wrote. It stands where a constraint would, so it
+    -- arrives here; what it says is the diagnostic.
+    IrredPred constraint
+      | Just message <- customTypeErrorMessage wiring constraint ->
+          emitError (ctLoc ct) (OtherError message)
     _ -> emitError (ctLoc ct) (UnsolvedWanted predicate (ctOrigin ct))
+
+-- | The rendered message of a @TypeError@ application, if the constraint
+-- is one.
+customTypeErrorMessage :: TcWiring -> TcType -> Maybe String
+customTypeErrorMessage wiring constraint =
+  case constraint of
+    -- @TypeError@ is polymorphic in its result kind, so an application
+    -- carries that kind before the message and the message is last.
+    TcTyCon tyCon arguments
+      | (tyConModuleName tyCon, tyConName tyCon) == tcWiringTypeErrorFamily wiring,
+        message : _ <- reverse arguments ->
+          Just (renderErrorMessage wiring message)
+    _ -> Nothing
+
+-- | An @ErrorMessage@ as the text it spells. A part that is not one of the
+-- four constructors is shown as the type it is, which is what GHC does
+-- with a message it cannot reduce any further.
+renderErrorMessage :: TcWiring -> TcType -> String
+renderErrorMessage wiring = go
+  where
+    (textCon, showTypeCon, appendCon, aboveCon) = tcWiringErrorMessageCons wiring
+    go message =
+      case message of
+        TcTyCon tyCon [TcTyLit (TyLitSymbol literal)]
+          | tyConName tyCon == textCon -> T.unpack literal
+        TcTyCon tyCon arguments
+          | tyConName tyCon == showTypeCon,
+            [shown] <- arguments ->
+              renderTcType shown
+          -- The constructor is poly-kinded, so the kind comes first.
+          | tyConName tyCon == showTypeCon,
+            [_, shown] <- arguments ->
+              renderTcType shown
+          | tyConName tyCon == appendCon,
+            [left, right] <- lastTwo arguments ->
+              go left <> go right
+          | tyConName tyCon == aboveCon,
+            [left, right] <- lastTwo arguments ->
+              go left <> "\n" <> go right
+        _ -> renderTcType message
+    lastTwo arguments = drop (length arguments - 2) arguments
 
 matchQuantifiedPredicate :: [TyVarId] -> Pred -> Pred -> Maybe (Map Unique TcType)
 matchQuantifiedPredicate variables patternPredicate targetPredicate =
