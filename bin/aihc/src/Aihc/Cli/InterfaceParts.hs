@@ -141,6 +141,7 @@ internType ty = do
         TcTyVar variable -> void (internTyVar variable)
         TcMetaTv {} -> pure ()
         TcArrowTy -> pure ()
+        TcTyLit {} -> pure ()
         TcTyCon _ arguments -> traverse_ internType arguments
         TcFunTy argument result -> traverse_ internType [argument, result]
         TcForAllTy variable body -> internTyVar variable *> void (internType body)

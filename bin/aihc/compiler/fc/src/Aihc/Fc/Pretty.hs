@@ -280,6 +280,8 @@ prettyTypeWith scopes prec ty =
   case ty of
     TyVar name -> prettyName scopes name
     TyCon name -> prettyName scopes name
+    TyLit kindName literal ->
+      parenthesize (prec < PrecApp) ("lit" <+> prettyName scopes kindName <+> prettyTyLit literal)
     TyApp function argument ->
       parenthesize (prec < PrecApp) (prettyTypeWith scopes PrecApp function <+> prettyTypeWith scopes PrecAtom argument)
     TyFun r1 r2 argument result
@@ -461,6 +463,26 @@ prettyCoercion scopes coercion =
     CoAxiom name arguments ->
       hsep ("axiom-co" : prettyName scopes name : map (("@" <>) . prettyTypeWith scopes PrecAtom) arguments)
 
+-- | A type-level literal, in the same spellings the term-level literals
+-- use so that one escaping rule covers both.
+prettyTyLit :: TyLit -> Doc ann
+prettyTyLit literal =
+  case literal of
+    TyLitNat value -> pretty value
+    TyLitSymbol value -> "\"" <> pretty (concatMap encodeStringCharacter (T.unpack value)) <> "\""
+    TyLitChar value -> "'" <> pretty (encodeCharLiteral value) <> "'"
+
+-- | A character inside a symbol literal. A double quote is escaped there
+-- and a single quote is not, the other way round from a character
+-- literal.
+encodeStringCharacter :: Char -> String
+encodeStringCharacter character
+  | character == '"' = "\\\""
+  | character == '\\' = "\\\\"
+  | character == '\n' = "\\n"
+  | isPrint character = [character]
+  | otherwise = "\\x{" <> showHex (ord character) "" <> "}"
+
 prettyLiteral :: ScopeIndex -> Literal -> Doc ann
 prettyLiteral scopes literal =
   case literal of
@@ -565,6 +587,7 @@ reservedWords =
     "as",
     "of",
     "FUN",
+    "lit",
     "refl",
     "sym",
     "trans",

@@ -32,6 +32,9 @@ module Aihc.Tc.Types
     mkTyConWithOrigin,
     mkTyConWithNamespace,
     TypeScheme (..),
+    TyLit (..),
+    tyLitKind,
+    tyLitKindTyCon,
     typeKindInEnv,
     TcTypeApplicationKinds (..),
     typeApplicationKinds,
@@ -217,9 +220,24 @@ data TcType
   | TcForAllTy !TyVarId !TcType
   | TcQualTy ![Pred] !TcType
   | TcAppTy !TcType !TcType
+  | -- | A type-level literal: @3@, @"abc"@ or @'x'@. Its kind is the
+    -- literal's sort, which is a wired-in type constructor rather than
+    -- anything the literal carries.
+    TcTyLit !TyLit
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TcType
+
+-- | A type-level literal, by sort. A natural stands at kind
+-- @GHC.Num.Natural.Natural@, a symbol at @GHC.Types.Symbol@ and a
+-- character at @GHC.Types.Char@, exactly as in GHC.
+data TyLit
+  = TyLitNat !Integer
+  | TyLitSymbol !Text
+  | TyLitChar !Char
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TyLit
 
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read, Generic)
@@ -337,8 +355,25 @@ data TcKinds = TcKinds
     -- | The promoted list constructors that a @TupleRep@ or @SumRep@ kind
     -- lists its fields with.
     kindsNilDataCon :: TyCon,
-    kindsConsDataCon :: TyCon
+    kindsConsDataCon :: TyCon,
+    -- | The kind of each sort of type-level literal: @Natural@, @Symbol@
+    -- and @Char@.
+    kindsNaturalTyCon :: TyCon,
+    kindsSymbolTyCon :: TyCon,
+    kindsCharTyCon :: TyCon
   }
+
+-- | The kind of a type-level literal, which its sort alone decides.
+tyLitKind :: TcKinds -> TyLit -> TcType
+tyLitKind kinds literal = TcTyCon (tyLitKindTyCon kinds literal) []
+
+-- | The type constructor that is the kind of a type-level literal.
+tyLitKindTyCon :: TcKinds -> TyLit -> TyCon
+tyLitKindTyCon kinds literal =
+  case literal of
+    TyLitNat {} -> kindsNaturalTyCon kinds
+    TyLitSymbol {} -> kindsSymbolTyCon kinds
+    TyLitChar {} -> kindsCharTyCon kinds
 
 -- | The tables are functions, so a table shows as its name alone, as
 -- 'Aihc.Tc.Wiring.TcWiring' does.
@@ -430,6 +465,7 @@ typeKindInEnv kinds kindEnv = go
         TcAppTy function argument -> do
           functionKind <- go function
           applyKind functionKind argument
+        TcTyLit literal -> Right (tyLitKind kinds literal)
 
     applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) body
 
@@ -492,6 +528,7 @@ applySubst substitution = go
         TcTyVar tyVar -> Map.findWithDefault (TcTyVar (setTyVarKind (go (tvKind tyVar)) tyVar)) (tvUnique tyVar) substitution
         TcMetaTv {} -> ty
         TcArrowTy -> ty
+        TcTyLit {} -> ty
         TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
@@ -525,6 +562,7 @@ typeMentionsTyVar target ty =
     TcTyVar tyVar -> sameTyVar tyVar target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
     TcMetaTv {} -> False
     TcArrowTy -> False
+    TcTyLit {} -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> not (sameTyVar tyVar target) && typeMentionsTyVar target body
@@ -563,6 +601,7 @@ data TypeShape
   | ShapeForAllTy !Unique !Text !TypeShape
   | ShapeQualTy ![PredShape] !TypeShape
   | ShapeAppTy !TypeShape !TypeShape
+  | ShapeTyLit !TyLit
   deriving (Eq, Ord, Show)
 
 -- | A predicate with the kinds of its variables left out.
@@ -585,6 +624,7 @@ typeShape ty =
     TcForAllTy tyVar body -> ShapeForAllTy (tvUnique tyVar) (tvName tyVar) (typeShape body)
     TcQualTy predicates body -> ShapeQualTy (map predShape predicates) (typeShape body)
     TcAppTy function argument -> ShapeAppTy (typeShape function) (typeShape argument)
+    TcTyLit literal -> ShapeTyLit literal
 
 predShape :: Pred -> PredShape
 predShape predicate =
@@ -614,6 +654,7 @@ kindMentionsUnique target kind =
     TcTyVar tyVar -> tvUnique tyVar == target || kindMentionsUnique target (tvKind tyVar)
     TcMetaTv unique -> unique == target
     TcArrowTy -> False
+    TcTyLit {} -> False
     TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
     TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body

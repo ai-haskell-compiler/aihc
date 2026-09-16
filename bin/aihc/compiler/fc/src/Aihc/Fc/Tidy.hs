@@ -106,6 +106,7 @@ tidyType env ty =
       let (binder', bodyEnv) = tidyBinder env binder
        in TyForAll binder' (tidyType bodyEnv body)
     TyEq left right -> TyEq (tidyType env left) (tidyType env right)
+    TyLit kindName literal -> TyLit (tidyUse env kindName) literal
 
 tidyExpr :: TidyEnv -> Expr -> Expr
 tidyExpr env expr =

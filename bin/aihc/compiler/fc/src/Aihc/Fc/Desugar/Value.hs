@@ -798,6 +798,7 @@ foreignTypeNewtypeDependencies ty = do
         TcTyVar {} -> []
         TcMetaTv {} -> []
         TcArrowTy -> []
+        TcTyLit {} -> []
         TcTyCon tyCon arguments ->
           [foreignNewtypeDependency dataType | dataType <- newtypes, dtiTyCon dataType == tyCon]
             <> concatMap (go newtypes) arguments

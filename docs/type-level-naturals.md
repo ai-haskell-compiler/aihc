@@ -42,7 +42,13 @@ data TyLit = TyLitNat !Integer | TyLitSymbol !Text | TyLitChar !Char
 data TcType = ... | TcTyLit !TyLit
 ```
 
-and `Aihc.Fc.Syntax.Type` gains a matching `TyLit !TyLit`.
+and `Aihc.Fc.Syntax.Type` gains a matching `TyLit Name TyLit`, where the
+`Name` is the type constructor that is the literal's kind. Naming the kind
+rather than deriving it is what keeps the FC side free of special cases: a
+literal then refers to its sort exactly as every other type refers to a
+constructor, so `Fc.Imports`, the scope table and `Fc.Lint` need no rule of
+their own, and the lint reads the kind off the node instead of having to
+know where `Natural` is declared.
 
 The alternative — encoding `3` as a nullary `TyCon` named `"3"` — was
 rejected on two counts. The FC lint resolves the kind of every `TyCon`
@@ -56,6 +62,14 @@ work exactly. The consumer set is small: about a dozen files for `TcType`
 `Cli.TypeArtifact`) and about fifteen for the FC type (`Fc.TypeOf`,
 `Fc.Lint`, `Fc.Pretty`, `Fc.Parser`, `Fc.Share`, `Fc.Convert`, `Fc.Normalize`,
 `Fc.Inline`, `Fc.Tidy`, `Fc.Prune`, `Fc.Merge`, `Fc.Imports`, `Grin.Lower`).
+
+Everything the compiler is built on is an asset of `aihc-prim`: nothing in
+`aihc-base` may be fundamental to it, and `Install` must not name `aihc-base`
+at all. The kind of a natural literal is such an asset, so `data Natural`
+is declared in `GHC.Prim.Natural`, beside the `Integer` that is already
+there, and `GHC.Num.Natural` re-exports it and keeps its instances. That is
+a deliberate departure from GHC's layout, where `Natural` sits in
+`ghc-bignum`'s own `GHC.Num.Natural`.
 
 ### Kinds follow GHC 9.12
 
@@ -188,7 +202,7 @@ their own `Assert`-shaped closed family.
 application as a binder type without a coercion story, stop and revisit the
 sequencing before PR 1.
 
-### PR 1 — `feat(tc): type-level literals in the kind checker`
+### PR 1 — `feat(tc): type-level literals in the kind checker` — landed
 
 The literal plumbing, no user-visible feature beyond kind-checking a literal.
 
@@ -204,11 +218,18 @@ The literal plumbing, no user-visible feature beyond kind-checking a literal.
   get a round-trippable token (regenerate the FC goldens from the tasty
   `actual:` blocks).
 - `Cli.TypeArtifact` CBOR codec; bump `packageArtifactFormatVersion`.
-- `core-libs/aihc-prim/src/GHC/Types.hs`: `data Symbol`, exported.
-- Tests: annotated fixtures for a literal in a kind signature, as a data-type
-  argument, in a type synonym, and a kind mismatch (`Vec "x"` where
-  `Vec :: Natural -> Type`); an FC lint pass fixture and a parser round-trip
-  property.
+- `core-libs/aihc-prim/src/GHC/Types.hs`: `data Symbol`, exported;
+  `core-libs/aihc-prim/src/GHC/Prim/Natural.hs`: `data Natural`, which
+  `GHC.Num.Natural` re-exports.
+- Tests: annotated fixtures for a natural, symbol and character literal as
+  data-type arguments, and a kind mismatch (`Tagged 'x'` where
+  `Tagged :: Symbol -> Type`). All three sorts are fixtures because all
+  three kinds are in `aihc-prim`, which is what the annotated harness
+  loads. A natural literal is also covered end to end, by installing a
+  package that uses one against a real `aihc-base` with `--lint`.
+- The FC parse/render round-trip property already covers types; `genType`
+  gains literals, which is what found that `stringChar` did not accept the
+  braced hex escape the renderer writes for a symbol.
 
 ### PR 2 — `feat(base): GHC.TypeError`
 

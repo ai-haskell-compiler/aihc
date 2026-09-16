@@ -1,0 +1,13 @@
+extensions:
+- DataKinds
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures #-}
+  module Test where
+  import GHC.Types (Symbol, Type)
+  data Tagged (name :: Symbol) = Tagged
+  type Wrong :: Type
+  type Wrong = Tagged 'x'
+status: xfail
+reason: a character literal has kind Char, which is not the Symbol the parameter demands

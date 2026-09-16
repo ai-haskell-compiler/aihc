@@ -20,6 +20,7 @@ module GHC.Types
     Ordering (..),
     SPEC (..),
     Constraint,
+    Symbol,
     Coercible,
     type (~),
     type (~~),
@@ -128,6 +129,11 @@ data SPEC = SPEC | SPEC2
 
 type Constraint :: Type
 data Constraint
+
+-- | The kind of a type-level string literal, such as @"abc"@. It has no
+-- values: it exists only as a kind, as it does in GHC.
+type Symbol :: Type
+data Symbol
 
 -- | The compiler proves that both types have the same representation.
 type Coercible :: Type -> Type -> Constraint

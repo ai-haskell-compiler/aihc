@@ -74,7 +74,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
 import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -484,6 +484,14 @@ renderPred pred' =
   where
     commaSep = T.unpack . T.intercalate (T.pack ", ") . map T.pack
 
+-- | Render a type-level literal as its source spelling.
+renderTyLit :: TyLit -> String
+renderTyLit literal =
+  case literal of
+    TyLitNat value -> show value
+    TyLitSymbol value -> show (T.unpack value)
+    TyLitChar value -> show value
+
 -- | Render a 'TcType' as a human-readable string.
 --
 -- Uses a precedence level to decide when to insert parentheses:
@@ -501,6 +509,7 @@ renderTcTypeInModule currentModule = go 0
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
     go _ KType = "Type"
     go _ TcArrowTy = "(->)"
+    go _ (TcTyLit literal) = renderTyLit literal
     go _ (TcTyCon (TyCon name 1) [arg])
       | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
     go _ (TcTyCon tc@(TyCon name arity) args)

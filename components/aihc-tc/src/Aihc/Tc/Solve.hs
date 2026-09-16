@@ -341,6 +341,7 @@ typeMetaVars ty =
   case ty of
     TcMetaTv unique -> [unique]
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcTyVar _ -> []
     TcTyCon _ arguments -> concatMap typeMetaVars arguments
     TcFunTy argument result -> typeMetaVars argument <> typeMetaVars result
@@ -364,6 +365,7 @@ typeTyVars ty =
     TcTyVar tyVar -> [tyVar]
     TcMetaTv _ -> []
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)

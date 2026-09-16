@@ -246,6 +246,8 @@ convertTypeWithExpectedKind :: ConvertEnv -> Maybe TcType -> TcType -> Either St
 convertTypeWithExpectedKind env expectedKind ty =
   case ty of
     TcTyVar tyVar -> Right (tyVarType tyVar)
+    TcTyLit literal ->
+      Right (TyLit (tyConNameFc env (Tc.tyLitKindTyCon (ceKinds env) literal)) (convertTyLit literal))
     TcMetaTv {} -> Left "type still has a meta variable"
     -- The constraint type of an implicit parameter is the type of its value.
     TcTyCon tyCon [payload]
@@ -276,6 +278,15 @@ convertTypeWithExpectedKind env expectedKind ty =
     -- A saturated arrow is 'TcFunTy'; only a partial one reaches here, and
     -- the desugarer names it as it names any other type constructor.
     TcArrowTy -> Right (TyCon (tyConNameFc env (kindsArrowTyCon (ceKinds env))))
+
+-- | A type-level literal keeps its value across the boundary; the two
+-- representations differ only in which module declares them.
+convertTyLit :: Tc.TyLit -> TyLit
+convertTyLit literal =
+  case literal of
+    Tc.TyLitNat value -> TyLitNat value
+    Tc.TyLitSymbol value -> TyLitSymbol value
+    Tc.TyLitChar value -> TyLitChar value
 
 convertPred :: ConvertEnv -> Pred -> Either String Type
 convertPred env predicate =

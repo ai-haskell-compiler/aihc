@@ -377,6 +377,7 @@ typeableArguments ty =
     TcTyVar {} -> Nothing
     TcMetaTv {} -> Nothing
     TcArrowTy -> Nothing
+    TcTyLit {} -> Nothing
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing

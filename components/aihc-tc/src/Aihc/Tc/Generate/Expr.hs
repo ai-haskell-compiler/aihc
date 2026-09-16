@@ -1062,6 +1062,7 @@ typeMetaVariables ty =
   case ty of
     TcTyVar {} -> []
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcMetaTv meta -> [meta]
     TcTyCon _ arguments -> concatMap typeMetaVariables arguments
     TcFunTy argument result -> typeMetaVariables argument <> typeMetaVariables result

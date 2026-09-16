@@ -20,6 +20,7 @@ library
     GHC.Prim.Ext
     GHC.Prim.IO
     GHC.Prim.Integer
+    GHC.Prim.Natural
     GHC.Prim.Num
     GHC.Prim.Panic
     GHC.Prim.PtrEq

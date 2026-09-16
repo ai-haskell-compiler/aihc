@@ -161,6 +161,7 @@ environmentMetaVars ignoredKeys = do
 collectMetaVars :: TcType -> [Unique]
 collectMetaVars (TcMetaTv u) = [u]
 collectMetaVars TcArrowTy = []
+collectMetaVars (TcTyLit _) = []
 collectMetaVars (TcTyVar _) = []
 collectMetaVars (TcTyCon _ args) = concatMap collectMetaVars args
 collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
@@ -224,6 +225,7 @@ substMetas subst = go
       Just ty -> ty
       Nothing -> TcMetaTv u
     go TcArrowTy = TcArrowTy
+    go ty@(TcTyLit _) = ty
     go (TcTyVar tv) = TcTyVar tv
     go (TcTyCon tc args) = TcTyCon tc (map go args)
     go (TcFunTy a b) = TcFunTy (go a) (go b)

@@ -1134,6 +1134,7 @@ typeOrigins ty =
   case ty of
     TyVar name -> nameOriginPair name
     TyCon name -> nameOriginPair name
+    TyLit kindName _ -> nameOriginPair kindName
     TyApp function argument -> typeOrigins function <> typeOrigins argument
     TyFun r1 r2 argument result ->
       typeOrigins r1 <> typeOrigins r2 <> typeOrigins argument <> typeOrigins result

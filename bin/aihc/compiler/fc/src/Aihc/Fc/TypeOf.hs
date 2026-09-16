@@ -158,6 +158,9 @@ typeOf env ty =
       Map.lookup name (teBinders env)
     TyCon name ->
       lookupHeaderType env name
+    -- A literal's kind is the type constructor it names.
+    TyLit kindName _ ->
+      Just (TyCon kindName)
     TyApp function argument ->
       do
         functionType <- typeOf env function
@@ -214,6 +217,7 @@ substType target replacement = go
           | name == target -> replacement
           | otherwise -> ty
         TyCon {} -> ty
+        TyLit {} -> ty
         TyApp function argument -> TyApp (go function) (go argument)
         TyFun r1 r2 argument result -> TyFun (go r1) (go r2) (go argument) (go result)
         TyForAll binder body
@@ -234,6 +238,7 @@ substTypes = go
       case ty of
         TyVar name -> Map.findWithDefault ty name current
         TyCon {} -> ty
+        TyLit {} -> ty
         TyApp function argument -> TyApp (go current function) (go current argument)
         TyFun r1 r2 argument result -> TyFun (go current r1) (go current r2) (go current argument) (go current result)
         TyForAll binder body
@@ -253,6 +258,7 @@ typeVariableNames ty =
   case ty of
     TyVar name -> [name]
     TyCon {} -> []
+    TyLit {} -> []
     TyApp function argument -> typeVariableNames function <> typeVariableNames argument
     TyFun r1 r2 argument result -> concatMap typeVariableNames [r1, r2, argument, result]
     TyForAll binder body -> binderName binder : typeVariableNames (binderType binder) <> typeVariableNames body
@@ -308,6 +314,7 @@ reduceTypeWith :: Bool -> TypeEnv -> Type -> Type
 reduceTypeWith families env ty =
   case ty of
     TyVar {} -> ty
+    TyLit {} -> ty
     TyCon {} ->
       let unfolded = unfoldType env ty
        in if unfolded == ty then reduceFamily ty else reduceTypeWith families env unfolded
@@ -457,6 +464,12 @@ matchAxiomTypes env = matchTypes
         TyCon name ->
           case actualType of
             TyCon actualName | name == actualName -> Just substitution
+            _ -> Nothing
+        -- A literal matches an equal literal of the same sort. The kind
+        -- name follows from the sort, so the values decide.
+        TyLit _ literal ->
+          case actualType of
+            TyLit _ actualLiteral | literal == actualLiteral -> Just substitution
             _ -> Nothing
         TyApp function argument ->
           case actualType of
@@ -638,6 +651,7 @@ typeUsesName target ty =
   case ty of
     TyVar name -> name == target
     TyCon {} -> False
+    TyLit {} -> False
     TyApp function argument -> typeUsesName target function || typeUsesName target argument
     TyFun r1 r2 argument result -> any (typeUsesName target) [r1, r2, argument, result]
     TyForAll binder body

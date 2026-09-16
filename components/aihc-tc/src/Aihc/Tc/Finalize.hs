@@ -435,6 +435,8 @@ firstMetaType ty =
       Just meta
     TcArrowTy ->
       Nothing
+    TcTyLit {} ->
+      Nothing
     TcTyVar {} ->
       Nothing
     TcTyCon _ args ->

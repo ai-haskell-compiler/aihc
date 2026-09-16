@@ -59,6 +59,11 @@ primTcConfig prim =
 -- operator in @GHC.Base@. The Template Haskell @Lift@ class lives in
 -- aihc-internal, the standin for ghc-internal, as it does in GHC 9.12
 -- and later.
+--
+-- The @Natural@ that is the kind of a type-level natural literal is
+-- declared in @GHC.Prim.Natural@, beside @Integer@, rather than in the
+-- @GHC.Num.Natural@ where GHC's @ghc-bignum@ puts it: everything the
+-- compiler is built on is an asset of the primitive package.
 primTcWiring :: PackageId -> TcWiring
 primTcWiring prim =
   TcWiring
@@ -82,6 +87,8 @@ primTcWiring prim =
       tcWiringConstraintTupleTyCon = tyCon ResolutionNamespaceType "GHC.Classes" "CTuple0" 0,
       tcWiringBoolTyCon = types ResolutionNamespaceType "Bool" 0,
       tcWiringCharTyCon = types ResolutionNamespaceType "Char" 0,
+      tcWiringNaturalTyCon = tyCon ResolutionNamespaceType "GHC.Prim.Natural" "Natural" 0,
+      tcWiringSymbolTyCon = types ResolutionNamespaceType "Symbol" 0,
       tcWiringEqualityTyCon = types ResolutionNamespaceType "~" 2,
       tcWiringCoercibleTyCon = types ResolutionNamespaceType "Coercible" 2,
       tcWiringImplicitParamTyCon = \name ->

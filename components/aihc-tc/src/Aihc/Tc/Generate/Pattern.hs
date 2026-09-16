@@ -910,6 +910,7 @@ typeTyVars ty =
     TcTyVar tyVar -> Set.insert (tvUnique tyVar) (typeTyVars (tvKind tyVar))
     TcMetaTv {} -> Set.empty
     TcArrowTy -> Set.empty
+    TcTyLit {} -> Set.empty
     TcTyCon _ arguments -> Set.unions (map typeTyVars arguments)
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)

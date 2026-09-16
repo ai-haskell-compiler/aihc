@@ -137,6 +137,7 @@ representationPosition visited variable ty = case ty of
   TcTyVar binder -> pure (not (mentions variable (tvKind binder)))
   TcMetaTv _ -> pure False
   TcArrowTy -> pure False
+  TcTyLit {} -> pure False
   TcFunTy argument result -> do
     left <- representationPosition visited variable argument
     right <- representationPosition visited variable result
@@ -164,6 +165,7 @@ mentions variable = elem (tvUnique variable) . variables
       TcTyVar binder -> [tvUnique binder] <> variables (tvKind binder)
       TcMetaTv _ -> []
       TcArrowTy -> []
+      TcTyLit {} -> []
       TcTyCon _ arguments -> concatMap variables arguments
       TcFunTy argument result -> variables argument <> variables result
       TcAppTy function argument -> variables function <> variables argument

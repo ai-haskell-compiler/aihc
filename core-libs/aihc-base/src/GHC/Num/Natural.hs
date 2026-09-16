@@ -10,24 +10,17 @@ import GHC.Exception (ArithException (..), throw)
 import GHC.Num.BigNat (BigNat#)
 import GHC.Prim (Word#, eqWord#, indexWordArray#, int2Word#, ltWord#, sizeofByteArray#, (<#), (==#))
 import GHC.Prim.Integer (Integer (..), integerFromWord#)
+import GHC.Prim.Natural (Natural (..))
 import GHC.Read ()
 import GHC.Types (isTrue#)
 import Text.ParserCombinators.ReadPrec (ReadPrec, pfail)
 import Prelude
 
--- | An arbitrary-precision non-negative integer.
---
--- The representation mirrors @ghc-bignum@: a value that fits in a 'Word#'
--- stays unallocated in 'NS', and anything larger carries the canonical
--- little-endian magnitude of 'GHC.Num.Integer.Integer' in 'NB'.  'NB'
--- therefore never holds a magnitude of a single limb.
---
--- The arithmetic below goes through 'Integer' rather than working on the
--- limbs directly.  Only the representation has to match GHC; the operations
--- are free to reuse the magnitude code that already backs 'Integer'.
-data Natural
-  = NS Word#
-  | NB BigNat#
+-- The type itself is declared in @GHC.Prim.Natural@, because the compiler
+-- names it as the kind of a type-level natural literal. The arithmetic
+-- below goes through 'Integer' rather than working on the limbs directly:
+-- only the representation has to match GHC, and the operations are free to
+-- reuse the magnitude code that already backs 'Integer'.
 
 underflow :: a
 underflow = throw Underflow

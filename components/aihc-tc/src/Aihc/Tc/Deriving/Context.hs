@@ -478,6 +478,7 @@ typeableArguments predicate =
             TcTyVar {} -> Nothing
             TcMetaTv {} -> Nothing
             TcArrowTy -> Nothing
+            TcTyLit {} -> Nothing
             TcForAllTy {} -> Nothing
             TcQualTy {} -> Nothing
             TcAppTy {} -> Nothing
@@ -528,6 +529,7 @@ typeMentionsTyCon name ty =
     TcTyVar {} -> False
     TcMetaTv {} -> False
     TcArrowTy -> False
+    TcTyLit {} -> False
     TcTyCon tyCon arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) arguments
     TcFunTy argument result -> typeMentionsTyCon name argument || typeMentionsTyCon name result
     TcForAllTy _ body -> typeMentionsTyCon name body
@@ -547,6 +549,7 @@ typeTyVars ty =
     TcTyVar tyVar -> [tyVar]
     TcMetaTv {} -> []
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcTyCon _ arguments -> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)

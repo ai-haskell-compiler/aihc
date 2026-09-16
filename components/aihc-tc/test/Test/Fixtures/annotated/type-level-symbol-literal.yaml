@@ -1,0 +1,13 @@
+extensions:
+- DataKinds
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures #-}
+  module Test where
+  import GHC.Types (Symbol, Type)
+  data Tagged (name :: Symbol) = Tagged
+  type Named :: Type
+  type Named = Tagged "answer"
+status: pass
+reason: a type-level string literal is a type of kind Symbol, so it is an argument of a parameter of that kind
