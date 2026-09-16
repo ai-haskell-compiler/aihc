@@ -1,14 +1,11 @@
-{-# LANGUAGE MagicHash #-}
-
 module Foreign.StablePtr
   ( StablePtr,
+    newStablePtr,
+    deRefStablePtr,
+    freeStablePtr,
+    castStablePtrToPtr,
     castPtrToStablePtr,
   )
 where
 
-import GHC.Prim (unsafeCoerce#)
-import GHC.Ptr (Ptr)
-import GHC.Stable (StablePtr)
-
-castPtrToStablePtr :: Ptr () -> StablePtr a
-castPtrToStablePtr = unsafeCoerce#
+import GHC.Stable (StablePtr, castPtrToStablePtr, castStablePtrToPtr, deRefStablePtr, freeStablePtr, newStablePtr)
