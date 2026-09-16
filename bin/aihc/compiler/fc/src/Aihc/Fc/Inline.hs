@@ -36,6 +36,7 @@ module Aihc.Fc.Inline
   )
 where
 
+import Aihc.Fc.Fold (foldForeignCall, hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
@@ -278,7 +279,7 @@ simplifyValue config counts known recursive st name =
                 Just calleeBody <- [Map.lookup callee (inBodies st)],
                 isInlinable calleeBody
               ]
-       in if Map.null candidates && Map.null known
+       in if Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
             then st
             else
               let simpl =
@@ -509,7 +510,7 @@ simplifyExpr env expr =
       mkCast body' coercion
     ExForeignCall call types arguments -> do
       arguments' <- mapM (simplifyExpr env) arguments
-      let call' = foldForeignCall (spEnv env) call types arguments'
+      let call' = fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments')
       pure (maybe call' ExVar (Map.lookup call' (spCse env)))
 
 -- | Simplify a case whose scrutinee is simplified and whose alternatives
@@ -1549,63 +1550,6 @@ foreignSignature env ty =
     Nothing
       | Just _ <- viewForAll env ty -> Nothing
       | otherwise -> Just ([], ty)
-
--- | Fold a primitive call on literals: a conversion between the integer
--- widths, and a comparison of two integers. The literal of the result
--- takes the representation of the result type of the call.
-foldForeignCall :: TypeEnv -> ForeignCall -> [Type] -> [Expr] -> Expr
-foldForeignCall env call types arguments =
-  fromMaybe (ExForeignCall call types arguments) $ do
-    guard (foreignCallConvention call == Prim && null types)
-    (_, resultType) <- foreignSignature env (foreignCallType call)
-    resultRep <- reduceType env <$> repOf env resultType
-    let name = nameText (foreignCallName call)
-    case arguments of
-      [ExLit (LitInt _ value)] -> do
-        narrow <- List.lookup name integerConversions
-        Just (ExLit (LitInt resultRep (narrow value)))
-      [ExLit (LitInt _ left), ExLit (LitInt _ right)] -> do
-        compare' <- List.lookup name integerComparisons
-        Just (ExLit (LitInt resultRep (if compare' left right then 1 else 0)))
-      _ -> Nothing
-
--- | The conversions between the integer widths, with what each does to
--- the value. A narrowing wraps to its width; a widening keeps the value,
--- which the narrow literal already holds.
-integerConversions :: [(Text, Integer -> Integer)]
-integerConversions =
-  [ ("intToInt8#", signed 8),
-    ("intToInt16#", signed 16),
-    ("intToInt32#", signed 32),
-    ("intToInt64#", id),
-    ("int8ToInt#", id),
-    ("int16ToInt#", id),
-    ("int32ToInt#", id),
-    ("int64ToInt#", id),
-    ("wordToWord8#", unsigned 8),
-    ("wordToWord16#", unsigned 16),
-    ("wordToWord32#", unsigned 32),
-    ("wordToWord64#", id),
-    ("word8ToWord#", id),
-    ("word16ToWord#", id),
-    ("word32ToWord#", id),
-    ("word64ToWord#", id)
-  ]
-  where
-    unsigned bits value = value `mod` (2 ^ (bits :: Int))
-    signed bits value =
-      let wrapped = unsigned bits value
-       in if wrapped >= 2 ^ (bits - 1) then wrapped - 2 ^ bits else wrapped
-
-integerComparisons :: [(Text, Integer -> Integer -> Bool)]
-integerComparisons =
-  [ ("==#", (==)),
-    ("/=#", (/=)),
-    ("<#", (<)),
-    ("<=#", (<=)),
-    (">#", (>)),
-    (">=#", (>=))
-  ]
 
 -- | A primitive call that a binder may stand for at every later use: its
 -- arguments are trivial, so it reads only values, and its type mentions
