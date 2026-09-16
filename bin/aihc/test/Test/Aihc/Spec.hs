@@ -213,7 +213,12 @@ test_sigsetSize = do
     writeFile
       source
       ( unlines
-          [ "#include <signal.h>",
+          [ -- sigset_t is POSIX rather than ISO C, and -std=c11 defines
+            -- __STRICT_ANSI__, which turns glibc's default feature-test
+            -- macros off and hides it. _GNU_SOURCE turns them back on, and
+            -- has to come before any header. Darwin declares it either way.
+            "#define _GNU_SOURCE 1",
+            "#include <signal.h>",
             "_Static_assert(sizeof(sigset_t) == " <> show size <> ", \"sigset_t size\");"
           ]
       )
