@@ -424,11 +424,15 @@
         pkgs.findutils
         pkgs.llvmPackages.bintools
         pkgs.llvmPackages.clang
+        pkgs.llvmPackages.clang-unwrapped
       ];
     } ''
       cd "$src"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
+      # aihc-base declares capi foreign imports, so installing it compiles C
+      # for apple-arm64 and this Linux host needs the macOS SDK to do it.
+      ${crossSetupFor "apple-arm64"}
       store="$TMPDIR/store"
       mkdir -p "$store"
 
