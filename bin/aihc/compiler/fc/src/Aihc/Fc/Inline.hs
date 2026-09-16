@@ -265,8 +265,17 @@ simplifyValue config counts known recursive st name =
                         spKnown = known,
                         spArity = arities,
                         spLocals = Map.empty,
-                        spSiteLimit = inlineSiteLimit config
+                        spSiteLimit = inlineSiteLimit config,
+                        spDiscount = discount
                       }
+                  -- 'InlineShrink' takes only a site that makes the
+                  -- program smaller, so it takes no discount: a discount
+                  -- prices a saving that is not a node of the result, and
+                  -- the mode counts nodes.
+                  discount =
+                    case inlineMode config of
+                      InlineShrink -> 0
+                      InlineBudget {} -> functionArgumentDiscount
                   allowance =
                     case inlineMode config of
                       InlineShrink -> 0
@@ -412,7 +421,10 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
-    spSiteLimit :: !Int
+    spSiteLimit :: !Int,
+    -- | The discount one function argument of a call site takes off the
+    -- growth of inlining it.
+    spDiscount :: !Int
   }
 
 data SimplState = SimplState
@@ -458,7 +470,9 @@ simplifyExpr env expr =
         Nothing -> do
           alternatives' <- mapM (simplifyAlt env scrutinee' binder) alternatives
           caseOfCase env scrutinee' binder resultType alternatives'
-    ExCast body coercion -> (`ExCast` coercion) <$> simplifyExpr env body
+    ExCast body coercion -> do
+      body' <- simplifyExpr env body
+      mkCast body' coercion
     ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (simplifyExpr env) arguments
 
 -- | Simplify an alternative. Inside a constructor alternative, the case
@@ -527,7 +541,8 @@ simplifyApp env headExpr args = do
               inner = env {spInline = Map.delete name (spInline env)}
           copy <- freshenExpr (candidateBody candidate)
           result <- betaReduce inner copy args'
-          let growth = exprSize (spEnv env) result - exprSize (spEnv env) original
+          let discount = callDiscount env (candidateBody candidate) args'
+              growth = exprSize (spEnv env) result - exprSize (spEnv env) original - discount
           accepted <- if candidateUnconditional candidate then pure True else acceptGrowth env growth
           if accepted
             then do
@@ -536,6 +551,16 @@ simplifyApp env headExpr args = do
             else pure original
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
+    -- A let in the head of an application is a let around the
+    -- application: the binding is evaluated as often as before, and the
+    -- arguments move under it once each. Rebuilding the let with 'mkLet'
+    -- gives the binding a fresh chance to move to its use, because the
+    -- application may have taken it out of a lambda.
+    ExLet bind body
+      | not (null args'),
+        all (either (const True) (unused (binderName (bindBinder bind)))) args' -> do
+          inner <- simplifyApp env body args'
+          mkLet env bind inner
     ExCase scrutinee binder resultType alternatives
       | not (null args'),
         all (either (const True) isTrivial) args',
@@ -546,6 +571,48 @@ simplifyApp env headExpr args = do
           alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp env (altRhs alternative) args') alternatives
           pure (ExCase scrutinee binder resultType' alternatives')
     _ -> pure (rebuildSpine headExpr' args')
+
+-- | The discount a call site takes off the growth of inlining, one for
+-- each value argument that names a function and that the callee applies.
+--
+-- Inlining such an argument turns the unknown call in the body of the
+-- callee into a direct call of the value the argument names, and drops
+-- the closure the unknown call needed. Neither saving is a node of the
+-- result, so the size alone never accepts a wrapper whose whole purpose
+-- is to call its argument: @bindIO@, @thenIO@, @withForeignPtr@ and the
+-- rest stay at a small positive growth for ever.
+--
+-- An argument that the callee scrutinises earns no discount here. The
+-- case of a known constructor reduces while the copy is simplified, so
+-- that saving is already a smaller result.
+callDiscount :: Simpl -> Expr -> [Arg] -> Int
+callDiscount env body args =
+  spDiscount env
+    * length
+      [ ()
+      | (binder, argument) <- valueArguments body args,
+        valueArity (spArity env) argument > 0,
+        saturatedCalls (binderName binder) 1 body > 0
+      ]
+
+-- | The discount of one argument that names a function the callee
+-- applies, in nodes of the result.
+--
+-- The saving it prices is a closure that is not allocated and a call that
+-- is direct, so no size of the result gives it. This one is the smallest
+-- that takes the wrappers of the IO monad; a larger one takes no more of
+-- them, because the growth of such a wrapper is a few nodes either way.
+functionArgumentDiscount :: Int
+functionArgumentDiscount = 6
+
+-- | Pair the value binders of a lambda chain with the value arguments a
+-- call gives them.
+valueArguments :: Expr -> [Arg] -> [(Binder, Expr)]
+valueArguments body args =
+  case (body, args) of
+    (ExTyLam _ inner, Left _ : rest) -> valueArguments inner rest
+    (ExLam binder inner, Right argument : rest) -> (binder, argument) : valueArguments inner rest
+    _ -> []
 
 -- | The type of a value of the given type applied to the arguments.
 appliedType :: TypeEnv -> Type -> [Arg] -> Maybe Type
@@ -577,15 +644,108 @@ betaReduce env expr args =
           mkLet env (Bind binder argument) body'
     _ -> simplifyExpr env (rebuildSpine expr args)
 
+-- | Build a cast on a simplified body.
+--
+-- A cast of a cast by the symmetric coercion is the body: the two
+-- coercions compose to a reflexive one. A cast of a let is a cast of its
+-- body, which brings the two casts of a newtype wrapper together once the
+-- binding of the wrapper stands between them.
+mkCast :: Expr -> Coercion -> SimplM Expr
+mkCast body coercion =
+  case body of
+    ExCast inner innerCoercion
+      | cancels innerCoercion coercion -> pure inner
+    ExLet bind inner -> ExLet bind <$> mkCast inner coercion
+    _ -> pure (ExCast body coercion)
+  where
+    cancels left right = left == CoSym right || right == CoSym left
+
+-- | Whether the name occurs nowhere in the expression.
+unused :: Name -> Expr -> Bool
+unused name expr =
+  case occurrences name expr of
+    Occurrences count _ -> count == 0
+
+-- | How many more value arguments a value takes before it does work.
+--
+-- A lambda takes the arguments it binds. A partial application of a known
+-- function takes the arguments it still lacks, and its arguments must be
+-- trivial, because moving the application under a lambda would otherwise
+-- build its thunks once for each call.
+--
+-- A cast looks through to a partial application but not to a lambda. A
+-- saturated call of a known function allocates nothing whatever casts
+-- stand between the two, while a lambda that a cast keeps from its
+-- arguments still needs its closure.
+valueArity :: Map Name Int -> Expr -> Int
+valueArity arities expr =
+  case expr of
+    ExLam _ body -> 1 + valueArity arities body
+    ExTyLam _ body -> valueArity arities body
+    _ ->
+      case castedSpine expr of
+        (ExVar name, args)
+          | not (isConstructorName name),
+            Just arity <- Map.lookup name arities,
+            given <- length [() | Right _ <- args],
+            given < arity,
+            all (either (const True) isTrivial) args ->
+              arity - given
+        _ -> 0
+
+-- | How many occurrences of the name stand in the head of an application
+-- that gives it at least the given number of value arguments.
+saturatedCalls :: Name -> Int -> Expr -> Int
+saturatedCalls name arity = go
+  where
+    go expr =
+      case castedSpine expr of
+        (ExVar var, args)
+          | var == name,
+            length [() | Right _ <- args] >= arity ->
+              1 + sum (map argument args)
+        (function, args) -> bare function + sum (map argument args)
+    argument = either (const 0) go
+    -- 'castedSpine' leaves no application, type application or cast in
+    -- the head of the spine.
+    bare expr =
+      case expr of
+        ExVar {} -> 0
+        ExLit {} -> 0
+        ExCoercion {} -> 0
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> go (bindRhs bind) + go body
+        ExRec binds body -> sum (map (go . bindRhs) binds) + go body
+        ExCase scrutinee _ _ alternatives -> go scrutinee + sum (map (go . altRhs) alternatives)
+        ExForeignCall _ _ arguments -> sum (map go arguments)
+        ExApp {} -> 0
+        ExTyApp {} -> 0
+        ExCast {} -> 0
+
 -- | Build a let from a simplified right-hand side and a simplified body.
 -- A lifted binding with no use is dropped. A lifted binding with one use
--- outside a lambda moves to its use.
+-- outside a lambda, and a lifted function whose one use is a saturated
+-- call, move to their use.
 mkLet :: Simpl -> Bind -> Expr -> SimplM Expr
 mkLet env bind body
   | isTrivial rhs = simplifyExpr env (substExpr (Map.singleton name rhs) body)
   | lifted, Occurrences 0 _ <- uses = pure body
   | lifted,
     Occurrences 1 False <- uses = do
+      copy <- freshenExpr rhs
+      simplifyExpr env (substExpr (Map.singleton name copy) body)
+  -- A value whose one use is a saturated call also moves to its use, even
+  -- from under a lambda: a lambda that lands on its arguments and a
+  -- partial application that its use completes both allocate nothing
+  -- where they land, and the call runs the body exactly where it ran it
+  -- before. The one use is the call, because the whole body holds one
+  -- occurrence and the call accounts for it.
+  | lifted,
+    Occurrences 1 True <- uses,
+    arity <- valueArity (spArity env) rhs,
+    arity > 0,
+    saturatedCalls name arity body == 1 = do
       copy <- freshenExpr rhs
       simplifyExpr env (substExpr (Map.singleton name copy) body)
   | lifted = pure (ExLet bind body)
@@ -905,6 +1065,19 @@ collectSpine = go []
       case expr of
         ExApp function argument -> go (Right argument : args) function
         ExTyApp function ty -> go (Left ty : args) function
+        _ -> (expr, args)
+
+-- | Collect an application spine through the casts on its head. A cast
+-- is erased in the lowered code, so it neither hides a call nor stands
+-- between a function and the arguments a call gives it.
+castedSpine :: Expr -> (Expr, [Arg])
+castedSpine = go []
+  where
+    go args expr =
+      case expr of
+        ExApp function argument -> go (Right argument : args) function
+        ExTyApp function ty -> go (Left ty : args) function
+        ExCast body _ -> go args body
         _ -> (expr, args)
 
 rebuildSpine :: Expr -> [Arg] -> Expr
