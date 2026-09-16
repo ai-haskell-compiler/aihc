@@ -30,7 +30,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openBinaryTempFile)
 
 -- | What the headers of one target say.
@@ -82,7 +82,8 @@ compilerHeaderTexts target =
     ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] []),
     ("ghcplatform.h", ghcplatformHeader target),
     ("MachDeps.h", machDepsHeader target),
-    ("HsFFI.h", hsFfiHeader)
+    ("HsFFI.h", hsFfiHeader),
+    ("rts" </> "Signals.h", rtsSignalsHeader)
   ]
 
 -- | Write the headers of the target under a root directory and give back the
@@ -104,9 +105,12 @@ writeCompilerHeaders target root = do
   where
     writeHeader directory (path, text) = do
       let destination = directory </> path
+      -- A header may sit in a subdirectory, because the name that includes
+      -- it does: @rts/Signals.h@ is included under that name.
+      createDirectoryIfMissing True (takeDirectory destination)
       current <- readHeader destination
       unless (current == Just text) $ do
-        (temporary, handle) <- openBinaryTempFile directory (path <> ".tmp")
+        (temporary, handle) <- openBinaryTempFile (takeDirectory destination) (takeFileName path <> ".tmp")
         TIO.hPutStr handle text
         hClose handle
         renameFile temporary destination
@@ -186,6 +190,27 @@ hsFfiHeader =
     ]
   where
     wordBits = tshow (haskellWordBytes * 8)
+
+-- | The action codes @stg_sig_install@ takes, which is all GHC's own
+-- @rts/Signals.h@ holds: the header carries no prototypes, because Haskell
+-- code includes it through the CPP pass rather than through a C compile.
+--
+-- @unix@ reads it that way. @System.Posix.Signals.hsc@ emits an
+-- @#include "rts/Signals.h"@ into the module it generates and then names
+-- @STG_SIG_DFL@ and its siblings in Haskell expressions; the codes it passes
+-- to @stg_sig_install@ and reads back from it are this header's whole
+-- contribution.
+rtsSignalsHeader :: Text
+rtsSignalsHeader =
+  header
+    "RTS_SIGNALS_H"
+    []
+    [ ("STG_SIG_DFL", "(-1)"),
+      ("STG_SIG_IGN", "(-2)"),
+      ("STG_SIG_ERR", "(-3)"),
+      ("STG_SIG_HAN", "(-4)"),
+      ("STG_SIG_RST", "(-5)")
+    ]
 
 sizeAndAlignment :: (Text, Int) -> [(Text, Text)]
 sizeAndAlignment (name, bytes) =
