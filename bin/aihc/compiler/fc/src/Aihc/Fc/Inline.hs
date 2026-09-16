@@ -26,6 +26,7 @@ module Aihc.Fc.Inline
   )
 where
 
+import Aihc.Fc.Fold (foldForeignCall, hasLiteralPrimitiveCall)
 import Aihc.Fc.Imports (declReferences, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
@@ -255,7 +256,7 @@ simplifyValue config counts known recursive st name =
                 Just calleeBody <- [Map.lookup callee (inBodies st)],
                 isInlinable calleeBody
               ]
-       in if Map.null candidates && Map.null known
+       in if Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
             then st
             else
               let simpl =
@@ -475,7 +476,9 @@ simplifyExpr env expr =
     ExCast body coercion -> do
       body' <- simplifyExpr env body
       mkCast body' coercion
-    ExForeignCall call types arguments -> ExForeignCall call types <$> mapM (simplifyExpr env) arguments
+    ExForeignCall call types arguments -> do
+      arguments' <- mapM (simplifyExpr env) arguments
+      pure (fromMaybe (ExForeignCall call types arguments') (foldForeignCall (spEnv env) call types arguments'))
 
 -- | Simplify an alternative. Inside a constructor alternative, the case
 -- binder and a scrutinee variable are known to be that constructor
