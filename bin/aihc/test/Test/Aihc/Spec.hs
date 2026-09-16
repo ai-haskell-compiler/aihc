@@ -150,6 +150,17 @@ tests =
           ]
       ]
 
+-- | The target an install that reaches @aihc-base@ has to name.
+--
+-- Most install tests pin @AppleArm64@, which keeps them reproducible wherever
+-- they run: compiling Haskell for a foreign target needs nothing of that
+-- target. An install whose package depends on @base@ builds @aihc-base@ too,
+-- and that one is only ever built for the backend of the host, so these name
+-- the host's rather than a fixed one. @scripts/nix/checks.nix@ says the same
+-- thing for the core libraries install.
+hostBackendTarget :: IO NativeTarget
+hostBackendTarget = maybe (assertFailure "the host has a native aihc backend") pure hostNativeTarget
+
 -- | The POSIX widths @aihc-base@ assumes are the widths the platform's own
 -- headers give.
 --
@@ -1435,7 +1446,8 @@ test_installMinVersionMacros getStore =
             "#endif"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
+    target <- hostBackendTarget
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- A module that includes an RTS header by its own name resolves it out of
@@ -1474,7 +1486,8 @@ test_installRtsHeaderInclude getStore =
             "defaultAction = STG_SIG_DFL"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
+    target <- hostBackendTarget
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- Every standin under core-libs claims the version of the boot library it

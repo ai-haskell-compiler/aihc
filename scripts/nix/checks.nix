@@ -149,11 +149,14 @@
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   # Test.Aihc.SeedStore installs aihc-prim for apple-arm64 and llvm always, and
   # for linux-amd64 and wasm32-wasip3 when the toolchain supports them, which it
-  # does inside the sandbox. aihc-base is only needed for the target build
-  # compiles for, which is the host backend.
+  # does inside the sandbox.
   specSeedPrimTargets =
-    pkgs.lib.unique (["apple-arm64" "llvm" "linux-amd64" "wasm32-wasip3"] ++ [specSeedBaseTarget]);
-  specSeedBaseTarget =
+    pkgs.lib.unique (["apple-arm64" "llvm" "linux-amd64" "wasm32-wasip3"] ++ [hostBackendTarget]);
+  # The target aihc-base is built for. aihc-prim cross compiles freely -- it is
+  # Haskell all the way down -- but aihc-base is only ever built for the
+  # backend of the host, so nothing has to supply a C toolchain for a foreign
+  # platform to build the core libraries.
+  hostBackendTarget =
     if nativeBackend == null
     then "llvm"
     else nativeBackend;
@@ -440,7 +443,11 @@
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
-      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target apple-arm64
+      # aihc-template-haskell depends on base, so this install builds aihc-base
+      # too. It therefore runs for the host backend rather than the fixed
+      # apple-arm64 above: cross compiling aihc-base would make the check need
+      # a C toolchain for a foreign platform.
+      ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target ${hostBackendTarget}
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Internal/TH/Syntax/GHC.Internal.TH.Syntax.o' -print -quit)"
@@ -489,14 +496,14 @@
       # aihc-base as well. Keeping them apart matches what the suite builds for
       # itself outside CI, so a test sees the same store either way.
       cp -R --no-preserve=mode "$out/prim" "$out/core"
-      ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${specSeedBaseTarget}
+      ${aihcExe} install core-libs/aihc-base --store "$out/core" --immutable --target ${hostBackendTarget}
 
       # The lto tests want both core libraries built at -O2, which implies
       # --lto. The build is part of the identity of a package, so the
       # entries above do not serve it.
       mkdir -p "$out/lto"
-      ${aihcExe} install core-libs/aihc-prim --store "$out/lto" --immutable --target ${specSeedBaseTarget} -O2
-      ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${specSeedBaseTarget} -O2
+      ${aihcExe} install core-libs/aihc-prim --store "$out/lto" --immutable --target ${hostBackendTarget} -O2
+      ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${hostBackendTarget} -O2
     '';
 
   # The compiler owns preparation of the installed toolchain. Runtime archives
