@@ -1296,6 +1296,7 @@ test_installHsc2hs getStore = do
       assertBool "the generated module stays out of the source tree" (not generatedInSource)
       arguments <- lines <$> readFile (generated <> ".args")
       assertBool "hsc2hs runs in cross-compilation mode" ("--cross-compile" `elem` arguments)
+      assertBool "hsc2hs reads the constants out of assembly" ("--via-asm" `elem` arguments)
       assertBool "hsc2hs compiles for the target" (any ("--cflag=--target=arm64-apple-darwin" `isPrefixOf`) arguments)
       assertBool "hsc2hs sees the package include directory" (("-I" <> fixtureRoot </> "include") `elem` arguments)
       assertBool "hsc2hs sees the compiler headers" (any (\argument -> "-I" `isPrefixOf` argument && "include" `isSuffixOf` argument) arguments)
