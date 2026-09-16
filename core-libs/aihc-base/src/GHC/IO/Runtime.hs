@@ -12,6 +12,8 @@ module GHC.IO.Runtime
     stderrHandle,
     submitOpen,
     openResultError,
+    descriptorMode,
+    adoptIOHandle,
     closeIOHandle,
     readMemoryByte,
     writeMemoryByte,
@@ -21,11 +23,13 @@ module GHC.IO.Runtime
     takeOpenResult,
     raiseIOErrorRaw,
     awaitIO,
+    decodeError,
   )
 where
 
 import GHC.IO (IO (..))
 import GHC.Int (Int)
+import GHC.Num (Num (..))
 import GHC.Prim (Addr#, awaitIO#)
 import GHC.Ptr (Ptr (..))
 
@@ -39,6 +43,11 @@ awaitIO (Ptr request) =
         case awaitIO# request state of
           nextState -> (# nextState, () #)
     )
+
+-- | The runtime reports an error number @e@ as @-(e + 1)@, so that a result
+-- and an error share one signed word. This undoes that.
+decodeError :: Int -> Int
+decodeError result = negate result - 1
 
 data IORequest
 
@@ -56,6 +65,14 @@ foreign import ccall unsafe "aihc_io_submit_open"
 
 foreign import ccall unsafe "aihc_io_open_result_error"
   openResultError :: Ptr IOHandle -> IO Int
+
+-- | The open mode of a descriptor the program already has, or a negative
+-- error. Adopting a descriptor needs no request: neither call blocks.
+foreign import ccall unsafe "aihc_io_descriptor_mode"
+  descriptorMode :: Int -> IO Int
+
+foreign import ccall unsafe "aihc_io_adopt"
+  adoptIOHandle :: Int -> Int -> IO (Ptr IOHandle)
 
 foreign import ccall unsafe "aihc_io_close"
   closeIOHandle :: Ptr IOHandle -> IO Int
