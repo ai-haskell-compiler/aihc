@@ -14,12 +14,13 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), backendCompiler, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
 import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
+import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
 import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, bracket_, try)
 import Control.Monad (forM, forM_, void)
@@ -142,10 +143,120 @@ tests =
           ],
         testGroup
           "sources"
-          [ testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
+          [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
+            testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
             testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
           ]
       ]
+
+-- | The POSIX widths @aihc-base@ assumes are the widths the platform's own
+-- headers give.
+--
+-- @System.Posix.Types.Repr@ states, per platform, how wide each POSIX type is
+-- and whether it is signed. A Haskell module cannot ask the C headers, so
+-- those numbers are written by hand, and a wrong one is silent: the FFI
+-- passes the wrong number of bytes and a program misreads a @stat@ buffer
+-- rather than failing to build.
+--
+-- This test turns the module into C and lets the C compiler settle it. Each
+-- alias becomes a pair of static assertions about the type it stands for, and
+-- the file is compiled against the real headers of the platform the test runs
+-- on. Nothing here states a width of its own; the only numbers are the ones
+-- read out of the module, so the test cannot agree with a mistake.
+--
+-- It checks the platform it runs on, which is the one whose headers are at
+-- hand: @src-darwin@ on a Mac, @src-linux@ on Linux. The wasm32 widths go
+-- unchecked, and four of them are a choice rather than a fact, as that
+-- module's own comment says.
+test_posixTypeWidths :: Assertion
+test_posixTypeWidths = do
+  target <- case hostNativeTarget of
+    Just hostTarget -> pure hostTarget
+    Nothing -> assertFailure "the POSIX widths are stated for a host aihc has a target for"
+  -- The sources of aihc-base, not of the compiler: the width modules belong
+  -- to the library, and a nix build hands each its own store path.
+  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
+  let platformDirectory = posixWidthModuleDirectory
+  widths <- readPosixTypeWidths (baseRoot </> platformDirectory </> "System" </> "Posix" </> "Types" </> "Repr.hs")
+  assertEqual "every POSIX alias has a width" (sort (map fst posixTypeCNames)) (sort (map fst widths))
+  (compiler, targetArguments) <- backendCompiler target
+  withTempDir "aihc-posix-type-widths" $ \directory -> do
+    let source = directory </> "widths.c"
+    writeFile source (renderPosixWidthAssertions widths)
+    (status, out, err) <-
+      readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
+    assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | The C type each alias of @System.Posix.Types.Repr@ stands for.
+posixTypeCNames :: [(String, String)]
+posixTypeCNames =
+  [ ("CBlkCntRep", "blkcnt_t"),
+    ("CBlkSizeRep", "blksize_t"),
+    ("CCcRep", "cc_t"),
+    ("CDevRep", "dev_t"),
+    ("CFsBlkCntRep", "fsblkcnt_t"),
+    ("CFsFilCntRep", "fsfilcnt_t"),
+    ("CGidRep", "gid_t"),
+    ("CIdRep", "id_t"),
+    ("CInoRep", "ino_t"),
+    ("CKeyRep", "key_t"),
+    ("CModeRep", "mode_t"),
+    ("CNfdsRep", "nfds_t"),
+    ("CNlinkRep", "nlink_t"),
+    ("COffRep", "off_t"),
+    ("CPidRep", "pid_t"),
+    ("CRLimRep", "rlim_t"),
+    ("CSocklenRep", "socklen_t"),
+    ("CSpeedRep", "speed_t"),
+    ("CTcflagRep", "tcflag_t"),
+    ("CUidRep", "uid_t")
+  ]
+
+-- | Read the @type CFooRep = Int32@ lines of a platform's width module as the
+-- number of bytes and whether the type is signed.
+readPosixTypeWidths :: FilePath -> IO [(String, (Int, Bool))]
+readPosixTypeWidths path = do
+  contents <- readFile path
+  mapM parseLine [line | line <- lines contents, "type " `isPrefixOf` line]
+  where
+    parseLine line =
+      case words line of
+        ["type", name, "=", haskellType] -> (,) name <$> widthOf haskellType
+        _ -> assertFailure ("cannot read a width out of " <> path <> ": " <> line)
+    widthOf haskellType =
+      case haskellType of
+        'I' : 'n' : 't' : bits -> pure (read bits `div` 8, True)
+        'W' : 'o' : 'r' : 'd' : bits -> pure (read bits `div` 8, False)
+        _ -> assertFailure ("not a sized integer type in " <> path <> ": " <> haskellType)
+
+-- | A C file that holds the widths against the platform's own headers.
+renderPosixWidthAssertions :: [(String, (Int, Bool))] -> String
+renderPosixWidthAssertions widths =
+  unlines
+    ( [ -- glibc hides blksize_t and key_t behind its feature-test macros, and
+        -- -std=c11 defines __STRICT_ANSI__, which turns the default set off.
+        -- _GNU_SOURCE turns all of them back on. It has to come before any
+        -- header, and it changes what the headers declare, never how wide a
+        -- type is. Darwin declares these types either way.
+        "#define _GNU_SOURCE 1",
+        "",
+        "#include <poll.h>",
+        "#include <sys/resource.h>",
+        "#include <sys/socket.h>",
+        "#include <sys/types.h>",
+        "#include <termios.h>",
+        ""
+      ]
+        <> concatMap assertions posixTypeCNames
+    )
+  where
+    assertions (name, cName) =
+      case lookup name widths of
+        Nothing -> []
+        Just (bytes, signed) ->
+          [ "_Static_assert(sizeof(" <> cName <> ") == " <> show bytes <> ", \"" <> cName <> " width\");",
+            "_Static_assert(((" <> cName <> ")-1 < (" <> cName <> ")0) == " <> (if signed then "1" else "0") <> ", \"" <> cName <> " signedness\");"
+          ]
 
 -- | The digest of a preprocessed module covers the headers it includes:
 -- editing one changes the digest even though the module itself is untouched.
