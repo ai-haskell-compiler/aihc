@@ -3513,6 +3513,21 @@ registerTypeDeclHeader kindSchemes (DeclClass classDecl) = do
   predeclared <- lookupTyConByIdentity classTyCon
   let classParamKinds = maybe [] (takeVisibleArgumentKinds (length classParamNames) . typeSchemeBody . tciKindScheme) predeclared
       sharedKinds = Map.fromList (zip classParamNames classParamKinds)
+  -- A class head is predeclared with one kind meta per parameter, before
+  -- the standalone kind signatures are read. A signature says what those
+  -- kinds are -- @type KnownNat :: Natural -> Constraint@ -- so it is
+  -- applied here, before anything defaults a parameter to 'Type'.
+  case resolvedTypeKey classBinder >>= (`Map.lookup` kindSchemes) of
+    Just scheme -> do
+      -- The signature may quantify kind variables of its own -- @type (~)
+      -- :: forall k. k -> k -> Constraint@ -- so it is instantiated before
+      -- its argument kinds are compared with the predeclared ones.
+      (declaredKind, _) <- instantiate scheme
+      zipWithM_
+        unifyKinds
+        classParamKinds
+        (takeVisibleArgumentKinds (length classParamNames) declaredKind)
+    Nothing -> pure ()
   mapM_
     ( \familyDecl ->
         registerTypeFamilyDeclHeaderWith

@@ -263,7 +263,7 @@ case, which is what `(<=)` needs. A never-demanded given is still carried
 into FC, where the lint compares the `Type` synonym against its expansion
 and rejects it; reporting givens the way GHC does removes that path.
 
-### PR 3 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats`
+### PR 3 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats` — landed
 
 - `Aihc.Tc.Evidence`: `EvTypeLit`, with `Tc.Finalize` and `Tc.Solve.Dict`
   cases beside the `Typeable` ones.
@@ -283,6 +283,32 @@ and rejects it; reporting givens the way GHC does removes that path.
 `natVal'` takes a `Proxy#`. Its *definition* needs nothing new; only a call
 site written as `natVal' (proxy# :: Proxy# (SeedSize g))` needs the parallel
 unlifted-expression-signature fix. PR 3 does not block on it; PR 5 does.
+
+**What landed differs from the sketch above in three ways.**
+
+The class method holds the value rather than a singleton: `natSing ::
+Natural` where GHC has `natSing :: SNat n`. The compiler builds the
+dictionary directly, so a singleton wrapper would buy it a coercion for
+nothing. `SNat` still exists, with `fromSNat`. The method is not exported,
+as in GHC.
+
+`someNatVal`, `SomeNat` and `withSomeSNat` are **not** here. GHC writes
+them by coercing a constrained value to a function of its dictionary, which
+relies on a single-method dictionary being represented as its method; an
+aihc dictionary is a constructor around its fields, so the coercion would
+be wrong. Giving them a real implementation needs either that
+representation or a compiler-supplied `withKnownNat`.
+
+Two compiler gaps had to be fixed. A class's **standalone kind signature
+did not reach its parameters**: the head is predeclared with one kind meta
+per parameter before the signatures are read, so `type KnownNat :: Natural
+-> Constraint` left `n` at `Type` and every use of a method at a literal
+failed with a kind mismatch. The signature is now applied at registration,
+after instantiating the variables it quantifies itself (`type (~) :: forall
+k. k -> k -> Constraint` must not pin `k`). And a module that writes a
+literal **refers to its kind and to the conversion the evidence is built
+from without naming either**, so `addReferencedFacts` carries the three
+literal kinds and `naturalFromInteger#` as extra roots.
 
 ### PR 4 — `feat(tc): type-level comparison and arithmetic`
 
