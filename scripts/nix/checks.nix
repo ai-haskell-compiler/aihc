@@ -119,11 +119,6 @@
                   export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
                   export AIHC_TEST_ROOT=${sources.aihcSrc pkgs}
                   export AIHC_PREBUILT_STORE=${specSeedStore}
-                  # The install tests compile for apple-arm64, and aihc-base
-                  # declares capi foreign imports, so on a Linux runner those
-                  # installs compile C for a Darwin target and need the macOS
-                  # SDK the same way the C runtime does.
-                  ${crossSetupFor "apple-arm64"}
                 '';
             }
         )
@@ -429,15 +424,11 @@
         pkgs.findutils
         pkgs.llvmPackages.bintools
         pkgs.llvmPackages.clang
-        pkgs.llvmPackages.clang-unwrapped
       ];
     } ''
       cd "$src"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
-      # aihc-base declares capi foreign imports, so installing it compiles C
-      # for apple-arm64 and this Linux host needs the macOS SDK to do it.
-      ${crossSetupFor "apple-arm64"}
       store="$TMPDIR/store"
       mkdir -p "$store"
 
