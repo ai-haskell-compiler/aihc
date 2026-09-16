@@ -30,6 +30,7 @@ module Aihc.Fc.TypeOf
     coercionEndpoints,
     projectNominalArgument,
     applyRepresentationalAxiom,
+    matchRepresentationalAxiom,
   )
 where
 
@@ -429,12 +430,22 @@ projectNominalArgument env index (left, right)
     spine args headType = (headType, args)
 
 applyRepresentationalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe Type
-applyRepresentationalAxiom env declaration source
+applyRepresentationalAxiom env declaration source =
+  snd <$> matchRepresentationalAxiom env declaration source
+
+-- | Match the left-hand side of a representational axiom against a type.
+-- Returns the arguments that instantiate the axiom binders, in binder
+-- order, and the right-hand side under them. The arguments are what a
+-- @CoAxiom@ that unfolds this type needs, so a caller that has to name
+-- the coercion, and not only the type it reveals, uses this.
+matchRepresentationalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe ([Type], Type)
+matchRepresentationalAxiom env declaration source
   | axiomRole declaration /= Representational = Nothing
   | otherwise = do
       substitution <- matchAxiomTypes env (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) (reduceType env source)
       resolved <- sequenceA substitution
-      pure (substTypes resolved (axiomRight declaration))
+      arguments <- traverse (\binder -> Map.lookup (binderName binder) resolved) (axiomBinders declaration)
+      pure (arguments, substTypes resolved (axiomRight declaration))
 
 -- | Match an axiom left-hand side against a type. The substitution holds
 -- the axiom binders; a bound binder must match an equal type again.

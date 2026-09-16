@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig, FcDesugarResult (..), InlineConfig (..), InlineMode (..), Program, desugarModuleFc, inlineProgram, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..), InlineConfig (..), InlineMode (..), Program, desugarModuleFc, etaExpandProgram, inlineProgram, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -48,7 +48,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -96,7 +96,10 @@ data FcCase = FcCase
     caseReason :: !String,
     -- | Run the inliner on the merged program of the modules, and pin its
     -- output instead of the desugared modules.
-    caseInline :: !(Maybe InlineMode)
+    caseInline :: !(Maybe InlineMode),
+    -- | Run the arity analysis and eta expand the merged program before
+    -- the inliner, and pin the result.
+    caseEta :: !Bool
   }
   deriving (Eq, Show)
 
@@ -169,7 +172,7 @@ loadFcCase path = do
 
 parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
 parseFcFixture path value = do
-  (extNames, modules, expectedText, statusText, lintText, reasonText, inline) <-
+  (extNames, modules, expectedText, statusText, lintText, reasonText, inline, eta) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -179,7 +182,8 @@ parseFcFixture path value = do
           lint <- obj .:? "lint" .!= "pass"
           reason <- obj .:? "reason" .!= ""
           inline <- obj .:? "inline" >>= traverse parseInlineMode
-          pure (exts, mods, expected, status, lint, reason, inline)
+          eta <- obj .:? "eta" .!= False
+          pure (exts, mods, expected, status, lint, reason, inline, eta)
       )
       value
   exts <- validateExtensions path extNames
@@ -200,7 +204,8 @@ parseFcFixture path value = do
         caseStatus = status,
         caseLint = lint,
         caseReason = reason,
-        caseInline = inline
+        caseInline = inline,
+        caseEta = eta
       }
 
 -- | The @inline@ key: @shrink@, or @budget@ with the size limit that the
@@ -259,9 +264,10 @@ renderFcCase tc =
                               (\checked -> desugarModuleFc (desugarConfig fixturePackage fixtureExports checked) (tcModuleBindings fixtureWiring checked) availableInterface checked)
                               fixtureTcResults
                       if all dsSuccess fixtureResults
-                        then case caseInline tc of
-                          Nothing -> lintAndRenderResults fixtureResults
-                          Just mode -> lintAndRenderInlined mode (map dsProgram fixtureResults)
+                        then
+                          if caseEta tc || isJust (caseInline tc)
+                            then lintAndRenderOptimized (map dsProgram fixtureResults)
+                            else lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
                     else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
@@ -271,17 +277,22 @@ renderFcCase tc =
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
     -- The modules merge into one program, as a whole-program build merges
-    -- them, and the inliner runs on it with every public value as a root.
-    lintAndRenderInlined mode programs =
+    -- them, and the passes run on it with every public value as a root.
+    -- A fixture may ask for eta expansion, inlining, or both, in the order
+    -- a build runs them.
+    lintAndRenderOptimized programs =
       let merged = mergePrograms programs
-          config =
+          expanded = if caseEta tc then fst (etaExpandProgram merged) else merged
+          config mode =
             InlineConfig
               { inlineMode = mode,
                 inlineRoots = Nothing,
                 inlineSiteLimit = 100,
                 inlineRounds = 4
               }
-          (inlined, _) = inlineProgram config merged
+          inlined = case caseInline tc of
+            Nothing -> expanded
+            Just mode -> fst (inlineProgram (config mode) expanded)
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->

@@ -211,11 +211,15 @@ lowerVis vis =
 isFunctionExpression :: Fc.Expr -> Bool
 isFunctionExpression = (> 0) . functionArity
 
+-- | A coercion has no run-time content, so it hides no lambda: an @IO@
+-- action that the arity analysis eta expanded is @(λs. ...) ▷ sym co@,
+-- and that is a function of one argument, not a thunk.
 functionArity :: Fc.Expr -> Int
 functionArity expression =
   case expression of
     Fc.ExLam _ body -> 1 + functionArity body
     Fc.ExTyLam _ body -> functionArity body
+    Fc.ExCast body _ -> functionArity body
     _ -> 0
 
 -- | Lower a foreign call. A call that gives every argument of the import
@@ -1274,6 +1278,10 @@ collectLambdas env expression =
       let (bodyEnv, binders, result) = collectLambdas env body
        in (bodyEnv, binder : binders, result)
     Fc.ExTyLam binder body -> collectLambdas (extendTypeBinder env binder) body
+    -- A cast is erased by 'lowerExpr' wherever it stands, and it relates
+    -- two types of one representation, so the parameters of the closure
+    -- are the same on either side of it. See 'functionArity'.
+    Fc.ExCast body _ -> collectLambdas env body
     _ -> (env, [], expression)
 
 capturedVariables :: LowerEnv -> Fc.Expr -> [GrinVar]

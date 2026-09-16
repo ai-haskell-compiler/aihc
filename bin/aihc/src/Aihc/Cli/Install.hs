@@ -2362,32 +2362,73 @@ inlineConfigFor level roots program =
           Fc.inlineRounds = 4
         }
 
--- | Run the System FC inliner of the level of the build on a program. The
--- roots are the values the program must keep, or 'Nothing' to keep every
--- public value.
+-- | Run the System FC passes of the level of the build on a program:
+-- arity analysis with eta expansion, then the inliner, then the arity
+-- analysis again. The roots are the values the program must keep, or
+-- 'Nothing' to keep every public value.
+--
+-- @-O0@ runs none of them. It is the level that has to be quick, and a
+-- pass that makes the code faster is not what it is for.
 optimizeFcProgram :: ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
-optimizeFcProgram config verbose roots name program =
-  case inlineConfigFor (compileOptimization config) roots program of
-    Nothing -> pure program
-    Just inlineConfig -> do
-      let (optimized, report) = Fc.inlineProgram inlineConfig program
-      verbose
-        ( "Inline FC: "
-            <> T.unpack name
-            <> ", size "
-            <> show (Fc.reportSizeBefore report)
-            <> " -> "
-            <> show (Fc.reportSizeAfter report)
-            <> ", "
-            <> show (Fc.reportInlinedSites report)
-            <> " sites, "
-            <> show (Fc.reportDroppedValues report)
-            <> " values dropped"
-        )
-      when (compileLint config) $ do
-        let errors = Fc.lintProgram optimized
-        unless (null errors) (ioError (userError ("FC lint failed after inlining " <> T.unpack name <> ":\n" <> unlines (map (("    " <>) . show) errors))))
-      pure optimized
+optimizeFcProgram config verbose roots name program
+  | compileOptimization config == O0 = pure program
+  | otherwise = do
+      -- Eta expansion runs before the inliner, so that a value it turns
+      -- into a function is a saturated call for the inliner to take, and
+      -- again after it, because a call of a class method hides the arity
+      -- of the method until the selection is inlined:
+      --
+      -- >   writeOk = (>>) @IO $fMonadIO action (return length)
+      --
+      -- says nothing about arity, and the same body as
+      -- @$fMonadIO$c>> action (return length)@ says it takes a state
+      -- token. GHC interleaves arity analysis with inlining in the
+      -- simplifier for this reason; running the pass on either side of
+      -- the inliner is the cheap version of that.
+      expanded <- etaExpandFcProgram config verbose name program
+      case inlineConfigFor (compileOptimization config) roots expanded of
+        Nothing -> pure expanded
+        Just inlineConfig -> do
+          let (optimized, report) = Fc.inlineProgram inlineConfig expanded
+          verbose
+            ( "Inline FC: "
+                <> T.unpack name
+                <> ", size "
+                <> show (Fc.reportSizeBefore report)
+                <> " -> "
+                <> show (Fc.reportSizeAfter report)
+                <> ", "
+                <> show (Fc.reportInlinedSites report)
+                <> " sites, "
+                <> show (Fc.reportDroppedValues report)
+                <> " values dropped"
+            )
+          lintOptimized config "inlining" name optimized
+          etaExpandFcProgram config verbose name optimized
+
+-- | Eta expand the top-level values of a program to the arity the arity
+-- analysis finds for them.
+etaExpandFcProgram :: ModuleCompileConfig -> (String -> IO ()) -> Text -> Fc.Program -> IO Fc.Program
+etaExpandFcProgram config verbose name program = do
+  let (expanded, report) = Fc.etaExpandProgram program
+  when (Fc.reportExpandedValues report > 0) $
+    verbose
+      ( "Eta expand FC: "
+          <> T.unpack name
+          <> ", "
+          <> show (Fc.reportExpandedValues report)
+          <> " values, "
+          <> show (Fc.reportAddedLambdas report)
+          <> " lambdas added"
+      )
+  lintOptimized config "eta expanding" name expanded
+  pure expanded
+
+lintOptimized :: ModuleCompileConfig -> String -> Text -> Fc.Program -> IO ()
+lintOptimized config phase name program =
+  when (compileLint config) $ do
+    let errors = Fc.lintProgram program
+    unless (null errors) (ioError (userError ("FC lint failed after " <> phase <> " " <> T.unpack name <> ":\n" <> unlines (map (("    " <>) . show) errors))))
 
 -- | Lower System FC modules to objects: GRIN, then Lir, then the object of
 -- the target. A module with no declarations gets an empty object. Returns
