@@ -23,7 +23,7 @@ import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
 import Aihc.Cli.CapiStub (capiStubArguments, noCapiStubOptions)
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Fc qualified as Fc
-import Aihc.Native (OptimizationLevel (O2), backendCompiler, hostNativeTarget)
+import Aihc.Native (NativeTarget (AppleArm64, LinuxAmd64), OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -585,15 +585,37 @@ packageSourceRoot variable packageName = do
             then fail ("Cannot find the " <> packageName <> " sources; set " <> variable)
             else findUp parent
 
--- | Parse every Haskell source file below the package's @src@ directory.
+-- | Parse every Haskell source file of a core library, taking the shared
+-- @src@ directory and the one that belongs to the platform the fixture runs
+-- on.
 loadPackageModules :: Package -> FilePath -> IO [ModuleUnit]
 loadPackageModules package root = do
-  paths <- listSourceFiles (root </> "src")
+  directories <- packageSourceDirectories root
+  paths <- concat <$> mapM listSourceFiles directories
   forM (sort paths) $ \path -> do
     source <- TIO.readFile path
     case parseOneModule path [] source of
       Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
       Right modu -> pure (ModuleUnit package (fixtureExtensions fixtureLanguageEdition modu) modu)
+
+-- | The source directories of a core library: the one that belongs to this
+-- platform, where the library has one, and the shared @src@.
+--
+-- A handful of modules state something that only the platform's headers
+-- know, such as the width of @mode_t@, and those have one copy per platform
+-- under a directory of their own. @aihc-base.cabal@ says the same thing as a
+-- condition on @hs-source-dirs@, and this harness cannot read it, so a new
+-- platform directory has to be added in both places.
+packageSourceDirectories :: FilePath -> IO [FilePath]
+packageSourceDirectories root = do
+  let platform = case hostNativeTarget of
+        Just AppleArm64 -> "src-darwin"
+        Just LinuxAmd64 -> "src-linux"
+        -- The fixtures only ever run on a host aihc has a target for, and
+        -- neither of the remaining targets is one a fixture runs on.
+        _ -> "src-linux"
+  exists <- doesDirectoryExist (root </> platform)
+  pure ([root </> platform | exists] <> [root </> "src"])
 
 listSourceFiles :: FilePath -> IO [FilePath]
 listSourceFiles dir = do
