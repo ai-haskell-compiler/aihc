@@ -1,0 +1,60 @@
+extensions: [ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Dynamic
+
+    boxed :: Dynamic
+    boxed = toDyn (42 :: Int)
+
+    roundTrips :: Bool
+    roundTrips = fromDynamic boxed == Just (42 :: Int)
+
+    rejectsOtherType :: Bool
+    rejectsOtherType =
+      case (fromDynamic boxed :: Maybe Bool) of
+        Just _ -> False
+        Nothing -> True
+
+    fallsBack :: Bool
+    fallsBack = fromDyn boxed False
+
+    keepsRepresentation :: Bool
+    keepsRepresentation = show (dynTypeRep boxed) == "Int"
+
+    shows' :: Bool
+    shows' = show boxed == "<<Int>>"
+
+    applies :: Bool
+    applies =
+      case dynApply (toDyn (not :: Bool -> Bool)) (toDyn True) of
+        Just applied -> fromDyn applied True == False
+        Nothing -> False
+
+    rejectsBadApplication :: Bool
+    rejectsBadApplication =
+      case dynApply (toDyn (not :: Bool -> Bool)) (toDyn (1 :: Int)) of
+        Just _ -> False
+        Nothing -> True
+
+    appliesStrictly :: Bool
+    appliesStrictly = fromDyn (dynApp (toDyn (not :: Bool -> Bool)) (toDyn False)) False
+
+    answer :: Bool
+    answer =
+      roundTrips
+        && rejectsOtherType
+        && not fallsBack
+        && keepsRepresentation
+        && shows'
+        && applies
+        && rejectsBadApplication
+        && appliesStrictly
+expression: |
+  answer
+output: |
+  True
+status: pass
+reason: Data.Dynamic wraps and unwraps values and applies dynamic functions
