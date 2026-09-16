@@ -18,10 +18,14 @@ import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Distribution.PackageDescription (condLibrary, libBuildInfo)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
+import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
 import Distribution.System (buildArch, buildOS)
+import Distribution.Types.Flag (mkFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Version (Version)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
@@ -50,6 +54,8 @@ main =
       testCase "generates Cabal Paths module as a normal source file" test_generatesPathsModule,
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "evaluates impl(ghc) conditions against the emulated compiler" test_evaluatesImplConditions,
+      testCase "flips an automatic flag whose default contradicts a resolved version" test_flipsAutomaticFlagAgainstVersions,
+      testCase "keeps a manual flag and an unconstrained automatic flag at their default" test_keepsDefaultFlagValues,
       testCase "defines MIN_VERSION macros from resolved dependency versions" test_minVersionMacros,
       testCase "writes the same macros into a cabal_macros.h header" test_cabalMacrosHeader,
       testCase "reports source lines unshifted by the synthetic macro header" test_diagnosticsUseSourceLineNumbers,
@@ -348,6 +354,61 @@ test_detectsCustomPreprocessorOptions = do
   assertBool "expected inactive custom preprocessor options to be ignored" (not (HC.packageUsesCustomPreprocessor inactive))
   assertBool "expected -pgmF without -F not to enable preprocessing" (not (HC.packageUsesCustomPreprocessor pgmFOnly))
 
+-- A package whose automatic flag defaults to a branch that the resolved
+-- dependency versions contradict must take the other branch, the way cabal's
+-- solver would. @unix@ does this with its @os-string@ flag: its default
+-- branch bounds @filepath@ below 1.5, but aihc resolves filepath 1.5.
+test_flipsAutomaticFlagAgainstVersions :: Assertion
+test_flipsAutomaticFlagAgainstVersions = do
+  gpd <- parseTestCabal automaticFlagCabal
+  flags <- HC.resolveFlagAssignment (pure . lookupTestVersion) gpd
+  assertEqual
+    "expected the automatic flag to be flipped"
+    (Just True)
+    (Map.lookup (mkFlagName "os-string") flags)
+
+  let configured = HC.applyFlagAssignment flags gpd
+  assertEqual
+    "expected the flipped branch's dependencies"
+    (sort ["base", "filepath", "os-string"])
+    (sort (map T.unpack (dependencyNamesOf configured)))
+  assertEqual
+    "expected the flipped branch's exposed modules"
+    ["System.OsString.Posix"]
+    (map T.unpack (HC.collectLibraryExposedModules configured))
+
+-- A flag the package marks @manual@ is the user's to set, and an automatic
+-- flag whose branches no resolved version contradicts has no reason to move.
+test_keepsDefaultFlagValues :: Assertion
+test_keepsDefaultFlagValues = do
+  gpd <- parseTestCabal manualFlagCabal
+  flags <- HC.resolveFlagAssignment (pure . lookupTestVersion) gpd
+  assertEqual
+    "expected the manual flag to keep its default"
+    (Just False)
+    (Map.lookup (mkFlagName "os-string") flags)
+  assertEqual
+    "expected the unconstrained automatic flag to keep its default"
+    (Just False)
+    (Map.lookup (mkFlagName "unrelated") flags)
+
+-- The versions aihc would resolve: newest preferred, ranges ignored.
+lookupTestVersion :: String -> Maybe Version
+lookupTestVersion name =
+  case name of
+    "filepath" -> simpleParsec "1.5.5.0"
+    "os-string" -> simpleParsec "2.0.11"
+    "base" -> simpleParsec "4.21.0.0"
+    _ -> Nothing
+
+dependencyNamesOf :: GenericPackageDescription -> [T.Text]
+dependencyNamesOf gpd =
+  case condLibrary gpd of
+    Nothing -> []
+    Just tree ->
+      HC.extractDependencies
+        (HC.collectMergedBuildInfo (HC.conditionEvaluator gpd) libBuildInfo tree)
+
 parseTestCabal :: String -> IO GenericPackageDescription
 parseTestCabal source =
   case snd (runParseResult (parseGenericPackageDescription (BSC.pack source))) of
@@ -635,3 +696,39 @@ test_preferredVersionsCacheRoundTrip = do
     "derived cache round trip"
     versions
     (parsePreferredVersionsCache (renderPreferredVersions versions))
+
+automaticFlagCabal :: String
+automaticFlagCabal = flagDemoCabal "False"
+
+manualFlagCabal :: String
+manualFlagCabal = flagDemoCabal "True"
+
+-- A cut-down @unix@: the flag defaults to the branch that pins filepath below
+-- 1.5, while the resolved filepath is 1.5.5.0.
+flagDemoCabal :: String -> String
+flagDemoCabal manual =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: flag-demo",
+      "version: 0.1.0.0",
+      "",
+      "flag os-string",
+      "  description: Use the new os-string package",
+      "  default: False",
+      "  manual: " <> manual,
+      "",
+      "flag unrelated",
+      "  default: False",
+      "  manual: False",
+      "",
+      "library",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell2010",
+      "  build-depends: base",
+      "  if flag(os-string)",
+      "    exposed-modules: System.OsString.Posix",
+      "    build-depends: filepath >= 1.5.0.0, os-string >= 2.0.0",
+      "  else",
+      "    exposed-modules: System.Posix.ByteString",
+      "    build-depends: filepath >= 1.4.100.0 && < 1.5.0.0"
+    ]

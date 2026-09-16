@@ -22,6 +22,10 @@ module Aihc.Hackage.Cabal
     collectCondTreeData,
     collectMergedBuildInfo,
 
+    -- * Flag resolution
+    resolveFlagAssignment,
+    applyFlagAssignment,
+
     -- * Configure build type
     BuildType (..),
     packageBuildType,
@@ -88,6 +92,7 @@ import Distribution.PackageDescription
     exeModules,
     exposedModules,
     flagDefault,
+    flagManual,
     flagName,
     includeDirs,
     libBuildInfo,
@@ -125,7 +130,7 @@ import Distribution.Types.CondTree
   )
 import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.Dependency (Dependency, depPkgName)
+import Distribution.Types.Dependency (Dependency, depPkgName, depVerRange)
 import Distribution.Types.ExeDependency (ExeDependency (..))
 import Distribution.Types.ForeignLib (foreignLibBuildInfo)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
@@ -136,7 +141,7 @@ import Distribution.Types.MungedPackageName (MungedPackageName (..))
 import Distribution.Types.UnitId (mkUnitId)
 import Distribution.Types.UnqualComponentName (UnqualComponentName, unUnqualComponentName)
 import Distribution.Utils.Path (getSymbolicPath)
-import Distribution.Version (mkVersion, withinRange)
+import Distribution.Version (Version, mkVersion, withinRange)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
 
@@ -629,12 +634,14 @@ conditionEvaluator gpd = conditionEvaluatorFor gpd buildOS buildArch
 
 -- | Evaluate cabal conditions for one OS and architecture.
 conditionEvaluatorFor :: GenericPackageDescription -> OS -> Arch -> Condition ConfVar -> Bool
-conditionEvaluatorFor gpd os arch = eval
-  where
-    defaultFlags :: Map.Map FlagName Bool
-    defaultFlags =
-      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+conditionEvaluatorFor gpd =
+  conditionEvaluatorWith
+    (Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd])
 
+-- | Evaluate cabal conditions under an explicit flag assignment.
+conditionEvaluatorWith :: Map.Map FlagName Bool -> OS -> Arch -> Condition ConfVar -> Bool
+conditionEvaluatorWith flags os arch = eval
+  where
     -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
     -- same one the CPP macros describe; the host compiler is irrelevant.
     compilerVer = mkVersion (releaseCompilerVersion emulatedGhc)
@@ -643,12 +650,129 @@ conditionEvaluatorFor gpd os arch = eval
       case confVar of
         OS wanted -> wanted == os
         Arch wanted -> wanted == arch
-        PackageFlag flag -> Map.findWithDefault False flag defaultFlags
+        PackageFlag flag -> Map.findWithDefault False flag flags
         Impl flavor range -> flavor == GHC && withinRange compilerVer range
     eval (Lit b) = b
     eval (CNot c) = not (eval c)
     eval (COr a b) = eval a || eval b
     eval (CAnd a b) = eval a && eval b
+
+-- | Choose values for the automatic flags of a package.
+--
+-- Cabal's solver picks flag values that make the version constraints of the
+-- resolved packages hold. aihc has no solver: it takes the newest preferred
+-- version of every dependency, which leaves a flag whose declared default
+-- contradicts those versions selecting a branch that cannot be built. This
+-- is the narrow equivalent: an automatic flag (@manual: False@) is flipped
+-- when flipping it removes a contradiction between the @build-depends@ of
+-- the branch it selects and the versions the dependencies resolve to.
+--
+-- Only flag-guarded dependencies are judged, so a constraint that no flag
+-- can help with never moves a flag. Manual flags keep their default, and
+-- the search is greedy over one flag at a time: it does not backtrack over
+-- combinations of flags the way a real solver does.
+resolveFlagAssignment ::
+  (Monad m) =>
+  -- | The version a dependency name resolves to, where it resolves at all.
+  (String -> m (Maybe Version)) ->
+  GenericPackageDescription ->
+  m (Map.Map FlagName Bool)
+resolveFlagAssignment resolveVersion gpd
+  | null automaticFlags = pure defaults
+  | Set.null guardedNames = pure defaults
+  | otherwise = do
+      resolved <- mapM resolvePair (Set.toList guardedNames)
+      pure (search (Map.fromList resolved) defaults)
+  where
+    resolvePair name = (,) name <$> resolveVersion name
+
+    defaults =
+      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+
+    automaticFlags =
+      [flagName flag | flag <- genPackageFlags gpd, not (flagManual flag)]
+
+    guardedNames =
+      Set.fromList
+        (map dependencyName (concatMap flagGuardedDependencies (libraryCondTrees gpd)))
+
+    -- Walk one flag at a time and keep every flip that removes a
+    -- contradiction, until no single flip is an improvement.
+    search versions = go (length automaticFlags)
+      where
+        go :: Int -> Map.Map FlagName Bool -> Map.Map FlagName Bool
+        go rounds assignment
+          | rounds <= (0 :: Int) = assignment
+          | otherwise =
+              case foldl (flipFlag versions) (assignment, False) automaticFlags of
+                (improved, True) -> go (rounds - 1) improved
+                (unchanged, False) -> unchanged
+
+    flipFlag versions (assignment, changed) flag =
+      let flipped = Map.insert flag (not (Map.findWithDefault False flag assignment)) assignment
+       in if contradictions versions flipped < contradictions versions assignment
+            then (flipped, True)
+            else (assignment, changed)
+
+    contradictions versions assignment =
+      length
+        [ ()
+        | dependency <- activeDependencies assignment,
+          Just (Just version) <- [Map.lookup (dependencyName dependency) versions],
+          not (withinRange version (depVerRange dependency))
+        ]
+
+    activeDependencies assignment =
+      concatMap
+        (collectMergedBuildInfo (conditionEvaluatorWith assignment buildOS buildArch) (targetBuildDepends . libBuildInfo))
+        (libraryCondTrees gpd)
+
+dependencyName :: Dependency -> String
+dependencyName = unPackageName . depPkgName
+
+libraryCondTrees :: GenericPackageDescription -> [CondTree ConfVar [Dependency] Library]
+libraryCondTrees gpd =
+  maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+
+-- | Every dependency that sits under a condition mentioning a package flag,
+-- from either side of that condition.
+flagGuardedDependencies :: CondTree ConfVar c Library -> [Dependency]
+flagGuardedDependencies tree = concatMap branch (condTreeComponents tree)
+  where
+    branch (CondBranch cond thenTree elseTree)
+      | conditionMentionsFlag cond =
+          allDependencies thenTree <> maybe [] allDependencies elseTree
+      | otherwise =
+          flagGuardedDependencies thenTree <> maybe [] flagGuardedDependencies elseTree
+
+    allDependencies subTree =
+      targetBuildDepends (libBuildInfo (condTreeData subTree))
+        <> concatMap
+          (\(CondBranch _ thenTree elseTree) -> allDependencies thenTree <> maybe [] allDependencies elseTree)
+          (condTreeComponents subTree)
+
+conditionMentionsFlag :: Condition ConfVar -> Bool
+conditionMentionsFlag condition =
+  case condition of
+    Var (PackageFlag _) -> True
+    Var _ -> False
+    Lit _ -> False
+    CNot inner -> conditionMentionsFlag inner
+    COr a b -> conditionMentionsFlag a || conditionMentionsFlag b
+    CAnd a b -> conditionMentionsFlag a || conditionMentionsFlag b
+
+-- | Record a flag assignment as the flags' defaults.
+--
+-- Cabal keeps a configured package's flag assignment beside its description;
+-- aihc passes the description itself from the plan to the installer, so the
+-- resolved assignment is written back into it and every condition evaluated
+-- from that description afterwards sees the chosen values.
+applyFlagAssignment :: Map.Map FlagName Bool -> GenericPackageDescription -> GenericPackageDescription
+applyFlagAssignment assignment gpd =
+  gpd {genPackageFlags = map withChosenValue (genPackageFlags gpd)}
+  where
+    withChosenValue flag =
+      flag {flagDefault = Map.findWithDefault (flagDefault flag) (flagName flag) assignment}
 
 -- | Collect all data nodes from a 'CondTree', evaluating conditions.
 collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]

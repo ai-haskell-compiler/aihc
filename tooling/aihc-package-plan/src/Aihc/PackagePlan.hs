@@ -34,6 +34,7 @@ import Aihc.Hackage.Cpp (DependencyVersions)
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibraryByStandin, showVersionBranch)
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
+import Control.Exception (IOException, try)
 import Data.ByteString qualified as BS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (nub, sort)
@@ -43,8 +44,10 @@ import Data.Text qualified as T
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, libBuildInfo, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Version (Version)
 import System.Directory
   ( doesDirectoryExist,
     doesFileExist,
@@ -169,28 +172,41 @@ buildPackagePlanWithResolver resolver spec = do
   -- the cache a package shared by several dependents is resolved and parsed
   -- once per path that reaches it.
   cache <- newIORef Map.empty
-  buildPackagePlanRecursive cache resolver [] spec
+  versions <- newIORef Map.empty
+  buildPackagePlanRecursive PlanCaches {planCache = cache, planVersionCache = versions} resolver [] spec
 
-buildPackagePlanRecursive :: IORef (Map.Map (String, String) PackagePlan) -> DependencyResolver -> [PackageSpec] -> PackageSpec -> IO PackagePlan
-buildPackagePlanRecursive cache resolver stack rawSpec
+-- | What the recursion remembers across the packages of one plan.
+data PlanCaches = PlanCaches
+  { planCache :: IORef (Map.Map (String, String) PackagePlan),
+    -- | The version a dependency name resolves to, so that flag resolution
+    -- asks the resolver about a package name only once per plan.
+    planVersionCache :: IORef (Map.Map String (Maybe Version))
+  }
+
+buildPackagePlanRecursive :: PlanCaches -> DependencyResolver -> [PackageSpec] -> PackageSpec -> IO PackagePlan
+buildPackagePlanRecursive caches resolver stack rawSpec
   | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
       ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
   | otherwise = do
-      cached <- Map.lookup (packageSpecIdentity spec) <$> readIORef cache
+      cached <- Map.lookup (packageSpecIdentity spec) <$> readIORef (planCache caches)
       case cached of
         -- A cached plan is complete, so it took part in no cycle.
         Just plan -> pure plan
         Nothing -> do
           plan <- buildPlan
-          modifyIORef' cache (Map.insert (packageSpecIdentity spec) plan)
+          modifyIORef' (planCache caches) (Map.insert (packageSpecIdentity spec) plan)
           pure plan
   where
     buildPlan = do
       ResolvedSource sourcePath origin <- sourcePathForSpec resolver spec
-      (cabalFile, gpd) <- parseSourcePackageDescriptionAt sourcePath
+      (cabalFile, parsedGpd) <- parseSourcePackageDescriptionAt sourcePath
+      -- Automatic flags are settled before anything reads the description, so
+      -- that the plan and the installer see the same conditional branches.
+      flags <- HackageCabal.resolveFlagAssignment resolvedDependencyVersion parsedGpd
+      let gpd = HackageCabal.applyFlagAssignment flags parsedGpd
       let dependencyNames = packageDependencyNames gpd
       dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec dependencyNames)
-      dependencyPlans <- mapM (buildPackagePlanRecursive cache resolver (spec : stack)) dependencySpecs
+      dependencyPlans <- mapM (buildPackagePlanRecursive caches resolver (spec : stack)) dependencySpecs
       pure
         PackagePlan
           { planSourcePath = sourcePath,
@@ -204,6 +220,23 @@ buildPackagePlanRecursive cache resolver stack rawSpec
     resolveDependencySpec dependencyName = do
       version <- resolveVersionForDependency dependencyName
       pure (canonicalPackageSpec (PackageSpec dependencyName version))
+
+    -- The version a dependency name would resolve to, for judging whether a
+    -- flag's branch contradicts the plan. A name the resolver cannot resolve
+    -- at all is unknown rather than a contradiction: a flag branch that names
+    -- a package outside the index must not look preferable for that reason.
+    resolvedDependencyVersion dependencyName = do
+      known <- Map.lookup dependencyName <$> readIORef (planVersionCache caches)
+      case known of
+        Just version -> pure version
+        Nothing -> do
+          resolved <- try (resolveVersionForDependency dependencyName)
+          let version =
+                case resolved :: Either IOException String of
+                  Right text -> simpleParsec text
+                  Left _ -> Nothing
+          modifyIORef' (planVersionCache caches) (Map.insert dependencyName version)
+          pure version
 
     resolveVersionForDependency dependencyName =
       case lookupCoreProvider dependencyName of
