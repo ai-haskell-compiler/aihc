@@ -10,7 +10,7 @@ import GHC.Exception (ArithException (..), throw)
 import GHC.Num.BigNat (BigNat#)
 import GHC.Prim (Word#, eqWord#, indexWordArray#, int2Word#, ltWord#, sizeofByteArray#, (<#), (==#))
 import GHC.Prim.Integer (Integer (..), integerFromWord#)
-import GHC.Prim.Natural (Natural (..))
+import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import GHC.Read ()
 import GHC.Types (isTrue#)
 import Text.ParserCombinators.ReadPrec (ReadPrec, pfail)
@@ -37,18 +37,15 @@ naturalToInteger (NS word) = integerFromWord# 1# word
 naturalToInteger (NB magnitude) = IP magnitude
 
 -- | The 'Natural' with the same value; a negative argument underflows.
+--
+-- The conversion itself is 'naturalFromInteger#', which the compiler also
+-- uses to build @KnownNat@ evidence; only the sign check is here, because
+-- the package below this one has no exceptions.
 naturalFromInteger :: Integer -> Natural
-naturalFromInteger (IS value) =
-  case isTrue# ((<#) value 0#) of
-    True -> underflow
-    False -> NS (int2Word# value)
-naturalFromInteger (IP magnitude) =
-  -- A single-limb magnitude is only ever an 'Integer' above @maxBound :: Int@,
-  -- which still fits a 'Word#'.
-  case isTrue# ((==#) (sizeofByteArray# magnitude) 8#) of
-    True -> NS (indexWordArray# magnitude 0#)
-    False -> NB magnitude
+naturalFromInteger (IS value)
+  | isTrue# ((<#) value 0#) = underflow
 naturalFromInteger (IN _) = underflow
+naturalFromInteger value = naturalFromInteger# value
 
 instance Eq Natural where
   NS left == NS right = isTrue# (eqWord# left right)

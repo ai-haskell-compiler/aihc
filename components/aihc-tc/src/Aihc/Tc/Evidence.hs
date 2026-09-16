@@ -49,6 +49,11 @@ data EvTerm
     EvCast !EvTerm !Coercion
   | -- | Compiler-synthesized structural runtime type representation.
     EvTypeable !(Maybe (Text, Text)) !TcType !TypeableTyCon ![(TcType, EvTerm)] ![EvTerm]
+  | -- | Compiler-synthesized evidence that a type-level literal is known:
+    -- the class origin, the literal type, and the literal itself. The
+    -- dictionary carries the literal's value, so the solver supplies the
+    -- value and the desugarer builds the dictionary around it.
+    EvTypeLit !(Maybe (Text, Text)) !TcType !TyLit
   | -- | Type abstraction for quantified evidence.
     EvTypeLam !TyVarId !EvTerm
   | -- | Dictionary abstraction with its checked binder type.

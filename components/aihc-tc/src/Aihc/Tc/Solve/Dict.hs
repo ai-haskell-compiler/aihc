@@ -111,6 +111,8 @@ solveNormalizedDict visited givens ct
                       pure DictSolved
                     else pure (DictStuck ct)
                 ("Typeable", [ty]) -> tryTypeable className ty
+                ("KnownNat", [ty]) -> tryTypeLit "KnownNat" isNatLiteral ty
+                ("KnownSymbol", [ty]) -> tryTypeLit "KnownSymbol" isSymbolLiteral ty
                 _ -> do
                   instances <- getClassInstances className
                   tryInstances (ctPred ct : visited) className args' instances
@@ -217,6 +219,20 @@ solveNormalizedDict visited givens ct
           case result of
             DictSolved -> lookupEvidence ev
             DictStuck _ -> pure Nothing
+
+    -- A @KnownNat@ or @KnownSymbol@ constraint is solved when its argument
+    -- is a literal of the matching sort. The dictionary carries the
+    -- literal's value, which the desugarer builds; nothing here needs the
+    -- class declaration beyond where it comes from.
+    tryTypeLit classNameText matchesSort ty = do
+      zonked <- zonkType ty
+      case zonked of
+        TcTyLit literal
+          | matchesSort literal -> do
+              classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName classNameText
+              bindEvidence (ctEvVar ct) (EvTypeLit classOrigin zonked literal)
+              pure DictSolved
+        _ -> pure (DictStuck ct)
 
     tryTypeable typeableTyCon ty =
       case typeableArguments ty of
@@ -439,6 +455,16 @@ isCallStackPred predicate =
 --
 -- An unsolved call-stack parameter is not an error. It gets the empty call
 -- stack, as in GHC.
+isNatLiteral :: TyLit -> Bool
+isNatLiteral literal = case literal of
+  TyLitNat {} -> True
+  _ -> False
+
+isSymbolLiteral :: TyLit -> Bool
+isSymbolLiteral literal = case literal of
+  TyLitSymbol {} -> True
+  _ -> False
+
 reportUnsolvedDict :: Ct -> TcM ()
 reportUnsolvedDict ct = do
   predicate <- zonkPred (ctPred ct)

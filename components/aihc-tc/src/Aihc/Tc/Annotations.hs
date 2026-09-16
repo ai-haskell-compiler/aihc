@@ -56,6 +56,7 @@ module Aihc.Tc.Annotations
     renderFunDepNames,
     renderPred,
     renderTcType,
+    renderTyLit,
     renderTcTypeInModule,
     renderTcSignature,
   )
