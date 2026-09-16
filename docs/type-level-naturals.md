@@ -333,26 +333,35 @@ from the literal's own sort rather than selected by a kind-indexed
 instance, so the kind-indexed family instance matching that the sketch
 above called a prerequisite is not needed and did not land.
 
-**What does not work yet, and blocks PR 5.** Two defects, both found by
-probing `1 <= 4`:
+**`NoStarIsType` is required of a consumer**, as it is in GHC: `*` in a
+type means `Type` by default, so a module that writes `6 * 7` at the type
+level needs the extension. A module that imports `type (*)` without it
+fails with a kind mismatch that names `Type`. This is not a defect; an
+earlier note here called it one.
 
-1. **A constraint synonym standing for a family application is not
-   expanded.** `type (<=) x y = Assert (x <=? y) (LeErrMsg x y)` becomes an
-   `IrredPred` whose head is the synonym itself, and the solver reports
-   `unsolved constraint <= 1 4`. The same synonym at kind `Nat` -- `Max 3
-   9` -- expands and reduces, so this is specific to a constraint-kinded
-   synonym, which is the case only an expectation can recognise. Expanding
-   it in the `IrredPred` path of `Tc.Solve.Dict` was tried and was not
-   enough; the expansion has to happen where the predicate is built.
-2. **The implicit Prelude shadows a type-level operator.** With
-   `import GHC.TypeNats (type (+))` and the implicit Prelude, `2 + 3` in a
-   type resolves to Prelude's term `(+)` and fails with
-   `kind mismatch: expected Natural, got Type -> Natural -> t0`. An
-   explicit `import Prelude`, `import Prelude hiding ((+))` or
-   `NoImplicitPrelude` all work, so the fault is in the implicit-Prelude
-   scope rather than in `resolveTypeName`, which consults only
-   `scopeTypes`. `random` writes `1 <= SeedSize g` under an implicit
-   Prelude, so it needs this.
+**What does not work yet, and blocks PR 5.** `1 <= 4` is reported
+`unsolved constraint <= 1 4`. What it is *not*, each ruled out by a probe:
+
+- Not name shadowing. `import Prelude hiding ((<=))` makes no difference,
+  and the constraint does resolve to `Data.Type.Ord.(<=)`.
+- Not the nesting of `(<=?)` inside `(<=)`. Inlining the `OrdCond`
+  application into `(<=)` changes nothing.
+- Not poly-kindedness. A `k -> k -> Constraint` synonym of the same shape
+  solves.
+- Not the builtin. `Assert (OrdCond (Compare 1 4) 'True 'True 'False) ()`
+  solves as a constraint, and so does `Compare 1 4 ~ 'LT`.
+
+What is left is the second argument: the shape that solves passes `()` to
+`Assert`, and `(<=)` passes `LeErrMsg x y`, a constraint synonym standing
+for a `TypeError` application. A `TypeError` in that position is the one
+case the first equation `Assert 'True _ = ()` is supposed to discard
+without looking at.
+
+A second defect sits behind it, which the same probes found: a **given**
+whose family application is reducible is not reduced before it becomes a
+dictionary binder, so FC keeps `$Dict$Assert (Check 1 4) $Dict$CTuple0`
+and GRIN reports that it has no runtime representation. The wanted at the
+use site solves; only the binder type of the definition is left stuck.
 
 ### PR 5 — `feat(core-libs): resolve and check random's SeedGen`
 
