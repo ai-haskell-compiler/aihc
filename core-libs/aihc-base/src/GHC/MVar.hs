@@ -2,7 +2,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.MVar
-  ( MVar,
+  ( MVar (..),
+    addMVarFinalizer,
     newEmptyMVar,
     newMVar,
     putMVar,
@@ -16,7 +17,7 @@ module GHC.MVar
 where
 
 import GHC.IO (IO (..))
-import GHC.Prim (Int#, MVar#, RealWorld, isEmptyMVar#, newMVar#, putMVar#, readMVar#, takeMVar#, tryPutMVar#, tryReadMVar#, tryTakeMVar#)
+import GHC.Prim (Int#, MVar#, RealWorld, isEmptyMVar#, mkWeak#, newMVar#, putMVar#, readMVar#, takeMVar#, tryPutMVar#, tryReadMVar#, tryTakeMVar#)
 import GHC.Prim.Base (Maybe (..))
 import GHC.Types (Bool (..), isTrue#)
 
@@ -116,3 +117,15 @@ maybeTaken flag value =
   case isTrue# flag of
     True -> Just value
     False -> Nothing
+
+-- | Attach a finalizer that runs once the 'MVar' becomes unreachable. The
+-- weak pointer the finalizer hangs from is dropped, so the only way to run
+-- the finalizer early is 'System.Mem.Weak.finalize' on the pointer that
+-- 'Control.Concurrent.MVar.mkWeakMVar' gives.
+addMVarFinalizer :: MVar a -> IO () -> IO ()
+addMVarFinalizer mvar@(MVar rawMVar) (IO finalizer) =
+  IO
+    ( \state ->
+        case mkWeak# rawMVar mvar finalizer state of
+          (# nextState, _ #) -> (# nextState, () #)
+    )
