@@ -280,7 +280,7 @@ library
     hs-source-dirs:
       src-wasm32
       src
-  elif os(darwin)
+  elif os(osx)
     hs-source-dirs:
       src-darwin
       src

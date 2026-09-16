@@ -36,7 +36,7 @@ module System.Posix.Types.Repr
 where
 
 import Data.Int (Int32, Int64)
-import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Word (Word16, Word32, Word64, Word8)
 
 -- | @blkcnt_t@: a signed 64-bit count of blocks.
 type CBlkCntRep = Int64
