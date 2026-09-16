@@ -14,6 +14,7 @@ module Aihc.Tc.Annotations
     CastDirection (..),
     annotateRhsCast,
     annotateExprCast,
+    annotateFunCast,
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -111,6 +112,14 @@ annotateRhsCast ty evidence rhs =
 annotateExprCast :: TcType -> EvVar -> Expr -> Expr
 annotateExprCast ty evidence =
   EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToLeft))
+
+-- | Cast an expression onto the right type of its wanted equality. The
+-- function of an application whose type is not syntactically an arrow is
+-- equated as @actual ~ (argument -> result)@, so the proof runs forwards
+-- for the function itself.
+annotateFunCast :: TcType -> EvVar -> Expr -> Expr
+annotateFunCast ty evidence =
+  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Annotation attached to AST nodes by the type checker.
 --
