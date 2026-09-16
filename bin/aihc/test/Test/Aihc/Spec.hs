@@ -1317,6 +1317,43 @@ test_installHsc2hs getStore = do
     generated <- readFile (preprocessedModule result)
     assertBool "hsc2hs fills in the constant from the header" ("answer = 42" `isInfixOf` generated)
     assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
+  -- The spans of a diagnostic are checked from here rather than from a test
+  -- case of its own for the same reason: the stand-in is named through the
+  -- environment, and a concurrent install would pick it up and leave the
+  -- fixture's constant unsubstituted.
+  test_installHsc2hsSpans getStore
+
+-- An error in a module hsc2hs generated is reported against the @.hsc@ the
+-- author wrote, not against the generated module. hsc2hs marks its output
+-- with the line and file of the source, and the install rewrites those
+-- pragmas into the @#line@ directives the front end carries all the way
+-- into a span, so the file, the line, the column and the excerpt all name
+-- the same place.
+--
+-- The fixture is arranged so that the two files disagree about line
+-- numbers: an error reported at the physical line of the generated module
+-- would land on a padding comment instead, which is what this test would
+-- have caught before.
+test_installHsc2hsSpans :: IO SeedStore -> Assertion
+test_installHsc2hsSpans getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/hsc2hs-spans"
+  withSandbox getStore "aihc-install-hsc2hs-spans" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64
+        source = fixtureRoot </> "src" </> "Broken.hsc"
+    caught <- try (install options) :: IO (Either IOException InstallResult)
+    message <- case caught of
+      Left err -> pure (show err)
+      Right _ -> assertFailure "the fixture is supposed to fail to resolve"
+    assertBool
+      ("the error names the .hsc source, its line and its column:\n" <> message)
+      ((source <> ":15:8: error: unbound term name \8216deliberatelyUnbound\8217") `isInfixOf` message)
+    assertBool
+      ("the excerpt is the line the error is reported at:\n" <> message)
+      ("  15 | oops = deliberatelyUnbound" `isInfixOf` message)
+    assertBool
+      ("no error names the generated module:\n" <> message)
+      (not ("Broken.hs:" `isInfixOf` message))
 
 -- An API standin such as aihc-internal has only empty modules, so nothing
 -- goes into its archive. BSD ar refuses to create an archive with no

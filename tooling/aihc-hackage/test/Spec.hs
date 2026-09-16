@@ -5,6 +5,7 @@ import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Cpp (builtinCppMacros, cabalMacrosHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
 import Aihc.Hackage.Index (latestPreferredVersions, parseHackageIndex, parseHackageIndexUpdatedSince, parsePreferredRanges)
 import Aihc.Hackage.IndexCache (parsePreferredVersionsCache, renderPreferredVersions)
+import Aihc.Hackage.Preprocessor (lineDirectivesFromPragmas)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Codec.Archive.Tar qualified as Tar
@@ -60,6 +61,7 @@ main =
       testCase "collects C sources and compile options from library cabal files" test_collectsCSources,
       testCase "reads the Configure build type and merges a configure buildinfo" test_configureBuildInfo,
       testCase "finds preprocessor sources by suffix after the plain ones" test_findsPreprocessorSources,
+      testCase "rewrites preprocessor line pragmas into line directives" test_lineDirectivesFromPragmas,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -289,6 +291,39 @@ test_configureBuildInfo = do
   assertEqual "cc options" ["-DHOOKED", "-std=c11"] (HC.cCompileCcOptions cInfo')
   assertEqual "C include dirs" ["/build/generated", "/pkg/include"] (HC.cCompileIncludeDirs cInfo')
   assertEqual "C sources" ["/pkg/cbits/helper.c"] (HC.cCompileSources cInfo')
+
+-- The line pragmas a preprocessor emits become @#line@ directives, which
+-- is the form aihc's front end carries into a source span. A pragma that
+-- shares its line with anything else is not line control a preprocessor
+-- emitted, and neither is a malformed one, so both are left alone. Bytes
+-- the rewrite does not recognise pass through untouched, whatever the
+-- module's encoding.
+test_lineDirectivesFromPragmas :: Assertion
+test_lineDirectivesFromPragmas = do
+  assertEqual
+    "a lone pragma"
+    (BSC.pack "#line 14 \"src/Demo.hsc\"\nx = 1\n")
+    (lineDirectivesFromPragmas (BSC.pack "{-# LINE 14 \"src/Demo.hsc\" #-}\nx = 1\n"))
+  assertEqual
+    "indentation, a missing file name and a shared line are left alone"
+    body
+    (lineDirectivesFromPragmas body)
+  assertEqual
+    "a module with no pragmas is returned as it is"
+    plain
+    (lineDirectivesFromPragmas plain)
+  where
+    body =
+      BSC.pack $
+        unlines
+          [ "  {-# LINE 3 \"src/Demo.hsc\" #-}",
+            "{-# LINE 3 #-}",
+            "{-# LINE \"src/Demo.hsc\" #-}",
+            "{-# LINEAR 3 \"src/Demo.hsc\" #-}",
+            "{-# LINE 3 \"src/Demo.hsc\" #-} x = 1"
+          ]
+    -- Byte 169 is a Latin-1 copyright sign, which is not valid UTF-8.
+    plain = BS.pack [45, 45, 32, 169, 10] <> BSC.pack "x = 1\n"
 
 -- A module found as @.hsc@ is marked for hsc2hs; one that also ships as
 -- plain Haskell takes the plain file, as under Cabal. Nothing in the cabal

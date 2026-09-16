@@ -69,7 +69,7 @@ import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
-import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
+import Aihc.Hackage.Preprocessor (Preprocessor (..), lineDirectivesFromPragmas, preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wholeProgramLevel)
 import Aihc.PackagePlan
@@ -2771,6 +2771,13 @@ preprocessPackage config versions root storePath configureScript cInfo = mapM pr
               -- source's own directory through the -I passed above.
               inherited <- getEnvironment
               runToolIn (takeDirectory output) inherited executable arguments
+              -- The tool marks the generated module with the line and file
+              -- of the source it came from. Both forms of line control mean
+              -- the same thing, and the one the front end carries all the
+              -- way into a span is @#line@, so the pragmas are rewritten
+              -- before anything reads the module.
+              generated <- BS.readFile output
+              BS.writeFile output (lineDirectivesFromPragmas generated)
               BS8.writeFile stampPath (BS8.pack inputsHash)
           pure file {HackageCabal.fileInfoPath = output, HackageCabal.fileInfoPreprocessor = Nothing}
 
@@ -3113,4 +3120,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-28"
+packageArtifactFormatVersion = "aihc-artifacts-29"
