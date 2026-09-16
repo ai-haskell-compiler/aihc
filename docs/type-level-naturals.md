@@ -310,7 +310,7 @@ literal **refers to its kind and to the conversion the evidence is built
 from without naming either**, so `addReferencedFacts` carries the three
 literal kinds and `naturalFromInteger#` as extra roots.
 
-### PR 4 — `feat(tc): type-level comparison and arithmetic`
+### PR 4 — `feat(tc): type-level comparison and arithmetic` — partly landed
 
 - `tcWiringTypeNatFamilies` and the builtin reduction in
   `Tc.Solve.Family.reduceHead`, applied only when every argument is a literal.
@@ -326,6 +326,33 @@ literal kinds and `naturalFromInteger#` as extra roots.
 
 Inverting an application — GHC's solving of `n + 1 ~ 5` for `n` — stays out
 of scope. `random` needs only forward reduction.
+
+**What landed.** The builtin reduction, the family declarations in
+`GHC.TypeNats`, and `Data.Type.Ord`. `Compare` is computed by the solver
+from the literal's own sort rather than selected by a kind-indexed
+instance, so the kind-indexed family instance matching that the sketch
+above called a prerequisite is not needed and did not land.
+
+**What does not work yet, and blocks PR 5.** Two defects, both found by
+probing `1 <= 4`:
+
+1. **A constraint synonym standing for a family application is not
+   expanded.** `type (<=) x y = Assert (x <=? y) (LeErrMsg x y)` becomes an
+   `IrredPred` whose head is the synonym itself, and the solver reports
+   `unsolved constraint <= 1 4`. The same synonym at kind `Nat` -- `Max 3
+   9` -- expands and reduces, so this is specific to a constraint-kinded
+   synonym, which is the case only an expectation can recognise. Expanding
+   it in the `IrredPred` path of `Tc.Solve.Dict` was tried and was not
+   enough; the expansion has to happen where the predicate is built.
+2. **The implicit Prelude shadows a type-level operator.** With
+   `import GHC.TypeNats (type (+))` and the implicit Prelude, `2 + 3` in a
+   type resolves to Prelude's term `(+)` and fails with
+   `kind mismatch: expected Natural, got Type -> Natural -> t0`. An
+   explicit `import Prelude`, `import Prelude hiding ((+))` or
+   `NoImplicitPrelude` all work, so the fault is in the implicit-Prelude
+   scope rather than in `resolveTypeName`, which consults only
+   `scopeTypes`. `random` writes `1 <= SeedSize g` under an implicit
+   Prelude, so it needs this.
 
 ### PR 5 — `feat(core-libs): resolve and check random's SeedGen`
 
