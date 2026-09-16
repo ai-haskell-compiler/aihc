@@ -49,7 +49,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignCApi (..), TcForeignCApiKind (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (TyLit (..), mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when, (<$!>))
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
@@ -62,6 +62,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Word (Word64)
 
 data TypeArtifact = TypeArtifact
@@ -501,6 +502,10 @@ putPart index part = case part of
     TcQualTy predicates body -> sum2 6 (encodeList (putPred index) predicates) (putType index body)
     TcAppTy function argument -> sum2 7 (putType index function) (putType index argument)
     TcArrowTy -> cborArray 1 <> cborWord 8
+    -- A literal is written as its sort and its value in text. A natural
+    -- has no bound, so decimal text carries it where a CBOR integer
+    -- could not.
+    TcTyLit literal -> sum2 15 (cborWord (tyLitSortTag literal)) (cborText (tyLitPayload literal))
   PartPred predicate -> case predicate of
     ClassPred tyCon arguments -> sum2 9 (putTyCon index tyCon) (encodeList (putType index) arguments)
     EqPred left right -> sum2 10 (putType index left) (putType index right)
@@ -510,6 +515,34 @@ putPart index part = case part of
     IrredPred constraint -> sum1 14 (putType index constraint)
   PartScheme (ForAll variables predicates body) ->
     cborArray 4 <> cborWord 13 <> encodeList (putTyVar index) variables <> encodeList (putPred index) predicates <> putType index body
+
+-- | Which sort of literal, and its value as text. A natural is decimal.
+tyLitSortTag :: TyLit -> Word64
+tyLitSortTag literal =
+  case literal of
+    TyLitNat {} -> 0
+    TyLitSymbol {} -> 1
+    TyLitChar {} -> 2
+
+tyLitPayload :: TyLit -> Text
+tyLitPayload literal =
+  case literal of
+    TyLitNat value -> T.pack (show value)
+    TyLitSymbol value -> value
+    TyLitChar value -> T.singleton value
+
+getTyLit :: Word64 -> Get.Get TyLit
+getTyLit sort = do
+  payload <- getText
+  case sort of
+    0 -> case reads (T.unpack payload) of
+      [(value, "")] -> pure $! TyLitNat value
+      _ -> fail "malformed type-level natural literal"
+    1 -> pure $! TyLitSymbol payload
+    2 -> case T.unpack payload of
+      [value] -> pure $! TyLitChar value
+      _ -> fail "malformed type-level character literal"
+    _ -> fail "unsupported type-level literal sort"
 
 getPartTable :: Array Int TyCon -> Get.Get PartTable
 getPartTable tyCons = do
@@ -545,6 +578,7 @@ getPart tyCons parts = do
     (4, 11) -> predPart (QuantifiedPred <$!> getList refTyVar <*!> getList refPred <*!> refPred)
     (3, 12) -> predPart (IParamPred <$!> getText <*!> refType)
     (2, 14) -> predPart (IrredPred <$!> refType)
+    (3, 15) -> typePart (TcTyLit <$!> (getWord >>= getTyLit))
     (4, 13) -> PartScheme <$!> (ForAll <$!> getList refTyVar <*!> getList refPred <*!> refType)
     _ -> fail "unsupported interface part"
   where

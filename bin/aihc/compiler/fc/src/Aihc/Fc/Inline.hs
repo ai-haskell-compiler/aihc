@@ -1030,6 +1030,7 @@ typeVariables ty =
   case ty of
     TyVar name -> Set.singleton name
     TyCon {} -> Set.empty
+    TyLit {} -> Set.empty
     TyApp function argument -> typeVariables function <> typeVariables argument
     TyFun r1 r2 argument result -> Set.unions (map typeVariables [r1, r2, argument, result])
     TyForAll binder body -> Set.delete (binderName binder) (typeVariables body) <> typeVariables (binderType binder)
@@ -1276,6 +1277,7 @@ renameType renaming ty =
   case ty of
     TyVar name -> pure (TyVar (renameUse renaming name))
     TyCon {} -> pure ty
+    TyLit {} -> pure ty
     TyApp function argument -> TyApp <$> renameType renaming function <*> renameType renaming argument
     TyFun r1 r2 argument result ->
       TyFun <$> renameType renaming r1 <*> renameType renaming r2 <*> renameType renaming argument <*> renameType renaming result
@@ -1371,6 +1373,7 @@ typeBinderNames ty =
   case ty of
     TyVar {} -> Set.empty
     TyCon {} -> Set.empty
+    TyLit {} -> Set.empty
     TyApp function argument -> typeBinderNames function <> typeBinderNames argument
     TyFun r1 r2 argument result -> foldMap typeBinderNames [r1, r2, argument, result]
     TyForAll binder body -> Set.insert (binderName binder) (typeBinderNames (binderType binder) <> typeBinderNames body)

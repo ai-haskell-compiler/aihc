@@ -307,12 +307,21 @@ genType =
   Gen.recursive
     Gen.choice
     [ TyVar <$> genLocalTypeName,
-      TyCon <$> genTypeName
+      TyCon <$> genTypeName,
+      TyLit <$> genTypeName <*> genTyLit
     ]
     [ TyApp <$> genType <*> genType,
       TyFun <$> genType <*> genType <*> genType <*> genType,
       TyForAll <$> genTypeBinder <*> genType,
       TyEq <$> genType <*> genType
+    ]
+
+genTyLit :: Gen TyLit
+genTyLit =
+  Gen.choice
+    [ TyLitNat . fromIntegral <$> Gen.int (Range.linear 0 100000),
+      TyLitSymbol <$> Gen.text (Range.linear 0 8) Gen.unicode,
+      TyLitChar <$> Gen.unicode
     ]
 
 genTypeName :: Gen Name

@@ -108,6 +108,7 @@ typeMetas ty =
   case ty of
     TcMetaTv unique -> [unique]
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcTyVar {} -> []
     TcTyCon _ args -> concatMap typeMetas args
     TcFunTy argument result -> typeMetas argument ++ typeMetas result
@@ -129,6 +130,7 @@ typeNames ty =
   case ty of
     TcMetaTv {} -> []
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcTyVar tv -> [tvName tv]
     TcTyCon _ args -> concatMap typeNames args
     TcFunTy argument result -> typeNames argument ++ typeNames result
@@ -151,6 +153,7 @@ tidyTypeWith env ty =
   case ty of
     TcMetaTv unique -> maybe ty TcTyVar (Map.lookup unique env)
     TcArrowTy -> ty
+    TcTyLit {} -> ty
     TcTyVar {} -> ty
     TcTyCon tyCon args -> TcTyCon tyCon (map (tidyTypeWith env) args)
     TcFunTy argument result -> TcFunTy (tidyTypeWith env argument) (tidyTypeWith env result)

@@ -338,8 +338,22 @@ typeAtom :: Parser Type
 typeAtom =
   MP.choice
     [ parens fcType,
+      typeLiteral,
       TyVar <$> MP.try typeLocalName,
       TyCon <$> topNameWithSort
+    ]
+
+-- | A type-level literal: its kind, then its value.
+typeLiteral :: Parser Type
+typeLiteral =
+  TyLit <$> (keyword "lit" *> topNameWithSort) <*> tyLit
+
+tyLit :: Parser TyLit
+tyLit =
+  MP.choice
+    [ TyLitNat <$> integerLiteral,
+      TyLitSymbol <$> stringLiteral,
+      TyLitChar <$> charLiteral
     ]
 
 openPiBinder :: Parser Binder
@@ -653,7 +667,11 @@ bracedHexChar = do
 stringChar :: Parser Char
 stringChar =
   MP.choice
-    [ hexChar,
+    [ -- A symbol literal holds any character, so a string carries the
+      -- braced escape that a character literal uses as well as the
+      -- two-digit byte escape that an address literal writes.
+      MP.try bracedHexChar,
+      hexChar,
       MP.satisfy (\character -> character /= '"' && character /= '\\'),
       MPC.string "\\\\" $> '\\',
       MPC.string "\\\"" $> '"',

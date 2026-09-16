@@ -69,8 +69,17 @@ data TcWiring = TcWiring
     tcWiringConstraintTupleTyCon :: TyCon,
     -- | The type of a guard and of an @if@ condition.
     tcWiringBoolTyCon :: TyCon,
-    -- | The type of a character literal.
+    -- | The type of a character literal, and the kind of a type-level
+    -- character literal.
     tcWiringCharTyCon :: TyCon,
+    -- | The kind of a type-level natural literal. GHC gives @3@ the kind
+    -- @GHC.Num.Natural.Natural@ -- the data type itself, which is both a
+    -- runtime type and the kind of the literals -- and @Nat@ is a synonym
+    -- for it. The type constructor is declared outside the primitive
+    -- package, as it is in GHC, where it is wired in from @ghc-bignum@.
+    tcWiringNaturalTyCon :: TyCon,
+    -- | The kind of a type-level string literal, @GHC.Types.Symbol@.
+    tcWiringSymbolTyCon :: TyCon,
     -- | The nominal equality constraint @~@.
     tcWiringEqualityTyCon :: TyCon,
     -- | The representational equality class @Coercible@.
@@ -115,7 +124,10 @@ mkTcKinds wiring =
       kindsListTyCon = tcWiringListTyCon wiring,
       kindsListDeclaration = tcWiringListDeclaration wiring,
       kindsNilDataCon = tcWiringNilDataCon wiring,
-      kindsConsDataCon = tcWiringConsDataCon wiring
+      kindsConsDataCon = tcWiringConsDataCon wiring,
+      kindsNaturalTyCon = tcWiringNaturalTyCon wiring,
+      kindsSymbolTyCon = tcWiringSymbolTyCon wiring,
+      kindsCharTyCon = tcWiringCharTyCon wiring
     }
 
 -- | The tuple type constructor of one flavor and arity.

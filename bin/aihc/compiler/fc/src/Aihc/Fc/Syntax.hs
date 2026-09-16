@@ -4,6 +4,7 @@
 -- | System FC abstract syntax.
 module Aihc.Fc.Syntax
   ( Type (..),
+    TyLit (..),
     Binder (..),
     Expr (..),
     Bind (..),
@@ -47,6 +48,24 @@ data Type
     TyFun Type Type Type Type
   | TyForAll Binder Type
   | TyEq Type Type
+  | -- | A type-level literal, and the type constructor that is its kind:
+    -- @Natural@, @Symbol@ or @Char@. It is a form of its own rather than
+    -- a nullary 'TyCon' named after the value, so that no synthesized
+    -- declaration has to stand behind each distinct literal and a
+    -- consumer reads the value rather than parsing a name. The kind is
+    -- named rather than derived so that a literal refers to its sort the
+    -- way every other type refers to a constructor, and the scope,
+    -- import and lint machinery needs no special case.
+    TyLit Name TyLit
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
+-- | A type-level literal, by sort: a natural at kind @Natural@, a string
+-- at kind @Symbol@ and a character at kind @Char@.
+data TyLit
+  = TyLitNat Integer
+  | TyLitSymbol Text
+  | TyLitChar Char
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

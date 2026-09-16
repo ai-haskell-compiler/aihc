@@ -132,6 +132,7 @@ shareType ty = do
       TcMetaTv unique -> pure (TcMetaTv unique)
       TcTyCon tyCon arguments -> TcTyCon <$> shareTyCon tyCon <*> mapM shareType arguments
       TcArrowTy -> pure TcArrowTy
+      TcTyLit {} -> pure ty
       TcFunTy argument result -> TcFunTy <$> shareType argument <*> shareType result
       TcForAllTy variable body -> TcForAllTy <$> shareTyVar variable <*> shareType body
       TcQualTy predicates body -> TcQualTy <$> mapM sharePred predicates <*> shareType body

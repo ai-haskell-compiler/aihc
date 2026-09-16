@@ -29,6 +29,7 @@ import Control.Monad.Trans.State.Strict (gets, modify')
 zonkType :: TcType -> TcM TcType
 zonkType ty = case ty of
   TcArrowTy -> pure ty
+  TcTyLit {} -> pure ty
   TcMetaTv u -> do
     mSol <- readMetaTv u
     case mSol of
@@ -66,6 +67,7 @@ defaultTypeKinds ty =
   case ty of
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
+    TcTyLit {} -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
     TcTyCon tyCon args -> TcTyCon tyCon <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result

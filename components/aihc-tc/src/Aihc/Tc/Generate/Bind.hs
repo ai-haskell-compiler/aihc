@@ -611,6 +611,7 @@ typeMetaVars ty =
   case ty of
     TcMetaTv unique -> [unique]
     TcArrowTy -> []
+    TcTyLit {} -> []
     TcTyVar _ -> []
     TcTyCon _ args -> concatMap typeMetaVars args
     TcFunTy a b -> typeMetaVars a ++ typeMetaVars b

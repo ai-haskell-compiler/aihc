@@ -40,6 +40,7 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
+    TypeLiteral (..),
     TypePromotion (..),
     UnqualifiedName (..),
     forallTelescopeBinders,
@@ -297,6 +298,12 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       payloadType <- checkSurfaceType tvEnv payload (typeKind kinds)
       constraintType <- implicitParamType name payloadType
       pure (constraintType, constraintKind kinds)
+    TTypeLit literal -> do
+      -- A type-level literal is a type of its own: @3@, @"abc"@ or @'x'@.
+      -- Its kind is its sort, and it is equal to no type but an equal
+      -- literal of the same sort.
+      let converted = convertTypeLiteral literal
+      pure (TcTyLit converted, tyLitKind kinds converted)
     TForall telescope inner -> do
       params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
       let tvEnv' = tvEnv <> Map.fromList [(paramName p, (paramTyVar p, paramKind p)) | p <- params]
@@ -306,6 +313,17 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       emitError NoSourceSpan (OtherError ("unsupported surface type in kind checker: " <> take 80 (show ty)))
       meta <- freshMetaTv
       pure (meta, typeKind kinds)
+
+-- | The type checker's form of a surface type-level literal. The surface
+-- form keeps the source spelling beside the value so that a diagnostic can
+-- echo it back; the checker keeps only the value, because two spellings of
+-- one value are one type.
+convertTypeLiteral :: TypeLiteral -> TyLit
+convertTypeLiteral literal =
+  case literal of
+    TypeLitInteger value _ -> TyLitNat value
+    TypeLitSymbol value _ -> TyLitSymbol value
+    TypeLitChar value _ -> TyLitChar value
 
 convertPromotedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
 convertPromotedSyntaxType tvEnv resolution syntax =
@@ -467,6 +485,7 @@ expandTcTypeSynonyms expanding ty = do
     TcTyVar {} -> pure ty
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
+    TcTyLit {} -> pure ty
     TcTyCon tyCon arguments -> do
       expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
       maybeInfo <- lookupTyConByIdentity tyCon
@@ -780,6 +799,8 @@ isGroundKind ty =
     TcTyVar {} -> False
     TcMetaTv {} -> False
     TcArrowTy -> False
+    -- A literal names one type and mentions nothing, so it is ground.
+    TcTyLit {} -> True
     TcTyCon _ arguments -> all isGroundKind arguments
     TcFunTy argument result -> isGroundKind argument && isGroundKind result
     TcForAllTy {} -> False
@@ -800,6 +821,7 @@ zonkKind :: TcType -> TcM TcType
 zonkKind kind =
   case kind of
     TcArrowTy -> pure kind
+    TcTyLit {} -> pure kind
     TcMetaTv unique -> do
       solution <- readMetaTv unique
       case solution of
@@ -865,6 +887,7 @@ settleKindMetas :: Maybe (Unique -> TcM ()) -> TcType -> TcM TcType
 settleKindMetas defer kind =
   case kind of
     TcArrowTy -> pure kind
+    TcTyLit {} -> pure kind
     TcMetaTv unique -> do
       solution <- readMetaTv unique
       case solution of
@@ -936,6 +959,7 @@ occursInKind :: Unique -> TcType -> Bool
 occursInKind needle kind =
   case kind of
     TcArrowTy -> False
+    TcTyLit {} -> False
     TcMetaTv unique -> unique == needle
     TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
     TcTyCon _ arguments -> any (occursInKind needle) arguments
@@ -963,6 +987,9 @@ tcTypeKind ty =
       kinds <- getKinds
       pure (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
     TcTyVar tyVar -> zonkKind (tvKind tyVar)
+    TcTyLit literal -> do
+      kinds <- getKinds
+      pure (tyLitKind kinds literal)
     TcMetaTv unique -> readMetaTvKind unique >>= zonkKind
     TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon

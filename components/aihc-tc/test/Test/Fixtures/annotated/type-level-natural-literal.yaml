@@ -1,0 +1,14 @@
+extensions:
+- DataKinds
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Type)
+  data Vec (n :: Natural) = Vec
+  type Three :: Type
+  type Three = Vec 3
+status: pass
+reason: a type-level natural literal is a type of kind Natural, the arbitrary-precision type itself, as in GHC

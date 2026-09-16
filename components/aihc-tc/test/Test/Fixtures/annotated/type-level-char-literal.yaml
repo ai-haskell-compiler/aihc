@@ -1,0 +1,13 @@
+extensions:
+- DataKinds
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures #-}
+  module Test where
+  import GHC.Types (Char, Type)
+  data Marked (mark :: Char) = Marked
+  type Starred :: Type
+  type Starred = Marked 'x'
+status: pass
+reason: a type-level character literal is a type of kind Char, the same Char that its values have

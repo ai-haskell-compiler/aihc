@@ -869,6 +869,7 @@ freeKindVariables ty = case ty of
   TcTyVar variable -> freeKindVariables (tvKind variable) <> [variable]
   TcMetaTv {} -> []
   TcArrowTy -> []
+  TcTyLit {} -> []
   TcTyCon _ arguments -> concatMap freeKindVariables arguments
   TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
   TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument

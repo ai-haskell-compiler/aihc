@@ -3107,4 +3107,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-27"
+packageArtifactFormatVersion = "aihc-artifacts-28"

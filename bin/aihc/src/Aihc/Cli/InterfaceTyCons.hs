@@ -107,6 +107,7 @@ typeTyCons ty = case ty of
   TcTyVar variable -> tyVarTyCons variable
   TcMetaTv {} -> mempty
   TcArrowTy -> mempty
+  TcTyLit {} -> mempty
   TcTyCon tyCon arguments -> Set.insert tyCon (Set.unions (map typeTyCons arguments))
   TcFunTy argument result -> typeTyCons argument <> typeTyCons result
   TcForAllTy variable body -> tyVarTyCons variable <> typeTyCons body

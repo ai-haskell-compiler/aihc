@@ -185,6 +185,11 @@ lintType env ty =
       case lookupHeaderType env name of
         Nothing -> Left (UnboundName name)
         Just kind -> Right kind
+    -- A literal's kind is the type constructor it names, which must be
+    -- declared like any other.
+    TyLit kindName _
+      | Nothing <- lookupHeaderType env kindName -> Left (UnboundName kindName)
+      | otherwise -> Right (TyCon kindName)
     TyApp function argument -> do
       functionKind <- lintType env function
       argumentKind <- lintType env argument
