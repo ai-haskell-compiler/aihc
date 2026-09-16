@@ -148,6 +148,7 @@ encodeUtf8 pointer offset code
       return (offset + 4)
   where
     otherwise = True
+    byte :: Int -> Int -> IO ()
     byte index value = pokeByteOff pointer index (fromIntegral value :: Word8)
 
 -- | Encode the characters that a raw character buffer holds and hand the
