@@ -233,7 +233,14 @@ readPosixTypeWidths path = do
 renderPosixWidthAssertions :: [(String, (Int, Bool))] -> String
 renderPosixWidthAssertions widths =
   unlines
-    ( [ "#include <poll.h>",
+    ( [ -- glibc hides blksize_t and key_t behind its feature-test macros, and
+        -- -std=c11 defines __STRICT_ANSI__, which turns the default set off.
+        -- _GNU_SOURCE turns all of them back on. It has to come before any
+        -- header, and it changes what the headers declare, never how wide a
+        -- type is. Darwin declares these types either way.
+        "#define _GNU_SOURCE 1",
+        "",
+        "#include <poll.h>",
         "#include <sys/resource.h>",
         "#include <sys/socket.h>",
         "#include <sys/types.h>",
