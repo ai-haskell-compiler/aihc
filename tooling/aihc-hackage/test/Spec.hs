@@ -2,7 +2,7 @@ module Main (main) where
 
 import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
-import Aihc.Hackage.Cpp (builtinCppMacros, cppMacrosFromOptions, injectSyntheticCppMacros)
+import Aihc.Hackage.Cpp (builtinCppMacros, cabalMacrosHeader, cppMacrosFromOptions, injectSyntheticCppMacros)
 import Aihc.Hackage.Index (latestPreferredVersions, parseHackageIndex, parseHackageIndexUpdatedSince, parsePreferredRanges)
 import Aihc.Hackage.IndexCache (parsePreferredVersionsCache, renderPreferredVersions)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc, showVersionBranch)
@@ -51,6 +51,7 @@ main =
       testCase "collects exposed modules from active conditional library branches" test_collectsConditionalExposedModules,
       testCase "evaluates impl(ghc) conditions against the emulated compiler" test_evaluatesImplConditions,
       testCase "defines MIN_VERSION macros from resolved dependency versions" test_minVersionMacros,
+      testCase "writes the same macros into a cabal_macros.h header" test_cabalMacrosHeader,
       testCase "reports source lines unshifted by the synthetic macro header" test_diagnosticsUseSourceLineNumbers,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
@@ -186,6 +187,25 @@ test_minVersionMacros = do
             [x, y, z] -> (show x, show y, show z)
             _ -> error "unreachable"
        in "((major1) < " <> a <> " || (major1) == " <> a <> " && (major2) < " <> b <> " || (major1) == " <> a <> " && (major2) == " <> b <> " && (minor) <= " <> c <> ")"
+
+-- The header a C-compiler-driven preprocessor is given carries the same
+-- dependency macros, plus the @__GLASGOW_HASKELL__@ family that aihc's own
+-- CPP pass supplies through its macro map instead. It carries no @#line@
+-- directive: it is a file of its own, not a prefix of the source.
+test_cabalMacrosHeader :: Assertion
+test_cabalMacrosHeader = do
+  let versions = Map.fromList [(T.pack "base", [4, 21, 2, 0])]
+      headerLines = T.lines (cabalMacrosHeader [] versions [T.pack "base"])
+      hasLine expected = assertBool expected (T.pack expected `elem` headerLines)
+  hasLine "#define MIN_VERSION_base(major1,major2,minor) ((major1) < 4 || (major1) == 4 && (major2) < 21 || (major1) == 4 && (major2) == 21 && (minor) <= 2)"
+  hasLine "#define VERSION_base \"4.21.2.0\""
+  assertBool "__GLASGOW_HASKELL__ is defined" (any (T.pack "#define __GLASGOW_HASKELL__ " `T.isPrefixOf`) headerLines)
+  assertBool "the word macros stay out, the C headers define those" (not (any (T.pack "WORD_SIZE_IN_BITS" `T.isInfixOf`) headerLines))
+  assertBool "no #line directive" (not (any (T.pack "#line" `T.isPrefixOf`) headerLines))
+  -- A name the package settles itself is left alone, as in the source pass.
+  let overridden = T.lines (cabalMacrosHeader ["-UMIN_VERSION_base", "-U__GLASGOW_HASKELL__"] versions [T.pack "base"])
+  assertBool "an explicit -U wins" (not (any (T.pack "#define MIN_VERSION_base" `T.isPrefixOf`) overridden))
+  assertBool "an explicit -U wins for the compiler macros" (not (any (T.pack "#define __GLASGOW_HASKELL__ " `T.isPrefixOf`) overridden))
 
 -- The synthetic macro header shifts every line of the file it is prepended
 -- to, so it ends with a @#line@ directive. Without it a diagnostic names a
