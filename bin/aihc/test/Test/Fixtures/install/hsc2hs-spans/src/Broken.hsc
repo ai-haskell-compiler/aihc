@@ -1,6 +1,6 @@
 module Broken (answer, oops) where
 
-#include <limits.h>
+#include "broken.h"
 
 -- Padding, so that this file and the module hsc2hs generates from it
 -- disagree about which line anything is on: the #include above leaves
@@ -9,7 +9,7 @@ module Broken (answer, oops) where
 -- line of the generated module would land on one of these comments.
 
 answer :: Int
-answer = #{const INT_MAX}
+answer = #{const BROKEN_ANSWER}
 
 oops :: Int
 oops = deliberatelyUnbound
