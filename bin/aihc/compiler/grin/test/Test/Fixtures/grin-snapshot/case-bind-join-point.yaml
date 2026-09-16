@@ -1,0 +1,33 @@
+entry: $entry
+program: |
+  primitive +#%1 :: IntRep/2
+
+  constructor Box/1 [IntRep]
+
+  $entry -> BoxedRep Lifted =
+    (chosen%2 :: IntRep) <-
+      case (2 :: IntRep) as choice%3 :: IntRep of
+        0 ->
+          constant (10 :: IntRep)
+        1 ->
+          constant (20 :: IntRep)
+        _ ->
+          constant (30 :: IntRep)
+    (doubled%4 :: IntRep) <- primitive-call @IntRep +# (chosen%2 :: IntRep) (chosen%2 :: IntRep)
+    (tripled%5 :: IntRep) <- primitive-call @IntRep +# (doubled%4 :: IntRep) (chosen%2 :: IntRep)
+    (scaled%6 :: IntRep) <- primitive-call @IntRep +# (tripled%5 :: IntRep) (tripled%5 :: IntRep)
+    (total%7 :: IntRep) <- primitive-call @IntRep +# (scaled%6 :: IntRep) (doubled%4 :: IntRep)
+    store (CBox (total%7 :: IntRep))
+return: "@0"
+heap: |
+  @0 = CBox 240
+allocated-bytes:
+  macos-arm64: 16
+  linux-amd64: 16
+status: pass
+reason: |-
+  A case in bind position whose continuation is larger than a call to it shares that
+  continuation as a join point instead of copying it into all three alternatives. The zero
+  allocation beyond the stored node is what pins the shape: a join point is called and takes
+  the continuation of the case as its own hidden parameter, so unlike a reified continuation
+  frame it puts no closure on the heap.

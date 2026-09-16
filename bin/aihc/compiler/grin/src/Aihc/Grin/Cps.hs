@@ -153,10 +153,15 @@ transformTail :: FunctionName -> FunctionName -> Set GrinVar -> GrinResultRep ->
 transformTail updateName parent bound resultRep continuation expression =
   case expression of
     GrinConstant values -> pure (GrinContinue continuation values)
-    GrinBind resultVars (GrinCase scrutinee binder alternatives) body ->
-      GrinCase scrutinee binder <$> mapM transformBoundAlternative alternatives
+    GrinBind resultVars (GrinCase scrutinee binder alternatives) body -> do
+      -- The continuation of the bind runs after every alternative. Copying
+      -- it into each one is what would make the size of a term multiply
+      -- through nested cases, so it is copied only while a copy costs no
+      -- more than the call that shares it.
+      afterCase <- if worthSharing then shareBody else pure body
+      GrinCase scrutinee binder <$> mapM (transformBoundAlternative afterCase) alternatives
       where
-        transformBoundAlternative alternative = do
+        transformBoundAlternative afterCase alternative = do
           let alternativeBound = bound <> Set.fromList (binder : grinAltBinders alternative)
           rhs <-
             transformTail
@@ -165,8 +170,22 @@ transformTail updateName parent bound resultRep continuation expression =
               alternativeBound
               resultRep
               continuation
-              (GrinBind resultVars (grinAltRhs alternative) body)
+              (GrinBind resultVars (grinAltRhs alternative) afterCase)
           pure alternative {grinAltRhs = rhs}
+        shareBody = do
+          joinName <- liftJoinPoint updateName parent resultRep captures resultVars body
+          pure (GrinCall resultRep joinName (map GrinVarValue (captures <> resultVars)))
+        -- What the shared body needs from the scope around the case. The
+        -- results of the bind are not in that scope; they are the other
+        -- parameters of the join point.
+        captures = Set.toAscList (freeExprVars body `Set.intersection` bound)
+        callSize = 1 + length captures + length resultVars
+        -- One copy of the body already stands where the call would stand,
+        -- so sharing pays for itself once the copies the other alternatives
+        -- need cost more than the calls that would replace them.
+        worthSharing =
+          length alternatives > 1
+            && (length alternatives - 1) * grinExprSize body > length alternatives * callSize
     GrinBind resultVars valueExpression body
       | isDirectExpression valueExpression -> do
           transformedBody <-
@@ -296,6 +315,53 @@ transformTail updateName parent bound resultRep continuation expression =
       case resultRep of
         ResultRep runtimeRep -> continueDirect runtimeRep continuation directExpression
         ResultForwarded -> lift (Left (CpsGrinForwardedDirectResult parent))
+
+-- | Lift the continuation of a case in bind position into one computation
+-- entry that every alternative calls.
+--
+-- The entry takes what the body needs from the scope around the case, then
+-- the results the bind binds, then the hidden continuation that every
+-- computation entry takes. Each alternative ends in a call to it, and a
+-- call in tail position passes the continuation of the case along, so the
+-- body returns to exactly where it returned to before.
+--
+-- This is a join point, not a continuation frame: it is called rather than
+-- transferred to, so it needs no closure on the heap. 'reifyContinuation'
+-- builds a frame instead, because the expression it sits under transfers
+-- to it rather than falling through to it.
+liftJoinPoint :: FunctionName -> FunctionName -> GrinResultRep -> [GrinVar] -> [GrinVar] -> GrinExpr -> CpsM FunctionName
+liftJoinPoint updateName parent resultRep captures resultVars body = do
+  joinName <- freshFunctionName (unFunctionName parent <> "_join")
+  joinContinuation <- freshVar "$cps_join" liftedGrinRep
+  let parameters = captures <> resultVars <> [joinContinuation]
+  transformedBody <-
+    transformTail
+      updateName
+      parent
+      (Set.fromList parameters)
+      resultRep
+      (GrinVarValue joinContinuation)
+      body
+  addComputationFunction
+    GrinFunction
+      { grinFunctionName = joinName,
+        grinFunctionParameters = parameters,
+        grinFunctionResultRep = resultRep,
+        grinFunctionBody = transformedBody
+      }
+    joinContinuation
+  pure joinName
+
+-- | The number of nodes of an expression, used only to weigh a copy of a
+-- continuation against a call of it.
+grinExprSize :: GrinExpr -> Int
+grinExprSize expression =
+  case expression of
+    GrinBind _ valueExpression body -> 1 + grinExprSize valueExpression + grinExprSize body
+    GrinCase _ _ alternatives -> 1 + sum [1 + grinExprSize (grinAltRhs alternative) | alternative <- alternatives]
+    GrinStoreRec _ body -> 1 + grinExprSize body
+    GrinStoreRecUnchecked _ body -> 1 + grinExprSize body
+    _ -> 1
 
 reifyContinuation :: FunctionName -> FunctionName -> Set GrinVar -> GrinResultRep -> GrinValue -> [GrinVar] -> GrinExpr -> CpsM (GrinVar, GrinNode)
 reifyContinuation updateName parent bound resultRep outerContinuation resultVars body = do
@@ -467,6 +533,18 @@ freshVar name runtimeRep = do
   let unique = cpsNextVarUnique state
   put state {cpsNextVarUnique = unique + 1}
   pure (GrinVar name unique runtimeRep)
+
+-- | Add a generated computation entry. Unlike a continuation frame it is
+-- called, so it is not a frame kind; its hidden continuation parameter is
+-- recorded so that the lint and the collector know the entry has one.
+addComputationFunction :: GrinFunction -> GrinVar -> CpsM ()
+addComputationFunction function continuation =
+  modify' $ \state ->
+    state
+      { cpsGeneratedFunctionsRev = function : cpsGeneratedFunctionsRev state,
+        cpsComputationContinuations =
+          Map.insert (grinFunctionName function) continuation (cpsComputationContinuations state)
+      }
 
 addContinuationFunction :: ContinuationFrameKind -> GrinFunction -> CpsM ()
 addContinuationFunction frameKind function = do
