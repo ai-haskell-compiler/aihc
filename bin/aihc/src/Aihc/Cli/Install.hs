@@ -2386,7 +2386,10 @@ optimizeFcProgram config verbose roots name program
       -- simplifier for this reason; running the pass on either side of
       -- the inliner is the cheap version of that.
       expanded <- etaExpandFcProgram config verbose name program
-      case inlineConfigFor (compileOptimization config) roots expanded of
+      -- The inliner's budget is a fraction of the program it is given, so
+      -- it is taken from the program before expansion: the lambdas this
+      -- pass adds are not a reason to inline more.
+      case inlineConfigFor (compileOptimization config) roots program of
         Nothing -> pure expanded
         Just inlineConfig -> do
           let (optimized, report) = Fc.inlineProgram inlineConfig expanded
