@@ -1,0 +1,88 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Test (run) where
+  import GHC.Types (Bool (..))
+
+  class Pick a where
+    pick :: a -> a -> Bool
+
+  data Base = Base Bool
+
+  instance Pick Base where
+    pick (Base b) _ = b
+
+  newtype Inner = Inner Base deriving newtype (Pick)
+  newtype Outer = Outer Inner deriving newtype (Pick)
+
+  run :: Outer -> Outer -> Bool
+  run x y = pick x y
+inline: shrink
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  type 1.t$Dict$Pick (a : 2.sType) :: 2.sType {
+      1.c$Dict$Pick :: ∀(a : 2.sType). (a 2.→ a 2.→ 2.tBool) 2.→ 1.t$Dict$Pick a
+  }
+
+  type 1.tBase :: 2.sType {
+      1.cBase :: 2.tBool 2.→ 1.tBase
+  }
+
+  type 1.tInner :: 2.sType {}
+
+  axiom 1.$ax$Inner : 1.tInner ~R 1.tBase
+
+  type 1.tOuter :: 2.sType {}
+
+  axiom 1.$ax$Outer : 1.tOuter ~R 1.tInner
+
+  pub val 1.v$fPickBase :: 1.t$Dict$Pick 1.tBase
+   = 1.c$Dict$Pick @1.tBase 1.v$fPickBase$cpick
+
+  val 1.v$fPickBase$cpick :: 1.tBase 2.→ 1.tBase 2.→ 2.tBool
+   = λ(x : 1.tBase).
+    λ(y : 1.tBase).
+      case x as (_scrut : 1.tBase) return (2.tBool) of {
+          1.cBase (b : 2.tBool) →
+              b
+      }
+
+  pub val 1.v$fPickInner :: 1.t$Dict$Pick 1.tInner
+   = 1.v$fPickBase ▷ tycon-co 1.t$Dict$Pick (sym (axiom-co 1.$ax$Inner))
+
+  pub val 1.v$fPickOuter :: 1.t$Dict$Pick 1.tOuter
+   = (1.v$fPickBase ▷ tycon-co 1.t$Dict$Pick (sym (axiom-co 1.$ax$Inner))) ▷ tycon-co 1.t$Dict$Pick (sym (axiom-co 1.$ax$Outer))
+
+  pub val 1.vrun :: 1.tOuter 2.→ 1.tOuter 2.→ 2.tBool
+   = λ(x : 1.tOuter).
+    λ(y : 1.tOuter).
+      case (x ▷ axiom-co 1.$ax$Outer) ▷ axiom-co 1.$ax$Inner as (_scrut : 1.tBase) return (2.tBool) of {
+          1.cBase (b : 2.tBool) →
+              b
+      }
+status: pass
+reason: |-
+  Each newtype between the instance head and its use puts one cast on the head of the method
+  call, and a cast is not a variable, so the call is no candidate for inlining until the casts
+  move. Pushing a cast on the head into the argument the call gives it, so that
+  @(f |> fun-co g h) x@ becomes @(f (x |> sym g)) |> h@, stacks the two casts on the argument
+  and leaves a plain variable in the head. The one-line method then inlines, and the copy
+  drops the second argument, which it does not use.

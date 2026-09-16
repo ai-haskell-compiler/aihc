@@ -73,6 +73,13 @@ expected: |-
 
   pub val 1.vrun :: 1.tWrap 2.→ 2.tBool
    = λ(x : 1.tWrap).
-    (1.v$fPickBase$cpick ▷ fun-co (sym (axiom-co 1.$ax$Wrap)) (refl 2.tBool)) x
+    case x ▷ axiom-co 1.$ax$Wrap as (_scrut : 1.tBase) return (2.tBool) of {
+        1.cBase (b : 2.tBool) →
+            b
+    }
 status: pass
-reason: A derived newtype instance is a cast of the underlying dictionary, so a method call scrutinises a cast constructor application. Pushing the cast into the application selects the method without the case and leaves a direct call.
+reason: |-
+  A derived newtype instance is a cast of the underlying dictionary, so a method call
+  scrutinises a cast constructor application. Pushing the cast into the application selects
+  the method without the case, and pushing the cast that is left into the arguments of the
+  call leaves a plain variable in the head, which the site then inlines.

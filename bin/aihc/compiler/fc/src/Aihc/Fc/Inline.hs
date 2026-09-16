@@ -444,7 +444,9 @@ simplifyExpr env expr =
     ExVar {} -> simplifyApp env expr []
     ExLit {} -> pure expr
     ExCoercion {} -> pure expr
-    ExApp {} -> uncurry (simplifyApp env) (collectSpine expr)
+    ExApp {}
+      | Just pushed <- pushHeadCasts expr -> simplifyExpr env pushed
+      | otherwise -> uncurry (simplifyApp env) (collectSpine expr)
     ExTyApp {} -> uncurry (simplifyApp env) (collectSpine expr)
     ExLam binder body -> ExLam binder <$> simplifyExpr env body
     ExTyLam binder body -> ExTyLam binder <$> simplifyExpr (extendTypeBinder env binder) body
@@ -646,17 +648,21 @@ betaReduce env expr args =
 
 -- | Build a cast on a simplified body.
 --
--- A cast of a cast by the symmetric coercion is the body: the two
--- coercions compose to a reflexive one. A cast of a let is a cast of its
--- body, which brings the two casts of a newtype wrapper together once the
--- binding of the wrapper stands between them.
+-- A reflexive coercion casts nothing. A cast of a cast by the symmetric
+-- coercion is the body: the two coercions compose to a reflexive one. A
+-- cast of a let is a cast of its body, which brings the two casts of a
+-- newtype wrapper together once the binding of the wrapper stands between
+-- them.
 mkCast :: Expr -> Coercion -> SimplM Expr
 mkCast body coercion =
-  case body of
-    ExCast inner innerCoercion
-      | cancels innerCoercion coercion -> pure inner
-    ExLet bind inner -> ExLet bind <$> mkCast inner coercion
-    _ -> pure (ExCast body coercion)
+  case coercion of
+    CoRefl _ -> pure body
+    _ ->
+      case body of
+        ExCast inner innerCoercion
+          | cancels innerCoercion coercion -> pure inner
+        ExLet bind inner -> ExLet bind <$> mkCast inner coercion
+        _ -> pure (ExCast body coercion)
   where
     cancels left right = left == CoSym right || right == CoSym left
 
@@ -1080,6 +1086,65 @@ castedSpine = go []
         ExTyApp function ty -> go (Left ty : args) function
         ExCast body _ -> go args body
         _ -> (expr, args)
+
+-- | Push a cast on the head of an application spine into the arguments
+-- the spine gives it:
+--
+-- @(f ▷ fun-co g h) x@ becomes @(f (x ▷ sym g)) ▷ h@.
+--
+-- The two are the same program, because a cast is erased in the lowered
+-- code. What the rewrite changes is what the call site sees: a method of
+-- a newtype-derived instance reaches its use under one cast for each
+-- newtype between the two types, and every such use hides a plain call
+-- of a small known function behind a head that is not a variable.
+-- 'simplifyApp' inlines only a variable head, so without this rewrite
+-- none of those calls is ever a candidate.
+--
+-- Only a value argument moves. A coercion between two quantified types
+-- has no form in 'Coercion', so a type application keeps its cast.
+--
+-- 'Nothing' means no cast moved, so the caller does not walk the spine
+-- again.
+pushHeadCasts :: Expr -> Maybe Expr
+pushHeadCasts expr =
+  case collectSpine expr of
+    (ExCast body coercion, args) -> push body coercion args
+    _ -> Nothing
+  where
+    -- Move one value argument under the cast, and then as many more as
+    -- the coercion that is left allows.
+    push body coercion args =
+      case (funCoercion coercion, args) of
+        (Just (argCo, resultCo), Right argument : rest) ->
+          let applied = ExApp body (mkCoercionCast argument (coSym argCo))
+           in Just (fromMaybe (rebuildSpine (mkCoercionCast applied resultCo) rest) (push applied resultCo rest))
+        _ -> Nothing
+
+-- | View a coercion between two function types as the coercion of its
+-- argument and the coercion of its result. A symmetric coercion of a
+-- function coercion is the two symmetric coercions.
+funCoercion :: Coercion -> Maybe (Coercion, Coercion)
+funCoercion coercion =
+  case coercion of
+    CoFun argCo resultCo -> Just (argCo, resultCo)
+    CoSym (CoFun argCo resultCo) -> Just (coSym argCo, coSym resultCo)
+    _ -> Nothing
+
+-- | The symmetric coercion. Two symmetries cancel, and reflexivity is its
+-- own symmetry.
+coSym :: Coercion -> Coercion
+coSym coercion =
+  case coercion of
+    CoSym inner -> inner
+    CoRefl ty -> CoRefl ty
+    _ -> CoSym coercion
+
+-- | Cast an unsimplified expression. A reflexive coercion casts nothing.
+mkCoercionCast :: Expr -> Coercion -> Expr
+mkCoercionCast body coercion =
+  case coercion of
+    CoRefl _ -> body
+    _ -> ExCast body coercion
 
 rebuildSpine :: Expr -> [Arg] -> Expr
 rebuildSpine = List.foldl' apply
