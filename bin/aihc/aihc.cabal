@@ -125,6 +125,7 @@ library
     Aihc.Cli.Store
     Aihc.Cli.TypeArtifact
     Aihc.Fc
+    Aihc.Fc.Arity
     Aihc.Fc.Convert
     Aihc.Fc.Desugar
     Aihc.Fc.Imports

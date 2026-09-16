@@ -13,6 +13,8 @@ module Aihc.Fc
     mergePrograms,
     pruneProgram,
     inlineProgram,
+    etaExpandProgram,
+    EtaReport (..),
     InlineConfig (..),
     InlineMode (..),
     InlineReport (..),
@@ -30,6 +32,7 @@ module Aihc.Fc
   )
 where
 
+import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig)
 import Aihc.Fc.Inline (InlineConfig (..), InlineMode (..), InlineReport (..), inlineProgram, programSize)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
