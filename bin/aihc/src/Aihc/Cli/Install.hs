@@ -66,6 +66,7 @@ import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Cpp (cabalMacrosHeader)
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
@@ -739,7 +740,10 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
   let storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId unitIdentity)
   (configuredFiles, cCompileInfo) <- configurePackage config root storePath packageNameText inputs
-  files <- preprocessPackage config root storePath (inputConfigureScript inputs) cCompileInfo configuredFiles
+  let dependencyVersions =
+        dependencyVersionsFromManifests
+          [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
+  files <- preprocessPackage config dependencyVersions root storePath (inputConfigureScript inputs) cCompileInfo configuredFiles
   compiled <- compileModulesWithDependencies config (capiStubOptions files cCompileInfo) storePath root resolvePackage files dependencies
   let parsed = compiledSources compiled
       allExports = compiledExports compiled
@@ -2673,9 +2677,15 @@ targetCCompiler target level = do
 --
 -- Each output carries a stamp of everything it was made from, and an
 -- unchanged stamp skips the tool. The configure hash is part of it because
--- a @.hsc@ file includes the headers configure wrote.
-preprocessPackage :: ModuleCompileConfig -> FilePath -> FilePath -> Maybe FilePath -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
-preprocessPackage config root storePath configureScript cInfo = mapM preprocessFile
+-- a @.hsc@ file includes the headers configure wrote, and the macro header
+-- is part of it because a @.hsc@ file branches on the versions it reports.
+--
+-- Beside each output goes that file's @cabal_macros.h@: the preprocessor
+-- resolves the file's @#if@ lines with a C compiler, which knows nothing of
+-- the macros aihc's own CPP pass prepends to a Haskell source. The header is
+-- per file because @cpp-options@ and @build-depends@ are per component.
+preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
+preprocessPackage config versions root storePath configureScript cInfo = mapM preprocessFile
   where
     verbose = compileVerbose config
 
@@ -2684,9 +2694,12 @@ preprocessPackage config root storePath configureScript cInfo = mapM preprocessF
         Nothing -> pure file
         Just preprocessor -> do
           let input = HackageCabal.fileInfoPath file
-              output = storePath </> "preprocess" </> dropExtension (makeRelative root input) <.> "hs"
+              stem = storePath </> "preprocess" </> dropExtension (makeRelative root input)
+              output = stem <.> "hs"
+              macrosPath = stem <.> "macros.h"
               stampPath = output <.> "hash"
-          (executable, arguments) <- preprocessorCommand config preprocessor cInfo file output
+              macros = cabalMacrosHeader (HackageCabal.fileInfoCppOptions file) versions (HackageCabal.fileInfoDependencies file)
+          (executable, arguments) <- preprocessorCommand config preprocessor cInfo file output macrosPath
           toolIdentity <- preprocessorIdentity executable
           inputBytes <- BS.readFile input
           configureHash <- maybe (pure "") (configureInputsHash config) configureScript
@@ -2695,6 +2708,7 @@ preprocessPackage config root storePath configureScript cInfo = mapM preprocessF
                 stableHash
                   [ TE.encodeUtf8 packageArtifactFormatVersion,
                     inputBytes,
+                    TE.encodeUtf8 macros,
                     BS8.pack toolIdentity,
                     BS8.pack (show (executable, arguments)),
                     BS8.pack configureHash,
@@ -2706,6 +2720,7 @@ preprocessPackage config root storePath configureScript cInfo = mapM preprocessF
             then verbose ("Reuse preprocessed: " <> output)
             else do
               createDirectoryIfMissing True (takeDirectory output)
+              TIO.writeFile macrosPath macros
               verbose ("Preprocess: " <> unwords (executable : arguments))
               -- The tool keeps its scratch files next to the output, and
               -- an @#include "..."@ in the source resolves against the
@@ -2715,13 +2730,14 @@ preprocessPackage config root storePath configureScript cInfo = mapM preprocessF
               BS8.writeFile stampPath (BS8.pack inputsHash)
           pure file {HackageCabal.fileInfoPath = output, HackageCabal.fileInfoPreprocessor = Nothing}
 
--- | The executable and arguments that run a preprocessor over one file.
-preprocessorCommand :: ModuleCompileConfig -> Preprocessor -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> IO (FilePath, [String])
-preprocessorCommand config preprocessor cInfo file output = do
+-- | The executable and arguments that run a preprocessor over one file,
+-- given the path of that file's @cabal_macros.h@.
+preprocessorCommand :: ModuleCompileConfig -> Preprocessor -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> FilePath -> IO (FilePath, [String])
+preprocessorCommand config preprocessor cInfo file output macrosPath = do
   executable <- preprocessorExecutable preprocessor
   arguments <-
     case preprocessor of
-      Hsc2hs -> hsc2hsArguments config cInfo file output
+      Hsc2hs -> hsc2hsArguments config cInfo file output macrosPath
   pure (executable, arguments)
 
 -- | The arguments Cabal would give hsc2hs, with one difference: aihc always
@@ -2736,10 +2752,13 @@ preprocessorCommand config preprocessor cInfo file output = do
 -- directories, which by now include the ones configure wrote. The template
 -- hsc2hs wraps the file in includes @HsFFI.h@, so the runtime's include
 -- directory is searched too. The @*_HOST_OS@ and @*_HOST_ARCH@ macros are
--- defined the way Cabal defines them, since a @.hsc@ file resolves its own
--- @#if@ lines through the C compiler rather than through aihc's CPP pass.
-hsc2hsArguments :: ModuleCompileConfig -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> IO [String]
-hsc2hsArguments config cInfo file output = do
+-- defined the way Cabal defines them, and the @cabal_macros.h@ of the file
+-- is force-included the way Cabal includes it, since a @.hsc@ file resolves
+-- its own @#if@ lines through the C compiler rather than through aihc's CPP
+-- pass: without the header a @MIN_VERSION_*@ guard is not merely wrong but
+-- a C error, an undefined function-like macro.
+hsc2hsArguments :: ModuleCompileConfig -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> FilePath -> IO [String]
+hsc2hsArguments config cInfo file output macrosPath = do
   let target = compileTarget config
       input = HackageCabal.fileInfoPath file
   (compiler, cflags) <- targetCCompiler target (compileOptimization config)
@@ -2747,7 +2766,7 @@ hsc2hsArguments config cInfo file output = do
       options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
   pure
     ( ["--cross-compile", "--cc=" <> compiler, "--ld=" <> compiler]
-        <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target)
+        <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
     )

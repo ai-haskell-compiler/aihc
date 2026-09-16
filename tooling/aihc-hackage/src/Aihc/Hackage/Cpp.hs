@@ -15,6 +15,7 @@ module Aihc.Hackage.Cpp
     DependencyVersions,
     minVersionMacroName,
     injectSyntheticCppMacros,
+    cabalMacrosHeader,
   )
 where
 
@@ -33,14 +34,21 @@ import Data.Text qualified as T
 -- Mirrors what GHC itself defines when invoking @cpp@.
 builtinCppMacros :: Map Text Text
 builtinCppMacros =
+  compilerVersionCppMacros
+    -- The word macros a module reads without including @MachDeps.h@ first.
+    `M.union` M.restrictKeys haskellWordCppMacros (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
+
+-- | The @__GLASGOW_HASKELL__@ family alone. The word macros are left out
+-- because a C compiler learns those from the runtime's own headers, and a
+-- second definition with a different value is an error there.
+compilerVersionCppMacros :: Map Text Text
+compilerVersionCppMacros =
   M.fromList
     [ ("__GLASGOW_HASKELL__", T.pack (show (major * 100 + minor))),
       ("__GLASGOW_HASKELL_FULL_VERSION__", T.pack (show (releaseVersionText emulatedGhc))),
       ("__GLASGOW_HASKELL_PATCHLEVEL1__", T.pack (show patch1)),
       ("__GLASGOW_HASKELL_PATCHLEVEL2__", T.pack (show patch2))
     ]
-    -- The word macros a module reads without including @MachDeps.h@ first.
-    `M.union` M.restrictKeys haskellWordCppMacros (S.fromList ["WORD_SIZE_IN_BITS", "WORD_SIZE_IN_BITS_FLOAT", "SIZEOF_HSWORD", "SIZEOF_HSDOUBLE", "SIZEOF_HSFLOAT"])
   where
     (major, minor, patch1, patch2) = compilerVersionComponents
 
@@ -95,35 +103,64 @@ sanitizePkgName = T.map sanitizePkgChar
 -- rather than the lines of the source plus this header.
 injectSyntheticCppMacros :: FilePath -> [String] -> DependencyVersions -> [Text] -> Text -> Text
 injectSyntheticCppMacros path cppOptions versions dependencies source =
-  let existingFromOptions = cppDefinedOrUndefinedFromOptions cppOptions
-      shouldDefine name = not (name `S.member` existingFromOptions)
-      compilerVersion = releaseCompilerVersion emulatedGhc
-      compilerMacroLines =
-        [ minVersionDefine "MIN_VERSION_ghc" compilerVersion
-        | shouldDefine "MIN_VERSION_ghc"
-        ]
-          ++ [ "#define MIN_VERSION_GLASGOW_HASKELL(ma,mi,pl1,pl2) " <> atLeast ["ma", "mi", "pl1", "pl2"] compilerVersion
-             | shouldDefine "MIN_VERSION_GLASGOW_HASKELL"
-             ]
-      dependencyLines = concatMap dependencyMacros (S.toAscList (S.fromList dependencies))
-      dependencyMacros pkg =
-        let name = minVersionMacroName pkg
-            versionName = "VERSION_" <> sanitizePkgName pkg
-         in if pkg == "ghc" || not (shouldDefine name)
-              then []
-              else case M.lookup pkg versions of
-                Just version ->
-                  [ "#define " <> versionName <> " " <> T.pack (show (intercalate "." (map show version)))
-                  | shouldDefine versionName
-                  ]
-                    ++ [minVersionDefine name version]
-                Nothing -> ["#define " <> name <> "(major1,major2,minor) 1"]
-      macroLines = compilerMacroLines ++ dependencyLines
+  let macroLines = syntheticCppMacroLines cppOptions versions dependencies
       header =
         if null macroLines
           then ""
           else T.unlines (macroLines ++ [resetLineDirective path])
    in if T.null header then source else header <> source
+
+-- | The @#define@ lines for the @MIN_VERSION_*@ and @VERSION_*@ macros of a
+-- file's dependencies, skipping any names that are already explicitly
+-- @-D@\/@-U@'d.
+syntheticCppMacroLines :: [String] -> DependencyVersions -> [Text] -> [Text]
+syntheticCppMacroLines cppOptions versions dependencies =
+  compilerMacroLines ++ dependencyLines
+  where
+    existingFromOptions = cppDefinedOrUndefinedFromOptions cppOptions
+    shouldDefine name = not (name `S.member` existingFromOptions)
+    compilerVersion = releaseCompilerVersion emulatedGhc
+    compilerMacroLines =
+      [ minVersionDefine "MIN_VERSION_ghc" compilerVersion
+      | shouldDefine "MIN_VERSION_ghc"
+      ]
+        ++ [ "#define MIN_VERSION_GLASGOW_HASKELL(ma,mi,pl1,pl2) " <> atLeast ["ma", "mi", "pl1", "pl2"] compilerVersion
+           | shouldDefine "MIN_VERSION_GLASGOW_HASKELL"
+           ]
+    dependencyLines = concatMap dependencyMacros (S.toAscList (S.fromList dependencies))
+    dependencyMacros pkg =
+      let name = minVersionMacroName pkg
+          versionName = "VERSION_" <> sanitizePkgName pkg
+       in if pkg == "ghc" || not (shouldDefine name)
+            then []
+            else case M.lookup pkg versions of
+              Just version ->
+                [ "#define " <> versionName <> " " <> T.pack (show (intercalate "." (map show version)))
+                | shouldDefine versionName
+                ]
+                  ++ [minVersionDefine name version]
+              Nothing -> ["#define " <> name <> "(major1,major2,minor) 1"]
+
+-- | The header Cabal autogenerates as @cabal_macros.h@, for the tools that
+-- resolve a file's @#if@ lines through a C compiler rather than through
+-- aihc's own CPP pass.
+--
+-- A @.hsc@ file is such a file: hsc2hs compiles it, so its @#if@ lines see
+-- only what the C compiler was told. Prepending the defines to the source,
+-- the way 'injectSyntheticCppMacros' does, comes too late for it — by then
+-- hsc2hs has already had to decide which branches exist. The header carries
+-- the same dependency macros plus the @__GLASGOW_HASKELL__@ family, which
+-- aihc's CPP pass instead supplies through 'builtinCppMacros'.
+cabalMacrosHeader :: [String] -> DependencyVersions -> [Text] -> Text
+cabalMacrosHeader cppOptions versions dependencies =
+  T.unlines (compilerVersionLines ++ syntheticCppMacroLines cppOptions versions dependencies)
+  where
+    existingFromOptions = cppDefinedOrUndefinedFromOptions cppOptions
+    compilerVersionLines =
+      [ "#define " <> name <> " " <> value
+      | (name, value) <- M.toAscList compilerVersionCppMacros,
+        not (name `S.member` existingFromOptions)
+      ]
 
 -- | The @#line@ directive that makes the next line count as line 1 of @path@.
 resetLineDirective :: FilePath -> Text

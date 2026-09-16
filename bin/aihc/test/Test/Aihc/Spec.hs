@@ -1158,8 +1158,11 @@ test_installConfigure getStore = do
 -- source. The first install runs a stand-in for the tool that records its
 -- arguments, which is what checks the command line: cross-compilation
 -- mode, the C compiler of the target, the package's include directory and
--- the runtime's, and the platform macros. The second runs the real hsc2hs
--- over the same fixture, which is what checks that the command line works.
+-- the runtime's, the platform macros, and the force-included
+-- @cabal_macros.h@. The second runs the real hsc2hs over the same fixture,
+-- which is what checks that the command line works: the fixture's constant
+-- is guarded on the macros that header carries, so a missing header leaves
+-- hsc2hs with an undefined function-like macro and the install fails.
 --
 -- The two run one after the other because the stand-in is named through
 -- the environment, which the process has only one of.
@@ -1168,6 +1171,7 @@ test_installHsc2hs getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/hsc2hs"
   let standIn = fixtureRoot </> "tools" </> "hsc2hs"
       preprocessedModule result = installStorePath result </> "preprocess" </> "src" </> "Demo.hs"
+      macrosHeader result = installStorePath result </> "preprocess" </> "src" </> "Demo.macros.h"
       installFixture sandbox = do
         storeRoot <- sandboxStore sandbox "store"
         install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
@@ -1184,6 +1188,10 @@ test_installHsc2hs getStore = do
       assertBool "hsc2hs sees the package include directory" (("-I" <> fixtureRoot </> "include") `elem` arguments)
       assertBool "hsc2hs sees the compiler headers" (any (\argument -> "-I" `isPrefixOf` argument && "include" `isSuffixOf` argument) arguments)
       assertBool "hsc2hs sees the platform macros" ("--cflag=-Ddarwin_HOST_OS=1" `elem` arguments && "--cflag=-Daarch64_HOST_ARCH=1" `elem` arguments)
+      assertBool "hsc2hs force-includes the macro header" (["--cflag=-include", "--cflag=" <> macrosHeader result] `isInfixOf` arguments)
+      macros <- readFile (macrosHeader result)
+      assertBool "the macro header defines the compiler version" ("#define __GLASGOW_HASKELL__ " `isInfixOf` macros)
+      assertBool "the macro header defines MIN_VERSION_ghc" ("#define MIN_VERSION_ghc(" `isInfixOf` macros)
       assertEqual "hsc2hs writes the module and reads the fixture" ["-o", generated, fixtureRoot </> "src" </> "Demo.hsc"] (drop (length arguments - 3) arguments)
       assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
       -- A second install finds the stamp current and leaves the output alone.
