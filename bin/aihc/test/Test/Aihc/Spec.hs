@@ -125,6 +125,7 @@ tests =
             testCase "runs the configure script of a Configure package out of tree" (test_installConfigure primStore),
             testCase "preprocesses .hsc sources with hsc2hs" (test_installHsc2hs primStore),
             testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
+            testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
             testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
             testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
@@ -1273,6 +1274,45 @@ test_installMinVersionMacros getStore =
             "#else",
             "this is not haskell (",
             "#endif"
+          ]
+      )
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
+    assertEqual "written modules" ["Demo"] (installWrittenModules result)
+
+-- A module that includes an RTS header by its own name resolves it out of
+-- the compiler's include directory. @unix@ does exactly this: the module
+-- @System.Posix.Signals.hsc@ generates carries an @#include "rts/Signals.h"@
+-- and then names the action codes that header defines, so the include has to
+-- resolve through the subdirectory and the macros have to reach the Haskell
+-- that follows.
+test_installRtsHeaderInclude :: IO SeedStore -> Assertion
+test_installRtsHeaderInclude getStore =
+  withSandbox getStore "aihc-install-rts-header-include" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  build-depends: base",
+            "  default-language: Haskell2010",
+            "  default-extensions: CPP"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      ( unlines
+          [ "module Demo (defaultAction) where",
+            "#include \"rts/Signals.h\"",
+            "defaultAction :: Int",
+            "defaultAction = STG_SIG_DFL"
           ]
       )
     result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
