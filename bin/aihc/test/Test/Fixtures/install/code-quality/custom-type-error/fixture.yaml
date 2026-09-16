@@ -1,0 +1,3 @@
+status: pass
+reason: A demanded TypeError is reported as the message its argument spells, not as an unsolved constraint.
+expect-error: "cannot use Bool"

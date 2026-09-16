@@ -193,6 +193,11 @@ checkSurfaceType tvEnv ty expected = do
       wiring <- getWiring
       tyCon <- mkWiredTyCon (tcWiringConstraintTupleTyCon wiring) (constraintKind kinds)
       pure (TcTyCon tyCon [])
+    -- A wildcard stands for a type of whatever kind is expected. Converting
+    -- it without the expectation would give it a fresh @TYPE rep@ instead,
+    -- which is wrong wherever the expected kind is not a kind of values:
+    -- @Assert 'True _ = ()@ has a wildcard at kind 'Constraint'.
+    TWildcard -> freshMetaTvOfKind expected'
     _ -> do
       (tcTy, actual) <- convertSurfaceTypeWithKinds tvEnv ty
       unifyKindsAt (surfaceTypeSpan ty) expected actual
@@ -405,16 +410,35 @@ applyOneArgument tvEnv (functionType, functionKind) argument = do
   functionKind' <- zonkKind functionKind
   kinds <- getKinds
   case functionKind' of
-    KFun argumentKind resultKind | argumentKind == constraintKind kinds -> do
-      argumentType <- checkSurfaceType tvEnv argument argumentKind
-      resultKind' <- zonkKind resultKind
-      pure (mkAppTy functionType argumentType, resultKind')
+    -- An argument whose kind does not follow from its own form is checked
+    -- against the parameter kind: @()@ is the unit type at kind 'Type' and
+    -- the empty constraint tuple at kind 'Constraint', and a wildcard
+    -- stands for a type of whatever kind is wanted (@Assert _ errMsg@ has
+    -- one at kind 'Bool').
+    --
+    -- Every other argument is converted on its own and unified afterwards.
+    -- Checking those against the parameter kind as well would pin the kind
+    -- variables of a poly-kinded head that must stay open across an
+    -- instance on it -- see @polykinded-newtype-deriving-instance@.
+    KFun argumentKind resultKind
+      | argumentKind == constraintKind kinds || isWildcardArgument argument -> do
+          argumentType <- checkSurfaceType tvEnv argument argumentKind
+          resultKind' <- zonkKind resultKind
+          pure (mkAppTy functionType argumentType, resultKind')
     _ -> do
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
       unifyKindsAt (surfaceTypeSpan argument) functionKind' (KFun argumentKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (mkAppTy functionType argumentType, resultKind')
+
+-- | Whether an argument is a bare wildcard, once parentheses and source
+-- annotations are peeled off.
+isWildcardArgument :: Type -> Bool
+isWildcardArgument argument =
+  case peelTypeHead argument of
+    TWildcard -> True
+    _ -> False
 
 expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
 expandTypeSynonym tvEnv ty =

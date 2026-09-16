@@ -303,7 +303,12 @@ convertPred env predicate =
     -- A stuck constraint is a dictionary whose type is the constraint
     -- itself: the family application stands until it reduces, and the type
     -- it reduces to is the dictionary type of whatever it becomes.
-    IrredPred constraint -> convertType env constraint
+    -- The constraint is known to be of kind 'Constraint', which is what
+    -- supplies the invisible kind argument of a family that is polymorphic
+    -- in its result kind: @TypeError :: forall b. ErrorMessage -> b@ used
+    -- in a context is @TypeError \@Constraint msg@.
+    IrredPred constraint ->
+      convertTypeWithExpectedKind env (Just (Tc.constraintKind (ceKinds env))) constraint
     QuantifiedPred variables antecedents consequent -> do
       let quantifiedEnv = withTyVars variables env
       binders <- mapM (tyVarBinder quantifiedEnv) variables
@@ -404,7 +409,15 @@ kindVarToType env tyCon arguments expectedKind tyVar =
       checkedKinds <- Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
       let substitution = Tc.tcInvisibleKindSubstitution checkedKinds
       case Map.lookup (tvUnique tyVar) substitution of
-        Just runtimeRep -> convertRep env runtimeRep
+        -- An invisible argument is almost always a representation, of a
+        -- levity-polymorphic constructor, and 'convertRep' is what spells
+        -- one. A constraint is the exception: it is a kind in its own
+        -- right -- the @b@ of @TypeError :: forall b. ErrorMessage -> b@
+        -- applied in a context -- and it has to erase to 'Type' here as it
+        -- does everywhere else, or the lint reads the two spellings of one
+        -- kind as two kinds.
+        Just KConstraint -> Right (typeSynonym (cePrimPackage env))
+        Just argument -> convertRep env argument
         Nothing ->
           Left
             ( "cannot infer the invisible kind argument "

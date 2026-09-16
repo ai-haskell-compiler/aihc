@@ -99,6 +99,8 @@ primTcWiring prim =
       tcWiringRestrictedPrimitiveTerms = Set.singleton (prim, "GHC.Prim", "seq"),
       tcWiringKindTyCon = types ResolutionNamespaceType,
       tcWiringKindDataCon = types ResolutionNamespaceTerm,
+      tcWiringTypeErrorFamily = ("GHC.TypeError", "TypeError"),
+      tcWiringErrorMessageCons = ("Text", "ShowType", ":<>:", ":$$:"),
       tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")
     }
   where

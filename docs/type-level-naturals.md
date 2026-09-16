@@ -231,16 +231,37 @@ The literal plumbing, no user-visible feature beyond kind-checking a literal.
   gains literals, which is what found that `stringChar` did not accept the
   braced hex escape the renderer writes for a symbol.
 
-### PR 2 — `feat(base): GHC.TypeError`
+### PR 2 — `feat(base): GHC.TypeError` — landed
 
-- `GHC.Internal.TypeError`: `ErrorMessage` (`Text`, `ShowType`, `:<>:`,
-  `:$$:` with GHC's fixities), `TypeError` as an equation-less family,
-  `Assert`, `Unsatisfiable`/`unsatisfiable`; `GHC.TypeError` re-exports.
-  Promoting the existential `ShowType` is the unknown here.
-- `Tc.Solve`: a wanted whose head reduces to `TypeError` renders its
-  `ErrorMessage` as the diagnostic.
-- Tests: annotated fixtures for a `TypeError` in an instance context and on a
-  family right-hand side, each checked for the rendered text.
+- `GHC.TypeError`: `ErrorMessage` (`Text`, `ShowType`, `:<>:`, `:$$:` with
+  GHC's fixities), `TypeError` as an equation-less family, `Assert`,
+  `Unsatisfiable`/`unsatisfiable`. GHC declares these in
+  `GHC.Internal.TypeError` and re-exports them; `aihc-internal` depends on
+  `aihc-base` rather than the other way round, so the declarations live in
+  `GHC.TypeError` and the internal module re-exports them. Promoting the
+  existential `ShowType` turned out to need nothing new.
+- `Tc.Solve.Dict`: a wanted whose head is `TypeError` is reported as the
+  message its argument spells, through new `tcWiringTypeErrorFamily` and
+  `tcWiringErrorMessageCons` entries. Like the recognized deriving classes
+  these are module-and-name pairs with no package, so the compiler stays
+  free of library identities.
+- Three compiler gaps had to be fixed on the way, each with its own
+  fixture: a `_` on a family equation's left-hand side took a fresh
+  `TYPE rep` instead of the parameter kind and then survived as a meta into
+  FC, so `Assert 'True _ = ()` could not be written at all; a family's kind
+  scheme dropped the variables its standalone signature quantified, so
+  `TypeError :: forall b. ErrorMessage -> b` emitted a result kind nothing
+  bound; and an irreducible constraint was converted with no expected kind,
+  so a family polymorphic in its result kind had no kind argument.
+- Tests: an annotated fixture for a demanded assertion, and an install
+  `code-quality` fixture whose `expect-error` is the rendered text.
+
+**Not done here.** GHC reports a `TypeError` that stands as a *given* of a
+function signature at the declaration, and defers one in an instance
+context until the instance is selected. This PR reports only the demanded
+case, which is what `(<=)` needs. A never-demanded given is still carried
+into FC, where the lint compares the `Type` synonym against its expansion
+and rejects it; reporting givens the way GHC does removes that path.
 
 ### PR 3 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats`
 
