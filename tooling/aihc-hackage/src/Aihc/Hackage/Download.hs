@@ -51,10 +51,7 @@ downloadPackageWithOptions opts pkg = do
       markerFile = pkgDir </> ".complete"
   markerExists <- doesFileExist markerFile
   if markerExists
-    then do
-      when (downloadVerbose opts) $
-        hPutStrLn stderr ("Cache hit: " ++ formatPackage pkg)
-      pure pkgDir
+    then pure pkgDir
     else
       if not (downloadAllowNetwork opts)
         then ioError (userError ("Package missing from cache in offline mode: " ++ formatPackage pkg))
