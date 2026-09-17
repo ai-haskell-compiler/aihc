@@ -94,6 +94,7 @@ table =
         | (name, operation) <- [("quotWord#", quot), ("remWord#", rem)]
         ],
         [("not#", ([Just wordRep], unary wordRep (Just . complement)))],
+        [("negateInt#", ([Just intRep], unary intRep (Just . negate)))],
         [ (name, ([Just wordRep, Just intRep], shift wordRep 64 operation))
         | (name, operation) <- [("uncheckedShiftL#", shiftL), ("uncheckedShiftRL#", shiftR)]
         ],

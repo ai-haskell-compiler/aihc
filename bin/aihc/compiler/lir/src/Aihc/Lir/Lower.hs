@@ -1531,6 +1531,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       operand <- word value
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
       bind [result]
+    ("negateInt#", [value]) -> do
+      operand <- word value
+      result <- emitValue "result" I64 (Binary Sub I64 (OperandLiteral (LitInt 0)) operand)
+      bind [result]
     ("addIntC#", [left, right]) -> signedCarry Add left right
     ("subIntC#", [left, right]) -> signedCarry Sub left right
     ("addWordC#", [left, right]) -> unsignedCarry AddCarry left right

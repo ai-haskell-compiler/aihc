@@ -461,7 +461,7 @@ coercion =
 literal :: Parser Literal
 literal =
   MP.choice
-    [ flip LitInt <$> integerLiteral <*> (MPC.char '#' *> representationType),
+    [ flip LitInt <$> signedIntegerLiteral <*> (MPC.char '#' *> representationType),
       flip LitChar <$> charLiteral <*> (MPC.char '#' *> representationType),
       flip LitAddr <$> addrLiteral <*> (MPC.char '#' *> representationType)
     ]
@@ -635,6 +635,11 @@ int = lexeme L.decimal
 
 integerLiteral :: Parser Integer
 integerLiteral = lexeme L.decimal
+
+-- | An integer literal with an optional leading minus, as the printer
+-- writes a negative @Int#@ that constant folding produced.
+signedIntegerLiteral :: Parser Integer
+signedIntegerLiteral = lexeme (MP.option id (negate <$ MPC.char '-') <*> L.decimal)
 
 stringLiteral :: Parser Text
 stringLiteral = lexeme (T.pack <$> MP.between (MPC.char '"') (MPC.char '"') (MP.many stringChar))

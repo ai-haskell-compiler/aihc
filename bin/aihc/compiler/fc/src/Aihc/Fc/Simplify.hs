@@ -39,6 +39,7 @@ module Aihc.Fc.Simplify
     isTrivial,
     functionArity,
     collectSpine,
+    castedSpine,
     exprValueNames,
     maxLocalUnique,
   )
@@ -55,7 +56,7 @@ import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard)
-import Control.Monad.Trans.State.Strict (State, gets, modify', runState, state)
+import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Either (lefts, rights)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -282,21 +283,23 @@ simplifyCase env scrutinee binder resultType alternatives
 inlineScrutinee :: Simpl -> Name -> Candidate -> [Arg] -> Binder -> Type -> [Alt] -> SimplM Expr
 inlineScrutinee env name candidate args binder resultType alternatives = do
   args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
+  before <- get
   inlined <- inlineCandidate env name candidate args'
+  paid <- gets (nestedPaid before)
   let original = rebuildSpine (ExVar name) args'
       discount =
         callDiscount env (candidateBody candidate) args'
           + (if tailsAreKnown env inlined then spDiscount env else 0)
+          + paid
       callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - discount
       fallback = do
+        restoreSite before
         alternatives' <- mapM (simplifyAlt env original binder) alternatives
         pure (mkCase (spEnv env) original binder resultType alternatives')
       decide growth result = do
-        accepted <- if candidateUnconditional candidate then pure True else acceptGrowth env growth
+        accepted <- acceptSite env candidate growth
         if accepted
-          then do
-            modify' (\st -> st {ssInlined = ssInlined st + 1})
-            result
+          then result
           else fallback
   reduced <- caseOfKnown env inlined binder alternatives
   case reduced of
@@ -310,6 +313,44 @@ inlineScrutinee env name candidate args binder resultType alternatives = do
         Nothing -> do
           alternatives' <- mapM (simplifyAlt env inlined binder) alternatives
           decide callGrowth (pure (mkCase (spEnv env) inlined binder resultType alternatives'))
+
+-- | The allowance the sites inside a copy took, from the state before
+-- the copy. The site around them takes it off its growth: that growth
+-- is in its result, and it must not be charged twice.
+nestedPaid :: SimplState -> SimplState -> Int
+nestedPaid before after = ssAllowance before - ssAllowance after
+
+-- | Decide a site whose growth is measured, and record it when it is
+-- taken.
+--
+-- The growth of a site is what its result adds over the call it
+-- replaces, less the discounts of the call and what the sites inside
+-- the copy have paid.
+--
+-- An unconditional site is taken whatever its growth, but it still
+-- charges the allowance with what it grew: the size metric counts a
+-- case once for each path of its scrutinee, so a copy can be larger
+-- than the value it replaces, and the sites after it must see the
+-- allowance that is left.
+acceptSite :: Simpl -> Candidate -> Int -> SimplM Bool
+acceptSite env candidate growth
+  | candidateUnconditional candidate = do
+      modify' (\st -> st {ssAllowance = ssAllowance st - growth, ssInlined = ssInlined st + 1})
+      pure True
+  | otherwise = do
+      accepted <- acceptGrowth env growth
+      if accepted
+        then do
+          modify' (\st -> st {ssInlined = ssInlined st + 1})
+          pure True
+        else pure False
+
+-- | Forget the sites and the allowance a rejected copy took: its result
+-- is discarded, so nothing inside it happened. The supply stays, so that
+-- no name of the discarded copy is handed out again.
+restoreSite :: SimplState -> SimplM ()
+restoreSite before =
+  modify' (\st -> st {ssAllowance = ssAllowance before, ssInlined = ssInlined before})
 
 -- | Whether every tail of an expression is a known constructor
 -- application or a literal, so that a case on the expression resolves
@@ -461,15 +502,17 @@ simplifyApp env headExpr args = do
       | Just candidate <- Map.lookup name (spInline env),
         takesArgument env candidate args' -> do
           let original = rebuildSpine headExpr' args'
+          before <- get
           result <- inlineCandidate env name candidate args'
-          let discount = callDiscount env (candidateBody candidate) args'
+          paid <- gets (nestedPaid before)
+          let discount = callDiscount env (candidateBody candidate) args' + paid
               growth = exprSize (spEnv env) result - exprSize (spEnv env) original - discount
-          accepted <- if candidateUnconditional candidate then pure True else acceptGrowth env growth
+          accepted <- acceptSite env candidate growth
           if accepted
-            then do
-              modify' (\st -> st {ssInlined = ssInlined st + 1})
-              pure result
-            else pure original
+            then pure result
+            else do
+              restoreSite before
+              pure original
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
     -- A let in the head of an application is a let around the

@@ -164,6 +164,20 @@ data Inliner = Inliner
     -- | The size each value may grow to in this pass: its size when the
     -- pass began, grown by the policy's percentage and slack.
     inLimits :: !(Map Name Int),
+    -- | How often each top-level value occurs in the live bodies: the
+    -- values a root still reaches, as far as the counts tell.
+    inCounts :: !(Map Name Int),
+    -- | How many of those occurrences are calls that give the value
+    -- every parameter, by the arities below.
+    inCalls :: !(Map Name Int),
+    -- | The arity of each value at the start of the round. The call
+    -- counts are kept by it, so that they stay comparable through the
+    -- round.
+    inArities :: !(Map Name Int),
+    -- | The values no live body references any more. They are not
+    -- simplified and their references count for nothing, so a value
+    -- whose last use went with a dead original is free to go too.
+    inDead :: !(Set Name),
     inSupply :: !Int,
     inSites :: !Int,
     -- | Whether a body changed in the current round. A round that
@@ -182,6 +196,10 @@ initialInliner config env decls supply =
       inBodies = bodies,
       inRefs = Map.map (valueReferences declarations) bodies,
       inLimits = Map.map (valueLimit (inlinePolicy config) . exprSize env) bodies,
+      inCounts = occurrenceCounts (Map.elems bodies),
+      inCalls = callCounts arities (Map.elems bodies),
+      inArities = arities,
+      inDead = Set.empty,
       inSupply = supply,
       inSites = 0,
       inChanged = False,
@@ -190,6 +208,7 @@ initialInliner config env decls supply =
   where
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
+    arities = Map.map functionArity bodies
     roots =
       case inlineRoots config of
         Nothing -> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
@@ -227,83 +246,123 @@ inlineRound :: InlineConfig -> Inliner -> Inliner
 inlineRound config st0 = List.foldl' step st0 (stronglyConnComp graph)
   where
     graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
-    counts = occurrenceCounts (Map.elems (inBodies st0))
     known = knownValues st0
     recursive = Set.fromList (concat [names | CyclicSCC names <- stronglyConnComp graph])
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config counts known recursive st name
-        CyclicSCC names -> List.foldl' (simplifyValue config counts known recursive) st names
+        AcyclicSCC name -> simplifyValue config known recursive st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known recursive) st names
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Int -> Map Name Expr -> Set Name -> Inliner -> Name -> Inliner
-simplifyValue config counts known recursive st name =
-  case Map.lookup name (inBodies st) of
-    Nothing -> st
-    Just body ->
-      let references = Map.findWithDefault Set.empty name (inRefs st)
-          -- A copy of a candidate brings the calls of its own body. They
-          -- stayed calls in the candidate because nothing was known about
-          -- its parameters; at a site that gives a known argument, such a
-          -- call can reduce, so the callees of the candidates are
-          -- candidates too. Deeper callees are not: every level would
-          -- try copies of copies at each site, for little more.
-          reachable = calleesOf (inRefs st) references
-          candidates =
-            Map.fromList
-              [ (callee, Candidate calleeBody every)
-              | callee <- Set.toList reachable,
-                callee /= name,
-                callee `Set.notMember` recursive,
-                Just calleeBody <- [Map.lookup callee (inBodies st)],
-                isInlinable calleeBody,
-                let size = exprSize (inEnv st) calleeBody
-                    every = unconditional callee size,
-                -- A callee over the limit is never copied, unless every
-                -- copy together replaces it.
-                every || size <= policyCalleeLimit policy
-              ]
-          -- A body that references no candidate and scrutinises nothing
-          -- known is left alone.
-          skip = Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
-       in if skip
-            then st
-            else
-              let oldSize = exprSize (inEnv st) body
-                  simpl =
-                    Simpl
-                      { spEnv = inEnv st,
-                        spInline = candidates,
-                        spKnown = known,
-                        spArity = arities,
-                        spLocals = Map.empty,
-                        spCse = Map.empty,
-                        spSiteLimit = policySiteLimit policy,
-                        spDiscount = policyFunctionArgumentDiscount policy
-                      }
-                  -- What this value may still grow by: its limit less
-                  -- its size now. A value that shrank in an earlier
-                  -- round may grow back to the limit.
-                  allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
-                  (body', simplState) =
-                    runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
-               in st
-                    { inBodies = Map.insert name body' (inBodies st),
-                      inRefs = Map.insert name (valueReferences (inDecls st) body') (inRefs st),
-                      inSupply = ssSupply simplState,
-                      inSites = inSites st + ssInlined simplState,
-                      inChanged = inChanged st || body' /= body
-                    }
+simplifyValue :: InlineConfig -> Map Name Expr -> Set Name -> Inliner -> Name -> Inliner
+simplifyValue config known recursive st name
+  | name `Set.member` inDead st = st
+  | otherwise =
+      case Map.lookup name (inBodies st) of
+        Nothing -> st
+        Just body ->
+          let references = Map.findWithDefault Set.empty name (inRefs st)
+              -- A copy of a candidate brings the calls of its own body. They
+              -- stayed calls in the candidate because nothing was known about
+              -- its parameters; at a site that gives a known argument, such a
+              -- call can reduce, so the callees of the candidates are
+              -- candidates too. Deeper callees are not: every level would
+              -- try copies of copies at each site, for little more.
+              reachable = calleesOf (inRefs st) references
+              candidates =
+                Map.fromList
+                  [ (callee, Candidate calleeBody every)
+                  | callee <- Set.toList reachable,
+                    callee /= name,
+                    callee `Set.notMember` recursive,
+                    Just calleeBody <- [Map.lookup callee (inBodies st)],
+                    isInlinable calleeBody,
+                    let size = exprSize (inEnv st) calleeBody
+                        every = unconditional callee size,
+                    -- A callee over the limit is never copied, unless every
+                    -- copy together replaces it.
+                    every || size <= policyCalleeLimit policy
+                  ]
+              -- A body that references no candidate and scrutinises nothing
+              -- known is left alone.
+              skip = Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+           in if skip
+                then st
+                else
+                  let oldSize = exprSize (inEnv st) body
+                      simpl =
+                        Simpl
+                          { spEnv = inEnv st,
+                            spInline = candidates,
+                            spKnown = known,
+                            spArity = arities,
+                            spLocals = Map.empty,
+                            spCse = Map.empty,
+                            spSiteLimit = policySiteLimit policy,
+                            spDiscount = policyFunctionArgumentDiscount policy
+                          }
+                      -- What this value may still grow by: its limit less
+                      -- its size now. A value that shrank in an earlier
+                      -- round may grow back to the limit.
+                      allowance = max 0 (Map.findWithDefault 0 name (inLimits st) - oldSize)
+                      (body', simplState) =
+                        runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
+                      oldUses = countTopUses body
+                      newUses = countTopUses body'
+                      counts' = Map.unionWith (+) (Map.unionWith (+) (inCounts st) newUses) (Map.map negate oldUses)
+                      calls' = Map.unionWith (+) (Map.unionWith (+) (inCalls st) (countTopCalls (inArities st) body')) (Map.map negate (countTopCalls (inArities st) body))
+                   in killDead
+                        st
+                          { inBodies = Map.insert name body' (inBodies st),
+                            inRefs = Map.insert name (valueReferences (inDecls st) body') (inRefs st),
+                            inCounts = counts',
+                            inCalls = calls',
+                            inSupply = ssSupply simplState,
+                            inSites = inSites st + ssInlined simplState,
+                            inChanged = inChanged st || body' /= body
+                          }
+                        (Map.keys oldUses)
   where
     policy = inlinePolicy config
     arities = Map.map functionArity (inBodies st)
-    -- A removable value that is inlined at every use goes away. When the
-    -- copies together are no larger than the value, every site takes it.
+    -- A removable value whose every use is a call that inlining takes
+    -- goes away once every site holds a copy. When the copies together
+    -- are no larger than the value, every site takes it. A use that is
+    -- not such a call, a dictionary field for one, keeps the value, and
+    -- its sites are decided by their growth like any other: a class
+    -- method with one use, in its dictionary, is not free at the sites
+    -- that select it from that dictionary.
     unconditional callee size =
       removable callee
-        && let uses = Map.findWithDefault 0 callee counts
-            in uses * (size - 1) - (size + 1) <= 0
+        && let uses = Map.findWithDefault 0 callee (inCounts st)
+               calls = Map.findWithDefault 0 callee (inCalls st)
+            in calls >= uses && uses * (size - 1) - (size + 1) <= 0
     removable callee = callee `Set.notMember` inRoots st
+
+-- | Mark the given values dead when no live body references them any
+-- more, and release their own references, which may leave further
+-- values dead.
+killDead :: Inliner -> [Name] -> Inliner
+killDead st names =
+  case names of
+    [] -> st
+    name : rest
+      | name `Set.member` inDead st
+          || name `Set.member` inRoots st
+          || Map.findWithDefault 0 name (inCounts st) > 0 ->
+          killDead st rest
+      | Just body <- Map.lookup name (inBodies st) ->
+          let uses = countTopUses body
+              counts' = Map.unionWith (+) (inCounts st) (Map.map negate uses)
+              calls' = Map.unionWith (+) (inCalls st) (Map.map negate (countTopCalls (inArities st) body))
+           in killDead
+                st
+                  { inDead = Set.insert name (inDead st),
+                    inCounts = counts',
+                    inCalls = calls'
+                  }
+                (Map.keys uses ++ rest)
+      | otherwise -> killDead st rest
 
 -- | A set of values and the values their bodies reference.
 calleesOf :: Map Name (Set Name) -> Set Name -> Set Name
@@ -314,10 +373,16 @@ calleesOf references names =
 dropUnused :: Inliner -> Inliner
 dropUnused st =
   st
-    { inBodies = Map.restrictKeys (inBodies st) reachable,
-      inRefs = Map.restrictKeys (inRefs st) reachable
+    { inBodies = live,
+      inRefs = Map.restrictKeys (inRefs st) reachable,
+      inCounts = occurrenceCounts (Map.elems live),
+      inCalls = callCounts arities (Map.elems live),
+      inArities = arities,
+      inDead = Set.empty
     }
   where
+    live = Map.restrictKeys (inBodies st) reachable
+    arities = Map.map functionArity live
     reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inRoots st)))
     close visited pending =
       case pending of
@@ -330,6 +395,33 @@ dropUnused st =
 -- | How often each value occurs in the bodies.
 occurrenceCounts :: [Expr] -> Map Name Int
 occurrenceCounts = List.foldl' (\counts body -> Map.unionWith (+) counts (countTopUses body)) Map.empty
+
+callCounts :: Map Name Int -> [Expr] -> Map Name Int
+callCounts arities = List.foldl' (\counts body -> Map.unionWith (+) counts (countTopCalls arities body)) Map.empty
+
+-- | How often each top-level value of the arity map occurs in the head
+-- of an application that gives it every parameter. A value of arity zero
+-- is called by every occurrence.
+countTopCalls :: Map Name Int -> Expr -> Map Name Int
+countTopCalls arities = go
+  where
+    go expr =
+      case castedSpine expr of
+        (ExVar name, args)
+          | Just arity <- Map.lookup name arities,
+            length [() | Right _ <- args] >= arity ->
+              Map.unionWith (+) (Map.singleton name 1) (arguments args)
+        (function, args) -> Map.unionWith (+) (bare function) (arguments args)
+    arguments args = List.foldl' (Map.unionWith (+)) Map.empty [go argument | Right argument <- args]
+    bare expr =
+      case expr of
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> Map.unionWith (+) (go (bindRhs bind)) (go body)
+        ExRec binds body -> List.foldl' (Map.unionWith (+)) (go body) (map (go . bindRhs) binds)
+        ExCase scrutinee _ _ alternatives -> List.foldl' (Map.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExForeignCall _ _ args -> List.foldl' (Map.unionWith (+)) Map.empty (map go args)
+        _ -> Map.empty
 
 countTopUses :: Expr -> Map Name Int
 countTopUses = go

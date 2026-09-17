@@ -23,6 +23,7 @@ where
 
 import Data.Bool (Bool (..), not, (&&))
 import GHC.Enum (Enum (..))
+import GHC.Exception.Type (divZeroException, overflowException)
 import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerFromWord#, integerQuotRem, integerToInt#)
@@ -36,7 +37,11 @@ import GHC.Prim
     intToInt32#,
     intToInt64#,
     intToInt8#,
+    negateInt#,
+    quotInt#,
     quotWord#,
+    raise#,
+    remInt#,
     remWord#,
     word16ToWord#,
     word2Int#,
@@ -47,6 +52,7 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
+    (==#),
   )
 import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
@@ -228,10 +234,31 @@ int64ToInt (I64# value) = I# (int64ToInt# value)
 int64FromInt :: Int -> Int64
 int64FromInt (I# value) = I64# (intToInt64# value)
 
+-- | 'quotRem' on 'Int' with the two checks the primops do not make: a
+-- zero divisor raises 'DivideByZero', and @minBound `quot` (-1)@ raises
+-- 'Overflow' while its remainder is zero, as in GHC.
 intQuotRem :: Int -> Int -> (Int, Int)
 intQuotRem (I# numerator) (I# denominator) =
-  case integerQuotRem (IS numerator) (IS denominator) of
-    (quotient, intRemainder) -> (I# (integerToInt# quotient), I# (integerToInt# intRemainder))
+  case denominator of
+    0# -> divZeroError
+    _ ->
+      case (==#) denominator (negateInt# 1#) of
+        1# ->
+          -- The only value whose negation is itself, apart from zero, is
+          -- minBound.
+          case (==#) numerator (negateInt# numerator) of
+            1# ->
+              case numerator of
+                0# -> (I# 0#, I# 0#)
+                _ -> (overflowError, I# 0#)
+            _ -> (I# (negateInt# numerator), I# 0#)
+        _ -> (I# (quotInt# numerator denominator), I# (remInt# numerator denominator))
+
+divZeroError :: a
+divZeroError = raise# divZeroException
+
+overflowError :: a
+overflowError = raise# overflowException
 
 integerQuotRemBoxed :: Integer -> Integer -> (Integer, Integer)
 integerQuotRemBoxed = integerQuotRem
