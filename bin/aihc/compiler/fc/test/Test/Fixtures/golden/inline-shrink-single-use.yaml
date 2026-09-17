@@ -12,7 +12,8 @@ modules:
 
   use :: Bool -> Bool
   use y = helper y
-inline: shrink
+passes:
+- inline: shrink
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types

@@ -174,28 +174,33 @@ Use `aihc install --keep-core` on the package itself to keep the output of a lib
 The level is 0, 1, 2 or s, and the default is 0.
 `-O0`, `-O1`, `-O2` and `-Os` are also accepted.
 
-The level selects the System FC inliner, and it is the level Clang receives.
+The level names what the build is for, and `Aihc.Cli.OptimizationPlan` expands it once into a plan: the scope of the build and the System FC passes to run.
+No pass reads the level.
+See `docs/optimization.md` for the design.
+The level is also the level Clang receives.
 Clang gets it for the C sources of a package, for the `CFLAGS` of a configure script, and for the LLVM output of the `llvm` target.
 The GRIN passes, the Lir lowering, and the object backends of `apple-arm64` and `linux-amd64` do not read the level.
 `-O2` and `-Os` also compile the whole program at once, as `--lto` does.
 `-O0` and `-O1` compile each module to its own object.
 See "Whole-program compilation" below.
 
-### The System FC inliner
+### The System FC passes
 
-`-O0` runs no inliner.
-The other levels run the System FC inliner on each program that they lower.
-`-O1` runs it on each module alone, so it sees only the values of that module.
-`-O2` and `-Os` run it on the merged program, after the values that the entry does not reach are dropped.
+`-O0` runs no pass.
+`-Os` eta expands the program, runs the inliner under the shrinking policy, eta expands again, and simplifies once.
+`-O1` and `-O2` run the inliner under the growing policy after the shrinking one, so `-Os` is a prefix of `-O2`.
+`-O1` runs the passes on each module alone, so the inliner sees only the values of that module.
+`-O2` and `-Os` run them on the merged program, after the values that the entry does not reach are dropped.
+`--verbose` prints one line per pass with the size of the program before and after it.
 
 The inliner walks the values from the leaves of the call graph to its roots.
 At a call that gives every parameter of a non-recursive value, it puts a copy of the body in place and reduces the copy.
 A copy of a constructor application is never made: a case on a known constructor selects the field instead.
-`-Os` keeps a copy only when the program does not get larger.
-`-O1` and `-O2` also keep a copy that makes the program larger, until the program has grown by half.
+Every decision is local to the callee, the site and the value the site sits in; there is no budget for the program as a whole.
+The shrinking policy keeps a copy only when the program does not get larger.
+The growing policy keeps a copy that makes the program larger while the callee is under its size limit, the site is under its growth limit, and the value the site sits in has not grown past its own multiple.
 A value that nothing uses after the walk is dropped, unless it is a root.
 A public value of a module is a root at `-O1`, and the entry of the program is the root at `-O2` and `-Os`.
-Arity analysis eta expands the program before the walk and again after it, and one walk that copies nothing follows the second expansion to reduce the applications it leaves behind.
 
 Before the walk, each method body of a dictionary becomes a top-level helper.
 A dictionary is then a small constructor application, and a method of a known dictionary becomes a direct call of the helper.

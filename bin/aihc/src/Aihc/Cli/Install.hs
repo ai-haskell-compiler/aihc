@@ -15,7 +15,6 @@ module Aihc.Cli.Install
     capiStubOptions,
     compileFcModules,
     optimizeFcProgram,
-    inlineConfigFor,
     compileModules,
     compilePackageCFiles,
     moduleOutputPaths,
@@ -51,6 +50,7 @@ import Aihc.Cli.BuildStamp
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
+import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifactParts)
@@ -74,7 +74,7 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wholeProgramLevel)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -364,6 +364,9 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- the whole program and compiles it once. @--lto@ sets this, and so
     -- does a level that optimizes.
     compileLto :: !Bool,
+    -- | The System FC passes of the plan, in order. They run on each
+    -- module, or on the merged program of a whole-program build.
+    compilePasses :: ![Fc.Pass],
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
     compileOptimization :: !OptimizationLevel,
@@ -481,7 +484,8 @@ installWith output options = do
   -- The headers go under the store and not under the build directory,
   -- because an immutable install writes no build directory at all.
   headerDirectory <- ensureCompilerHeaders target (storeRoot </> targetDirectory)
-  let config =
+  let levelPlan = optimizationPlan (installLto options) (installOptimization options)
+      config =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
             compileKeepCore = installKeepCore options,
@@ -490,7 +494,8 @@ installWith output options = do
             compileKeepNative = installKeepNative options,
             compileLint = installLint options,
             compileCheckPrimBounds = installCheckPrimBounds options,
-            compileLto = installLto options || wholeProgramLevel (installOptimization options),
+            compileLto = planWholeProgram levelPlan,
+            compilePasses = planPasses levelPlan,
             compileNoCode = installNoCode options,
             compileOptimization = installOptimization options,
             compileTarget = target,
@@ -2349,108 +2354,34 @@ compileUnitFcModules config capiOptions verbose outputPaths pending = do
           headers <- filter (/= source') <$> mapM canonicalizePath (parseDependencyFile recorded)
           pure [CapiStubOutput name (sortOn id (nub headers))]
 
--- | The inliner configuration of a level. @-O0@ has none. @-Os@ inlines
--- only where the program gets smaller. @-O1@ and @-O2@ inline until the
--- program has grown by half.
-inlineConfigFor :: OptimizationLevel -> Maybe [Fc.Name] -> Fc.Program -> Maybe Fc.InlineConfig
-inlineConfigFor level roots program =
-  case level of
-    O0 -> Nothing
-    Os -> Just (config Fc.InlineShrink)
-    O1 -> Just (config (Fc.InlineBudget budget))
-    O2 -> Just (config (Fc.InlineBudget budget))
-  where
-    size = Fc.programSize program
-    budget = size + size `div` 2
-    config mode =
-      Fc.InlineConfig
-        { Fc.inlineMode = mode,
-          Fc.inlineRoots = roots,
-          Fc.inlineSiteLimit = 100,
-          Fc.inlineRounds = 4
-        }
-
--- | Run the System FC passes of the level of the build on a program:
--- arity analysis with eta expansion, then the inliner, then the arity
--- analysis again, then one simplifying walk. The roots are the values
--- the program must keep, or 'Nothing' to keep every public value.
+-- | Run the System FC passes of the plan on a program, in order. The
+-- roots are the values the program must keep, or 'Nothing' to keep every
+-- public value. Each pass is logged under @--verbose@ and the program is
+-- linted after each under @--lint@.
 --
--- @-O0@ runs none of them. It is the level that has to be quick, and a
--- pass that makes the code faster is not what it is for.
+-- The passes come from the plan of the level; nothing here reads the
+-- level. See @docs/optimization.md@.
 optimizeFcProgram :: ModuleCompileConfig -> (String -> IO ()) -> Maybe [Fc.Name] -> Text -> Fc.Program -> IO Fc.Program
-optimizeFcProgram config verbose roots name program
-  | compileOptimization config == O0 = pure program
-  | otherwise = do
-      -- Eta expansion runs before the inliner, so that a value it turns
-      -- into a function is a saturated call for the inliner to take, and
-      -- again after it, because a call of a class method hides the arity
-      -- of the method until the selection is inlined:
-      --
-      -- >   writeOk = (>>) @IO $fMonadIO action (return length)
-      --
-      -- says nothing about arity, and the same body as
-      -- @$fMonadIO$c>> action (return length)@ says it takes a state
-      -- token. GHC interleaves arity analysis with inlining in the
-      -- simplifier for this reason; running the pass on either side of
-      -- the inliner is the cheap version of that.
-      expanded <- etaExpandFcProgram config verbose name program
-      -- The inliner's budget is a fraction of the program it is given, so
-      -- it is taken from the program before expansion: the lambdas this
-      -- pass adds are not a reason to inline more.
-      case inlineConfigFor (compileOptimization config) roots program of
-        Nothing -> pure expanded
-        Just inlineConfig -> do
-          let (optimized, report) = Fc.inlineProgram inlineConfig expanded
-          verbose
-            ( "Inline FC: "
-                <> T.unpack name
-                <> ", size "
-                <> show (Fc.reportSizeBefore report)
-                <> " -> "
-                <> show (Fc.reportSizeAfter report)
-                <> ", "
-                <> show (Fc.reportInlinedSites report)
-                <> " sites, "
-                <> show (Fc.reportDroppedValues report)
-                <> " values dropped"
-            )
-          lintOptimized config "inlining" name optimized
-          expanded' <- etaExpandFcProgram config verbose name optimized
-          -- The second expansion wraps a value in a lambda that applies
-          -- the old body to the new parameter, under the casts of a
-          -- newtype it unfolded. One simplifying walk, with nothing to
-          -- inline, reduces those applications and cancels the casts;
-          -- without it they reach the lowered code as they are.
-          let simplifyConfig = inlineConfig {Fc.inlineMode = Fc.InlineSimplify, Fc.inlineRounds = 1}
-              (simplified, simplifyReport) = Fc.inlineProgram simplifyConfig expanded'
-          verbose
-            ( "Simplify FC: "
-                <> T.unpack name
-                <> ", size "
-                <> show (Fc.reportSizeBefore simplifyReport)
-                <> " -> "
-                <> show (Fc.reportSizeAfter simplifyReport)
-            )
-          lintOptimized config "simplifying" name simplified
-          pure simplified
+optimizeFcProgram config verbose roots name = foldM step `flip` compilePasses config
+  where
+    step program pass = do
+      let (program', report) = Fc.runPass roots pass program
+      verbose (renderPassReport name report)
+      lintOptimized config (T.unpack (Fc.reportPass report)) name program'
+      pure program'
 
--- | Eta expand the top-level values of a program to the arity the arity
--- analysis finds for them.
-etaExpandFcProgram :: ModuleCompileConfig -> (String -> IO ()) -> Text -> Fc.Program -> IO Fc.Program
-etaExpandFcProgram config verbose name program = do
-  let (expanded, report) = Fc.etaExpandProgram program
-  when (Fc.reportExpandedValues report > 0) $
-    verbose
-      ( "Eta expand FC: "
-          <> T.unpack name
-          <> ", "
-          <> show (Fc.reportExpandedValues report)
-          <> " values, "
-          <> show (Fc.reportAddedLambdas report)
-          <> " lambdas added"
-      )
-  lintOptimized config "eta expanding" name expanded
-  pure expanded
+-- | One log line for a pass: its name, the program, the sizes before and
+-- after, and what else it counted.
+renderPassReport :: Text -> Fc.PassReport -> String
+renderPassReport name report =
+  T.unpack (Fc.reportPass report)
+    <> " FC: "
+    <> T.unpack name
+    <> ", size "
+    <> show (Fc.reportBefore report)
+    <> " -> "
+    <> show (Fc.reportAfter report)
+    <> (if T.null (Fc.reportDetail report) then "" else ", " <> T.unpack (Fc.reportDetail report))
 
 lintOptimized :: ModuleCompileConfig -> String -> Text -> Fc.Program -> IO ()
 lintOptimized config phase name program =

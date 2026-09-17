@@ -27,10 +27,10 @@ modules:
 
   third :: Bool -> Bool
   third w = helper w
-inline:
-  mode: budget
-  limit: 52
-  rounds: 1
+passes:
+- inline:
+    policy: grow
+    rounds: 1
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
@@ -100,4 +100,4 @@ expected: |-
             2.cTrue
     }
 status: pass
-reason: A value with one use moves to that use in the first round and is dead from then on. The budget counts the program without it, so the sites after it in the same round still have their allowance, although the dead value is only dropped at the end of the round.
+reason: A value with one use moves to that use in the first round and is dead from then on, although its body is only dropped at the end of the round. Its references count for nothing, so a value it was the last other user of is still copied at every live use and dropped in the same round.

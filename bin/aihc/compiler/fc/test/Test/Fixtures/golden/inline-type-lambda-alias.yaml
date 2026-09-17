@@ -18,7 +18,8 @@ modules:
 
   run :: Box Bool -> Bool
   run b = pick b
-inline: shrink
+passes:
+- inline: shrink
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types

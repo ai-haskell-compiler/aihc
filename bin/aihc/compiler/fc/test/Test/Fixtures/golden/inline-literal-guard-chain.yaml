@@ -35,9 +35,11 @@ modules:
     | errno == eNOENT = I# 20#
     | errno == eSRCH = I# 30#
     | True = I# 0#
-inline:
-  mode: budget
-  limit: 0
+passes:
+- inline:
+    policy: grow
+    value-growth: 0
+    value-slack: 0
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim

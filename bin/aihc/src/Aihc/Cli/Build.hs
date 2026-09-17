@@ -45,6 +45,7 @@ import Aihc.Cli.Install
     networkDependencyResolver,
     resolveInstallTarget,
   )
+import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (BuildOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
@@ -52,7 +53,7 @@ import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory, wholeProgramLevel)
+import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan
   ( PackagePlan (..),
     PlanOrigin (..),
@@ -113,7 +114,8 @@ buildPackage options = do
     ioError (userError ("The package " <> pkgName spec <> " has no buildable executable"))
   buildIdentity <- buildEnvironmentIdentity target
   headerDirectory <- ensureCompilerHeaders target buildRoot
-  let compileConfig =
+  let plan = optimizationPlan (buildLto options) (buildOptimization options)
+      compileConfig =
         ModuleCompileConfig
           { compileBuildIdentity = buildIdentity,
             compileKeepCore = buildKeepCore options,
@@ -122,7 +124,8 @@ buildPackage options = do
             compileKeepNative = buildKeepNative options,
             compileLint = buildLint options,
             compileCheckPrimBounds = buildCheckPrimBounds options,
-            compileLto = buildLto options || wholeProgramLevel (buildOptimization options),
+            compileLto = planWholeProgram plan,
+            compilePasses = planPasses plan,
             compileNoCode = False,
             compileOptimization = buildOptimization options,
             compileTarget = target,

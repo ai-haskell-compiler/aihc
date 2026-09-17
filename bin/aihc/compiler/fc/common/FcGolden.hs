@@ -12,7 +12,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig, FcDesugarResult (..), InlineConfig (..), InlineMode (..), Program, desugarModuleFc, etaExpandProgram, inlineProgram, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig, FcDesugarResult (..), InlinePolicy (..), Pass (..), Program, desugarModuleFc, growPolicy, lintProgram, mergePrograms, moduleDesugarConfig, parseProgram, renderParseError, renderProgram, runPasses, shrinkPolicy)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -48,7 +48,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -94,13 +94,10 @@ data FcCase = FcCase
     caseStatus :: !ExpectedStatus,
     caseLint :: !LintExpectation,
     caseReason :: !String,
-    -- | Run the inliner on the merged program of the modules, for the
-    -- given number of rounds, and pin its output instead of the desugared
-    -- modules.
-    caseInline :: !(Maybe (InlineMode, Int)),
-    -- | Run the arity analysis and eta expand the merged program, before
-    -- the inliner and again after it when both run, and pin the result.
-    caseEta :: !Bool
+    -- | The System FC passes to run on the merged program of the modules,
+    -- in order. With any, the fixture pins the optimized program instead
+    -- of the desugared modules.
+    casePasses :: ![Pass]
   }
   deriving (Eq, Show)
 
@@ -173,7 +170,7 @@ loadFcCase path = do
 
 parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
 parseFcFixture path value = do
-  (extNames, modules, expectedText, statusText, lintText, reasonText, inline, eta) <-
+  (extNames, modules, expectedText, statusText, lintText, reasonText, passes) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -182,9 +179,8 @@ parseFcFixture path value = do
           status <- obj .: "status"
           lint <- obj .:? "lint" .!= "pass"
           reason <- obj .:? "reason" .!= ""
-          inline <- obj .:? "inline" >>= traverse parseInlineMode
-          eta <- obj .:? "eta" .!= False
-          pure (exts, mods, expected, status, lint, reason, inline, eta)
+          passes <- obj .:? "passes" .!= [] >>= mapM parsePass
+          pure (exts, mods, expected, status, lint, reason, passes)
       )
       value
   exts <- validateExtensions path extNames
@@ -205,27 +201,52 @@ parseFcFixture path value = do
         caseStatus = status,
         caseLint = lint,
         caseReason = reason,
-        caseInline = inline,
-        caseEta = eta
+        casePasses = passes
       }
 
--- | The @inline@ key: @shrink@, @simplify@, or @budget@ with the size
--- limit that the inliner may fill, and the number of @rounds@ it may
--- walk (four unless given).
-parseInlineMode :: Y.Value -> Y.Parser (InlineMode, Int)
-parseInlineMode value =
+-- | One entry of the @passes@ key: @eta@, @simplify@, or @inline@ with a
+-- policy. The policy is @shrink@, @grow@, or an object that names one of
+-- the two under @policy@ and overrides its knobs: @callee-limit@,
+-- @site-limit@, @discount@, @value-growth@, @value-slack@, and the
+-- @rounds@ of the pass.
+parsePass :: Y.Value -> Y.Parser Pass
+parsePass value =
   case value of
-    Y.String "shrink" -> pure (InlineShrink, 4)
-    Y.String "simplify" -> pure (InlineSimplify, 4)
+    Y.String "eta" -> pure PassEtaExpand
+    Y.String "simplify" -> pure PassSimplify
     Y.Object obj -> do
-      mode <- obj .: "mode"
-      rounds <- obj .:? "rounds" .!= 4
-      case mode :: Text of
-        "shrink" -> pure (InlineShrink, rounds)
-        "simplify" -> pure (InlineSimplify, rounds)
-        "budget" -> (\limit -> (InlineBudget limit, rounds)) <$> obj .: "limit"
-        _ -> fail "inline mode must be shrink, simplify, or budget"
-    _ -> fail "inline must be shrink, simplify, or an object with mode and limit"
+      inline <- obj .: "inline"
+      case inline of
+        Y.String name -> (`PassInline` defaultRounds) <$> namedPolicy name
+        Y.Object knobs -> do
+          base <- knobs .: "policy" >>= namedPolicy
+          calleeLimit <- knobs .:? "callee-limit" .!= policyCalleeLimit base
+          siteLimit <- knobs .:? "site-limit" .!= policySiteLimit base
+          discount <- knobs .:? "discount" .!= policyFunctionArgumentDiscount base
+          valueGrowth <- knobs .:? "value-growth" .!= policyValueGrowth base
+          valueSlack <- knobs .:? "value-slack" .!= policyValueSlack base
+          rounds <- knobs .:? "rounds" .!= defaultRounds
+          pure
+            ( PassInline
+                base
+                  { policyCalleeLimit = calleeLimit,
+                    policySiteLimit = siteLimit,
+                    policyFunctionArgumentDiscount = discount,
+                    policyValueGrowth = valueGrowth,
+                    policyValueSlack = valueSlack
+                  }
+                rounds
+            )
+        _ -> fail "inline must be shrink, grow, or an object with a policy"
+    _ -> fail "a pass must be eta, simplify, or an object with inline"
+  where
+    defaultRounds = 4
+    namedPolicy :: Text -> Y.Parser InlinePolicy
+    namedPolicy name =
+      case name of
+        "shrink" -> pure shrinkPolicy
+        "grow" -> pure growPolicy
+        _ -> fail "an inline policy must be shrink or grow"
 
 parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->
@@ -270,7 +291,7 @@ renderFcCase tc =
                               fixtureTcResults
                       if all dsSuccess fixtureResults
                         then
-                          if caseEta tc || isJust (caseInline tc)
+                          if not (null (casePasses tc))
                             then lintAndRenderOptimized (map dsProgram fixtureResults)
                             else lintAndRenderResults fixtureResults
                         else Left (unlines (concatMap dsErrors fixtureResults))
@@ -282,23 +303,10 @@ renderFcCase tc =
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
     -- The modules merge into one program, as a whole-program build merges
-    -- them, and the passes run on it with every public value as a root.
-    -- A fixture may ask for eta expansion, inlining, or both, in the order
-    -- a build runs them: eta expansion on either side of the inliner.
+    -- them, and the passes of the fixture run on it in order with every
+    -- public value as a root.
     lintAndRenderOptimized programs =
-      let merged = mergePrograms programs
-          eta program = if caseEta tc then fst (etaExpandProgram program) else program
-          expanded = eta merged
-          config (mode, rounds) =
-            InlineConfig
-              { inlineMode = mode,
-                inlineRoots = Nothing,
-                inlineSiteLimit = 100,
-                inlineRounds = rounds
-              }
-          inlined = case caseInline tc of
-            Nothing -> expanded
-            Just inline -> eta (fst (inlineProgram (config inline) expanded))
+      let inlined = fst (runPasses Nothing (casePasses tc) (mergePrograms programs))
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->
