@@ -79,7 +79,7 @@ generalizeGroupAndCommitIgnoring ignoredKeys monoMetaVars bindings = do
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   forM_ subst (uncurry writeMetaTv)
   pure
-    [ ForAll [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] (map (substMetasPred subst) preds) (substMetas subst ty)
+    [ Scheme [tv | (unique, tv) <- zip uniqueMetaVars tvs, unique `elem` metaVars] [] (map (substMetasPred subst) preds) (substMetas subst ty)
     | ((ty, preds), metaVars) <- zip zonked' bindingMetaVars
     ]
   where
@@ -107,7 +107,7 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   let quantifiedTy = substMetas subst ty''
   let quantifiedPreds = map (substMetasPred subst) preds''
-  pure (ForAll tvs quantifiedPreds quantifiedTy, subst)
+  pure (Scheme tvs [] quantifiedPreds quantifiedTy, subst)
 
 -- | Solve every RuntimeRep meta-variable that quantification would capture.
 --

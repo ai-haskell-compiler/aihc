@@ -1,0 +1,20 @@
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- ScopedTypeVariables
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  data Proxy t = Proxy
+  -- The signature writes a but not its kind: GHC's
+  -- @forall {k} (a :: k). Proxy a -> Proxy a@. The application reaches a.
+  same :: Proxy a -> Proxy a
+  same p = p
+  value :: Proxy Type
+  value = same @Type Proxy
+status: pass
+reason: a kind variable the checker invents for a signature is an inferred binder, so a visible type application reaches the variable the signature wrote

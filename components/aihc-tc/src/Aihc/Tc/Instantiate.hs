@@ -18,6 +18,9 @@ import Data.Map.Strict qualified as Map
 data Instantiation = Instantiation
   { instType :: !TcType,
     instTypeArgs :: ![TcType],
+    -- | The arguments of the specified binders only: what visible type
+    -- applications instantiate, in order.
+    instSpecifiedArgs :: ![TcType],
     instPreds :: ![Pred]
   }
   deriving (Eq, Show)
@@ -32,7 +35,8 @@ instantiate scheme = do
   pure (instType inst, instPreds inst)
 
 instantiateWithArgs :: TypeScheme -> TcM Instantiation
-instantiateWithArgs (ForAll tvs preds body) = do
+instantiateWithArgs (Scheme inferred specified preds body) = do
+  let tvs = inferred <> specified
   -- Allocate in binder order so later binder kinds can refer to earlier
   -- instantiations (for example @b :: TYPE r@).
   subst <- foldM extendSubst Map.empty tvs
@@ -44,6 +48,7 @@ instantiateWithArgs (ForAll tvs preds body) = do
     Instantiation
       { instType = body',
         instTypeArgs = typeArgs,
+        instSpecifiedArgs = drop (length inferred) typeArgs,
         instPreds = preds'
       }
   where

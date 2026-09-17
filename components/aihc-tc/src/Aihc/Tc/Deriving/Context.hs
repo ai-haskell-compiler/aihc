@@ -9,10 +9,14 @@
 -- class of the type they coerce from: the representation for a newtype and
 -- the via type for a via. The whole batch is visible while simplifying those
 -- predicates, so recursive and mutually recursive derived instances are
--- independent of source order.
+-- independent of source order. Type family applications in a predicate are
+-- reduced with the equations registered so far before an instance head is
+-- matched, so a default signature that constrains @Rep a@ resolves once the
+-- derived @Generic@ instance of the batch is registered.
 module Aihc.Tc.Deriving.Context
-  ( settleDerivingContexts,
-    inferDerivingContexts,
+  ( inferDerivingContexts,
+    isContextFreeStockPlan,
+    settleContextFreePlans,
     derivingObligations,
     newtypeRepresentation,
     stockFieldTypes,
@@ -20,7 +24,6 @@ module Aihc.Tc.Deriving.Context
     typeTyVars,
     moduleDerivingPlans,
     replaceModulePlans,
-    PlanKey,
     planKey,
   )
 where
@@ -47,34 +50,13 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkPred)
+import Control.Monad (foldM)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-
--- | Settle the plans whose context needs nothing from the batch: the
--- source wrote it, or the class asks nothing of the fields, as @Generic@
--- does. They are registered before the other contexts are inferred, because
--- an instance they generate can carry what that inference reads: a default
--- signature constrains the representation @Rep a@, which only the axiom of
--- the derived @Generic@ instance reduces. The keys of the settled plans
--- come back so the caller can register them first and the rest afterwards.
-settleDerivingContexts :: [Module] -> TcM ([Module], Set PlanKey)
-settleDerivingContexts modules = do
-  kinds <- getKinds
-  settled <- fmap concat . mapM (settle kinds) $ concatMap moduleDerivingPlans modules
-  pure (map (replaceModulePlans settled) modules, Set.fromList (map planKey settled))
-  where
-    settle kinds plan =
-      case inferableObligations kinds plan of
-        Nothing -> pure [plan]
-        Just (Right []) -> pure [plan {tcDerivingContext = TcDerivingExplicitContext []}]
-        Just _ -> pure []
 
 -- | Infer every attached context in the batch and record it in the plan.
 -- A plan whose obligations cannot be met reports an unsolved constraint and
@@ -96,6 +78,28 @@ inferDerivingContexts modules = do
   contextPlans <- mapM (inferPlanContext kinds environment) selectedPlans
   pure (map (replaceModulePlans contextPlans) modules)
 
+-- | Whether a plan generates a stock instance that needs no context and
+-- registers declarations of its own that the other contexts of the batch
+-- depend on. A derived @Generic@ or @Generic1@ instance declares the
+-- representation family equation of its datatype; a default signature of
+-- another class in the same clause constrains that representation, so the
+-- instance has to be registered before that context is inferred.
+isContextFreeStockPlan :: TcDerivingPlan -> Bool
+isContextFreeStockPlan plan =
+  tcDerivingStrategy plan == TcDerivingStock
+    && stockClassObligationsOf (tcDerivingClassName plan) == Just NoObligations
+
+-- | Give every context-free stock plan of a module its empty context, so
+-- that it can be generated ahead of context inference.
+settleContextFreePlans :: Module -> Module
+settleContextFreePlans modu = replaceModulePlans (map settle (moduleDerivingPlans modu)) modu
+  where
+    settle plan
+      | isContextFreeStockPlan plan,
+        TcDerivingInferContext <- tcDerivingContext plan =
+          plan {tcDerivingContext = TcDerivingExplicitContext []}
+      | otherwise = plan
+
 -- | Everything context simplification needs about the batch: the instances
 -- and deriving plans in scope, indexed by class source name, and the context
 -- inferred for each plan whose context is left to the compiler.
@@ -110,13 +114,8 @@ data DerivingEnv = DerivingEnv
 
 derivingEnv :: TcKinds -> [InstanceInfo] -> [TcDerivingPlan] -> TcM DerivingEnv
 derivingEnv kinds existingInstances plans = do
-  inferable <-
-    sequence
-      [ (,) plan <$> mapM reduceObligation obligations
-      | plan <- plans,
-        Just (Right obligations) <- [inferableObligations kinds plan]
-      ]
-  pure base {derivingEnvContexts = solveContexts inferable (length inferable + 2) (Map.fromList (map initialContext inferable))}
+  contexts <- solveContexts (length inferable + 2) (Map.fromList (map initialContext inferable))
+  pure base {derivingEnvContexts = contexts}
   where
     base =
       DerivingEnv
@@ -126,11 +125,7 @@ derivingEnv kinds existingInstances plans = do
         }
     groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
 
-    -- Simplification matches instance heads syntactically, so a type family
-    -- application in an obligation has to be reduced first: the default
-    -- signature of an anyclass plan asks for the representation @Rep T@,
-    -- and only its reduct names the instances that discharge it.
-    reduceObligation obligation = zonkPred obligation >>= reducePredFamilies
+    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds plan]]
 
     -- Reject cycles for the plans that reuse an instance.
     -- Stock plans can use recursive structural instances.
@@ -141,18 +136,17 @@ derivingEnv kinds existingInstances plans = do
     -- Contexts are inferred simultaneously, so a plan can refer to a plan
     -- declared later, or to itself through a cycle, without the search
     -- re-deriving the same plan once per path through the batch.
-    solveContexts :: [(TcDerivingPlan, [Pred])] -> Int -> Map PlanKey (Either Pred [Pred]) -> Map PlanKey (Either Pred [Pred])
-    solveContexts inferable fuel contexts
-      | fuel <= 0 = contexts
-      | next == contexts = contexts
-      | otherwise = solveContexts inferable (fuel - 1) next
-      where
-        environment = base {derivingEnvContexts = contexts}
-        next =
-          Map.fromList
-            [ (planKey plan, nub . concat <$> mapM (simplifyPredicate kinds environment plan) obligations)
-            | (plan, obligations) <- inferable
-            ]
+    solveContexts :: Int -> Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
+    solveContexts fuel contexts
+      | fuel <= 0 = pure contexts
+      | otherwise = do
+          let environment = base {derivingEnvContexts = contexts}
+          next <-
+            Map.fromList
+              <$> mapM
+                (\(plan, obligations) -> (,) (planKey plan) . fmap nub <$> simplifyPredicates kinds environment plan obligations)
+                inferable
+          if next == contexts then pure contexts else solveContexts (fuel - 1) next
 
 -- | The obligations of a plan whose context the compiler has to infer, or
 -- 'Nothing' when the plan carries its context or needs no inference. A
@@ -226,17 +220,32 @@ inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
 inferredContext environment plan =
   Map.findWithDefault (Left (planPredicate plan)) (planKey plan) (derivingEnvContexts environment)
 
-simplifyPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> Either Pred [Pred]
-simplifyPredicate kinds environment owner predicate
-  | isBareVariablePredicate (tcDerivingTyVars owner) predicate = Right [predicate]
+-- | Simplify each predicate and concatenate the contexts, stopping at the
+-- first predicate that cannot be simplified.
+simplifyPredicates :: TcKinds -> DerivingEnv -> TcDerivingPlan -> [Pred] -> TcM (Either Pred [Pred])
+simplifyPredicates kinds environment owner = foldM step (Right [])
+  where
+    step (Left blocked) _ = pure (Left blocked)
+    step (Right context) predicate = fmap (context <>) <$> simplifyPredicate kinds environment owner predicate
+
+-- | Simplify one predicate to the context it needs from the plan's type
+-- variables. The type family applications of the predicate are reduced
+-- first, so that an instance head can match the representation they stand
+-- for.
+simplifyPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> TcM (Either Pred [Pred])
+simplifyPredicate kinds environment owner rawPredicate = do
+  predicate <- reducePredFamilies rawPredicate
+  simplifyReducedPredicate kinds environment owner predicate
+
+simplifyReducedPredicate :: TcKinds -> DerivingEnv -> TcDerivingPlan -> Pred -> TcM (Either Pred [Pred])
+simplifyReducedPredicate kinds environment owner predicate
+  | isBareVariablePredicate (tcDerivingTyVars owner) predicate = pure (Right [predicate])
   | ClassPred typeableTyCon _ <- predicate,
     Just arguments <- typeableArguments predicate =
-      concat
-        <$> mapM
-          (simplifyPredicate kinds environment owner . ClassPred typeableTyCon . (: []))
-          arguments
-  | otherwise =
-      case firstSuccessful (map simplifyExisting matchingExisting <> map simplifyDerived matchingDerived) of
+      simplifyPredicates kinds environment owner (map (ClassPred typeableTyCon . (: [])) arguments)
+  | otherwise = do
+      matched <- firstSuccessful (map simplifyExisting matchingExisting <> map simplifyDerived matchingDerived)
+      pure $ case matched of
         Just context -> Right context
         Nothing
           | isAdmissibleContextPredicate owner predicate -> Right [predicate]
@@ -256,16 +265,11 @@ simplifyPredicate kinds environment owner predicate
         Just substitution <- [matchTypes (tcDerivingHeadTypes candidate) (predArguments predicate)]
       ]
     simplifyExisting (instanceInfo, substitution) =
-      concat
-        <$> mapM
-          (simplifyPredicate kinds environment owner . applySubstPred substitution)
-          (iiContext instanceInfo)
-    simplifyDerived (candidate, substitution) = do
-      context <- candidateContext candidate
-      concat
-        <$> mapM
-          (simplifyPredicate kinds environment owner . applySubstPred substitution)
-          context
+      simplifyPredicates kinds environment owner (map (applySubstPred substitution) (iiContext instanceInfo))
+    simplifyDerived (candidate, substitution) =
+      case candidateContext candidate of
+        Left blocked -> pure (Left blocked)
+        Right context -> simplifyPredicates kinds environment owner (map (applySubstPred substitution) context)
     candidateContext candidate =
       case tcDerivingContext candidate of
         TcDerivingExplicitContext context -> Right context
@@ -274,12 +278,16 @@ simplifyPredicate kinds environment owner predicate
             Just context -> context
             Nothing -> Left predicate
 
-firstSuccessful :: [Either error value] -> Maybe value
-firstSuccessful results =
-  case results of
-    [] -> Nothing
-    Left _ : rest -> firstSuccessful rest
-    Right value : _ -> Just value
+-- | The first alternative that succeeds, trying them in order.
+firstSuccessful :: (Monad m) => [m (Either error value)] -> m (Maybe value)
+firstSuccessful alternatives =
+  case alternatives of
+    [] -> pure Nothing
+    alternative : rest -> do
+      result <- alternative
+      case result of
+        Left _ -> firstSuccessful rest
+        Right value -> pure (Just value)
 
 anyClassObligations :: TcKinds -> TcDerivingPlan -> [Pred]
 anyClassObligations kinds plan =

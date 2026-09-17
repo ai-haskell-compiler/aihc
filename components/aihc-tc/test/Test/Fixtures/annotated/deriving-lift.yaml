@@ -24,7 +24,7 @@ annotated:
   └─ class methods: newName ∷ ∀ m. (Quote m) ⇒ [Char] → m Name
     newName :: [Char] -> m Name
   data Code m a = Code (m Exp)
-       │          └─ type: ∀ m k0 a. m Exp → Code m a
+       │          └─ type: ∀ k0 m a. m Exp → Code m a
        └─ type: (Type → Type) → k0 → Type
   mkNameG_d :: [Char] -> [Char] -> [Char] -> Name
   mkNameG_d _ _ _ = Name
@@ -34,9 +34,9 @@ annotated:
   └─ type: [GHC.Types.Char] → [GHC.Types.Char] → [GHC.Types.Char] → Name
   unsafeCodeCoerce :: Quote m => m Exp -> Code m a
   unsafeCodeCoerce expression = Code expression
-  │                │            └─ type: m Exp → Code m a; type-args: m, k0, a
+  │                │            └─ type: m Exp → Code m a; type-args: k0, m, a
   │                └─ type: m Exp
-  └─ type: ∀ m k0 a. (Quote m) ⇒ m Exp → Code m a
+  └─ type: ∀ k0 m a. (Quote m) ⇒ m Exp → Code m a
 - |-
   {-# LANGUAGE DeriveLift #-}
   module Main where
@@ -49,7 +49,7 @@ annotated:
   └─ deriving plans: stock Lift Colour [context: ()] [methods: lift, liftTyped]
     deriving Lift
              └─ $fLiftColour ∷ () ⇒ Lift Colour
-             └─ type: m GHC.Internal.TH.Syntax.Exp → GHC.Internal.TH.Syntax.Code m Colour; type-args: m, Type, Colour; evidence: given Quote m
+             └─ type: m GHC.Internal.TH.Syntax.Exp → GHC.Internal.TH.Syntax.Code m Colour; type-args: Type, m, Colour; evidence: given Quote m
              └─ lift ∷ ∀ m. (Quote m) ⇒ Colour → m Exp
              └─ type: [GHC.Types.Char]; type-args: Char
              └─ liftTyped ∷ ∀ m. (Quote m) ⇒ Colour → Code m Colour
@@ -86,7 +86,7 @@ annotated:
   └─ deriving plans: stock Lift (Pair a) [context: Lift a] [methods: lift, liftTyped]
     deriving Lift
              └─ $fLiftPaira ∷ ∀ a. (Lift a) ⇒ Lift (Pair a)
-             └─ type: m GHC.Internal.TH.Syntax.Exp → GHC.Internal.TH.Syntax.Code m (Pair a); type-args: m, Type, Pair a; evidence: given Quote m
+             └─ type: m GHC.Internal.TH.Syntax.Exp → GHC.Internal.TH.Syntax.Code m (Pair a); type-args: Type, m, Pair a; evidence: given Quote m
              └─ lift ∷ ∀ m. (Quote m) ⇒ Pair a → m Exp
              └─ type: m GHC.Internal.TH.Syntax.Exp → (GHC.Internal.TH.Syntax.Exp → m GHC.Internal.TH.Syntax.Exp) → m GHC.Internal.TH.Syntax.Exp; type-args: m, Exp, Exp; evidence: super[0](given Quote m)
              └─ liftTyped ∷ ∀ m. (Quote m) ⇒ Pair a → Code m (Pair a)

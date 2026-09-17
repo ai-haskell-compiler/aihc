@@ -39,6 +39,7 @@ import Aihc.Tc
     mkTcConfig,
     mkTyConWithNamespace,
   )
+import Aihc.Tc.TypeLitFamily (typeLitFamilyModules)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -99,7 +100,7 @@ primTcWiring prim =
       tcWiringRestrictedPrimitiveTerms = Set.singleton (prim, "GHC.Prim", "seq"),
       tcWiringKindTyCon = types ResolutionNamespaceType,
       tcWiringKindDataCon = types ResolutionNamespaceTerm,
-      tcWiringTypeLitFamilyModules = ["GHC.TypeNats", "GHC.TypeLits", "Data.Type.Ord"],
+      tcWiringTypeLitFamilyModules = typeLitFamilyModules,
       tcWiringTypeErrorFamily = ("GHC.TypeError", "TypeError"),
       tcWiringErrorMessageCons = ("Text", "ShowType", ":<>:", ":$$:"),
       tcWiringLiftClass = ("GHC.Internal.TH.Lift", "Lift")

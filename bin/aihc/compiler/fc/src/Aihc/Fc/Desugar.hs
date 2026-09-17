@@ -73,6 +73,7 @@ import Aihc.Tc.Types
     TyVarId,
     TypeScheme (..),
     Unique (..),
+    defaultMethodWorkerScheme,
     isEqualityTyCon,
     tyConKey,
     tyConModuleName,
@@ -349,7 +350,7 @@ headerIndex convertEnv interface =
         methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = Name (defaultMethodName methodName) SortValue (OriginTop (PackageId package) moduleName')
-            workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
+            workerScheme = maybe methodScheme (defaultMethodWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
     familyFacts =
       [ (lookupAxiomName (typeFamilyAxiomKey info), HeaderFamilyEquation info)
@@ -367,10 +368,6 @@ headerIndex convertEnv interface =
           let tyCon = dfiiRepresentationTyCon info
               origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
         ]
-    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
-        _ -> ForAll variables predicates body
 
 lookupHeader :: ConvertEnv -> Map.Map TcTermKey TcBindingResult -> Map.Map Name HeaderSource -> Name -> Either String (Maybe TypeOf.TypeEnv)
 lookupHeader convertEnv bindings headers name =
@@ -447,12 +444,8 @@ bindingsFromInterface interface =
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = defaultMethodName methodName
             key = TcTermGlobal (PackageId package) moduleName' workerName
-            workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
+            workerScheme = maybe methodScheme (defaultMethodWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
-    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
-        _ -> ForAll variables predicates body
 
 interfaceSchemeType :: TypeScheme -> TcType
 interfaceSchemeType (ForAll [] [] ty) = ty

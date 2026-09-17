@@ -59,6 +59,7 @@ library
     Aihc.Tc.Solve.Injective
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy
+    Aihc.Tc.TypeLitFamily
     Aihc.Tc.TypeScheme
     Aihc.Tc.Types
     Aihc.Tc.Unify

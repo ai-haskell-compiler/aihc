@@ -1,0 +1,36 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+scope 3 = "aihc-prim" GHC.Prim.Natural
+scope 4 = "aihc-base" GHC.TypeNats
+
+import headers
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  2.tOrdering :: 2.sType;
+  2.cLT :: 2.tOrdering;
+  3.tNatural :: 2.sType;
+  4.tCmpNat :: 3.tNatural 2.→ 3.tNatural 2.→ 2.tOrdering;
+  4.t+ :: 3.tNatural 2.→ 3.tNatural 2.→ 3.tNatural
+
+import synonyms
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
+
+pub type 1.tOrd (o : 2.tOrdering) :: 2.sType {
+    pub 1.cOrd :: ∀(o : 2.tOrdering). 1.tOrd o
+}
+
+pub type 1.tTagged (n : 3.tNatural) :: 2.sType {
+    pub 1.cTagged :: ∀(n : 3.tNatural). 1.tTagged n
+}
+
+val 1.vless :: 1.tOrd (4.tCmpNat (lit 3.tNatural 1) (lit 3.tNatural 2))
+ = 1.cOrd @2.cLT
+
+val 1.vsum :: 1.tTagged (4.t+ (lit 3.tNatural 2) (lit 3.tNatural 3))
+ = 1.cTagged @(lit 3.tNatural 5)

@@ -6,6 +6,7 @@
 -- resource and gives it the device classes that the handle layer uses.
 module GHC.IO.FD
   ( FD (..),
+    mkFD,
     stdin,
     stdout,
     stderr,
@@ -20,6 +21,7 @@ import Data.Bool (Bool (..))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Foreign.C.Error (Errno (..), eIO, errnoToIOError)
+import Foreign.C.Types (CInt)
 import GHC.Base (Monad (..), String)
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Buffer (newByteBuffer)
@@ -28,8 +30,11 @@ import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Runtime
   ( IOHandle,
     IORequest,
+    adoptIOHandle,
     awaitIO,
     closeIOHandle,
+    decodeError,
+    openResultError,
     stderrHandle,
     stdinHandle,
     stdoutHandle,
@@ -48,6 +53,7 @@ import GHC.Ptr (Ptr (..), plusPtr)
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..), showString)
 import GHC.Word (Word8)
+import System.Posix.Types (CDev, CIno)
 
 -- | A runtime IO resource. The runtime has no non-blocking mode, so the
 -- flag is always zero.
@@ -88,6 +94,21 @@ openFile path mode _nonBlocking = do
   case result of
     Left errno -> ioError (errnoToIOError "openFile" (Errno (fromIntegral errno)) Nothing (Just path))
     Right rawHandle -> return (FD rawHandle 0, Stream)
+
+-- | A raw file descriptor the program already has, as an 'FD'.
+--
+-- The stat result, the socket flag and the non-blocking flag are what GHC
+-- learns about a descriptor before wrapping it. The runtime learns them for
+-- itself -- it has no non-blocking mode of its own and treats every resource
+-- as a stream -- so the three are accepted and ignored, and the device type
+-- is the 'Stream' that 'openFile' also reports.
+mkFD :: CInt -> IOMode -> Maybe (IODeviceType, CDev, CIno) -> Bool -> Bool -> IO (FD, IODeviceType)
+mkFD descriptor mode _stat _isSocket _isNonBlocking = do
+  rawHandle <- adoptIOHandle (fromIntegral descriptor) (ioModeNumber mode)
+  errno <- openResultError rawHandle
+  case errno == 0 of
+    True -> return (FD rawHandle 0, Stream)
+    False -> ioError (errnoToIOError "GHC.IO.FD.mkFD" (Errno (fromIntegral errno)) Nothing Nothing)
 
 -- | Release the resource without a close error.
 release :: FD -> IO ()
@@ -144,10 +165,6 @@ writeAll location fd buffer offset count =
       case written == 0 of
         True -> ioError (errnoToIOError location eIO Nothing Nothing)
         False -> writeAll location fd buffer (offset + written) (count - written)
-
--- | The runtime encodes an error number @e@ as @-(e + 1)@.
-decodeError :: Int -> Int
-decodeError result = negate result - 1
 
 readIntoPtr :: Ptr IOHandle -> Ptr a -> Int -> Int -> IO Int
 readIntoPtr handle (Ptr address) = readIntoAddress handle address

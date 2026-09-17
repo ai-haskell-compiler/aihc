@@ -382,7 +382,8 @@ tyConNameFc env tyCon
 -- | Invisible kind parameters that the type constructor quantifies before visible arguments.
 extraKindVars :: ConvertEnv -> TyCon -> [TyVarId] -> Either String [TyVarId]
 extraKindVars env tyCon visible = do
-  ForAll vars _ _ <- kindScheme env tyCon
+  scheme <- kindScheme env tyCon
+  let ForAll vars _ _ = scheme
   let seen = map tvUnique visible
   pure (filter (\tyVar -> tvUnique tyVar `notElem` seen) vars)
 

@@ -6,7 +6,10 @@ import GHC.Base (Functor (..))
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Types (Bool (..), Ordering (..))
 
-data Proxy (a :: k) = Proxy
+-- | Written as GHC writes it, with the kind of @t@ left to inference: the
+-- kind variable is then an inferred binder of the constructor, so
+-- @Proxy \@a@ applies to @t@ rather than to its kind.
+data Proxy t = Proxy
 
 -- | Every 'Proxy' carries the same (absent) information, so any two of one
 -- type are equal.

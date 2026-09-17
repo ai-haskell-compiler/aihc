@@ -1,0 +1,53 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Char (GeneralCategory (..), readLitChar, lexLitChar)
+    import Data.Ix (index, inRange, range)
+
+    enumResults :: (Int, GeneralCategory, GeneralCategory, GeneralCategory, [GeneralCategory], Int)
+    enumResults =
+      ( fromEnum Space,
+        toEnum 29,
+        succ UppercaseLetter,
+        pred NotAssigned,
+        [Format ..],
+        length [minBound .. maxBound :: GeneralCategory]
+      )
+
+    ixResults :: ([GeneralCategory], Int, Bool, Bool)
+    ixResults =
+      ( range (Space, Control),
+        index (Space, NotAssigned) Format,
+        inRange (Control, PrivateUse) Format,
+        inRange (Control, PrivateUse) Space
+      )
+
+    classResults :: (Bool, Bool, Bool, Ordering, String)
+    classResults =
+      ( OtherLetter == OtherLetter,
+        OtherLetter == NotAssigned,
+        Space < Control,
+        compare NotAssigned Space,
+        show OtherPunctuation
+      )
+
+    foldableResults :: (Bool, Bool, String, String, Bool, Bool)
+    foldableResults =
+      ( notElem (3 :: Int) (Just 4),
+        notElem (3 :: Int) (Just 3),
+        concat (Just "ab"),
+        concatMap show (Just (7 :: Int)),
+        and (Just True),
+        elem 'x' (Right 'x' :: Either Int Char)
+      )
+
+    readResults :: ([(Char, String)], [(String, String)])
+    readResults = (readLitChar "\\nrest", lexLitChar "a\\nrest")
+output: |
+  (((I# 22),NotAssigned,LowercaseLetter,PrivateUse,(: Format (: Surrogate (: PrivateUse (: NotAssigned [])))),(I# 30)),((: Space (: LineSeparator (: ParagraphSeparator (: Control [])))),(I# 4),True,False),(True,False,True,GT,(: 'O' (: 't' (: 'h' (: 'e' (: 'r' (: 'P' (: 'u' (: 'n' (: 'c' (: 't' (: 'u' (: 'a' (: 't' (: 'i' (: 'o' (: 'n' []))))))))))))))))),(True,False,(: 'a' (: 'b' [])),(: '7' []),True,True),((: ('\n',(: 'r' (: 'e' (: 's' (: 't' []))))) []),(: ((: 'a' []),(: '\\' (: 'n' (: 'r' (: 'e' (: 's' (: 't' []))))))) [])))
+expression: |
+  (enumResults, ixResults, classResults, foldableResults, readResults)
+status: pass
+reason: GeneralCategory has the Show, Eq, Ord, Enum, Bounded and Ix instances GHC derives, Data.Char exports readLitChar and lexLitChar, and the Prelude fold helpers are Foldable-polymorphic as in base 4.21

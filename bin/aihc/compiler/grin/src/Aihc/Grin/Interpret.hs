@@ -42,9 +42,11 @@ import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Clock qualified as Host
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
+import GHC.IO.Handle.FD qualified as HandleFD
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
+import System.Posix.Internals qualified as Posix
 
 data InterpretError
   = InterpretUnboundVariable !GrinVar
@@ -2196,6 +2198,33 @@ callForeign foreignCall arguments
             Right path ->
               (: []) . RuntimeIORequest . GrinIORequest
                 <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinOpen path modeNumber)))
+  -- The program's standard descriptors are its own streams, which are the
+  -- ones the three calls above hand out and not the interpreter's. Any other
+  -- descriptor is one of the interpreter's process, and base turns it into a
+  -- Handle the way the runtime would; a descriptor that is not open is the
+  -- only failure either call reports, so both answer with EBADF.
+  | symbol == "aihc_io_descriptor_mode",
+    [descriptorValue] <- arguments = do
+      descriptor <- expectForeignInt symbol descriptorValue
+      case standardDescriptorMode descriptor of
+        Just mode -> pure [RuntimeLit (GrinLitInt IntRep (toInteger (ioModeNumber mode)))]
+        Nothing -> do
+          mode <- liftEvalIO (tryForeign (Posix.fdGetMode (fromInteger descriptor)))
+          pure [RuntimeLit (GrinLitInt IntRep (either (const badDescriptorResult) (toInteger . ioModeNumber) mode))]
+  | symbol == "aihc_io_adopt",
+    [descriptorValue, modeValue] <- arguments = do
+      descriptor <- expectForeignInt symbol descriptorValue
+      modeNumber <- expectForeignInt symbol modeValue
+      streams <- getsMachine machineStreams
+      case standardStream streams descriptor of
+        Just handle -> pure [RuntimeIOHandle (GrinIOHandle (fromInteger descriptor) handle)]
+        Nothing -> do
+          adopted <-
+            liftEvalIO
+              ( tryForeign
+                  (HandleFD.fdToHandle' (fromInteger descriptor) Nothing False "<file descriptor>" (hostIOMode modeNumber) True)
+              )
+          pure [either (const (RuntimeIOError badDescriptorErrno)) (RuntimeIOHandle . GrinIOHandle 3) adopted]
   | symbol == "aihc_io_open_result_error",
     [openResult] <- arguments =
       case openResult of
@@ -2271,6 +2300,42 @@ callForeign foreignCall arguments
           pure []
   where
     symbol = grinForeignCallSymbol foreignCall
+
+-- | The stream a standard descriptor of the program names.
+standardStream :: ProgramStreams -> Integer -> Maybe Handle
+standardStream streams descriptor =
+  case descriptor of
+    0 -> Just (programStdin streams)
+    1 -> Just (programStdout streams)
+    2 -> Just (programStderr streams)
+    _ -> Nothing
+
+-- | The mode a standard descriptor of the program was opened with.
+standardDescriptorMode :: Integer -> Maybe IOMode
+standardDescriptorMode descriptor =
+  case descriptor of
+    0 -> Just ReadMode
+    1 -> Just WriteMode
+    2 -> Just WriteMode
+    _ -> Nothing
+
+-- | The error a call that was handed a descriptor the process does not have
+-- reports, in the two shapes the runtime ABI has for an error.
+badDescriptorErrno :: Integer
+badDescriptorErrno = 9
+
+badDescriptorResult :: Integer
+badDescriptorResult = negate badDescriptorErrno - 1
+
+-- | The number an open request gives an 'IOMode', which is what
+-- @aihc_io_descriptor_mode@ answers with.
+ioModeNumber :: IOMode -> Int
+ioModeNumber mode =
+  case mode of
+    ReadMode -> 0
+    WriteMode -> 1
+    AppendMode -> 2
+    ReadWriteMode -> 3
 
 hostIOMode :: Integer -> IOMode
 hostIOMode mode =

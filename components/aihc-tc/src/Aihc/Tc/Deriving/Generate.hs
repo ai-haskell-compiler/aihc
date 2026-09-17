@@ -73,10 +73,11 @@ import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | The instance declarations for the selected deriving plans of a module. A plan
+-- | The instance declarations for every deriving plan of a module. A plan
 -- whose context is unresolved has already reported its error; a plan for a
 -- strategy or class the generator does not support reports a warning and
 -- produces no instance.
+-- | The instance declarations of the selected deriving plans of a module.
 generateDerivedInstances :: (TcDerivingPlan -> Bool) -> (Text, Text) -> Module -> TcM [Decl]
 generateDerivedInstances selected origin modu = do
   references <- getDerivingReferences
@@ -91,7 +92,10 @@ declDerivedInstances selected references primPackage origin decl =
         case fromAnnotation @TcDerivingAnnotation annotation of
           Just derivingAnnotation -> do
             kinds <- getKinds
-            catMaybes <$> mapM (generatePlan kinds references primPackage origin (peelDeclAnn inner)) (filter selected (tcDerivingPlans derivingAnnotation))
+            catMaybes
+              <$> mapM
+                (generatePlan kinds references primPackage origin (peelDeclAnn inner))
+                (filter selected (tcDerivingPlans derivingAnnotation))
           Nothing -> pure []
       rest <- declDerivedInstances selected references primPackage origin inner
       pure (own <> rest)
