@@ -1,0 +1,23 @@
+extensions:
+  - LambdaCase
+modules:
+  - |
+    module Test where
+
+    -- The first alternative of a lambda-case returns a variable its own
+    -- pattern binds. The type of the lambda-case comes from that
+    -- right-hand side, so the pattern binders are in scope for it.
+    indent :: [String] -> String
+    indent = \case
+      [err] -> err
+      err -> concatMap (" " <>) err
+
+    single :: Int -> Int
+    single = \case
+      n -> n + 1
+output: |
+  ((: 'o' (: 'n' (: 'l' (: 'y' [])))),(: ' ' (: 'a' (: ' ' (: 'b' [])))),(I# 42))
+expression: |
+  (indent ["only"], indent ["a", "b"], single 41)
+status: pass
+reason: inferring the type of a lambda-case scopes the first alternative's pattern binders so a right-hand side that returns one of them has a checked type
