@@ -61,6 +61,7 @@ in rec {
       "core-libs/aihc-prim/src/GHC/Prim.hs"
       "core-libs/aihc-prim/src/GHC/Prim/Base.hs"
       "core-libs/aihc-prim/src/GHC/Prim/IO.hs"
+      "core-libs/aihc-prim/src/GHC/Prim/Integer.hs"
       "core-libs/aihc-prim/src/GHC/Prim/Natural.hs"
       "core-libs/aihc-prim/src/GHC/Tuple.hs"
       "core-libs/aihc-prim/src/GHC/Types.hs"

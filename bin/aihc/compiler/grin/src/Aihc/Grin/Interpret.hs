@@ -7,6 +7,7 @@ module Aihc.Grin.Interpret
     RuntimeValue (..),
     interpretProgramBinding,
     interpretProgramIoBinding,
+    evalLiteralPrimitive,
   )
 where
 
@@ -41,7 +42,7 @@ import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Clock qualified as Host
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
-import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile)
+import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -305,6 +306,26 @@ interpretProgramBindingWith enterValue streams name program = withMachine stream
       forced <- forceValue value
       result <- enterValue forced
       renderRawValueM result
+
+-- | Run one primitive on literal arguments in a machine with no program.
+-- This defines the value of a primitive for the compile-time folding of
+-- 'Aihc.Fc.Fold', which the test suite checks against it. A primitive
+-- that gives anything but literals is a type error here.
+evalLiteralPrimitive :: Text -> [GrinLiteral] -> IO (Either InterpretError [GrinLiteral])
+evalLiteralPrimitive name arguments =
+  withMachine streams (GrinProgram [] [] [] [] []) $ \machine -> do
+    (result, _) <- runStateT (runExceptT action) machine
+    pure $ case result of
+      Right literals -> Right literals
+      Left (EvalInterpret err) -> Left err
+      Left (EvalRaised exception) -> Left (InterpretPrimitiveTypeError name exception)
+  where
+    streams = ProgramStreams {programStdin = stdin, programStdout = stdout, programStderr = stderr}
+    action = evalPrimitive name (map RuntimeLit arguments) >>= mapM literal
+    literal value =
+      case value of
+        RuntimeLit lit -> pure lit
+        other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
 -- | Retain raw allocation owners until the result or exception is rendered.
 -- An address can refer to an interior byte, so the scope frees only raw owners.

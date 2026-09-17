@@ -1,0 +1,13 @@
+status: pass
+reason: |
+  An error in a module hsc2hs generated is reported against the .hsc the
+  author wrote. hsc2hs marks its output with the line and file of the
+  source, and the install rewrites those pragmas into the #line directives
+  the front end carries into a span, so the file, the line, the column and
+  the excerpt all name the same place. Without that the span kept the
+  generated module's path and this file's line, and the excerpt came out of
+  the padding above.
+expect-error: |-
+  src/Broken.hsc:13:8: error: unbound term name ‘deliberatelyUnbound’
+    13 | oops = deliberatelyUnbound
+       |        ^^^^^^^^^^^^^^^^^^^

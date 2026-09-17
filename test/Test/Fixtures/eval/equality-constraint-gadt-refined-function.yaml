@@ -1,0 +1,23 @@
+extensions:
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  data Equal a b where
+    Refl :: Equal a a
+  applyRefined :: Equal a (Flag -> Flag) -> a -> Flag -> Flag
+  applyRefined Refl f x = f x
+  negate' :: Flag -> Flag
+  negate' Off = On
+  negate' On = Off
+  result = applyRefined Refl negate' Off
+expression: result
+output: |
+  On
+status: pass
+reason: A given equality that gives the head of an application its arrow type supplies the cast the Core needs.
+
+evaluators:
+- grin

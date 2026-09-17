@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -763,6 +763,10 @@ data ArgPlan = ArgPlan
     argPlanInstantiation :: Maybe (PendingTcAnnotation, [Ct]),
     -- | The wanted equality that gives an unknown function type an arrow.
     argPlanArrowCts :: [Ct],
+    -- | The arrow type the function is cast to, and the evidence of the
+    -- equality that proves the cast. Only set when the function's type was
+    -- not already an arrow.
+    argPlanArrowCast :: Maybe (TcType, EvVar),
     argPlanExpected :: TcType,
     argPlanArgument :: ArgState,
     argPlanIsInfixRhs :: Bool
@@ -874,16 +878,19 @@ planSpine = go
                 fresh = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables typeArgs))
             pure (Just (pending, cts), instantiated, IntSet.union instantiationVariables fresh)
           else pure (Nothing, zonkedFunTy, instantiationVariables)
-      (expectedArgTy, resultTy, arrowCts) <-
+      (expectedArgTy, resultTy, arrowCts, arrowCast) <-
         case instantiatedFunTy of
-          TcFunTy expectedArgTy resultTy -> pure (expectedArgTy, resultTy, [])
+          TcFunTy expectedArgTy resultTy -> pure (expectedArgTy, resultTy, [], Nothing)
           _ -> do
             argTy <- freshMetaTv
             resTy <- freshMetaTv
             let arrowTy = TcFunTy argTy resTy
             quickLookUnify instantiationVariables' instantiatedFunTy arrowTy
             ev <- freshEvVar
-            pure (argTy, resTy, [mkWantedCt (EqPred instantiatedFunTy arrowTy) ev (AppOrigin sp) sp])
+            -- A given equality can be what gives the function an arrow
+            -- type, and then FC needs the cast the proof carries. The
+            -- annotation is dropped again when the proof is reflexivity.
+            pure (argTy, resTy, [mkWantedCt (EqPred instantiatedFunTy arrowTy) ev (AppOrigin sp) sp], Just (arrowTy, ev))
       argState <-
         if isGuardedArgument arg
           then do
@@ -897,6 +904,7 @@ planSpine = go
               { argPlanSpan = sp,
                 argPlanInstantiation = instantiation,
                 argPlanArrowCts = arrowCts,
+                argPlanArrowCast = arrowCast,
                 argPlanExpected = expectedArgTy,
                 argPlanArgument = argState,
                 argPlanIsInfixRhs = isInfixRhs
@@ -918,7 +926,13 @@ checkSpineSteps = go
           pure (expr', cts <> moreCts)
         StepArg plan -> do
           let sp = argPlanSpan plan
-              fun' = maybe fun (\(pending, _) -> annotatePendingExprAt sp pending fun) (argPlanInstantiation plan)
+              instantiated = maybe fun (\(pending, _) -> annotatePendingExprAt sp pending fun) (argPlanInstantiation plan)
+              -- An infix node is rebuilt by matching on the function, so
+              -- an annotation there would hide the operator. An infix
+              -- operator's type is its own, never refined by a given.
+              fun' = case argPlanArrowCast plan of
+                Just (arrowTy, ev) | not (argPlanIsInfixRhs plan) -> annotateFunCast arrowTy ev instantiated
+                _ -> instantiated
               instantiationCts = maybe [] snd (argPlanInstantiation plan)
           expectedArgTy <- zonkType (argPlanExpected plan)
           (arg', argCts) <-

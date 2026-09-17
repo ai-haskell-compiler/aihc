@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+
 -- | Type family reduction.
 --
 -- A saturated application of a type family rewrites to the right-hand
@@ -17,8 +20,9 @@ module Aihc.Tc.Solve.Family
 where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
-import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, lookupTyConByIdentity)
+import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, getWiring, lookupTyConByIdentity)
 import Aihc.Tc.Types
+import Aihc.Tc.Wiring (TcWiring (..))
 import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
@@ -105,12 +109,66 @@ reduceHead ty =
             length arguments >= tciArity info -> do
               let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
               kinds <- getKinds
-              equations <- familyEquations tyCon
-              case firstEquation kinds equations familyArguments of
+              wiring <- getWiring
+              -- A built-in family has no equations to consult: the solver
+              -- computes it, and only when every argument is a literal.
+              case builtinTypeLitFamily wiring kinds tyCon familyArguments of
                 Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
-                Nothing -> pure ty
+                Nothing -> do
+                  equations <- familyEquations tyCon
+                  case firstEquation kinds equations familyArguments of
+                    Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
+                    Nothing -> pure ty
         _ -> pure ty
     _ -> pure ty
+
+-- | The value of a built-in type-literal family, when the family is one
+-- and every argument is a literal.
+--
+-- The operations are the compiler's own -- what @CmpNat@ or @+@ mean is
+-- not something a library can say -- but where they are declared is, so
+-- the module comes from the wiring and a family of the same name declared
+-- anywhere else stays an ordinary one.
+builtinTypeLitFamily :: TcWiring -> TcKinds -> TyCon -> [TcType] -> Maybe TcType
+builtinTypeLitFamily wiring kinds tyCon arguments
+  | tyConModuleName tyCon `notElem` tcWiringTypeLitFamilyModules wiring = Nothing
+  | otherwise =
+      case (tyConName tyCon, arguments) of
+        -- GHC selects @Compare@ by the kind of its arguments, with one
+        -- instance per sort. The solver knows the sort from the literal
+        -- itself, so it computes the comparison and no kind-indexed
+        -- instance matching is needed.
+        ("Compare", [TcTyLit left, TcTyLit right]) -> compareLiterals left right
+        ("CmpNat", [TcTyLit (TyLitNat left), TcTyLit (TyLitNat right)]) -> ordering (compare left right)
+        ("CmpSymbol", [TcTyLit (TyLitSymbol left), TcTyLit (TyLitSymbol right)]) -> ordering (compare left right)
+        ("CmpChar", [TcTyLit (TyLitChar left), TcTyLit (TyLitChar right)]) -> ordering (compare left right)
+        ("+", [Nat left, Nat right]) -> natural (left + right)
+        ("*", [Nat left, Nat right]) -> natural (left * right)
+        -- Subtraction on naturals is partial, and a family that does not
+        -- reduce is stuck rather than wrong.
+        ("-", [Nat left, Nat right]) | left >= right -> natural (left - right)
+        ("^", [Nat left, Nat right]) | right <= exponentLimit -> natural (left ^ right)
+        ("Div", [Nat left, Nat right]) | right /= 0 -> natural (left `div` right)
+        ("Mod", [Nat left, Nat right]) | right /= 0 -> natural (left `mod` right)
+        ("Log2", [Nat value]) | value > 0 -> natural (integerLog2 value)
+        _ -> Nothing
+  where
+    compareLiterals left right =
+      case (left, right) of
+        (TyLitNat a, TyLitNat b) -> ordering (compare a b)
+        (TyLitSymbol a, TyLitSymbol b) -> ordering (compare a b)
+        (TyLitChar a, TyLitChar b) -> ordering (compare a b)
+        _ -> Nothing
+    natural = Just . TcTyLit . TyLitNat
+    ordering value = Just (TcTyCon (kindsDataCon kinds (T.pack (show value)) 0) [])
+    -- A literal exponent large enough to exhaust memory is left stuck
+    -- rather than evaluated. GHC has no such bound; nothing that reaches
+    -- here needs one this large.
+    exponentLimit = 10000
+    integerLog2 value = toInteger (length (takeWhile (<= value) (iterate (* 2) 2)))
+
+pattern Nat :: Integer -> TcType
+pattern Nat value = TcTyLit (TyLitNat value)
 
 -- | The equations of a type family, in declaration order.
 familyEquations :: TyCon -> TcM [TypeFamilyInstanceInfo]

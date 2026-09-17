@@ -8,8 +8,6 @@ module Broken (answer, oops) where
 -- of the module with a line pragma. An error reported at the physical
 -- line of the generated module would land on one of these comments.
 
-answer :: Int
 answer = #{const BROKEN_ANSWER}
 
-oops :: Int
 oops = deliberatelyUnbound

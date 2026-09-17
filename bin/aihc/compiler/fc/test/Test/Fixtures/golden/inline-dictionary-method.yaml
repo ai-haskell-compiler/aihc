@@ -72,16 +72,45 @@ expected: |-
   val 1.v$fMyEqBool$cneq :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
-      case 1.v$fMyEqBool$ceq x y as (_scrut : 2.tBool) return (2.tBool) of {
+      case x as (_scrut : 2.tBool) return (2.tBool) of {
           2.cTrue →
-              2.cFalse;
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cTrue →
+                      2.cFalse;
+                  _ →
+                      2.cTrue
+              };
           2.cFalse →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cFalse →
+                      2.cFalse;
+                  _ →
+                      2.cTrue
+              };
+          _ →
               2.cTrue
       }
 
   pub val 1.veqBool :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
-      1.v$fMyEqBool$ceq x y
+      case x as (_scrut : 2.tBool) return (2.tBool) of {
+          2.cTrue →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cTrue →
+                      2.cTrue;
+                  _ →
+                      2.cFalse
+              };
+          2.cFalse →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cFalse →
+                      2.cTrue;
+                  _ →
+                      2.cFalse
+              };
+          _ →
+              2.cFalse
+      }
 status: pass
 reason: Each method body of a dictionary gets a helper, and a method of a known dictionary becomes a direct call of the helper.

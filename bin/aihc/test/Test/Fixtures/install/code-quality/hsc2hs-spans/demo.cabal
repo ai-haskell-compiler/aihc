@@ -1,7 +1,6 @@
 cabal-version: 3.0
 name: demo
 version: 0.1.0.0
-build-type: Simple
 
 library
   exposed-modules: Broken

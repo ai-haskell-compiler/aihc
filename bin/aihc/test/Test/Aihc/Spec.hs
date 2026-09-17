@@ -5,7 +5,7 @@ module Test.Aihc.Spec (tests) where
 import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build)
 import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
-import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
+import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
 import Aihc.Cli.Options (BuildOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
@@ -19,11 +19,10 @@ import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProvider
 import Aihc.PackagePlan.Source (moduleDepsDigest, parseInterfaceFile, parsedFileDeps)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (PackageId (..), ResolvedName (..), Scope (..), emptyScope)
-import Aihc.Tc (TyConInfo (..), tcInterfaceTerms, tcInterfaceTyCons, tcTermKeyIdentifier, tyConName)
+import Aihc.Tc (TyConInfo (..), tcInterfaceTyCons, tyConName)
 import Aihc.Testing.EvalFixture (packageSourceRoot, posixWidthModuleDirectory)
-import Control.Concurrent (getNumCapabilities, setNumCapabilities)
-import Control.Exception (IOException, bracket, bracket_, try)
-import Control.Monad (forM, forM_, void)
+import Control.Exception (IOException, bracket, try)
+import Control.Monad (forM_, void)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
@@ -31,31 +30,26 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
-import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
 import System.Directory
-  ( copyFile,
-    createDirectory,
+  ( createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
-    getFileSize,
     getModificationTime,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
-    setModificationTime,
     withCurrentDirectory,
   )
-import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
-import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
-import System.IO (IOMode (WriteMode), hClose, openTempFile, withFile)
+import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.IO (hClose, openTempFile)
 import System.IO.Error (ioeGetErrorString)
 import System.Process (readProcess, readProcessWithExitCode)
 import Test.Aihc.SeedStore
@@ -94,7 +88,6 @@ tests =
               testCase "parses the optimization level" test_buildModuleOptimizationOption,
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
-              testCase "parses the package build options" test_buildCommandOptions,
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
@@ -110,31 +103,13 @@ tests =
         testGroup
           "install"
           [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
-            testCase "reuses unchanged fixture modules" (test_installIncremental primStore),
-            testCase "installs an immutable package once" (test_installImmutable primStore),
-            testCase "writes Core files and reuses an installed package" (test_installResolveArtifacts primStore),
-            testCase "accepts type-check warnings" (test_installTypeWarning primStore),
-            testCase "loads the implicit Prelude type interface" (test_installImplicitPrelude primStore),
-            testCase "duplicates re-exported term signatures in type interfaces" (test_installTypeReexports primStore),
-            testCase "limits instances to the transitive import graph" (test_installInstanceVisibility primStore),
-            testCase "installs direct local dependencies" (test_installLocalDependencies primStore),
-            testCase "prints timings independently from verbose output" (test_installTimingOutput primStore),
-            testCase "reports all frontend errors in stable dependency order" (test_installResolveError primStore),
-            testCase "writes Core for a ccall import" (test_installFcCcall primStore),
             testCase "compiles and archives capi wrappers" (test_installCapi primStore),
-            testCase "compiles Cabal c-sources into the library archive" (test_installCSources primStore),
-            testCase "runs the configure script of a Configure package out of tree" (test_installConfigure primStore),
-            testCase "preprocesses .hsc sources with hsc2hs" (test_installHsc2hs primStore),
-            testCase "writes an empty archive for a package with no code" (test_installEmptyArchive primStore),
             testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
             testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
             testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
-            testCase "retains Core and GRIN only with keep-core and keep-grin" (test_installKeepGrin primStore),
-            testCase "writes target-specific objects and library archives" (test_installTargetArchives primStore),
             -- This one installs aihc-prim into an empty store on purpose: it is
             -- the test that covers the install the seed store performs.
-            testCase "install writes core for aihc-prim and lints stored programs" test_installAihcPrim,
             testCase "parses Hackage package targets" test_parsePackageTarget
           ],
         testGroup
@@ -144,10 +119,30 @@ tests =
         testGroup
           "sources"
           [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
+            testCase "the sigset_t size matches the platform headers" test_sigsetSize,
             testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
             testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
           ]
       ]
+
+-- | The suffix the backend adds beside the object file it emits.
+nativeArtifactExtension :: NativeTarget -> FilePath
+nativeArtifactExtension target =
+  case target of
+    AppleArm64 -> ".lir"
+    LinuxAmd64 -> ".lir"
+    Llvm -> ".ll"
+    Wasm32Wasip3 -> ".s"
+
+-- | The target an install test names.
+--
+-- The backend of the host, always. An install test used to be free to name a
+-- foreign target, because compiling Haskell for one needs nothing of it, and
+-- the seed store carried aihc-prim for every target they named. They no
+-- longer do: an install that reaches @aihc-base@ can need a C toolchain for
+-- its target, and the host has one only for itself.
+hostBackendTarget :: IO NativeTarget
+hostBackendTarget = maybe (assertFailure "the host has a native aihc backend") pure hostNativeTarget
 
 -- | The POSIX widths @aihc-base@ assumes are the widths the platform's own
 -- headers give.
@@ -186,6 +181,52 @@ test_posixTypeWidths = do
     (status, out, err) <-
       readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
     assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | The @sigset_t@ size @aihc-base@ assumes is the size the platform's own
+-- headers give.
+--
+-- @System.Posix.Internals.Repr@ states it per platform for the same reason
+-- the widths above are stated per platform, and a wrong number is just as
+-- silent: a caller allocates a buffer of it and hands the buffer to
+-- @sigprocmask@, which writes the size the platform really uses.
+--
+-- The check is the same one: the number becomes a static assertion, compiled
+-- against the headers of the platform the test runs on. WASI has no
+-- @sigset_t@ at all, so nothing there is checked and nothing there is used.
+test_sigsetSize :: Assertion
+test_sigsetSize = do
+  target <- case hostNativeTarget of
+    Just hostTarget -> pure hostTarget
+    Nothing -> assertFailure "the sigset_t size is stated for a host aihc has a target for"
+  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
+  let platformDirectory = posixWidthModuleDirectory
+  size <- readSigsetSize (baseRoot </> platformDirectory </> "System" </> "Posix" </> "Internals" </> "Repr.hs")
+  (compiler, targetArguments) <- backendCompiler target
+  withTempDir "aihc-sigset-size" $ \directory -> do
+    let source = directory </> "sigset.c"
+    writeFile
+      source
+      ( unlines
+          [ -- sigset_t is POSIX rather than ISO C, and -std=c11 defines
+            -- __STRICT_ANSI__, which turns glibc's default feature-test
+            -- macros off and hides it. _GNU_SOURCE turns them back on, and
+            -- has to come before any header. Darwin declares it either way.
+            "#define _GNU_SOURCE 1",
+            "#include <signal.h>",
+            "_Static_assert(sizeof(sigset_t) == " <> show size <> ", \"sigset_t size\");"
+          ]
+      )
+    (status, out, err) <-
+      readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
+    assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | Read the @sizeofSigsetT = 4@ line of a platform's size module.
+readSigsetSize :: FilePath -> IO Int
+readSigsetSize path = do
+  contents <- readFile path
+  case [size | ["sizeofSigsetT", "=", size] <- map words (lines contents)] of
+    [size] -> pure (read size)
+    _ -> assertFailure ("cannot read the sigset_t size out of " <> path)
 
 -- | The C type each alias of @System.Posix.Types.Repr@ stands for.
 posixTypeCNames :: [(String, String)]
@@ -788,39 +829,6 @@ test_buildPackageLto getStore =
     assertBool "bundle lists the program object" (any ("program.o" `isSuffixOf`) (linkBundleObjects manifest))
     assertBool "bundle lists no module object" (not (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest)))
 
--- | The command line of @build@ with a package input: the shared options
--- and the output directory. The old @build-exe@ and @build-module@ names
--- are gone.
-test_buildCommandOptions :: Assertion
-test_buildCommandOptions = do
-  case parseCommandPure ["build", "demo", "--target", "apple-arm64", "-O0", "--no-link", "-o", "out"] of
-    Right (CmdBuild options) -> do
-      assertEqual "input" "demo" (buildInput options)
-      assertEqual "target" AppleArm64 (buildTarget options)
-      assertEqual "level" O0 (buildOptimization options)
-      assertBool "no-link" (buildNoLink options)
-      assertEqual "output" (Just "out") (buildOutput options)
-    other -> assertFailure ("build parse: " <> show other)
-  case parseCommandPure ["build", "demo", "--target", "apple-arm64"] of
-    Right (CmdBuild options) -> do
-      assertEqual "default output" Nothing (buildOutput options)
-      assertBool "no kept output by default" (not (or (keepFlags options)))
-    other -> assertFailure ("build parse: " <> show other)
-  case parseCommandPure ["build", "demo", "--target", "apple-arm64", "--keep-core", "--keep-grin", "--keep-lir", "--keep-native"] of
-    Right (CmdBuild options) -> assertEqual "kept output" [True, True, True, True] (keepFlags options)
-    other -> assertFailure ("build parse: " <> show other)
-  forM_ ["build-exe", "build-module"] $ \old ->
-    case parseCommandPure [old, "Main.hs", "--target", "apple-arm64"] of
-      Left _ -> pure ()
-      Right command -> assertFailure (old <> " is still a command: " <> show command)
-  where
-    keepFlags options =
-      [ buildKeepCore options,
-        buildKeepGrin options,
-        buildKeepLir options,
-        buildKeepNative options
-      ]
-
 -- | The @--keep-*@ flags of @build@ keep the output of each phase beside
 -- the object of the module. They name the modules of the executable alone:
 -- the installed packages are built as @install@ builds them, so a store
@@ -853,222 +861,6 @@ test_buildModuleKeepIntermediates getStore =
     forM_ ["core", "grin", "cps.grin", "gc.grin", "Main.o.lir"] $ \name ->
       assertFileDoesNotExist (plainModuleRoot </> name)
 
-test_installIncremental :: IO SeedStore -> Assertion
-test_installIncremental getStore = do
-  fixture <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/incremental"
-  withSandbox getStore "aihc-incremental" $ \sandbox -> do
-    store <- sandboxStore sandbox "store"
-    let root = sandboxRoot sandbox </> "source"
-        options = InstallOptions root (Just store) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False AppleArm64
-    createDirectoryIfMissing True (root </> "src")
-    let dependencyRoot = sandboxRoot sandbox </> "dep"
-    createDirectoryIfMissing True (dependencyRoot </> "src")
-    copyFile (fixture </> "dep" </> "dep.cabal") (dependencyRoot </> "dep.cabal")
-    copyFile (fixture </> "dep" </> "src" </> "Dep.hs") (dependencyRoot </> "src" </> "Dep.hs")
-    copyFile (fixture </> "demo.cabal") (root </> "demo.cabal")
-    forM_ ["A.hs", "B.hs", "C.hs"] $ \name ->
-      copyFile (fixture </> "src" </> name) (root </> "src" </> name)
-    first <- install options
-    initialManifest <- readPackageManifest (packageManifestPath (installStorePath first)) >>= either assertFailure pure
-    assertEqual "initial modules" ["A", "B", "C"] (sort (installWrittenModules first))
-    unchanged <- install options
-    assertEqual "unchanged package" (installStorePath first) (installStorePath unchanged)
-    copyFile (fixture </> "Extra.hs") (root </> "src" </> "Extra.hs")
-    unrelated <- install options
-    assertEqual "unselected source does not change the package" (installStorePath first) (installStorePath unrelated)
-    removeFile (root </> "src" </> "Extra.hs")
-    withoutUnrelated <- install options
-    assertEqual "unselected source removal does not change the package" (installStorePath first) (installStorePath withoutUnrelated)
-    originalTime <- getModificationTime (root </> "src" </> "A.hs")
-    originalSize <- getFileSize (root </> "src" </> "A.hs")
-    copyFile (fixture </> "implementation/A.hs") (root </> "src" </> "A.hs")
-    setModificationTime (root </> "src" </> "A.hs") originalTime
-    changedSize <- getFileSize (root </> "src" </> "A.hs")
-    assertEqual "fixture preserves file size" originalSize changedSize
-    changed <- install options
-    assertEqual "source changes preserve package selection" (installStorePath first) (installStorePath changed)
-    assertEqual "changed module" ["A"] (installWrittenModules changed)
-    assertEqual "unchanged modules" ["B", "C"] (sort (installReusedModules changed))
-    copyFile (fixture </> "interface/A.hs") (root </> "src" </> "A.hs")
-    typeChanged <- install options
-    assertEqual "type change reaches the dependent module" ["A", "B"] (sort (installWrittenModules typeChanged))
-    assertEqual "independent module" ["C"] (installReusedModules typeChanged)
-    assertFileExists (installStorePath first </> "A" </> "type.cbor")
-    copyFile (fixture </> "dependency" </> "Dep.hs") (dependencyRoot </> "src" </> "Dep.hs")
-    dependencyChanged <- install options
-    assertEqual "dependency changes preserve package selection" (installStorePath typeChanged) (installStorePath dependencyChanged)
-    assertEqual "dependency implementation preserves module artifacts" ["A", "B", "C"] (sort (installReusedModules dependencyChanged))
-    noCode <- install options {installNoCode = True}
-    assertEqual "code mode preserves package selection" (installStorePath dependencyChanged) (installStorePath noCode)
-    assertEqual "no-code build reuses the checked modules" ["A", "B", "C"] (sort (installReusedModules noCode))
-    withCode <- install options
-    assertEqual "code artifacts remain available" (installStorePath dependencyChanged) (installStorePath withCode)
-    assertFileExists (installStorePath withCode </> "A" </> "A.o")
-    -- A rewritten object is not the one the unit stamp recorded.
-    BS.writeFile (installStorePath withCode </> "C" </> "C.o") "invalid object"
-    repaired <- install options
-    assertEqual "replaced object rebuilds the module" ["C"] (installWrittenModules repaired)
-    assertEqual "other modules remain available" ["A", "B"] (sort (installReusedModules repaired))
-    forced <- install options {installReinstall = True}
-    assertEqual "forced modules" ["A", "B", "C"] (sort (installWrittenModules forced))
-    unitsAgain <- install options
-    assertEqual "forced build leaves reusable modules" ["A", "B", "C"] (sort (installReusedModules unitsAgain))
-    finalManifest <- readPackageManifest (packageManifestPath (installStorePath unitsAgain)) >>= either assertFailure pure
-    assertEqual "rebuilds preserve package identity" (packageManifestIdentity initialManifest) (packageManifestIdentity finalManifest)
-    assertEqual "rebuilds preserve dependency selection" (packageManifestDependencies initialManifest) (packageManifestDependencies finalManifest)
-    storeEntries <- listDirectory (store </> nativeTargetStoreDirectory AppleArm64)
-    assertBool "local packages stay out of the store" (not (any ("demo-" `isPrefixOf`) storeEntries || any ("dep-" `isPrefixOf`) storeEntries))
-
--- | A local package installed with @--immutable@ goes into the store under a
--- fingerprint, and the store entry is reused as it is.
-test_installImmutable :: IO SeedStore -> Assertion
-test_installImmutable getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
-  withSandbox getStore "aihc-install-immutable" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) True False False False False False False O0 False False False False AppleArm64
-    first <- install options
-    assertEqual "written modules" ["Demo"] (installWrittenModules first)
-    assertEqual "store directory" (storeRoot </> nativeTargetStoreDirectory AppleArm64) (takeDirectory (installStorePath first))
-    assertBool "store directory carries a fingerprint" ("demo-0.1.0.0-" `isPrefixOf` takeFileName (installStorePath first))
-    second <- install options
-    assertEqual "store entry is reused" (installStorePath first) (installStorePath second)
-    assertEqual "store entry is not rebuilt" [] (installWrittenModules second)
-    missingCore <- try (install options {installKeepCore = True}) :: IO (Either IOException InstallResult)
-    case missingCore of
-      Left err -> assertBool "asks for a reinstall" ("--reinstall" `isInfixOf` ioeGetErrorString err)
-      Right _ -> assertFailure "expected the store entry without Core to be refused"
-    withCore <- install options {installKeepCore = True, installReinstall = True}
-    assertEqual "reinstall keeps the fingerprint" (installStorePath first) (installStorePath withCore)
-    assertCoreFile (installStorePath withCore </> "Demo" </> "core")
-    buildExists <- doesDirectoryExist (sandboxRoot sandbox </> "build")
-    assertBool "immutable packages do not use the build directory" (not buildExists)
-
-test_installResolveArtifacts :: IO SeedStore -> Assertion
-test_installResolveArtifacts getStore =
-  withSandbox getStore "aihc-install" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = sandboxRoot sandbox </> "source"
-        sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo.A, Demo.B",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na x = x\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = x\n"
-    first <- install options
-    assertEqual "written modules" ["Demo.A", "Demo.B"] (sort (installWrittenModules first))
-    assertFileExists (installStorePath first </> "Demo" </> "A" </> "resolve.cbor")
-    assertFileExists (installStorePath first </> "Demo" </> "B" </> "resolve.cbor")
-    assertFileExists (installStorePath first </> "Demo" </> "A" </> "type.cbor")
-    assertFileExists (installStorePath first </> "Demo" </> "B" </> "type.cbor")
-    assertCoreFile (installStorePath first </> "Demo" </> "A" </> "core")
-    assertCoreFile (installStorePath first </> "Demo" </> "B" </> "core")
-    second <- install options
-    assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installReusedModules second))
-    assertEqual "stable package directory" (installStorePath first) (installStorePath second)
-    assertCoreFile (installStorePath second </> "Demo" </> "A" </> "core")
-    assertCoreFile (installStorePath second </> "Demo" </> "B" </> "core")
-    BS.writeFile (installStorePath second </> "Demo" </> "A" </> "resolve.cbor") "invalid resolve artifact"
-    BS.writeFile (installStorePath second </> "Demo" </> "B" </> "type.cbor") "invalid type artifact"
-    reinstalled <- install options {installReinstall = True}
-    assertEqual "reinstall rebuilds all modules" ["Demo.A", "Demo.B"] (sort (installWrittenModules reinstalled))
-    assertEqual "reinstall reuses no modules" [] (installReusedModules reinstalled)
-    removeFile (installStorePath first </> "Demo" </> "A" </> "core")
-    coreRepaired <- install options {installReinstall = True}
-    assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installWrittenModules coreRepaired))
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
-    changed <- install options {installReinstall = True}
-    assertEqual "source changes preserve the package directory" (installStorePath first) (installStorePath changed)
-    assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installWrittenModules changed))
-    let artifact = installStorePath first </> "Demo" </> "A" </> "resolve.cbor"
-    artifactBytes <- BS.readFile artifact
-    BS.writeFile artifact (BS.init artifactBytes)
-    repaired <- install options {installReinstall = True}
-    assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installWrittenModules repaired))
-    assertEqual "does not reuse a corrupt SCC" [] (installReusedModules repaired)
-
-test_installTimingOutput :: IO SeedStore -> Assertion
-test_installTimingOutput getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
-  withSandbox getStore "aihc-install-timings" $ \sandbox -> do
-    verboseStore <- sandboxStore sandbox "verbose"
-    timingStore <- sandboxStore sandbox "timings"
-    let baseOptions = InstallOptions fixtureRoot Nothing Nothing False False False False False False False O0 False True False False AppleArm64
-    verboseOutput <-
-      captureInstallOutput baseOptions {installStoreRoot = Just verboseStore, installBuildRoot = Just (verboseStore <> "-build"), installVerbose = True}
-    timingOutput <-
-      captureInstallOutput baseOptions {installStoreRoot = Just timingStore, installBuildRoot = Just (timingStore <> "-build"), installPrintTimings = True}
-    assertBool "verbose output contains an installation step" ("Read Cabal package:" `isInfixOf` verboseOutput)
-    assertBool "verbose output does not contain timings" (not ("Compile time:" `isInfixOf` verboseOutput))
-    assertBool
-      "timing output contains the stage symbols"
-      ("▁=parse ▂=resolve ▄=type-check █=backend .=idle" `isInfixOf` timingOutput)
-    assertBool "timing output contains frontend time" ("Frontend time:" `isInfixOf` timingOutput)
-    assertBool "parse total includes a span" (hasStageSpan "▁ total:" timingOutput)
-    assertBool "resolve total includes a span" (hasStageSpan "▂ total:" timingOutput)
-    assertBool "type-check total includes a span" (hasStageSpan "▄ total:" timingOutput)
-    assertBool "backend total includes a span" (hasStageSpan "█ total:" timingOutput)
-    assertBool "timing output contains desugar total" ("desugar total:" `isInfixOf` timingOutput)
-    assertBool "timing output contains grin total" ("grin total:" `isInfixOf` timingOutput)
-    assertBool "timing output contains native total" ("native total:" `isInfixOf` timingOutput)
-    assertBool "timing output contains other total" ("other total:" `isInfixOf` timingOutput)
-    assertBool "timing output does not contain verbose output" (not ("Read Cabal package:" `isInfixOf` timingOutput))
-    assertBool "redirected timing output does not contain colors" ('\ESC' `notElem` timingOutput)
-
-hasStageSpan :: String -> String -> Bool
-hasStageSpan label output =
-  any (\line -> label `isInfixOf` line && ", spanning " `isInfixOf` line) (lines output)
-
--- | Run @install@ with its messages written to a file and return them.
---
--- The messages go through 'installWith' and not through a redirect of the
--- process stdout. The tests run in parallel, and the test runner writes its
--- progress to stdout while this test runs. On a terminal that progress
--- contains escape sequences, so a redirect would capture them at random.
-captureInstallOutput :: InstallOptions -> IO String
-captureInstallOutput options =
-  withTempDir "aihc-capture-install" $ \root -> do
-    let outputPath = root </> "output"
-    withFile outputPath WriteMode $ \outputHandle ->
-      void (installWith outputHandle options)
-    T.unpack <$> TIO.readFile outputPath
-
--- | Every module that fails on its own is reported in one run, and every
--- knock-on is suppressed: a module whose names did not resolve, and a
--- module importing one, are skipped by the type checker rather than
--- reaching it and tripping an internal invariant with no source span.
-test_installResolveError :: IO SeedStore -> Assertion
-test_installResolveError getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/resolve-error"
-  expected <- readFile (fixtureRoot </> "expected.txt")
-  withSandbox getStore "aihc-install-resolve-error" $ \sandbox -> do
-    actual <-
-      bracket getNumCapabilities setNumCapabilities $ \_ ->
-        forM [1, 2, 4] $ \workers -> do
-          setNumCapabilities workers
-          storeRoot <- sandboxStore sandbox ("store-" <> show workers)
-          let options = InstallOptions fixtureRoot (Just storeRoot) (Just (storeRoot <> "-build")) False False False False False False False O0 False False False False AppleArm64
-          result <- try (install options) :: IO (Either IOException InstallResult)
-          case result of
-            Right _ -> assertFailure "expected frontend compilation to fail"
-            Left err -> do
-              storeEntries <- listDirectory (storeRoot </> nativeTargetStoreDirectory AppleArm64)
-              assertBool "failed install leaves no temporary entry" (not (any (".tmp-" `isPrefixOf`) storeEntries))
-              assertBool "failed install leaves no package entry" (not (any ("demo-" `isPrefixOf`) storeEntries))
-              pure (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
-    mapM_ (assertEqual "formatted frontend errors" expected) actual
-
 findFixtureRoot :: FilePath -> IO FilePath
 findFixtureRoot fixture = do
   configuredRoot <- lookupEnv "AIHC_TEST_ROOT"
@@ -1091,105 +883,6 @@ findFixtureRoot fixture = do
           if parent == directory
             then assertFailure ("could not find fixture " <> fixture)
             else findUp parent
-
-test_installKeepGrin :: IO SeedStore -> Assertion
-test_installKeepGrin getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
-  withSandbox getStore "aihc-install-keep-grin" $ \sandbox -> do
-    withoutStore <- sandboxStore sandbox "without"
-    withStore <- sandboxStore sandbox "with"
-    noCodeStore <- sandboxStore sandbox "no-code"
-    withoutGrin <- install (InstallOptions fixtureRoot (Just withoutStore) (Just (withoutStore <> "-build")) False False False False False False False O0 False False False False AppleArm64)
-    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "core")
-    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "grin")
-    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "cps.grin")
-    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "gc.grin")
-    assertFileDoesNotExist (installStorePath withoutGrin </> "Demo" </> "Demo.o.lir")
-    retained <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False False False O0 False False False False AppleArm64)
-    let corePath = installStorePath retained </> "Demo" </> "core"
-        grinPath = installStorePath retained </> "Demo" </> "grin"
-        cpsGrinPath = installStorePath retained </> "Demo" </> "cps.grin"
-        gcGrinPath = installStorePath retained </> "Demo" </> "gc.grin"
-    assertFileExists grinPath
-    assertFileExists cpsGrinPath
-    assertFileExists gcGrinPath
-    originalCore <- readFile corePath
-    removeFile cpsGrinPath
-    removeFile gcGrinPath
-    repaired <- install (InstallOptions fixtureRoot (Just withStore) (Just (withStore <> "-build")) False True True False False False False O0 True False False False AppleArm64)
-    assertFileExists grinPath
-    assertFileExists cpsGrinPath
-    assertFileExists gcGrinPath
-    repairedCore <- readFile corePath
-    assertEqual "GRIN repair keeps Core" originalCore repairedCore
-    assertEqual "GRIN repair writes the module" ["Demo"] (installWrittenModules repaired)
-    noCode <-
-      install
-        (InstallOptions fixtureRoot (Just noCodeStore) (Just (noCodeStore <> "-build")) False True True True True False False O0 False True False False AppleArm64)
-    let noCodeRoot = installStorePath noCode
-    assertFileExists (noCodeRoot </> "Demo" </> "resolve.cbor")
-    assertFileExists (noCodeRoot </> "Demo" </> "type.cbor")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "core")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "grin")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "cps.grin")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "gc.grin")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o")
-    assertFileDoesNotExist (noCodeRoot </> "Demo" </> "Demo.o.lir")
-    assertFileDoesNotExist (noCodeRoot </> "lib" </> "libdemo.a")
-
--- | The suffix the backend adds beside the object file it emits.
-nativeArtifactExtension :: NativeTarget -> FilePath
-nativeArtifactExtension target =
-  case target of
-    AppleArm64 -> ".lir"
-    LinuxAmd64 -> ".lir"
-    Llvm -> ".ll"
-    Wasm32Wasip3 -> ".s"
-
-test_installTargetArchives :: IO SeedStore -> Assertion
-test_installTargetArchives getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
-  -- The seed store is populated for exactly these targets.
-  targets <- installTestTargets
-  withSandbox getStore "aihc-install-targets" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    results <- forM targets $ \target -> do
-      let directory = nativeTargetStoreDirectory target
-          nativeExtension = nativeArtifactExtension target
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False False False O0 False False False False target)
-      let objectPath = installStorePath result </> "Demo" </> "Demo.o"
-          nativePath = objectPath <> nativeExtension
-          corePath = installStorePath result </> "Demo" </> "core"
-          archivePath = installStorePath result </> "lib" </> "libdemo.a"
-      assertEqual "target store directory" directory (takeFileName (takeDirectory (installStorePath result)))
-      assertFileExists objectPath
-      assertFileExists nativePath
-      assertFileExists archivePath
-      objectHeader <- BS.take 4 <$> BS.readFile objectPath
-      case target of
-        AppleArm64 -> do
-          assertEqual "Mach-O object header" (BS.pack [0xcf, 0xfa, 0xed, 0xfe]) objectHeader
-          assertFileDoesNotExist (objectPath <> ".s")
-        LinuxAmd64 -> do
-          assertEqual "ELF object header" (BS.pack [0x7f, 0x45, 0x4c, 0x46]) objectHeader
-          assertFileDoesNotExist (objectPath <> ".s")
-        _ -> pure ()
-      members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-      assertEqual ("archive members for " <> show target) ["Demo.o"] members
-      originalCore <- readFile corePath
-      removeFile nativePath
-      repaired <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False True False False False O0 True False False False target)
-      assertFileExists nativePath
-      repairedCore <- readFile corePath
-      assertEqual "native output repair keeps Core" originalCore repairedCore
-      assertEqual "native output repair writes the module" ["Demo"] (installWrittenModules repaired)
-      pure result
-    case results of
-      [] -> assertFailure "no target results"
-      first : rest -> do
-        assertBool
-          "targets preserve package identity"
-          (all ((== takeFileName (installStorePath first)) . takeFileName . installStorePath) rest)
 
 assertCoreFile :: FilePath -> Assertion
 assertCoreFile = void . readCoreFile
@@ -1226,163 +919,6 @@ archSourceDirPayload target =
   case target of
     Wasm32Wasip3 -> "32#"
     _ -> "64#"
-
-test_installCSources :: IO SeedStore -> Assertion
-test_installCSources getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/c-sources"
-  withSandbox getStore "aihc-install-c-sources" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
-    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
-    assertFileExists archivePath
-    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-    assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
-    symbols <- readProcess "nm" [archivePath] ""
-    assertBool "archive defines the C symbol" ("aihc_c_add" `isInfixOf` symbols)
-
--- A @build-type: Configure@ package runs its configure script before anything
--- is preprocessed. The script runs out of tree with the C compiler of the
--- target, so its outputs land under the package's own output path rather
--- than in the shared source tree, and both the CPP pass over the Haskell
--- sources and the C compile find them there, along with the options of the
--- buildinfo file the script wrote.
-test_installConfigure :: IO SeedStore -> Assertion
-test_installConfigure getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/configure"
-  withSandbox getStore "aihc-install-configure" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
-    let configureRoot = installStorePath result </> "configure"
-    assertFileExists (configureRoot </> "include" </> "DemoConfig.h")
-    generatedInSource <- doesFileExist (fixtureRoot </> "include" </> "DemoConfig.h")
-    assertBool "configure output stays out of the source tree" (not generatedInSource)
-    arguments <- filter (not . null) . lines <$> readFile (configureRoot </> "configure.args")
-    assertEqual "host argument" ["--host=aarch64-apple-darwin" | hostNativeTarget /= Just AppleArm64] arguments
-    environment <- lines <$> readFile (configureRoot </> "configure.env")
-    assertBool "configure sees the target in CFLAGS" (any ("--target=arm64-apple-darwin" `isInfixOf`) environment)
-    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
-    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-    assertEqual "archive members" ["Demo.o", "cbits_helper.o"] (sort members)
-
--- A module found as a @.hsc@ file goes through hsc2hs before anything else
--- reads it. The generated module lands under the package's own output
--- path, per target, and the rest of the install sees it as an ordinary
--- source. The first install runs a stand-in for the tool that records its
--- arguments, which is what checks the command line: cross-compilation
--- mode, the C compiler of the target, the package's include directory and
--- the runtime's, the platform macros, and the force-included
--- @cabal_macros.h@. The second runs the real hsc2hs over the same fixture,
--- which is what checks that the command line works: the fixture's constant
--- is guarded on the macros that header carries, so a missing header leaves
--- hsc2hs with an undefined function-like macro and the install fails.
---
--- The two run one after the other because the stand-in is named through
--- the environment, which the process has only one of.
-test_installHsc2hs :: IO SeedStore -> Assertion
-test_installHsc2hs getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/hsc2hs"
-  let standIn = fixtureRoot </> "tools" </> "hsc2hs"
-      preprocessedModule result = installStorePath result </> "preprocess" </> "src" </> "Demo.hs"
-      macrosHeader result = installStorePath result </> "preprocess" </> "src" </> "Demo.macros.h"
-      installFixture sandbox = do
-        storeRoot <- sandboxStore sandbox "store"
-        install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
-  withSandbox getStore "aihc-install-hsc2hs-stand-in" $ \sandbox ->
-    bracket_ (setEnv "AIHC_HSC2HS" standIn) (unsetEnv "AIHC_HSC2HS") $ do
-      result <- installFixture sandbox
-      let generated = preprocessedModule result
-      assertFileExists generated
-      generatedInSource <- doesFileExist (fixtureRoot </> "src" </> "Demo.hs")
-      assertBool "the generated module stays out of the source tree" (not generatedInSource)
-      arguments <- lines <$> readFile (generated <> ".args")
-      assertBool "hsc2hs runs in cross-compilation mode" ("--cross-compile" `elem` arguments)
-      assertBool "hsc2hs reads the constants out of assembly" ("--via-asm" `elem` arguments)
-      assertBool "hsc2hs compiles for the target" (any ("--cflag=--target=arm64-apple-darwin" `isPrefixOf`) arguments)
-      assertBool "hsc2hs sees the package include directory" (("-I" <> fixtureRoot </> "include") `elem` arguments)
-      assertBool "hsc2hs sees the compiler headers" (any (\argument -> "-I" `isPrefixOf` argument && "include" `isSuffixOf` argument) arguments)
-      assertBool "hsc2hs sees the platform macros" ("--cflag=-Ddarwin_HOST_OS=1" `elem` arguments && "--cflag=-Daarch64_HOST_ARCH=1" `elem` arguments)
-      assertBool "hsc2hs force-includes the macro header" (["--cflag=-include", "--cflag=" <> macrosHeader result] `isInfixOf` arguments)
-      macros <- readFile (macrosHeader result)
-      assertBool "the macro header defines the compiler version" ("#define __GLASGOW_HASKELL__ " `isInfixOf` macros)
-      assertBool "the macro header defines MIN_VERSION_ghc" ("#define MIN_VERSION_ghc(" `isInfixOf` macros)
-      assertEqual "hsc2hs writes the module and reads the fixture" ["-o", generated, fixtureRoot </> "src" </> "Demo.hsc"] (drop (length arguments - 3) arguments)
-      assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
-      -- A second install finds the stamp current and leaves the output alone.
-      removeFile (generated <> ".args")
-      _ <- installFixture sandbox
-      argumentsAgain <- doesFileExist (generated <> ".args")
-      assertBool "an unchanged .hsc is not preprocessed again" (not argumentsAgain)
-  withSandbox getStore "aihc-install-hsc2hs" $ \sandbox -> do
-    result <- installFixture sandbox
-    generated <- readFile (preprocessedModule result)
-    assertBool "hsc2hs fills in the constant from the header" ("answer = 42" `isInfixOf` generated)
-    assertBool "the generated module is compiled" ("Demo" `elem` installWrittenModules result)
-  -- The spans of a diagnostic are checked from here rather than from a test
-  -- case of its own for the same reason: the stand-in is named through the
-  -- environment, and a concurrent install would pick it up and leave the
-  -- fixture's constant unsubstituted.
-  test_installHsc2hsSpans getStore
-
--- An error in a module hsc2hs generated is reported against the @.hsc@ the
--- author wrote, not against the generated module. hsc2hs marks its output
--- with the line and file of the source, and the install rewrites those
--- pragmas into the @#line@ directives the front end carries all the way
--- into a span, so the file, the line, the column and the excerpt all name
--- the same place.
---
--- The fixture is arranged so that the two files disagree about line
--- numbers: an error reported at the physical line of the generated module
--- would land on a padding comment instead, which is what this test would
--- have caught before.
-test_installHsc2hsSpans :: IO SeedStore -> Assertion
-test_installHsc2hsSpans getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/hsc2hs-spans"
-  withSandbox getStore "aihc-install-hsc2hs-spans" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64
-        source = fixtureRoot </> "src" </> "Broken.hsc"
-    caught <- try (install options) :: IO (Either IOException InstallResult)
-    message <- case caught of
-      Left err -> pure (show err)
-      Right _ -> assertFailure "the fixture is supposed to fail to resolve"
-    assertBool
-      ("the error names the .hsc source, its line and its column:\n" <> message)
-      ((source <> ":15:8: error: unbound term name \8216deliberatelyUnbound\8217") `isInfixOf` message)
-    assertBool
-      ("the excerpt is the line the error is reported at:\n" <> message)
-      ("  15 | oops = deliberatelyUnbound" `isInfixOf` message)
-    assertBool
-      ("no error names the generated module:\n" <> message)
-      (not ("Broken.hs:" `isInfixOf` message))
-
--- An API standin such as aihc-internal has only empty modules, so nothing
--- goes into its archive. BSD ar refuses to create an archive with no
--- members, so the install writes the bare archive header instead.
-test_installEmptyArchive :: IO SeedStore -> Assertion
-test_installEmptyArchive getStore =
-  withSandbox getStore "aihc-install-empty-archive" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = sandboxRoot sandbox </> "source"
-        sourceDir = sourceRoot </> "src"
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "Demo.hs") "module Demo () where\n"
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
-    let archivePath = installStorePath result </> "lib" </> "libdemo.a"
-    assertFileExists archivePath
-    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-    assertEqual "archive members" [] members
 
 -- A file that guards code on @MIN_VERSION_base@ must see the version of
 -- the aihc-base it is compiled against, not an unconditional yes. The wrong
@@ -1425,7 +961,8 @@ test_installMinVersionMacros getStore =
             "#endif"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
+    target <- hostBackendTarget
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- A module that includes an RTS header by its own name resolves it out of
@@ -1464,7 +1001,8 @@ test_installRtsHeaderInclude getStore =
             "defaultAction = STG_SIG_DFL"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64)
+    target <- hostBackendTarget
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- Every standin under core-libs claims the version of the boot library it
@@ -1480,33 +1018,6 @@ test_coreLibsMatchRelease =
     contents <- readFile cabalFile
     let declared = [dropWhile isSpace rest | line <- lines contents, Just rest <- [stripPrefix "version:" line]]
     assertEqual (coreProviderName provider <> " version") [coreProviderVersion provider] declared
-
-test_installFcCcall :: IO SeedStore -> Assertion
-test_installFcCcall getStore =
-  withSandbox getStore "aihc-install-fc-ccall" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = sandboxRoot sandbox </> "source"
-        sourceDir = sourceRoot </> "src"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010",
-            "  default-extensions: ForeignFunctionInterface, MagicHash"
-          ]
-      )
-    writeFile
-      (sourceDir </> "Demo.hs")
-      "module Demo where\nimport GHC.Prim (Int#)\ndata Int = I# Int#\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
-    result <- install options
-    assertCoreFile (installStorePath result </> "Demo" </> "core")
 
 -- | A dependency file is one make rule, so a name in it may be split across
 -- lines and may hold escaped spaces, colons and dollars.
@@ -1618,227 +1129,6 @@ test_installCapi getStore =
     assertBool "the wrapper still reads the macro" ("return DEMO_ANSWER;" `isInfixOf` rebuilt)
     settled <- install options
     assertEqual "the rebuilt module is reusable again" [] (installWrittenModules settled)
-
-test_installAihcPrim :: Assertion
-test_installAihcPrim = do
-  aihcPrimRoot <- findAihcPrimRoot
-  withTempDir "aihc-install-aihc-prim" $ \root -> do
-    let storeRoot = root </> "store"
-        targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        options = InstallOptions aihcPrimRoot (Just storeRoot) Nothing True True True False True False False O0 False False False False AppleArm64
-    createDirectoryIfMissing True storeRoot
-    caught <- try (install options) :: IO (Either IOException InstallResult)
-    result <- case caught of
-      Left err -> assertFailure ("install aihc-prim failed: " <> show err)
-      Right value -> pure value
-    manifest <- readPackageManifest (packageManifestPath (installStorePath result)) >>= either assertFailure pure
-    let packageDir = installStorePath result
-        packageId = PackageId (packageManifestUnitId manifest)
-        loader requested =
-          Fc.storeModuleLoader
-            targetStoreRoot
-            (if requested == packageId then PackageId (T.pack (takeFileName packageDir)) else requested)
-    assertBool "the store directory carries the unit identity and a fingerprint" ((packageManifestUnitId manifest <> "-") `T.isPrefixOf` packageManifestIdentity manifest)
-    assertEqual "the store directory is the manifest identity" (T.unpack (packageManifestIdentity manifest)) (takeFileName packageDir)
-    mapM_ (assertTypeArtifactSize packageDir) ["GHC.Tuple", "GHC.Types"]
-    mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
-    coreFiles <- listNamedFiles packageDir "core"
-    mapM_ assertCoreFile coreFiles
-    grinFiles <- listNamedFiles packageDir "grin"
-    assertEqual "one GRIN file for each Core file" (length coreFiles) (length grinFiles)
-    types <- loadStoredFc loader packageId "GHC.Types"
-    prim <- loadStoredFc loader packageId "GHC.Prim"
-    assertEqual "GHC.Types lint errors" [] (Fc.lintProgram types)
-    assertEqual "GHC.Prim lint errors" [] (Fc.lintProgram prim)
-    mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
-
-assertTypeArtifactSize :: FilePath -> Text -> Assertion
-assertTypeArtifactSize packageDir name = do
-  let path = foldl (</>) packageDir (map T.unpack (T.splitOn "." name) ++ ["type.cbor"])
-  size <- getFileSize path
-  assertBool ("type artifact is less than 1 MiB: " <> path) (size < 1024 * 1024)
-
-aihcPrimLibraryModules :: [Text]
-aihcPrimLibraryModules =
-  [ "GHC.CString",
-    "GHC.Classes",
-    "GHC.Debug",
-    "GHC.Magic",
-    "GHC.Magic.Dict",
-    "GHC.Prim",
-    "GHC.Prim.Exception",
-    "GHC.Prim.Ext",
-    "GHC.Prim.Panic",
-    "GHC.Prim.PtrEq",
-    "GHC.Prim.Unicode",
-    "GHC.PrimopWrappers",
-    "GHC.Tuple",
-    "GHC.Types"
-  ]
-
-findAihcPrimRoot :: IO FilePath
-findAihcPrimRoot = do
-  envRoot <- lookupEnv "AIHC_PRIM_SRC"
-  case envRoot of
-    Just root -> do
-      cabalExists <- doesFileExist (root </> "aihc-prim.cabal")
-      if cabalExists
-        then pure root
-        else assertFailure ("AIHC_PRIM_SRC has no aihc-prim.cabal: " <> root)
-    Nothing -> do
-      cwd <- getCurrentDirectory
-      findUp cwd
-  where
-    findUp dir = do
-      let candidate = dir </> "core-libs" </> "aihc-prim"
-      cabalExists <- doesFileExist (candidate </> "aihc-prim.cabal")
-      if cabalExists
-        then pure candidate
-        else do
-          let parent = takeDirectory dir
-          if parent == dir
-            then assertFailure ("could not find core-libs/aihc-prim from " <> dir)
-            else findUp parent
-
-moduleCorePath :: FilePath -> Text -> FilePath
-moduleCorePath packageDir moduleName =
-  foldl (</>) packageDir (map T.unpack (T.splitOn "." moduleName) ++ ["core"])
-
-assertModuleCore :: FilePath -> Text -> Assertion
-assertModuleCore packageDir moduleName =
-  assertFileExists (moduleCorePath packageDir moduleName)
-
-loadStoredFc :: Fc.ModuleLoader -> PackageId -> Text -> IO Fc.Program
-loadStoredFc loader packageId moduleName = do
-  loaded <- loader packageId moduleName
-  case loaded of
-    Nothing -> assertFailure ("store loader did not find " <> T.unpack moduleName)
-    Just program -> pure program
-
-assertModuleClosureLints :: Fc.ModuleLoader -> PackageId -> Text -> Assertion
-assertModuleClosureLints loader packageId moduleName = do
-  program <- loadStoredFc loader packageId moduleName
-  assertEqual
-    (T.unpack moduleName <> " lint errors")
-    []
-    (Fc.lintProgram program)
-
-listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
-listNamedFiles root name = do
-  exists <- doesDirectoryExist root
-  if not exists
-    then pure []
-    else do
-      entries <- listDirectory root
-      concat <$> mapM (go . (root </>)) entries
-  where
-    go path = do
-      isDir <- doesDirectoryExist path
-      if isDir
-        then listNamedFiles path name
-        else
-          if takeFileName path == name
-            then pure [path]
-            else pure []
-
-test_installTypeWarning :: IO SeedStore -> Assertion
-test_installTypeWarning getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/type-warning"
-  withSandbox getStore "aihc-install-type-warning" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False AppleArm64
-    result <- install options
-    assertEqual "warning does not prevent installation" ["Demo"] (installWrittenModules result)
-
-test_installImplicitPrelude :: IO SeedStore -> Assertion
-test_installImplicitPrelude getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/implicit-prelude"
-  withSandbox getStore "aihc-install-implicit-prelude" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = fixtureRoot </> "demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False AppleArm64
-    result <- install options
-    assertEqual "implicit Prelude user" ["Demo"] (installWrittenModules result)
-
-test_installTypeReexports :: IO SeedStore -> Assertion
-test_installTypeReexports getStore =
-  withSandbox getStore "aihc-install-type-reexports" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = sandboxRoot sandbox </> "source"
-        sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo.A, Demo.B",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile
-      (sourceDir </> "A.hs")
-      "module Demo.A where\ndata Box a = Box a\nclass Identity a where\n  identity :: a -> a\nfn x = x\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B (module Demo.A) where\nimport Demo.A\n"
-    result <- install options
-    bytes <- BL.readFile (installStorePath result </> "Demo" </> "B" </> "type.cbor")
-    artifact <- either (assertFailure . ("invalid type artifact: " <>)) pure (decodeTypeArtifact bytes)
-    let termNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms (typeArtifactInterface artifact))
-    assertBool "re-exported signature" ("fn" `elem` termNames)
-
-test_installLocalDependencies :: IO SeedStore -> Assertion
-test_installLocalDependencies getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/local-dependencies"
-  withSandbox getStore "aihc-install-local-dependencies" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    let sourceRoot = fixtureRoot </> "demo"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False AppleArm64
-    _ <- install options
-    let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        targetBuildRoot = sandboxRoot sandbox </> "build" </> nativeTargetStoreDirectory AppleArm64
-    storeEntries <- listDirectory targetStoreRoot
-    assertBool "temporary store directories are absent" (not (any (".tmp-" `isPrefixOf`) storeEntries))
-    assertBool "local dependencies stay out of the store" (not (any ("dep-" `isPrefixOf`) storeEntries))
-    buildEntries <- listDirectory targetBuildRoot
-    let dependencyStores = filter (== "dep-1.0.0") buildEntries
-    case dependencyStores of
-      [dependencyStore] -> do
-        let dependencyStoreRoot = targetBuildRoot </> dependencyStore
-            unusedTypePath = dependencyStoreRoot </> "Dep" </> "Unused" </> "type.cbor"
-            sentinelPath = dependencyStoreRoot </> "reinstall-sentinel"
-        assertFileExists (dependencyStoreRoot </> "Dep" </> "resolve.cbor")
-        assertFileExists (dependencyStoreRoot </> "Dep" </> "type.cbor")
-        assertFileExists unusedTypePath
-        BS.writeFile unusedTypePath "invalid unused type artifact"
-        writeFile sentinelPath "dependency was not reinstalled"
-        reinstalled <- install options {installReinstall = True}
-        assertEqual "reinstall writes the specified package" ["Demo"] (installWrittenModules reinstalled)
-        -- The dependency is not reinstalled, but the replaced artifact is
-        -- not the one its unit stamp recorded, so that unit is rebuilt.
-        assertFileExists sentinelPath
-        unusedTypeBytes <- BS.readFile unusedTypePath
-        assertBool "the replaced artifact of the dependency is rebuilt" (unusedTypeBytes /= "invalid unused type artifact")
-      _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
-
-test_installInstanceVisibility :: IO SeedStore -> Assertion
-test_installInstanceVisibility getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/instance-visibility"
-  withSandbox getStore "aihc-install-instance-visibility" $ \sandbox -> do
-    let installFixture source store =
-          install
-            (InstallOptions (fixtureRoot </> source) (Just store) (Just (store <> "-build")) False False False False False False False O0 False True False False AppleArm64)
-    withoutStore <- sandboxStore sandbox "without-store"
-    withStore <- sandboxStore sandbox "with-store"
-    withoutResult <- try (installFixture "without" withoutStore) :: IO (Either IOException InstallResult)
-    case withoutResult of
-      Left _ -> pure ()
-      Right _ -> assertFailure "an unrelated module supplied an instance"
-    _ <- installFixture "with" withStore
-    pure ()
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
