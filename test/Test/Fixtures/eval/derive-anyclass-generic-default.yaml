@@ -1,0 +1,65 @@
+extensions:
+  - DefaultSignatures
+  - DeriveAnyClass
+  - DeriveGeneric
+  - DerivingStrategies
+  - FlexibleContexts
+  - KindSignatures
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DefaultSignatures #-}
+    {-# LANGUAGE DeriveAnyClass #-}
+    {-# LANGUAGE DeriveGeneric #-}
+    {-# LANGUAGE DerivingStrategies #-}
+    {-# LANGUAGE FlexibleContexts #-}
+    {-# LANGUAGE KindSignatures #-}
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import GHC.Generics
+
+    class Count (f :: Type -> Type) where
+      count :: f p -> Int
+
+    instance Count U1 where
+      count _ = 0
+
+    instance Count (K1 i a) where
+      count _ = 1
+
+    instance (Count a) => Count (M1 i c a) where
+      count (M1 x) = count x
+
+    instance (Count a, Count b) => Count (a :*: b) where
+      count (x :*: y) = count x + count y
+
+    instance (Count a, Count b) => Count (a :+: b) where
+      count (L1 x) = count x
+      count (R1 y) = count y
+
+    -- The default signature constrains the representation of the datatype,
+    -- which only exists once the Generic instance of the same clause is derived.
+    class Fields a where
+      fields :: a -> Int
+      default fields :: (Generic a, Count (Rep a)) => a -> Int
+      fields = count . from
+
+    data Colour = Red | Green
+      deriving (Generic, Fields)
+
+    data Point = Point Int Int
+      deriving (Fields, Generic)
+
+    data Box a = Box a Bool
+      deriving stock (Generic)
+      deriving anyclass (Fields)
+
+    result :: Bool
+    result = fields Red == 0 && fields (Point 1 2) == 2 && fields (Box 'c' True) == 2
+expression: result
+output: |
+  True
+status: pass
+reason: an anyclass default signature over Rep resolves against the Generic instance derived in the same clause, whichever order the clause lists them in
