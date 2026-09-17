@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Normalize deriving syntax into typed plans for later strategy-specific
@@ -19,7 +20,7 @@ import Aihc.Parser.Syntax
     DerivingStrategy (..),
     Extension,
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     StandaloneDerivingDecl (..),
     Type (..),
     UnqualifiedName,
@@ -34,7 +35,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameAnns,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolutionAnnotation)
+import Aihc.Resolve (ResolutionAnnotation, pattern NoSourceSpan)
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),

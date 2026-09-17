@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Record syntax support. The type checker expands record construction,
 -- record update, and record patterns into positional constructor syntax
@@ -17,13 +18,13 @@ import Aihc.Parser.Syntax
   ( Name (..),
     NameType (..),
     RecordField (..),
-    SourceSpan (..),
+    SourceSpan,
     UnqualifiedName (..),
     mkAnnotation,
     mkUnqualifiedName,
     nameText,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), pattern NoSourceSpan)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types

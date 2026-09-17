@@ -139,8 +139,7 @@ physicalSourceTokens :: [LexToken] -> [LexToken]
 physicalSourceTokens tokens =
   [ tok
   | tok@LexToken {lexTokenOrigin = FromSource, lexTokenKind = kind} <- tokens,
-    kind /= TkEOF,
-    isRealSpan (lexTokenSpan tok)
+    kind /= TkEOF
   ]
 
 data PhysicalToken = PhysicalToken
@@ -188,7 +187,6 @@ alignPhysicalSourceTokens sourceName prettyGaps =
 prettyGapBefore :: [(LexToken, Text)] -> LexToken -> Maybe Text
 prettyGapBefore prettyGaps tok
   | lexTokenOrigin tok /= FromSource = Nothing
-  | not (isRealSpan (lexTokenSpan tok)) = Nothing
   | otherwise = lookup tok prettyGaps
 
 tokenGaps :: Text -> [LexToken] -> [(LexToken, Text)]
@@ -233,15 +231,9 @@ isCommentToken tok =
     TkBlockComment -> True
     _ -> False
 
-isRealSpan :: SourceSpan -> Bool
-isRealSpan SourceSpan {} = True
-isRealSpan NoSourceSpan = False
-
 tokenOffsets :: LexToken -> (Int, Int)
-tokenOffsets LexToken {lexTokenSpan = SourceSpan {sourceSpanStartOffset = start, sourceSpanEndOffset = end}} =
-  (start, end)
-tokenOffsets LexToken {lexTokenSpan = NoSourceSpan} =
-  error "tokenOffsets: expected source token with real span"
+tokenOffsets tok =
+  (sourceSpanStartOffset (lexTokenSpan tok), sourceSpanEndOffset (lexTokenSpan tok))
 
 formatErrorMessage :: FormatError -> Text
 formatErrorMessage err =

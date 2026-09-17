@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Constraint generation for expressions.
@@ -32,14 +33,14 @@ import Aihc.Parser.Syntax
     Pragma,
     RecordField (..),
     Rhs (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier, pattern NoSourceSpan)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))

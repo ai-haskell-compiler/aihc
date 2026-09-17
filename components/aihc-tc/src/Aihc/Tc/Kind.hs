@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Tc.Kind
   ( TvKindEnv,
@@ -36,7 +37,7 @@ where
 import Aihc.Parser.Syntax
   ( BuiltinCon (..),
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
@@ -53,7 +54,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), pattern NoSourceSpan)
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)

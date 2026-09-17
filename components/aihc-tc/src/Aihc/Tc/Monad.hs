@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | The type checker monad and state.
 module Aihc.Tc.Monad
@@ -145,8 +146,8 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier, pattern NoSourceSpan)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)

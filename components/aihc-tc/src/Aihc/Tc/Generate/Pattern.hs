@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Shared type-checking support for term patterns.
 module Aihc.Tc.Generate.Pattern
@@ -27,7 +28,7 @@ import Aihc.Parser.Syntax
     NumericType (..),
     Pattern (..),
     RecordField (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
@@ -37,7 +38,7 @@ import Aihc.Parser.Syntax
     peelLiteralAnn,
     peelPatternAnn,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), pattern NoSourceSpan)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))

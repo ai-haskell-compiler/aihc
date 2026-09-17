@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -64,7 +65,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     Role (..),
     RoleAnnotation (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     TyVarBinder,
     Type (..),
@@ -96,7 +97,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..), pattern NoSourceSpan)
 import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),

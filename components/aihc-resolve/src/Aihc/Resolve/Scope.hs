@@ -59,7 +59,7 @@ import Aihc.Parser.Syntax
     PatSynDecl (..),
     Pattern (..),
     RecordField (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     TypeFamilyDecl (..),
     TypeSynDecl (..),

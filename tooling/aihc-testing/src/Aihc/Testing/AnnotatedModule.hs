@@ -30,16 +30,18 @@ import Aihc.Parser.Syntax
     Literal (..),
     Module,
     Pattern (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     fromAnnotation,
+    sourceSpanStartCol,
+    sourceSpanStartLine,
     stripAnnotations,
   )
 import Control.Applicative ((<|>))
 import Data.Data (Data, cast, gmapQ, toConstr)
 import Data.List (intercalate, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Ord (Down (..))
 import Data.Text qualified as T
 import Prettyprinter (Doc, defaultLayoutOptions, layoutPretty, pretty)
@@ -143,10 +145,7 @@ collectWrapped renderAnnotation peel original reparsed =
     (originalAnns, originalBase) = peelLeading peel original
     (reparsedAnns, reparsedBase) = peelLeading peel reparsed
     -- A checked node can carry a span that the parser did not give it.
-    wrappedSpan =
-      case spanFromAnnotations reparsedAnns of
-        NoSourceSpan -> spanFromAnnotations originalAnns
-        sourceSpan -> sourceSpan
+    wrappedSpan = spanFromAnnotations reparsedAnns <|> spanFromAnnotations originalAnns
 
 peelLeading :: (node -> Maybe (Annotation, node)) -> node -> ([Annotation], node)
 peelLeading peel =
@@ -330,7 +329,7 @@ collectGeneric renderAnnotation original reparsed
                 <> show (toConstr original)
             )
 
-labelsAt :: (Annotation -> Maybe (Doc ann)) -> SourceSpan -> [Annotation] -> [PlacedLabel]
+labelsAt :: (Annotation -> Maybe (Doc ann)) -> Maybe SourceSpan -> [Annotation] -> [PlacedLabel]
 labelsAt renderAnnotation span' =
   concatMap labelAt
   where
@@ -340,9 +339,9 @@ labelsAt renderAnnotation span' =
         Just doc ->
           let label = renderLabelDoc doc
            in case span' of
-                NoSourceSpan ->
+                Nothing ->
                   error ("renderAnnotatedModule: renderable annotation has no source span: " <> show label)
-                _ -> [PlacedLabel span' label]
+                Just sourceSpan -> [PlacedLabel sourceSpan label]
 
 renderLabelDoc :: Doc ann -> String
 renderLabelDoc doc =
@@ -355,25 +354,17 @@ renderDoc :: Doc ann -> String
 renderDoc =
   renderString . layoutPretty defaultLayoutOptions
 
-spanFromAnnotations :: [Annotation] -> SourceSpan
+spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
 spanFromAnnotations =
-  fromMaybe NoSourceSpan . firstConcreteSpan . map spanFromAnnotation
+  foldr ((<|>) . spanFromAnnotation) Nothing
 
-spanFromAnnotation :: Annotation -> SourceSpan
+spanFromAnnotation :: Annotation -> Maybe SourceSpan
 spanFromAnnotation =
-  fromMaybe NoSourceSpan . fromAnnotation @SourceSpan
+  fromAnnotation @SourceSpan
 
 nonSpanAnnotations :: [Annotation] -> [Annotation]
 nonSpanAnnotations =
-  filter ((== NoSourceSpan) . spanFromAnnotation)
-
-firstConcreteSpan :: [SourceSpan] -> Maybe SourceSpan
-firstConcreteSpan =
-  foldr ((<|>) . concreteSpan) Nothing
-
-concreteSpan :: SourceSpan -> Maybe SourceSpan
-concreteSpan NoSourceSpan = Nothing
-concreteSpan span' = Just span'
+  filter (isNothing . spanFromAnnotation)
 
 renderAnnotatedSource :: String -> [PlacedLabel] -> String
 renderAnnotatedSource source labels =
@@ -383,11 +374,8 @@ renderAnnotatedSource source labels =
 groupByLine :: [PlacedLabel] -> Map.Map Int [PlacedLabel]
 groupByLine = foldr insertLabel Map.empty
   where
-    insertLabel label acc =
-      case placedSpan label of
-        SourceSpan _ startLine _ _ _ _ _ ->
-          Map.insertWith (<>) startLine [label] acc
-        NoSourceSpan -> acc
+    insertLabel label =
+      Map.insertWith (<>) (sourceSpanStartLine (placedSpan label)) [label]
 
 renderSourceLine :: Map.Map Int [PlacedLabel] -> (Int, String) -> [String]
 renderSourceLine grouped (lineNum, srcLine) =
@@ -399,10 +387,7 @@ labelKey label =
   (labelStartCol label, placedText label)
 
 labelStartCol :: PlacedLabel -> Int
-labelStartCol label =
-  case placedSpan label of
-    SourceSpan _ _ startCol _ _ _ _ -> startCol
-    NoSourceSpan -> maxBound
+labelStartCol = sourceSpanStartCol . placedSpan
 
 type AnnotationItem = (Int, String)
 

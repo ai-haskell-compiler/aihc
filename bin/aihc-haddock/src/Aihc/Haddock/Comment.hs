@@ -30,7 +30,7 @@ module Aihc.Haddock.Comment
   )
 where
 
-import Aihc.Parser.Syntax (Extension, SourceSpan (..))
+import Aihc.Parser.Syntax (Extension, SourceSpan, mergeSourceSpans, sourceSpanEndLine, sourceSpanEndOffset, sourceSpanStartCol, sourceSpanStartLine, sourceSpanStartOffset)
 import Aihc.Parser.Token
   ( LexToken (..),
     LexTokenKind (..),
@@ -41,7 +41,6 @@ import Data.Char (isAlphaNum)
 import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -94,7 +93,7 @@ collectDocComments sourceName extensions input =
                     DocComment
                       { docCommentKind = kind,
                         docCommentText = text,
-                        docCommentSpan = mergeSpans (lexTokenSpan tok) (lexTokenSpan lastTok),
+                        docCommentSpan = mergeSourceSpans (lexTokenSpan tok) (lexTokenSpan lastTok),
                         docCommentNextToken = lexTokenSpan <$> firstCodeToken rest',
                         docCommentPrevToken = prevCode
                       }
@@ -178,36 +177,16 @@ continuationText :: LexToken -> Text
 continuationText tok = T.dropWhile (== '-') (lexTokenText tok)
 
 startLineOf :: LexToken -> Int
-startLineOf tok =
-  case lexTokenSpan tok of
-    SourceSpan {sourceSpanStartLine = line} -> line
-    NoSourceSpan -> 0
+startLineOf = sourceSpanStartLine . lexTokenSpan
 
 endLineOf :: LexToken -> Int
-endLineOf tok =
-  case lexTokenSpan tok of
-    SourceSpan {sourceSpanEndLine = line} -> line
-    NoSourceSpan -> 0
+endLineOf = sourceSpanEndLine . lexTokenSpan
 
-mergeSpans :: SourceSpan -> SourceSpan -> SourceSpan
-mergeSpans first second =
-  case (first, second) of
-    (SourceSpan name l1 c1 _ _ startOffset _, SourceSpan _ _ _ l2 c2 _ endOffset) ->
-      SourceSpan name l1 c1 l2 c2 startOffset endOffset
-    (NoSourceSpan, other) -> other
-    (other, _) -> other
-
-spanOffsets :: SourceSpan -> Maybe (Int, Int)
-spanOffsets sp =
-  case sp of
-    SourceSpan {sourceSpanStartOffset = start, sourceSpanEndOffset = end} -> Just (start, end)
-    NoSourceSpan -> Nothing
+spanOffsets :: SourceSpan -> (Int, Int)
+spanOffsets sp = (sourceSpanStartOffset sp, sourceSpanEndOffset sp)
 
 spanStartColumn :: SourceSpan -> Int
-spanStartColumn sp =
-  case sp of
-    SourceSpan {sourceSpanStartCol = col} -> col
-    NoSourceSpan -> 0
+spanStartColumn = sourceSpanStartCol
 
 -- Attachment index -------------------------------------------------------------
 
@@ -224,7 +203,7 @@ data CommentIndex = CommentIndex
 buildCommentIndex :: [DocComment] -> CommentIndex
 buildCommentIndex comments =
   CommentIndex
-    { indexNext = Map.fromListWith (flip (<>)) [(start, [c]) | c <- nexts, Just (start, _) <- [docCommentNextToken c >>= spanOffsets]],
+    { indexNext = Map.fromListWith (flip (<>)) [(start, [c]) | c <- nexts, Just tokSpan <- [docCommentNextToken c], let (start, _) = spanOffsets tokSpan],
       indexPrev = prevs,
       indexNamed = named,
       indexSections = sections
@@ -248,37 +227,32 @@ claimNextAt offset index =
 -- children before their parent so the innermost node wins.
 claimPrevWithin :: Int -> SourceSpan -> CommentIndex -> ([DocComment], CommentIndex)
 claimPrevWithin parentColumn nodeSpan index =
-  case spanOffsets nodeSpan of
-    Nothing -> ([], index)
-    Just (nodeStart, nodeEnd) ->
-      let eligible comment =
-            spanStartColumn (docCommentSpan comment) > parentColumn
-              && case docCommentPrevToken comment >>= spanOffsets of
-                Just (tokStart, tokEnd) -> nodeStart <= tokStart && tokEnd <= nodeEnd
-                Nothing -> False
-          (claimed, remaining) = partition eligible (indexPrev index)
-       in (claimed, index {indexPrev = remaining})
+  let (nodeStart, nodeEnd) = spanOffsets nodeSpan
+      eligible comment =
+        spanStartColumn (docCommentSpan comment) > parentColumn
+          && case spanOffsets <$> docCommentPrevToken comment of
+            Just (tokStart, tokEnd) -> nodeStart <= tokStart && tokEnd <= nodeEnd
+            Nothing -> False
+      (claimed, remaining) = partition eligible (indexPrev index)
+   in (claimed, index {indexPrev = remaining})
 
 -- | Claim every section heading, named-chunk reference and @-- |@ comment
 -- located inside the span, in source order. Used for the export list, where
 -- comments sit between export items.
 claimBetween :: SourceSpan -> CommentIndex -> ([DocComment], CommentIndex)
 claimBetween sp index =
-  case spanOffsets sp of
-    Nothing -> ([], index)
-    Just (start, end) ->
-      let inside comment =
-            case spanOffsets (docCommentSpan comment) of
-              Just (cStart, cEnd) -> start <= cStart && cEnd <= end
-              Nothing -> False
-          (sections, sections') = partition inside (indexSections index)
-          (named, named') = partition inside (indexNamed index)
-          nextsInside = [c | cs <- Map.elems (indexNext index), c <- cs, inside c]
-          nexts' = Map.filter (not . null) (Map.map (filter (not . inside)) (indexNext index))
-          claimed = sortBySpan (sections <> named <> nextsInside)
-       in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
+  let (start, end) = spanOffsets sp
+      inside comment =
+        let (cStart, cEnd) = spanOffsets (docCommentSpan comment)
+         in start <= cStart && cEnd <= end
+      (sections, sections') = partition inside (indexSections index)
+      (named, named') = partition inside (indexNamed index)
+      nextsInside = [c | cs <- Map.elems (indexNext index), c <- cs, inside c]
+      nexts' = Map.filter (not . null) (Map.map (filter (not . inside)) (indexNext index))
+      claimed = sortBySpan (sections <> named <> nextsInside)
+   in (claimed, index {indexSections = sections', indexNamed = named', indexNext = nexts'})
   where
-    sortBySpan = map snd . Map.toAscList . Map.fromList . map (\c -> (fromMaybe (0, 0) (spanOffsets (docCommentSpan c)), c))
+    sortBySpan = map snd . Map.toAscList . Map.fromList . map (\c -> (spanOffsets (docCommentSpan c), c))
 
 -- | Named chunks that were not consumed by an export list. They define the
 -- module's @$name@ chunks.

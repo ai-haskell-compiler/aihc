@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Shared value-binding helpers for expression-local declarations.
 module Aihc.Tc.Generate.Bind
@@ -34,7 +35,7 @@ import Aihc.Parser.Syntax
     Pattern (..),
     RecordField (..),
     Rhs (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -43,7 +44,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), pattern NoSourceSpan)
 import Aihc.Resolve.Generic (everything, everywhereM)
 import Aihc.Tc.Annotations (annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint

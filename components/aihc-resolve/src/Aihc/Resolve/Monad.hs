@@ -18,7 +18,7 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
-    SourceSpan (..),
+    SourceSpan,
     UnqualifiedName,
   )
 import Aihc.Resolve.Scope

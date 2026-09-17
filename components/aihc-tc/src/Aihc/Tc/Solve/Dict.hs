@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Dictionary (class constraint) solver.
 --
@@ -17,8 +18,8 @@ module Aihc.Tc.Solve.Dict
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan (..))
-import Aihc.Resolve (PackageId (..))
+import Aihc.Parser.Syntax (pattern SourceSpan)
+import Aihc.Resolve (PackageId (..), pattern NoSourceSpan)
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
@@ -430,8 +431,9 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
 implicitParamEvidence :: Ct -> Text -> TcType -> EvTerm -> EvTerm
 implicitParamEvidence ct name payload parent =
   case (callStackOrigin name payload, ctOrigin ct, ctLoc ct) of
+    (_, _, NoSourceSpan) -> parent
     (Just origin, OccurrenceOf function, SourceSpan file startLine startColumn endLine endColumn _ _) ->
-      EvCallStackPush origin function (CallSite (T.pack file) startLine startColumn endLine endColumn) parent
+      EvCallStackPush origin function (CallSite file startLine startColumn endLine endColumn) parent
     _ -> parent
 
 -- | The package and module of the @CallStack@ type when the implicit

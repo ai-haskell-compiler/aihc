@@ -3,7 +3,9 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Resolve
-  ( pattern DeclResolution,
+  ( noSourceSpan,
+    pattern NoSourceSpan,
+    pattern DeclResolution,
     pattern EResolution,
     pattern ImportResolution,
     pattern PResolution,
@@ -89,7 +91,7 @@ import Aihc.Parser.Syntax
     RecordField (..),
     Rhs (..),
     RoleAnnotation (..),
-    SourceSpan (..),
+    SourceSpan,
     StandaloneDerivingDecl (..),
     TyVarBinder (..),
     Type (..),

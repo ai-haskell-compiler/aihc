@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Ambiguity resolution and defaulting.
 --
@@ -19,7 +20,7 @@ module Aihc.Tc.Solve.Defaulting
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Resolve (pattern NoSourceSpan)
 import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Generalize (predMetaVars)

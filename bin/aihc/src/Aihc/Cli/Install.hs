@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Aihc.Cli.Install
   ( InstallResult (..),
     InstallLocations (..),
@@ -90,8 +92,10 @@ import Aihc.Parser.Syntax
     ImportDecl (..),
     Module,
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     moduleName,
+    sourceSpanSourceName,
+    pattern SourceSpan,
   )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Prim.Wiring (primDerivingReferences, primTcConfig, primTcWiring)
@@ -113,6 +117,7 @@ import Aihc.Resolve
     modulesInPackage,
     resolveWithDeps,
     unionScope,
+    pattern NoSourceSpan,
   )
 import Aihc.Tc
   ( ClassInfo (..),
@@ -1420,7 +1425,7 @@ renderResolveLocation sourceSpan =
   case sourceSpan of
     NoSourceSpan -> "<unknown location>"
     SourceSpan sourcePath startLine startColumn _ _ _ _ ->
-      sourcePath <> ":" <> show startLine <> ":" <> show startColumn
+      T.unpack sourcePath <> ":" <> show startLine <> ":" <> show startColumn
 
 renderResolveMessage :: String -> Text -> ResolutionNamespace -> String
 renderResolveMessage message name namespace
@@ -1439,7 +1444,7 @@ renderResolveExcerpt sourceLines sourceSpan =
   case sourceSpan of
     NoSourceSpan -> ""
     SourceSpan sourcePath startLine startColumn endLine endColumn _ _ ->
-      case Map.lookup sourcePath sourceLines >>= Map.lookup startLine of
+      case Map.lookup (T.unpack sourcePath) sourceLines >>= Map.lookup startLine of
         Nothing -> ""
         Just sourceLine ->
           let lineNumber = show startLine
@@ -1483,7 +1488,10 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
 -- | The lines of the files that some spans point into, by file and line.
 loadExcerptSources :: (FilePath -> IO DiagnosticSourceMap) -> [SourceSpan] -> IO DiagnosticSourceMap
 loadExcerptSources loadSource spans =
-  Map.unionsWith Map.union <$> mapM loadSource (nub [path | SourceSpan path _ _ _ _ _ _ <- spans])
+  Map.unionsWith Map.union
+    <$> mapM
+      loadSource
+      (nub [T.unpack (sourceSpanSourceName sp) | sp <- spans, sp /= NoSourceSpan])
 
 -- | How the excerpts of a package's diagnostics find their lines. A module
 -- of the package is read through the preprocessor again, so an excerpt

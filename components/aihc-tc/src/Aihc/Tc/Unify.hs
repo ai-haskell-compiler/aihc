@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 -- | Unification of types.
 --
 -- Handles meta-variable solving with occurs check.
@@ -8,7 +10,8 @@ module Aihc.Tc.Unify
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Parser.Syntax (SourceSpan)
+import Aihc.Resolve (pattern NoSourceSpan)
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)

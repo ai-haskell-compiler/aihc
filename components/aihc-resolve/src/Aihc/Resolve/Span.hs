@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Aihc.Resolve.Span
@@ -42,10 +43,11 @@ import Aihc.Parser.Syntax
     InstanceDeclItem (..),
     Pattern (..),
     Rhs (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     fromAnnotation,
     mkAnnotation,
+    pattern SourceSpan,
   )
 import Aihc.Resolve.Types
 import Data.Data (Data, showConstr, toConstr)
@@ -134,6 +136,7 @@ annotateUnhandledType span' ty =
 spanStartNameSpan :: SourceSpan -> Text -> SourceSpan
 spanStartNameSpan span' name =
   case span' of
+    NoSourceSpan -> NoSourceSpan
     SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
       let width = T.length name
        in SourceSpan
@@ -144,7 +147,6 @@ spanStartNameSpan span' name =
             (startCol + width)
             startOffset
             (min endOffset (startOffset + width))
-    NoSourceSpan -> NoSourceSpan
 
 annotateDecl :: ResolutionAnnotation -> Decl -> Decl
 annotateDecl annotation = DeclAnn (mkAnnotation annotation)
@@ -196,6 +198,7 @@ importModuleNameSpan importDecl =
 importMemberNameSpan :: SourceSpan -> Text -> SourceSpan
 importMemberNameSpan itemSpan memberName =
   case itemSpan of
+    NoSourceSpan -> NoSourceSpan
     SourceSpan sourceName startLine startCol endLine endCol startOffset endOffset ->
       let width = T.length memberName
           (memberStartCol, memberStartOffset)
@@ -211,11 +214,11 @@ importMemberNameSpan itemSpan memberName =
             endCol
             memberStartOffset
             endOffset
-    NoSourceSpan -> NoSourceSpan
 
 shiftSpanStartNameSpan :: SourceSpan -> Int -> Text -> SourceSpan
 shiftSpanStartNameSpan span' offset name =
   case span' of
+    NoSourceSpan -> NoSourceSpan
     SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
       let shiftedStartOffset = startOffset + offset
           shifted =
@@ -228,11 +231,11 @@ shiftSpanStartNameSpan span' offset name =
               shiftedStartOffset
               endOffset
        in spanStartNameSpan shifted name
-    NoSourceSpan -> NoSourceSpan
 
 declKeywordNameSpan :: Text -> SourceSpan -> Text -> SourceSpan
 declKeywordNameSpan keyword span' name =
   case span' of
+    NoSourceSpan -> NoSourceSpan
     SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
       let keywordWidth = T.length keyword
           shifted =
@@ -245,4 +248,3 @@ declKeywordNameSpan keyword span' name =
               (startOffset + keywordWidth)
               endOffset
        in spanStartNameSpan shifted name
-    NoSourceSpan -> NoSourceSpan

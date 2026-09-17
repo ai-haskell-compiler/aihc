@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Entry point for the aihc type checker.
@@ -143,12 +144,14 @@ import Aihc.Parser.Syntax
     Literal (..),
     Module (..),
     Pattern (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     fromAnnotation,
     mkAnnotation,
+    sourceSpanSourceName,
+    pattern SourceSpan,
   )
-import Aihc.Resolve (ModuleUnit (..), PackageId (..))
+import Aihc.Resolve (ModuleUnit (..), PackageId (..), pattern NoSourceSpan)
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
@@ -565,11 +568,11 @@ attachSccDiagnostics diagnostics modules = foldl attachOne modules diagnostics
                 then map (\m -> if matches m then annotateModuleDiagnostics [diagnostic] m else m) current
                 else annotateModuleDiagnostics [internalAbortDiagnostic "SCC diagnostic source did not match a module"] first : rest
 
-moduleSourceNames :: Module -> [FilePath]
+moduleSourceNames :: Module -> [Text]
 moduleSourceNames modu =
   case spanFromAnnotations (moduleAnns modu) of
-    SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
     NoSourceSpan -> []
+    SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
 
 typecheckModuleWithState :: TcConfig -> TcState -> ModuleUnit -> (Module, TcState)
 typecheckModuleWithState config st unit =
