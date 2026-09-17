@@ -215,11 +215,11 @@ infixr 0 $!
 
 infixl 4 <$>
 
-concat :: [[a]] -> [a]
+concat :: (Foldable t) => t [a] -> [a]
 concat = foldr (++) []
 
-concatMap :: (a -> [b]) -> [a] -> [b]
-concatMap function = concat . map function
+concatMap :: (Foldable t) => (a -> [b]) -> t a -> [b]
+concatMap function = foldr (\value rest -> function value ++ rest) []
 
 filter :: (a -> Bool) -> [a] -> [a]
 filter _ [] = []
@@ -344,11 +344,10 @@ takeWhile predicate (value : values) =
     then value : takeWhile predicate values
     else []
 
-mapM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
-mapM_ _ [] = return ()
-mapM_ function (value : values) = function value >> mapM_ function values
+mapM_ :: (Foldable t, Monad m) => (a -> m b) -> t a -> m ()
+mapM_ function = foldr (\value rest -> function value >> rest) (return ())
 
-sequence_ :: (Monad m) => [m a] -> m ()
+sequence_ :: (Foldable t, Monad m) => t (m a) -> m ()
 sequence_ = foldr (>>) (return ())
 
 reads :: (Read a) => ReadS a
@@ -980,8 +979,10 @@ scanr1 combine (value : values) =
     results@(result : _) -> combine value result : results
     [] -> [value]
 
-notElem :: (Eq a) => a -> [a] -> Bool
+notElem :: (Foldable t, Eq a) => a -> t a -> Bool
 notElem value values = not (value `elem` values)
+
+infix 4 `notElem`
 
 or :: (Foldable t) => t Bool -> Bool
 or = any id

@@ -116,7 +116,7 @@ import Data.Traversable (mapAccumL, mapAccumR)
 -- @foldl'@ comes from 'Data.Foldable' here, as it does in @base@: the rest of
 -- the fold vocabulary this module re-exports is already the 'Foldable'
 -- method, and only 'GHC.List' keeps a list-only @foldl'@.
-import GHC.List hiding (foldl')
+import GHC.List hiding (all, and, any, concat, concatMap, elem, foldl', notElem, or)
 import Prelude
   ( Bool (..),
     Eq (..),
@@ -126,11 +126,19 @@ import Prelude
     Num (..),
     Ord (..),
     Ordering (..),
+    all,
+    and,
+    any,
+    concat,
+    concatMap,
+    elem,
     errorWithoutStackTrace,
     flip,
     fromIntegral,
     id,
     lines,
+    notElem,
+    or,
     snd,
     unlines,
     unwords,
