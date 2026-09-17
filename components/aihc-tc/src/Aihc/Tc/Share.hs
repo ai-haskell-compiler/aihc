@@ -37,7 +37,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyVarId)
+import Aihc.Tc.Types (mkTyVarId, traverseScheme)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
@@ -152,8 +152,8 @@ sharePred predicate = do
   intern statePreds (\table state -> state {statePreds = table}) rebuilt
 
 shareScheme :: TypeScheme -> Share TypeScheme
-shareScheme (ForAll variables predicates body) = do
-  rebuilt <- ForAll <$> mapM shareTyVar variables <*> mapM sharePred predicates <*> shareType body
+shareScheme scheme = do
+  rebuilt <- traverseScheme shareTyVar sharePred shareType scheme
   intern stateSchemes (\table state -> state {stateSchemes = table}) rebuilt
 
 -- The interface and its facts.

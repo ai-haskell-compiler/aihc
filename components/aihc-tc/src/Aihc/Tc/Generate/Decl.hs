@@ -310,8 +310,8 @@ typeToScheme :: TcType -> TypeScheme
 typeToScheme ty =
   let (tyVars, body) = peelForAlls ty
    in case body of
-        TcQualTy predicates result -> ForAll tyVars predicates result
-        result -> ForAll tyVars [] result
+        TcQualTy predicates result -> specifiedScheme tyVars predicates result
+        result -> specifiedScheme tyVars [] result
 
 declInstances :: TcKinds -> (Text, Text) -> Decl -> [InstanceInfo]
 declInstances kinds origin decl =
@@ -660,12 +660,13 @@ generalizeTyVarKinds variables = do
 -- | Quantify implicit kind variables before the signature enters the environment.
 generalizeSignatureKinds :: CheckedSig -> TcM CheckedSig
 generalizeSignatureKinds signature = do
-  let ForAll variables predicates body = checkedSigScheme signature
-  generalizeTyVarKinds variables
-  variables' <- mapM defaultTyVarKinds variables
+  let Scheme inferred specified predicates body = checkedSigScheme signature
+  generalizeTyVarKinds (inferred <> specified)
+  inferred' <- mapM defaultTyVarKinds inferred
+  specified' <- mapM defaultTyVarKinds specified
   body' <- zonkType body
   predicates' <- mapM defaultPredKinds predicates
-  pure signature {checkedSigScheme = ForAll (closeKindVariables variables') predicates' body'}
+  pure signature {checkedSigScheme = withInventedKindVariables (Scheme inferred' specified' predicates' body')}
 
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
 registerCheckedSig key sig = extendTermKeyEnvPermanent key binder
@@ -676,11 +677,11 @@ registerCheckedSig key sig = extendTermKeyEnvPermanent key binder
 -- @req => prov => body@ keeps the split in its checked signature, but its
 -- binder has the constructor-like type with one context.
 flattenSchemeContexts :: TypeScheme -> TypeScheme
-flattenSchemeContexts (ForAll tyVars predicates body) =
+flattenSchemeContexts scheme@(Scheme inferred specified predicates body) =
   case body of
-    TcForAllTy variable inner -> flattenSchemeContexts (ForAll (tyVars <> [variable]) predicates inner)
-    TcQualTy more inner -> flattenSchemeContexts (ForAll tyVars (predicates <> more) inner)
-    _ -> ForAll tyVars predicates body
+    TcForAllTy variable inner -> flattenSchemeContexts (Scheme inferred (specified <> [variable]) predicates inner)
+    TcQualTy more inner -> flattenSchemeContexts (Scheme inferred specified (predicates <> more) inner)
+    _ -> scheme
 
 data PendingModule = PendingModule
   { pendingSyntax :: !Module,
@@ -855,11 +856,27 @@ generalizeDataKind (ForAll variables predicates body) = do
     variable <- freshSkolemTv ("k" <> T.pack (show index))
     writeMetaTv meta (TcTyVar variable)
   kind' <- zonkKind kind
-  pure (ForAll (uniqueKindVariables (variables <> freeKindVariables kind')) predicates kind')
+  pure (specifiedScheme (uniqueKindVariables (variables <> freeKindVariables kind')) predicates kind')
 
 closeKindVariables :: [TyVarId] -> [TyVarId]
 closeKindVariables variables =
   uniqueKindVariables (concatMap (\variable -> freeKindVariables (tvKind variable) <> [variable]) variables)
+
+-- | Quantify the kind variables a scheme's binders mention but do not
+-- bind. The source never wrote them -- the checker invented them for a
+-- kind it left open -- so they are inferred binders, as in GHC's
+-- @forall {k} (a :: k)@, and a visible type application skips them.
+--
+-- The binders are also put in dependency order, a kind variable before
+-- the variables whose kinds mention it, so that instantiation can
+-- substitute it into those kinds: @class C (a :: k)@ binds @a@ before @k@
+-- in source order.
+withInventedKindVariables :: TypeScheme -> TypeScheme
+withInventedKindVariables (Scheme inferred specified predicates body) =
+  Scheme (filter (not . isSpecified) ordered) (filter isSpecified ordered) predicates body
+  where
+    ordered = closeKindVariables (inferred <> specified)
+    isSpecified variable = tvUnique variable `elem` map tvUnique specified
 
 uniqueKindVariables :: [TyVarId] -> [TyVarId]
 uniqueKindVariables = nubBy (\left right -> tvUnique left == tvUnique right)
@@ -917,12 +934,12 @@ defaultGlobalKindMetas initialKeys = do
     defaultBinderKinds binder =
       case binder of
         TcIdBinder scheme closedness -> do
-          ForAll variables predicates body <- defaultTypeSchemeKinds scheme
-          pure (TcIdBinder (ForAll (closeKindVariables variables) predicates body) closedness)
+          defaulted <- defaultTypeSchemeKinds scheme
+          pure (TcIdBinder (withInventedKindVariables defaulted) closedness)
         TcMonoIdBinder ty -> TcMonoIdBinder <$> defaultTypeKinds ty
     defaultTyConInfoKinds info = do
       ForAll variables predicates body <- defaultTyConKindScheme (tciKindScheme info)
-      let kindScheme = ForAll (closeKindVariables variables) predicates body
+      let kindScheme = specifiedScheme (closeKindVariables variables) predicates body
       synonym <- traverse defaultTypeSynonymKinds (tciTypeSynonym info)
       pure
         info
@@ -992,12 +1009,21 @@ defaultGlobalKindMetas initialKeys = do
             dfiiTyVars = tyVars
           }
     defaultTypeFamilyInstanceKinds info = do
+      -- An equation of a kind-polymorphic family quantifies the kinds it
+      -- leaves open, as a signature does: @OrdCond 'LT lt eq gt = lt@
+      -- must match at every kind. The solver matches types and ignores
+      -- kinds, so it never noticed; the System FC axiom matches the kind
+      -- argument too, and defaulting it to 'Type' confined the axiom to
+      -- that kind.
+      let (package, moduleName') = tfiiOrigin info
+      polyKinds <- isPolyKindOrigin (packageIdText package, moduleName')
+      when polyKinds (generalizeTyVarKinds (tfiiTyVars info))
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
       left <- defaultTypeKinds (tfiiLeft info)
       right <- defaultTypeKinds (tfiiRight info)
       pure
         info
-          { tfiiTyVars = tyVars,
+          { tfiiTyVars = orderTyVarsByKind (closeKindVariables tyVars),
             tfiiLeft = left,
             tfiiRight = right
           }
@@ -1827,13 +1853,16 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
           methodOrder = map fst (ciMethods info)
           specializeVariable variable = setTyVarKind (applySubst kindSubstitution (tvKind variable)) variable
           classTyVars = map specializeVariable (ciTyVars info)
-          specializeKinds (name, ForAll variables predicates body) =
+          specializeKinds (name, Scheme inferred specified predicates body) =
             ( name,
-              ForAll
-                [specializeVariable variable | variable <- variables, Map.notMember (tvUnique variable) kindSubstitution]
+              Scheme
+                (specializeVariables inferred)
+                (specializeVariables specified)
                 (map (applySubstPred kindSubstitution) predicates)
                 (applySubst kindSubstitution body)
             )
+          specializeVariables variables =
+            [specializeVariable variable | variable <- variables, Map.notMember (tvUnique variable) kindSubstitution]
           classMethods = zipWith (classMethodFromInfo info {ciTyVars = classTyVars}) [0 :: Int ..] (map specializeKinds (ciMethods info))
           instAnn =
             TcInstanceAnnotation
@@ -2183,16 +2212,18 @@ binderType (TcMonoIdBinder ty) = ty
 methodExpectedScheme :: ClassInfo -> [TcType] -> Text -> TcM TypeScheme
 methodExpectedScheme classInfo headTys methodName =
   case lookup methodName (ciMethods classInfo) of
-    Just (ForAll tyVars predicates body) ->
+    Just (Scheme inferred specified predicates body) ->
       case splitClassReceiver predicates headTys of
         Just (receiverSubst, methodPredicates) -> do
           headKinds <- mapM tcTypeKind headTys
           let classKinds = map tvKind (ciTyVars classInfo)
               kindSubst = fromMaybe Map.empty (matchTypes classKinds headKinds)
               subst = receiverSubst <> kindSubst
+              unsubstituted = filter (\tyVar -> not (Map.member (tvUnique tyVar) subst))
           pure
-            ( ForAll
-                (filter (\tyVar -> not (Map.member (tvUnique tyVar) subst)) tyVars)
+            ( Scheme
+                (unsubstituted inferred)
+                (unsubstituted specified)
                 (map (applySubstPred subst) methodPredicates)
                 (applySubst subst body)
             )
@@ -2680,7 +2711,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
                       )
             typeArgs <- mapM (patternBindTypeArgument sp name scheme) rhsTyVars
             zonkedTy <- zonkType (schemeToType scheme)
-            let pending = PendingTcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs [] [] []
+            let pending = PendingTcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs 0 [] [] []
             pure ((name, pending), TcBindingResult key (renderBinderName binder) zonkedTy)
           zonkedRhsTy <- zonkType (schemeToType rhsScheme)
           rhsKey <- patternRhsTermKey pat
@@ -2908,7 +2939,7 @@ data PatSynLayout = PatSynLayout
 -- the required predicates and then the provided predicates.
 patSynLayoutScheme :: PatSynLayout -> TypeScheme
 patSynLayoutScheme layout =
-  ForAll
+  specifiedScheme
     (patSynLayoutUniversals layout <> patSynLayoutExistentials layout)
     (patSynLayoutRequired layout <> patSynLayoutProvided layout)
     (foldr TcFunTy (patSynLayoutResultType layout) (patSynLayoutArgTypes layout))
@@ -3033,7 +3064,7 @@ patSynMatcherSig matcherName sp layout = do
       continuation = foldr TcForAllTy qualifiedContinuation (patSynLayoutExistentials layout)
       failure = TcFunTy unitTy resultTy
       matcherTy = TcFunTy (patSynLayoutResultType layout) (TcFunTy continuation (TcFunTy failure resultTy))
-  pure (CheckedSig matcherName (ForAll (patSynLayoutUniversals layout <> [representation, result]) (patSynLayoutRequired layout) matcherTy) sp [] False)
+  pure (CheckedSig matcherName (specifiedScheme (patSynLayoutUniversals layout <> [representation, result]) (patSynLayoutRequired layout) matcherTy) sp [] False)
 
 -- | Give a checked matcher or builder the type of its checked body. The
 -- signature check closes the body over fresh skolems, and the desugarer
@@ -3078,7 +3109,7 @@ tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders 
           pure ([], [])
       | otherwise = do
           let key = TcTermGlobal package moduleName' field
-              scheme = ForAll (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
+              scheme = specifiedScheme (patSynLayoutUniversals layout) (patSynLayoutRequired layout) (TcFunTy (patSynLayoutResultType layout) argType)
               sig = CheckedSig field scheme nameSpan [] False
           registerCheckedSig key sig
           (maybeMatches, results) <- tcFunctionWithSig key field sig [patSynSelectorMatch pat argBinder]
@@ -3315,7 +3346,8 @@ generalizePartialSigBinding key (TcBindingResult resultKey displayName ty) = do
   let ForAll sigTyVars sigPreds body = typeSchemeFromType ty
   ForAll extraTyVars preds body' <-
     generalizeAndCommitIgnoring (Set.singleton key) body sigPreds
-  let scheme = ForAll (sigTyVars <> extraTyVars) preds body'
+  -- The signature's binders were written; the generalized extras were not.
+  let scheme = Scheme extraTyVars sigTyVars preds body'
       binder = TcIdBinder scheme Closed
   replaceTermKeyEnvPermanent key binder
   zonkedTy <- zonkType (schemeToType scheme)
@@ -3578,7 +3610,7 @@ predeclareTypeConstructor declaration =
           { tciName = name,
             tciArity = arity,
             tciTyCon = tyCon,
-            tciKindScheme = ForAll [] [] provisionalKind,
+            tciKindScheme = Scheme [] [] [] provisionalKind,
             tciFlavor = flavor,
             tciTypeSynonym = Nothing,
             tciInjectivity = Nothing
@@ -3640,7 +3672,7 @@ predeclareTypeLevelDataConstructors declaration =
               (tyConModuleName parent)
               name
               arity
-      kindScheme <- ForAll [] [] <$> freshKindMeta
+      kindScheme <- Scheme [] [] [] <$> freshKindMeta
       storeTyConInfo
         TyConInfo
           { tciName = name,
@@ -3706,7 +3738,7 @@ registerClassDecl origin classDecl = do
       { tciName = className,
         tciArity = length params,
         tciTyCon = classTyCon,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] classKind,
+        tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] classKind,
         tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
@@ -3747,16 +3779,11 @@ registerClassDecl origin classDecl = do
     registerDefaultMethod classTyCon defaults defaultSignatures (methodName, scheme)
       | methodName `elem` defaults = do
           let workerName = defaultMethodName methodName
-              workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
+              workerScheme = maybe scheme (defaultMethodWorkerScheme scheme) (lookup methodName defaultSignatures)
               workerType = schemeToType workerScheme
           extendTyConTermEnvPermanent classTyCon workerName (TcIdBinder workerScheme Closed)
           pure (Just (TcBindingResult (tyConMemberTermKey classTyCon workerName) workerName workerType))
       | otherwise = pure Nothing
-
-    defaultWorkerScheme ordinaryScheme (ForAll tyVars predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll tyVars (classPredicate : predicates) body
-        _ -> ForAll tyVars predicates body
 
 -- | The associated type families that a class declares.
 classDeclTypeFamilies :: ClassDecl -> [TypeFamilyDecl]
@@ -3910,7 +3937,7 @@ registerClassItem classPred classTvEnv classTyVars item =
       methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
       contextPreds <- mapM (surfacePredToPred tvEnv) context
       let preds = classPred : contextPreds
-          scheme = ForAll (classTyVars <> extraTyVars) preds methodBody
+          scheme = specifiedScheme (classTyVars <> extraTyVars) preds methodBody
           declaredTy = schemeToType scheme
       mapM
         ( \methodName -> do
@@ -3940,7 +3967,7 @@ registerClassDefaultSignature classTvEnv classTyVars item =
       pure
         ( Just
             ( unqualifiedNameText methodName,
-              ForAll (classTyVars <> extraTyVars) contextPreds methodBody
+              specifiedScheme (classTyVars <> extraTyVars) contextPreds methodBody
             )
         )
     _ -> pure Nothing
@@ -4064,7 +4091,7 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       { tciName = familyName,
         tciArity = arity,
         tciTyCon = familyTyCon,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = DataFamilyTyCon,
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
@@ -4106,7 +4133,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                       { tciName = representationName,
                         tciArity = length paramInfos,
                         tciTyCon = representationTyCon,
-                        tciKindScheme = ForAll [] [] representationKind,
+                        tciKindScheme = Scheme [] [] [] representationKind,
                         tciFlavor = DataTyCon,
                         tciTypeSynonym = Nothing,
                         tciInjectivity = Nothing
@@ -4258,7 +4285,7 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
             -- own: @TypeError :: forall b. ErrorMessage -> b@ is a family
             -- at every result kind. They are binders of the declaration,
             -- as they are for a data type, so the scheme keeps them.
-            tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+            tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
             tciFlavor = TypeFamilyTyCon,
             tciTypeSynonym = Nothing,
             tciInjectivity = typeFamilyInjectivePositions familyDecl
@@ -4348,7 +4375,13 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
   wildcardParams <- bindWildcardParams rawLhs
   lhs <- zonkType rawLhs
   rhs <- zonkType rawRhs
-  let allParamInfos = paramInfos <> wildcardParams
+  -- A closed family's declared parameters are in scope for every
+  -- equation, but an equation binds only the variables it mentions:
+  -- @OrdCond 'LT lt _ _ = lt@ binds @lt@ and the wildcards, not @eq@ and
+  -- @gt@. The System FC axiom is quantified exactly as the equation is,
+  -- and it applies only when every binder is matched.
+  let mentioned param = typeMentionsTyVar (paramTyVar param) lhs || typeMentionsTyVar (paramTyVar param) rhs
+      allParamInfos = filter mentioned (paramInfos <> wildcardParams)
   case typeFamilyApplicationHead lhs of
     Just familyTyCon -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
@@ -4509,7 +4542,7 @@ registerDataDeclHeader maybeKindScheme dd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = DataTyCon,
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
@@ -4563,7 +4596,7 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKindScheme = ForAll (map paramTyVar kindParams) [] declaredKind,
+        tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
         tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing,
         tciInjectivity = Nothing
@@ -4607,7 +4640,7 @@ registerTypeLevelDataCon constructor = do
       (packageId, moduleName') = dciOrigin constructor
       dataConTyCon = mkTyConWithNamespace ResolutionNamespaceTerm packageId moduleName' name arity
   let kindScheme =
-        ForAll
+        specifiedScheme
           (dciUnivTyVars constructor <> dciExTyVars constructor)
           (dciTheta constructor)
           (foldr TcFunTy (dciResTy constructor) fieldTypes)
@@ -4640,7 +4673,7 @@ registerRecordSelectors origin constructors =
         ]
     registerSelector (label, (constructor, field) : _) = do
       let scheme =
-            ForAll
+            specifiedScheme
               (dciUnivTyVars constructor)
               []
               (TcFunTy (dciResTy constructor) (dcfiType field))
@@ -4662,7 +4695,7 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   inferredResultKind <- freshKindMeta
   let inferredKind = foldr (KFun . paramKind) inferredResultKind paramInfos
   tyCon <- mkDeclaredTyCon tyBinder tyName arity
-  let declaredKindScheme = fromMaybe (ForAll [] [] inferredKind) maybeKindScheme
+  let declaredKindScheme = fromMaybe (Scheme [] [] [] inferredKind) maybeKindScheme
   let synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
   storeTyConInfo
     TyConInfo
@@ -4772,7 +4805,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         conTy = foldr TcFunTy universalResTy gadtArgTys
         candidateTyVars = filter (`notElem` universalTyVars) (paramVarIds <> constructorTyVars)
         quantifiedTyVars = universalTyVars <> filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
-        gadtScheme = ForAll quantifiedTyVars predicates conTy
+        gadtScheme = specifiedScheme quantifiedTyVars predicates conTy
     mapM_
       ( \n -> do
           constructorKey <- resolvedUnqualifiedTermKey n
@@ -4814,7 +4847,7 @@ registerDataConWithResult paramInfos resTy con = case con of
       argTys <- mapM (checkRuntimeType constructorEnv) fieldTypes
       predicates <- mapM (surfacePredToPred constructorEnv) context
       let conTy = foldr TcFunTy resTy argTys
-          scheme = ForAll (paramVarIds <> constructorTyVars) predicates conTy
+          scheme = specifiedScheme (paramVarIds <> constructorTyVars) predicates conTy
       constructorKey <-
         case maybeName of
           Just sourceName -> do

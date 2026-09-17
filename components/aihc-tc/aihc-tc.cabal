@@ -54,6 +54,7 @@ library
     Aihc.Tc.Solve.Dict
     Aihc.Tc.Solve.Equality
     Aihc.Tc.Solve.Family
+    Aihc.Tc.TypeLitFamily
     Aihc.Tc.Solve.FunDep
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Injective

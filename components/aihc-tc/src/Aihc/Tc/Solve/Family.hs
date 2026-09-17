@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 -- | Type family reduction.
 --
@@ -22,6 +20,7 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, getWiring, lookupTyConByIdentity)
+import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
 import Control.Monad (foldM)
@@ -154,43 +153,17 @@ reduceHead ty =
 builtinTypeLitFamily :: TcWiring -> TcKinds -> TyCon -> [TcType] -> Maybe TcType
 builtinTypeLitFamily wiring kinds tyCon arguments
   | tyConModuleName tyCon `notElem` tcWiringTypeLitFamilyModules wiring = Nothing
-  | otherwise =
-      case (tyConName tyCon, arguments) of
-        -- GHC selects @Compare@ by the kind of its arguments, with one
-        -- instance per sort. The solver knows the sort from the literal
-        -- itself, so it computes the comparison and no kind-indexed
-        -- instance matching is needed.
-        ("Compare", [TcTyLit left, TcTyLit right]) -> compareLiterals left right
-        ("CmpNat", [TcTyLit (TyLitNat left), TcTyLit (TyLitNat right)]) -> ordering (compare left right)
-        ("CmpSymbol", [TcTyLit (TyLitSymbol left), TcTyLit (TyLitSymbol right)]) -> ordering (compare left right)
-        ("CmpChar", [TcTyLit (TyLitChar left), TcTyLit (TyLitChar right)]) -> ordering (compare left right)
-        ("+", [Nat left, Nat right]) -> natural (left + right)
-        ("*", [Nat left, Nat right]) -> natural (left * right)
-        -- Subtraction on naturals is partial, and a family that does not
-        -- reduce is stuck rather than wrong.
-        ("-", [Nat left, Nat right]) | left >= right -> natural (left - right)
-        ("^", [Nat left, Nat right]) | right <= exponentLimit -> natural (left ^ right)
-        ("Div", [Nat left, Nat right]) | right /= 0 -> natural (left `div` right)
-        ("Mod", [Nat left, Nat right]) | right /= 0 -> natural (left `mod` right)
-        ("Log2", [Nat value]) | value > 0 -> natural (integerLog2 value)
-        _ -> Nothing
+  | otherwise = do
+      literals <- traverse literal arguments
+      value <- evaluateTypeLitFamily (tyConName tyCon) literals
+      pure $ case value of
+        TypeLitNatural natural -> TcTyLit (TyLitNat natural)
+        TypeLitOrdering ordering -> TcTyCon (kindsDataCon kinds (T.pack (show ordering)) 0) []
   where
-    compareLiterals left right =
-      case (left, right) of
-        (TyLitNat a, TyLitNat b) -> ordering (compare a b)
-        (TyLitSymbol a, TyLitSymbol b) -> ordering (compare a b)
-        (TyLitChar a, TyLitChar b) -> ordering (compare a b)
+    literal ty =
+      case ty of
+        TcTyLit value -> Just value
         _ -> Nothing
-    natural = Just . TcTyLit . TyLitNat
-    ordering value = Just (TcTyCon (kindsDataCon kinds (T.pack (show value)) 0) [])
-    -- A literal exponent large enough to exhaust memory is left stuck
-    -- rather than evaluated. GHC has no such bound; nothing that reaches
-    -- here needs one this large.
-    exponentLimit = 10000
-    integerLog2 value = toInteger (length (takeWhile (<= value) (iterate (* 2) 2)))
-
-pattern Nat :: Integer -> TcType
-pattern Nat value = TcTyLit (TyLitNat value)
 
 -- | The equations of a type family, in declaration order.
 familyEquations :: TyCon -> TcM [TypeFamilyInstanceInfo]

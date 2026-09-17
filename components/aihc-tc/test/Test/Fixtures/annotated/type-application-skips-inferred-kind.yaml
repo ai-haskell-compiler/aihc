@@ -1,0 +1,28 @@
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- ScopedTypeVariables
+- StandaloneKindSignatures
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint)
+  -- The kind of t is left to inference, as base writes it. Its kind
+  -- variable is an inferred binder of the constructor -- GHC's
+  -- @Proxy :: forall {k} (t :: k). Proxy t@ -- so @Proxy \@n@ applies to t.
+  data Proxy t = Proxy
+  type KnownNat :: Natural -> Constraint
+  class KnownNat n where
+    natSing :: Natural
+  natVal :: forall n proxy. KnownNat n => proxy n -> Natural
+  natVal _ = natSing @n
+  name :: forall n. KnownNat n => Natural
+  name = natVal (Proxy @n)
+  three :: Natural
+  three = name @3
+status: pass
+reason: a kind variable the checker invents for a constructor is an inferred binder that a visible type application skips, so the application reaches the parameter the source wrote

@@ -67,10 +67,10 @@ genInterface = do
       moduleName = "Module"
       tyCon = mkTyConWithOrigin packageId moduleName "T" 0
       classTyCon = mkTyConWithOrigin packageId moduleName "C" 0
-  firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", ForAll [] [] ty)
-  secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", ForAll [] [] ty)
+  firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", Scheme [] [] [] ty)
+  secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", Scheme [] [] [] ty)
   let tcInterfaceTerms = firstTerm <> secondTerm
-  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] testTypeKind) DataTyCon Nothing Nothing)
+  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (Scheme [] [] [] testTypeKind) DataTyCon Nothing Nothing)
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [])
   tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [] [FunDep [0] [1]])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])
@@ -93,7 +93,7 @@ prop_kindEncodingUsesType :: Property
 prop_kindEncodingUsesType = property $ do
   let expected = testTypeKind
   testTypeKind === expected
-  ForAll [] [] testTypeKind === ForAll [] [] expected
+  Scheme [] [] [] testTypeKind === Scheme [] [] [] expected
 
 -- | A source star becomes the canonical GHC.Types.Type constructor.
 prop_starUsesType :: Property

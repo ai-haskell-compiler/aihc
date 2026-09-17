@@ -50,12 +50,12 @@ typeSchemeFromType = go [] []
       case ty of
         TcForAllTy tyVar body -> go (tyVars <> [tyVar]) predicates body
         TcQualTy morePredicates body -> go tyVars (predicates <> morePredicates) body
-        _ -> ForAll tyVars predicates ty
+        _ -> specifiedScheme tyVars predicates ty
 
 -- | Wrap the binders and predicates of a scheme as a type.
 -- This is the reverse of 'typeSchemeFromType'.
 schemeToType :: TypeScheme -> TcType
-schemeToType (ForAll [] [] ty) = ty
+schemeToType (Scheme [] [] [] ty) = ty
 schemeToType (ForAll tvs [] ty) = foldr TcForAllTy ty tvs
 schemeToType (ForAll [] preds ty) = TcQualTy preds ty
 schemeToType (ForAll tvs preds ty) = foldr TcForAllTy (TcQualTy preds ty) tvs

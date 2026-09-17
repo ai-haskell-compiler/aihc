@@ -392,12 +392,8 @@ tcInterfaceBindings interface =
       | methodName <- ciDefaultMethods info,
         Just methodScheme <- [lookup methodName (ciMethods info)],
         let workerName = defaultMethodName methodName
-            workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
+            workerScheme = maybe methodScheme (defaultMethodWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
       ]
-    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
-        _ -> ForAll variables predicates body
 
 -- | Type-check a single expression in an empty environment.
 --

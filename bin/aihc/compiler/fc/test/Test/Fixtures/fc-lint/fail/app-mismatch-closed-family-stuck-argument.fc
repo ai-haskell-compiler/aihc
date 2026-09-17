@@ -1,0 +1,39 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+scope 3 = "aihc-prim" GHC.Classes
+
+import headers
+  2.tLevity :: 2.sType;
+  2.sLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.sType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+  2.sType :: 2.sType;
+  2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.cLifted :: 2.tLevity;
+  2.tBool :: 2.sType;
+  2.cTrue :: 2.tBool;
+  2.cFalse :: 2.tBool;
+  3.t$Dict$CTuple0 :: 2.sType
+
+import synonyms
+  2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+  2.sType = 2.tTYPE 2.sLiftedRep
+
+pub type 1.tCon (c : 2.sType) :: 2.sType {
+    pub 1.cCon :: ∀(c : 2.sType). 1.tCon c
+}
+
+pub type 1.tAssert (check : 2.tBool) (message : 2.sType) :: 2.sType {}
+
+axiom 1.$ax$Assert$0 (_ : 2.sType) : 1.tAssert 2.cTrue _ ~N 3.t$Dict$CTuple0
+axiom 1.$ax$Assert$1 (message : 2.sType) (_ : 2.tBool) : 1.tAssert _ message ~N message
+
+pub type 1.tInt :: 2.sType {}
+
+pub type 1.tCheck (g : 2.sType) :: 2.tBool {}
+
+axiom 1.$ax$Check$Int : 1.tCheck 1.tInt ~N 2.cTrue
+
+val 1.vbad :: ∀(g : 2.sType). 1.tCon (1.tAssert (1.tCheck g) 2.tBool)
+ = Λ(g : 2.sType).
+  1.cCon @2.tBool

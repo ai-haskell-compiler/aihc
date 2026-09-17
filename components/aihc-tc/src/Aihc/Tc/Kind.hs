@@ -100,7 +100,7 @@ sigToScheme ty = do
             ]
   tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
-  pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
+  pure (specifiedScheme (implicitTvs <> explicitTvs) preds tcTy)
 
 -- | Whether a signature contains a partial-signature wildcard.
 hasWildcardType :: Type -> Bool
@@ -163,7 +163,7 @@ standaloneKindSigToScheme ty = do
             ]
   body <- kindFromSurfaceType tyVarEnv bodyType
   let (nestedTyVars, body') = prenexKindForalls body
-  pure (ForAll (implicitTyVars <> explicitTyVars <> nestedTyVars) [] body')
+  pure (specifiedScheme (implicitTyVars <> explicitTyVars <> nestedTyVars) [] body')
 
 prenexKindForalls :: TcType -> ([TyVarId], TcType)
 prenexKindForalls kind =
