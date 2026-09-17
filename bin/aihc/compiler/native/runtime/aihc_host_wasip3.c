@@ -49,6 +49,21 @@ void *aihc_io_stdout(void) { return &aihc_standard_output; }
 
 void *aihc_io_stderr(void) { return &aihc_standard_error; }
 
+/* A P3 descriptor is a resource the component owns, not a number the program
+   can be handed, so this host has nothing to adopt. Both entry points report
+   that rather than making up a handle, and GHC.IO.Handle.FD.fdToHandle raises
+   the unsupported-operation error the number stands for. */
+int64_t aihc_io_descriptor_mode(int64_t descriptor) {
+  (void)descriptor;
+  return aihc_io_error(AIHC_IO_ERROR_NOT_SUPPORTED);
+}
+
+void *aihc_io_adopt(int64_t descriptor, int64_t mode) {
+  (void)descriptor;
+  (void)mode;
+  return aihc_io_open_error(AIHC_IO_ERROR_NOT_SUPPORTED);
+}
+
 static int aihc_wasip3_prepare(AihcIoRequest *request) {
   (void)request;
   return 0;

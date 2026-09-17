@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,6 +82,64 @@ void *aihc_io_stdin(void) { return &aihc_standard_input; }
 void *aihc_io_stdout(void) { return &aihc_standard_output; }
 
 void *aihc_io_stderr(void) { return &aihc_standard_error; }
+
+/* The capabilities an open mode asks for, or zero when the mode is not one
+   of the four an open request numbers. */
+static uint32_t aihc_posix_capabilities(int64_t mode) {
+  switch (mode) {
+  case 0:
+    return AIHC_IO_READABLE;
+  case 1:
+  case 2:
+    return AIHC_IO_WRITABLE;
+  case 3:
+    return AIHC_IO_READABLE | AIHC_IO_WRITABLE;
+  default:
+    return 0;
+  }
+}
+
+int64_t aihc_io_descriptor_mode(int64_t descriptor) {
+  if (descriptor < 0 || descriptor > INT_MAX) {
+    return aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
+  }
+  int flags = fcntl((int)descriptor, F_GETFL);
+  if (flags == -1) {
+    return aihc_io_error(errno);
+  }
+  switch (flags & O_ACCMODE) {
+  case O_RDONLY:
+    return 0;
+  case O_WRONLY:
+    return (flags & O_APPEND) != 0 ? 2 : 1;
+  case O_RDWR:
+    return 3;
+  default:
+    return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+  }
+}
+
+/* The handle borrows the descriptor rather than opening one, so nothing here
+   changes the descriptor's flags; a read or a write sets O_NONBLOCK on it the
+   same way it does for a descriptor the runtime opened. Closing the handle
+   closes the descriptor, which is what a Handle over it promises. */
+void *aihc_io_adopt(int64_t descriptor, int64_t mode) {
+  if (descriptor < 0 || descriptor > INT_MAX) {
+    return aihc_io_open_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
+  }
+  uint32_t capabilities = aihc_posix_capabilities(mode);
+  if (capabilities == 0) {
+    return aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+  }
+  if (fcntl((int)descriptor, F_GETFD) == -1) {
+    return aihc_io_open_error(errno);
+  }
+  AihcIoHandle *handle = aihc_allocate_zeroed(sizeof(*handle));
+  handle->backend_token = (uintptr_t)descriptor;
+  handle->capabilities = capabilities;
+  handle->append = mode == 2;
+  return handle;
+}
 
 static int aihc_posix_descriptor(const AihcIoHandle *handle) {
   return (int)handle->backend_token;
