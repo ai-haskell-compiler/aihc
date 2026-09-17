@@ -753,7 +753,7 @@ convertForeignSafetyMark safety =
   case safety of
     TcForeignUnsafe -> pure ForeignUnsafe
     TcForeignSafe -> pure ForeignSafe
-    TcForeignInterruptible -> failValue "System FC does not accept interruptible foreign imports"
+    TcForeignInterruptible -> pure ForeignInterruptible
 
 foreignImportPlanDependencies :: TcType -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
 foreignImportPlanDependencies ty plan = do
@@ -849,15 +849,16 @@ convertCAbiType abiType =
     TcForeignVoid -> CAbiVoid
 
 -- | An omitted safety mark means @safe@, as in the Haskell report. The runtime
--- is single-threaded, so both marks lower to the same call. An @interruptible@
--- call needs asynchronous interruption, which the runtime does not have.
+-- is single-threaded, so every mark lowers to the same call. An
+-- @interruptible@ call only allows an asynchronous exception to interrupt
+-- the blocked thread; with one thread nothing can raise one during the call.
 convertForeignSafety :: Maybe Syn.ForeignSafety -> ValueM ForeignSafety
 convertForeignSafety safety =
   case safety of
     Just Syn.Unsafe -> pure ForeignUnsafe
     Just Syn.Safe -> pure ForeignSafe
     Nothing -> pure ForeignSafe
-    Just Syn.Interruptible -> failValue "System FC does not accept interruptible foreign imports"
+    Just Syn.Interruptible -> pure ForeignInterruptible
 
 convertForeignEffect :: TcForeignEffect -> ForeignEffect
 convertForeignEffect effect =

@@ -297,7 +297,7 @@ genCAbiType :: Gen CAbiType
 genCAbiType = Gen.element [minBound .. maxBound]
 
 genForeignSafety :: Gen ForeignSafety
-genForeignSafety = Gen.element [ForeignUnsafe, ForeignSafe]
+genForeignSafety = Gen.element [ForeignUnsafe, ForeignSafe, ForeignInterruptible]
 
 genForeignEffect :: Gen ForeignEffect
 genForeignEffect = Gen.element [ForeignPure, ForeignRealWorld]

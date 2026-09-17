@@ -287,10 +287,14 @@ data ForeignEffect
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 
--- | Safety of a foreign call. The runtime is single-threaded, so safe and
--- unsafe calls are lowered the same way; the mark is kept for fidelity.
+-- | Safety of a foreign call. The runtime is single-threaded, so every mark
+-- is lowered the same way; the mark is kept for fidelity. An @interruptible@
+-- call is a safe call whose blocked Haskell thread may receive an
+-- asynchronous exception; with one thread nothing can raise it during the
+-- call, so the call behaves as @safe@.
 data ForeignSafety
   = ForeignUnsafe
   | ForeignSafe
+  | ForeignInterruptible
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)

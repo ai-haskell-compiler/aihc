@@ -1,6 +1,7 @@
 ---
 extensions:
 - ForeignFunctionInterface
+- InterruptibleFFI
 - MagicHash
 modules:
 - |
@@ -11,6 +12,35 @@ modules:
   data Int = I# Int#
 
   foreign import ccall interruptible "identity" identityInt :: Int -> Int
-expected: ''
-status: fail
-reason: the runtime cannot interrupt a foreign call
+
+  run :: Int -> Int
+  run x = identityInt x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tInt :: 3.sType {
+      pub 1.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 1.tInt
+  }
+
+  pub val 1.vrun :: 1.tInt 3.→ 1.tInt
+   = λ(x : 1.tInt).
+    foreign {ccall interruptible "identity" [Int → Int; pure] using [constructor 1.cI#] 1.videntityInt :: 1.tInt 3.→ 1.tInt} x
+status: pass
+reason: an interruptible ccall lowers like a safe ccall; the single-threaded runtime has no other thread that could interrupt it
