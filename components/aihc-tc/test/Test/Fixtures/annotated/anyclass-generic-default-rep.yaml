@@ -1,0 +1,87 @@
+extensions:
+- StarIsType
+- KindSignatures
+- TypeFamilies
+- TypeOperators
+- DataKinds
+- DefaultSignatures
+- DeriveAnyClass
+- DeriveGeneric
+- DerivingStrategies
+- FlexibleContexts
+- FlexibleInstances
+- TypeApplications
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE StarIsType, KindSignatures, TypeFamilies, TypeOperators, NoImplicitPrelude #-}
+  module GHC.Generics where
+  import GHC.Types (Bool)
+  data V1 (p :: *)
+  data U1 (p :: *) = U1
+  newtype K1 (i :: *) (c :: *) (p :: *) = K1 {unK1 :: c}
+  newtype M1 (i :: *) (c :: Meta) (f :: * -> *) (p :: *) = M1 {unM1 :: f p}
+  infixr 5 :+:
+  data (:+:) (f :: * -> *) (g :: * -> *) (p :: *) = L1 (f p) | R1 (g p)
+  infixr 6 :*:
+  data (:*:) (f :: * -> *) (g :: * -> *) (p :: *) = f p :*: g p
+  data R
+  data D
+  data C
+  data S
+  type Rec0 = K1 R
+  type D1 = M1 D
+  type C1 = M1 C
+  type S1 = M1 S
+  data FixityI = PrefixI | InfixI Associativity
+  data Associativity = LeftAssociative | RightAssociative | NotAssociative
+  data SourceUnpackedness = NoSourceUnpackedness | SourceNoUnpack | SourceUnpack
+  data SourceStrictness = NoSourceStrictness | SourceLazy | SourceStrict
+  data DecidedStrictness = DecidedLazy | DecidedStrict | DecidedUnpack
+  data Meta
+    = MetaData Bool
+    | MetaCons FixityI Bool
+    | MetaSel SourceUnpackedness SourceStrictness DecidedStrictness
+  class Generic a where
+    type Rep a :: * -> *
+    from :: a -> Rep a x
+    to :: Rep a x -> a
+- |
+  {-# LANGUAGE StarIsType, KindSignatures, TypeFamilies, TypeOperators, NoImplicitPrelude #-}
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DeriveGeneric, DerivingStrategies, FlexibleContexts, TypeApplications, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Generics
+  data Unit = Unit
+  data Int = MkInt
+  class GNFData (arity :: *) (f :: * -> *) where
+    grnf :: f a -> Unit
+  instance GNFData arity V1 where
+    grnf x = Unit
+  instance GNFData arity U1 where
+    grnf U1 = Unit
+  instance NFData a => GNFData arity (K1 i a) where
+    grnf (K1 x) = rnf x
+  instance GNFData arity a => GNFData arity (M1 i c a) where
+    grnf (M1 x) = grnf @arity x
+  instance (GNFData arity a, GNFData arity b) => GNFData arity (a :*: b) where
+    grnf (x :*: y) = grnf @arity x
+  instance (GNFData arity a, GNFData arity b) => GNFData arity (a :+: b) where
+    grnf (L1 x) = grnf @arity x
+    grnf (R1 x) = grnf @arity x
+  data Zero
+  class NFData a where
+    rnf :: a -> Unit
+    default rnf :: (Generic a, GNFData Zero (Rep a)) => a -> Unit
+    rnf x = grnf @Zero (from x)
+  instance NFData Int where
+    rnf MkInt = Unit
+  newtype Pos = Pos Int
+    deriving (Generic, NFData)
+  data SourcePos = SourcePos {sourceName :: Pos, sourceLine :: Int}
+    deriving (Generic)
+  instance NFData SourcePos
+  data PosState s = PosState {pstateInput :: s, pstateOffset :: Pos}
+    deriving (Generic)
+  instance (NFData s) => NFData (PosState s)
+status: pass
+reason: a default signature that constrains the Generic representation is solved through the Rep axiom of a Generic instance derived in the same module, both for an anyclass-derived instance and for an empty standalone one

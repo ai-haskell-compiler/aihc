@@ -11,7 +11,8 @@
 -- predicates, so recursive and mutually recursive derived instances are
 -- independent of source order.
 module Aihc.Tc.Deriving.Context
-  ( inferDerivingContexts,
+  ( settleDerivingContexts,
+    inferDerivingContexts,
     derivingObligations,
     newtypeRepresentation,
     stockFieldTypes,
@@ -19,6 +20,7 @@ module Aihc.Tc.Deriving.Context
     typeTyVars,
     moduleDerivingPlans,
     replaceModulePlans,
+    PlanKey,
     planKey,
   )
 where
@@ -43,13 +45,36 @@ import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), 
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Dict (matchTypes)
+import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Types
+import Aihc.Tc.Zonk (zonkPred)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | Settle the plans whose context needs nothing from the batch: the
+-- source wrote it, or the class asks nothing of the fields, as @Generic@
+-- does. They are registered before the other contexts are inferred, because
+-- an instance they generate can carry what that inference reads: a default
+-- signature constrains the representation @Rep a@, which only the axiom of
+-- the derived @Generic@ instance reduces. The keys of the settled plans
+-- come back so the caller can register them first and the rest afterwards.
+settleDerivingContexts :: [Module] -> TcM ([Module], Set PlanKey)
+settleDerivingContexts modules = do
+  kinds <- getKinds
+  settled <- fmap concat . mapM (settle kinds) $ concatMap moduleDerivingPlans modules
+  pure (map (replaceModulePlans settled) modules, Set.fromList (map planKey settled))
+  where
+    settle kinds plan =
+      case inferableObligations kinds plan of
+        Nothing -> pure [plan]
+        Just (Right []) -> pure [plan {tcDerivingContext = TcDerivingExplicitContext []}]
+        Just _ -> pure []
 
 -- | Infer every attached context in the batch and record it in the plan.
 -- A plan whose obligations cannot be met reports an unsolved constraint and
@@ -59,15 +84,15 @@ inferDerivingContexts modules = do
   kinds <- getKinds
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
-      trialEnvironment = derivingEnv kinds existingInstances originalPlans
-      selectPlan plan
+  trialEnvironment <- derivingEnv kinds existingInstances originalPlans
+  let selectPlan plan
         | tcDerivingStockFallback plan,
           TcDerivingInferContext <- tcDerivingContext plan,
           Left _ <- inferredContext trialEnvironment plan =
             plan {tcDerivingStrategy = TcDerivingStock}
         | otherwise = plan
       selectedPlans = map selectPlan originalPlans
-      environment = derivingEnv kinds existingInstances selectedPlans
+  environment <- derivingEnv kinds existingInstances selectedPlans
   contextPlans <- mapM (inferPlanContext kinds environment) selectedPlans
   pure (map (replaceModulePlans contextPlans) modules)
 
@@ -83,9 +108,15 @@ data DerivingEnv = DerivingEnv
     derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred]))
   }
 
-derivingEnv :: TcKinds -> [InstanceInfo] -> [TcDerivingPlan] -> DerivingEnv
-derivingEnv kinds existingInstances plans =
-  base {derivingEnvContexts = solveContexts (length inferable + 2) (Map.fromList (map initialContext inferable))}
+derivingEnv :: TcKinds -> [InstanceInfo] -> [TcDerivingPlan] -> TcM DerivingEnv
+derivingEnv kinds existingInstances plans = do
+  inferable <-
+    sequence
+      [ (,) plan <$> mapM reduceObligation obligations
+      | plan <- plans,
+        Just (Right obligations) <- [inferableObligations kinds plan]
+      ]
+  pure base {derivingEnvContexts = solveContexts inferable (length inferable + 2) (Map.fromList (map initialContext inferable))}
   where
     base =
       DerivingEnv
@@ -95,7 +126,11 @@ derivingEnv kinds existingInstances plans =
         }
     groupByClass className = Map.fromListWith (flip (<>)) . map (\value -> (className value, [value]))
 
-    inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds plan]]
+    -- Simplification matches instance heads syntactically, so a type family
+    -- application in an obligation has to be reduced first: the default
+    -- signature of an anyclass plan asks for the representation @Rep T@,
+    -- and only its reduct names the instances that discharge it.
+    reduceObligation obligation = zonkPred obligation >>= reducePredFamilies
 
     -- Reject cycles for the plans that reuse an instance.
     -- Stock plans can use recursive structural instances.
@@ -106,11 +141,11 @@ derivingEnv kinds existingInstances plans =
     -- Contexts are inferred simultaneously, so a plan can refer to a plan
     -- declared later, or to itself through a cycle, without the search
     -- re-deriving the same plan once per path through the batch.
-    solveContexts :: Int -> Map PlanKey (Either Pred [Pred]) -> Map PlanKey (Either Pred [Pred])
-    solveContexts fuel contexts
+    solveContexts :: [(TcDerivingPlan, [Pred])] -> Int -> Map PlanKey (Either Pred [Pred]) -> Map PlanKey (Either Pred [Pred])
+    solveContexts inferable fuel contexts
       | fuel <= 0 = contexts
       | next == contexts = contexts
-      | otherwise = solveContexts (fuel - 1) next
+      | otherwise = solveContexts inferable (fuel - 1) next
       where
         environment = base {derivingEnvContexts = contexts}
         next =

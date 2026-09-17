@@ -124,7 +124,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
-import Aihc.Tc.Deriving.Context (inferDerivingContexts, typeTyVars)
+import Aihc.Tc.Deriving.Context (inferDerivingContexts, planKey, settleDerivingContexts, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -508,8 +508,14 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   defaultGlobalKindMetas initialKeys
   structuralKeys <- globalStateKeys <$> lift get
   derivingAnnotated <- zipWithM annotateModuleDerivingTc moduleExtensions modules
-  derivingInferred <- inferDerivingContexts derivingAnnotated
-  derivingFinalized <- mapM registerDerivedInstances derivingInferred
+  -- A plan whose context needs nothing from the batch is registered before
+  -- the other contexts are inferred: a derived Generic instance brings the
+  -- Rep equation that an anyclass plan's default signature is solved
+  -- through.
+  (derivingSettled, settledKeys) <- settleDerivingContexts derivingAnnotated
+  derivingRegistered <- mapM (registerDerivedInstances ((`Set.member` settledKeys) . planKey)) derivingSettled
+  derivingInferred <- inferDerivingContexts derivingRegistered
+  derivingFinalized <- mapM (registerDerivedInstances ((`Set.notMember` settledKeys) . planKey)) derivingInferred
   -- A derived instance registers type constructors and associated type
   -- equations of its own, after the structural pass settled the kinds of
   -- the ones the source declared. Settle theirs too before the bodies are
@@ -969,12 +975,12 @@ annotateModuleDerivingTc extensions modu = do
   declarations <- mapM (annotateDeclDerivingTc extensions) (moduleDecls modu)
   pure modu {moduleDecls = declarations}
 
--- | Append the instance declarations that the deriving plans of a module
--- generate, registered like source instances so that the signatures and
--- bodies checked afterwards can use them.
-registerDerivedInstances :: Module -> TcM Module
-registerDerivedInstances modu = do
-  generated <- generateDerivedInstances origin modu
+-- | Append the instance declarations that the selected deriving plans of a
+-- module generate, registered like source instances so that the signatures
+-- and bodies checked afterwards can use them.
+registerDerivedInstances :: (TcDerivingPlan -> Bool) -> Module -> TcM Module
+registerDerivedInstances selected modu = do
+  generated <- generateDerivedInstances selected origin modu
   mapM_ (registerStructuralDecl origin) generated
   pure modu {moduleDecls = moduleDecls modu <> generated}
   where

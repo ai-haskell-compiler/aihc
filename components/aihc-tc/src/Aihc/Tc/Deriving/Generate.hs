@@ -73,27 +73,27 @@ import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | The instance declarations for every deriving plan of a module. A plan
+-- | The instance declarations for the selected deriving plans of a module. A plan
 -- whose context is unresolved has already reported its error; a plan for a
 -- strategy or class the generator does not support reports a warning and
 -- produces no instance.
-generateDerivedInstances :: (Text, Text) -> Module -> TcM [Decl]
-generateDerivedInstances origin modu = do
+generateDerivedInstances :: (TcDerivingPlan -> Bool) -> (Text, Text) -> Module -> TcM [Decl]
+generateDerivedInstances selected origin modu = do
   references <- getDerivingReferences
   primPackage <- getPrimPackage
-  concat <$> mapM (declDerivedInstances references primPackage origin) (moduleDecls modu)
+  concat <$> mapM (declDerivedInstances selected references primPackage origin) (moduleDecls modu)
 
-declDerivedInstances :: DerivingReferences -> PackageId -> (Text, Text) -> Decl -> TcM [Decl]
-declDerivedInstances references primPackage origin decl =
+declDerivedInstances :: (TcDerivingPlan -> Bool) -> DerivingReferences -> PackageId -> (Text, Text) -> Decl -> TcM [Decl]
+declDerivedInstances selected references primPackage origin decl =
   case decl of
     DeclAnn annotation inner -> do
       own <-
         case fromAnnotation @TcDerivingAnnotation annotation of
           Just derivingAnnotation -> do
             kinds <- getKinds
-            catMaybes <$> mapM (generatePlan kinds references primPackage origin (peelDeclAnn inner)) (tcDerivingPlans derivingAnnotation)
+            catMaybes <$> mapM (generatePlan kinds references primPackage origin (peelDeclAnn inner)) (filter selected (tcDerivingPlans derivingAnnotation))
           Nothing -> pure []
-      rest <- declDerivedInstances references primPackage origin inner
+      rest <- declDerivedInstances selected references primPackage origin inner
       pure (own <> rest)
     _ -> pure []
 
