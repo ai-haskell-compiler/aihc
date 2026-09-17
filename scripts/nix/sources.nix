@@ -38,6 +38,10 @@
     "stderr"
     "stdout"
   ];
+
+  # The core libraries carry headers of their own: a capi import of
+  # Foreign.C.Error names one, and its wrapper is compiled against it.
+  coreLibrarySourceSuffixes = exampleSourceSuffixes ++ [".h"];
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
@@ -77,6 +81,7 @@ in rec {
     ".hs"
     ".hs-boot"
     ".cabal"
+    ".h"
   ];
 
   hackageSrc = mkComponentSrc "/tooling/aihc-hackage" [
@@ -188,7 +193,7 @@ in rec {
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
 
-  coreLibrariesSrc = mkRootSubsetSrc ["core-libs/"] exampleSourceSuffixes;
+  coreLibrariesSrc = mkRootSubsetSrc ["core-libs/"] coreLibrarySourceSuffixes;
 
   exampleSrc = exampleName:
     mkRootSubsetSrc ["examples/${exampleName}/"] exampleSourceSuffixes;
