@@ -128,9 +128,14 @@ modifyMVarMasked mvar action =
             return result
     )
 
--- | A weak pointer to the 'MVar' whose finalizer runs once the 'MVar' is
--- unreachable. The pointer is keyed on the 'MVar#' itself, so the 'MVar'
--- the pointer holds does not keep it alive.
+-- | A weak pointer to the 'MVar' whose finalizer runs when the 'MVar'
+-- becomes unreachable, and which 'System.Mem.Weak.finalize' runs it through
+-- before then.
+--
+-- The pointer is keyed on the 'MVar#' itself, as GHC's is. GHC would then
+-- let the 'MVar' go once nothing else held it; this runtime collects no
+-- weak pointer, so a pointer made here keeps its 'MVar' alive until the
+-- program ends.
 mkWeakMVar :: MVar a -> IO () -> IO (Weak (MVar a))
 mkWeakMVar mvar@(MVar rawMVar) finalizer =
   IO

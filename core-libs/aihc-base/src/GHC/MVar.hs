@@ -118,14 +118,20 @@ maybeTaken flag value =
     True -> Just value
     False -> Nothing
 
--- | Attach a finalizer that runs once the 'MVar' becomes unreachable. The
--- weak pointer the finalizer hangs from is dropped, so the only way to run
--- the finalizer early is 'System.Mem.Weak.finalize' on the pointer that
--- 'Control.Concurrent.MVar.mkWeakMVar' gives.
+-- | Attach a finalizer to run when the 'MVar' becomes unreachable.
+--
+-- The weak pointer is keyed on the 'MVar#' and carries @()@, as GHC's does:
+-- the caller never sees the pointer, so there is nothing for it to hold, and
+-- what a weak pointer holds is what would keep the 'MVar' alive.
+--
+-- This runtime collects no weak pointer, so the finalizer runs only when
+-- something calls 'System.Mem.Weak.finalize' on a pointer to the same
+-- 'MVar' -- one from 'Control.Concurrent.MVar.mkWeakMVar', because this
+-- returns none.
 addMVarFinalizer :: MVar a -> IO () -> IO ()
-addMVarFinalizer mvar@(MVar rawMVar) (IO finalizer) =
+addMVarFinalizer (MVar rawMVar) (IO finalizer) =
   IO
     ( \state ->
-        case mkWeak# rawMVar mvar finalizer state of
+        case mkWeak# rawMVar () finalizer state of
           (# nextState, _ #) -> (# nextState, () #)
     )
