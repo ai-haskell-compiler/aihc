@@ -46,14 +46,14 @@ data CtFlavor
 -- where the constraint came from.
 data CtOrigin
   = OccurrenceOf !Text
-  | AppOrigin !SourceSpan
-  | LambdaOrigin !SourceSpan
-  | LetOrigin !SourceSpan
-  | LitOrigin !SourceSpan
-  | SigOrigin !SourceSpan
-  | CaseBranchOrigin !SourceSpan
+  | AppOrigin !(Maybe SourceSpan)
+  | LambdaOrigin !(Maybe SourceSpan)
+  | LetOrigin !(Maybe SourceSpan)
+  | LitOrigin !(Maybe SourceSpan)
+  | SigOrigin !(Maybe SourceSpan)
+  | CaseBranchOrigin !(Maybe SourceSpan)
   | InstOrigin !Text
-  | UnifyOrigin !SourceSpan
+  | UnifyOrigin !(Maybe SourceSpan)
   | -- | A use of an implicit parameter such as @?x@.
     ImplicitParamOrigin !Text
   deriving (Eq, Show)
@@ -69,9 +69,9 @@ data TypeRole
 -- | Where one side of a type constraint came from.
 data TypeOrigin
   = UnknownTypeOrigin
-  | ExpressionTypeOrigin !SourceSpan
-  | ListElementTypeOrigin !SourceSpan
-  | TypeSignatureOrigin !Text !SourceSpan
+  | ExpressionTypeOrigin !(Maybe SourceSpan)
+  | ListElementTypeOrigin !(Maybe SourceSpan)
+  | TypeSignatureOrigin !Text !(Maybe SourceSpan)
   | ConstraintTypeOrigin !CtOrigin
   deriving (Eq, Show)
 
@@ -88,7 +88,7 @@ data EqProvenance = EqProvenance
   { eqActualTrace :: !TypeTrace,
     eqExpectedTrace :: !TypeTrace,
     eqContextOrigins :: ![TypeOrigin],
-    eqPrimarySpan :: !SourceSpan
+    eqPrimarySpan :: !(Maybe SourceSpan)
   }
   deriving (Eq, Show)
 
@@ -105,12 +105,12 @@ data Ct = Ct
     ctEvVar :: !EvVar,
     ctOrigin :: !CtOrigin,
     ctProvenance :: !CtProvenance,
-    ctLoc :: !SourceSpan
+    ctLoc :: !(Maybe SourceSpan)
   }
   deriving (Show)
 
 -- | Create a wanted constraint.
-mkWantedCt :: Pred -> EvVar -> CtOrigin -> SourceSpan -> Ct
+mkWantedCt :: Pred -> EvVar -> CtOrigin -> Maybe SourceSpan -> Ct
 mkWantedCt p ev orig loc =
   Ct
     { ctPred = p,
@@ -124,7 +124,7 @@ mkWantedCt p ev orig loc =
 -- | Create a wanted equality constraint with expected-vs-actual diagnostic
 -- provenance. The solver may reorient or decompose the predicate, but the
 -- provenance keeps the source-facing roles stable for error reporting.
-mkWantedEqCt :: TypeTrace -> TypeTrace -> EvVar -> CtOrigin -> SourceSpan -> Ct
+mkWantedEqCt :: TypeTrace -> TypeTrace -> EvVar -> CtOrigin -> Maybe SourceSpan -> Ct
 mkWantedEqCt actual expected ev orig loc =
   Ct
     { ctPred = EqPred (typeTraceType actual) (typeTraceType expected),

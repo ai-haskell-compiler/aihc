@@ -6,7 +6,6 @@ module Aihc.Tc.Solve.Worklist
     addDict,
     addImpl,
     popWork,
-    isEmptyWorkList,
   )
 where
 
@@ -49,8 +48,3 @@ popWork wl = case wlEqs wl of
     [] -> case wlImpls wl of
       (impl : rest) -> Just (Right impl, wl {wlImpls = rest})
       [] -> Nothing
-
--- | Check if the work list is empty.
-isEmptyWorkList :: WorkList -> Bool
-isEmptyWorkList wl =
-  null (wlEqs wl) && null (wlDicts wl) && null (wlImpls wl)

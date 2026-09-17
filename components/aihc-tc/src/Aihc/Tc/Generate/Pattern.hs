@@ -7,7 +7,6 @@ module Aihc.Tc.Generate.Pattern
     annotatePatternBindings,
     reannotatePatternBinders,
     checkPattern,
-    checkPatterns,
     checkPatternsWithGivens,
     checkFunctionPatterns,
     checkFunctionPatternsWithGivens,
@@ -27,7 +26,7 @@ import Aihc.Parser.Syntax
     NumericType (..),
     Pattern (..),
     RecordField (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
@@ -51,9 +50,10 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, when)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -115,24 +115,21 @@ data GadtHandling
   | GadtAsGiven
   deriving (Eq)
 
-checkPatterns :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkPatterns = checkPatternsWith GadtAsWanted
-
-checkPatternsWithGivens :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkPatternsWithGivens :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkPatternsWithGivens = checkPatternsWith GadtAsGiven
 
-checkFunctionPatterns :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkFunctionPatterns :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkFunctionPatterns = checkFunctionPatternsWith GadtAsWanted
 
-checkFunctionPatternsWithGivens :: SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkFunctionPatternsWithGivens :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkFunctionPatternsWithGivens = checkFunctionPatternsWith GadtAsGiven
 
-checkFunctionPatternsWith :: GadtHandling -> SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkFunctionPatternsWith :: GadtHandling -> Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkFunctionPatternsWith gadtHandling sp arguments = do
   mapM_ (checkFunctionArgument sp) arguments
   checkPatternsWith gadtHandling sp arguments
 
-checkFunctionArgument :: SourceSpan -> (Pattern, TcType) -> TcM ()
+checkFunctionArgument :: Maybe SourceSpan -> (Pattern, TcType) -> TcM ()
 checkFunctionArgument ambient (pat, ty) = do
   kind <- tcTypeKind ty >>= zonkType
   case runtimeRepFromKind kind of
@@ -143,7 +140,7 @@ checkFunctionArgument ambient (pat, ty) = do
     Right representation
       | not (isFixedRuntimeRep representation) ->
           emitError
-            (patternOwnSpan pat `orSourceSpan` ambient)
+            (patternOwnSpan pat <|> ambient)
             (RepresentationPolymorphicFunctionArgument (functionArgumentName pat) ty)
     _ -> pure ()
 
@@ -159,20 +156,20 @@ functionArgumentName pat =
     PTypeSig inner _ -> functionArgumentName inner
     _ -> "<pattern>"
 
-checkPatternsWith :: GadtHandling -> SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
+checkPatternsWith :: GadtHandling -> Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkPatternsWith gadtHandling sp = fmap mconcat . mapM (uncurry (checkPatternWith gadtHandling sp))
 
-checkPattern :: SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPattern = checkPatternWith GadtAsWanted
 
-checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternWith :: GadtHandling -> Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWith gadtHandling sp pat scrutTy = do
   check <- case literalPatternCheck sp pat scrutTy of
     Just literalCheck -> literalCheck
     Nothing -> checkPatternCore gadtHandling sp pat scrutTy
   pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
 
-checkPatternWithoutResultType :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternWithoutResultType :: GadtHandling -> Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternWithoutResultType gadtHandling sp pat scrutTy =
   case literalPatternCheck sp pat scrutTy of
     Just literalCheck -> literalCheck
@@ -192,16 +189,16 @@ checkPatternWithoutResultType gadtHandling sp pat scrutTy =
           pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
         _ -> checkPatternCore gadtHandling sp pat scrutTy
 
-checkedPatternType :: SourceSpan -> TcType -> Pattern -> Pattern
+checkedPatternType :: Maybe SourceSpan -> TcType -> Pattern -> Pattern
 checkedPatternType sp ty pat
   | patternUsesBinderAnnotation pat = pat
   | not (patternNeedsCheckedType pat) = pat
   | patternHasPendingType pat = pat
-  | otherwise = annotatePendingPatternAt (patternOwnSpan pat `orSourceSpan` sp) (pendingAnnotation ty [] [] []) pat
+  | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
-annotatePendingPatternAt :: SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
-annotatePendingPatternAt NoSourceSpan pending = PAnn (mkAnnotation pending)
-annotatePendingPatternAt sp pending = PAnn (mkAnnotation sp) . PAnn (mkAnnotation pending)
+annotatePendingPatternAt :: Maybe SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
+annotatePendingPatternAt Nothing pending = PAnn (mkAnnotation pending)
+annotatePendingPatternAt (Just sp) pending = PAnn (mkAnnotation sp) . PAnn (mkAnnotation pending)
 
 patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
@@ -257,16 +254,13 @@ annotationHasType ann =
       Just _ -> True
       Nothing -> False
 
-sourceSpanFromAnnotations :: [Annotation] -> SourceSpan
-sourceSpanFromAnnotations annotations =
-  case mapMaybe fromAnnotation annotations of
-    sourceSpan : _ -> sourceSpan
-    [] -> NoSourceSpan
+sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
+sourceSpanFromAnnotations = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
 
-patternOwnSpan :: Pattern -> SourceSpan
+patternOwnSpan :: Pattern -> Maybe SourceSpan
 patternOwnSpan pat =
   case pat of
-    PAnn ann inner -> fromMaybe (patternOwnSpan inner) (fromAnnotation ann)
+    PAnn ann inner -> fromAnnotation @SourceSpan ann <|> patternOwnSpan inner
     PVar name -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
     PParen inner -> patternOwnSpan inner
     PAs name _ -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
@@ -276,26 +270,22 @@ patternOwnSpan pat =
     PInfix _ name _ -> sourceSpanFromAnnotations (nameAnns name)
     PRecord name _ _ -> sourceSpanFromAnnotations (nameAnns name)
     PTypeSig inner _ -> patternOwnSpan inner
-    PView expr inner -> viewExprSpan expr `orSourceSpan` patternOwnSpan inner
-    _ -> NoSourceSpan
+    PView expr inner -> viewExprSpan expr <|> patternOwnSpan inner
+    _ -> Nothing
 
 -- | The span of a view pattern function. The parser gives spans to names
 -- and to annotated expressions only.
-viewExprSpan :: Expr -> SourceSpan
+viewExprSpan :: Expr -> Maybe SourceSpan
 viewExprSpan expr =
   case expr of
-    EAnn ann inner -> fromMaybe (viewExprSpan inner) (fromAnnotation ann)
+    EAnn ann inner -> fromAnnotation @SourceSpan ann <|> viewExprSpan inner
     EVar name -> sourceSpanFromAnnotations (nameAnns name)
     EParen inner -> viewExprSpan inner
     EPragma _ inner -> viewExprSpan inner
     EApp function _ -> viewExprSpan function
-    _ -> NoSourceSpan
+    _ -> Nothing
 
-orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
-orSourceSpan NoSourceSpan fallback = fallback
-orSourceSpan sourceSpan _ = sourceSpan
-
-checkPatternCore :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternCore :: GadtHandling -> Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternCore gadtHandling sp pat scrutTy =
   case pat of
     PVar name ->
@@ -322,7 +312,7 @@ checkPatternCore gadtHandling sp pat scrutTy =
           abortTc "primitive literal pattern is missing its resolver type annotation"
       | otherwise -> pure (checkedOnly pat)
     PAs name inner -> do
-      let innerSpan = patternOwnSpan inner `orSourceSpan` sp
+      let innerSpan = patternOwnSpan inner <|> sp
       innerCheck <- checkPatternWithoutResultType gadtHandling innerSpan inner scrutTy
       pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs name (checkedPattern innerCheck)]}
     PStrict inner -> do
@@ -338,13 +328,13 @@ checkPatternCore gadtHandling sp pat scrutTy =
       checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
     PRecord name fields wildcard -> do
       when wildcard $
-        abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat `orSourceSpan` sp))
+        abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
       con <- lookupRecordConstructor name
-      subPats <- orderRecordFields (patternOwnSpan pat `orSourceSpan` sp) con fields (\_ -> pure PWildcard)
+      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) con fields (\_ -> pure PWildcard)
       checkConPattern gadtHandling sp (PCon name [] subPats) name subPats scrutTy
     PList items -> checkListPattern gadtHandling sp items scrutTy
     PView viewExpr inner -> do
-      let viewSpan = viewExprSpan viewExpr `orSourceSpan` sp
+      let viewSpan = viewExprSpan viewExpr <|> sp
       (viewExpr', viewTy, viewCts) <- inferExprAt viewSpan viewExpr
       innerTy <- freshMetaTv
       eqCt <- wantedEq viewSpan viewTy (TcFunTy scrutTy innerTy)
@@ -367,7 +357,7 @@ checkPatternCore gadtHandling sp pat scrutTy =
 -- against it, so the binders the sub-pattern introduces get the type the
 -- signature gives them. A wanted equality ties the signature to the
 -- scrutinee.
-checkTypeSigPattern :: GadtHandling -> SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
+checkTypeSigPattern :: GadtHandling -> Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
 checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy = do
   kinds <- getKinds
   scoped <- getScopedTyVars
@@ -380,7 +370,7 @@ checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy = do
         pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
       }
 
-checkTuplePattern :: GadtHandling -> SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
+checkTuplePattern :: GadtHandling -> Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern gadtHandling sp flavor items scrutTy = do
   elemTys <- mapM (const freshMetaTv) items
   let arity = length items
@@ -402,7 +392,7 @@ checkedOnly pat = mempty {pcPatterns = [pat]}
 checkedLiteral :: TcType -> Literal -> Literal
 checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
 
-checkListPattern :: GadtHandling -> SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
+checkListPattern :: GadtHandling -> Maybe SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
 checkListPattern gadtHandling sp items scrutTy =
   case items of
     [] -> do
@@ -470,7 +460,7 @@ charLiteralPatternType literal =
 -- An overloaded integer pattern uses the resolved syntax terms.
 -- A string pattern has them only under OverloadedStrings.
 -- A primitive literal pattern uses the resolved primitive type.
-literalPatternCheck :: SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
+literalPatternCheck :: Maybe SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
 literalPatternCheck sp pat scrutTy =
   case patternLiteral pat of
     Just (isNegative, lit)
@@ -503,7 +493,7 @@ isPrimitiveLiteral lit =
 --
 -- The resolver annotates the pattern with the primitive type of the literal.
 -- The pattern type is that primitive type, so the scrutinee must equal it.
-checkPrimitiveLiteralPattern :: SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPrimitiveLiteralPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPrimitiveLiteralPattern sp pat scrutTy = do
   resolution <- requiredPrimitiveLiteralResolution pat
   maybeInfo <- lookupResolvedTypeSyntax resolution
@@ -572,7 +562,7 @@ hasPatternSyntaxTerm name pat =
       resolutionNamespace resolution == ResolutionNamespaceTerm
         && resolutionIdentifier resolution == IdentifierNamed name
 
-checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
+checkOverloadedIntegerPattern :: Maybe SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
   integerTy <- resolvedIntegerPatternType pat
   checkOverloadedLiteralPattern sp pat "fromInteger" integerTy isNegative scrutTy
@@ -581,7 +571,7 @@ checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
 --
 -- @literalTy@ is the resolved type of the literal, when the resolver gives
 -- it. The argument type of the conversion method must then equal it.
-checkOverloadedLiteralPattern :: SourceSpan -> Pattern -> Text -> Maybe TcType -> Bool -> TcType -> TcM PatternCheck
+checkOverloadedLiteralPattern :: Maybe SourceSpan -> Pattern -> Text -> Maybe TcType -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedLiteralPattern sp pat conversion literalTy isNegative scrutTy = do
   (conversionPending, conversionCts) <-
     checkPatternMethodWithExpected sp pat conversion $ \case
@@ -612,11 +602,11 @@ checkOverloadedLiteralPattern sp pat conversion literalTy isNegative scrutTy = d
         pcPatterns = [pat']
       }
 
-checkPatternMethod :: SourceSpan -> Pattern -> Text -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
+checkPatternMethod :: Maybe SourceSpan -> Pattern -> Text -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
 checkPatternMethod sp pat name annotationTy expectedTy =
   checkPatternMethodWithExpected sp pat name (const (pure (annotationTy, expectedTy)))
 
-checkPatternMethodWithExpected :: SourceSpan -> Pattern -> Text -> (TcType -> TcM (TcType, TcType)) -> TcM (PendingTcAnnotation, [Ct])
+checkPatternMethodWithExpected :: Maybe SourceSpan -> Pattern -> Text -> (TcType -> TcM (TcType, TcType)) -> TcM (PendingTcAnnotation, [Ct])
 checkPatternMethodWithExpected sp pat name expectedTypes = do
   resolution <- requiredPatternResolution name pat
   (actualTy, typeArgs, methodCts) <- inferResolvedPatternMethod sp name resolution
@@ -631,7 +621,7 @@ checkPatternMethodWithExpected sp pat name expectedTypes = do
       methodCts <> [methodEq]
     )
 
-wantedMethodEq :: SourceSpan -> Text -> TcType -> TcType -> TcM Ct
+wantedMethodEq :: Maybe SourceSpan -> Text -> TcType -> TcType -> TcM Ct
 wantedMethodEq sp method actual expected = do
   ev <- freshEvVar
   pure $
@@ -650,7 +640,7 @@ wantedMethodEq sp method actual expected = do
       (LitOrigin sp)
       sp
 
-inferResolvedPatternMethod :: SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedPatternMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
 inferResolvedPatternMethod sp displayName resolution = do
   mBinder <- lookupResolvedTerm displayName (resolutionTarget resolution)
   case mBinder of
@@ -663,7 +653,7 @@ inferResolvedPatternMethod sp displayName resolution = do
     Nothing ->
       abortTc ("resolved " <> T.unpack displayName <> " missing from type environment: " <> show (resolutionTarget resolution))
 
-predToCt :: SourceSpan -> Text -> Pred -> TcM Ct
+predToCt :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
 predToCt sp name pred' = do
   ev <- freshEvVar
   pure (mkWantedCt pred' ev (OccurrenceOf name) sp)
@@ -673,7 +663,7 @@ requiredPatternResolution name pat =
   case [resolution | resolution <- patternResolutions pat, resolutionIdentifier resolution == IdentifierNamed name, resolutionNamespace resolution == ResolutionNamespaceTerm] of
     resolution : _ -> pure resolution
     [] -> do
-      emitError NoSourceSpan (OtherError ("missing resolver annotation for overloaded pattern method " <> T.unpack name))
+      emitError Nothing (OtherError ("missing resolver annotation for overloaded pattern method " <> T.unpack name))
       abortTc ("missing resolver annotation for overloaded pattern method " <> T.unpack name)
 
 patternResolutions :: Pattern -> [ResolutionAnnotation]
@@ -759,7 +749,7 @@ annotateBinderName bindings name =
       | any annotationIsPending (unqualifiedNameAnns name) -> name
       | otherwise -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
-checkConPattern :: GadtHandling -> SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
+checkConPattern :: GadtHandling -> Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
   let conName = patternNameText conSyntax
   target <- resolvedTermTarget conSyntax
@@ -805,7 +795,7 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
 -- records the type arguments, the required evidence and then the provided
 -- evidence, and the existential skolems. The desugarer calls the matcher
 -- with them.
-checkPatSynPattern :: GadtHandling -> SourceSpan -> Pattern -> Text -> TcTermKey -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
+checkPatSynPattern :: GadtHandling -> Maybe SourceSpan -> Pattern -> Text -> TcTermKey -> PatSynInfo -> TypeScheme -> [Pattern] -> TcType -> TcM PatternCheck
 checkPatSynPattern gadtHandling sp originalPat conName constructorKey info scheme subPats scrutTy = do
   when (length subPats /= psiArity info) $
     emitError sp (OtherError ("pattern synonym " <> T.unpack conName <> " takes " <> show (psiArity info) <> " arguments, but the pattern gives " <> show (length subPats)))
@@ -834,7 +824,7 @@ checkPatSynPattern gadtHandling sp originalPat conName constructorKey info schem
         pcPatterns = [annotatedPattern]
       }
 
-constructorGiven :: SourceSpan -> Text -> Pred -> TcM Ct
+constructorGiven :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
 constructorGiven sp constructorName predicate = do
   evidence <- freshEvVar
   bindEvidence evidence (EvGiven predicate)
@@ -940,7 +930,7 @@ replaceConstructorSubpatterns pat subPats =
         _ -> pat
     _ -> pat
 
-constructorScrutineeCt :: GadtHandling -> SourceSpan -> TcTermKey -> TcType -> TcType -> TcM ([Ct], [Ct])
+constructorScrutineeCt :: GadtHandling -> Maybe SourceSpan -> TcTermKey -> TcType -> TcType -> TcM ([Ct], [Ct])
 constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy = do
   ev <- freshEvVar
   gadtCon <- isGadtCon constructorKey
@@ -971,7 +961,7 @@ splitConTy n result = do
   missingArgs <- mapM (const freshMetaTv) [1 .. n]
   pure (missingArgs, result)
 
-wantedEq :: SourceSpan -> TcType -> TcType -> TcM Ct
+wantedEq :: Maybe SourceSpan -> TcType -> TcType -> TcM Ct
 wantedEq sp left right = do
   ev <- freshEvVar
   pure (mkWantedCt (EqPred left right) ev (AppOrigin sp) sp)

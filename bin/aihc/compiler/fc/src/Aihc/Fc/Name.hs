@@ -13,7 +13,6 @@ module Aihc.Fc.Name
     lookupScope,
     insertScope,
     scopeEntries,
-    localUnique,
     Vis (..),
   )
 where
@@ -100,12 +99,6 @@ insertScope scopeId package moduleName (ScopeTable table) =
 scopeEntries :: ScopeTable -> [(Int, PackageId, Text)]
 scopeEntries (ScopeTable table) =
   [(scopeId, package, moduleName) | (scopeId, (package, moduleName)) <- Map.toAscList table]
-
-localUnique :: Name -> Maybe Unique
-localUnique name =
-  case nameOrigin name of
-    OriginLocal unique -> Just unique
-    OriginTop {} -> Nothing
 
 -- | Export visibility.
 data Vis

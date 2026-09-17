@@ -17,7 +17,7 @@ import Aihc.Parser.Syntax
   ( Name (..),
     NameType (..),
     RecordField (..),
-    SourceSpan (..),
+    SourceSpan,
     UnqualifiedName (..),
     mkAnnotation,
     mkUnqualifiedName,
@@ -60,7 +60,7 @@ lookupRecordConstructor conSyntax = do
 
 -- | Put the record fields of one constructor occurrence in declaration
 -- order. A field that the occurrence does not name gets the default value.
-orderRecordFields :: SourceSpan -> DataConInfo -> [RecordField a] -> (DataConFieldInfo -> TcM a) -> TcM [a]
+orderRecordFields :: Maybe SourceSpan -> DataConInfo -> [RecordField a] -> (DataConFieldInfo -> TcM a) -> TcM [a]
 orderRecordFields sp con fields defaultValue = do
   let labels = mapMaybe dcfiLabel (dciFields con)
       unknown = filter (`notElem` labels) (map recordFieldLabel fields)
@@ -86,7 +86,7 @@ duplicateLabels labels = nub [label | (index, label) <- zip [0 :: Int ..] labels
 -- | The constructors that a record update can rebuild. The data type comes
 -- from the scrutinee type when it is known, and otherwise from the field
 -- labels. Each constructor in the result has every updated field.
-recordUpdateConstructors :: SourceSpan -> Maybe TcType -> [Text] -> TcM [DataConInfo]
+recordUpdateConstructors :: Maybe SourceSpan -> Maybe TcType -> [Text] -> TcM [DataConInfo]
 recordUpdateConstructors sp scrutineeType labels = do
   dataTypes <- getDataTypes
   let byLabel = filter (any hasAllLabels . dtiConstructors) dataTypes
@@ -118,14 +118,14 @@ synthesizedRecordLocal text = do
     ( UnqualifiedName
         NameVarId
         text
-        [mkAnnotation (ResolutionAnnotation NoSourceSpan (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+        [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
     )
 
 -- | A resolved occurrence of a constructor. The pattern and the expression
 -- of a record update expansion use it.
 constructorNameSyntax :: DataConInfo -> Name
 constructorNameSyntax con =
-  Name (Just moduleName') nameType' text [mkAnnotation (ResolutionAnnotation NoSourceSpan (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedTopLevel packageId moduleName' resolved))]
+  Name (Just moduleName') nameType' text [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedTopLevel packageId moduleName' resolved))]
   where
     (packageId, moduleName') = dciOrigin con
     text = dciName con

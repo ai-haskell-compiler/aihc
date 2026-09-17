@@ -3,8 +3,6 @@ module Aihc.Fc
   ( module Aihc.Fc.Syntax,
     module Aihc.Fc.Name,
     renderProgram,
-    renderType,
-    renderExpr,
     parseProgram,
     renderParseError,
     FcParseError,
@@ -39,7 +37,7 @@ import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure
 import Aihc.Fc.Merge (mergePrograms)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
-import Aihc.Fc.Pretty (renderExpr, renderProgram, renderType)
+import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Fc.Prune (pruneProgram)
 import Aihc.Fc.Share (shareProgram)
 import Aihc.Fc.Syntax

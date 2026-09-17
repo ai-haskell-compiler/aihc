@@ -139,7 +139,4 @@ typeSpan ty =
     _ -> Nothing
 
 annotationSpan :: Annotation -> Maybe SourceSpan
-annotationSpan ann =
-  case fromAnnotation ann of
-    Just sp@SourceSpan {} -> Just sp
-    _ -> Nothing
+annotationSpan = fromAnnotation

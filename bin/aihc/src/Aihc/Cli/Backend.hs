@@ -4,7 +4,6 @@
 -- and WebAssembly.
 module Aihc.Cli.Backend
   ( BackendOutput (..),
-    compileLir,
     compileLirWith,
     compileLirTo,
     compileGrinTo,
@@ -40,10 +39,6 @@ lowerTargetFor target =
   case target of
     Wasm32Wasip3 -> wasip3Target
     _ -> posixTarget64
-
--- | Compile one Lir module for the target, linting it first.
-compileLir :: NativeTarget -> Module -> Either String BackendOutput
-compileLir = compileLirWith True
 
 -- | Compile one Lir module for the target. The object backends lint the
 -- module only when asked to; the text backends always do.

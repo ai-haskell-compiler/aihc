@@ -2,7 +2,6 @@ module Aihc.Cli.Options
   ( Command (..),
     BuildOptions (..),
     GarbageCollector (..),
-    InstallErrorFormat (..),
     InstallOptions (..),
     LinkExeOptions (..),
     PrepareRuntimeOptions (..),
@@ -97,11 +96,6 @@ data InstallOptions = InstallOptions
     installPrintTimings :: !Bool,
     installTarget :: !NativeTarget
   }
-  deriving (Eq, Show)
-
-data InstallErrorFormat
-  = InstallErrorsJson
-  | InstallErrorsHuman
   deriving (Eq, Show)
 
 parseCommandIO :: IO Command
