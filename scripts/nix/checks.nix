@@ -441,18 +441,23 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target apple-arm64
+      # aihc-prim depends on aihc-rts, whose C sources take the C compiler of
+      # the target, so this runs for the host backend: cross compiling the
+      # runtime would make the check need a C toolchain for a foreign
+      # platform. The cross-examples package covers apple-arm64 with the
+      # macOS SDK.
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target ${hostBackendTarget}
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
+      test -n "$(find "$store" -path '*/lib/libaihc-rts.a' -print -quit)"
+      test -n "$(find "$store" -path '*/cbits/native_aihc_helpers.o' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
       # aihc-template-haskell depends on base, so this install builds aihc-base
-      # too. It therefore runs for the host backend rather than the fixed
-      # apple-arm64 above: cross compiling aihc-base would make the check need
-      # a C toolchain for a foreign platform.
+      # too, for the same host backend.
       ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target ${hostBackendTarget}
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
