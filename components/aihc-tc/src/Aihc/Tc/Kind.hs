@@ -16,6 +16,8 @@ module Aihc.Tc.Kind
     makeParamEnvWith,
     sigToScheme,
     hasWildcardType,
+    isEmptyContext,
+    splitSigma,
     explicitForallNames,
     scopedSigTyVars,
     standaloneKindSigToScheme,

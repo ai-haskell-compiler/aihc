@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Data.Data
   ( module Data.Typeable,
@@ -18,11 +19,13 @@ module Data.Data
   )
 where
 
+import Control.Monad (MonadPlus (..))
 import Data.Maybe (Maybe (..))
 import Data.Typeable
-import GHC.Base (String)
+import GHC.Base (Monad (..), String, const, id)
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Int (Int)
+import GHC.Internal.Classes (Eq (..))
 import GHC.Num ((+))
 import GHC.Show (Show (..))
 import GHC.Types (Bool (..), Char)
@@ -50,6 +53,75 @@ class (Typeable a) => Data a where
   dataCast1 _ = Nothing
   dataCast2 :: (forall d e. (Data d, Data e) => c (t d e)) -> Maybe (c a)
   dataCast2 _ = Nothing
+
+  -- The generic maps below are GHC's defaults, each written with 'gfoldl'.
+  gmapT :: (forall b. (Data b) => b -> b) -> a -> a
+  gmapT f x0 = unID (gfoldl k ID x0)
+    where
+      k :: (Data d) => ID (d -> b) -> d -> ID b
+      k (ID c) x = ID (c (f x))
+
+  gmapQl :: forall r r'. (r -> r' -> r) -> r -> (forall d. (Data d) => d -> r') -> a -> r
+  gmapQl o acc f x0 = unCONST (gfoldl k (\_ -> CONST acc) x0)
+    where
+      k :: (Data d) => CONST r (d -> b) -> d -> CONST r b
+      k c x = CONST (unCONST c `o` f x)
+
+  gmapQr :: forall r r'. (r' -> r -> r) -> r -> (forall d. (Data d) => d -> r') -> a -> r
+  gmapQr o acc f x0 = unQr (gfoldl k (const (Qr id)) x0) acc
+    where
+      k :: (Data d) => Qr r (d -> b) -> d -> Qr r b
+      k (Qr c) x = Qr (\acc' -> c (f x `o` acc'))
+
+  gmapQ :: (forall d. (Data d) => d -> u) -> a -> [u]
+  gmapQ f = gmapQr (:) [] f
+
+  gmapQi :: forall u. Int -> (forall d. (Data d) => d -> u) -> a -> u
+  gmapQi i f x = case gfoldl k (\_ -> Qi 0 Nothing) x of
+    Qi _ (Just q) -> q
+    Qi _ Nothing -> errorWithoutStackTrace "Data.Data.gmapQi: index out of range"
+    where
+      k :: (Data d) => Qi u (d -> b) -> d -> Qi u b
+      k (Qi i' q) y = Qi (i' + 1) (if i == i' then Just (f y) else q)
+
+  gmapM :: forall m. (Monad m) => (forall d. (Data d) => d -> m d) -> a -> m a
+  gmapM f = gfoldl k return
+    where
+      k :: (Data d) => m (d -> b) -> d -> m b
+      k c x = c >>= \c' -> f x >>= \x' -> return (c' x')
+
+  gmapMp :: forall m. (MonadPlus m) => (forall d. (Data d) => d -> m d) -> a -> m a
+  gmapMp f x = unMp (gfoldl k (\g -> Mp (return (g, False))) x) >>= \(x', b) -> if b then return x' else mzero
+    where
+      k :: (Data d) => Mp m (d -> b) -> d -> Mp m b
+      k (Mp c) y =
+        Mp
+          ( c >>= \(h, b) ->
+              (f y >>= \y' -> return (h y', True)) `mplus` return (h y, b)
+          )
+
+  gmapMo :: forall m. (MonadPlus m) => (forall d. (Data d) => d -> m d) -> a -> m a
+  gmapMo f x = unMp (gfoldl k (\g -> Mp (return (g, False))) x) >>= \(x', b) -> if b then return x' else mzero
+    where
+      k :: (Data d) => Mp m (d -> b) -> d -> Mp m b
+      k (Mp c) y =
+        Mp
+          ( c >>= \(h, b) ->
+              if b
+                then return (h y, b)
+                else (f y >>= \y' -> return (h y', True)) `mplus` return (h y, b)
+          )
+
+-- The helper types that thread 'gfoldl' through the generic maps.
+newtype ID x = ID {unID :: x}
+
+newtype CONST c a = CONST {unCONST :: c}
+
+data Qi q a = Qi Int (Maybe q)
+
+newtype Qr r a = Qr {unQr :: r -> r}
+
+newtype Mp m x = Mp {unMp :: m (x, Bool)}
 
 -- | The fixity of a data constructor.
 data Fixity = Prefix | Infix

@@ -137,7 +137,7 @@ import Aihc.Tc.Generate.Expr (checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, freeTypeVars, freshKindMeta, hasWildcardType, isEmptyContext, makeParamEnv, makeParamEnvWith, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, surfacePredToPred, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
@@ -788,6 +788,19 @@ closeKindVariables :: [TyVarId] -> [TyVarId]
 closeKindVariables variables =
   uniqueKindVariables (concatMap (\variable -> freeKindVariables (tvKind variable) <> [variable]) variables)
 
+-- | Close a list of variables under the kind variables their kinds
+-- mention, with the invented kind variables first and the given
+-- variables after them in dependency order (a given kind variable
+-- before the variables whose kinds mention it). This is the order a
+-- scheme that went through 'withInventedKindVariables' instantiates
+-- its binders in.
+inventedKindVariablesFirst :: [TyVarId] -> [TyVarId]
+inventedKindVariablesFirst variables =
+  filter (not . given) ordered <> filter given ordered
+  where
+    ordered = closeKindVariables variables
+    given variable = tvUnique variable `elem` map tvUnique variables
+
 -- | Quantify the kind variables a scheme's binders mention but do not
 -- bind. The source never wrote them -- the checker invented them for a
 -- kind it left open -- so they are inferred binders, as in GHC's
@@ -893,10 +906,17 @@ defaultGlobalKindMetas initialKeys = do
       predicates <- mapM defaultPredKinds (dciTheta info)
       fields <- mapM defaultDataConFieldKinds (dciFields info)
       resultType <- defaultTypeKinds (dciResTy info)
+      -- The constructor's term scheme quantifies the kind variables the
+      -- checker invented before the source variables (see
+      -- 'withInventedKindVariables'), and a use site passes its type
+      -- arguments in that order. The metadata lists the same variables
+      -- in the same order, because the FC constructor declaration binds
+      -- them from it.
+      let universals = inventedKindVariablesFirst universalTyVars
       pure
         info
-          { dciUnivTyVars = closeKindVariables universalTyVars,
-            dciExTyVars = filter (`notElem` closeKindVariables universalTyVars) (closeKindVariables existentialTyVars),
+          { dciUnivTyVars = universals,
+            dciExTyVars = filter (\tyVar -> tvUnique tyVar `notElem` map tvUnique universals) (inventedKindVariablesFirst existentialTyVars),
             dciTheta = predicates,
             dciFields = fields,
             dciResTy = resultType
@@ -3857,18 +3877,9 @@ registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcB
 registerClassItem classPred classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemTypeSig names ty -> do
-      let (context, body) = splitContext ty
-          classVarNames = Map.keys classTvEnv
-          freeVars = freeTypeVars ty \\ classVarNames
-      rawExtraTyVars <- mapM freshSkolemTv freeVars
-      extraKinds <- mapM (const freshKindMeta) freeVars
-      let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
-      let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
-      kinds <- getKinds
-      methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
-      contextPreds <- mapM (surfacePredToPred tvEnv) context
+      Scheme inferred specified contextPreds methodBody <- classSignatureScheme classTvEnv classTyVars ty
       let preds = classPred : contextPreds
-          scheme = specifiedScheme (classTyVars <> extraTyVars) preds methodBody
+          scheme = Scheme inferred specified preds methodBody
           declaredTy = schemeToType scheme
       mapM
         ( \methodName -> do
@@ -3885,23 +3896,38 @@ registerClassDefaultSignature :: TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM 
 registerClassDefaultSignature classTvEnv classTyVars item =
   case peelClassDeclItemAnn item of
     ClassItemDefaultSig methodName ty -> do
-      let (context, body) = splitContext ty
-          classVarNames = Map.keys classTvEnv
-          freeVars = freeTypeVars ty \\ classVarNames
-      rawExtraTyVars <- mapM freshSkolemTv freeVars
-      extraKinds <- mapM (const freshKindMeta) freeVars
-      let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
-      let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
-      kinds <- getKinds
-      methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
-      contextPreds <- mapM (surfacePredToPred tvEnv) context
-      pure
-        ( Just
-            ( unqualifiedNameText methodName,
-              specifiedScheme (classTyVars <> extraTyVars) contextPreds methodBody
-            )
-        )
+      scheme <- classSignatureScheme classTvEnv classTyVars ty
+      pure (Just (unqualifiedNameText methodName, scheme))
     _ -> pure Nothing
+
+-- | The scheme of a class method signature or default signature. The
+-- class variables come first, then the variables the signature leaves
+-- implicit, then the binders of its explicit @forall@. An explicit
+-- @forall@ is peeled like the one of an ordinary signature, so the
+-- method type is a function type and the equations of a default or
+-- instance body see their parameters; it also scopes the binders'
+-- names over that body.
+classSignatureScheme :: TvKindEnv -> [TyVarId] -> Type -> TcM TypeScheme
+classSignatureScheme classTvEnv classTyVars ty = do
+  let (explicitBinders, context, body) = splitSigma ty
+      classVarNames = Map.keys classTvEnv
+      freeVars = freeTypeVars ty \\ classVarNames
+  rawExtraTyVars <- mapM freshSkolemTv freeVars
+  extraKinds <- mapM (const freshKindMeta) freeVars
+  let extraTyVars = zipWith setTyVarKind extraKinds rawExtraTyVars
+      implicitEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
+  explicitParams <- makeParamEnvWith implicitEnv explicitBinders
+  let explicitTyVars = map paramTyVar explicitParams
+      tvEnv =
+        implicitEnv
+          <> Map.fromList
+            [ (paramName param, (paramTyVar param, paramKind param))
+            | param <- explicitParams
+            ]
+  kinds <- getKinds
+  methodBody <- checkSurfaceType tvEnv body (typeKind kinds)
+  contextPreds <- mapM (surfacePredToPred tvEnv) (filter (not . isEmptyContext) context)
+  pure (specifiedScheme (classTyVars <> extraTyVars <> explicitTyVars) contextPreds methodBody)
 
 registerInstanceDecl :: (Text, Text) -> InstanceDecl -> TcM [TcBindingResult]
 registerInstanceDecl origin instanceDecl =

@@ -62,3 +62,9 @@
     - name: Paths_aihc
       within: Aihc.DataFiles
       message: "Import Aihc.DataFiles instead of Paths_aihc; see Aihc.DataFiles for why."
+# The generic maps keep GHC's spelling; a nullary class default that
+# partially applies a rank-2 function is a shape the checker handles less
+# well than the eta-expanded one.
+- ignore:
+    name: Eta reduce
+    within: Data.Data

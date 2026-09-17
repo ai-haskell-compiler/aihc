@@ -1,0 +1,89 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, ScopedTypeVariables, NoImplicitPrelude #-}
+  module Main where
+  newtype CONST c a = CONST c
+          │           └─ type: ∀ c a. c → CONST c a
+          └─ type: Type → Type → Type
+  unCONST :: CONST c a -> c
+  unCONST (CONST c) = c
+  │        │     └─ type: c
+  │        └─ type: CONST c a
+  └─ type: ∀ c a. CONST c a → c
+  class C a where
+  └─ class methods: gfoldl ∷ ∀ a c. (C a) ⇒ (∀ d b. (C d) ⇒ c (d → b) → d → c b) → (∀ g. g → c g) → a → c a, gmapQl ∷ ∀ a r r'. (C a) ⇒ (r → r' → r) → r → (∀ d. (C d) ⇒ d → r') → a → r
+    gfoldl :: (forall d b. (C d) => c (d -> b) -> d -> c b) -> (forall g. g -> c g) -> a -> c a
+    gmapQl :: forall r r'. (r -> r' -> r) -> r -> (forall d. (C d) => d -> r') -> a -> r
+    gmapQl o acc f x0 = unCONST (gfoldl k (\_ -> CONST acc) x0)
+    │      │ │   │ │    │        ││││         │││    └─ type: r → CONST r g; type-args: r, g
+    │      │ │   │ │    │        ││││         │└─ type: g
+    │      │ │   │ │    │        ││││         │└─ type: g
+    │      │ │   │ │    │        ││││         └─ type: g → CONST r g
+    │      │ │   │ │    │        └─ type: (∀ d b. (C d) ⇒ CONST r (d → b) → d → CONST r b) → (∀ g. g → CONST r g) → a → CONST r a; type-args: a, CONST r; evidence: given C a
+    │      │ │   │ │    │        └─ type: ∀ g. g → CONST r g
+    │      │ │   │ │    │        └─ type: CONST r (d → b) → d → CONST r b; type-args: d, b; evidence: given C d
+    │      │ │   │ │    │        └─ type: ∀ d b. (C d) ⇒ CONST r (d → b) → d → CONST r b
+    │      │ │   │ │    └─ type: CONST r a → r; type-args: r, a
+    │      │ │   │ └─ type: a
+    │      │ │   └─ type: ∀ d. (C d) ⇒ d → r'
+    │      │ └─ type: r
+    │      └─ type: r → r' → r
+    └─ gmapQl ∷ ∀ a r r'. (C a) ⇒ (r → r' → r) → r → (∀ d. (C d) ⇒ d → r') → a → r
+      where
+        k :: (C d) => CONST r (d -> b) -> d -> CONST r b
+        k c x = CONST (unCONST c `o` f x)
+        │ │ │   │      │             └─ type: d → r'; type-args: d; evidence: given C d
+        │ │ │   │      └─ type: CONST r (d → b) → r; type-args: r, d → b
+        │ │ │   └─ type: r → CONST r b; type-args: r, b
+        │ │ └─ type: d
+        │ └─ type: CONST r (d → b)
+        └─ type: ∀ d b. (C d) ⇒ CONST r (d → b) → d → CONST r b
+  topQl :: forall a r r'. (C a) => (r -> r' -> r) -> r -> (forall d. (C d) => d -> r') -> a -> r
+  topQl o acc f x0 = unCONST (gfoldl k (\_ -> CONST acc) x0)
+  │     │ │   │ │    │        ││││         │││    └─ type: r → CONST r g; type-args: r, g
+  │     │ │   │ │    │        ││││         │└─ type: g
+  │     │ │   │ │    │        ││││         │└─ type: g
+  │     │ │   │ │    │        ││││         └─ type: g → CONST r g
+  │     │ │   │ │    │        └─ type: (∀ d b. (C d) ⇒ CONST r (d → b) → d → CONST r b) → (∀ g. g → CONST r g) → a → CONST r a; type-args: a, CONST r; evidence: given C a
+  │     │ │   │ │    │        └─ type: ∀ g. g → CONST r g
+  │     │ │   │ │    │        └─ type: CONST r (d → b) → d → CONST r b; type-args: d, b; evidence: given C d
+  │     │ │   │ │    │        └─ type: ∀ d b. (C d) ⇒ CONST r (d → b) → d → CONST r b
+  │     │ │   │ │    └─ type: CONST r a → r; type-args: r, a
+  │     │ │   │ └─ type: a
+  │     │ │   └─ type: ∀ d. (C d) ⇒ d → r'
+  │     │ └─ type: r
+  │     └─ type: r → r' → r
+  └─ type: ∀ a r r'. (C a) ⇒ (r → r' → r) → r → (∀ d. (C d) ⇒ d → r') → a → r
+    where
+      k :: (C d) => CONST r (d -> b) -> d -> CONST r b
+      k c x = CONST (unCONST c `o` f x)
+      │ │ │   │      │             └─ type: d → r'; type-args: d; evidence: given C d
+      │ │ │   │      └─ type: CONST r (d → b) → r; type-args: r, d → b
+      │ │ │   └─ type: r → CONST r b; type-args: r, b
+      │ │ └─ type: d
+      │ └─ type: CONST r (d → b)
+      └─ type: ∀ d b. (C d) ⇒ CONST r (d → b) → d → CONST r b
+extensions:
+- RankNTypes
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE RankNTypes, ScopedTypeVariables, NoImplicitPrelude #-}
+  module Main where
+  newtype CONST c a = CONST c
+  unCONST :: CONST c a -> c
+  unCONST (CONST c) = c
+  class C a where
+    gfoldl :: (forall d b. (C d) => c (d -> b) -> d -> c b) -> (forall g. g -> c g) -> a -> c a
+    gmapQl :: forall r r'. (r -> r' -> r) -> r -> (forall d. (C d) => d -> r') -> a -> r
+    gmapQl o acc f x0 = unCONST (gfoldl k (\_ -> CONST acc) x0)
+      where
+        k :: (C d) => CONST r (d -> b) -> d -> CONST r b
+        k c x = CONST (unCONST c `o` f x)
+  topQl :: forall a r r'. (C a) => (r -> r' -> r) -> r -> (forall d. (C d) => d -> r') -> a -> r
+  topQl o acc f x0 = unCONST (gfoldl k (\_ -> CONST acc) x0)
+    where
+      k :: (C d) => CONST r (d -> b) -> d -> CONST r b
+      k c x = CONST (unCONST c `o` f x)
+status: pass
+reason: an explicit forall on a class method signature is peeled into the method scheme, so the default body sees its parameters and the binders scope over a where-bound helper's signature
