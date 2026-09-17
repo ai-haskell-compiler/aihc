@@ -43,7 +43,7 @@ import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -211,6 +211,7 @@ runBuildModule options = do
         executableBuildRoot = buildRoot,
         executableModules = compiled,
         executableExtraObjects = [],
+        executableCxxStdLib = False,
         executablePackages = selected
       }
   pure output
@@ -231,6 +232,9 @@ data ExecutableInputs = ExecutableInputs
     -- | Objects of the executable beyond its modules, such as its own C
     -- sources.
     executableExtraObjects :: ![FilePath],
+    -- | The executable has C++ sources of its own, so its link needs the
+    -- C++ standard library whether or not a package of its does.
+    executableCxxStdLib :: !Bool,
     executablePackages :: ![InstalledPackage]
   }
 
@@ -271,9 +275,12 @@ finishExecutable compileConfig inputs = do
   -- @--lto@ build leaves the archive of a package without C sources empty,
   -- and so does a package whose modules are all empty standins.
   archives <- filterM archiveHasMembers (map packageArchive orderedPackages)
+  -- A package with cxx-sources says so in its manifest, and its objects
+  -- need the C++ standard library however the program reaches them.
+  let cxxStdLib = executableCxxStdLib inputs || any (packageManifestCxxStdLib . installedManifest) orderedPackages
   if executableNoLink inputs
-    then writeLinkBundle target output objects archives
-    else linkExecutable target output objects archives
+    then writeLinkBundle target output cxxStdLib objects archives
+    else linkExecutable target output cxxStdLib objects archives
 
 -- | The plan of one package constraint. A core library has the version it
 -- ships with, under the name of the boot library it replaces as well as its
@@ -320,11 +327,15 @@ validateSelectedPackageNames selected =
 -- cannot run the compiler, or that lacks the linker for the target the
 -- compiler ran on, can still produce the executable with @link-exe@.
 --
--- Schema 2 lists objects and archives only. Schema 1 also named an entry
--- and a runtime archive, which are now an object among the objects and the
+-- Schema 3 adds whether the link needs the C++ standard library. Schema 2
+-- lists objects and archives only. Schema 1 also named an entry and a
+-- runtime archive, which are now an object among the objects and the
 -- archive and C objects of the @aihc-rts@ package.
 data LinkBundle = LinkBundle
   { linkBundleTarget :: !NativeTarget,
+    -- | An input was compiled from @cxx-sources@, so the link adds the
+    -- C++ standard library of the target.
+    linkBundleCxxStdLib :: !Bool,
     linkBundleObjects :: ![FilePath],
     linkBundleArchives :: ![FilePath]
   }
@@ -333,8 +344,9 @@ data LinkBundle = LinkBundle
 instance Aeson.ToJSON LinkBundle where
   toJSON bundle =
     Aeson.object
-      [ "schemaVersion" .= (2 :: Int),
+      [ "schemaVersion" .= (3 :: Int),
         "target" .= renderNativeTarget (linkBundleTarget bundle),
+        "cxxStdLib" .= linkBundleCxxStdLib bundle,
         "objects" .= linkBundleObjects bundle,
         "archives" .= linkBundleArchives bundle
       ]
@@ -345,8 +357,14 @@ instance Aeson.FromJSON LinkBundle where
     case schemaVersion :: Int of
       2 -> do
         target <- object .: "target" >>= either fail pure . parseNativeTarget
-        LinkBundle target
+        LinkBundle target False
           <$> object .: "objects"
+          <*> object .: "archives"
+      3 -> do
+        target <- object .: "target" >>= either fail pure . parseNativeTarget
+        LinkBundle target
+          <$> object .: "cxxStdLib"
+          <*> object .: "objects"
           <*> object .: "archives"
       _ -> fail "unsupported link bundle schema"
 
@@ -356,8 +374,8 @@ linkBundleManifestPath bundle = bundle </> "link.json"
 -- | Copy the link inputs into the bundle directory and describe them in the
 -- manifest. Each copy carries its position in the link order as a prefix, so
 -- inputs from different packages that share a file name never collide.
-writeLinkBundle :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> IO ()
-writeLinkBundle target bundle objects archives = do
+writeLinkBundle :: NativeTarget -> FilePath -> Bool -> [FilePath] -> [FilePath] -> IO ()
+writeLinkBundle target bundle cxxStdLib objects archives = do
   let inputs = bundle </> "inputs"
   createDirectoryIfMissing True inputs
   copied <- forM (zip [0 :: Int ..] (objects <> archives)) $ \(index, source) -> do
@@ -370,6 +388,7 @@ writeLinkBundle target bundle objects archives = do
     ( Aeson.encode
         LinkBundle
           { linkBundleTarget = target,
+            linkBundleCxxStdLib = cxxStdLib,
             linkBundleObjects = copiedObjects,
             linkBundleArchives = copiedArchives
           }
@@ -385,12 +404,13 @@ runLinkExe options = do
   exists <- doesFileExist manifest
   unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
   decoded <- Aeson.eitherDecode <$> BL.readFile manifest
-  LinkBundle {linkBundleTarget, linkBundleObjects, linkBundleArchives} <-
+  LinkBundle {linkBundleTarget, linkBundleCxxStdLib, linkBundleObjects, linkBundleArchives} <-
     either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
   createDirectoryIfMissing True (takeDirectory output)
   linkExecutable
     linkBundleTarget
     output
+    linkBundleCxxStdLib
     (map (bundle </>) linkBundleObjects)
     (map (bundle </>) linkBundleArchives)
 
@@ -648,10 +668,12 @@ sourceExtensions source = effectiveExtensions language (headerExtensionSettings 
 -- | Link the objects and archives into the executable. The runtime units
 -- and the entry are among the objects: the C and Lir objects of every
 -- package are linked as they are, so nothing of the runtime is left to a
--- member search.
-linkExecutable :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> IO ()
-linkExecutable Wasm32Wasip3 output objects archives =
+-- member search. A program with an input from @cxx-sources@ also links
+-- the C++ standard library of the target.
+linkExecutable :: NativeTarget -> FilePath -> Bool -> [FilePath] -> [FilePath] -> IO ()
+linkExecutable Wasm32Wasip3 output cxxStdLib objects archives =
   withTemporaryDirectory "aihc-wasm-link" $ \directory -> do
+    when cxxStdLib (either (ioError . userError) (const (pure ())) (cxxStandardLibraryArguments Wasm32Wasip3))
     sysroot <- wasmSysroot
     world <- wasip3WorldPath
     let coreModule = directory </> "program.wasm"
@@ -674,12 +696,13 @@ linkExecutable Wasm32Wasip3 output objects archives =
     runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
     buildComponent typedModule output
     runTool "wasm-tools" ["validate", output]
-linkExecutable target output objects archives = do
+linkExecutable target output cxxStdLib objects archives = do
   (compiler, arguments) <- backendCompiler target
+  cxxArguments <- if cxxStdLib then either (ioError . userError) pure (cxxStandardLibraryArguments target) else pure []
   -- The runtime takes the functions of the Floating class from libm. Recent
   -- platforms carry it inside libc, and -lm is how the older ones that keep
   -- it apart still resolve them.
-  runTool compiler (arguments <> objects <> archives <> ["-lm", "-o", output])
+  runTool compiler (arguments <> objects <> archives <> ["-lm"] <> cxxArguments <> ["-o", output])
 
 -- | Encode the linked core module as a component. The component model has no
 -- way to describe a WASI preview 1 import, so a runtime unit that reaches a

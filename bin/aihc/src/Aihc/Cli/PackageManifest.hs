@@ -29,7 +29,10 @@ data PackageManifest = PackageManifest
     -- | The install flags the package was built with, such as @keep-core@
     -- or @no-code@. A store entry never changes, so an install that asks
     -- for an output the entry lacks must rebuild it.
-    packageManifestFlags :: ![Text]
+    packageManifestFlags :: ![Text],
+    -- | The package has @cxx-sources@, so its objects need the C++
+    -- standard library. An executable that links the package links it.
+    packageManifestCxxStdLib :: !Bool
   }
   deriving (Eq, Show, Generic)
 
@@ -38,7 +41,7 @@ instance NFData PackageManifest
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =
     Aeson.object
-      [ "schemaVersion" .= (5 :: Int),
+      [ "schemaVersion" .= (6 :: Int),
         "name" .= packageManifestName manifest,
         "version" .= packageManifestVersion manifest,
         "identity" .= packageManifestIdentity manifest,
@@ -46,7 +49,8 @@ instance Aeson.ToJSON PackageManifest where
         "dependencies" .= packageManifestDependencies manifest,
         "modules" .= packageManifestModules manifest,
         "compiledModules" .= packageManifestCompiledModules manifest,
-        "flags" .= packageManifestFlags manifest
+        "flags" .= packageManifestFlags manifest,
+        "cxxStdLib" .= packageManifestCxxStdLib manifest
       ]
 
 instance Aeson.FromJSON PackageManifest where
@@ -62,6 +66,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "modules"
           <*> pure []
           <*> pure []
+          <*> pure False
       3 ->
         PackageManifest
           <$> object .: "name"
@@ -72,6 +77,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "modules"
           <*> pure []
           <*> pure []
+          <*> pure False
       4 ->
         PackageManifest
           <$> object .: "name"
@@ -82,6 +88,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "modules"
           <*> pure []
           <*> object .: "flags"
+          <*> pure False
       5 ->
         PackageManifest
           <$> object .: "name"
@@ -92,6 +99,18 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "modules"
           <*> object .: "compiledModules"
           <*> object .: "flags"
+          <*> pure False
+      6 ->
+        PackageManifest
+          <$> object .: "name"
+          <*> object .: "version"
+          <*> object .: "identity"
+          <*> object .: "unitId"
+          <*> object .: "dependencies"
+          <*> object .: "modules"
+          <*> object .: "compiledModules"
+          <*> object .: "flags"
+          <*> object .: "cxxStdLib"
       _ -> fail "unsupported package manifest schema"
 
 packageManifestPath :: FilePath -> FilePath
