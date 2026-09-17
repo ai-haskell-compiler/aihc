@@ -1652,3 +1652,19 @@ int64_t aihc_stm_wait_result(AihcMachine *machine, void *request) {
   aihc_stm_expire_timers(machine);
   return result;
 }
+
+/* GHC's RTS API, as far as package C code uses it. unix, process, posix-pty
+   and rawfilepath stop the interval timer and block the user signals around
+   fork, so that the child inherits neither. aihc runs no interval timer, since
+   its scheduler is cooperative, and installs no signal handlers, so each call
+   has nothing to undo. rtsSupportsBoundThreads answers for a runtime without
+   OS threads. */
+void startTimer(void) {}
+
+void stopTimer(void) {}
+
+void blockUserSignals(void) {}
+
+void unblockUserSignals(void) {}
+
+int rtsSupportsBoundThreads(void) { return 0; }

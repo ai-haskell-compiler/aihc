@@ -430,4 +430,12 @@ void aihc_set_exit_status(AihcMachine *machine, int64_t status);
 int64_t aihc_get_exit_status(const AihcMachine *machine);
 _Noreturn void aihc_exit_process(int64_t status);
 AihcEntry aihc_halt(AihcMachine *machine);
+/* The entry points of GHC's RTS API that package C code calls, declared for
+   it by the Rts.h that Aihc.Hackage.Headers writes. Their names are GHC's,
+   because the callers are not aihc's to rename. */
+void startTimer(void);
+void stopTimer(void);
+void blockUserSignals(void);
+void unblockUserSignals(void);
+int rtsSupportsBoundThreads(void);
 #endif

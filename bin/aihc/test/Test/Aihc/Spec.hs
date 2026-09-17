@@ -105,6 +105,7 @@ tests =
           [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
             testCase "compiles and archives capi wrappers" (test_installCapi primStore),
             testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
+            testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
             testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
             testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
@@ -1004,6 +1005,49 @@ test_installRtsHeaderInclude getStore =
     target <- hostBackendTarget
     result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
+
+-- A @capi@ import that names @Rts.h@ compiles its wrapper against the
+-- compiler's copy of the header. @unix@ imports @stopTimer@ this way before it
+-- forks, and @process@ calls the same entry points from its @c-sources@.
+-- Like 'test_installCapi', this installs for the LLVM target, so that the C
+-- compile is the host's own.
+test_installRtsCapi :: IO SeedStore -> Assertion
+test_installRtsCapi getStore =
+  withSandbox getStore "aihc-install-rts-capi" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  build-depends: base",
+            "  default-language: Haskell2010",
+            "  default-extensions: CApiFFI, MagicHash"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      ( unlines
+          [ "module Demo (disableTimers, boundThreads) where",
+            "import GHC.Prim (Int32#)",
+            "data Int32 = I32# Int32#",
+            "foreign import capi unsafe \"Rts.h stopTimer\" disableTimers :: IO ()",
+            "foreign import capi unsafe \"Rts.h rtsSupportsBoundThreads\" boundThreads :: Int32"
+          ]
+      )
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm)
+    let stubSource = installStorePath result </> "Demo" </> "Demo.capi.c"
+    stub <- readFile stubSource
+    assertBool "the wrapper includes Rts.h" ("#include \"Rts.h\"" `isInfixOf` stub)
+    symbols <- readProcess "nm" [installStorePath result </> "lib" </> "libdemo.a"] ""
+    assertBool "the archive defines the timer wrapper" ("aihc_capi_demo_m0_d1_d0_d0_Demo_disableTimers" `isInfixOf` symbols)
 
 -- Every standin under core-libs claims the version of the boot library it
 -- replaces, and the emulated release is the single source of that version.
