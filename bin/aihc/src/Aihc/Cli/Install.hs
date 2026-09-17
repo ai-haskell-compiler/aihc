@@ -108,7 +108,7 @@ import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferre
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Lir.Resolve qualified as Lir
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
     DependencyVersions,
@@ -824,7 +824,8 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
             packageManifestDependencies = sortOn id (map installedIdentity dependencies),
             packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd),
             packageManifestCompiledModules = sortOn id (map sourceName parsed),
-            packageManifestFlags = compileFlagNames config
+            packageManifestFlags = compileFlagNames config,
+            packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo))
           }
   writePackageManifest (packageManifestPath storePath) manifest
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
@@ -1080,7 +1081,7 @@ storePackageIdentity config dependencies inputs = do
       -- So does hsc2hs, which computes its constants with the C compiler of
       -- the target.
       usesPreprocessor = any (isJust . HackageCabal.fileInfoPreprocessor) (inputSources inputs)
-      usesSysroot = isJust (inputConfigureScript inputs) || usesPreprocessor || not (compileNoCode config || null (HackageCabal.cCompileSources cInputs))
+      usesSysroot = isJust (inputConfigureScript inputs) || usesPreprocessor || not (compileNoCode config || (null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs)))
   cSysrootArguments <-
     if usesSysroot
       then wasmSysrootIncludeArguments (compileTarget config)
@@ -1116,9 +1117,9 @@ packageUnitIdentity inputs =
 archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> PackageInputs -> IO String
 archiveInputsHash config root dependencies inputs = do
   let cInputs = inputCCompileInfo inputs
-  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileLirSources cInputs)
+  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileCxxSources cInputs <> HackageCabal.cCompileLirSources cInputs)
   cSysrootArguments <-
-    if null (HackageCabal.cCompileSources cInputs)
+    if null (HackageCabal.cCompileSources cInputs) && null (HackageCabal.cCompileCxxSources cInputs)
       then pure []
       else wasmSysrootIncludeArguments (compileTarget config)
   -- The C sources include the headers configure wrote.
@@ -2562,16 +2563,24 @@ removeFileIfPresent path = do
   exists <- doesFileExist path
   when exists (removeFile path)
 
--- | Compile the @c-sources@ and the Lir units of a package into its
--- @cbits@ directory. A link takes every object there as it is, so the units
--- of the runtime reach a program whether or not a symbol of theirs is
--- referenced before them.
+-- | Compile the @c-sources@, the @cxx-sources@, and the Lir units of a
+-- package into its @cbits@ directory. A link takes every object there as it
+-- is, so the units of the runtime reach a program whether or not a symbol
+-- of theirs is referenced before them.
+--
+-- A C++ source goes through the same driver as C++, with the @cxx-options@
+-- of the package in place of its @cc-options@. The objects need the C++
+-- standard library, which the link adds for a package whose manifest says
+-- it has C++ sources; a target without that library refuses the package
+-- here rather than at the link of every program that depends on it.
 compilePackageCFiles :: NativeTarget -> OptimizationLevel -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
 compilePackageCFiles target level headerDirectory verbose packageRoot storePath info
-  | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileLirSources info) = pure []
+  | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileCxxSources info) && null (HackageCabal.cCompileLirSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
       sysrootIncludes <- wasmSysrootIncludeArguments target
+      unless (null (HackageCabal.cCompileCxxSources info)) $
+        either (ioError . userError) (const (pure ())) (cxxStandardLibraryArguments target)
       let includeArguments =
             sysrootIncludes
               <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
@@ -2592,6 +2601,20 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
               <> ["-c", source, "-o", object]
           )
         pure object
+      cxxObjects <- forM (HackageCabal.cCompileCxxSources info) $ \source -> do
+        exists <- doesFileExist source
+        unless exists (ioError (userError ("C++ source is absent: " <> source)))
+        let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
+        verbose ("Compile C++ source: " <> source)
+        runTool
+          compiler
+          ( targetArguments
+              <> handwrittenCArguments level
+              <> HackageCabal.cCompileCxxOptions info
+              <> includeArguments
+              <> ["-x", "c++", "-c", source, "-o", object]
+          )
+        pure object
       lirObjects <- forM (HackageCabal.cCompileLirSources info) $ \source -> do
         exists <- doesFileExist source
         unless exists (ioError (userError ("Lir source is absent: " <> source)))
@@ -2605,7 +2628,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
             compileLirObject target (dropExtension (takeFileName object)) lirModule objectRoot object
             pure (Just object)
           else pure Nothing
-      pure (cObjects <> catMaybes lirObjects)
+      pure (cObjects <> cxxObjects <> catMaybes lirObjects)
 
 -- | Run the configure script of a @build-type: Configure@ package and return
 -- the sources and C inputs with its outputs in their include paths.
@@ -3173,4 +3196,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-30"
+packageArtifactFormatVersion = "aihc-artifacts-31"

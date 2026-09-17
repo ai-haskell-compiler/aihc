@@ -18,9 +18,11 @@ import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Distribution.Package (mkPackageName)
+import Distribution.PackageDescription (mkFlagName)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, parseHookedBuildInfo, runParseResult)
 import Distribution.Pretty (prettyShow)
-import Distribution.System (buildArch, buildOS)
+import Distribution.System (Arch (..), OS (..), buildArch, buildOS)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -58,6 +60,7 @@ main =
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
       testCase "detects active custom preprocessor options" test_detectsCustomPreprocessorOptions,
       testCase "collects C sources and compile options from library cabal files" test_collectsCSources,
+      testCase "turns text's simdutf flag off for wasm32" test_wasmTextSimdutfOverride,
       testCase "reads the Configure build type and merges a configure buildinfo" test_configureBuildInfo,
       testCase "finds preprocessor sources by suffix after the plain ones" test_findsPreprocessorSources,
       testProperty "Hedgehog options" prop_dummy
@@ -270,12 +273,40 @@ test_collectsCSources = do
     ["-std=c11"]
     (HC.cCompileCcOptions info)
   assertEqual
+    "expected C++ sources from the cabal file"
+    ["/pkg/cbits/fast.cpp"]
+    (HC.cCompileCxxSources info)
+  assertEqual
+    "expected cxx-options from the cabal file"
+    ["-std=c++17"]
+    (HC.cCompileCxxOptions info)
+  assertEqual
     "expected Lir units from the x-aihc-lir-sources field"
     ["/pkg/lir/helpers.lir", "/pkg/lir/enter.lir"]
     (HC.cCompileLirSources info)
   assertBool
     "inactive javascript C source is not selected"
     (not (any ("js.c" `isSuffixOf`) (HC.cCompileSources info)))
+
+-- The WASI sysroot has no C++ standard library, so the target turns off the
+-- flag that gives @text@ its C++ validator. Every other target keeps the
+-- default, and the override reaches the C++ sources, the exposed modules,
+-- and the CPP options alike.
+test_wasmTextSimdutfOverride :: Assertion
+test_wasmTextSimdutfOverride = do
+  gpd <- parseTestCabal textSimdutfCabal
+  let hostInfo = HC.collectLibraryCCompileInfoFor buildOS buildArch gpd "/pkg"
+      wasmInfo = HC.collectLibraryCCompileInfoFor Wasi Wasm32 gpd "/pkg"
+  assertEqual "host compiles the C++ validator" ["/pkg/simdutf/simdutf.cpp"] (HC.cCompileCxxSources hostInfo)
+  assertEqual "wasm32 compiles no C++" [] (HC.cCompileCxxSources wasmInfo)
+  assertEqual "wasm32 compiles no C shim" [] (HC.cCompileSources wasmInfo)
+  hostFiles <- HC.collectLibraryFilesFor buildOS buildArch gpd "/pkg"
+  wasmFiles <- HC.collectLibraryFilesFor Wasi Wasm32 gpd "/pkg"
+  assertBool "host defines SIMDUTF" (all (elem "-DSIMDUTF" . HC.fileInfoCppOptions) hostFiles)
+  assertBool "wasm32 does not define SIMDUTF" (not (any (elem "-DSIMDUTF" . HC.fileInfoCppOptions) wasmFiles))
+  assertEqual "the override names the flag" [(mkFlagName "simdutf", False)] (HC.targetFlagOverrides Wasm32 (mkPackageName "text"))
+  assertEqual "another package keeps its flags on wasm32" [] (HC.targetFlagOverrides Wasm32 (mkPackageName "bytestring"))
+  assertEqual "text keeps its flags elsewhere" [] (HC.targetFlagOverrides buildArch (mkPackageName "text"))
 
 test_configureBuildInfo :: Assertion
 test_configureBuildInfo = do
@@ -514,8 +545,39 @@ cSourcesCabal =
       "  cc-options: -std=c11",
       "  x-aihc-lir-sources: lir/helpers.lir, lir/enter.lir",
       "  default-language: Haskell2010",
+      "  cxx-sources: cbits/fast.cpp",
+      "  cxx-options: -std=c++17",
       "  if arch(javascript)",
       "    c-sources: cbits/js.c"
+    ]
+
+-- The shape of the simdutf branch of text-2.1.4.
+textSimdutfCabal :: String
+textSimdutfCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: text",
+      "version: 2.1.4",
+      "",
+      "flag simdutf",
+      "  default: True",
+      "  manual: True",
+      "",
+      "flag pure-haskell",
+      "  default: False",
+      "  manual: True",
+      "",
+      "library",
+      "  exposed-modules: Data.Text",
+      "  hs-source-dirs: src",
+      "  default-language: Haskell2010",
+      "  if flag(simdutf) && !(arch(javascript) || flag(pure-haskell))",
+      "    exposed-modules: Data.Text.Internal.Validate.Simd",
+      "    include-dirs: simdutf",
+      "    c-sources: simdutf/hs_simdutf.c",
+      "    cxx-sources: simdutf/simdutf.cpp",
+      "    cxx-options: -std=c++17",
+      "    cpp-options: -DSIMDUTF"
     ]
 
 customPreprocessorCabal :: String

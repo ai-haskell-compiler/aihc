@@ -203,6 +203,7 @@ buildPackage options = do
           executableBuildRoot = outputRoot,
           executableModules = compiled,
           executableExtraObjects = cObjects,
+          executableCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo)),
           executablePackages = selected
         }
     pure output

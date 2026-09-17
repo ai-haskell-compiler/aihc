@@ -20,6 +20,7 @@ module Aihc.Hackage.Cabal
     -- * Condition evaluation
     conditionEvaluator,
     conditionEvaluatorFor,
+    targetFlagOverrides,
     collectCondTreeData,
     collectMergedBuildInfo,
 
@@ -58,7 +59,7 @@ import Distribution.Compat.Graph qualified as Graph
 import Distribution.Compiler (CompilerFlavor (..), CompilerId (..))
 import Distribution.Compiler qualified as Compiler
 import Distribution.ModuleName qualified as ModuleName
-import Distribution.Package (packageName, unPackageName)
+import Distribution.Package (PackageName, mkPackageName, packageName, unPackageName)
 import Distribution.PackageDescription
   ( BuildInfo,
     BuildType (..),
@@ -85,6 +86,8 @@ import Distribution.PackageDescription
     condTestSuites,
     cppOptions,
     customFieldsBI,
+    cxxOptions,
+    cxxSources,
     defaultExtensions,
     defaultLanguage,
     exeModules,
@@ -93,6 +96,7 @@ import Distribution.PackageDescription
     flagName,
     includeDirs,
     libBuildInfo,
+    mkFlagName,
     modulePath,
     oldExtensions,
     options,
@@ -115,7 +119,7 @@ import Distribution.Simple.Compiler
 import Distribution.Simple.InstallDirs (defaultInstallDirs)
 import Distribution.Simple.Program.Db (emptyProgramDb)
 import Distribution.Simple.Setup (defaultConfigFlags)
-import Distribution.System (Arch, OS, buildArch, buildOS, buildPlatform)
+import Distribution.System (Arch (..), OS, buildArch, buildOS, buildPlatform)
 import Distribution.Types.BuildInfo (targetBuildDepends)
 import Distribution.Types.ComponentId (mkComponentId)
 import Distribution.Types.ComponentLocalBuildInfo (ComponentLocalBuildInfo (..))
@@ -166,16 +170,21 @@ data FileInfo = FileInfo
 filePreprocessor :: FilePath -> Maybe Preprocessor
 filePreprocessor path = preprocessorForExtension (drop 1 (takeExtension path))
 
--- | C compile inputs from the active library @c-sources@, @include-dirs@, and
--- @cc-options@ fields.
+-- | C compile inputs from the active library @c-sources@, @cxx-sources@,
+-- @include-dirs@, @cc-options@, and @cxx-options@ fields.
 data CCompileInfo = CCompileInfo
   { cCompileSources :: [FilePath],
+    -- | The @cxx-sources@ of the package. They are compiled as C++ with
+    -- the @cxx-options@, and a package that has any links the C++ standard
+    -- library into every executable that depends on it.
+    cCompileCxxSources :: [FilePath],
     -- | The Lir units of the package, from the aihc-specific field
     -- @x-aihc-lir-sources@. They are compiled with the Lir backend of the
     -- target and their objects join the C objects of the package.
     cCompileLirSources :: [FilePath],
     cCompileIncludeDirs :: [FilePath],
-    cCompileCcOptions :: [String]
+    cCompileCcOptions :: [String],
+    cCompileCxxOptions :: [String]
   }
   deriving (Eq, Show)
 
@@ -224,18 +233,22 @@ cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
 cCompileInfoFromBuild packageRoot build =
   CCompileInfo
     { cCompileSources = extractCSources packageRoot build,
+      cCompileCxxSources = extractCxxSources packageRoot build,
       cCompileLirSources = extractLirSources packageRoot build,
       cCompileIncludeDirs = extractIncludeDirs packageRoot build,
-      cCompileCcOptions = ccOptions build
+      cCompileCcOptions = ccOptions build,
+      cCompileCxxOptions = cxxOptions build
     }
 
 mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
 mergeCCompileInfo items =
   CCompileInfo
     { cCompileSources = nub (concatMap cCompileSources items),
+      cCompileCxxSources = nub (concatMap cCompileCxxSources items),
       cCompileLirSources = nub (concatMap cCompileLirSources items),
       cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
-      cCompileCcOptions = concatMap cCompileCcOptions items
+      cCompileCcOptions = concatMap cCompileCcOptions items,
+      cCompileCxxOptions = concatMap cCompileCxxOptions items
     }
 
 -- | The build type of a package. A missing @build-type@ field defaults the
@@ -639,9 +652,12 @@ conditionEvaluator gpd = conditionEvaluatorFor gpd buildOS buildArch
 conditionEvaluatorFor :: GenericPackageDescription -> OS -> Arch -> Condition ConfVar -> Bool
 conditionEvaluatorFor gpd os arch = eval
   where
+    -- The flags take their defaults, except where the target overrides one.
     defaultFlags :: Map.Map FlagName Bool
     defaultFlags =
-      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+      Map.union
+        (Map.fromList (targetFlagOverrides arch (packageName (packageDescription gpd))))
+        (Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd])
 
     -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
     -- same one the CPP macros describe; the host compiler is irrelevant.
@@ -657,6 +673,19 @@ conditionEvaluatorFor gpd os arch = eval
     eval (CNot c) = not (eval c)
     eval (COr a b) = eval a || eval b
     eval (CAnd a b) = eval a && eval b
+
+-- | The flags of a package a target sets away from their defaults.
+--
+-- aihc has no way to ask for a flag on the command line, so the few flags a
+-- target cannot take at their default are listed here. The WebAssembly
+-- target has a libc but no C++ standard library in its sysroot, and
+-- @text@ enables its @cxx-sources@ (the simdutf validator) on every
+-- architecture but JavaScript, so that flag is turned off there and the
+-- package validates UTF-8 with its C and Haskell routines instead.
+targetFlagOverrides :: Arch -> PackageName -> [(FlagName, Bool)]
+targetFlagOverrides arch name
+  | arch == Wasm32 && name == mkPackageName "text" = [(mkFlagName "simdutf", False)]
+  | otherwise = []
 
 -- | Collect all data nodes from a 'CondTree', evaluating conditions.
 collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
@@ -693,6 +722,11 @@ extractIncludeDirs packageRoot bi =
 extractCSources :: FilePath -> BuildInfo -> [FilePath]
 extractCSources packageRoot bi =
   nub [packageRoot </> getSymbolicPath path | path <- cSources bi]
+
+-- | Extract C++ source paths from a 'BuildInfo'.
+extractCxxSources :: FilePath -> BuildInfo -> [FilePath]
+extractCxxSources packageRoot bi =
+  nub [packageRoot </> getSymbolicPath path | path <- cxxSources bi]
 
 -- | The field naming the Lir units of a component. Cabal keeps a field it
 -- does not know under its @x-@ prefix, so the units are listed like

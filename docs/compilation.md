@@ -629,7 +629,9 @@ Foreign libraries and linker options come from package configuration. They do no
 
 ## Library archives
 
-After all module objects exist, compile C sources from the Cabal `c-sources` field. Put the module objects and the C objects in `lib/lib{pkg_name}.a`. Create the native archive symbol index.
+After all module objects exist, compile C sources from the Cabal `c-sources` field, and C++ sources from the `cxx-sources` field with the `cxx-options` of the package. Put the module objects and the C and C++ objects in `lib/lib{pkg_name}.a`. Create the native archive symbol index.
+
+A package with `cxx-sources` records in its manifest that its objects need the C++ standard library. An executable that links such a package, directly or through a link bundle, links that library: `libc++` on macOS and `libstdc++` on Linux, the way GHC's virtual `system-cxx-std-lib` package does. The WASI sysroot of the `wasm32-wasip3` target supplies libc only, so a package with C++ sources is refused there; `text` is the one package that needs this, and the target turns its `simdutf` flag off instead (see `targetFlagOverrides` in `Aihc.Hackage.Cabal`), so it validates UTF-8 with its C and Haskell routines.
 
 The archive is a derived package artifact. A build can recreate it from the module objects and C objects, but storage avoids repeated archive construction.
 

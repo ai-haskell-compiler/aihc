@@ -87,6 +87,7 @@ tests =
               testCase "parses the optimization level" test_buildModuleOptimizationOption,
               testCase "parses --check-prim-bounds" test_checkPrimBoundsOption,
               testCase "builds every executable of a Cabal package" (test_buildExecutables coreStore),
+              testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
               testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
               -- The --lto builds need core libraries built with the flag,
               -- which the other stores do not hold.
@@ -586,6 +587,7 @@ test_buildModuleLinkBundle getStore =
     decoded <- Aeson.eitherDecode <$> BL.readFile (linkBundleManifestPath bundle)
     manifest <- either assertFailure pure decoded
     assertEqual "bundle target" (buildTarget options) (linkBundleTarget manifest)
+    assertBool "a program without C++ sources links no C++ standard library" (not (linkBundleCxxStdLib manifest))
     assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArchives manifest))
     assertBool "bundle lists the entry object" (any ("entry.o" `isSuffixOf`) (linkBundleObjects manifest))
@@ -803,6 +805,63 @@ test_buildExecutables getStore =
       assertBool (name <> " bundle lists the main object") (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "greet"))
     assertBool "greet links the package library" (any ("libexecutables.a" `isSuffixOf`) (linkBundleArchives bundle))
+
+-- A package with @cxx-sources@ compiles them as C++ with its
+-- @cxx-options@, records in its manifest that its objects need the C++
+-- standard library, and an executable that links the package links that
+-- library, directly and through a bundle. The fixture's C++ allocates a
+-- vector, so the link fails without it.
+test_buildCxxSources :: IO SeedStore -> Assertion
+test_buildCxxSources getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/cxx-sources"
+  withSandbox getStore "aihc-build-cxx-sources" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox
+        buildRoot = root </> "build"
+        targetRoot = buildRoot </> nativeTargetStoreDirectory buildHostTarget
+        options =
+          BuildOptions
+            { buildInput = fixtureRoot,
+              buildSourceDirectories = [],
+              buildPackageConstraints = [],
+              buildTarget = buildHostTarget,
+              buildStoreRoot = Just storeRoot,
+              buildBuildRoot = Just buildRoot,
+              buildWorkspace = Nothing,
+              buildKeepCore = False,
+              buildKeepGrin = False,
+              buildKeepLir = False,
+              buildKeepNative = False,
+              buildLint = False,
+              buildCheckPrimBounds = False,
+              buildLto = False,
+              buildOptimization = O0,
+              buildNoLink = False,
+              buildVerbose = False,
+              buildOutput = Nothing
+            }
+    outputs <- withCurrentDirectory root (build options)
+    assertEqual "built executables" [targetRoot </> "bin" </> "triangle"] outputs
+    (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> "triangle") [] ""
+    assertEqual "triangle exit status" ExitSuccess status
+    assertEqual "triangle stdout" "55\n" stdout
+    assertEqual "triangle stderr" "" stderr
+    let packageRoot = targetRoot </> "cxx-sources-0.1.0.0"
+    assertFileExists (packageRoot </> "cbits" </> "cbits_triangle.o")
+    manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath packageRoot)
+    assertBool "the package manifest records its C++ sources" (packageManifestCxxStdLib manifest)
+    let bundles = root </> "bundles"
+    bundleOutputs <- withCurrentDirectory root (build options {buildNoLink = True, buildOutput = Just bundles})
+    assertEqual "written bundles" [bundles </> "triangle"] bundleOutputs
+    bundle <- either assertFailure pure . Aeson.eitherDecode =<< BL.readFile (linkBundleManifestPath (bundles </> "triangle"))
+    assertBool "the bundle asks for the C++ standard library" (linkBundleCxxStdLib bundle)
+    assertBool "the bundle lists the C++ object" (any ("cbits_triangle.o" `isSuffixOf`) (linkBundleObjects bundle))
+    let linked = root </> "linked" </> "triangle"
+    withCurrentDirectory root $
+      runLinkExe LinkExeOptions {linkExeBundle = bundles </> "triangle", linkExeOutputFile = linked}
+    (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
+    assertEqual "linked executable exit status" ExitSuccess linkedStatus
+    assertEqual "linked executable stdout" "55\n" linkedStdout
 
 -- | @-O2@ on a package build compiles the merged program of each
 -- executable once, under the executable's own build directory, and links

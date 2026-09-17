@@ -10,6 +10,7 @@ module Aihc.Native
     WasmSysroot (..),
     backendArchiver,
     backendCompiler,
+    cxxStandardLibraryArguments,
     handwrittenCArguments,
     buildAddrLiteralPool,
     defaultOptimizationLevel,
@@ -334,6 +335,25 @@ backendCompiler target =
     LinuxAmd64 -> nativeCompiler
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
+
+-- | The link arguments that add the C++ standard library of a target, for a
+-- program that links a package with @cxx-sources@. The C driver links only
+-- libc, so the library is named the way GHC's @system-cxx-std-lib@ does it:
+-- @libc++@ on macOS and @libstdc++@ on Linux. The @llvm@ target compiles
+-- for the host, so the host decides.
+--
+-- The WASI sysroot holds a libc and no C++ library, so the WebAssembly
+-- target has no answer; see 'Aihc.Hackage.Cabal.targetFlagOverrides' for
+-- how a package avoids needing one there.
+cxxStandardLibraryArguments :: NativeTarget -> Either String [String]
+cxxStandardLibraryArguments target =
+  case target of
+    AppleArm64 -> Right ["-lc++"]
+    LinuxAmd64 -> Right ["-lstdc++"]
+    Llvm
+      | System.os == "darwin" -> Right ["-lc++"]
+      | otherwise -> Right ["-lstdc++"]
+    Wasm32Wasip3 -> Left "the wasm32-wasip3 target has no C++ standard library: its sysroot supplies libc only, so a package with cxx-sources cannot be linked"
 
 -- | The WASI sysroot that supplies libc to the WebAssembly target. The
 -- runtime allocates, copies memory, and aborts through libc like every other
