@@ -914,7 +914,8 @@ data TcTypeApplicationKinds = TcTypeApplicationKinds
 
 typeApplicationKinds :: TcKinds -> TcKindEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
 typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
-  ForAll quantified _ resultKind <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
+  scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
+  let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
       (argumentSubstitution, remainingKind, skipped) = go quantifiedUniques 0 Map.empty resultKind arguments
       resultSubstitution =

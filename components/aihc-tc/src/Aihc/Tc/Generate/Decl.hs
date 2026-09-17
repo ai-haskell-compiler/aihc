@@ -859,7 +859,8 @@ defaultGlobalKindMetas initialKeys = do
           pure (TcIdBinder (withInventedKindVariables defaulted) closedness)
         TcMonoIdBinder ty -> TcMonoIdBinder <$> defaultTypeKinds ty
     defaultTyConInfoKinds info = do
-      ForAll variables predicates body <- defaultTyConKindScheme (tciKindScheme info)
+      defaulted <- defaultTyConKindScheme (tciKindScheme info)
+      let ForAll variables predicates body = defaulted
       let kindScheme = specifiedScheme (closeKindVariables variables) predicates body
       synonym <- traverse defaultTypeSynonymKinds (tciTypeSynonym info)
       pure
@@ -1693,7 +1694,8 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       defaultMethodUses <-
         sequence
           [ do
-              ForAll _ methodPredicates methodBody <- methodExpectedScheme info headTys methodName
+              expectedScheme <- methodExpectedScheme info headTys methodName
+              let ForAll _ methodPredicates methodBody = expectedScheme
               -- A variable the default signature quantifies on its own and
               -- keeps out of the method type -- @f@ in @(RandomGen f,
               -- FrozenGen f m, g ~ MutableGen f m)@ -- is chosen when the
@@ -1964,7 +1966,8 @@ instanceMethodScope signatures name givens (ForAll _ predicates expected) matche
   case Map.lookup name signatures of
     Nothing -> pure Map.empty
     Just signature -> do
-      scheme@(ForAll variables signaturePredicates signatureType) <- sigToScheme signature
+      scheme <- sigToScheme signature
+      let ForAll variables signaturePredicates signatureType = scheme
       withScopedTyVars (scopedSigTyVars (explicitForallNames signature) variables) $ do
         let (arguments, result) = splitFunTy signatureType (matchArity matches)
         checked <- withGivenPredicates (givens <> signaturePredicates) (mapM (tcMatchEquation Nothing arguments result) matches)
@@ -1998,7 +2001,8 @@ tcInstanceItemBody classInfo givens headTys signatures item =
     InstanceItemAnn ann inner ->
       InstanceItemAnn ann <$> tcInstanceItemBody classInfo givens headTys signatures inner
     InstanceItemBind (FunctionBind name matches) -> do
-      scheme@(ForAll methodTyVars methodGivens methodTy) <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
+      scheme <- methodExpectedScheme classInfo headTys (unqualifiedNameText name)
+      let ForAll methodTyVars methodGivens methodTy = scheme
       scope <- instanceMethodScope signatures (unqualifiedNameText name) givens scheme matches
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       (results, failed) <-
@@ -2021,7 +2025,8 @@ tcInstanceItemBody classInfo givens headTys signatures item =
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (methodName, _) -> do
-          scheme@(ForAll methodTyVars methodGivens methodTy) <- methodExpectedScheme classInfo headTys methodName
+          scheme <- methodExpectedScheme classInfo headTys methodName
+          let ForAll methodTyVars methodGivens methodTy = scheme
           scope <- instanceMethodScope signatures methodName givens scheme [zeroArgMatch (patternSpan pat) rhs]
           (results, failed) <-
             withErrorTracking $ withScopedTyVars scope $ do
@@ -2921,7 +2926,8 @@ inferPatSynLayout sp name pat argBinders = do
   if failed
     then pure Nothing
     else do
-      ForAll universals required body <- generalizeAndCommit (foldr TcFunTy scrutTy argTys) residual
+      generalized <- generalizeAndCommit (foldr TcFunTy scrutTy argTys) residual
+      let ForAll universals required body = generalized
       provided <- mapM zonkPred [ctPred ct | ct <- pcGivenCts patCheck, isClassPredicate (ctPred ct)]
       let (argTys', resultType) = splitFunTy body (length argTys)
       pure
@@ -3264,8 +3270,8 @@ tcTopLevelWithSig key displayName sig matches = do
 generalizePartialSigBinding :: TcTermKey -> TcBindingResult -> TcM TcBindingResult
 generalizePartialSigBinding key (TcBindingResult resultKey displayName ty) = do
   let ForAll sigTyVars sigPreds body = typeSchemeFromType ty
-  ForAll extraTyVars preds body' <-
-    generalizeAndCommitIgnoring (Set.singleton key) body sigPreds
+  generalized <- generalizeAndCommitIgnoring (Set.singleton key) body sigPreds
+  let ForAll extraTyVars preds body' = generalized
   -- The signature's binders were written; the generalized extras were not.
   let scheme = Scheme extraTyVars sigTyVars preds body'
       binder = TcIdBinder scheme Closed
