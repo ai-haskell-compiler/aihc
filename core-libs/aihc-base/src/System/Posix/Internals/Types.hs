@@ -24,22 +24,22 @@ import Foreign.C.String (CString)
 import Foreign.C.Types (CInt)
 
 -- | The @struct flock@ an advisory lock is described by.
-data CFLock
+data {-# CTYPE "struct flock" #-} CFLock
 
 -- | The @sigset_t@ a set of signals is held in.
-data CSigset
+data {-# CTYPE "sigset_t" #-} CSigset
 
 -- | The @struct stat@ a file's metadata is read into.
-data CStat
+data {-# CTYPE "struct stat" #-} CStat
 
 -- | The @struct termios@ a terminal's settings are held in.
-data CTermios
+data {-# CTYPE "struct termios" #-} CTermios
 
 -- | The @struct utimbuf@ the times of a file are set from.
-data CUtimbuf
+data {-# CTYPE "struct utimbuf" #-} CUtimbuf
 
 -- | The @struct utsname@ the system's name is read into.
-data CUtsname
+data {-# CTYPE "struct utsname" #-} CUtsname
 
 -- | A file descriptor: the C @int@ that names an open file.
 type FD = CInt

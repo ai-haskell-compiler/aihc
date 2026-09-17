@@ -48,7 +48,7 @@ import Aihc.Tc
     tyConName,
   )
 import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignCApi (..), TcForeignCApiKind (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
-import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Env (CType (..), PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Types (TyLit (..), mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when, (<$!>))
 import Data.Array (Array, listArray, (!))
@@ -259,20 +259,28 @@ getForeignCApi = do
 
 putForeignMarshal :: PartIndex -> TcForeignMarshal -> Builder.Builder
 putForeignMarshal table marshal =
-  cborArray 4
+  cborArray 5
     <> putType table (tcForeignSourceType marshal)
     <> putType table (tcForeignPrimitiveType marshal)
     <> encodeList cborText (tcForeignConstructors marshal)
     <> putForeignAbiType (tcForeignAbiType marshal)
+    <> putMaybe putCType (tcForeignCType marshal)
 
 getForeignMarshal :: PartTable -> Get.Get TcForeignMarshal
 getForeignMarshal table = do
-  expectArray 4
+  expectArray 5
   tcForeignSourceType <- getType table
   tcForeignPrimitiveType <- getType table
   tcForeignConstructors <- getList getText
   tcForeignAbiType <- getForeignAbiType
-  pure TcForeignMarshal {tcForeignSourceType, tcForeignPrimitiveType, tcForeignConstructors, tcForeignAbiType}
+  tcForeignCType <- getMaybe getCType
+  pure TcForeignMarshal {tcForeignSourceType, tcForeignPrimitiveType, tcForeignConstructors, tcForeignAbiType, tcForeignCType}
+
+putCType :: CType -> Builder.Builder
+putCType cType = cborArray 2 <> putMaybe cborText (cTypeHeader cType) <> cborText (cTypeName cType)
+
+getCType :: Get.Get CType
+getCType = expectArray 2 >> (CType <$!> getMaybe getText <*!> getText)
 
 putForeignEffect :: TcForeignEffect -> Builder.Builder
 putForeignEffect effect =
@@ -631,11 +639,11 @@ getTypeSynonymInfo :: PartTable -> Get.Get TypeSynonymInfo
 getTypeSynonymInfo table = expectArray 2 >> (TypeSynonymInfo <$!> getList (getTyVar table) <*!> getMaybe (getType table))
 
 putDataTypeInfo :: PartIndex -> DataTypeInfo -> Builder.Builder
-putDataTypeInfo table info = cborArray 7 <> cborText (dtiName info) <> putTyCon table (dtiTyCon info) <> encodeList (putTyVar table) (dtiTyVars info) <> putType table (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList (putDataConInfo table) (dtiConstructors info) <> encodeList putBool (dtiNominalRoles info)
+putDataTypeInfo table info = cborArray 8 <> cborText (dtiName info) <> putTyCon table (dtiTyCon info) <> encodeList (putTyVar table) (dtiTyVars info) <> putType table (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList (putDataConInfo table) (dtiConstructors info) <> encodeList putBool (dtiNominalRoles info) <> putMaybe putCType (dtiCType info)
 
 getDataTypeInfo :: PartTable -> Get.Get DataTypeInfo
 getDataTypeInfo table = do
-  expectArray 7
+  expectArray 8
   dtiName <- getText
   dtiTyCon <- getTyCon table
   dtiTyVars <- getList (getTyVar table)
@@ -643,7 +651,8 @@ getDataTypeInfo table = do
   dtiFlavor <- getTyConFlavor
   dtiConstructors <- getList (getDataConInfo table)
   dtiNominalRoles <- getList getBool
-  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors, dtiNominalRoles}
+  dtiCType <- getMaybe getCType
+  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors, dtiNominalRoles, dtiCType}
 
 putDataConInfo :: PartIndex -> DataConInfo -> Builder.Builder
 putDataConInfo table info =

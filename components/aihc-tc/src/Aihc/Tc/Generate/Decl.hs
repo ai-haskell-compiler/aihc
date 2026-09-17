@@ -126,7 +126,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -1587,7 +1587,7 @@ checkForeignValueType sourceSpan ty = do
     Right marshal -> pure marshal
     Left problem -> do
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> problem))
-      primitiveMarshal ty [] "Int32#" TcForeignInt32
+      primitiveMarshal ty [] "Int32#" TcForeignInt32 Nothing
 
 -- | Find the primitive representation of a foreign value type.  The FFI
 -- chapter of the Haskell report marshals a value through any number of
@@ -1597,15 +1597,17 @@ checkForeignValueType sourceSpan ty = do
 -- field, until a primitive type or a nullary constructor (the unit type of a
 -- result) appears.
 resolveForeignValueType :: TcType -> TcM (Either String TcForeignMarshal)
-resolveForeignValueType sourceType = go (0 :: Int) [] sourceType
+resolveForeignValueType sourceType = do
+  cType <- foreignCType sourceType
+  go cType (0 :: Int) [] sourceType
   where
-    go depth constructors ty
+    go cType depth constructors ty
       | depth > maximumUnwrapDepth = pure (Left ("too many newtype layers in " <> renderTcType sourceType))
       | otherwise =
           case ty of
             TcTyCon tyCon _
               | Just (primitiveName, abiType) <- lookup (tyConName tyCon, tyConArity tyCon) primitiveForeignTypes ->
-                  Right <$> primitiveMarshal sourceType (reverse constructors) primitiveName abiType
+                  Right <$> primitiveMarshal sourceType (reverse constructors) primitiveName abiType cType
               -- A byte array argument passes the address of its payload.
               | (tyConName tyCon, tyConArity tyCon) `elem` [("ByteArray#", 0), ("MutableByteArray#", 1)] ->
                   pure (Right (byteArrayMarshal ty))
@@ -1619,7 +1621,7 @@ resolveForeignValueType sourceType = go (0 :: Int) [] sourceType
                           case dciFields constructor of
                             [field]
                               | Just substitution <- matchTypes [dciResTy constructor] [ty] ->
-                                  go (depth + 1) (dciName constructor : constructors) (applySubst substitution (dcfiType field))
+                                  go cType (depth + 1) (dciName constructor : constructors) (applySubst substitution (dcfiType field))
                             [] -> pure (Right (voidMarshal (reverse (dciName constructor : constructors))))
                             _ -> unsupported ty
                     _ -> unsupported ty
@@ -1633,15 +1635,49 @@ resolveForeignValueType sourceType = go (0 :: Int) [] sourceType
         { tcForeignSourceType = sourceType,
           tcForeignPrimitiveType = ty,
           tcForeignConstructors = [],
-          tcForeignAbiType = TcForeignAddr
+          tcForeignAbiType = TcForeignAddr,
+          tcForeignCType = Nothing
         }
     voidMarshal constructors =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,
           tcForeignPrimitiveType = sourceType,
           tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignVoid
+          tcForeignAbiType = TcForeignVoid,
+          tcForeignCType = Nothing
         }
+
+-- | The C spelling of a foreign value type for a @capi@ wrapper, as GHC
+-- derives it: a pointer type is spelled as a pointer to the C type of its
+-- pointee, a type with a @CTYPE@ pragma is spelled as the pragma says, and a
+-- newtype without one is spelled as its field.  A type with no spelling
+-- along that path, a bare @Ptr a@ or a plain integer newtype for instance,
+-- gives nothing, and the wrapper falls back to the ABI type.  The fallback
+-- is why the pointee matters: a @void *@ satisfies a C function, but a
+-- macro that reads through the pointer needs the real type.
+foreignCType :: TcType -> TcM (Maybe CType)
+foreignCType = go (0 :: Int)
+  where
+    go depth ty
+      | depth > 64 = pure Nothing
+      | otherwise =
+          case ty of
+            TcTyCon tyCon [pointee]
+              | tyConName tyCon `elem` ["Ptr", "FunPtr"] -> fmap (pointer "") <$> go (depth + 1) pointee
+              | tyConName tyCon == "ConstPtr" -> fmap (pointer "const ") <$> go (depth + 1) pointee
+            TcTyCon tyCon _ -> do
+              mDataType <- lookupDataType tyCon
+              case mDataType of
+                Just dataType
+                  | Just cType <- dtiCType dataType -> pure (Just cType)
+                  | dtiFlavor dataType == NewtypeTyCon,
+                    [constructor] <- dtiConstructors dataType,
+                    [field] <- dciFields constructor,
+                    Just substitution <- matchTypes [dciResTy constructor] [ty] ->
+                      go (depth + 1) (applySubst substitution (dcfiType field))
+                _ -> pure Nothing
+            _ -> pure Nothing
+    pointer qualifier cType = cType {cTypeName = qualifier <> cTypeName cType <> " *"}
 
 -- | Primitive types that the C ABI bridge understands, with the ABI value
 -- each one marshals as.
@@ -1666,8 +1702,8 @@ primitiveForeignTypes =
     (("StablePtr#", 1), ("StablePtr#", TcForeignAddr))
   ]
 
-primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> TcM TcForeignMarshal
-primitiveMarshal sourceType constructors primitiveName abiType = do
+primitiveMarshal :: TcType -> [Text] -> Text -> TcForeignAbiType -> Maybe CType -> TcM TcForeignMarshal
+primitiveMarshal sourceType constructors primitiveName abiType cType = do
   wiring <- getWiring
   kinds <- getKinds
   primitiveTyCon <- mkWiredTyCon (tcWiringPrimitiveTyCon wiring primitiveName) (typeKind kinds)
@@ -1676,7 +1712,8 @@ primitiveMarshal sourceType constructors primitiveName abiType = do
       { tcForeignSourceType = sourceType,
         tcForeignPrimitiveType = TcTyCon primitiveTyCon [],
         tcForeignConstructors = constructors,
-        tcForeignAbiType = abiType
+        tcForeignAbiType = abiType,
+        tcForeignCType = cType
       }
 
 annotateDeclAt :: Maybe SourceSpan -> TcAnnotation -> Decl -> Decl
@@ -4578,7 +4615,8 @@ registerDataConstructors origin dataDecl = do
             dtiResultKind = resultKind,
             dtiFlavor = DataTyCon,
             dtiConstructors = constructors,
-            dtiNominalRoles = replicate (length tyVars) False
+            dtiNominalRoles = replicate (length tyVars) False,
+            dtiCType = cTypePragma (dataDeclCTypePragma dataDecl)
           }
       pure (bindings <> selectorBindings)
 
@@ -4632,9 +4670,34 @@ registerNewtypeConstructor origin newtypeDecl = do
             dtiResultKind = resultKind,
             dtiFlavor = NewtypeTyCon,
             dtiConstructors = constructors,
-            dtiNominalRoles = replicate (length tyVars) False
+            dtiNominalRoles = replicate (length tyVars) False,
+            dtiCType = cTypePragma (newtypeDeclCTypePragma newtypeDecl)
           }
       pure (maybeToList constructor <> selectorBindings)
+
+-- | The C type a @CTYPE@ pragma names.
+--
+-- The parser keeps the pragma as its source text, which holds one or two
+-- string literals: the C type, optionally preceded by the header that
+-- declares it.  A pragma with any other shape names nothing.
+cTypePragma :: Maybe Pragma -> Maybe CType
+cTypePragma maybePragma = do
+  pragma <- maybePragma
+  let text = case pragmaType pragma of
+        PragmaUnknown raw -> raw
+        _ -> pragmaRawText pragma
+  case quotedStrings text of
+    [name] -> Just CType {cTypeHeader = Nothing, cTypeName = name}
+    [header, name] -> Just CType {cTypeHeader = Just header, cTypeName = name}
+    _ -> Nothing
+  where
+    quotedStrings text =
+      case T.breakOn "\"" text of
+        (_, rest)
+          | T.null rest -> []
+          | otherwise ->
+              let (literal, remaining) = T.breakOn "\"" (T.drop 1 rest)
+               in if T.null remaining then [] else literal : quotedStrings (T.drop 1 remaining)
 
 registerTypeLevelDataCon :: DataConInfo -> TcM ()
 registerTypeLevelDataCon constructor = do

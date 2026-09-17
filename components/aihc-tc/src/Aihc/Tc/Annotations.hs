@@ -65,7 +65,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionNamespace (..))
-import Aihc.Tc.Env (AssociatedTypeInfo, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
+import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
 import Control.DeepSeq (NFData)
@@ -221,7 +221,11 @@ data TcForeignMarshal = TcForeignMarshal
   { tcForeignSourceType :: !TcType,
     tcForeignPrimitiveType :: !TcType,
     tcForeignConstructors :: ![Text],
-    tcForeignAbiType :: !TcForeignAbiType
+    tcForeignAbiType :: !TcForeignAbiType,
+    -- | The C spelling of the value for a @capi@ wrapper, when a @CTYPE@
+    -- pragma on the source type, or on the pointee of a pointer type, gives
+    -- one.  Without it the wrapper spells the value as its ABI type.
+    tcForeignCType :: !(Maybe CType)
   }
   deriving (Eq, Show, Read, Generic)
 
