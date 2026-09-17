@@ -18,7 +18,8 @@ modules:
 
   action :: Fn
   action = step (I# 1#) (I# 2#)
-eta: true
+passes:
+- eta
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim

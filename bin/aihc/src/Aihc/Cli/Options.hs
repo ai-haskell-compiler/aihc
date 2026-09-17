@@ -309,7 +309,7 @@ optimizationOption =
         <> OA.metavar "LEVEL"
         <> OA.value defaultOptimizationLevel
         <> OA.showDefaultWith renderOptimizationLevel
-        <> OA.help "Optimization level: 0, 1, 2 or s. Levels 2 and s compile the whole program at once, and every level is the level Clang receives for C sources and LLVM output"
+        <> OA.help "Optimization level: 0, 1, 2 or s. Level 0 runs no System FC pass, s runs the shrinking inliner, 1 and 2 also run the growing one. Levels 2 and s compile the whole program at once, and every level is the level Clang receives for C sources and LLVM output"
     )
 
 parseGarbageCollector :: String -> Either String GarbageCollector

@@ -16,7 +16,8 @@ modules:
 
   use :: Bool -> Bool
   use x = pick x True
-inline: shrink
+passes:
+- inline: shrink
 expected: |-
   scope 1 = "" Lib
   scope 2 = "" Test

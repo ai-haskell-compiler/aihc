@@ -16,7 +16,6 @@ module Aihc.Native
     buildAddrLiteralPool,
     defaultOptimizationLevel,
     runtimeOptimizationLevel,
-    wholeProgramLevel,
     executableEntryName,
     executableEntryParts,
     hostNativeTarget,
@@ -255,11 +254,11 @@ nativeTargetStoreDirectory target =
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
 
--- | The @-O@ level of a build. The level selects the System FC inliner:
--- none at @-O0@, one that only makes the program smaller at @-Os@, and one
--- that fills a size budget at @-O1@ and @-O2@. It is also the level Clang
--- receives for the C sources of a package and for the LLVM output of the
--- @llvm@ target. The object backends do not read it.
+-- | The @-O@ level of a build. The level names what the build is for,
+-- and "Aihc.Cli.OptimizationPlan" expands it into the scope of the build
+-- and the System FC passes to run; no pass reads the level. It is also
+-- the level Clang receives for the C sources of a package and for the
+-- LLVM output of the @llvm@ target. The object backends do not read it.
 data OptimizationLevel
   = O0
   | O1
@@ -275,12 +274,6 @@ defaultOptimizationLevel = O0
 -- stay hot for the whole life of every program linked against them.
 runtimeOptimizationLevel :: OptimizationLevel
 runtimeOptimizationLevel = O2
-
--- | Whether a level compiles the whole program at once, as @--lto@ does.
--- The levels that optimize do: @-O2@ and @-Os@. @-O0@ and @-O1@ compile
--- each module to its own object.
-wholeProgramLevel :: OptimizationLevel -> Bool
-wholeProgramLevel level = level `elem` [O2, Os]
 
 -- | Parse the argument of a @-O@ option.
 parseOptimizationLevel :: String -> Either String OptimizationLevel
