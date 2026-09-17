@@ -17,9 +17,8 @@ module Test.Native.GcFuzz
   )
 where
 
-import Aihc.Cli.Runtime (RuntimeBuild (..))
 import Aihc.Native (NativeTarget (Llvm), backendCompiler)
-import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), cachedRuntimeArchive)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception (IOException, SomeException, throwIO, try)
 import Control.Monad (forM, replicateM, unless)

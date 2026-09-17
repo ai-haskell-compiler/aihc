@@ -106,7 +106,6 @@ library
     Aihc.Cli.Options
     Aihc.Cli.PackageManifest
     Aihc.Cli.ResolveArtifact
-    Aihc.Cli.Runtime
     Aihc.Cli.Store
     Aihc.Cli.TypeArtifact
     Aihc.Fc

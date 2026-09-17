@@ -3,9 +3,8 @@ module Test.Native.Runtime
   )
 where
 
-import Aihc.Cli.Runtime (RuntimeBuild (..))
 import Aihc.Native (NativeTarget (Llvm), backendCompiler)
-import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), cachedRuntimeArchive)
 import Data.Aeson (eitherDecodeFileStrict)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map

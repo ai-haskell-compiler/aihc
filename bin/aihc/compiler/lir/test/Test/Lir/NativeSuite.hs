@@ -12,14 +12,13 @@ module Test.Lir.NativeSuite
 where
 
 import Aihc.Cli.Backend (BackendOutput (..), compileGrinTo, compileLirTo)
-import Aihc.Cli.Runtime (RuntimeBuild (..), RuntimeSources (..), runtimeSources)
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native (NativeTarget (..), executableEntryName)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
-import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, evaluate)

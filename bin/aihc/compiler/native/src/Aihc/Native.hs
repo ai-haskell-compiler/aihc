@@ -26,6 +26,7 @@ module Aihc.Native
     optimizationArgument,
     parseNativeTarget,
     parseOptimizationLevel,
+    readWasmClangProcessWithExitCode,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
     renderLinkedPartialConstructorInfoSymbol,
@@ -33,6 +34,7 @@ module Aihc.Native
     renderNativeTarget,
     renderOptimizationLevel,
     supportedNativePrimitiveNames,
+    wasmClangCommand,
     wasmSysroot,
   )
 where
@@ -53,8 +55,11 @@ import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
+import System.IO.Error (tryIOError)
 import System.Info qualified as System
+import System.Process (readProcessWithExitCode)
 
 -- | The fixed linked global that starts each executable.
 executableEntryName :: Text
@@ -435,6 +440,58 @@ buildAddrLiteralPool program =
   ]
   where
     values = Set.toAscList (Set.fromList [value | GrinLitAddr value <- grinProgramLiterals program])
+
+-- | Select the ordinary Clang driver used for WebAssembly objects. Nix can
+-- override only the executable to bypass its host-target compiler wrapper.
+-- The sysroot is not part of this: an assembly input needs no headers, and
+-- the C compilations add it themselves.
+wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
+wasmClangCommand override =
+  (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])
+
+-- | Run Clang and, after a WebAssembly compilation failure, inspect its
+-- registered targets so a target-limited installation gets an actionable
+-- diagnostic without obscuring Clang's original error.
+readWasmClangProcessWithExitCode :: FilePath -> [String] -> IO (ExitCode, String, String)
+readWasmClangProcessWithExitCode clang arguments = do
+  result@(exitCode, stdout, stderr) <- readProcessWithExitCode clang arguments ""
+  case exitCode of
+    ExitSuccess -> pure result
+    ExitFailure _ -> do
+      targetsResult <- tryIOError (readProcessWithExitCode clang ["-print-targets"] "")
+      pure
+        ( exitCode,
+          stdout,
+          case targetsResult of
+            Right (ExitSuccess, targets, _targetsStderr)
+              | not (hasWasm32Target targets) -> appendWasm32TargetNotice stderr
+            _ -> stderr
+        )
+
+hasWasm32Target :: String -> Bool
+hasWasm32Target = any lineIsWasm32Target . lines
+  where
+    lineIsWasm32Target line =
+      case words line of
+        target : _ -> target == "wasm32"
+        [] -> False
+
+appendWasm32TargetNotice :: String -> String
+appendWasm32TargetNotice originalError =
+  originalError
+    <> separator
+    <> unlines
+      [ "AIHC notice: this Clang installation does not include the wasm32 target.",
+        "The default Clang shipped with macOS omits WebAssembly support. Install LLVM Clang",
+        "with Homebrew (`brew install llvm`) or Nix",
+        "(`nix shell nixpkgs#llvmPackages.clang-unwrapped`), then set AIHC_WASM_CLANG",
+        "to that Clang executable."
+      ]
+  where
+    separator
+      | null originalError = ""
+      | last originalError == '\n' = "\n"
+      | otherwise = "\n\n"
 
 -- | Primitive operations implemented directly by every native backend or by
 -- the shared runtime ABI.

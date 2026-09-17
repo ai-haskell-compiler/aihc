@@ -6,13 +6,14 @@
 -- under wasmtime and the scheduler programs run as WASI P3 components.
 module Test.Wasm.Spec (tests) where
 
-import Aihc.Cli.Runtime (RuntimeBuild (..), buildRuntimeArchive, compileEntryObject, wasmClangCommand)
+import Aihc.Cli.Backend (compileEntryObject)
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
-import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmSysroot)
+import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm (wasip3WorldPath)
 import Aihc.Wasm.Lir (compileLirModule)

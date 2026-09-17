@@ -7,6 +7,7 @@ module Aihc.Cli.Backend
     compileLirWith,
     compileLirTo,
     compileLirObject,
+    compileEntryObject,
     compileGrinTo,
     lirModuleDefinesCode,
     lowerTargetFor,
@@ -29,7 +30,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeBaseName, (</>))
 import System.Process (readProcessWithExitCode)
 
 data BackendOutput
@@ -99,6 +100,14 @@ lirModuleDefinesCode lirModule = any definesCode (moduleItems lirModule)
         ItemExternData _ -> False
         ItemConstant _ -> False
         ItemInclude _ -> False
+
+-- | Compile the entry unit of an executable to @object@. The entry starts
+-- the runtime and enters the program; the entry of every executable is the
+-- same, so it is generated rather than read from a source.
+compileEntryObject :: NativeTarget -> FilePath -> FilePath -> IO ()
+compileEntryObject target directory object = do
+  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target))
+  compileLirObject target (takeBaseName object) entryModule directory object
 
 -- | Use shared incremental conversion for both native object paths. The Lir
 -- of the module is written to @lirPath@ when one is given: an object

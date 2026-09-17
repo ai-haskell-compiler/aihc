@@ -19,6 +19,7 @@ module Aihc.Cli.BuildModule
   )
 where
 
+import Aihc.Cli.Backend (compileEntryObject)
 import Aihc.Cli.CapiStub (noCapiStubOptions)
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Cli.Install
@@ -38,12 +39,11 @@ import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (BuildOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
-import Aihc.Cli.Runtime (compileEntryObject, readWasmClangProcessWithExitCode)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
 import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax

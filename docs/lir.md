@@ -622,7 +622,7 @@ constants, so it does not produce an object file.
 
 A program links the objects of the installed package. A test harness that
 needs its own runtime — an instrumented one, or one with a smaller
-semispace — calls `Aihc.Cli.Runtime.buildRuntimeArchive`, which reads the
+semispace — calls `Aihc.Testing.RuntimeArchive.buildRuntimeArchive`, which reads the
 same Cabal file and builds one archive outside the store with the extra C
 arguments, instead of naming the runtime sources. Moving a unit from C to
 Lir then changes no test. A link places that archive after the objects that
