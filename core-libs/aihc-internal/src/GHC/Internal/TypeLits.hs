@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE NoStarIsType #-}
 
 -- | GHC declares the type-level literals here and re-exports them from
