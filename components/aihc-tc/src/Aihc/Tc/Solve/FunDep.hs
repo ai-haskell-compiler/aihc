@@ -10,6 +10,15 @@
 --
 -- Three constraints can improve a wanted: another wanted, a given, and the
 -- head of an instance whose determining parameters the wanted matches.
+--
+-- A dependency need not be declared on the wanted's own class. A wanted
+-- entails its superclasses, so a dependency of a superclass improves the
+-- wanted through the superclass constraint it entails, which shares the
+-- wanted's meta variables. @class MonadParsec e s m => MonadParsecDbg e s m@
+-- declares no dependency of its own, yet a wanted @MonadParsecDbg t0 t1 m@
+-- is improved by the @m -> e s@ dependency of @MonadParsec@ against a given
+-- @MonadParsecDbg e s m@, whose superclass @MonadParsec e s m@ determines
+-- @t0@ and @t1@.
 module Aihc.Tc.Solve.FunDep
   ( improveFunDeps,
   )
@@ -35,15 +44,15 @@ import Data.Maybe (catMaybes, mapMaybe)
 -- the constraints are worth another attempt.
 improveFunDeps :: [Pred] -> [Ct] -> TcM Bool
 improveFunDeps givens constraints = do
-  improvable <- catMaybes <$> mapM constraintFunDeps constraints
+  improvable <- concat <$> mapM constraintFunDeps constraints
   if null improvable
     then pure False
     else do
       expandedGivens <- superClassClosure givens
       let siblings = map fst improvable
-      before <- mapM (zonkPred . ctPred) siblings
+      before <- mapM (zonkPred . ctPred) constraints
       forM_ improvable (uncurry (improveConstraint expandedGivens siblings))
-      after <- mapM (zonkPred . ctPred) siblings
+      after <- mapM (zonkPred . ctPred) constraints
       pure (before /= after)
 
 -- | The givens together with the superclasses they entail, transitively.
@@ -79,35 +88,50 @@ superClassesOf predicate =
           pure (mapMaybe (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info))
     _ -> pure []
 
--- | The class of a constraint, when it is a class constraint whose class
--- declares a functional dependency. Every other constraint is left alone.
-constraintFunDeps :: Ct -> TcM (Maybe (Ct, ClassInfo))
+-- | The class constraints a wanted entails whose class declares a
+-- functional dependency: the wanted itself and its superclass closure,
+-- instantiated at the wanted's arguments. Every other constraint entails
+-- none.
+--
+-- The closure visits each distinct predicate once, so a cyclic or a wide
+-- superclass hierarchy terminates after as many steps as it has classes.
+constraintFunDeps :: Ct -> TcM [(Pred, ClassInfo)]
 constraintFunDeps constraint =
   case ctPred constraint of
-    ClassPred className _ -> do
-      classInfo <- lookupClass className
-      pure $ case classInfo of
-        Just info | not (null (ciFunDeps info)) -> Just (constraint, info)
-        _ -> Nothing
-    _ -> pure Nothing
+    ClassPred {} -> do
+      predicate <- zonkPred (ctPred constraint)
+      closure <- superClassClosure [predicate]
+      catMaybes <$> mapM withFunDeps closure
+    _ -> pure []
+  where
+    withFunDeps predicate =
+      case predicate of
+        ClassPred className _ -> do
+          classInfo <- lookupClass className
+          pure $ case classInfo of
+            Just info | not (null (ciFunDeps info)) -> Just (predicate, info)
+            _ -> Nothing
+        _ -> pure Nothing
 
--- | Improve one wanted constraint from every source in turn. A constraint
--- improves against itself trivially, so the sibling list may hold it.
-improveConstraint :: [Pred] -> [Ct] -> Ct -> ClassInfo -> TcM ()
+-- | Improve one entailed constraint from every source in turn. The
+-- constraint shares its meta variables with the wanted that entails it, so
+-- solving them improves the wanted. A constraint improves against itself
+-- trivially, so the sibling list may hold it.
+improveConstraint :: [Pred] -> [Pred] -> Pred -> ClassInfo -> TcM ()
 improveConstraint givens siblings constraint info = do
-  siblingPredicates <- mapM (zonkPred . ctPred) siblings
+  siblingPredicates <- mapM zonkPred siblings
   forM_ (ciFunDeps info) $ \dependency -> do
     forM_ (givens <> siblingPredicates) $ \other ->
       improveFromPredicate (ciTyCon info) dependency constraint other
     improveFromInstances (ciTyCon info) dependency constraint
 
 -- | Improve a wanted from another class constraint of the same class.
-improveFromPredicate :: TyCon -> FunDep -> Ct -> Pred -> TcM ()
+improveFromPredicate :: TyCon -> FunDep -> Pred -> Pred -> TcM ()
 improveFromPredicate className dependency constraint other =
   case other of
     ClassPred otherClass otherArguments
       | tyConKey otherClass == tyConKey className -> do
-          predicate <- zonkPred (ctPred constraint)
+          predicate <- zonkPred constraint
           case predicate of
             ClassPred _ arguments ->
               case agreeTypes Map.empty (determiners dependency arguments) (determiners dependency otherArguments) of
@@ -133,11 +157,11 @@ improveFromPredicate className dependency constraint other =
 -- Such an instance says nothing about the wanted on its own, so it improves
 -- nothing; the constraint its context states does the determining once the
 -- instance is selected.
-improveFromInstances :: TyCon -> FunDep -> Ct -> TcM ()
+improveFromInstances :: TyCon -> FunDep -> Pred -> TcM ()
 improveFromInstances className dependency constraint = do
   instances <- getClassInstances className
   forM_ instances $ \instanceInfo -> do
-    predicate <- zonkPred (ctPred constraint)
+    predicate <- zonkPred constraint
     case predicate of
       ClassPred _ arguments
         | Just substitution <-
