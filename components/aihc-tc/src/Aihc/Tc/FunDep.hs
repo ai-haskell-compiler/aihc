@@ -33,7 +33,7 @@ import Data.Text (Text)
 --
 -- The instance is not yet registered, so it cannot be checked against
 -- itself.
-checkInstanceFunDeps :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [Pred] -> TcM ()
+checkInstanceFunDeps :: Maybe SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [Pred] -> TcM ()
 checkInstanceFunDeps loc classInfo tyVars headTypes context =
   unless (null (ciFunDeps classInfo)) $ do
     headTypes' <- mapM zonkType headTypes
@@ -55,7 +55,7 @@ checkInstanceFunDeps loc classInfo tyVars headTypes context =
 -- dependencies of the instance context reach from those: the standard
 -- lifting instance of a monad transformer needs it, since it takes the
 -- state type of the class from its context rather than from its head.
-checkCoverage :: SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [([TyVarId], [TyVarId])] -> FunDep -> TcM ()
+checkCoverage :: Maybe SourceSpan -> ClassInfo -> [TyVarId] -> [TcType] -> [([TyVarId], [TyVarId])] -> FunDep -> TcM ()
 checkCoverage loc classInfo tyVars headTypes contextDependencies dependency = do
   liberal <- getUndecidableInstances
   let determiners = atPositions (fdDeterminers dependency) headTypes
@@ -108,7 +108,7 @@ closeOver dependencies = go
 
 -- | Two instances that agree on the determining parameters must agree on the
 -- parameters that the dependency determines.
-checkConsistency :: SourceSpan -> ClassInfo -> [TcType] -> [TcType] -> FunDep -> TcM ()
+checkConsistency :: Maybe SourceSpan -> ClassInfo -> [TcType] -> [TcType] -> FunDep -> TcM ()
 checkConsistency loc classInfo headTypes otherHead dependency =
   case unifyOpen Map.empty (determiners headTypes) (determiners otherHead) of
     Unified substitution ->

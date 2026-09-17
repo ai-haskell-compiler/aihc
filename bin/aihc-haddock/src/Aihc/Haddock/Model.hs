@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- |
 -- Module      : Aihc.Haddock.Model
@@ -41,7 +42,7 @@ module Aihc.Haddock.Model
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Parser.Syntax (SourceSpan, pattern SourceSpan)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.!=), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Encode.Pretty qualified as AesonPretty
@@ -163,12 +164,9 @@ data Location = Location
   }
   deriving (Eq, Ord, Show, Generic)
 
-locationFromSpan :: (FilePath -> FilePath) -> SourceSpan -> Maybe Location
-locationFromSpan relativize sp =
-  case sp of
-    NoSourceSpan -> Nothing
-    SourceSpan file startLine startCol endLine endCol _ _ ->
-      Just (Location (relativize file) startLine startCol endLine endCol)
+locationFromSpan :: (FilePath -> FilePath) -> SourceSpan -> Location
+locationFromSpan relativize (SourceSpan file startLine startCol endLine endCol _ _) =
+  Location (relativize (T.unpack file)) startLine startCol endLine endCol
 
 -- | One documented declaration or subordinate (constructor, field, method).
 data DeclDoc = DeclDoc

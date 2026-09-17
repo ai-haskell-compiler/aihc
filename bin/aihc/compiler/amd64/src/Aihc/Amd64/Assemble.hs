@@ -14,7 +14,6 @@ module Aihc.Amd64.Assemble
     Amd64Condition (..),
     Amd64SseOp (..),
     assembleElf,
-    assembleElfChunks,
     applyStatement,
     alignmentFill,
     amd64Align,
@@ -283,17 +282,6 @@ statementItems statement =
     Amd64Section _ -> []
     Amd64Global _ -> []
     Amd64Align _ -> []
-
--- | Assemble statements that arrive in chunks, folding each one in before
--- the next is produced. A failed chunk ends the assembly with its error;
--- an object error is the other side.
-assembleElfChunks :: [Either error [Amd64Statement]] -> Either (Either error ObjectError) BL.ByteString
-assembleElfChunks chunks = assembleObject Right writeAmd64Elf (\object -> applyAll (applyChunk object) chunks)
-  where
-    applyChunk object chunk =
-      case chunk of
-        Left err -> pure (Left (Left err))
-        Right statements -> either (Left . Right) Right <$> applyStatements object statements
 
 amd64Section :: SectionRole -> Amd64Statement
 amd64Section = Amd64Section

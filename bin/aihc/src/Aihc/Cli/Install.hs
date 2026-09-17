@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Aihc.Cli.Install
   ( InstallResult (..),
     InstallLocations (..),
@@ -91,8 +93,10 @@ import Aihc.Parser.Syntax
     ImportDecl (..),
     Module,
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     moduleName,
+    sourceSpanSourceName,
+    pattern SourceSpan,
   )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Prim.Wiring (primDerivingReferences, primTcConfig, primTcWiring)
@@ -1414,7 +1418,9 @@ renderResolveErrors sourceLines errors =
 renderResolveError :: DiagnosticSourceMap -> ResolveError -> String
 renderResolveError sourceLines resolveError =
   case resolveError of
-    ResolveResolutionError sourceSpan name namespace message ->
+    ResolveResolutionError Nothing name namespace message ->
+      "error: " <> renderResolveMessage message name namespace
+    ResolveResolutionError (Just sourceSpan) name namespace message ->
       renderResolveLocation sourceSpan
         <> ": error: "
         <> renderResolveMessage message name namespace
@@ -1422,11 +1428,8 @@ renderResolveError sourceLines resolveError =
     ResolveNotImplemented message -> "error: not implemented: " <> message
 
 renderResolveLocation :: SourceSpan -> String
-renderResolveLocation sourceSpan =
-  case sourceSpan of
-    NoSourceSpan -> "<unknown location>"
-    SourceSpan sourcePath startLine startColumn _ _ _ _ ->
-      sourcePath <> ":" <> show startLine <> ":" <> show startColumn
+renderResolveLocation (SourceSpan sourcePath startLine startColumn _ _ _ _) =
+  T.unpack sourcePath <> ":" <> show startLine <> ":" <> show startColumn
 
 renderResolveMessage :: String -> Text -> ResolutionNamespace -> String
 renderResolveMessage message name namespace
@@ -1443,9 +1446,8 @@ renderResolveMessage message name namespace
 renderResolveExcerpt :: DiagnosticSourceMap -> SourceSpan -> String
 renderResolveExcerpt sourceLines sourceSpan =
   case sourceSpan of
-    NoSourceSpan -> ""
     SourceSpan sourcePath startLine startColumn endLine endColumn _ _ ->
-      case Map.lookup sourcePath sourceLines >>= Map.lookup startLine of
+      case Map.lookup (T.unpack sourcePath) sourceLines >>= Map.lookup startLine of
         Nothing -> ""
         Just sourceLine ->
           let lineNumber = show startLine
@@ -1472,7 +1474,7 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
   sourceLines <-
     loadExcerptSources
       loadSource
-      ( [sourceSpan | ResolveResolutionError sourceSpan _ _ _ <- resolveDiagnostics]
+      ( [sourceSpan | ResolveResolutionError (Just sourceSpan) _ _ _ <- resolveDiagnostics]
           <> [sourceSpan | (_, diagnostic) <- typeDiagnostics, Just sourceSpan <- [diagLoc diagnostic]]
       )
   let sections =
@@ -1489,7 +1491,8 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
 -- | The lines of the files that some spans point into, by file and line.
 loadExcerptSources :: (FilePath -> IO DiagnosticSourceMap) -> [SourceSpan] -> IO DiagnosticSourceMap
 loadExcerptSources loadSource spans =
-  Map.unionsWith Map.union <$> mapM loadSource (nub [path | SourceSpan path _ _ _ _ _ _ <- spans])
+  Map.unionsWith Map.union
+    <$> mapM loadSource (nub (map (T.unpack . sourceSpanSourceName) spans))
 
 -- | How the excerpts of a package's diagnostics find their lines. A module
 -- of the package is read through the preprocessor again, so an excerpt

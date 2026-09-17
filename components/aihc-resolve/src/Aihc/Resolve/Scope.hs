@@ -59,7 +59,7 @@ import Aihc.Parser.Syntax
     PatSynDecl (..),
     Pattern (..),
     RecordField (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     TypeFamilyDecl (..),
     TypeSynDecl (..),
@@ -349,7 +349,7 @@ declExportedNames recordFields decl =
       case valueDecl of
         FunctionBind name _ -> DeclExports [name] [] Map.empty Map.empty Map.empty Map.empty Map.empty
         PatternBind _ pat _ ->
-          DeclExports (map snd (collectPatVarBinders recordFields NoSourceSpan pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
+          DeclExports (map snd (collectPatVarBinders recordFields Nothing pat)) [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclTypeSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty Map.empty
     DeclForeign foreignDecl
       | foreignDirection foreignDecl == ForeignImport ->
@@ -835,7 +835,7 @@ resolveFixityName scope name =
 -- The first argument holds the record fields of each constructor. A record
 -- wildcard binds one variable for each field that the pattern does not
 -- list, and only the constructor gives those field names.
-collectPatVarBinders :: Map.Map Text [Text] -> SourceSpan -> Pattern -> [(SourceSpan, UnqualifiedName)]
+collectPatVarBinders :: Map.Map Text [Text] -> Maybe SourceSpan -> Pattern -> [(Maybe SourceSpan, UnqualifiedName)]
 collectPatVarBinders recordFields ambient pat =
   case peelPatternAnn pat of
     PVar name -> [binderAt name]

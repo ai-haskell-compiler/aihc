@@ -18,7 +18,7 @@ import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (unless)
 import Data.Text qualified as T
 
-solvePatternBranch :: SourceSpan -> PatternCheck -> TcType -> [Ct] -> TcM [Ct]
+solvePatternBranch :: Maybe SourceSpan -> PatternCheck -> TcType -> [Ct] -> TcM [Ct]
 solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
   | null (pcGivenCts patternCheck) && null (pcSkolems patternCheck) =
       pure (pcWantedCts patternCheck <> bodyWanteds)
@@ -35,7 +35,7 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
       -- The wanteds that wait on the enclosing scope continue outward.
       pure (inertDicts (srInerts result))
 
-rejectEscapingPatternType :: SourceSpan -> [TyVarId] -> TcType -> TcM ()
+rejectEscapingPatternType :: Maybe SourceSpan -> [TyVarId] -> TcType -> TcM ()
 rejectEscapingPatternType sourceSpan skolems outerType = do
   zonkedOuterType <- zonkType outerType
   let escaping = filter (`typeMentionsTyVar` zonkedOuterType) skolems

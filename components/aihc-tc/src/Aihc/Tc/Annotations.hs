@@ -1,5 +1,4 @@
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- | Type checker annotations for AST nodes.
 --
@@ -41,13 +40,8 @@ module Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
 
     -- * Pattern synonyms for extracting annotations
-    pattern ETcAnn,
-    pattern DTcAnn,
-    pattern PTcAnn,
-    pattern TTcAnn,
 
     -- * Helpers
-    annotateExpr,
     annotateDecl,
     pendingAnnotation,
     pendingTypeLambdaAnnotation,
@@ -66,11 +60,8 @@ import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
     Match,
-    Pattern (..),
     Rhs (..),
     SourceSpan,
-    Type (..),
-    fromAnnotation,
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionNamespace (..))
@@ -325,7 +316,7 @@ data TcDerivingContext
 -- generated instance declaration is an ordinary 'DeclInstance' that the
 -- instance checker and System FC lowering treat like source.
 data TcDerivingPlan = TcDerivingPlan
-  { tcDerivingSourceSpan :: !SourceSpan,
+  { tcDerivingSourceSpan :: !(Maybe SourceSpan),
     tcDerivingStrategy :: !TcDerivingStrategy,
     tcDerivingStockFallback :: !Bool,
     tcDerivingClassName :: !Text,
@@ -431,26 +422,6 @@ data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
     tcInstanceMethodType :: !TcType
   }
   deriving (Eq, Show)
-
--- | Extract a 'TcAnnotation' from an 'Expr'.
-pattern ETcAnn :: TcAnnotation -> Expr -> Expr
-pattern ETcAnn ann inner <- EAnn (fromAnnotation -> Just ann) inner
-
--- | Extract a 'TcAnnotation' from a 'Decl'.
-pattern DTcAnn :: TcAnnotation -> Decl -> Decl
-pattern DTcAnn ann inner <- DeclAnn (fromAnnotation -> Just ann) inner
-
--- | Extract a 'TcAnnotation' from a 'Pattern'.
-pattern PTcAnn :: TcAnnotation -> Pattern -> Pattern
-pattern PTcAnn ann inner <- PAnn (fromAnnotation -> Just ann) inner
-
--- | Extract a 'TcAnnotation' from a 'Type'.
-pattern TTcAnn :: TcAnnotation -> Type -> Type
-pattern TTcAnn ann inner <- TAnn (fromAnnotation -> Just ann) inner
-
--- | Wrap an expression with a type annotation.
-annotateExpr :: TcAnnotation -> Expr -> Expr
-annotateExpr ann = EAnn (mkAnnotation ann)
 
 -- | Wrap a declaration with a type annotation.
 annotateDecl :: TcAnnotation -> Decl -> Decl

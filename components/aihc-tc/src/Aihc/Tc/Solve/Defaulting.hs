@@ -19,7 +19,6 @@ module Aihc.Tc.Solve.Defaulting
   )
 where
 
-import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Generalize (predMetaVars)
@@ -108,7 +107,7 @@ firstSatisfying (candidate : rest) classes = do
 hasInstance :: TcType -> TyCon -> TcM Bool
 hasInstance ty className = tcSpeculate $ do
   evidence <- freshEvVar
-  let constraint = mkWantedCt (ClassPred className [ty]) evidence (InstOrigin (tyConName className)) NoSourceSpan
+  let constraint = mkWantedCt (ClassPred className [ty]) evidence (InstOrigin (tyConName className)) Nothing
   result <- solveDict constraint
   case result of
     DictSolved -> pure True

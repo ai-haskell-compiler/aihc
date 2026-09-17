@@ -127,9 +127,9 @@ buildModuleDoc input =
 
 claimNextRaw :: Maybe SourceSpan -> Build [DocComment]
 claimNextRaw msp =
-  case msp >>= spanOffsets of
+  case fst . spanOffsets <$> msp of
     Nothing -> pure []
-    Just (start, _) -> do
+    Just start -> do
       index <- gets stIndex
       let (claimed, index') = claimNextAt start index
       modify' (\st -> st {stIndex = index'})
@@ -192,14 +192,11 @@ diagnostic message = modify' (\st -> st {stDiagnostics = message : stDiagnostics
 location :: Maybe SourceSpan -> Build (Maybe Location)
 location msp = do
   relativize <- gets stRelativize
-  pure (msp >>= locationFromSpan relativize)
+  pure (locationFromSpan relativize <$> msp)
 
 renderSpanStart :: SourceSpan -> Text
 renderSpanStart sp =
-  case sp of
-    SourceSpan {sourceSpanStartLine = line, sourceSpanStartCol = col} ->
-      T.pack (show line) <> ":" <> T.pack (show col)
-    NoSourceSpan -> "<unknown>"
+  T.pack (show (sourceSpanStartLine sp)) <> ":" <> T.pack (show (sourceSpanStartCol sp))
 
 -- Module header ----------------------------------------------------------------
 
@@ -259,10 +256,10 @@ buildExports headSpan specs = do
         modify' (\st -> st {stIndex = index'})
         pure claimed
   let commentItems = [(offsetOf (docCommentSpan c), commentExportItem c) | c <- between]
-      specItems = [(fromMaybe 0 (exportSpecSpan spec >>= fmap fst . spanOffsets), exportSpecItem spec) | spec <- specs]
+      specItems = [(maybe 0 (fst . spanOffsets) (exportSpecSpan spec), exportSpecItem spec) | spec <- specs]
   pure (map snd (sortOn fst (commentItems <> specItems)))
   where
-    offsetOf sp = maybe 0 fst (spanOffsets sp)
+    offsetOf = fst . spanOffsets
 
 commentExportItem :: DocComment -> ExportItem
 commentExportItem comment =

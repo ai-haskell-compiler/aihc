@@ -33,7 +33,6 @@ module Aihc.Amd64.Lir
     writeLirObjectWith,
     writeGrinObjectWith,
     compileLirStatements,
-    elideSlotReloads,
     lirSymbol,
   )
 where
@@ -99,9 +98,6 @@ objectBackend =
 
 compileLirStatements :: Module -> Either Amd64LirError [Amd64Statement]
 compileLirStatements = compileNativeStatements amd64Backend
-
-elideSlotReloads :: [Amd64Statement] -> [Amd64Statement]
-elideSlotReloads = elideSlotReloadsWith amd64AsCode
 
 type M = NativeM Amd64LirError
 

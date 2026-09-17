@@ -10,11 +10,9 @@ module Aihc.Testing.EvalFixture
     ProgramEvaluator,
     evalFixtureRoot,
     evalBindingName,
-    evalBindingNameInProgram,
     loadEvalCases,
     loadEvalEnvironment,
     evalEnvironmentProgram,
-    compileEvalCase,
     evaluateEvalCase,
     packageSourceRoot,
     posixWidthModuleDirectory,
@@ -73,7 +71,7 @@ import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, listToMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -152,17 +150,6 @@ defaultEvalFixtureRoot = do
 
 evalBindingName :: Text
 evalBindingName = "__aihc_eval__"
-
-evalBindingNameInProgram :: Fc.Program -> Text
-evalBindingNameInProgram program =
-  fromMaybe
-    evalBindingName
-    ( listToMaybe
-        [ Fc.nameText (Fc.valName declaration)
-        | Fc.DeclVal declaration <- Fc.programDecls program,
-          Fc.nameText (Fc.valName declaration) == evalBindingName
-        ]
-    )
 
 loadEvalCases :: IO [EvalCase]
 loadEvalCases = do
@@ -317,9 +304,6 @@ loadCapiWrappers wrappers =
         else do
           _ <- dlopen library [RTLD_NOW, RTLD_GLOBAL]
           pure (Right ())
-
-compileEvalCase :: EvalEnvironment -> EvalCase -> Either String Fc.Program
-compileEvalCase env tc = fst <$> compileEvalCaseWithWrappers env tc
 
 -- | The desugared fixture program and the capi wrappers its modules declare.
 compileEvalCaseWithWrappers :: EvalEnvironment -> EvalCase -> Either String (Fc.Program, [CapiWrapper])

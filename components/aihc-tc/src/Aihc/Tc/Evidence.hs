@@ -12,7 +12,6 @@ module Aihc.Tc.Evidence
     CallSite (..),
     TypeableTyCon (..),
     TypeableKind (..),
-    EvBinding (..),
 
     -- * Coercions
     Coercion (..),
@@ -90,13 +89,6 @@ data CallSite = CallSite
     callSiteStartColumn :: !Int,
     callSiteEndLine :: !Int,
     callSiteEndColumn :: !Int
-  }
-  deriving (Eq, Ord, Show, Read)
-
--- | A binding of an evidence variable to its term.
-data EvBinding = EvBinding
-  { evBindVar :: !EvVar,
-    evBindTerm :: !EvTerm
   }
   deriving (Eq, Ord, Show, Read)
 
