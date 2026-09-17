@@ -21,7 +21,7 @@ import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Prim (Int#, RealWorld, State#)
 import System.Exit (ExitCode (..))
-import System.IO (hFlush, hPutStr, stderr, stdout)
+import System.IO (hFlush, hPutStrLn, stderr, stdout)
 import Prelude
 
 -- | Run the main action. The standard handles are flushed when the
@@ -86,4 +86,4 @@ exitWithStatus (I# status) = IO (aihcExit# status)
 foreign import prim aihcExit# :: Int# -> State# RealWorld -> (# State# RealWorld, a #)
 
 writeStderrLine :: String -> IO ()
-writeStderrLine message = hPutStr stderr (message ++ "\n")
+writeStderrLine = hPutStrLn stderr
