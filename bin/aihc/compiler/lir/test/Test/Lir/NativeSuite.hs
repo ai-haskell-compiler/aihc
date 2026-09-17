@@ -44,7 +44,7 @@ import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Lir.Observed (lowerObservedProgram)
 import Test.Native.Observed (snapshotSourcePath)
-import Test.Tasty (TestTree, testGroup)
+import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 -- | One native backend under test.
@@ -70,14 +70,16 @@ tests backend = do
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
-  sources <- runtimeSources (backendTarget backend)
-  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources sources)
-  let runtimeExports = Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export]
   pure
     ( testGroup
         (backendName backend)
         [ testGroup "Lir evaluation fixtures" (map (fixtureTest backend directory) names),
-          testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend runtimeExports snapshotDirectory) snapshots),
+          -- The exports are read from the aihc-rts sources when a snapshot
+          -- test first runs, not while the tree is built: the tree is built
+          -- where those sources may be absent, such as a check that only
+          -- compiles the tests.
+          withResource (runtimeExports (backendTarget backend)) (const (pure ())) $ \getExports ->
+            testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend getExports snapshotDirectory) snapshots),
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend "PCAB" schedulerProgram),
@@ -261,8 +263,16 @@ instance FromJSON SnapshotFixture where
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
 -- and compare the native heap snapshot with the fixture.
-snapshotTest :: NativeBackend -> Map.Map Symbol Signature -> FilePath -> FilePath -> TestTree
-snapshotTest backend runtimeExports directory name = testCase name $ do
+-- | The functions the Lir units of the runtime export, by name.
+runtimeExports :: NativeTarget -> IO (Map.Map Symbol Signature)
+runtimeExports target = do
+  sources <- runtimeSources target
+  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources sources)
+  pure (Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export])
+
+snapshotTest :: NativeBackend -> IO (Map.Map Symbol Signature) -> FilePath -> FilePath -> TestTree
+snapshotTest backend getExports directory name = testCase name $ do
+  runtimeExports <- getExports
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
