@@ -57,7 +57,37 @@ module GHC.List
   )
 where
 
-import Prelude
+import Prelude hiding (all, and, any, concat, concatMap, elem, notElem, or)
+
+-- The list-specialised versions GHC's "GHC.List" exports; "Prelude" and
+-- "Data.List" export the 'Foldable' ones.
+concat :: [[a]] -> [a]
+concat = foldr (++) []
+
+concatMap :: (a -> [b]) -> [a] -> [b]
+concatMap function = foldr (\value rest -> function value ++ rest) []
+
+and :: [Bool] -> Bool
+and = foldr (&&) True
+
+or :: [Bool] -> Bool
+or = foldr (||) False
+
+any :: (a -> Bool) -> [a] -> Bool
+any predicate = foldr (\value rest -> predicate value || rest) False
+
+all :: (a -> Bool) -> [a] -> Bool
+all predicate = foldr (\value rest -> predicate value && rest) True
+
+elem :: (Eq a) => a -> [a] -> Bool
+elem target = foldr (\value rest -> value == target || rest) False
+
+infix 4 `elem`
+
+notElem :: (Eq a) => a -> [a] -> Bool
+notElem target values = not (target `elem` values)
+
+infix 4 `notElem`
 
 uncons :: [a] -> Maybe (a, [a])
 uncons [] = Nothing
