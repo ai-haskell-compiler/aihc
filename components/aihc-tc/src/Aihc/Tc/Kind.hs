@@ -57,6 +57,7 @@ import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (normalizeFamilyPred)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
@@ -434,8 +435,8 @@ isWildcardArgument argument =
 
 expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
 expandTypeSynonym tvEnv ty =
-  case typeApplicationSpine ty of
-    (TCon name _, arguments) -> do
+  case synonymApplicationSpine ty of
+    Just (name, arguments) -> do
       maybeInfo <- lookupResolvedTyCon name
       case maybeInfo of
         Just info
@@ -451,7 +452,18 @@ expandTypeSynonym tvEnv ty =
               let specialized = synonym {tsiParams = parameters, tsiBody = applySubst substitution <$> tsiBody synonym}
               Just <$> instantiateTypeSynonym tvEnv (nameText name) specialized arguments
         _ -> pure Nothing
-    _ -> pure Nothing
+    Nothing -> pure Nothing
+
+-- | The head name and the arguments of a type constructor application,
+-- whether it is spelled prefix (@Assert b c@) or infix (@x <= y@). A
+-- synonym applied infix expands exactly as one applied prefix does. A
+-- promoted infix constructor names a data constructor, never a synonym.
+synonymApplicationSpine :: Type -> Maybe (Name, [Type])
+synonymApplicationSpine ty =
+  case typeApplicationSpine ty of
+    (TCon name _, arguments) -> Just (name, arguments)
+    (TInfix lhs name Unpromoted rhs, arguments) -> Just (name, lhs : rhs : arguments)
+    _ -> Nothing
 
 instantiateTypeSynonym :: TvKindEnv -> Text -> TypeSynonymInfo -> [Type] -> TcM (TcType, TcType)
 instantiateTypeSynonym tvEnv synonymName synonym arguments = do
@@ -1143,10 +1155,13 @@ surfaceClassPredToPred tvEnv ty = do
       case maybeClassInfo of
         Just classInfo
           | Just {} <- tciTypeSynonym classInfo -> do
-              -- A constraint synonym expands to one constraint.
+              -- A constraint synonym expands to one constraint. The
+              -- expansion is rebuilt from a type, which does not know
+              -- whether its head is a class or a family, so a
+              -- family-headed one is reclassified as irreducible here.
               (expanded, _) <- convertSurfaceTypeWithKinds tvEnv ty
               case constraintTypeToPred kinds expanded of
-                Just predicate -> pure predicate
+                Just predicate -> normalizeFamilyPred predicate
                 Nothing -> do
                   emitError Nothing (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"

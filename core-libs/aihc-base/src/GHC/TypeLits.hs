@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE NoStarIsType #-}
 
 -- | Type-level literals.
 --
@@ -23,13 +25,27 @@ module GHC.TypeLits
     symbolVal',
     SSymbol,
     fromSSymbol,
+    TypeError,
+    ErrorMessage (..),
+    type (<=),
+    type (<=?),
+    CmpNat,
+    type (+),
+    type (-),
+    type (*),
+    type (^),
+    Div,
+    Mod,
+    Log2,
   )
 where
 
+import Data.Type.Ord (type (<=), type (<=?))
 import GHC.Num.Integer (Integer)
 import GHC.Prim (Proxy#)
 import GHC.Real (toInteger)
-import GHC.TypeNats (KnownNat, Nat)
+import GHC.TypeError (ErrorMessage (..), TypeError)
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Char, Constraint, Symbol, Type)
 

@@ -29,7 +29,7 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, isTypeFamilyTyCon, matchTypes, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, matchTypes, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))
@@ -66,17 +66,11 @@ solveDictWithGivens = solveDictWithGivensVisited []
 
 solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveDictWithGivensVisited visited givens ct0 = do
-  -- A constraint headed by a type family reaches the solver in two shapes: as
-  -- an 'IrredPred' when the source wrote it, and as a 'ClassPred' whose head
-  -- happens to be a family when it came from a stored superclass type, which
-  -- is built without access to the flavour of the head. Both are normalized
-  -- here so that a wanted and a given of the same constraint compare equal.
-  family <- isTypeFamilyTyCon
-  let normalize predicate =
-        case predicate of
-          ClassPred tyCon arguments | family tyCon -> IrredPred (TcTyCon tyCon arguments)
-          _ -> predicate
-  solveNormalizedDict visited (map normalize givens) ct0 {ctPred = normalize (ctPred ct0)}
+  -- A given that came from a stored superclass type may still be headed by
+  -- a family; see 'normalizeFamilyPred'.
+  givens' <- mapM normalizeFamilyPred givens
+  predicate <- normalizeFamilyPred (ctPred ct0)
+  solveNormalizedDict visited givens' ct0 {ctPred = predicate}
 
 solveNormalizedDict :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveNormalizedDict visited givens ct
@@ -129,12 +123,18 @@ solveNormalizedDict visited givens ct
             Just solvable ->
               solveDictWithGivensVisited (ctPred ct : visited) givens ct {ctPred = solvable}
             Nothing -> do
+              -- A stuck constraint is discharged by a given of the same
+              -- shape, or by a superclass of one: @1 <= SeedSize g@ is a
+              -- superclass of @SeedGen g@, and an instance for @SeedGen
+              -- (StateGen g)@ owes it for @SeedSize (StateGen g)@, which
+              -- reduces to the given's.
               givens' <- mapM zonkPred givens
-              if IrredPred reduced `elem` givens'
-                then do
-                  bindEvidence (ctEvVar ct) (EvGiven (IrredPred reduced))
+              evidence <- firstGivenOrSuperclass (ctPred ct : visited) (IrredPred reduced) givens'
+              case evidence of
+                Just given -> do
+                  bindEvidence (ctEvVar ct) given
                   pure DictSolved
-                else pure (DictStuck ct {ctPred = IrredPred reduced})
+                Nothing -> pure (DictStuck ct {ctPred = IrredPred reduced})
         quantified@QuantifiedPred {} -> solveQuantifiedWanted visited givens quantified
         EqPred {} -> pure (DictStuck ct)
         IParamPred name payload -> do
@@ -175,7 +175,12 @@ solveNormalizedDict visited givens ct
                   let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                       fieldTypes = classFieldTypes info substitution
                   case traverse (constraintTypeToPred kinds . applySubst substitution) (ciSuperClassTypes info) of
-                    Just superClasses -> searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
+                    Just superClasses -> do
+                      -- A superclass is compared in the same normal form as
+                      -- the wanted: families reduced, and a family-headed
+                      -- one irreducible rather than a class predicate.
+                      normalized <- mapM (normalizeFamilyPred <=< reducePredFamilies) superClasses
+                      searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 normalized
                     Nothing -> pure Nothing
         _ -> pure Nothing
 

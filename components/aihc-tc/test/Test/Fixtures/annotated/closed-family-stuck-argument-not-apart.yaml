@@ -1,0 +1,32 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- ScopedTypeVariables
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, ScopedTypeVariables, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Constraint)
+  class Never where
+  -- @Assert b c@ must stay stuck while @b@ is a stuck family application:
+  -- the first equation is not apart from it, so the second must not fire
+  -- and turn the constraint into the unsatisfiable @Never@.
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  class Assert (Big g) Never => Sized g where
+    type Big g :: Bool
+    size :: g -> Bool
+  data Wrap g = Wrap g
+  -- The superclass wanted @Assert (Big (Wrap g)) Never@ reduces to
+  -- @Assert (Big g) Never@, which the context's superclass supplies.
+  instance Sized g => Sized (Wrap g) where
+    type Big (Wrap g) = Big g
+    size (Wrap g) = size g
+status: pass
+reason: a closed family equation is skipped only when the arguments are apart from it, and a stuck family application is apart from nothing; the stuck superclass wanted of an instance is then discharged by the superclass of its context

@@ -1,0 +1,25 @@
+extensions:
+  - DataKinds
+  - ScopedTypeVariables
+  - TypeOperators
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import GHC.TypeLits (KnownNat, natVal, type (<=))
+    import Prelude hiding ((<=))
+
+    -- The given is stuck while n is a variable and carried as a dictionary;
+    -- the wanted at the use site reduces to the empty constraint.
+    atLeastOne :: forall n. (KnownNat n, 1 <= n) => Proxy n -> Integer
+    atLeastOne = natVal
+
+    matches :: Bool
+    matches = atLeastOne (Proxy :: Proxy 4) == 4
+output: |
+  True
+expression: |
+  matches
+status: pass
+reason: GHC.TypeLits re-exports Data.Type.Ord's (<=), an infix constraint synonym expands, and a stuck Assert given is carried as an irreducible dictionary field through FC and GRIN

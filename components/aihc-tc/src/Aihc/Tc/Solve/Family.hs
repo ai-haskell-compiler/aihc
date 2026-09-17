@@ -11,6 +11,7 @@
 module Aihc.Tc.Solve.Family
   ( reduceTypeFamilies,
     reducePredFamilies,
+    normalizeFamilyPred,
     isTypeFamilyTyCon,
     isTypeFamilyApplication,
     unsaturateFamilyApplication,
@@ -60,6 +61,26 @@ reducePredFamilies predicate =
     IrredPred constraint -> IrredPred <$> reduceTypeFamilies constraint
     QuantifiedPred variables antecedents consequent ->
       QuantifiedPred variables <$> mapM reducePredFamilies antecedents <*> reducePredFamilies consequent
+
+-- | Reclassify a predicate whose head is a type family as irreducible.
+--
+-- A constraint headed by a family reaches the checker in two shapes: as an
+-- 'IrredPred' when the source wrote it, and as a 'ClassPred' when it was
+-- rebuilt from a type -- an expanded constraint synonym, or a stored
+-- superclass -- without access to the flavour of the head. Both have to
+-- become the same predicate: a wanted and a given of one constraint must
+-- compare equal, and the desugarer must not mint a dictionary type for a
+-- family, which has no declaration.
+normalizeFamilyPred :: Pred -> TcM Pred
+normalizeFamilyPred predicate = do
+  family <- isTypeFamilyTyCon
+  let normalize predicate' =
+        case predicate' of
+          ClassPred tyCon arguments | family tyCon -> IrredPred (TcTyCon tyCon arguments)
+          QuantifiedPred variables antecedents consequent ->
+            QuantifiedPred variables (map normalize antecedents) (normalize consequent)
+          _ -> predicate'
+  pure (normalize predicate)
 
 -- | Whether a type constructor is a type family.
 isTypeFamilyTyCon :: TcM (TyCon -> Bool)
@@ -116,7 +137,8 @@ reduceHead ty =
                 Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
                 Nothing -> do
                   equations <- familyEquations tyCon
-                  case firstEquation kinds equations familyArguments of
+                  family <- isTypeFamilyTyCon
+                  case firstEquation family equations familyArguments of
                     Just reduced -> reduceTypeFamilies (foldl mkAppTy reduced extraArguments)
                     Nothing -> pure ty
         _ -> pure ty
@@ -188,8 +210,13 @@ axiomIndex info =
 -- | The right-hand side of the first equation that matches. In a closed
 -- family, an earlier equation that could still match after the meta
 -- variables are solved blocks the later equations.
-firstEquation :: TcKinds -> [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
-firstEquation kinds equations arguments =
+-- | The first equation that matches the arguments. A closed family stops
+-- at an earlier equation that does not match but is not apart from the
+-- arguments either: it may still match once a stuck family application
+-- or a type variable in them is known, and the equations after it are
+-- only reached when it cannot.
+firstEquation :: (TyCon -> Bool) -> [TypeFamilyInstanceInfo] -> [TcType] -> Maybe TcType
+firstEquation family equations arguments =
   case equations of
     [] -> Nothing
     equation : rest ->
@@ -198,9 +225,9 @@ firstEquation kinds equations arguments =
           | Just substitution <- matchTypes patterns arguments ->
               Just (applySubst substitution (tfiiRight equation))
           | tfiiClosed equation,
-            and (zipWith couldUnify patterns arguments) ->
+            and (zipWith (couldUnify family) patterns arguments) ->
               Nothing
-        _ -> firstEquation kinds rest arguments
+        _ -> firstEquation family rest arguments
 
 equationArguments :: TypeFamilyInstanceInfo -> Maybe [TcType]
 equationArguments info =
@@ -208,21 +235,29 @@ equationArguments info =
     TcTyCon _ patterns -> Just patterns
     _ -> Nothing
 
--- | Whether a pattern could match a type once its meta variables are solved.
-couldUnify :: TcType -> TcType -> Bool
-couldUnify patternType target =
-  case (patternType, target) of
-    (TcTyVar _, _) -> True
-    (_, TcMetaTv _) -> True
-    (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments) ->
-      tyCon == targetTyCon
-        && length arguments == length targetArguments
-        && and (zipWith couldUnify arguments targetArguments)
-    (TcFunTy argument result, TcFunTy targetArgument targetResult) ->
-      couldUnify argument targetArgument && couldUnify result targetResult
-    (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
-      couldUnify function targetFunction && couldUnify argument targetArgument
-    _ -> patternType == target
+-- | Whether a pattern could match a type once more is known about it.
+--
+-- As in GHC's apartness check, every type variable of the target counts
+-- as unifiable -- a skolem here is instantiated elsewhere -- and so does a
+-- stuck type family application, which may reduce to anything.
+couldUnify :: (TyCon -> Bool) -> TcType -> TcType -> Bool
+couldUnify family = go
+  where
+    go patternType target =
+      case (patternType, target) of
+        (TcTyVar _, _) -> True
+        (_, TcTyVar _) -> True
+        (_, TcMetaTv _) -> True
+        (_, TcTyCon targetTyCon _) | family targetTyCon -> True
+        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments) ->
+          tyCon == targetTyCon
+            && length arguments == length targetArguments
+            && and (zipWith go arguments targetArguments)
+        (TcFunTy argument result, TcFunTy targetArgument targetResult) ->
+          go argument targetArgument && go result targetResult
+        (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
+          go function targetFunction && go argument targetArgument
+        _ -> patternType == target
 
 -- | Match pattern types against target types. The type variables of the
 -- patterns are the pattern variables.

@@ -339,29 +339,47 @@ level needs the extension. A module that imports `type (*)` without it
 fails with a kind mismatch that names `Type`. This is not a defect; an
 earlier note here called it one.
 
-**What does not work yet, and blocks PR 5.** `1 <= 4` is reported
-`unsolved constraint <= 1 4`. What it is *not*, each ruled out by a probe:
+**What blocked `1 <= 4`, found and fixed after the note above was
+written.** Neither suspect named there was it. Three defects sat behind the
+one symptom, each with its own fixture:
 
-- Not name shadowing. `import Prelude hiding ((<=))` makes no difference,
-  and the constraint does resolve to `Data.Type.Ord.(<=)`.
-- Not the nesting of `(<=?)` inside `(<=)`. Inlining the `OrdCond`
-  application into `(<=)` changes nothing.
-- Not poly-kindedness. A `k -> k -> Constraint` synonym of the same shape
-  solves.
-- Not the builtin. `Assert (OrdCond (Compare 1 4) 'True 'True 'False) ()`
-  solves as a constraint, and so does `Compare 1 4 ~ 'LT`.
+- **An infix synonym application never expanded.** The surface converter
+  sent only a `TCon`-headed spine to `expandTypeSynonym`; a `TInfix` head
+  went straight to `inferTypeConstructor`, so `1 <= n` stayed the
+  unexpanded `(<=) 1 n` and reached the solver as a `ClassPred` of a
+  synonym — the "unsolved constraint <= 1 4" text. `synonymApplicationSpine`
+  in `Tc.Kind` treats both spellings alike.
+- **The expansion was classified without knowing a family from a class.**
+  Spelled prefix, the synonym expanded but `constraintTypeToPred` made the
+  given a `ClassPred Assert …`, and the desugarer minted a `$Dict$Assert`
+  type no header declares — GRIN's "cannot find a runtime representation".
+  `normalizeFamilyPred` (`Tc.Solve.Family`) reclassifies a family-headed
+  predicate wherever one is rebuilt from a type: the synonym expansion,
+  the solver entry, and superclass enumeration. This is the "given not
+  reduced" defect of the earlier note, seen from the right side.
+- **A closed family's apartness check ignored stuck arguments.**
+  `couldUnify` treated a stuck family application (and a skolem) in the
+  target as apart from a constructor pattern, so `Assert (OrdCond (Compare
+  1 (SeedSize g)) …) msg` skipped the `'True` equation and reduced to its
+  `TypeError`. It now follows GHC: a type variable or a family application
+  in the target unifies with anything, and the equations after are not
+  reached.
 
-What is left is the second argument: the shape that solves passes `()` to
-`Assert`, and `(<=)` passes `LeErrMsg x y`, a constraint synonym standing
-for a `TypeError` application. A `TypeError` in that position is the one
-case the first equation `Assert 'True _ = ()` is supposed to discard
-without looking at.
+An irreducible wanted is also discharged by a superclass of a given, as a
+class wanted is: `instance SeedGen g => SeedGen (StateGen g)` owes
+`1 <= SeedSize (StateGen g)`, which reduces to the context's superclass.
+Superclasses are compared in the wanted's normal form (families reduced,
+family heads irreducible).
 
-A second defect sits behind it, which the same probes found: a **given**
-whose family application is reducible is not reduced before it becomes a
-dictionary binder, so FC keeps `$Dict$Assert (Check 1 4) $Dict$CTuple0`
-and GRIN reports that it has no runtime representation. The wanted at the
-use site solves; only the binder type of the definition is left stuck.
+`GHC.TypeLits` and `GHC.Internal.TypeLits` re-export `(<=)`, `(<=?)`,
+`CmpNat`, the arithmetic families, `TypeError` and `ErrorMessage`, which is
+what `random`'s import line needed.
+
+Tests: annotated `infix-constraint-synonym-family` and
+`closed-family-stuck-argument-not-apart`; eval
+`type-level-comparison-constraint` (prints `4`, through GRIN); install
+`type-level-comparison-unsatisfied`, whose `expect-error` is GHC's
+"Cannot satisfy: 1 <= 0".
 
 ### PR 5 — `feat(core-libs): resolve and check random's SeedGen`
 
@@ -370,6 +388,27 @@ use site solves; only the binder type of the definition is left stuck.
   `docs/hackage-install-packages.md`.
 - Depends on the parallel unlifted-expression-signature task for the
   `proxy# :: Proxy# (SeedSize g)` call site.
+
+**Where the install stands (Sep 17 2026).** `Seed.hs` resolves, the
+`SeedGen` class and every `SeedGen g => SeedGen (… g)` instance check. The
+one remaining type error in the module is
+
+```haskell
+seedGenTypeName :: forall g. SeedGen g => String
+seedGenTypeName = show (typeOf (Proxy @g))
+-- error: unsolved constraint Typeable (Proxy t0)
+```
+
+GHC gives the constructor the type `Proxy :: forall {k} (t :: k). Proxy t`:
+the kind variable is an *inferred* binder, which visible type application
+skips. `TypeScheme` carries no binder visibility, and `closeKindVariables`
+prepends a constructor's implicit kind variables to its universals, so `@g`
+instantiates `k` and `t` is left a meta. The next prerequisite is inferred
+binders — at least for data constructors, whose implicit kind variables are
+exactly the ones `closeKindVariables` adds — with the visible type
+application in `Tc.Generate.Expr` skipping them. The install aborts at the
+first failing module, so what follows in `System.Random.Stateful` is not
+known yet.
 
 ## Traps
 

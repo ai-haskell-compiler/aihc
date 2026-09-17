@@ -1,3 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE NoStarIsType #-}
+
 -- | GHC declares the type-level literals here and re-exports them from
 -- @GHC.TypeLits@. @aihc-internal@ depends on @aihc-base@ rather than the
 -- other way round, so the declarations live in @GHC.TypeLits@ and this
@@ -13,7 +16,19 @@ module GHC.Internal.TypeLits
     symbolVal',
     SSymbol,
     fromSSymbol,
+    TypeError,
+    ErrorMessage (..),
+    type (<=),
+    type (<=?),
+    CmpNat,
+    type (+),
+    type (-),
+    type (*),
+    type (^),
+    Div,
+    Mod,
+    Log2,
   )
 where
 
-import GHC.TypeLits (KnownNat, KnownSymbol, Nat, SSymbol, Symbol, fromSSymbol, natVal, natVal', symbolVal, symbolVal')
+import GHC.TypeLits (CmpNat, Div, ErrorMessage (..), KnownNat, KnownSymbol, Log2, Mod, Nat, SSymbol, Symbol, TypeError, fromSSymbol, natVal, natVal', symbolVal, symbolVal', type (*), type (+), type (-), type (<=), type (<=?), type (^))
