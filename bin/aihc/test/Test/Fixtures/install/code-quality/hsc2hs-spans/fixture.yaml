@@ -1,0 +1,19 @@
+status: pass
+reason: |
+  An error in a module hsc2hs generated is reported against the .hsc the
+  author wrote. hsc2hs marks its output with {-# LINE n "file" #-} pragmas,
+  the lexer takes the line and the file from them, and the excerpt is read
+  back out of the file the span names, so the file, the line, the column
+  and the excerpt all name the same place.
+
+  Three things have to agree for that, and none of them is local: the lexer
+  has to carry the pragma's file name into the span, the excerpt loader has
+  to fall back to reading a file the package does not list among its
+  sources, and the line map has to number what it reads the way the lexer
+  numbered it. When the lexer dropped the file name (aihc-parser <= 3.0.1.1,
+  fixed in 4.0.0.0), the span kept the generated module's path but this
+  file's line, and the excerpt came out of the padding below.
+expect-error: |-
+  src/Broken.hsc:13:8: error: unbound term name ‘deliberatelyUnbound’
+    13 | oops = deliberatelyUnbound
+       |        ^^^^^^^^^^^^^^^^^^^
