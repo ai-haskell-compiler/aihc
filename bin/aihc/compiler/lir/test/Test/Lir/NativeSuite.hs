@@ -12,18 +12,12 @@ module Test.Lir.NativeSuite
 where
 
 import Aihc.Cli.Backend (BackendOutput (..), compileGrinTo, compileLirTo)
-import Aihc.Cli.Runtime (RuntimeBuild (..))
+import Aihc.Cli.Runtime (RuntimeBuild (..), RuntimeSources (..), runtimeSources)
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
-import Aihc.Native
-  ( NativeTarget (..),
-    RuntimeGarbageCollector (..),
-    RuntimePlan (..),
-    executableEntryName,
-    runtimePlan,
-  )
+import Aihc.Native (NativeTarget (..), executableEntryName)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
@@ -76,8 +70,8 @@ tests backend = do
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
-  plan <- runtimePlan (backendTarget backend) RuntimeGcSemispace
-  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources plan)
+  sources <- runtimeSources (backendTarget backend)
+  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources sources)
   let runtimeExports = Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export]
   pure
     ( testGroup
@@ -86,14 +80,10 @@ tests backend = do
           testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend runtimeExports snapshotDirectory) snapshots),
           testGroup
             "programs through Lir"
-            [ testGroup
-                (collectorName collector)
-                [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend collector "PCAB" schedulerProgram),
-                  testCase "catches a synchronous exception" (programTest backend collector "E" synchronousExceptionProgram),
-                  testCase "blocks and wakes threads that enter a shared blackhole" (programTest backend collector "TA" blackholeSchedulerProgram),
-                  testCase "waits for stdin and resumes an async stdio continuation" (stdioTest backend collector)
-                ]
-            | collector <- [RuntimeGcSemispace]
+            [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend "PCAB" schedulerProgram),
+              testCase "catches a synchronous exception" (programTest backend "E" synchronousExceptionProgram),
+              testCase "blocks and wakes threads that enter a shared blackhole" (programTest backend "TA" blackholeSchedulerProgram),
+              testCase "waits for stdin and resumes an async stdio continuation" (stdioTest backend)
             ]
         ]
     )
@@ -307,7 +297,7 @@ snapshotTest backend runtimeExports directory name = testCase name $ do
 runObservedUnit :: NativeBackend -> BackendOutput -> Text -> IO (Either Text Text)
 runObservedUnit backend output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeBuild <- nativeRuntimeBuild backend RuntimeGcSemispace
+    runtimeBuild <- nativeRuntimeBuild backend
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
@@ -370,25 +360,20 @@ compileProgramUnits backend program = do
   entryUnit <- compileUnit backend entryLir
   pure [moduleUnit, entryUnit]
 
-collectorName :: RuntimeGarbageCollector -> String
-collectorName collector =
-  case collector of
-    RuntimeGcSemispace -> "semispace collector"
-
-programTest :: NativeBackend -> RuntimeGarbageCollector -> String -> GrinProgram -> IO ()
-programTest backend collector expected program = do
+programTest :: NativeBackend -> String -> GrinProgram -> IO ()
+programTest backend expected program = do
   units <- compileProgramUnits backend program
   when (backendRuns backend) $
-    withProgramExecutable backend collector units $ \executablePath -> do
+    withProgramExecutable backend units $ \executablePath -> do
       (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
       assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
       assertEqual "program stdout" expected programOut
 
-stdioTest :: NativeBackend -> RuntimeGarbageCollector -> IO ()
-stdioTest backend collector = do
+stdioTest :: NativeBackend -> IO ()
+stdioTest backend = do
   units <- compileProgramUnits backend stdioSchedulerProgram
   when (backendRuns backend) $
-    withProgramExecutable backend collector units $ \executablePath -> do
+    withProgramExecutable backend units $ \executablePath -> do
       (Just childInput, Just childOutput, Just childError, processHandle) <-
         createProcess (proc executablePath []) {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe}
       threadDelay 50000
@@ -401,10 +386,10 @@ stdioTest backend collector = do
       assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
       assertEqual "async stdout" "Buffered async IO\n" programOut
 
-withProgramExecutable :: NativeBackend -> RuntimeGarbageCollector -> [BackendOutput] -> (FilePath -> IO ()) -> IO ()
-withProgramExecutable backend collector units action =
+withProgramExecutable :: NativeBackend -> [BackendOutput] -> (FilePath -> IO ()) -> IO ()
+withProgramExecutable backend units action =
   withTempDirectory "aihc-lir-program" $ \directory -> do
-    runtimeBuild <- nativeRuntimeBuild backend collector
+    runtimeBuild <- nativeRuntimeBuild backend
     unitPaths <- forM (zip [0 :: Int ..] units) $ \(index, unit) -> writeUnit backend directory ("program-" <> show index) unit
     let executablePath = directory </> "program"
     (clangExit, _, clangErr) <-
@@ -415,13 +400,13 @@ withProgramExecutable backend collector units action =
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 
--- | The runtime archive of one link. Every link with the same target and
--- collector shares one archive, and takes the include directories first and
--- the archive last, so the test stays independent of how the runtime is put
+-- | The runtime archive of one link. Every link with the same target
+-- shares one archive, and takes the include directories first and the
+-- archive last, so the test stays independent of how the runtime is put
 -- together.
-nativeRuntimeBuild :: NativeBackend -> RuntimeGarbageCollector -> IO RuntimeBuild
-nativeRuntimeBuild backend garbageCollector =
-  cachedRuntimeArchive (backendTarget backend) garbageCollector ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+nativeRuntimeBuild :: NativeBackend -> IO RuntimeBuild
+nativeRuntimeBuild backend =
+  cachedRuntimeArchive (backendTarget backend) ["-std=c11", "-Wall", "-Wextra", "-Werror"]
 
 runtimeIncludeArguments :: RuntimeBuild -> [String]
 runtimeIncludeArguments build =

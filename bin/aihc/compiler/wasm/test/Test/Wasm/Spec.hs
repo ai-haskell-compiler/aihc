@@ -6,8 +6,7 @@
 -- under wasmtime and the scheduler programs run as WASI P3 components.
 module Test.Wasm.Spec (tests) where
 
-import Aihc.Cli.Options (GarbageCollector (..))
-import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, wasmClangCommand)
+import Aihc.Cli.Runtime (RuntimeBuild (..), buildRuntimeArchive, compileEntryObject, wasmClangCommand)
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
@@ -15,6 +14,7 @@ import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
 import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmSysroot)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
+import Aihc.Wasm (wasip3WorldPath)
 import Aihc.Wasm.Lir (compileLirModule)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM_, unless)
@@ -81,10 +81,9 @@ findWasmTools = do
   linker <- findExecutable "wasm-ld"
   wasmtime <- findExecutable "wasmtime"
   wasmTools <- findExecutable "wasm-tools"
-  witBindgen <- findExecutable "wit-bindgen"
   pure $
     if supported && isJust linker && isJust wasmtime
-      then Just WasmTools {toolsClang = clang, toolsClangArguments = targetArguments, toolsComponents = isJust wasmTools && isJust witBindgen}
+      then Just WasmTools {toolsClang = clang, toolsClangArguments = targetArguments, toolsComponents = isJust wasmTools}
       else Nothing
 
 clangSupportsWasm :: FilePath -> IO Bool
@@ -336,7 +335,10 @@ putcharStub expected =
     ]
 
 -- | Lower a program as a library module, compile it with the entry unit
--- and the runtime into a WASI P3 component, and run it under wasmtime.
+-- and the runtime into a WASI P3 component, and run it under wasmtime. The
+-- runtime is built here from the sources of @aihc-rts@, as the install
+-- would build it, and the component type of the world is embedded the way
+-- the link of an executable embeds it.
 programTest :: Maybe WasmTools -> String -> GrinProgram -> IO ()
 programTest tools expected program = do
   let linkedProgram =
@@ -358,23 +360,28 @@ programTest tools expected program = do
   case tools of
     Just available | toolsComponents available ->
       withTempDirectory "aihc-wasm-program" $ \directory -> do
-        let storeRoot = directory </> "store"
+        let runtimeDirectory = directory </> "runtime"
             assemblyPath = directory </> "program.s"
             programObject = directory </> "program.o"
+            entry = directory </> "entry.o"
             stubPath = directory </> "putchar.c"
             stubObject = directory </> "putchar.o"
             coreModule = directory </> "program-core.wasm"
+            typedModule = directory </> "program-typed.wasm"
             component = directory </> "program.wasm"
-        entry <- prepareEntryArchive storeRoot Wasm32Wasip3
-        runtime <- prepareRuntimeArchive storeRoot Wasm32Wasip3 GcSemispace
+        createDirectory runtimeDirectory
+        runtime <- runtimeBuildArchive <$> buildRuntimeArchive Wasm32Wasip3 [] runtimeDirectory
+        compileEntryObject Wasm32Wasip3 directory entry
+        world <- wasip3WorldPath
         TIO.writeFile assemblyPath moduleAssembly
         writeFile stubPath (putcharStub expected)
         (_, backendArguments) <- backendCompiler Wasm32Wasip3
         runTool (toolsClang available) (backendArguments <> ["-c", assemblyPath, "-o", programObject])
         runTool (toolsClang available) (toolsClangArguments available <> ["-O1", "-std=c11", "-nostdlib", "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-c", stubPath, "-o", stubObject])
         sysroot <- wasmSysroot
-        runTool "wasm-ld" ["--no-entry", "--export-memory", "--allow-undefined", programObject, stubObject, "--whole-archive", entry, runtime, "--no-whole-archive", wasmSysrootLibc sysroot, "-o", coreModule]
-        runTool "wasm-tools" ["component", "new", coreModule, "-o", component]
+        runTool "wasm-ld" ["--no-entry", "--export-memory", "--allow-undefined", programObject, stubObject, entry, "--whole-archive", runtime, "--no-whole-archive", wasmSysrootLibc sysroot, "-o", coreModule]
+        runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
+        runTool "wasm-tools" ["component", "new", typedModule, "-o", component]
         (exit, out, err) <- readProcessWithExitCode "wasmtime" ["run", "-C", "cache=n", "-S", "cli", component] ""
         assertEqual ("program stderr: " <> err) ExitSuccess exit
         assertEqual "program stdout" "" out

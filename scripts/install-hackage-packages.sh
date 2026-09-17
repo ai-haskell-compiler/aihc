@@ -141,8 +141,8 @@ done <<<"$packages"
 
 # The level is part of the identity of an installed package, so aihc-base is
 # installed at the level the packages are, next to any entry of another level.
+# The runtime is the aihc-rts package, which aihc-prim depends on.
 echo "Preparing the $target toolchain at -O$level in $store"
-"$aihc" prepare-runtime --target "$target" --store "$store"
 "$aihc" install core-libs/aihc-base \
 	--store "$store" --immutable --lint --target "$target" -O "$level"
 

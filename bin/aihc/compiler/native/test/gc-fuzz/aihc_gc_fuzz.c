@@ -64,7 +64,7 @@
    and prints done after the end command. A fatal script error prints fail
    TEXT and stops the process. */
 
-#include "../../runtime/aihc_runtime_internal.h"
+#include "aihc_runtime_internal.h"
 
 #include <inttypes.h>
 #include <stdio.h>

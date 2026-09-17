@@ -1,17 +1,16 @@
 # Installed runtimes and libraries
 
-`aihc compile` consumes prepared runtime archives and installed library
-artifacts. It does not compile either dependency from source while building an
-application.
+`aihc compile` consumes installed library artifacts. It does not compile a
+dependency from source while building an application.
 
-Prepare every runtime variant that applications will select:
+The runtime system is a package like any other: `aihc-rts` under `core-libs`,
+the standin for the `rts` boot library of GHC. It holds the C sources and
+the Lir units of the runtime and no Haskell module. `aihc-prim` depends on
+it, so the first install into a store builds the runtime for the target
+before anything else, and every program links it through the ordinary
+package dependencies.
 
-```console
-aihc prepare-runtime --target llvm --gc semispace --store "$AIHC_STORE"
-aihc prepare-runtime --target wasm32-wasip3 --gc semispace --store "$AIHC_STORE"
-```
-
-Then install the packages needed by the applications. Package dependencies are
+Install the packages needed by the applications. Package dependencies are
 installed recursively, and Cabal metadata selects the library modules. The
 frontend is compiled once even when several targets are requested:
 
@@ -33,25 +32,48 @@ aihc install nats --store "$AIHC_STORE" --target llvm
 aihc install nats-1.1.1 --store "$AIHC_STORE" --target llvm
 ```
 
-Application compilation only selects the installed store, target, and runtime
-variant:
+Application compilation only selects the installed store and target:
 
 ```console
 aihc compile Main.hs \
   --store "$AIHC_STORE" \
   --target llvm \
-  --gc semispace \
   --output program
 ```
 
-There is no special core-library installation mechanism: `aihc-base` and
-`aihc-prim` are ordinary packages, with the latter installed through the
-former's package dependency. The store contains installed library interfaces,
-whole-program bodies, and library archives for each target.
+There is no special core-library installation mechanism: `aihc-base`,
+`aihc-prim` and `aihc-rts` are ordinary packages, each installed through the
+package dependency of the one above it. The store contains installed library
+interfaces, whole-program bodies, and library archives for each target.
 Each target has one installed entry per package name and version.
-Runtime archives use keys for the target and garbage collector. An incomplete store is
-an error; application compilation never fills in missing artifacts by rebuilding
-source dependencies.
+A change to a runtime source is a change to the `aihc-rts` package, so the
+store fingerprints and invalidates the runtime the way it does every other
+package. An incomplete store is an error; application compilation never
+fills in missing artifacts by rebuilding source dependencies.
+
+## The runtime package
+
+The C sources of `aihc-rts` are its `c-sources`, compiled with the C
+compiler of the target and the `cc-options` of the package, which hold
+`-O2` so the runtime is optimized whatever level a program names. The Lir
+units are named by the aihc-specific field `x-aihc-lir-sources` and
+compiled with the Lir backend of the target; see the "Runtime units"
+section of `docs/lir.md`. Both kinds of object land in the `cbits`
+directory of the store entry, and a link takes every object there as it
+is, so no unit of the runtime is left to an archive member search.
+
+The `wasm32-wasip3` host layer takes the WASI 0.3 C bindings under
+`wasm/generated`, which `wit-bindgen` writes from the component world in
+`bin/aihc/compiler/wasm/runtime/wit`. The bindings are committed, so a
+compiler needs no `wit-bindgen` to build a wasm program; the link embeds the
+component type of the same world into the core module with `wasm-tools
+component embed`. `scripts/update-wit-bindings.sh --update` rewrites the
+bindings after a change to the world or to the pinned `wit-bindgen`, and
+the `wit-bindings` Nix check fails when they drift.
+
+The entry unit of an executable, which starts the runtime and enters the
+program, is the same for every executable. `aihc build` generates it as Lir
+and compiles it to `entry.o` beside the module objects of the executable.
 
 ## Preprocessed sources
 
@@ -90,16 +112,15 @@ script.
 
 `aihc build --no-link` stops before the link and writes a bundle directory
 instead of an executable. The bundle holds a copy of every link
-input, so it is complete on its own: the module objects, the C objects and
-archives of the installed packages, and the entry and runtime archives. A
-`link.json` manifest lists them in link order with paths relative to the
-bundle.
+input, so it is complete on its own: the module objects and the entry
+object of the executable, and the C, Lir and module objects and the archives
+of the installed packages, the runtime among them. A `link.json` manifest
+lists them in link order with paths relative to the bundle.
 
 ```console
 aihc build Main.hs \
   --store "$AIHC_STORE" \
   --target apple-arm64 \
-  --gc semispace \
   --no-link \
   --output program-bundle
 ```
@@ -205,7 +226,7 @@ A public value of a module is a root at `-O1`, and the entry of the program is t
 Before the walk, each method body of a dictionary becomes a top-level helper.
 A dictionary is then a small constructor application, and a method of a known dictionary becomes a direct call of the helper.
 The size the inliner measures follows the code that the CPS conversion of GRIN makes, which copies the continuation of a case in bind position into each alternative.
-The runtime and entry archives are compiled once for each target at `-O2`, whatever level a program names.
+The runtime is compiled at `-O2` whatever level a program names, because the `cc-options` of `aihc-rts` say so; the entry unit is Lir and takes no level.
 
 The level is part of the identity of an installed package.
 `aihc install -O2` writes a store entry next to the entry of the default level, and its manifest records the flag `O2`; `-O1` and `-Os` record `O1` and `Os`.
@@ -230,7 +251,7 @@ A type family keeps every equation of the family, because an equation is found b
 The program is pruned again after it is inlined, so that a constructor whose last use inlining removed emits no info table.
 It then lowers the program through GRIN and Lir to one object, `lto/program/program.o` under the build root.
 `--keep-core` writes the merged program, as it stands after inlining and the second prune, to `lto/program/core`, beside the `core` file of each module it was merged from.
-The link takes this object, the C objects and archives of the packages, and the entry and runtime archives.
+The link takes this object, the entry object, and the C, Lir and module objects and archives of the packages.
 A `--no-link` bundle carries the program object in place of the module objects.
 A package build gives each of its executables a program object of its own, under `exe/<name>/lto`.
 

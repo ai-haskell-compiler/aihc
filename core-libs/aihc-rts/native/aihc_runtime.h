@@ -282,7 +282,7 @@ void aihc_unsupported_primitive(void);
    stays because getProgName and withProgName use the same mutable vector.
    aihc_program_arguments_initialize flattens argv into one buffer of
    zero-terminated strings; the parser and the argument store behind the other
-   four functions live in compiler/native/runtime/aihc_runtime_options.lir. */
+   four functions live in core-libs/aihc-rts/native/aihc_runtime_options.lir. */
 void aihc_program_arguments_initialize(int argc, char *const argv[]);
 int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
 /* The runtime settings that come from the environment. The host reads the
@@ -304,7 +304,7 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
 
    The boxed arrays, the mutable references, the stable names, and the byte
    arrays below are defined by the Lir runtime units in
-   compiler/native/runtime. See the "Runtime units" section of docs/lir.md. */
+   core-libs/aihc-rts/native. See the "Runtime units" section of docs/lir.md. */
 AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
                           AihcSlot initial);
 AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,

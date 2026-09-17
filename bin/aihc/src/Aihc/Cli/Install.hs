@@ -33,7 +33,7 @@ where
 
 import Aihc.Capi (moduleCapiWrappers, parseDependencyFile, renderCapiStub)
 import Aihc.Cli.ArtifactCache (compilerBuildIdentity, executableIdentity, hashChunks, sourceFilesHash)
-import Aihc.Cli.Backend (compileGrinTo, nativeSourceExtension, nativeSourceIsLir)
+import Aihc.Cli.Backend (compileGrinTo, compileLirObject, lirModuleDefinesCode, nativeSourceExtension, nativeSourceIsLir)
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
     FileStamp (..),
@@ -74,6 +74,7 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Lir.Resolve qualified as Lir
 import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
   ( DependencyResolver (..),
@@ -168,7 +169,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -189,7 +190,7 @@ import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, (<.>), (</>))
+import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hIsTerminalDevice, hPutStrLn, openBinaryTempFile, stderr, stdout)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode, readProcess)
 
@@ -1082,7 +1083,7 @@ packageUnitIdentity inputs =
 archiveInputsHash :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> PackageInputs -> IO String
 archiveInputsHash config root dependencies inputs = do
   let cInputs = inputCCompileInfo inputs
-  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs)
+  sourceHash <- sourceFilesHash root (inputCabalFile inputs : HackageCabal.cCompileSources cInputs <> HackageCabal.cCompileLirSources cInputs)
   cSysrootArguments <-
     if null (HackageCabal.cCompileSources cInputs)
       then pure []
@@ -2528,9 +2529,13 @@ removeFileIfPresent path = do
   exists <- doesFileExist path
   when exists (removeFile path)
 
+-- | Compile the @c-sources@ and the Lir units of a package into its
+-- @cbits@ directory. A link takes every object there as it is, so the units
+-- of the runtime reach a program whether or not a symbol of theirs is
+-- referenced before them.
 compilePackageCFiles :: NativeTarget -> OptimizationLevel -> FilePath -> (String -> IO ()) -> FilePath -> FilePath -> HackageCabal.CCompileInfo -> IO [FilePath]
 compilePackageCFiles target level headerDirectory verbose packageRoot storePath info
-  | null (HackageCabal.cCompileSources info) = pure []
+  | null (HackageCabal.cCompileSources info) && null (HackageCabal.cCompileLirSources info) = pure []
   | otherwise = do
       (compiler, targetArguments) <- backendCompiler target
       sysrootIncludes <- wasmSysrootIncludeArguments target
@@ -2540,7 +2545,7 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
               <> ["-I" <> headerDirectory]
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot
-      forM (HackageCabal.cCompileSources info) $ \source -> do
+      cObjects <- forM (HackageCabal.cCompileSources info) $ \source -> do
         exists <- doesFileExist source
         unless exists (ioError (userError ("C source is absent: " <> source)))
         let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
@@ -2554,6 +2559,20 @@ compilePackageCFiles target level headerDirectory verbose packageRoot storePath 
               <> ["-c", source, "-o", object]
           )
         pure object
+      lirObjects <- forM (HackageCabal.cCompileLirSources info) $ \source -> do
+        exists <- doesFileExist source
+        unless exists (ioError (userError ("Lir source is absent: " <> source)))
+        lirModule <- either (ioError . userError . Lir.renderLoadError) pure =<< Lir.loadModule source
+        -- A unit of constants alone is there to be included by the others
+        -- and has no object.
+        if lirModuleDefinesCode lirModule
+          then do
+            let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
+            verbose ("Compile Lir source: " <> source)
+            compileLirObject target (dropExtension (takeFileName object)) lirModule objectRoot object
+            pure (Just object)
+          else pure Nothing
+      pure (cObjects <> catMaybes lirObjects)
 
 -- | Run the configure script of a @build-type: Configure@ package and return
 -- the sources and C inputs with its outputs in their include paths.

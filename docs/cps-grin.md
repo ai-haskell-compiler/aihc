@@ -62,7 +62,7 @@ preceded by `ensure-heap`, whose live pointer operands are returned under fresh
 SSA names, and is then represented by `store-unchecked`. A recursive store
 group receives one reservation covering the complete group.
 
-The native runtime is compiled with `--gc semispace`, a stop-the-world copying
+The native runtime uses a semispace collector, a stop-the-world copying
 collector. Static constructor and function info tables describe object identity,
 populated pointer fields, the next application stage, and the tracing layout the
 collector walks. Application advances the header to the next static info table,

@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
--- | One runtime archive per target, collector and set of C arguments, shared
--- by every link in the test executable.
+-- | One runtime archive per target and set of C arguments, shared by every
+-- link in the test executable.
 --
 -- A link needs the runtime as an archive rather than as a list of sources, so
 -- a test stays independent of which runtime units are C and which are Lir. See
@@ -16,7 +16,7 @@ module Aihc.Testing.RuntimeArchive
 where
 
 import Aihc.Cli.Runtime (RuntimeBuild, buildRuntimeArchive)
-import Aihc.Native (NativeTarget, RuntimeGarbageCollector)
+import Aihc.Native (NativeTarget)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
 import Control.Exception (SomeException, throwIO, try)
 import Data.Foldable (traverse_)
@@ -28,7 +28,7 @@ import System.IO.Temp (createTempDirectory, getCanonicalTemporaryDirectory)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | What makes two runtime archives interchangeable.
-type ArchiveKey = (NativeTarget, RuntimeGarbageCollector, [String])
+type ArchiveKey = (NativeTarget, [String])
 
 -- | The archive of each key, or the failure that building it raised. A key
 -- that is being built holds an empty cell, so a second caller waits for the
@@ -42,13 +42,13 @@ archiveRoot :: MVar (Maybe FilePath)
 archiveRoot = unsafePerformIO (newMVar Nothing)
 {-# NOINLINE archiveRoot #-}
 
--- | The runtime archive for one target, collector and set of extra C
--- arguments. The first caller of a key builds it and every later caller of
+-- | The runtime archive for one target and set of extra C arguments. The
+-- first caller of a key builds it and every later caller of
 -- that key gets the same archive. A build that fails is remembered, so a
 -- broken toolchain raises once per key instead of once per link.
-cachedRuntimeArchive :: NativeTarget -> RuntimeGarbageCollector -> [String] -> IO RuntimeBuild
-cachedRuntimeArchive target garbageCollector extraCArguments = do
-  let key = (target, garbageCollector, extraCArguments)
+cachedRuntimeArchive :: NativeTarget -> [String] -> IO RuntimeBuild
+cachedRuntimeArchive target extraCArguments = do
+  let key = (target, extraCArguments)
   slot <-
     modifyMVar archiveCache $ \cache ->
       case Map.lookup key cache of
@@ -64,10 +64,10 @@ cachedRuntimeArchive target garbageCollector extraCArguments = do
       either throwIO pure result
 
 buildForKey :: ArchiveKey -> IO RuntimeBuild
-buildForKey (target, garbageCollector, extraCArguments) = do
+buildForKey (target, extraCArguments) = do
   root <- runtimeArchiveRoot
   directory <- createTempDirectory root "archive"
-  buildRuntimeArchive target garbageCollector extraCArguments directory
+  buildRuntimeArchive target extraCArguments directory
 
 runtimeArchiveRoot :: IO FilePath
 runtimeArchiveRoot =

@@ -109,6 +109,13 @@ in rec {
     ".cabal"
   ];
 
+  rtsSrc = mkComponentSrc "/core-libs/aihc-rts" [
+    ".cabal"
+    ".c"
+    ".h"
+    ".lir"
+  ];
+
   internalSrc = mkComponentSrc "/core-libs/aihc-internal" [
     ".hs"
     ".hs-boot"
@@ -188,7 +195,7 @@ in rec {
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
 
-  coreLibrariesSrc = mkRootSubsetSrc ["core-libs/"] exampleSourceSuffixes;
+  coreLibrariesSrc = mkRootSubsetSrc ["core-libs/"] (exampleSourceSuffixes ++ [".c" ".h" ".lir"]);
 
   exampleSrc = exampleName:
     mkRootSubsetSrc ["examples/${exampleName}/"] exampleSourceSuffixes;

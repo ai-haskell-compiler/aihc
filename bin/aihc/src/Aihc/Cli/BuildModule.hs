@@ -36,10 +36,10 @@ import Aihc.Cli.Install
 import Aihc.Cli.Install qualified as Install
 import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
-import Aihc.Cli.Options (BuildOptions (..), GarbageCollector, LinkExeOptions (..))
+import Aihc.Cli.Options (BuildOptions (..), LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
-import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
-import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
+import Aihc.Cli.Runtime (compileEntryObject, readWasmClangProcessWithExitCode)
+import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -58,6 +58,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (Package (..), PackageId (..))
+import Aihc.Wasm (wasip3WorldPath)
 import Control.Exception (bracket)
 import Control.Monad (filterM, foldM, forM, forM_, unless, when)
 import Data.Aeson ((.:), (.=))
@@ -205,7 +206,6 @@ runBuildModule options = do
     compileConfig
     ExecutableInputs
       { executableStoreRoot = storeRoot,
-        executableGarbageCollector = buildGarbageCollector options,
         executableNoLink = buildNoLink options,
         executableOutput = output,
         executableBuildRoot = buildRoot,
@@ -220,7 +220,6 @@ runBuildModule options = do
 -- goes.
 data ExecutableInputs = ExecutableInputs
   { executableStoreRoot :: !FilePath,
-    executableGarbageCollector :: !GarbageCollector,
     -- | Write a link bundle instead of linking.
     executableNoLink :: !Bool,
     -- | The executable, or the bundle directory.
@@ -237,18 +236,18 @@ data ExecutableInputs = ExecutableInputs
 
 -- | Turn the objects of the modules of an executable and its installed
 -- packages into the executable, or into a link bundle when the link is
--- deferred. The entry and runtime archives of the target are prepared when
--- the store lacks them.
+-- deferred. The runtime is the @aihc-rts@ package among the installed
+-- packages; the entry unit is generated beside the module objects.
 finishExecutable :: ModuleCompileConfig -> ExecutableInputs -> IO ()
 finishExecutable compileConfig inputs = do
   let target = compileTarget compileConfig
-      storeRoot = executableStoreRoot inputs
       output = executableOutput inputs
       buildRoot = executableBuildRoot inputs
       compiled = executableModules inputs
       packages = executablePackages inputs
-  runtime <- ensureRuntime storeRoot target (executableGarbageCollector inputs)
-  entry <- ensureEntry storeRoot target
+  createDirectoryIfMissing True buildRoot
+  let entry = buildRoot </> "entry.o"
+  compileEntryObject target buildRoot entry
   -- A @--lto@ build compiles the System FC of every module of the program,
   -- from the packages and the executable alike, into one object. The
   -- package archives then hold only their C and capi wrapper objects.
@@ -267,14 +266,14 @@ finishExecutable compileConfig inputs = do
   createDirectoryIfMissing True (takeDirectory output)
   let orderedPackages = linkOrderedPackages packages
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
-  let objects = programObjects <> compileObjectPaths compiled <> executableExtraObjects inputs <> cObjects
+  let objects = programObjects <> compileObjectPaths compiled <> [entry] <> executableExtraObjects inputs <> cObjects
   -- A package whose archive holds no member is left out of the link: a
   -- @--lto@ build leaves the archive of a package without C sources empty,
   -- and so does a package whose modules are all empty standins.
   archives <- filterM archiveHasMembers (map packageArchive orderedPackages)
   if executableNoLink inputs
-    then writeLinkBundle target output objects archives entry runtime
-    else linkExecutable target output objects archives entry runtime
+    then writeLinkBundle target output objects archives
+    else linkExecutable target output objects archives
 
 -- | The plan of one package constraint. A core library has the version it
 -- ships with, under the name of the boot library it replaces as well as its
@@ -320,37 +319,35 @@ validateSelectedPackageNames selected =
 -- to the bundle directory. The bundle is self-contained, so a machine that
 -- cannot run the compiler, or that lacks the linker for the target the
 -- compiler ran on, can still produce the executable with @link-exe@.
+--
+-- Schema 2 lists objects and archives only. Schema 1 also named an entry
+-- and a runtime archive, which are now an object among the objects and the
+-- archive and C objects of the @aihc-rts@ package.
 data LinkBundle = LinkBundle
   { linkBundleTarget :: !NativeTarget,
     linkBundleObjects :: ![FilePath],
-    linkBundleArchives :: ![FilePath],
-    linkBundleEntry :: !FilePath,
-    linkBundleRuntime :: !FilePath
+    linkBundleArchives :: ![FilePath]
   }
   deriving (Eq, Show)
 
 instance Aeson.ToJSON LinkBundle where
   toJSON bundle =
     Aeson.object
-      [ "schemaVersion" .= (1 :: Int),
+      [ "schemaVersion" .= (2 :: Int),
         "target" .= renderNativeTarget (linkBundleTarget bundle),
         "objects" .= linkBundleObjects bundle,
-        "archives" .= linkBundleArchives bundle,
-        "entry" .= linkBundleEntry bundle,
-        "runtime" .= linkBundleRuntime bundle
+        "archives" .= linkBundleArchives bundle
       ]
 
 instance Aeson.FromJSON LinkBundle where
   parseJSON = Aeson.withObject "LinkBundle" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
     case schemaVersion :: Int of
-      1 -> do
+      2 -> do
         target <- object .: "target" >>= either fail pure . parseNativeTarget
         LinkBundle target
           <$> object .: "objects"
           <*> object .: "archives"
-          <*> object .: "entry"
-          <*> object .: "runtime"
       _ -> fail "unsupported link bundle schema"
 
 linkBundleManifestPath :: FilePath -> FilePath
@@ -359,28 +356,22 @@ linkBundleManifestPath bundle = bundle </> "link.json"
 -- | Copy the link inputs into the bundle directory and describe them in the
 -- manifest. Each copy carries its position in the link order as a prefix, so
 -- inputs from different packages that share a file name never collide.
-writeLinkBundle :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> FilePath -> IO ()
-writeLinkBundle target bundle objects archives entry runtime = do
+writeLinkBundle :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> IO ()
+writeLinkBundle target bundle objects archives = do
   let inputs = bundle </> "inputs"
   createDirectoryIfMissing True inputs
-  copied <- forM (zip [0 :: Int ..] (objects <> archives <> [entry, runtime])) $ \(index, source) -> do
+  copied <- forM (zip [0 :: Int ..] (objects <> archives)) $ \(index, source) -> do
     let name = padIndex index <> "-" <> takeFileName source
     copyFile source (inputs </> name)
     pure ("inputs" </> name)
-  let (copiedObjects, rest) = splitAt (length objects) copied
-      (copiedArchives, copiedEntry, copiedRuntime) =
-        case splitAt (length archives) rest of
-          (values, [entryCopy, runtimeCopy]) -> (values, entryCopy, runtimeCopy)
-          _ -> error "link bundle copy count mismatch"
+  let (copiedObjects, copiedArchives) = splitAt (length objects) copied
   BL.writeFile
     (linkBundleManifestPath bundle)
     ( Aeson.encode
         LinkBundle
           { linkBundleTarget = target,
             linkBundleObjects = copiedObjects,
-            linkBundleArchives = copiedArchives,
-            linkBundleEntry = copiedEntry,
-            linkBundleRuntime = copiedRuntime
+            linkBundleArchives = copiedArchives
           }
     )
   where
@@ -394,7 +385,7 @@ runLinkExe options = do
   exists <- doesFileExist manifest
   unless exists (ioError (userError ("No link bundle manifest at " <> manifest)))
   decoded <- Aeson.eitherDecode <$> BL.readFile manifest
-  LinkBundle {linkBundleTarget, linkBundleObjects, linkBundleArchives, linkBundleEntry, linkBundleRuntime} <-
+  LinkBundle {linkBundleTarget, linkBundleObjects, linkBundleArchives} <-
     either (ioError . userError . (("Invalid link bundle manifest " <> manifest <> ": ") <>)) pure decoded
   createDirectoryIfMissing True (takeDirectory output)
   linkExecutable
@@ -402,8 +393,6 @@ runLinkExe options = do
     output
     (map (bundle </>) linkBundleObjects)
     (map (bundle </>) linkBundleArchives)
-    (bundle </> linkBundleEntry)
-    (bundle </> linkBundleRuntime)
 
 -- | Put a package before the packages it depends on.
 -- GNU ld searches each archive once, so a later archive cannot satisfy an
@@ -656,23 +645,17 @@ sourceExtensions source = effectiveExtensions language (headerExtensionSettings 
     header = readModuleHeaderPragmas source
     language = fromMaybe Haskell98Edition (headerLanguageEdition header)
 
-ensureEntry :: FilePath -> NativeTarget -> IO FilePath
-ensureEntry storeRoot target = do
-  let entry = installedEntryArchivePath storeRoot target
-  exists <- doesFileExist entry
-  if exists then pure entry else prepareEntryArchive storeRoot target
-
-ensureRuntime :: FilePath -> NativeTarget -> GarbageCollector -> IO FilePath
-ensureRuntime storeRoot target garbageCollector = do
-  let runtime = installedRuntimeArchivePath storeRoot target (runtimeGarbageCollector garbageCollector)
-  exists <- doesFileExist runtime
-  if exists then pure runtime else prepareRuntimeArchive storeRoot target garbageCollector
-
-linkExecutable :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> FilePath -> IO ()
-linkExecutable Wasm32Wasip3 output objects archives entry runtime =
+-- | Link the objects and archives into the executable. The runtime units
+-- and the entry are among the objects: the C and Lir objects of every
+-- package are linked as they are, so nothing of the runtime is left to a
+-- member search.
+linkExecutable :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> IO ()
+linkExecutable Wasm32Wasip3 output objects archives =
   withTemporaryDirectory "aihc-wasm-link" $ \directory -> do
     sysroot <- wasmSysroot
+    world <- wasip3WorldPath
     let coreModule = directory </> "program.wasm"
+        typedModule = directory </> "program-typed.wasm"
     -- The libc archive follows every other input. A linker takes only the
     -- members that resolve a symbol it has already seen, so this pulls the
     -- allocator, the memory routines, and the math functions the runtime
@@ -682,17 +665,21 @@ linkExecutable Wasm32Wasip3 output objects archives entry runtime =
       ( ["--no-entry", "--export-memory", "--allow-undefined"]
           <> objects
           <> archives
-          <> ["--whole-archive", entry, runtime, "--no-whole-archive"]
           <> [wasmSysrootLibc sysroot, "-o", coreModule]
       )
-    buildComponent coreModule output
+    -- The component type of the world the runtime implements. wit-bindgen
+    -- would put it in an object beside the bindings it generates; the
+    -- bindings are committed with the runtime instead, so the type is
+    -- embedded here from the same world.
+    runTool "wasm-tools" ["component", "embed", world, "--world", "command", coreModule, "-o", typedModule]
+    buildComponent typedModule output
     runTool "wasm-tools" ["validate", output]
-linkExecutable target output objects archives entry runtime = do
+linkExecutable target output objects archives = do
   (compiler, arguments) <- backendCompiler target
   -- The runtime takes the functions of the Floating class from libm. Recent
   -- platforms carry it inside libc, and -lm is how the older ones that keep
   -- it apart still resolve them.
-  runTool compiler (arguments <> objects <> archives <> [entry, runtime, "-lm", "-o", output])
+  runTool compiler (arguments <> objects <> archives <> ["-lm", "-o", output])
 
 -- | Encode the linked core module as a component. The component model has no
 -- way to describe a WASI preview 1 import, so a runtime unit that reaches a

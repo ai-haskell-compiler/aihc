@@ -19,6 +19,7 @@ module Aihc.PackagePlan
     dependencyVersionsFromManifests,
     coreProviders,
     coreProviderSourcePath,
+    aihcRtsProvider,
     CoreProvider (..),
     localDependencyResolverWithFallback,
     lookupCoreProvider,
@@ -210,9 +211,12 @@ buildPackagePlanRecursive cache resolver stack rawSpec
         Just provider -> pure (coreProviderVersion provider)
         Nothing -> resolverResolveVersion resolver dependencyName
 
+-- | Every package depends on @aihc-prim@, whether its Cabal file says so or
+-- not. The two packages below it are the exception: @aihc-prim@ itself, and
+-- the runtime it depends on, which has no Haskell modules.
 withImplicitPrimDependency :: PackageSpec -> [String] -> [String]
 withImplicitPrimDependency spec dependencies
-  | pkgName spec == "aihc-prim" = dependencies
+  | pkgName spec `elem` ["aihc-prim", "aihc-rts"] = dependencies
   | any isPrimDependency dependencies = dependencies
   | otherwise = "aihc-prim" : dependencies
   where
@@ -233,6 +237,8 @@ lookupCoreProvider name =
     "aihc-base" -> Just aihcBaseProvider
     "ghc-prim" -> Just aihcPrimProvider
     "aihc-prim" -> Just aihcPrimProvider
+    "rts" -> Just aihcRtsProvider
+    "aihc-rts" -> Just aihcRtsProvider
     "ghc-internal" -> Just aihcInternalProvider
     "aihc-internal" -> Just aihcInternalProvider
     "template-haskell" -> Just aihcTemplateHaskellProvider
@@ -256,6 +262,7 @@ coreProviders = map (uncurry coreProvider) coreProviderSources
     coreProviderSources =
       [ ("aihc-base", "core-libs" </> "aihc-base"),
         ("aihc-prim", "core-libs" </> "aihc-prim"),
+        ("aihc-rts", "core-libs" </> "aihc-rts"),
         ("aihc-internal", "core-libs" </> "aihc-internal"),
         ("aihc-template-haskell", "core-libs" </> "aihc-template-haskell"),
         ("system-cxx-std-lib", "core-libs" </> "system-cxx-std-lib")
@@ -282,6 +289,10 @@ aihcBaseProvider = namedCoreProvider "aihc-base"
 
 aihcPrimProvider :: CoreProvider
 aihcPrimProvider = namedCoreProvider "aihc-prim"
+
+-- | The runtime system: the C and Lir units every program links.
+aihcRtsProvider :: CoreProvider
+aihcRtsProvider = namedCoreProvider "aihc-rts"
 
 aihcInternalProvider :: CoreProvider
 aihcInternalProvider = namedCoreProvider "aihc-internal"

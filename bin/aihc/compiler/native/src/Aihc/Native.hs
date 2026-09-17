@@ -7,8 +7,6 @@ module Aihc.Native
     NativeRuntimeCall (..),
     NativeTarget (..),
     OptimizationLevel (..),
-    RuntimeGarbageCollector (..),
-    RuntimePlan (..),
     WasmSysroot (..),
     backendArchiver,
     backendCompiler,
@@ -34,13 +32,11 @@ module Aihc.Native
     renderLinkedGlobalSymbol,
     renderNativeTarget,
     renderOptimizationLevel,
-    runtimePlan,
     supportedNativePrimitiveNames,
     wasmSysroot,
   )
 where
 
-import Aihc.DataFiles (getDataFileName)
 import Aihc.Grin.Syntax
 import Control.Monad (filterM)
 import Data.Bits (shiftR, (.&.))
@@ -57,7 +53,7 @@ import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath ((</>))
 import System.Info qualified as System
 
 -- | The fixed linked global that starts each executable.
@@ -79,19 +75,6 @@ data NativeTarget
   | Llvm
   | Wasm32Wasip3
   deriving (Bounded, Enum, Eq, Ord, Show)
-
-data RuntimeGarbageCollector
-  = RuntimeGcSemispace
-  deriving (Eq, Ord, Show)
-
-data RuntimePlan = RuntimePlan
-  { runtimeSources :: ![FilePath],
-    -- | Runtime units written in Lir. Every target compiles them with its own
-    -- Lir backend instead of a C compiler. See @docs/lir.md@.
-    runtimeLirSources :: ![FilePath],
-    runtimeIncludeDirectories :: ![FilePath]
-  }
-  deriving (Eq, Show)
 
 renderNativeTarget :: NativeTarget -> String
 renderNativeTarget target =
@@ -452,30 +435,6 @@ buildAddrLiteralPool program =
   ]
   where
     values = Set.toAscList (Set.fromList [value | GrinLitAddr value <- grinProgramLiterals program])
-
-runtimeSourcePath :: IO FilePath
-runtimeSourcePath = getDataFileName "compiler/native/runtime/aihc_runtime.c"
-
-runtimePlan :: NativeTarget -> RuntimeGarbageCollector -> IO RuntimePlan
-runtimePlan target garbageCollector = do
-  core <- runtimeSourcePath
-  collector <-
-    getDataFileName $ case garbageCollector of
-      RuntimeGcSemispace -> "compiler/native/runtime/aihc_gc_semispace.c"
-  host <-
-    getDataFileName $ case target of
-      Wasm32Wasip3 -> "compiler/native/runtime/aihc_host_wasip3.c"
-      _ -> "compiler/native/runtime/aihc_host_posix.c"
-  lirUnits <-
-    traverse
-      (getDataFileName . ("compiler/native/runtime/" <>))
-      ["aihc_helpers.lir", "aihc_enter.lir", "aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_runtime_options.lir", "aihc_stable_name.lir"]
-  pure
-    RuntimePlan
-      { runtimeSources = [core, collector, host],
-        runtimeLirSources = lirUnits,
-        runtimeIncludeDirectories = [takeDirectory core]
-      }
 
 -- | Primitive operations implemented directly by every native backend or by
 -- the shared runtime ABI.

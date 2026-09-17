@@ -1,10 +1,8 @@
 module Aihc.Cli.Options
   ( Command (..),
     BuildOptions (..),
-    GarbageCollector (..),
     InstallOptions (..),
     LinkExeOptions (..),
-    PrepareRuntimeOptions (..),
     parseCommandIO,
     parseCommandPure,
     parserInfo,
@@ -18,11 +16,6 @@ data Command
   = CmdBuild !BuildOptions
   | CmdInstall !InstallOptions
   | CmdLinkExe !LinkExeOptions
-  | CmdPrepareRuntime !PrepareRuntimeOptions
-  deriving (Eq, Show)
-
-data GarbageCollector
-  = GcSemispace
   deriving (Eq, Show)
 
 -- | Build an executable, or every executable of a Cabal package.
@@ -40,7 +33,6 @@ data BuildOptions = BuildOptions
     -- package names its own in @build-depends@.
     buildPackageConstraints :: ![String],
     buildTarget :: !NativeTarget,
-    buildGarbageCollector :: !GarbageCollector,
     buildStoreRoot :: !(Maybe FilePath),
     buildBuildRoot :: !(Maybe FilePath),
     buildWorkspace :: !(Maybe FilePath),
@@ -68,13 +60,6 @@ data BuildOptions = BuildOptions
 data LinkExeOptions = LinkExeOptions
   { linkExeBundle :: !FilePath,
     linkExeOutputFile :: !FilePath
-  }
-  deriving (Eq, Show)
-
-data PrepareRuntimeOptions = PrepareRuntimeOptions
-  { prepareRuntimeTarget :: !NativeTarget,
-    prepareRuntimeGarbageCollector :: !GarbageCollector,
-    prepareRuntimeStoreRoot :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
@@ -139,12 +124,6 @@ commandParser =
               (CmdLinkExe <$> linkExeOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Link one Haskell executable from a bundle written by build --no-link")
           )
-        <> OA.command
-          "prepare-runtime"
-          ( OA.info
-              (CmdPrepareRuntime <$> prepareRuntimeOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Compile and install target entry and runtime archives")
-          )
     )
 
 buildOptionsParser :: OA.Parser BuildOptions
@@ -164,7 +143,6 @@ buildOptionsParser =
           )
       )
     <*> nativeTargetOption
-    <*> garbageCollectorOption
     <*> storeRootOption "Override the aihc store root"
     <*> buildRootOption "Write the module artifacts under DIR instead of .aihc-target"
     <*> OA.optional
@@ -306,19 +284,6 @@ optimizationOption =
         <> OA.help "Optimization level: 0, 1, 2 or s. Level 0 runs no System FC pass, s runs the shrinking inliner, 1 and 2 also run the growing one. Levels 2 and s compile the whole program at once, and every level is the level Clang receives for C sources and LLVM output"
     )
 
-parseGarbageCollector :: String -> Either String GarbageCollector
-parseGarbageCollector value =
-  case value of
-    "semispace" -> Right GcSemispace
-    _ -> Left "expected semispace"
-
-prepareRuntimeOptionsParser :: OA.Parser PrepareRuntimeOptions
-prepareRuntimeOptionsParser =
-  PrepareRuntimeOptions
-    <$> nativeTargetOption
-    <*> garbageCollectorOption
-    <*> storeRootOption "Install the prepared archives into DIR"
-
 nativeTargetOption :: OA.Parser NativeTarget
 nativeTargetOption =
   OA.option
@@ -326,17 +291,6 @@ nativeTargetOption =
     ( OA.long "target"
         <> OA.metavar "TARGET"
         <> OA.help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
-    )
-
-garbageCollectorOption :: OA.Parser GarbageCollector
-garbageCollectorOption =
-  OA.option
-    (OA.eitherReader parseGarbageCollector)
-    ( OA.long "gc"
-        <> OA.metavar "semispace"
-        <> OA.value GcSemispace
-        <> OA.showDefaultWith (const "semispace")
-        <> OA.help "Select the garbage collector"
     )
 
 buildRootOption :: String -> OA.Parser (Maybe FilePath)

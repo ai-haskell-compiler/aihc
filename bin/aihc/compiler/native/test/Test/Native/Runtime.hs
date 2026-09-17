@@ -4,7 +4,7 @@ module Test.Native.Runtime
 where
 
 import Aihc.Cli.Runtime (RuntimeBuild (..))
-import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), backendCompiler)
+import Aihc.Native (NativeTarget (Llvm), backendCompiler)
 import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
 import Data.Aeson (eitherDecodeFileStrict)
 import Data.Map.Strict (Map)
@@ -22,19 +22,17 @@ tests :: TestTree
 tests =
   testGroup
     "native runtime"
-    [ runtimeProgramTest "stable names survive collections" RuntimeGcSemispace [] stableNameSource,
-      runtimeProgramTest "Lir runtime units implement mutable references" RuntimeGcSemispace [] mutVarSource,
-      runtimeProgramTest "Lir runtime units implement byte arrays" RuntimeGcSemispace [] byteArraySource,
+    [ runtimeProgramTest "stable names survive collections" [] stableNameSource,
+      runtimeProgramTest "Lir runtime units implement mutable references" [] mutVarSource,
+      runtimeProgramTest "Lir runtime units implement byte arrays" [] byteArraySource,
       runtimeProgramTest
         "Lir runtime units parse the RTS options"
-        RuntimeGcSemispace
         ["+RTS", "-M2k", "-RTS", "kept", "--RTS", "+RTS", "-M1X"]
         runtimeOptionsSource,
-      runtimeProgramTest "semispace grows when live data exceeds the initial space" RuntimeGcSemispace [] growthSource,
-      runtimeProgramTest "semispace stops at the heap limit" RuntimeGcSemispace ["+RTS", "-M256", "-RTS"] heapLimitSource,
+      runtimeProgramTest "semispace grows when live data exceeds the initial space" [] growthSource,
+      runtimeProgramTest "semispace stops at the heap limit" ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
         "static reference roots collect a static object no table names"
-        RuntimeGcSemispace
         []
         staticReferenceSource,
       runtimeStatisticsTest "AIHC_RTS_STATS receives the statistics when the process exits" True EndsWithProcessExit,
@@ -44,21 +42,21 @@ tests =
 
 -- | Compile one C program against the selected runtime with a 64-byte initial
 -- semispace. Then, run it with the given arguments and expect exit status 0.
-runtimeProgramTest :: String -> RuntimeGarbageCollector -> [String] -> String -> TestTree
-runtimeProgramTest name collector programArguments source =
-  runtimeProgramTestWith name collector programArguments (const []) source (const (pure ()))
+runtimeProgramTest :: String -> [String] -> String -> TestTree
+runtimeProgramTest name programArguments source =
+  runtimeProgramTestWith name programArguments (const []) source (const (pure ()))
 
 -- | Like 'runtimeProgramTest', with environment variables for the program
 -- and a check that runs in the temporary directory after the program exits.
 -- Both receive the temporary directory, so a variable can name a file there.
-runtimeProgramTestWith :: String -> RuntimeGarbageCollector -> [String] -> (FilePath -> [(String, String)]) -> String -> (FilePath -> IO ()) -> TestTree
-runtimeProgramTestWith name collector programArguments extraEnvironment source check =
+runtimeProgramTestWith :: String -> [String] -> (FilePath -> [(String, String)]) -> String -> (FilePath -> IO ()) -> TestTree
+runtimeProgramTestWith name programArguments extraEnvironment source check =
   testCase name $
     withSystemTempDirectory "aihc-runtime" $ \directory -> do
       -- The tiny semispace forces a collection in every one of these
       -- programs, so the runtime archive is built for this test rather than
       -- taken from the store. Every test here shares that one archive.
-      build <- cachedRuntimeArchive Llvm collector ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_SEMISPACE_BYTES=64"]
+      build <- cachedRuntimeArchive Llvm ["-std=c11", "-Wall", "-Wextra", "-Werror", "-DAIHC_SEMISPACE_BYTES=64"]
       let executable = directory </> "program"
           arguments =
             ["-std=c11", "-Wall", "-Wextra", "-Werror"]
@@ -439,7 +437,7 @@ data StatisticsEnding
 -- the named file. Without it, no file appears.
 runtimeStatisticsTest :: String -> Bool -> StatisticsEnding -> TestTree
 runtimeStatisticsTest name requested ending =
-  runtimeProgramTestWith name RuntimeGcSemispace [] environment (statisticsSource ending) check
+  runtimeProgramTestWith name [] environment (statisticsSource ending) check
   where
     statisticsFile directory = directory </> "stats.json"
     environment directory = [("AIHC_RTS_STATS", statisticsFile directory) | requested]

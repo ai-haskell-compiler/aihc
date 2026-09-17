@@ -8,6 +8,7 @@ module Aihc.Hackage.Cabal
 
     -- * Component file discovery
     ExecutableInfo (..),
+    lirSourcesField,
     collectComponentFiles,
     collectExecutablesFor,
     collectLibraryCCompileInfo,
@@ -83,6 +84,7 @@ import Distribution.PackageDescription
     condSubLibraries,
     condTestSuites,
     cppOptions,
+    customFieldsBI,
     defaultExtensions,
     defaultLanguage,
     exeModules,
@@ -168,6 +170,10 @@ filePreprocessor path = preprocessorForExtension (drop 1 (takeExtension path))
 -- @cc-options@ fields.
 data CCompileInfo = CCompileInfo
   { cCompileSources :: [FilePath],
+    -- | The Lir units of the package, from the aihc-specific field
+    -- @x-aihc-lir-sources@. They are compiled with the Lir backend of the
+    -- target and their objects join the C objects of the package.
+    cCompileLirSources :: [FilePath],
     cCompileIncludeDirs :: [FilePath],
     cCompileCcOptions :: [String]
   }
@@ -218,6 +224,7 @@ cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
 cCompileInfoFromBuild packageRoot build =
   CCompileInfo
     { cCompileSources = extractCSources packageRoot build,
+      cCompileLirSources = extractLirSources packageRoot build,
       cCompileIncludeDirs = extractIncludeDirs packageRoot build,
       cCompileCcOptions = ccOptions build
     }
@@ -226,6 +233,7 @@ mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
 mergeCCompileInfo items =
   CCompileInfo
     { cCompileSources = nub (concatMap cCompileSources items),
+      cCompileLirSources = nub (concatMap cCompileLirSources items),
       cCompileIncludeDirs = nub (concatMap cCompileIncludeDirs items),
       cCompileCcOptions = concatMap cCompileCcOptions items
     }
@@ -685,6 +693,23 @@ extractIncludeDirs packageRoot bi =
 extractCSources :: FilePath -> BuildInfo -> [FilePath]
 extractCSources packageRoot bi =
   nub [packageRoot </> getSymbolicPath path | path <- cSources bi]
+
+-- | The field naming the Lir units of a component. Cabal keeps a field it
+-- does not know under its @x-@ prefix, so the units are listed like
+-- @c-sources@ and read from here.
+lirSourcesField :: String
+lirSourcesField = "x-aihc-lir-sources"
+
+-- | Extract the Lir unit paths from a 'BuildInfo'. The field holds paths
+-- separated by whitespace or commas, as @c-sources@ does.
+extractLirSources :: FilePath -> BuildInfo -> [FilePath]
+extractLirSources packageRoot bi =
+  nub
+    [ packageRoot </> path
+    | (field, value) <- customFieldsBI bi,
+      field == lirSourcesField,
+      path <- words (map (\character -> if character == ',' then ' ' else character) value)
+    ]
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]

@@ -213,13 +213,13 @@ AihcSlot *aihc_array_elements(AihcValue *array) {
 }
 
 /* aihc_array_new, aihc_array_index, aihc_array_write, and the info table
-   they share live in compiler/native/runtime/aihc_array.lir.
+   they share live in core-libs/aihc-rts/native/aihc_array.lir.
    aihc_array_length and aihc_array_elements stay here: the collector walks
    arrays through them, including the ones the GC fuzz harness builds with
    info tables of its own. */
 
 /* aihc_mutvar_*, aihc_stable_name_*, the byte-array primitives, and the RTS
-   option parser live in compiler/native/runtime/aihc_mutvar.lir,
+   option parser live in core-libs/aihc-rts/native/aihc_mutvar.lir,
    aihc_stable_name.lir, aihc_byte_array.lir, and aihc_runtime_options.lir.
    The two accessors below stay here: the offsets of the machine fields they
    reach follow the target word size, and a Lir unit is one file for every
@@ -251,7 +251,7 @@ void aihc_memory_set(void *destination, uint64_t byte, uint64_t length) {
 void aihc_memory_free(void *pointer) { free(pointer); }
 
 /* The RTS option parser, the environment parser, and the argument store
-   live in compiler/native/runtime/aihc_runtime_options.lir. This flattens a
+   live in core-libs/aihc-rts/native/aihc_runtime_options.lir. This flattens a
    list of C strings for them: the width of a C pointer is the one thing a
    Lir unit does not know. */
 static void aihc_strings_initialize(size_t count, char *const strings[],
