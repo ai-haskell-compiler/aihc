@@ -272,7 +272,7 @@ runtimeExports target = do
 
 snapshotTest :: NativeBackend -> IO (Map.Map Symbol Signature) -> FilePath -> FilePath -> TestTree
 snapshotTest backend getExports directory name = testCase name $ do
-  runtimeExports <- getExports
+  exports <- getExports
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
@@ -280,13 +280,13 @@ snapshotTest backend getExports directory name = testCase name $ do
   (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
   -- Every fixture must use the runtime exports without local copies.
-  let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) runtimeExports]
+  let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) exports]
   assertEqual "local copies of runtime functions" [] localRuntimeFunctions
   forM_ [external | ItemExternFunction external <- moduleItems lirModule, "aihc_lir_" `T.isPrefixOf` unSymbol (externFunctionName external)] $ \external ->
     assertEqual
       ("runtime helper signature: " <> T.unpack (unSymbol (externFunctionName external)))
       (Just (externFunctionSignature external))
-      (Map.lookup (externFunctionName external) runtimeExports)
+      (Map.lookup (externFunctionName external) exports)
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule
