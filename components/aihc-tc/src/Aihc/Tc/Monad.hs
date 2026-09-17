@@ -87,7 +87,6 @@ module Aihc.Tc.Monad
     lookupTyConByIdentity,
     extendTyConEnvPermanent,
     replaceTyConEnvPermanent,
-    getTyConEnv,
     addDataType,
     addPatSyn,
     getPatSyns,
@@ -96,9 +95,7 @@ module Aihc.Tc.Monad
     patSynKey,
     getDataTypes,
     lookupDataType,
-    localTcOptions,
     tcMonoLocalBinds,
-    tcMonomorphismRestriction,
     localDefaultTypes,
     getDefaultTypes,
     getUndecidableInstances,
@@ -121,7 +118,6 @@ module Aihc.Tc.Monad
     addTypeFamilyInstance,
     getTypeFamilyInstances,
     addClass,
-    getClasses,
     lookupClass,
     lookupClassByName,
     lookupClassNamed,
@@ -136,7 +132,6 @@ module Aihc.Tc.Monad
     emitError,
     emitWarning,
     withAmbientSpan,
-    getDiagnostics,
     withErrorTracking,
     currentErrorCount,
 
@@ -817,9 +812,6 @@ typeUseResolution =
   find ((/= ResolutionNamespaceModule) . resolutionNamespace)
     . mapMaybe fromAnnotation
 
-getTyConEnv :: TcM (Map TyCon TyConInfo)
-getTyConEnv = lift $ gets $ Map.fromList . map (\info -> (tciTyCon info, info)) . Map.elems . tcsGlobalTyCons
-
 extendTyConEnvPermanent :: TyConInfo -> TcM ()
 extendTyConEnvPermanent info = do
   tyCons <- lift $ gets tcsGlobalTyCons
@@ -913,9 +905,6 @@ addClass classInfo = do
   classes <- lift $ gets tcsClasses
   classes' <- insertNewMap "class state" (classInfoKey classInfo) classInfo classes
   lift $ modify' $ \state -> state {tcsClasses = classes'}
-
-getClasses :: TcM [ClassInfo]
-getClasses = lift $ gets (Map.elems . tcsClasses)
 
 -- | Look up a class by its exact type constructor.
 lookupClass :: TyCon -> TcM (Maybe ClassInfo)
@@ -1019,19 +1008,8 @@ getGivenPredicates = asks tcEnvGivenPredicates
 getScopedTyVars :: TcM (Map Text (TyVarId, TcType))
 getScopedTyVars = asks tcEnvScopedTyVars
 
-localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a
-localTcOptions monoLocal monomorphism =
-  local $ \env ->
-    env
-      { tcEnvMonoLocalBinds = monoLocal (tcEnvMonoLocalBinds env),
-        tcEnvMonomorphismRestriction = monomorphism (tcEnvMonomorphismRestriction env)
-      }
-
 tcMonoLocalBinds :: TcM Bool
 tcMonoLocalBinds = asks tcEnvMonoLocalBinds
-
-tcMonomorphismRestriction :: TcM Bool
-tcMonomorphismRestriction = asks tcEnvMonomorphismRestriction
 
 -- | Emit a diagnostic (error or warning).
 emitDiagnostic :: TcDiagnostic -> TcM ()
@@ -1073,10 +1051,6 @@ diagnosticLoc loc = (loc <|>) <$> asks tcEnvAmbientSpan
 withAmbientSpan :: Maybe SourceSpan -> TcM a -> TcM a
 withAmbientSpan Nothing action = action
 withAmbientSpan sp action = local (\env -> env {tcEnvAmbientSpan = sp}) action
-
--- | Get all diagnostics collected so far.
-getDiagnostics :: TcM [TcDiagnostic]
-getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
 
 -- | Run a recoverable phase and report whether it emitted any errors.
 --

@@ -11,7 +11,6 @@ module Aihc.Cli.Runtime
     runPrepareRuntime,
     runtimeGarbageCollector,
     wasmClangCommand,
-    wasmOptArguments,
   )
 where
 
@@ -214,10 +213,6 @@ runtimeGarbageCollector garbageCollector =
 wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
 wasmClangCommand override =
   (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])
-
-wasmOptArguments :: FilePath -> FilePath -> [String]
-wasmOptArguments input output =
-  [input, "-O3", "--enable-tail-call", "--emit-target-features", "-o", output]
 
 -- | Run Clang and, after a WebAssembly compilation failure, inspect its
 -- registered targets so a target-limited installation gets an actionable

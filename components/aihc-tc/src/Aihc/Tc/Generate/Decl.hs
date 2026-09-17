@@ -10,8 +10,6 @@ module Aihc.Tc.Generate.Decl
   ( tcModule,
     tcModuleScc,
     moduleBindings,
-    moduleInstances,
-    moduleClasses,
     defaultMethodName,
     TcBindingResult (..),
     tbName,
@@ -219,11 +217,6 @@ moduleBindings :: TcWiring -> Module -> [TcBindingResult]
 moduleBindings wiring modu =
   concatMap (declBindings wiring (mkTcKinds wiring) (resolvedModuleOrigin modu)) (moduleDecls modu)
 
--- | Recover instance-environment entries from finalized module annotations.
-moduleInstances :: TcKinds -> Module -> [InstanceInfo]
-moduleInstances kinds modu =
-  concatMap (declInstances kinds (resolvedModuleOrigin modu)) (moduleDecls modu)
-
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
   fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
@@ -264,84 +257,12 @@ patternResolution pattern' =
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
 nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 
--- | Recover class-environment entries from finalized module annotations.
-moduleClasses :: Module -> [ClassInfo]
-moduleClasses modu = map setOrigin (concatMap declClasses (moduleDecls modu))
-  where
-    setOrigin classInfo = classInfo {ciOrigin = Just (resolvedModuleOrigin modu)}
-
-declClasses :: Decl -> [ClassInfo]
-declClasses decl =
-  case decl of
-    DeclAnn ann inner ->
-      annotationClasses ann inner <> declClasses inner
-    _ -> []
-
-annotationClasses :: Annotation -> Decl -> [ClassInfo]
-annotationClasses ann decl =
-  case (fromAnnotation ann, peelDeclAnn decl) of
-    (Just classAnn, DeclClass classDecl) ->
-      [ ClassInfo
-          { ciName = unqualifiedNameText (binderHeadName (classDeclHead classDecl)),
-            ciTyCon = tcClassTyCon classAnn,
-            ciOrigin = Nothing,
-            ciKindTyVars = tcClassKindTyVars classAnn,
-            ciTyVars = tcClassTyVars classAnn,
-            ciSuperClassTypes = map tcDictBinderType (tcClassSuperClasses classAnn),
-            ciMethods =
-              [ (tcClassMethodName method, typeToScheme (tcClassMethodType method))
-              | method <- tcClassMethods classAnn
-              ],
-            ciDefaultMethods = tcClassDefaultMethods classAnn,
-            ciDefaultSignatures =
-              [ (methodName, typeToScheme signature)
-              | (methodName, signature) <- tcClassDefaultSignatures classAnn
-              ],
-            ciAssociatedTypes = tcClassAssociatedTypes classAnn,
-            ciFunDeps = tcClassFunDeps classAnn
-          }
-      ]
-    _ -> []
-
 typeToScheme :: TcType -> TypeScheme
 typeToScheme ty =
   let (tyVars, body) = peelForAlls ty
    in case body of
         TcQualTy predicates result -> ForAll tyVars predicates result
         result -> ForAll tyVars [] result
-
-declInstances :: TcKinds -> (Text, Text) -> Decl -> [InstanceInfo]
-declInstances kinds origin decl =
-  case decl of
-    DeclAnn ann inner ->
-      annotationInstances kinds origin ann inner <> declInstances kinds origin inner
-    _ -> []
-
-annotationInstances :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [InstanceInfo]
-annotationInstances kinds origin ann decl =
-  explicitInstance
-  where
-    explicitInstance =
-      case (fromAnnotation @TcInstanceAnnotation ann, peelDeclAnn decl) of
-        (Just instAnn, DeclInstance instanceDecl)
-          | Just className <- instanceHeadName (instanceDeclHead instanceDecl) ->
-              [ InstanceInfo
-                  { iiClassName = nameText className,
-                    iiDictName = tcInstanceDictName instAnn,
-                    iiDictOrigin = origin,
-                    iiDictType = tcInstanceDictType instAnn,
-                    iiTyVars = tcInstanceTyVars instAnn,
-                    iiContext = map (dictBinderPred kinds) (tcInstanceContextDicts instAnn),
-                    iiHead = tcInstanceHeadTypes instAnn
-                  }
-              ]
-        _ -> []
-
-dictBinderPred :: TcKinds -> TcDictBinderAnnotation -> Pred
-dictBinderPred kinds dictBinder =
-  case constraintTypeToPred kinds (tcDictBinderType dictBinder) of
-    Just predicate -> predicate
-    Nothing -> error "invalid checked dictionary binder type"
 
 -- | The key a binding of this module gets. The module a binding is
 -- recovered from is the module that declares it, so its origin is the

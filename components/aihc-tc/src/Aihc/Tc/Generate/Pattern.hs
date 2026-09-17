@@ -7,7 +7,6 @@ module Aihc.Tc.Generate.Pattern
     annotatePatternBindings,
     reannotatePatternBinders,
     checkPattern,
-    checkPatterns,
     checkPatternsWithGivens,
     checkFunctionPatterns,
     checkFunctionPatternsWithGivens,
@@ -115,9 +114,6 @@ data GadtHandling
   = GadtAsWanted
   | GadtAsGiven
   deriving (Eq)
-
-checkPatterns :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkPatterns = checkPatternsWith GadtAsWanted
 
 checkPatternsWithGivens :: Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
 checkPatternsWithGivens = checkPatternsWith GadtAsGiven

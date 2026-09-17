@@ -4,7 +4,6 @@
 
 module Aihc.Testing.AnnotatedModule
   ( renderAnnotatedModule,
-    renderAnnotatedModules,
     renderAnnotatedModuleSource,
     renderAnnotatedModuleSources,
   )
@@ -65,10 +64,6 @@ renderAnnotatedModule parserConfig renderAnnotation modu =
                 <> show (stripAnnotations reparsed)
             )
       | otherwise = collectLabels renderAnnotation prettyModule reparsed
-
-renderAnnotatedModules :: ParserConfig -> (Annotation -> Maybe (Doc ann)) -> [Module] -> [String]
-renderAnnotatedModules parserConfig renderAnnotation =
-  map (renderAnnotatedModule parserConfig renderAnnotation)
 
 renderAnnotatedModuleSource :: (Annotation -> Maybe (Doc ann)) -> T.Text -> Module -> String
 renderAnnotatedModuleSource renderAnnotation source modu =

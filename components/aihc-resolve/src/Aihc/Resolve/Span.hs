@@ -8,7 +8,6 @@ module Aihc.Resolve.Span
     peelDeclSpan,
     peelPatternSpan,
     peelGuardQualifierSpan,
-    peelDataConSpan,
     peelImportItemSpan,
     rhsSpan,
     annotateUnhandledDecl,
@@ -32,7 +31,6 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     ClassDeclItem (..),
-    DataConDecl (..),
     Decl (..),
     Expr (..),
     GuardQualifier (..),
@@ -86,12 +84,6 @@ peelGuardQualifierSpan :: GuardQualifier -> Maybe SourceSpan
 peelGuardQualifierSpan = go Nothing
   where
     go ambient (GuardAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
-    go ambient _ = ambient
-
-peelDataConSpan :: DataConDecl -> Maybe SourceSpan
-peelDataConSpan = go Nothing
-  where
-    go ambient (DataConAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
     go ambient _ = ambient
 
 peelImportItemSpan :: ImportItem -> Maybe SourceSpan

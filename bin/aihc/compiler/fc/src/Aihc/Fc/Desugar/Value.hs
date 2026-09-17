@@ -3,8 +3,6 @@
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
   ( desugarValues,
-    emptyPreparedValueInterface,
-    mergePreparedValueInterfaces,
     prepareValueInterface,
     PreparedValueInterface,
   )
@@ -225,18 +223,6 @@ data EvidenceScope = EvidenceScope
     evidenceBindsRev :: ![Bind]
   }
 
-emptyPreparedValueInterface :: PreparedValueInterface
-emptyPreparedValueInterface =
-  PreparedValueInterface
-    { preparedTypes = Map.empty,
-      preparedConstructorInfos = Map.empty,
-      preparedNewtypeConstructors = Map.empty,
-      preparedFamilyConstructors = Map.empty,
-      preparedStrictConstructors = Map.empty,
-      preparedPatSyns = Map.empty,
-      preparedForeignImports = Map.empty
-    }
-
 prepareValueInterface :: TcInterface -> PreparedValueInterface
 prepareValueInterface interface =
   PreparedValueInterface
@@ -296,20 +282,6 @@ prepareValueInterface interface =
           or flags,
           let (package, moduleName') = dciOrigin constructor
         ]
-
-mergePreparedValueInterfaces :: [PreparedValueInterface] -> PreparedValueInterface
-mergePreparedValueInterfaces interfaces =
-  PreparedValueInterface
-    { preparedTypes = Map.unions (map preparedTypes interfaces),
-      preparedConstructorInfos = Map.unionsWith mergeCandidates (map preparedConstructorInfos interfaces),
-      preparedNewtypeConstructors = Map.unions (map preparedNewtypeConstructors interfaces),
-      preparedFamilyConstructors = Map.unions (map preparedFamilyConstructors interfaces),
-      preparedStrictConstructors = Map.unions (map preparedStrictConstructors interfaces),
-      preparedPatSyns = Map.unions (map preparedPatSyns interfaces),
-      preparedForeignImports = Map.unions (map preparedForeignImports interfaces)
-    }
-  where
-    mergeCandidates left right = List.nub (left <> right)
 
 desugarValues :: ConvertEnv -> TypeOf.TypeEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do

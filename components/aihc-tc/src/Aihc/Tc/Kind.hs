@@ -5,7 +5,6 @@ module Aihc.Tc.Kind
     ParamInfo (..),
     checkSurfaceType,
     checkRuntimeType,
-    convertSurfaceType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
     deferKindMetas,
@@ -175,11 +174,6 @@ prenexKindForalls kind =
       let (tyVars, result') = prenexKindForalls result
        in (tyVars, TcFunTy argument result')
     _ -> ([], kind)
-
-convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
-convertSurfaceType tvMap ty = do
-  let tvEnv = Map.map (\tv -> (tv, tvKind tv)) tvMap
-  checkRuntimeType tvEnv ty
 
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
 checkSurfaceType tvEnv ty expected = do

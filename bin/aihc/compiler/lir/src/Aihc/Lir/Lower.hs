@@ -34,7 +34,6 @@ module Aihc.Lir.Lower
     lowerUnitItems,
     continuationInfoItems,
     functionSymbol,
-    functionResultTypes,
     threadDoneContinuation,
     allocateContinuation,
     constructorInfoSymbol,
@@ -502,11 +501,6 @@ constructorStageSymbol name stage =
 
 globalSymbol :: Text -> Symbol
 globalSymbol = Symbol . renderLinkedGlobalSymbol
-
--- | The Lir types of the values one GRIN function returns to its
--- continuation.
-functionResultTypes :: GrinFunction -> [Type]
-functionResultTypes = maybe [] (map repType) . resultRepComponents . grinFunctionResultRep
 
 -- State helpers
 
