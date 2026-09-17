@@ -993,7 +993,7 @@ annotateRebindableIf expr = do
 -- A primitive literal pattern gets the resolution of its primitive type.
 annotatePatternLiteral :: Pattern -> Literal -> ResolveM Pattern
 annotatePatternLiteral pat lit = do
-  sp <- literalSpan <$> currentSpan <*> pure lit
+  sp <- (literalSpan lit <|>) <$> currentSpan
   case primitiveLiteralTypeName lit of
     Just typeName -> do
       typeAnn <- primitiveLiteralTypeAnnotation sp typeName
@@ -1022,9 +1022,12 @@ annotatePatternLiteral pat lit = do
         PNegLit {} -> [conversion, "negate", "=="]
         _ -> [conversion, "=="]
 
-literalSpan :: Maybe SourceSpan -> Literal -> Maybe SourceSpan
-literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
-literalSpan ambient _ = ambient
+-- | The innermost source span a literal's annotations carry.
+literalSpan :: Literal -> Maybe SourceSpan
+literalSpan = go Nothing
+  where
+    go ambient (LitAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
+    go ambient _ = ambient
 
 syntaxTermAnnotation :: Maybe SourceSpan -> Text -> ResolveM ResolutionAnnotation
 syntaxTermAnnotation sp name = do

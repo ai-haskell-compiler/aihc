@@ -169,10 +169,13 @@ import Data.Text qualified as T
 sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
 sourceSpanFromAnns = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
 
-peelDeclSpan :: Maybe SourceSpan -> Decl -> Maybe SourceSpan
-peelDeclSpan ambient (DeclAnn ann inner) =
-  peelDeclSpan (fromAnnotation @SourceSpan ann <|> ambient) inner
-peelDeclSpan ambient _ = ambient
+-- | The innermost source span a declaration's annotations carry, or
+-- 'Nothing' for a declaration the compiler synthesized.
+peelDeclSpan :: Decl -> Maybe SourceSpan
+peelDeclSpan = go Nothing
+  where
+    go ambient (DeclAnn ann inner) = go (fromAnnotation @SourceSpan ann <|> ambient) inner
+    go ambient _ = ambient
 
 -- | Result of type-checking a single binding.
 data TcBindingResult = TcBindingResult
@@ -533,7 +536,7 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
 atDecl :: (Decl -> TcM a) -> Decl -> TcM a
-atDecl check declaration = withAmbientSpan (peelDeclSpan Nothing declaration) (check declaration)
+atDecl check declaration = withAmbientSpan (peelDeclSpan declaration) (check declaration)
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -948,7 +951,7 @@ checkTopLevelUnliftedBindings sourceGroups results =
 declGroupSourceSpan :: DeclGroup -> Maybe SourceSpan
 declGroupSourceSpan group =
   case group of
-    SingleDecl decl -> peelDeclSpan Nothing decl
+    SingleDecl decl -> peelDeclSpan decl
     MergedFunctionBind sourceSpan _ _ _ -> sourceSpan
 
 renderCheckedGroup :: Map Int [Decl] -> (Int, DeclGroup) -> [Decl]
@@ -2383,7 +2386,7 @@ extractFunctionBind :: Decl -> Maybe (Maybe SourceSpan, UnqualifiedName, [Match]
 extractFunctionBind decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) ->
-      let sp = peelDeclSpan Nothing decl
+      let sp = peelDeclSpan decl
        in Just (sp, name, matches)
     _ -> Nothing
 
@@ -2513,7 +2516,7 @@ tcSingleDeclGroup sigs groupId d =
           (maybeMatches, bindings) <-
             case Map.lookup key sigs of
               Just sig ->
-                tcTopLevelWithSig key displayName sig [zeroArgMatch (patternSpan pat <|> peelDeclSpan Nothing d) rhs]
+                tcTopLevelWithSig key displayName sig [zeroArgMatch (patternSpan pat <|> peelDeclSpan d) rhs]
               Nothing ->
                 tcFunctionInfer key displayName [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
@@ -2543,7 +2546,7 @@ tcSingleDeclGroup sigs groupId d =
 -- at the unit type, which is what GHC uses @Any@ for.
 tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
 tcTopLevelPatternBind sigs groupId d pat rhs = do
-  let sp = patternSpan pat <|> peelDeclSpan Nothing d
+  let sp = patternSpan pat <|> peelDeclSpan d
       binders = patternBinderNames pat
   -- A binder with a signature is already in the environment. The others
   -- get a placeholder that the checked pattern fills in.
