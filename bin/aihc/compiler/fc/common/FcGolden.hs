@@ -94,9 +94,10 @@ data FcCase = FcCase
     caseStatus :: !ExpectedStatus,
     caseLint :: !LintExpectation,
     caseReason :: !String,
-    -- | Run the inliner on the merged program of the modules, and pin its
-    -- output instead of the desugared modules.
-    caseInline :: !(Maybe InlineMode),
+    -- | Run the inliner on the merged program of the modules, for the
+    -- given number of rounds, and pin its output instead of the desugared
+    -- modules.
+    caseInline :: !(Maybe (InlineMode, Int)),
     -- | Run the arity analysis and eta expand the merged program before
     -- the inliner, and pin the result.
     caseEta :: !Bool
@@ -209,16 +210,18 @@ parseFcFixture path value = do
       }
 
 -- | The @inline@ key: @shrink@, or @budget@ with the size limit that the
--- inliner may fill.
-parseInlineMode :: Y.Value -> Y.Parser InlineMode
+-- inliner may fill, and the number of @rounds@ it may walk (four unless
+-- given).
+parseInlineMode :: Y.Value -> Y.Parser (InlineMode, Int)
 parseInlineMode value =
   case value of
-    Y.String "shrink" -> pure InlineShrink
+    Y.String "shrink" -> pure (InlineShrink, 4)
     Y.Object obj -> do
       mode <- obj .: "mode"
+      rounds <- obj .:? "rounds" .!= 4
       case mode :: Text of
-        "shrink" -> pure InlineShrink
-        "budget" -> InlineBudget <$> obj .: "limit"
+        "shrink" -> pure (InlineShrink, rounds)
+        "budget" -> (\limit -> (InlineBudget limit, rounds)) <$> obj .: "limit"
         _ -> fail "inline mode must be shrink or budget"
     _ -> fail "inline must be shrink, or an object with mode and limit"
 
@@ -283,16 +286,16 @@ renderFcCase tc =
     lintAndRenderOptimized programs =
       let merged = mergePrograms programs
           expanded = if caseEta tc then fst (etaExpandProgram merged) else merged
-          config mode =
+          config (mode, rounds) =
             InlineConfig
               { inlineMode = mode,
                 inlineRoots = Nothing,
                 inlineSiteLimit = 100,
-                inlineRounds = 4
+                inlineRounds = rounds
               }
           inlined = case caseInline tc of
             Nothing -> expanded
-            Just mode -> fst (inlineProgram (config mode) expanded)
+            Just inline -> fst (inlineProgram (config inline) expanded)
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->

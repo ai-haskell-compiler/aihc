@@ -47,7 +47,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, guard)
-import Control.Monad.Trans.State.Strict (State, gets, modify', runState, state)
+import Control.Monad.Trans.State.Strict (State, get, gets, modify', runState, state)
 import Data.Either (lefts, rights)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
@@ -188,7 +188,24 @@ data Inliner = Inliner
     inBodies :: !(Map Name Expr),
     -- | The values each body references.
     inRefs :: !(Map Name (Set Name)),
+    -- | The size of the live program: the values a root still reaches,
+    -- as far as the counts below tell. A value the round has made
+    -- unreferenced is not counted, although its body stays until
+    -- 'dropUnused' removes it; the budget must not pay twice for a copy
+    -- whose original is already dead.
     inTotal :: !Int,
+    -- | How often each top-level value occurs in the live bodies.
+    inCounts :: !(Map Name Int),
+    -- | How many of those occurrences are calls that give the value
+    -- every parameter, by the arities below.
+    inCalls :: !(Map Name Int),
+    -- | The arity of each value at the start of the round. The call
+    -- counts are kept by it, so that they stay comparable through the
+    -- round.
+    inArities :: !(Map Name Int),
+    -- | The values no live body references any more. They are not
+    -- simplified and their references count for nothing.
+    inDead :: !(Set Name),
     inSupply :: !Int,
     inSites :: !Int,
     -- | Whether a body changed in the current round. A round that
@@ -207,6 +224,10 @@ initialInliner config env decls supply =
       inBodies = bodies,
       inRefs = Map.map (valueReferences declarations) bodies,
       inTotal = sum [1 + exprSize env body | body <- Map.elems bodies],
+      inCounts = occurrenceCounts (Map.elems bodies),
+      inCalls = callCounts arities (Map.elems bodies),
+      inArities = arities,
+      inDead = Set.empty,
       inSupply = supply,
       inSites = 0,
       inChanged = False,
@@ -215,6 +236,7 @@ initialInliner config env decls supply =
   where
     declarations = Map.fromList [(valName declaration, declaration) | DeclVal declaration <- decls]
     bodies = Map.map valBody declarations
+    arities = Map.map functionArity bodies
     roots =
       case inlineRoots config of
         Nothing -> Map.keysSet (Map.filter ((== Pub) . valVis) declarations)
@@ -248,85 +270,128 @@ inlineRound :: InlineConfig -> Inliner -> Inliner
 inlineRound config st0 = List.foldl' step st0 (stronglyConnComp graph)
   where
     graph = [(name, name, Set.toList references) | (name, references) <- Map.toList (inRefs st0)]
-    counts = occurrenceCounts (Map.elems (inBodies st0))
     known = knownValues st0
     recursive = Set.fromList (concat [names | CyclicSCC names <- stronglyConnComp graph])
     step st scc =
       case scc of
-        AcyclicSCC name -> simplifyValue config counts known recursive st name
-        CyclicSCC names -> List.foldl' (simplifyValue config counts known recursive) st names
+        AcyclicSCC name -> simplifyValue config known recursive st name
+        CyclicSCC names -> List.foldl' (simplifyValue config known recursive) st names
 
 -- | Simplify one body with the candidates it references.
-simplifyValue :: InlineConfig -> Map Name Int -> Map Name Expr -> Set Name -> Inliner -> Name -> Inliner
-simplifyValue config counts known recursive st name =
-  case Map.lookup name (inBodies st) of
-    Nothing -> st
-    Just body ->
-      let references = Map.findWithDefault Set.empty name (inRefs st)
-          -- A copy of a candidate brings the calls of its own body. They
-          -- stayed calls in the candidate because nothing was known about
-          -- its parameters; at a site that gives a known argument, such a
-          -- call can reduce, so the callees of the candidates are
-          -- candidates too. Deeper callees are not: every level would
-          -- try copies of copies at each site, for little more.
-          reachable = calleesOf (inRefs st) references
-          candidates =
-            Map.fromList
-              [ (callee, Candidate calleeBody (unconditional callee calleeBody))
-              | callee <- Set.toList reachable,
-                callee /= name,
-                callee `Set.notMember` recursive,
-                Just calleeBody <- [Map.lookup callee (inBodies st)],
-                isInlinable calleeBody
-              ]
-       in if Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
-            then st
-            else
-              let simpl =
-                    Simpl
-                      { spEnv = inEnv st,
-                        spInline = candidates,
-                        spKnown = known,
-                        spArity = arities,
-                        spLocals = Map.empty,
-                        spCse = Map.empty,
-                        spSiteLimit = inlineSiteLimit config,
-                        spDiscount = discount
-                      }
-                  -- 'InlineShrink' takes only a site that makes the
-                  -- program smaller, so it takes no discount: a discount
-                  -- prices a saving that is not a node of the result, and
-                  -- the mode counts nodes.
-                  discount =
-                    case inlineMode config of
-                      InlineShrink -> 0
-                      InlineBudget {} -> functionArgumentDiscount
-                  allowance =
-                    case inlineMode config of
-                      InlineShrink -> 0
-                      InlineBudget limit -> max 0 (limit - inTotal st)
-                  (body', simplState) =
-                    runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
-                  oldSize = exprSize (inEnv st) body
-                  newSize = exprSize (inEnv st) body'
-               in st
-                    { inBodies = Map.insert name body' (inBodies st),
-                      inRefs = Map.insert name (valueReferences (inDecls st) body') (inRefs st),
-                      inTotal = inTotal st + newSize - oldSize,
-                      inSupply = ssSupply simplState,
-                      inSites = inSites st + ssInlined simplState,
-                      inChanged = inChanged st || body' /= body
-                    }
+simplifyValue :: InlineConfig -> Map Name Expr -> Set Name -> Inliner -> Name -> Inliner
+simplifyValue config known recursive st name
+  | name `Set.member` inDead st = st
+  | otherwise =
+      case Map.lookup name (inBodies st) of
+        Nothing -> st
+        Just body ->
+          let references = Map.findWithDefault Set.empty name (inRefs st)
+              -- A copy of a candidate brings the calls of its own body. They
+              -- stayed calls in the candidate because nothing was known about
+              -- its parameters; at a site that gives a known argument, such a
+              -- call can reduce, so the callees of the candidates are
+              -- candidates too. Deeper callees are not: every level would
+              -- try copies of copies at each site, for little more.
+              reachable = calleesOf (inRefs st) references
+              candidates =
+                Map.fromList
+                  [ (callee, candidate callee calleeBody)
+                  | callee <- Set.toList reachable,
+                    callee /= name,
+                    callee `Set.notMember` recursive,
+                    Just calleeBody <- [Map.lookup callee (inBodies st)],
+                    isInlinable calleeBody
+                  ]
+           in if Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+                then st
+                else
+                  let simpl =
+                        Simpl
+                          { spEnv = inEnv st,
+                            spInline = candidates,
+                            spKnown = known,
+                            spArity = arities,
+                            spLocals = Map.empty,
+                            spCse = Map.empty,
+                            spSiteLimit = inlineSiteLimit config,
+                            spDiscount = discount
+                          }
+                      -- 'InlineShrink' takes only a site that makes the
+                      -- program smaller, so it takes no discount: a discount
+                      -- prices a saving that is not a node of the result, and
+                      -- the mode counts nodes.
+                      discount =
+                        case inlineMode config of
+                          InlineShrink -> 0
+                          InlineBudget {} -> functionArgumentDiscount
+                      allowance =
+                        case inlineMode config of
+                          InlineShrink -> 0
+                          InlineBudget limit -> max 0 (limit - inTotal st)
+                      (body', simplState) =
+                        runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
+                      oldSize = exprSize (inEnv st) body
+                      newSize = exprSize (inEnv st) body'
+                      oldUses = countTopUses body
+                      newUses = countTopUses body'
+                      counts' = Map.unionWith (+) (Map.unionWith (+) (inCounts st) newUses) (Map.map negate oldUses)
+                      calls' = Map.unionWith (+) (Map.unionWith (+) (inCalls st) (countTopCalls (inArities st) body')) (Map.map negate (countTopCalls (inArities st) body))
+                   in killDead
+                        st
+                          { inBodies = Map.insert name body' (inBodies st),
+                            inRefs = Map.insert name (valueReferences (inDecls st) body') (inRefs st),
+                            inTotal = inTotal st + newSize - oldSize,
+                            inCounts = counts',
+                            inCalls = calls',
+                            inSupply = ssSupply simplState,
+                            inSites = inSites st + ssInlined simplState,
+                            inChanged = inChanged st || body' /= body
+                          }
+                        (Map.keys oldUses)
   where
     arities = Map.map functionArity (inBodies st)
-    -- A removable value that is inlined at every use goes away. When the
-    -- copies together are no larger than the value, every site takes it.
-    unconditional callee calleeBody =
-      removable callee
-        && let size = exprSize (inEnv st) calleeBody
-               uses = Map.findWithDefault 0 callee counts
-            in uses * (size - 1) - (size + 1) <= 0
+    -- A removable value whose every use is a call that inlining takes
+    -- goes away once every site holds a copy. When the copies together
+    -- are no larger than the value, every site takes it. A use that is
+    -- not such a call, a dictionary field for one, keeps the value, and
+    -- its sites are decided by their growth like any other: a class
+    -- method with one use, in its dictionary, is not free at the sites
+    -- that select it from that dictionary.
+    candidate callee calleeBody =
+      let size = exprSize (inEnv st) calleeBody
+          uses = Map.findWithDefault 0 callee (inCounts st)
+          calls = Map.findWithDefault 0 callee (inCalls st)
+       in Candidate
+            { candidateBody = calleeBody,
+              candidateUnconditional = removable callee && calls >= uses && uses * (size - 1) - (size + 1) <= 0
+            }
     removable callee = callee `Set.notMember` inRoots st
+
+-- | Mark the given values dead when no live body references them any
+-- more, take their size off the live total, and release their own
+-- references, which may leave further values dead.
+killDead :: Inliner -> [Name] -> Inliner
+killDead st names =
+  case names of
+    [] -> st
+    name : rest
+      | name `Set.member` inDead st
+          || name `Set.member` inRoots st
+          || Map.findWithDefault 0 name (inCounts st) > 0 ->
+          killDead st rest
+      | Just body <- Map.lookup name (inBodies st) ->
+          let uses = countTopUses body
+              counts' = Map.unionWith (+) (inCounts st) (Map.map negate uses)
+              calls' = Map.unionWith (+) (inCalls st) (Map.map negate (countTopCalls (inArities st) body))
+           in killDead
+                st
+                  { inDead = Set.insert name (inDead st),
+                    inTotal = inTotal st - 1 - exprSize (inEnv st) body,
+                    inCounts = counts',
+                    inCalls = calls'
+                  }
+                (Map.keys uses ++ rest)
+      | otherwise -> killDead st rest
 
 -- | A set of values and the values their bodies reference.
 calleesOf :: Map Name (Set Name) -> Set Name -> Set Name
@@ -339,9 +404,15 @@ dropUnused st =
   st
     { inBodies = Map.restrictKeys (inBodies st) reachable,
       inRefs = Map.restrictKeys (inRefs st) reachable,
-      inTotal = sum [1 + exprSize (inEnv st) body | body <- Map.elems (Map.restrictKeys (inBodies st) reachable)]
+      inTotal = sum [1 + exprSize (inEnv st) body | body <- Map.elems live],
+      inCounts = occurrenceCounts (Map.elems live),
+      inCalls = callCounts arities (Map.elems live),
+      inArities = arities,
+      inDead = Set.empty
     }
   where
+    live = Map.restrictKeys (inBodies st) reachable
+    arities = Map.map functionArity live
     reachable = close Set.empty (Set.toList (Set.filter (`Map.member` inBodies st) (inRoots st)))
     close visited pending =
       case pending of
@@ -354,6 +425,33 @@ dropUnused st =
 -- | How often each value occurs in the bodies.
 occurrenceCounts :: [Expr] -> Map Name Int
 occurrenceCounts = List.foldl' (\counts body -> Map.unionWith (+) counts (countTopUses body)) Map.empty
+
+callCounts :: Map Name Int -> [Expr] -> Map Name Int
+callCounts arities = List.foldl' (\counts body -> Map.unionWith (+) counts (countTopCalls arities body)) Map.empty
+
+-- | How often each top-level value of the arity map occurs in the head
+-- of an application that gives it every parameter. A value of arity zero
+-- is called by every occurrence.
+countTopCalls :: Map Name Int -> Expr -> Map Name Int
+countTopCalls arities = go
+  where
+    go expr =
+      case castedSpine expr of
+        (ExVar name, args)
+          | Just arity <- Map.lookup name arities,
+            length [() | Right _ <- args] >= arity ->
+              Map.unionWith (+) (Map.singleton name 1) (arguments args)
+        (function, args) -> Map.unionWith (+) (bare function) (arguments args)
+    arguments args = List.foldl' (Map.unionWith (+)) Map.empty [go argument | Right argument <- args]
+    bare expr =
+      case expr of
+        ExLam _ body -> go body
+        ExTyLam _ body -> go body
+        ExLet bind body -> Map.unionWith (+) (go (bindRhs bind)) (go body)
+        ExRec binds body -> List.foldl' (Map.unionWith (+)) (go body) (map (go . bindRhs) binds)
+        ExCase scrutinee _ _ alternatives -> List.foldl' (Map.unionWith (+)) (go scrutinee) (map (go . altRhs) alternatives)
+        ExForeignCall _ _ args -> List.foldl' (Map.unionWith (+)) Map.empty (map go args)
+        _ -> Map.empty
 
 countTopUses :: Expr -> Map Name Int
 countTopUses = go
@@ -552,21 +650,23 @@ simplifyCase env scrutinee binder resultType alternatives
 inlineScrutinee :: Simpl -> Name -> Candidate -> [Arg] -> Binder -> Type -> [Alt] -> SimplM Expr
 inlineScrutinee env name candidate args binder resultType alternatives = do
   args' <- mapM (either (pure . Left) (fmap Right . simplifyExpr env)) args
+  before <- get
   inlined <- inlineCandidate env name candidate args'
+  paid <- gets (nestedPaid before)
   let original = rebuildSpine (ExVar name) args'
       discount =
         callDiscount env (candidateBody candidate) args'
           + (if tailsAreKnown env inlined then spDiscount env else 0)
+          + paid
       callGrowth = exprSize (spEnv env) inlined - exprSize (spEnv env) original - discount
       fallback = do
+        restoreSite before
         alternatives' <- mapM (simplifyAlt env original binder) alternatives
         pure (mkCase (spEnv env) original binder resultType alternatives')
       decide growth result = do
-        accepted <- if candidateUnconditional candidate then pure True else acceptGrowth env growth
+        accepted <- acceptSite env candidate growth
         if accepted
-          then do
-            modify' (\st -> st {ssInlined = ssInlined st + 1})
-            result
+          then result
           else fallback
   reduced <- caseOfKnown env inlined binder alternatives
   case reduced of
@@ -580,6 +680,44 @@ inlineScrutinee env name candidate args binder resultType alternatives = do
         Nothing -> do
           alternatives' <- mapM (simplifyAlt env inlined binder) alternatives
           decide callGrowth (pure (mkCase (spEnv env) inlined binder resultType alternatives'))
+
+-- | The allowance the sites inside a copy took, from the state before
+-- the copy. The site around them takes it off its growth: that growth
+-- is in its result, and it must not be charged twice.
+nestedPaid :: SimplState -> SimplState -> Int
+nestedPaid before after = ssAllowance before - ssAllowance after
+
+-- | Decide a site whose growth is measured, and record it when it is
+-- taken.
+--
+-- The growth of a site is what its result adds over the call it
+-- replaces, less the discounts of the call and what the sites inside
+-- the copy have paid.
+--
+-- An unconditional site is taken whatever its growth, but it still
+-- charges the allowance with what it grew: the size metric counts a
+-- case once for each path of its scrutinee, so a copy can be larger
+-- than the value it replaces, and the sites after it must see the
+-- budget that is left.
+acceptSite :: Simpl -> Candidate -> Int -> SimplM Bool
+acceptSite env candidate growth
+  | candidateUnconditional candidate = do
+      modify' (\st -> st {ssAllowance = ssAllowance st - growth, ssInlined = ssInlined st + 1})
+      pure True
+  | otherwise = do
+      accepted <- acceptGrowth env growth
+      if accepted
+        then do
+          modify' (\st -> st {ssInlined = ssInlined st + 1})
+          pure True
+        else pure False
+
+-- | Forget the sites and the allowance a rejected copy took: its result
+-- is discarded, so nothing inside it happened. The supply stays, so that
+-- no name of the discarded copy is handed out again.
+restoreSite :: SimplState -> SimplM ()
+restoreSite before =
+  modify' (\st -> st {ssAllowance = ssAllowance before, ssInlined = ssInlined before})
 
 -- | Whether every tail of an expression is a known constructor
 -- application or a literal, so that a case on the expression resolves
@@ -703,15 +841,17 @@ simplifyApp env headExpr args = do
       | Just candidate <- Map.lookup name (spInline env),
         saturates candidate args' -> do
           let original = rebuildSpine headExpr' args'
+          before <- get
           result <- inlineCandidate env name candidate args'
-          let discount = callDiscount env (candidateBody candidate) args'
+          paid <- gets (nestedPaid before)
+          let discount = callDiscount env (candidateBody candidate) args' + paid
               growth = exprSize (spEnv env) result - exprSize (spEnv env) original - discount
-          accepted <- if candidateUnconditional candidate then pure True else acceptGrowth env growth
+          accepted <- acceptSite env candidate growth
           if accepted
-            then do
-              modify' (\st -> st {ssInlined = ssInlined st + 1})
-              pure result
-            else pure original
+            then pure result
+            else do
+              restoreSite before
+              pure original
     ExLam {} | not (null args') -> betaReduce env headExpr' args'
     ExTyLam {} | not (null args') -> betaReduce env headExpr' args'
     -- A let in the head of an application is a let around the
