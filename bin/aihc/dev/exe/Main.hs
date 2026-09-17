@@ -3,8 +3,10 @@ module Main (main) where
 import Aihc.Dev.ExtractHi (extractPackage)
 import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
+import Aihc.Dev.Frontend (FrontendOptions (..), runFrontend)
 import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
+import Aihc.Native (parseNativeTarget)
 import Control.Monad (unless, when)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
@@ -34,6 +36,7 @@ data Command
   | CoreLibsProgress CoreLibsProgressOpts
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Fuzz FuzzCLI.Command
+  | Frontend FrontendOptions
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -90,7 +93,44 @@ commandParser =
               (Fuzz <$> FuzzCLI.commandParser <**> helper)
               (progDesc "Continuously run Hedgehog properties in parallel")
           )
+        <> command
+          "frontend"
+          ( info
+              (Frontend <$> frontendParser <**> helper)
+              (progDesc "Preprocess, parse, resolve and type check packages one phase at a time, timing each phase")
+          )
     )
+
+frontendParser :: Parser FrontendOptions
+frontendParser =
+  FrontendOptions
+    <$> some
+      ( strArgument
+          ( metavar "PACKAGE..."
+              <> help "A package directory or a versioned Hackage package (NAME-VERSION), processed in order; each is checked against the ones before it, and the core libraries are not added"
+          )
+      )
+    <*> optional
+      ( option
+          auto
+          ( long "jobs"
+              <> short 'j'
+              <> metavar "N"
+              <> help "Work on N units at once within a phase (default: the capabilities of the process)"
+          )
+      )
+    <*> switch
+      ( long "verbose"
+          <> help "Print what each phase does"
+      )
+    <*> optional
+      ( option
+          (eitherReader parseNativeTarget)
+          ( long "target"
+              <> metavar "TARGET"
+              <> help "Target whose headers the preprocessor sees: apple-arm64, linux-amd64, llvm, or wasm32-wasip3 (default: the host)"
+          )
+      )
 
 extractHiParser :: Parser ExtractHiOpts
 extractHiParser =
@@ -172,3 +212,5 @@ runCommand (ExtractResolveIface opts) = do
   BL.writeFile outputPath (encodePretty resolveIface)
 runCommand (Fuzz fuzzCommand) =
   Fuzz.runCommand fuzzCommand
+runCommand (Frontend options) =
+  runFrontend options

@@ -124,6 +124,7 @@ library
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
     Aihc.Cli.Store
+    Aihc.Cli.TaskGraph
     Aihc.Cli.TypeArtifact
     Aihc.Fc
     Aihc.Fc.Arity
@@ -182,7 +183,6 @@ library
     Aihc.Cli.Cbor
     Aihc.Cli.InterfaceParts
     Aihc.Cli.InterfaceTyCons
-    Aihc.Cli.TaskGraph
     Aihc.CompilerBuildIdentity
     Aihc.DataFiles
     Aihc.Fc.Desugar.Value
@@ -279,6 +279,7 @@ executable aihc-dev
     Aihc.Dev.ExtractHi.GhcSession
     Aihc.Dev.ExtractHi.ToResolveIface
     Aihc.Dev.ExtractHi.Types
+    Aihc.Dev.Frontend
     Aihc.Dev.Fuzz
     Aihc.Dev.Fuzz.CLI
     Aihc.Dev.Fuzz.Registry
@@ -291,7 +292,10 @@ executable aihc-dev
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc,
+    aihc-hackage,
+    aihc-package-plan,
     aihc-parser,
+    aihc-resolve,
     aihc-tc,
     aihc-tc:fuzz,
     async,
@@ -432,6 +436,7 @@ test-suite dev-spec
     Aihc.Dev.ExtractHi.GhcSession
     Aihc.Dev.ExtractHi.ToResolveIface
     Aihc.Dev.ExtractHi.Types
+    Aihc.Dev.Frontend
     Aihc.Dev.Fuzz
     Aihc.Dev.Fuzz.CLI
     Aihc.Dev.Fuzz.Registry
@@ -446,8 +451,11 @@ test-suite dev-spec
     aeson >=2.0 && <2.3,
     aeson-pretty >=0.8 && <0.9,
     aihc,
+    aihc-hackage,
     aihc-internal,
+    aihc-package-plan,
     aihc-parser,
+    aihc-resolve,
     aihc-tc,
     aihc-tc:fuzz,
     aihc-template-haskell,
