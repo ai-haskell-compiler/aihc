@@ -219,7 +219,10 @@ callTarget :: Parser CCallTarget
 callTarget = MP.option CCallFunction (keyword "address" $> CCallAddress)
 
 foreignSafety :: Parser ForeignSafety
-foreignSafety = (keyword "unsafe" $> ForeignUnsafe) <|> (keyword "safe" $> ForeignSafe)
+foreignSafety =
+  (keyword "unsafe" $> ForeignUnsafe)
+    <|> (keyword "safe" $> ForeignSafe)
+    <|> (keyword "interruptible" $> ForeignInterruptible)
 
 foreignSignature :: Parser ([CAbiType], CAbiType, ForeignEffect)
 foreignSignature =

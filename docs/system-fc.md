@@ -110,9 +110,10 @@ GRIN lowering is temporarily disabled.
     A use with too few arguments becomes a lambda around the call.
     The declared type gives the arity of the call.
     A `ccall` keeps its safety mark.
-    The runtime has one thread, thus safe and unsafe calls are equal.
+    The runtime has one thread, thus safe, unsafe and interruptible calls
+    are equal: no other thread can raise the asynchronous exception that
+    would interrupt an `interruptible` call.
     An omitted safety mark means `safe`.
-    If desugar sees `interruptible`, it fails the module.
     A `ccall` whose entity is `&sym` names static data instead of a function.
     It prints as `ccall address`, takes no arguments and yields the symbol
     address.

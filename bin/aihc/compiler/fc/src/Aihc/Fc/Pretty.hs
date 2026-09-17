@@ -261,6 +261,7 @@ prettyForeignSafety safety =
   case safety of
     ForeignUnsafe -> "unsafe"
     ForeignSafe -> "safe"
+    ForeignInterruptible -> "interruptible"
 
 prettyForeignEffect :: ForeignEffect -> Doc ann
 prettyForeignEffect effect =
