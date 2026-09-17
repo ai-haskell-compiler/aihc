@@ -28,6 +28,39 @@ module Aihc.Cli.Install
     resolveInstallTarget,
     resolvePreferredVersion,
     runInstall,
+
+    -- * The front end, one phase at a time
+
+    -- The pieces of the pipeline that @aihc-dev frontend@ drives one phase
+    -- at a time, over every unit of a package, to time each phase on its
+    -- own. An install interleaves them per unit in one task graph.
+    InstanceProvider,
+    PackageInputs (..),
+    SourceModule (..),
+    SourceUnit (..),
+    UnitId (..),
+    addReferencedFacts,
+    builtinFunctionScope,
+    configMergeCheck,
+    configurePackage,
+    excerptSourceLoader,
+    instanceFacts,
+    interfaceInstanceProviders,
+    moduleTypeInterface,
+    packagePrimIdentity,
+    parseSource,
+    preprocessPackage,
+    primKinds,
+    readPackageInputs,
+    renderFrontendFailure,
+    selectInstanceProviders,
+    sourceDependencyNames,
+    sourceModuleUnits,
+    takePackageModuleUnits,
+    typeLiteralKindTyCons,
+    typeLiteralSupportTerms,
+    unitLabel,
+    wiredInterfaceModules,
   )
 where
 
