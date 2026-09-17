@@ -99,6 +99,7 @@ import Aihc.Tc.Types
     word8Rep,
     wordRep,
   )
+import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM, unless, zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -3951,6 +3952,7 @@ desugarEvidence evidence =
       expression <- desugarEvidence inner
       withCoercion coercion (pure . ExCast expression)
     Ev.EvTypeable origin ty constructor kindArguments arguments -> desugarTypeableEvidence origin ty constructor kindArguments arguments
+    Ev.EvTypeLit origin ty literal -> desugarTypeLitEvidence origin ty literal
     Ev.EvTypeLam variable body ->
       withoutEvidenceScope (ExTyLam <$> convertTypeBinder variable <*> desugarEvidence body)
     Ev.EvDictLam predicate binderType body -> withoutEvidenceScope $ do
@@ -4068,6 +4070,32 @@ desugarStringValue value = do
     latin1Safe character = character >= '\1' && character <= '\127'
     modifiedUtf8 '\0' = BS.pack [0xC0, 0x80]
     modifiedUtf8 character = TE.encodeUtf8 (T.singleton character)
+
+-- | The dictionary of a @KnownNat@ or @KnownSymbol@ constraint.
+--
+-- The class has one field, which is the literal's value, so the dictionary
+-- is its constructor applied to the literal type and that value. A natural
+-- goes through the 'Integer' builder, which already spells a value past
+-- @maxWord@, and then through the primitive conversion.
+desugarTypeLitEvidence :: Maybe (Text, Text) -> TcType -> Tc.TyLit -> ValueM Expr
+desugarTypeLitEvidence origin ty literal = do
+  (className, value) <-
+    case literal of
+      Tc.TyLitNat natural -> do
+        integer <- desugarIntegerLiteral natural
+        convert <- primitiveName "GHC.Prim.Natural" "naturalFromInteger#" SortValue
+        pure ("KnownNat", ExApp (ExVar convert) integer)
+      Tc.TyLitSymbol symbol -> ("KnownSymbol",) <$> desugarStringValue symbol
+      Tc.TyLitChar {} -> failValue "a character literal has no known-literal class"
+  classOrigin <-
+    case origin of
+      Just (packageName, moduleName') -> pure (PackageId packageName, moduleName')
+      Nothing -> failValue ("type-literal evidence has no origin for " <> T.unpack className)
+  let (package, moduleName') = classOrigin
+      named name sort = Name name sort (OriginTop package moduleName')
+  typeArguments <-
+    convertTyConApplicationArguments (mkTyConWithOrigin package moduleName' className 1) [ty]
+  pure (ExApp (foldl ExTyApp (ExVar (named ("$Dict$" <> className) SortDataConstructor)) typeArguments) value)
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> Ev.TypeableTyCon -> [(TcType, Ev.EvTerm)] -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty constructor kindArguments argumentEvidence = do

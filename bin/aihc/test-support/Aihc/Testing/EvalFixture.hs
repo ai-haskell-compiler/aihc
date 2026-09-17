@@ -67,7 +67,7 @@ import Aihc.Resolve
 import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
-import Control.Monad (forM, unless)
+import Control.Monad (filterM, forM, unless)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -600,26 +600,29 @@ loadPackageModules package root = do
       Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
       Right modu -> pure (ModuleUnit package (fixtureExtensions fixtureLanguageEdition modu) modu)
 
--- | The source directories of a core library: the one that belongs to this
--- platform, where the library has one, and the shared @src@.
+-- | The source directories of a core library: the ones that belong to this
+-- platform, where the library has them, and the shared @src@.
 packageSourceDirectories :: FilePath -> IO [FilePath]
 packageSourceDirectories root = do
-  let platform = posixWidthModuleDirectory
-  exists <- doesDirectoryExist (root </> platform)
-  pure ([root </> platform | exists] <> [root </> "src"])
+  present <- filterM (doesDirectoryExist . (root </>)) platformModuleDirectories
+  pure (map (root </>) present <> [root </> "src"])
 
--- | The directory of @aihc-base@ that holds the modules stating something
--- only this platform's headers know, such as the width of @mode_t@.
+-- | The directories of @aihc-base@ that hold the modules only some platforms
+-- get, most specific first.
 --
 -- @aihc-base.cabal@ says the same thing as a condition on @hs-source-dirs@,
 -- and nothing here can read it, so a new platform directory has to be added
--- in both places.
+-- in both places. Every host aihc runs on is a POSIX one, so @src-posix@ is
+-- always among them; wasm32 is a target, never a host.
+platformModuleDirectories :: [FilePath]
+platformModuleDirectories = [posixWidthModuleDirectory, "src-posix"]
+
+-- | The directory of @aihc-base@ that holds the modules stating something
+-- only this platform's headers know, such as the width of @mode_t@.
 posixWidthModuleDirectory :: FilePath
 posixWidthModuleDirectory =
   case hostNativeTarget of
     Just AppleArm64 -> "src-darwin"
-    -- Every other host aihc runs on is the Linux one; wasm32 is a target,
-    -- never a host.
     _ -> "src-linux"
 
 listSourceFiles :: FilePath -> IO [FilePath]

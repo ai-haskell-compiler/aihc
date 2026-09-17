@@ -184,6 +184,8 @@ zonkEvTerm evTerm =
       EvCast <$> zonkEvTerm evidence <*> zonkCoercion coercion
     EvTypeable origin ty constructor kindArguments arguments ->
       EvTypeable origin <$> finalizeType ty <*> pure constructor <*> mapM (\(kind, evidence) -> (,) <$> finalizeType kind <*> zonkEvTerm evidence) kindArguments <*> mapM zonkEvTerm arguments
+    EvTypeLit origin ty literal ->
+      EvTypeLit origin <$> finalizeType ty <*> pure literal
     EvTypeLam variable body ->
       EvTypeLam <$> defaultTyVarKinds variable <*> zonkEvTerm body
     EvDictLam predicate binderType body ->
@@ -378,6 +380,8 @@ firstMetaEvTerm evTerm =
       firstMetaEvTerm evidence <|> firstMetaCoercion coercion
     EvTypeable _ ty _ kindArguments arguments ->
       firstMetaType ty <|> firstJusts [firstMetaType kind <|> firstMetaEvTerm evidence | (kind, evidence) <- kindArguments] <|> firstJusts (map firstMetaEvTerm arguments)
+    EvTypeLit _ ty _ ->
+      firstMetaType ty
     EvTypeLam variable body ->
       firstMetaType (tvKind variable) <|> firstMetaEvTerm body
     EvDictLam predicate binderType body ->

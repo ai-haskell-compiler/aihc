@@ -146,7 +146,7 @@ import Aihc.Tc
     unionTcInterfaces,
   )
 import Aihc.Tc.Share (shareTcInterfaces)
-import Aihc.Tc.Types (tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar, takeTMVar)
@@ -1924,8 +1924,8 @@ runTypeUnit context runtimes runtime = do
           -- parts are made one object each; the checking state is not.
           (ownInstanceInterface, unitTypes) =
             case shareTcInterfaces
-              ( addReferencedFacts completeInterface (instanceFacts checkedInterface)
-                  : map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
+              ( addReferencedFacts (typeLiteralKindTyCons (primKinds primIdentity)) (typeLiteralSupportTerms primIdentity) completeInterface (instanceFacts checkedInterface)
+                  : map (moduleTypeInterface (primKinds primIdentity) (typeLiteralSupportTerms primIdentity) (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
               ) of
               facts : rest -> (facts, rest)
               [] -> error "shareTcInterfaces dropped the unit facts"
@@ -2125,11 +2125,15 @@ interfaceInstanceProviders interface =
     first transform (left, right) = (transform left, right)
     tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
+-- | The instance facts of a dependency, which already carries everything
+-- its own modules refer to, so it needs no extra roots.
 selectInstanceProviders :: TcInterface -> Set.Set InstanceProvider -> TcInterface
 selectInstanceProviders complete providers
   | Set.null providers = emptyTcInterface
   | otherwise =
       addReferencedFacts
+        []
+        []
         complete
         emptyTcInterface
           { tcInterfaceInstanceMap = Map.filter ((`Set.member` providers) . first PackageId . iiDictOrigin) (tcInterfaceInstanceMap complete),
@@ -2962,9 +2966,11 @@ runToolWith adjust executable arguments = do
             )
         )
 
-moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
-moduleTypeInterface exports package interface source =
+moduleTypeInterface :: TcKinds -> [TcTermKey] -> ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
+moduleTypeInterface kinds supportTerms exports package interface source =
   addReferencedFacts
+    (typeLiteralKindTyCons kinds)
+    supportTerms
     interface
     interface
       { tcInterfaceTermMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceTermMap interface),
@@ -3018,8 +3024,27 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedModule resolvedName -> Just (packageId', resolvedModule, nameText resolvedName)
       _ -> Nothing
 
-addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
-addReferencedFacts complete interface =
+-- | The kinds of the type-level literals. A literal names no type
+-- constructor of its own, but its kind is one and the desugarer needs that
+-- kind's declaration, so every module carries the three.
+typeLiteralKindTyCons :: TcKinds -> [TyCon]
+typeLiteralKindTyCons kinds =
+  [kindsNaturalTyCon kinds, kindsSymbolTyCon kinds, kindsCharTyCon kinds]
+
+-- | The terms that the evidence of a known type-level literal is built
+-- from. The desugarer writes a call of this whether or not the module
+-- names the module it comes from.
+typeLiteralSupportTerms :: PackageId -> [TcTermKey]
+typeLiteralSupportTerms prim =
+  [TcTermGlobal prim "GHC.Prim.Natural" "naturalFromInteger#"]
+
+-- | Carry into an interface the facts it refers to but does not hold.
+--
+-- The extra roots are type constructors the module needs that nothing in
+-- its own facts names: the kinds of the type-level literals, which a
+-- literal refers to without naming.
+addReferencedFacts :: [TyCon] -> [TcTermKey] -> TcInterface -> TcInterface -> TcInterface
+addReferencedFacts extraRoots extraTerms complete interface =
   interface
     { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList callStackSupportTerms,
       tcInterfaceTyConMap = tcInterfaceTyConMap interface <> supportTyCons,
@@ -3046,6 +3071,11 @@ addReferencedFacts complete interface =
         key `Map.notMember` tcInterfaceTermMap interface,
         Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
       ]
+        <> [ (key, scheme)
+           | key <- extraTerms,
+             key `Map.notMember` tcInterfaceTermMap interface,
+             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
+           ]
     callStackSupportTyCons
       | Set.null callStackModules = []
       | otherwise =
@@ -3059,6 +3089,7 @@ addReferencedFacts complete interface =
       interfaceTyCons interface
         <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
         <> Set.fromList callStackSupportTyCons
+        <> Set.fromList extraRoots
     reachable = closeTyCons Set.empty referenced
     reachableKeys = Set.map tyConKey reachable
     supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))

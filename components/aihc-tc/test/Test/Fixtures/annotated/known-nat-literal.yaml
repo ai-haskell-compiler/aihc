@@ -1,0 +1,22 @@
+extensions:
+- DataKinds
+- KindSignatures
+- ScopedTypeVariables
+- StandaloneKindSignatures
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, StandaloneKindSignatures, TypeApplications #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint, Type)
+  type KnownNat :: Natural -> Constraint
+  class KnownNat n where
+    natSing :: Natural
+  natVal :: forall n proxy. KnownNat n => proxy n -> Natural
+  natVal _ = natSing @n
+  data Proxy (a :: k) = Proxy
+  three :: Natural
+  three = natVal (Proxy :: Proxy 3)
+status: pass
+reason: the solver builds the evidence of a KnownNat constraint whose argument is a literal, and a class's standalone kind signature gives its parameter the kind the literal has

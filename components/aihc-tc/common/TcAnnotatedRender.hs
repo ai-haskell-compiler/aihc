@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (FunDep (..), TypeFamilyInstanceInfo (..), renderFunDepNames, renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc (FunDep (..), TypeFamilyInstanceInfo (..), renderFunDepNames, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -258,6 +258,8 @@ renderEvTerm ev =
     EvCast evidence coercion -> "cast(" <> renderEvTerm evidence <> ", " <> renderCoercion coercion <> ")"
     EvTypeable _ ty _ _ arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
+    EvTypeLit _ ty literal ->
+      "knownliteral @" <> renderTcType ty <> " " <> renderTyLit literal
     EvTypeLam variable body ->
       "Λ" <> T.unpack (tvName variable) <> ". " <> renderEvTerm body
     EvDictLam predicate _ body ->

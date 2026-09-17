@@ -263,7 +263,7 @@ case, which is what `(<=)` needs. A never-demanded given is still carried
 into FC, where the lint compares the `Type` synonym against its expansion
 and rejects it; reporting givens the way GHC does removes that path.
 
-### PR 3 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats`
+### PR 3 — `feat(base): KnownNat, KnownSymbol and GHC.TypeNats` — landed
 
 - `Aihc.Tc.Evidence`: `EvTypeLit`, with `Tc.Finalize` and `Tc.Solve.Dict`
   cases beside the `Typeable` ones.
@@ -284,7 +284,33 @@ and rejects it; reporting givens the way GHC does removes that path.
 site written as `natVal' (proxy# :: Proxy# (SeedSize g))` needs the parallel
 unlifted-expression-signature fix. PR 3 does not block on it; PR 5 does.
 
-### PR 4 — `feat(tc): type-level comparison and arithmetic`
+**What landed differs from the sketch above in three ways.**
+
+The class method holds the value rather than a singleton: `natSing ::
+Natural` where GHC has `natSing :: SNat n`. The compiler builds the
+dictionary directly, so a singleton wrapper would buy it a coercion for
+nothing. `SNat` still exists, with `fromSNat`. The method is not exported,
+as in GHC.
+
+`someNatVal`, `SomeNat` and `withSomeSNat` are **not** here. GHC writes
+them by coercing a constrained value to a function of its dictionary, which
+relies on a single-method dictionary being represented as its method; an
+aihc dictionary is a constructor around its fields, so the coercion would
+be wrong. Giving them a real implementation needs either that
+representation or a compiler-supplied `withKnownNat`.
+
+Two compiler gaps had to be fixed. A class's **standalone kind signature
+did not reach its parameters**: the head is predeclared with one kind meta
+per parameter before the signatures are read, so `type KnownNat :: Natural
+-> Constraint` left `n` at `Type` and every use of a method at a literal
+failed with a kind mismatch. The signature is now applied at registration,
+after instantiating the variables it quantifies itself (`type (~) :: forall
+k. k -> k -> Constraint` must not pin `k`). And a module that writes a
+literal **refers to its kind and to the conversion the evidence is built
+from without naming either**, so `addReferencedFacts` carries the three
+literal kinds and `naturalFromInteger#` as extra roots.
+
+### PR 4 — `feat(tc): type-level comparison and arithmetic` — partly landed
 
 - `tcWiringTypeNatFamilies` and the builtin reduction in
   `Tc.Solve.Family.reduceHead`, applied only when every argument is a literal.
@@ -300,6 +326,42 @@ unlifted-expression-signature fix. PR 3 does not block on it; PR 5 does.
 
 Inverting an application — GHC's solving of `n + 1 ~ 5` for `n` — stays out
 of scope. `random` needs only forward reduction.
+
+**What landed.** The builtin reduction, the family declarations in
+`GHC.TypeNats`, and `Data.Type.Ord`. `Compare` is computed by the solver
+from the literal's own sort rather than selected by a kind-indexed
+instance, so the kind-indexed family instance matching that the sketch
+above called a prerequisite is not needed and did not land.
+
+**`NoStarIsType` is required of a consumer**, as it is in GHC: `*` in a
+type means `Type` by default, so a module that writes `6 * 7` at the type
+level needs the extension. A module that imports `type (*)` without it
+fails with a kind mismatch that names `Type`. This is not a defect; an
+earlier note here called it one.
+
+**What does not work yet, and blocks PR 5.** `1 <= 4` is reported
+`unsolved constraint <= 1 4`. What it is *not*, each ruled out by a probe:
+
+- Not name shadowing. `import Prelude hiding ((<=))` makes no difference,
+  and the constraint does resolve to `Data.Type.Ord.(<=)`.
+- Not the nesting of `(<=?)` inside `(<=)`. Inlining the `OrdCond`
+  application into `(<=)` changes nothing.
+- Not poly-kindedness. A `k -> k -> Constraint` synonym of the same shape
+  solves.
+- Not the builtin. `Assert (OrdCond (Compare 1 4) 'True 'True 'False) ()`
+  solves as a constraint, and so does `Compare 1 4 ~ 'LT`.
+
+What is left is the second argument: the shape that solves passes `()` to
+`Assert`, and `(<=)` passes `LeErrMsg x y`, a constraint synonym standing
+for a `TypeError` application. A `TypeError` in that position is the one
+case the first equation `Assert 'True _ = ()` is supposed to discard
+without looking at.
+
+A second defect sits behind it, which the same probes found: a **given**
+whose family application is reducible is not reduced before it becomes a
+dictionary binder, so FC keeps `$Dict$Assert (Check 1 4) $Dict$CTuple0`
+and GRIN reports that it has no runtime representation. The wanted at the
+use site solves; only the binder type of the definition is left stuck.
 
 ### PR 5 — `feat(core-libs): resolve and check random's SeedGen`
 

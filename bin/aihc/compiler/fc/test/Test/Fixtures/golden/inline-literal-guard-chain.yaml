@@ -1,0 +1,143 @@
+---
+extensions: []
+modules:
+- |
+  {-# LANGUAGE MagicHash #-}
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Test (classify) where
+  import GHC.Types (Bool (..), Int (..))
+  import GHC.Prim (Int#, Int32#, int32ToInt#, intToInt32#, (==#))
+
+  class Eq a where
+    (==) :: a -> a -> Bool
+
+  data Int32 = I32# Int32#
+
+  intEquals :: Int# -> Int# -> Bool
+  intEquals a b = case a ==# b of
+    0# -> False
+    _ -> True
+
+  instance Eq Int32 where
+    I32# left == I32# right = intEquals (int32ToInt# left) (int32ToInt# right)
+
+  newtype CInt = CInt Int32 deriving newtype (Eq)
+  newtype Errno = Errno CInt deriving newtype (Eq)
+
+  ePERM, eNOENT, eSRCH :: Errno
+  ePERM = Errno (CInt (I32# (intToInt32# 1#)))
+  eNOENT = Errno (CInt (I32# (intToInt32# 2#)))
+  eSRCH = Errno (CInt (I32# (intToInt32# 3#)))
+
+  classify :: Errno -> Int
+  classify errno
+    | errno == ePERM = I# 10#
+    | errno == eNOENT = I# 20#
+    | errno == eSRCH = I# 30#
+    | True = I# 0#
+inline:
+  mode: budget
+  limit: 0
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tBool :: 3.sType;
+    3.tInt :: 3.sType;
+    2.tInt# :: 3.tTYPE 3.cIntRep;
+    2.tInt32# :: 3.tTYPE 3.cInt32Rep;
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    3.sType :: 3.sType;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cFalse :: 3.tBool;
+    3.cI# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# 3.tInt;
+    3.cInt32Rep :: 3.tRuntimeRep;
+    3.cIntRep :: 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTrue :: 3.tBool
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  type 1.t$Dict$Eq (a : 3.sType) :: 3.sType {
+      1.c$Dict$Eq :: ∀(a : 3.sType). (a 3.→ a 3.→ 3.tBool) 3.→ 1.t$Dict$Eq a
+  }
+
+  type 1.tInt32 :: 3.sType {
+      1.cI32# :: FUN @3.cInt32Rep @3.sLiftedRep 2.tInt32# 1.tInt32
+  }
+
+  type 1.tCInt :: 3.sType {}
+
+  axiom 1.$ax$CInt : 1.tCInt ~R 1.tInt32
+
+  type 1.tErrno :: 3.sType {}
+
+  axiom 1.$ax$Errno : 1.tErrno ~R 1.tCInt
+
+  pub val 1.v$fEqInt32 :: 1.t$Dict$Eq 1.tInt32
+   = 1.c$Dict$Eq @1.tInt32 1.v$fEqInt32$c==
+
+  val 1.v$fEqInt32$c== :: 1.tInt32 3.→ 1.tInt32 3.→ 3.tBool
+   = λ(x : 1.tInt32).
+    λ(y : 1.tInt32).
+      case x as (_scrut : 1.tInt32) return (3.tBool) of {
+          1.cI32# (left : 2.tInt32#) →
+              case y as (_scrut{1} : 1.tInt32) return (3.tBool) of {
+                  1.cI32# (right : 2.tInt32#) →
+                      let {
+                          x{1} : 2.tInt# =
+                              foreign {prim 2.vint32ToInt# :: FUN @3.cInt32Rep @3.cIntRep 2.tInt32# 2.tInt#} left
+                      } in
+                          let {
+                              y{1} : 2.tInt# =
+                                  foreign {prim 2.vint32ToInt# :: FUN @3.cInt32Rep @3.cIntRep 2.tInt32# 2.tInt#} right
+                          } in
+                              let {
+                                  _case : 2.tInt# =
+                                      foreign {prim 2.v==# :: FUN @3.cIntRep @3.sLiftedRep 2.tInt# (FUN @3.cIntRep @3.cIntRep 2.tInt# 2.tInt#)} x{1} y{1}
+                              } in
+                                  case _case as (_scrut{2} : 2.tInt#) return (3.tBool) of {
+                                      0#3.cIntRep →
+                                          3.cFalse;
+                                      _ →
+                                          3.cTrue
+                                  }
+              }
+      }
+
+  pub val 1.v$fEqCInt :: 1.t$Dict$Eq 1.tCInt
+   = 1.v$fEqInt32 ▷ tycon-co 1.t$Dict$Eq (sym (axiom-co 1.$ax$CInt))
+
+  pub val 1.v$fEqErrno :: 1.t$Dict$Eq 1.tErrno
+   = (1.v$fEqInt32 ▷ tycon-co 1.t$Dict$Eq (sym (axiom-co 1.$ax$CInt))) ▷ tycon-co 1.t$Dict$Eq (sym (axiom-co 1.$ax$Errno))
+
+  pub val 1.vclassify :: 1.tErrno 3.→ 3.tInt
+   = λ(x : 1.tErrno).
+    case (x ▷ axiom-co 1.$ax$Errno) ▷ axiom-co 1.$ax$CInt as (_scrut : 1.tInt32) return (3.tInt) of {
+        1.cI32# (left : 2.tInt32#) →
+            let {
+                x{1} : 2.tInt# =
+                    foreign {prim 2.vint32ToInt# :: FUN @3.cInt32Rep @3.cIntRep 2.tInt32# 2.tInt#} left
+            } in
+                case x{1} as (_scrut{1} : 2.tInt#) return (3.tInt) of {
+                    1#3.cIntRep →
+                        3.cI# 10#3.cIntRep;
+                    2#3.cIntRep →
+                        3.cI# 20#3.cIntRep;
+                    3#3.cIntRep →
+                        3.cI# 30#3.cIntRep;
+                    _ →
+                        3.cI# 0#3.cIntRep
+                }
+    }
+status: pass
+reason: |-
+  A guard chain that compares a newtype over a boxed integer with literal constants
+  becomes one case on the unboxed value.

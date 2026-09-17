@@ -1,0 +1,27 @@
+extensions:
+  - DataKinds
+  - MagicHash
+  - ScopedTypeVariables
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import GHC.Exts (Proxy#, proxy#)
+    import GHC.TypeLits (symbolVal)
+    import GHC.TypeNats (natVal, natVal')
+
+    -- A literal that fits a Word#, one that does not, an unlifted proxy,
+    -- and a symbol.
+    matches :: Bool
+    matches =
+      show (natVal (Proxy :: Proxy 3)) == "3"
+        && show (natVal (Proxy :: Proxy 18446744073709551617)) == "18446744073709551617"
+        && show (natVal' (proxy# :: Proxy# 7)) == "7"
+        && symbolVal (Proxy :: Proxy "hello") == "hello"
+output: |
+  True
+expression: |
+  matches
+status: pass
+reason: the solver builds KnownNat and KnownSymbol evidence from a type-level literal, and the value survives to run time
