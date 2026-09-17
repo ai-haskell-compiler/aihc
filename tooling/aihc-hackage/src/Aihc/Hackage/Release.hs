@@ -16,7 +16,6 @@ module Aihc.Hackage.Release
     showVersionBranch,
     lookupBootLibrary,
     lookupBootLibraryByStandin,
-    bootLibraryVersions,
   )
 where
 
@@ -77,8 +76,3 @@ lookupBootLibraryByStandin standin release =
   case [library | library <- releaseBootLibraries release, bootLibraryStandin library == standin] of
     library : _ -> Just library
     [] -> Nothing
-
--- | Every provided boot library with its version, keyed by Hackage name.
-bootLibraryVersions :: GhcRelease -> [(String, [Int])]
-bootLibraryVersions release =
-  [(bootLibraryName library, bootLibraryVersion library) | library <- releaseBootLibraries release]

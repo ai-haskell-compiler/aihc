@@ -9,7 +9,6 @@
 module Aihc.Tc.Tidy
   ( tidyDiagnostic,
     tidyErrorKind,
-    tidyTypes,
     tidyType,
   )
 where
@@ -59,10 +58,6 @@ tidyErrorKind kinds kind =
     FunDepUnknownTyVar {} -> kind
     UnboundVariable {} -> kind
     OtherError {} -> kind
-
--- | Rename the meta-variables of some types with one shared name supply.
-tidyTypes :: TcKinds -> [TcType] -> [TcType]
-tidyTypes kinds types = map (tidyTypeWith (mkTidyEnv kinds types [])) types
 
 -- | Rename the meta-variables of one type.
 tidyType :: TcKinds -> TcType -> TcType

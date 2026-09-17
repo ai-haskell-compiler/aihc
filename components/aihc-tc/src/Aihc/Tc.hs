@@ -17,7 +17,6 @@
 -- 4. Attach type annotations to AST nodes.
 module Aihc.Tc
   ( -- * Entry point
-    typecheckExpr,
     typecheckModulesWithInterface,
     typecheckModuleSccWithInterface,
 
@@ -35,7 +34,6 @@ module Aihc.Tc
     TcBindingResult (..),
     defaultMethodName,
     TcTermKey (..),
-    tcTermKeyIdentifier,
     TcInterface (..),
     InstanceKey,
     tcInterfaceTerms,
@@ -53,14 +51,10 @@ module Aihc.Tc
     mergeTcInterface,
     mergeTcInterfaces,
     unionTcInterfaces,
-    restrictTcInterfaceToModules,
-    tcInterfaceBindings,
 
     -- * Module result projections
     tcModuleBindings,
     tcModuleDiagnostics,
-    tcModuleInstances,
-    tcModuleClasses,
     tcModuleSuccess,
 
     -- * Re-exports for convenience
@@ -143,34 +137,31 @@ import Aihc.Parser.Syntax
     Literal (..),
     Module (..),
     Pattern (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     fromAnnotation,
     mkAnnotation,
+    sourceSpanSourceName,
   )
-import Aihc.Resolve (ModuleUnit (..), PackageId (..))
+import Aihc.Resolve (ModuleUnit (..))
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), derivingReferenceList)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
-import Aihc.Tc.Generate.Expr (inferExpr)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (solveConstraints)
-import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (mkTcKinds)
-import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
+import Aihc.Tc.Zonk (finalizeDiagnostics)
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
-import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Typeable (cast)
@@ -336,116 +327,10 @@ unionTcInterfaces (first : rest) = List.foldl' union first rest
           tcInterfaceForeignImportMap = Map.union (tcInterfaceForeignImportMap left) (tcInterfaceForeignImportMap right)
         }
 
--- | Keep only facts that the selected modules define.
-restrictTcInterfaceToModules :: PackageId -> [Text] -> TcInterface -> TcInterface
-restrictTcInterfaceToModules package names interface =
-  TcInterface
-    { tcInterfaceTermMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfaceTermMap interface),
-      tcInterfaceTyConMap = Map.filter (localTyCon . tciTyCon) (tcInterfaceTyConMap interface),
-      tcInterfaceDataTypeMap = Map.filter (localTyCon . dtiTyCon) (tcInterfaceDataTypeMap interface),
-      tcInterfaceClassMap = Map.filter (localTyCon . ciTyCon) (tcInterfaceClassMap interface),
-      tcInterfaceInstanceMap = Map.filter localInstance (tcInterfaceInstanceMap interface),
-      tcInterfaceDataFamilyInstanceMap = Map.filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstanceMap interface),
-      tcInterfaceTypeFamilyInstanceMap = Map.filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
-      tcInterfacePatSynMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfacePatSynMap interface),
-      tcInterfaceForeignImportMap = Map.filterWithKey (\key _ -> localTerm key) (tcInterfaceForeignImportMap interface)
-    }
-  where
-    selected = Map.fromList [(name, ()) | name <- names]
-    localModule moduleName' = Map.member moduleName' selected
-    localTyCon tyCon = tyConPackageId tyCon == package && localModule (tyConModuleName tyCon)
-    localTerm key =
-      case key of
-        TcTermGlobal package' moduleName' _ -> package' == package && localModule moduleName'
-        TcTermLocal {} -> False
-    localInstance info =
-      let (packageName, moduleName') = iiDictOrigin info
-       in packageName == packageIdText package && localModule moduleName'
-    localTypeFamilyInstance info =
-      let (originPackage, originModule) = tfiiOrigin info
-       in originPackage == package && localModule originModule
-
-tcTermKeyIdentifier :: TcTermKey -> Maybe Text
-tcTermKeyIdentifier key =
-  case key of
-    TcTermLocal {} -> Nothing
-    TcTermGlobal _ _ identifier -> Just identifier
-
--- | Convert stored type facts to the binding view required by System FC.
-tcInterfaceBindings :: TcInterface -> [TcBindingResult]
-tcInterfaceBindings interface =
-  mapMaybe termBinding (tcInterfaceTerms interface)
-    <> map instanceBinding (tcInterfaceInstances interface)
-    <> concatMap classBindings (tcInterfaceClasses interface)
-  where
-    termBinding (key@(TcTermGlobal _ _ identifier), scheme) = Just (TcBindingResult key identifier (schemeToType scheme))
-    termBinding (TcTermLocal {}, _) = Nothing
-    instanceBinding info =
-      TcBindingResult
-        (TcTermGlobal (PackageId (fst (iiDictOrigin info))) (snd (iiDictOrigin info)) (iiDictName info))
-        (iiDictName info)
-        (iiDictType info)
-    -- A default-method worker is declared with its class, so it lives in
-    -- the class's package and module.
-    classBindings info =
-      [ TcBindingResult (tyConMemberTermKey (ciTyCon info) workerName) workerName (schemeToType workerScheme)
-      | methodName <- ciDefaultMethods info,
-        Just methodScheme <- [lookup methodName (ciMethods info)],
-        let workerName = defaultMethodName methodName
-            workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
-      ]
-    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
-      case ordinaryScheme of
-        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
-        _ -> ForAll variables predicates body
-
--- | Type-check a single expression in an empty environment.
---
--- This is the primary entry point for testing. For modules, use
--- `typecheckModulesWithInterface`.
-typecheckExpr :: TcConfig -> Expr -> TcResult
-typecheckExpr config expr =
-  case runTcM (emptyTcEnv config) initTcState (typecheckExprM expr <* finalizeDiagnostics) of
-    Left _abort ->
-      TcResult
-        { tcResultType = TcMetaTv (Unique (-1)),
-          tcResultDiagnostics = [],
-          tcResultSuccess = False
-        }
-    Right (ty, st) ->
-      let diags = reverse (tcsDiagnostics st)
-          hasErrors = any isError diags
-       in TcResult
-            { tcResultType = ty,
-              tcResultDiagnostics = diags,
-              tcResultSuccess = not hasErrors
-            }
-  where
-    isError d = diagSeverity d == TcError
-
--- | Internal: type-check an expression in TcM.
-typecheckExprM :: Expr -> TcM TcType
-typecheckExprM expr = do
-  -- 1. Generate constraints.
-  (_expr', ty, cts) <- inferExpr expr
-  -- 2. Solve constraints.
-  _result <- solveConstraints cts
-  -- 3. Zonk the result type.
-  zonkType ty
-
 -- | Top-level bindings recovered from a type-checked module's annotations.
 tcModuleBindings :: TcWiring -> Module -> [TcBindingResult]
 tcModuleBindings =
   moduleBindings
-
--- | Class instances recovered from a type-checked module's annotations.
-tcModuleInstances :: TcKinds -> Module -> [InstanceInfo]
-tcModuleInstances =
-  moduleInstances
-
--- | Type classes recovered from a type-checked module's annotations.
-tcModuleClasses :: Module -> [ClassInfo]
-tcModuleClasses = moduleClasses
 
 -- | Diagnostics recovered from type-checker annotations in a module.
 tcModuleDiagnostics :: Module -> [TcDiagnostic]
@@ -565,11 +450,9 @@ attachSccDiagnostics diagnostics modules = foldl attachOne modules diagnostics
                 then map (\m -> if matches m then annotateModuleDiagnostics [diagnostic] m else m) current
                 else annotateModuleDiagnostics [internalAbortDiagnostic "SCC diagnostic source did not match a module"] first : rest
 
-moduleSourceNames :: Module -> [FilePath]
+moduleSourceNames :: Module -> [Text]
 moduleSourceNames modu =
-  case spanFromAnnotations (moduleAnns modu) of
-    SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
-    NoSourceSpan -> []
+  map sourceSpanSourceName (maybeToList (spanFromAnnotations (moduleAnns modu)))
 
 typecheckModuleWithState :: TcConfig -> TcState -> ModuleUnit -> (Module, TcState)
 typecheckModuleWithState config st unit =
@@ -660,7 +543,7 @@ attachDiagnosticHere sp diagnostic value =
   where
     diagnosticAnn = mkAnnotation diagnostic
     atExactSpan span' wrap =
-      if span' == sp
+      if span' == Just sp
         then cast wrap
         else Nothing
     attachTyped :: forall node. (Data node) => (node -> Maybe node) -> Maybe a
@@ -720,7 +603,7 @@ attachDiagnosticHere sp diagnostic value =
       attachTyped $ \(item :: ImportItem) ->
         atExactSpan (wrappedSpan peelImportAnnOnce item) (ImportAnn diagnosticAnn item)
 
-wrappedSpan :: (node -> Maybe (Annotation, node)) -> node -> SourceSpan
+wrappedSpan :: (node -> Maybe (Annotation, node)) -> node -> Maybe SourceSpan
 wrappedSpan peel =
   spanFromAnnotations . fst . peelLeading peel
 
@@ -793,17 +676,12 @@ peelImportAnnOnce :: ImportItem -> Maybe (Annotation, ImportItem)
 peelImportAnnOnce (ImportAnn ann inner) = Just (ann, inner)
 peelImportAnnOnce _ = Nothing
 
-spanFromAnnotations :: [Annotation] -> SourceSpan
+spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
 spanFromAnnotations =
-  fromMaybe NoSourceSpan . foldr ((<|>) . spanFromAnnotation) Nothing
+  foldr ((<|>) . spanFromAnnotation) Nothing
 
 spanFromAnnotation :: Annotation -> Maybe SourceSpan
-spanFromAnnotation =
-  concreteSpan <=< fromAnnotation
-
-concreteSpan :: SourceSpan -> Maybe SourceSpan
-concreteSpan NoSourceSpan = Nothing
-concreteSpan sp = Just sp
+spanFromAnnotation = fromAnnotation
 
 collectTcDiagnostics :: Module -> [TcDiagnostic]
 collectTcDiagnostics = collectAnnotations fromAnnotation

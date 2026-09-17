@@ -3,8 +3,6 @@
 -- | Human-readable System FC text.
 module Aihc.Fc.Pretty
   ( renderProgram,
-    renderType,
-    renderExpr,
     reservedWords,
   )
 where
@@ -22,7 +20,6 @@ import Data.Text qualified as T
 import Data.Word (Word8)
 import Numeric (showHex)
 import Prettyprinter (Doc, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
-import Prettyprinter.Render.String (renderString)
 import Prettyprinter.Render.Text (renderStrict)
 
 data Prec
@@ -271,10 +268,6 @@ prettyForeignEffect effect =
     ForeignPure -> "pure"
     ForeignRealWorld -> "real-world"
 
-renderType :: Program -> Type -> String
-renderType program =
-  renderDocument . prettyTypeWith (scopeIndexFromTable (programScopes program)) PrecForAll
-
 prettyTypeWith :: ScopeIndex -> Prec -> Type -> Doc ann
 prettyTypeWith scopes prec ty =
   case ty of
@@ -335,10 +328,6 @@ prettyPiBinder scopes binder =
         <> " : "
         <> prettyTypeWith scopes PrecForAll (binderType binder)
     )
-
-renderExpr :: Program -> Expr -> String
-renderExpr program =
-  renderDocument . prettyExprWith (scopeIndexFromTable (programScopes program))
 
 prettyExprWith :: ScopeIndex -> Expr -> Doc ann
 prettyExprWith scopes expr =
@@ -598,6 +587,3 @@ reservedWords =
 parenthesize :: Bool -> Doc ann -> Doc ann
 parenthesize False value = value
 parenthesize True value = parens value
-
-renderDocument :: Doc ann -> String
-renderDocument = renderString . layoutPretty defaultLayoutOptions

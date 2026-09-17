@@ -70,6 +70,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
   ( TypeEnv (..),
+    coercionEndpoints,
     extendBinder,
     matchRepresentationalAxiom,
     reduceType,
@@ -294,8 +295,17 @@ exprCost :: Env -> Expr -> Cost
 exprCost env expr = if isCheap env expr then IsCheap else IsExpensive
 
 -- | An expression that does no work when it is evaluated: a literal, a
--- variable, a lambda, or a constructor or partial application of cheap
--- arguments.
+-- variable, a lambda, a constructor or partial application of cheap
+-- arguments, or a case or let made of cheap parts. This is GHC's
+-- @exprIsCheap@.
+--
+-- A case on a cheap scrutinee whose alternatives are all cheap does no
+-- more than choose between them, so
+--
+-- > case name of { Nothing -> id; Just file -> showString file }
+--
+-- may move under a lambda: a call then chooses again, which is not work
+-- that a partial application shared.
 isCheap :: Env -> Expr -> Bool
 isCheap env expr =
   case expr of
@@ -314,6 +324,17 @@ isCheap env expr =
               let AT lams = fromMaybe topArityType (Map.lookup name (envSigs env))
                in length [() | Right _ <- arguments] < length lams && all cheapArgument arguments
         _ -> False
+    ExLet bind body ->
+      isCheap env (bindRhs bind)
+        && isCheap (extendSig env (binderName (bindBinder bind)) (arityType env (bindRhs bind))) body
+    ExCase scrutinee binder _ alternatives ->
+      isCheap env scrutinee && all cheapAlternative alternatives
+      where
+        inner = shadow env (binderName binder)
+        cheapAlternative alternative =
+          isCheap
+            (List.foldl' shadow (List.foldl' extendType inner (altTypeBinders alternative)) (map binderName (altBinders alternative)))
+            (altRhs alternative)
     _ -> False
   where
     cheapArgument = either (const True) (isCheap env)
@@ -454,16 +475,97 @@ expand env unfolded ty extra expr
           | Just (typeBinder, rest) <- viewForAll (envTypes env) ty ->
               let renamed = substType (binderName typeBinder) (TyVar (binderName binder)) rest
                in fmap (ExTyLam binder) <$> expand (extendType env binder) unfolded renamed extra body
+        -- A lambda the body already has is not one of the extra ones: the
+        -- expansion walks under it.
         ExLam binder body
           | Just (_, _, _, result) <- viewFun (envTypes env) ty ->
-              fmap (ExLam binder) <$> expand env unfolded result (extra - 1) body
+              fmap (ExLam binder) <$> expand env unfolded result extra body
         _
           | Just (_, _, argument, result) <- viewFun (envTypes env) ty -> do
               binder <- freshBinder argument
-              fmap (ExLam binder) <$> expand env unfolded result (extra - 1) (ExApp expr (ExVar (binderName binder)))
+              fmap (ExLam binder) <$> expand env unfolded result (extra - 1) (applyToVar env expr (binderName binder))
           | Just (coercion@(CoAxiom axiom _), right) <- unfoldNewtype env unfolded ty ->
               fmap (`mkCast` CoSym coercion) <$> expand env (Set.insert axiom unfolded) right extra (mkCast expr coercion)
           | otherwise -> pure Nothing
+
+-- | Apply an expression to a variable, and push the application through
+-- what stands between the expression and the lambda it exposes: a let, a
+-- case, a cast on either, and the lambda itself, which takes the
+-- variable by substitution. This is GHC's @etaInfoApp@.
+--
+-- Left at the outside, the application is of a value the code has to
+-- build and then enter:
+--
+-- > λs. (let length = ... in thenIO action next) s
+--
+-- allocates the partial application @thenIO action next@ and applies it,
+-- where
+--
+-- > λs. let length = ... in thenIO action next s
+--
+-- is a saturated call. The variable is fresh, so nothing it moves under
+-- captures it; a cast moves inward because a coercion holds no run-time
+-- content, so a case that casts its result is a case whose alternatives
+-- cast theirs.
+applyToVar :: Env -> Expr -> Name -> Expr
+applyToVar env expr arg =
+  case expr of
+    ExLet bind body -> ExLet bind (applyToVar env body arg)
+    ExRec binds body -> ExRec binds (applyToVar env body arg)
+    ExCase scrutinee binder resultType alternatives
+      | Just (_, _, _, result) <- viewFun (envTypes env) resultType ->
+          ExCase scrutinee binder result (map (applyAlternative (shadow env (binderName binder))) alternatives)
+    ExLam binder body -> substVar (binderName binder) arg body
+    ExCast (ExLet bind body) coercion -> applyToVar env (ExLet bind (mkCast body coercion)) arg
+    ExCast (ExRec binds body) coercion -> applyToVar env (ExRec binds (mkCast body coercion)) arg
+    ExCast (ExCase scrutinee binder _ alternatives) coercion
+      | Just (_, resultType) <- coercionEndpoints (envTypes env) coercion ->
+          applyToVar
+            env
+            (ExCase scrutinee binder resultType [alternative {altRhs = mkCast (altRhs alternative) coercion} | alternative <- alternatives])
+            arg
+    _ -> ExApp expr (ExVar arg)
+  where
+    applyAlternative inner alternative =
+      alternative
+        { altRhs =
+            applyToVar
+              (List.foldl' extendType inner (altTypeBinders alternative))
+              (altRhs alternative)
+              arg
+        }
+
+-- | Replace a variable by another, stopping at a binder that shadows it.
+substVar :: Name -> Name -> Expr -> Expr
+substVar from to = go
+  where
+    go expr =
+      case expr of
+        ExVar name
+          | name == from -> ExVar to
+          | otherwise -> expr
+        ExLit {} -> expr
+        ExCoercion {} -> expr
+        ExApp function argument -> ExApp (go function) (go argument)
+        ExTyApp function argument -> ExTyApp (go function) argument
+        ExLam binder body
+          | binderName binder == from -> expr
+          | otherwise -> ExLam binder (go body)
+        ExTyLam binder body -> ExTyLam binder (go body)
+        ExCast body coercion -> ExCast (go body) coercion
+        ExLet bind body
+          | binderName (bindBinder bind) == from -> ExLet bind {bindRhs = go (bindRhs bind)} body
+          | otherwise -> ExLet bind {bindRhs = go (bindRhs bind)} (go body)
+        ExRec binds body
+          | any ((== from) . binderName . bindBinder) binds -> expr
+          | otherwise -> ExRec [bind {bindRhs = go (bindRhs bind)} | bind <- binds] (go body)
+        ExCase scrutinee binder resultType alternatives ->
+          ExCase (go scrutinee) binder resultType (map goAlternative alternatives)
+          where
+            goAlternative alternative
+              | binderName binder == from || any ((== from) . binderName) (altBinders alternative) = alternative
+              | otherwise = alternative {altRhs = go (altRhs alternative)}
+        ExForeignCall call types arguments -> ExForeignCall call types (map go arguments)
 
 freshBinder :: Type -> ExpandM Binder
 freshBinder ty = do

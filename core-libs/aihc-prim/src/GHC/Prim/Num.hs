@@ -10,7 +10,7 @@ module GHC.Prim.Num
   )
 where
 
-import GHC.Prim ((*#), (+#), (-#), (<#))
+import GHC.Prim (negateInt#, (*#), (+#), (-#), (<#))
 import GHC.Prim.Integer
   ( Integer (..),
     integerAbs,
@@ -58,7 +58,7 @@ instance Num Int where
   I# x + I# y = I# ((+#) x y)
   I# x - I# y = I# ((-#) x y)
   I# x * I# y = I# ((*#) x y)
-  negate (I# x) = I# ((-#) 0# x)
+  negate (I# x) = I# (negateInt# x)
   abs (I# x) =
     case (<#) x 0# of
       0# -> I# x

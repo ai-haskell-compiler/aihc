@@ -5,4 +5,4 @@ import Aihc.Tc.Constraint (Ct)
 import Aihc.Tc.Monad (TcM)
 import Aihc.Tc.Types (TcType)
 
-inferExprAt :: SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
+inferExprAt :: Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])

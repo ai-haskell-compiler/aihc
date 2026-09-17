@@ -2,9 +2,7 @@
 
 -- | Download Hackage packages into the local XDG cache.
 module Aihc.Hackage.Download
-  ( downloadPackage,
-    downloadPackageQuiet,
-    downloadPackageWithOptions,
+  ( downloadPackageWithOptions,
     DownloadOptions (..),
     defaultDownloadOptions,
   )
@@ -44,14 +42,6 @@ defaultDownloadOptions =
       downloadAllowNetwork = True,
       downloadManager = Nothing
     }
-
--- | Download a package with default (verbose) logging.
-downloadPackage :: PackageSpec -> IO FilePath
-downloadPackage = downloadPackageWithOptions defaultDownloadOptions
-
--- | Download a package without logging.
-downloadPackageQuiet :: PackageSpec -> IO FilePath
-downloadPackageQuiet = downloadPackageWithOptions defaultDownloadOptions {downloadVerbose = False}
 
 -- | Download a package with the given options.
 downloadPackageWithOptions :: DownloadOptions -> PackageSpec -> IO FilePath

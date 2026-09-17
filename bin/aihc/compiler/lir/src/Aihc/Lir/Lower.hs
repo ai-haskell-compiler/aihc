@@ -34,7 +34,6 @@ module Aihc.Lir.Lower
     lowerUnitItems,
     continuationInfoItems,
     functionSymbol,
-    functionResultTypes,
     threadDoneContinuation,
     allocateContinuation,
     constructorInfoSymbol,
@@ -502,11 +501,6 @@ constructorStageSymbol name stage =
 
 globalSymbol :: Text -> Symbol
 globalSymbol = Symbol . renderLinkedGlobalSymbol
-
--- | The Lir types of the values one GRIN function returns to its
--- continuation.
-functionResultTypes :: GrinFunction -> [Type]
-functionResultTypes = maybe [] (map repType) . resultRepComponents . grinFunctionResultRep
 
 -- State helpers
 
@@ -1530,6 +1524,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     ("not#", [value]) -> do
       operand <- word value
       result <- emitValue "result" I64 (Binary Xor I64 operand (OperandLiteral (LitInt (-1))))
+      bind [result]
+    ("negateInt#", [value]) -> do
+      operand <- word value
+      result <- emitValue "result" I64 (Binary Sub I64 (OperandLiteral (LitInt 0)) operand)
       bind [result]
     ("addIntC#", [left, right]) -> signedCarry Add left right
     ("subIntC#", [left, right]) -> signedCarry Sub left right

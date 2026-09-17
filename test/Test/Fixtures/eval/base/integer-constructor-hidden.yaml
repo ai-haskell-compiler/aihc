@@ -9,6 +9,6 @@ output: |
 expression: |
   useConstructor
 error: >-
-  resolve error: [ResolveResolutionError {resolveErrorSpan = SourceSpan 2 29 2 32, resolveErrorName = "IS", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "not exported"},ResolveResolutionError {resolveErrorSpan = SourceSpan 3 18 3 20, resolveErrorName = "IS", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "unbound"}]
+  resolve error: [ResolveResolutionError {resolveErrorSpan = Just SourceSpan 2 29 2 32, resolveErrorName = "IS", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "not exported"},ResolveResolutionError {resolveErrorSpan = Just SourceSpan 3 18 3 20, resolveErrorName = "IS", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "unbound"}]
 status: fail
 reason: GHC.Integer exports Integer abstractly, so the representation constructor is unavailable

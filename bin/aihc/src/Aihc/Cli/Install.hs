@@ -1,7 +1,10 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Aihc.Cli.Install
   ( InstallResult (..),
     InstallLocations (..),
     InstalledPackage (..),
+    archiveHasMembers,
     FcModule (..),
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
@@ -90,8 +93,10 @@ import Aihc.Parser.Syntax
     ImportDecl (..),
     Module,
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     moduleName,
+    sourceSpanSourceName,
+    pattern SourceSpan,
   )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Prim.Wiring (primDerivingReferences, primTcConfig, primTcWiring)
@@ -1408,7 +1413,9 @@ renderResolveErrors sourceLines errors =
 renderResolveError :: DiagnosticSourceMap -> ResolveError -> String
 renderResolveError sourceLines resolveError =
   case resolveError of
-    ResolveResolutionError sourceSpan name namespace message ->
+    ResolveResolutionError Nothing name namespace message ->
+      "error: " <> renderResolveMessage message name namespace
+    ResolveResolutionError (Just sourceSpan) name namespace message ->
       renderResolveLocation sourceSpan
         <> ": error: "
         <> renderResolveMessage message name namespace
@@ -1416,11 +1423,8 @@ renderResolveError sourceLines resolveError =
     ResolveNotImplemented message -> "error: not implemented: " <> message
 
 renderResolveLocation :: SourceSpan -> String
-renderResolveLocation sourceSpan =
-  case sourceSpan of
-    NoSourceSpan -> "<unknown location>"
-    SourceSpan sourcePath startLine startColumn _ _ _ _ ->
-      sourcePath <> ":" <> show startLine <> ":" <> show startColumn
+renderResolveLocation (SourceSpan sourcePath startLine startColumn _ _ _ _) =
+  T.unpack sourcePath <> ":" <> show startLine <> ":" <> show startColumn
 
 renderResolveMessage :: String -> Text -> ResolutionNamespace -> String
 renderResolveMessage message name namespace
@@ -1437,9 +1441,8 @@ renderResolveMessage message name namespace
 renderResolveExcerpt :: DiagnosticSourceMap -> SourceSpan -> String
 renderResolveExcerpt sourceLines sourceSpan =
   case sourceSpan of
-    NoSourceSpan -> ""
     SourceSpan sourcePath startLine startColumn endLine endColumn _ _ ->
-      case Map.lookup sourcePath sourceLines >>= Map.lookup startLine of
+      case Map.lookup (T.unpack sourcePath) sourceLines >>= Map.lookup startLine of
         Nothing -> ""
         Just sourceLine ->
           let lineNumber = show startLine
@@ -1466,7 +1469,7 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
   sourceLines <-
     loadExcerptSources
       loadSource
-      ( [sourceSpan | ResolveResolutionError sourceSpan _ _ _ <- resolveDiagnostics]
+      ( [sourceSpan | ResolveResolutionError (Just sourceSpan) _ _ _ <- resolveDiagnostics]
           <> [sourceSpan | (_, diagnostic) <- typeDiagnostics, Just sourceSpan <- [diagLoc diagnostic]]
       )
   let sections =
@@ -1483,7 +1486,8 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
 -- | The lines of the files that some spans point into, by file and line.
 loadExcerptSources :: (FilePath -> IO DiagnosticSourceMap) -> [SourceSpan] -> IO DiagnosticSourceMap
 loadExcerptSources loadSource spans =
-  Map.unionsWith Map.union <$> mapM loadSource (nub [path | SourceSpan path _ _ _ _ _ _ <- spans])
+  Map.unionsWith Map.union
+    <$> mapM loadSource (nub (map (T.unpack . sourceSpanSourceName) spans))
 
 -- | How the excerpts of a package's diagnostics find their lines. A module
 -- of the package is read through the preprocessor again, so an excerpt
@@ -2368,8 +2372,8 @@ inlineConfigFor level roots program =
 
 -- | Run the System FC passes of the level of the build on a program:
 -- arity analysis with eta expansion, then the inliner, then the arity
--- analysis again. The roots are the values the program must keep, or
--- 'Nothing' to keep every public value.
+-- analysis again, then one simplifying walk. The roots are the values
+-- the program must keep, or 'Nothing' to keep every public value.
 --
 -- @-O0@ runs none of them. It is the level that has to be quick, and a
 -- pass that makes the code faster is not what it is for.
@@ -2411,7 +2415,24 @@ optimizeFcProgram config verbose roots name program
                 <> " values dropped"
             )
           lintOptimized config "inlining" name optimized
-          etaExpandFcProgram config verbose name optimized
+          expanded' <- etaExpandFcProgram config verbose name optimized
+          -- The second expansion wraps a value in a lambda that applies
+          -- the old body to the new parameter, under the casts of a
+          -- newtype it unfolded. One simplifying walk, with nothing to
+          -- inline, reduces those applications and cancels the casts;
+          -- without it they reach the lowered code as they are.
+          let simplifyConfig = inlineConfig {Fc.inlineMode = Fc.InlineSimplify, Fc.inlineRounds = 1}
+              (simplified, simplifyReport) = Fc.inlineProgram simplifyConfig expanded'
+          verbose
+            ( "Simplify FC: "
+                <> T.unpack name
+                <> ", size "
+                <> show (Fc.reportSizeBefore simplifyReport)
+                <> " -> "
+                <> show (Fc.reportSizeAfter simplifyReport)
+            )
+          lintOptimized config "simplifying" name simplified
+          pure simplified
 
 -- | Eta expand the top-level values of a program to the arity the arity
 -- analysis finds for them.
@@ -2944,8 +2965,20 @@ buildLibraryArchive target verbose archive moduleObjects = do
       let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
       runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> nonemptyObjects)
   verbose ("Write archive: " <> archive)
-  where
-    emptyArchive = BS8.pack "!<arch>\n"
+
+-- | The global header every archive format begins with. An archive that
+-- stops here holds no member.
+emptyArchive :: BS.ByteString
+emptyArchive = BS8.pack "!<arch>\n"
+
+-- | Whether the archive holds a member. An archive of the header alone is a
+-- valid empty archive for GNU ld, lld and wasm-ld, but the ld64 of the
+-- cctools binutils rejects it as a file too small to read, so the link
+-- leaves such an archive out rather than passing it to the linker.
+archiveHasMembers :: FilePath -> IO Bool
+archiveHasMembers archive = do
+  size <- getFileSize archive
+  pure (size > fromIntegral (BS.length emptyArchive))
 
 runTool :: FilePath -> [String] -> IO ()
 runTool = runToolWithEnvironment Nothing

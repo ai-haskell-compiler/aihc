@@ -9,6 +9,6 @@ modules:
 output: ""
 expression: |
   if MyTrue then "true" else "false"
-error: 'resolve error: [ResolveResolutionError {resolveErrorSpan = SourceSpan 1 4 1 35, resolveErrorName = "ifThenElse", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "unbound"}]'
+error: 'resolve error: [ResolveResolutionError {resolveErrorSpan = Just SourceSpan 1 4 1 35, resolveErrorName = "ifThenElse", resolveErrorNamespace = ResolutionNamespaceTerm, resolveErrorMessage = "unbound"}]'
 status: fail
 reason: RebindableSyntax reports an unbound ifThenElse when no ifThenElse is in scope

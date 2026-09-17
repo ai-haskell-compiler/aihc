@@ -11,7 +11,6 @@ module Aihc.Tc.Generate.Bind
     checkGuardedRhss,
     collectRawSigs,
     sigToScheme,
-    renderBinderName,
   )
 where
 
@@ -28,13 +27,12 @@ import Aihc.Parser.Syntax
     LambdaCaseAlt (..),
     Match (..),
     Name (..),
-    NameType (..),
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
     RecordField (..),
     Rhs (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -60,6 +58,7 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, when)
 import Data.Data (Data)
 import Data.Graph qualified as Graph
@@ -194,7 +193,7 @@ annotateRecursiveOccurrences binders decls = do
                   evidenceVars <- mapM givenEvidence predicates
                   let pending = pendingAnnotation body (map TcTyVar tyVars) evidenceVars []
                       annotated = case mapMaybe fromAnnotation (nameAnns name) of
-                        sp : _ -> EAnn (mkAnnotation (sp :: SourceSpan)) (EAnn (mkAnnotation pending) (EVar name))
+                        (sp :: SourceSpan) : _ -> EAnn (mkAnnotation sp) (EAnn (mkAnnotation pending) (EVar name))
                         [] -> EAnn (mkAnnotation pending) (EVar name)
                   pure (fromMaybe value (cast annotated))
                 Nothing -> pure value
@@ -419,7 +418,7 @@ inferGuardedRhs inferExpr checkBody resultTy guardedRhs = do
 
 -- | Infer guard qualifiers from left to right. A pattern guard and a let
 -- guard bind names for the qualifiers and the body that follow them.
-inferGuardQualifiers :: InferExpr -> SourceSpan -> TcType -> [GuardQualifier] -> TcM (a, [Ct]) -> TcM ([GuardQualifier], a, [Ct])
+inferGuardQualifiers :: InferExpr -> Maybe SourceSpan -> TcType -> [GuardQualifier] -> TcM (a, [Ct]) -> TcM ([GuardQualifier], a, [Ct])
 inferGuardQualifiers inferExpr sp resultTy qualifiers rest =
   case qualifiers of
     [] -> do
@@ -648,7 +647,7 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
               pure (DeclValue (PatternBind mult pat rhs'), cts)
             Nothing -> do
               (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr rhs
-              let sourceSpan = NoSourceSpan
+              let sourceSpan = Nothing
               patCheck <- checkPatternsWithGivens sourceSpan [(pat, rhsTy)]
               patternCts <- solvePatternBranch sourceSpan patCheck rhsTy rhsCts
               cts <- foldM (tiePatternPlaceholder placeholders) patternCts (pcBindings patCheck)
@@ -733,7 +732,7 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
         let sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
         -- The right-hand side must have the signature type.
         ev <- freshEvVar
-        let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin NoSourceSpan) NoSourceSpan
+        let sigCt = mkWantedCt (EqPred sigTy rhsTy) ev (LetOrigin Nothing) Nothing
         residualCts <- solveWithSigGivens scheme (sigCt : rhsCts)
         pure (sigTy, residualCts)
       Nothing -> pure (rhsTy, rhsCts)
@@ -746,7 +745,7 @@ tiePlaceholder placeholders key ty cts =
     Nothing -> pure cts
     Just placeholderTy -> do
       ev <- freshEvVar
-      let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin NoSourceSpan) NoSourceSpan
+      let eqCt = mkWantedCt (EqPred placeholderTy ty) ev (LetOrigin Nothing) Nothing
       pure (cts ++ [eqCt])
 
 tiePatternPlaceholder :: Map TcTermKey TcType -> [Ct] -> (UnqualifiedName, TcType) -> TcM [Ct]
@@ -789,36 +788,29 @@ tcMatchEquation inferExpr argTys resTy match = do
   patCheck <- checkFunctionPatternsWithGivens matchSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
-  let rhsLocation = orSourceSpan (rhsSourceSpan (matchRhs match)) matchSpan
+  let rhsLocation = (<|>) (rhsSourceSpan (matchRhs match)) matchSpan
       pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin rhsLocation) rhsLocation
       bodyWanteds = rhsCts ++ [resCt]
   remainingCts <- solvePatternBranch rhsLocation patCheck resTy bodyWanteds
   pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, remainingCts)
 
-sourceSpanFromAnnotations :: [Annotation] -> SourceSpan
-sourceSpanFromAnnotations annotations =
-  case mapMaybe fromAnnotation annotations of
-    sourceSpan : _ -> sourceSpan
-    [] -> NoSourceSpan
+sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
+sourceSpanFromAnnotations = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do
   (rhs', rhsTy, rhsCts) <- inferRhsWithLocals inferExpr (matchRhs match)
   ev <- freshEvVar
-  let rhsLocation = orSourceSpan (rhsSourceSpan (matchRhs match)) (sourceSpanFromAnnotations (matchAnns match))
+  let rhsLocation = (<|>) (rhsSourceSpan (matchRhs match)) (sourceSpanFromAnnotations (matchAnns match))
       eqCt = mkWantedCt (EqPred rhsTy expectedTy) ev (AppOrigin rhsLocation) rhsLocation
   pure (match {matchRhs = rhs'}, rhsCts ++ [eqCt])
 
-rhsSourceSpan :: Rhs body -> SourceSpan
+rhsSourceSpan :: Rhs body -> Maybe SourceSpan
 rhsSourceSpan rhs =
   case rhs of
     UnguardedRhs annotations _ _ -> sourceSpanFromAnnotations annotations
     GuardedRhss annotations _ _ -> sourceSpanFromAnnotations annotations
-
-orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
-orSourceSpan NoSourceSpan fallback = fallback
-orSourceSpan sourceSpan _ = sourceSpan
 
 shouldGeneralizeLocal :: Set.Set TcTermKey -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
@@ -948,13 +940,6 @@ patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
-
-renderBinderName :: UnqualifiedName -> Text
-renderBinderName uname =
-  case unqualifiedNameType uname of
-    NameVarSym -> "(" <> unqualifiedNameText uname <> ")"
-    NameConSym -> "(" <> unqualifiedNameText uname <> ")"
-    _ -> unqualifiedNameText uname
 
 freeVarsDecls :: [Decl] -> TcM (Set.Set TcTermKey)
 freeVarsDecls decls =

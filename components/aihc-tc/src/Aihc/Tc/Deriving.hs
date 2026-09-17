@@ -19,7 +19,7 @@ import Aihc.Parser.Syntax
     DerivingStrategy (..),
     Extension,
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     StandaloneDerivingDecl (..),
     Type (..),
     UnqualifiedName,
@@ -51,10 +51,11 @@ import Aihc.Tc.Monad
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
+import Control.Applicative ((<|>))
 import Control.Monad (filterM, zipWithM, zipWithM_)
 import Data.List (nub, (\\))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -116,7 +117,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
 data AttachedDerivingClassHead = AttachedDerivingClassHead
   { attachedClassName :: !Name,
     attachedClassArguments :: ![Type],
-    attachedClassSpan :: !SourceSpan
+    attachedClassSpan :: !(Maybe SourceSpan)
   }
 
 attachedDerivingClassHeads :: DerivingClause -> TcM [AttachedDerivingClassHead]
@@ -134,7 +135,7 @@ attachedDerivingClassHeads clause =
                 AttachedDerivingClassHead
                   { attachedClassName = className,
                     attachedClassArguments = instanceHeadTypes classType,
-                    attachedClassSpan = nameSourceSpan className `orSourceSpan` typeSpan classType
+                    attachedClassSpan = nameSourceSpan className <|> typeSpan classType
                   }
             )
         Nothing -> do
@@ -196,7 +197,7 @@ unboundViaTyVarError name =
     <> T.unpack name
     <> ", which the datatype head does not bind"
 
-attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> TcType -> TcM TcType
+attachedTargetType :: Maybe SourceSpan -> TyConInfo -> [ParamInfo] -> TcType -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
   let tyCon = tciTyCon targetInfo
       arguments = map (TcTyVar . paramTyVar) params
@@ -243,7 +244,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       pure Nothing
     Just classNameSyntax -> do
       let className = nameText classNameSyntax
-          classSpan = nameSourceSpan classNameSyntax `orSourceSpan` typeSpan (standaloneDerivingHead derivingDecl)
+          classSpan = nameSourceSpan classNameSyntax <|> typeSpan (standaloneDerivingHead derivingDecl)
           headArguments = instanceHeadTypes (standaloneDerivingHead derivingDecl)
           surfaceTypes = standaloneDerivingContext derivingDecl <> headArguments <> derivingStrategyTypes (standaloneDerivingStrategy derivingDecl)
           explicitNames = map tyVarBinderName (standaloneDerivingForall derivingDecl)
@@ -286,7 +287,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       let tyVar = setTyVarKind kind rawTyVar
       pure ParamInfo {paramName = name, paramTyVar = tyVar, paramKind = kind}
 
-mkDerivingPlan :: TcKinds -> SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> Maybe DataTypeInfo -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
+mkDerivingPlan :: TcKinds -> Maybe SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> Maybe DataTypeInfo -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
 mkDerivingPlan kinds sourceSpan strategy classInfo tyVars headTypes dataType context methods =
   TcDerivingPlan
     { tcDerivingSourceSpan = sourceSpan,
@@ -399,28 +400,22 @@ standaloneDerivingArityError className expected supplied =
         <> show supplied
     )
 
-nameSourceSpan :: Name -> SourceSpan
+nameSourceSpan :: Name -> Maybe SourceSpan
 nameSourceSpan = sourceSpanFromAnns . nameAnns
 
-sourceSpanFromAnns :: [Annotation] -> SourceSpan
+sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
 sourceSpanFromAnns annotations =
-  case [sourceSpan | annotation <- annotations, Just sourceSpan <- [fromAnnotation @SourceSpan annotation]] of
-    sourceSpan : _ -> sourceSpan
-    [] -> NoSourceSpan
+  listToMaybe [sourceSpan | annotation <- annotations, Just sourceSpan <- [fromAnnotation @SourceSpan annotation]]
 
-typeSpan :: Type -> SourceSpan
+typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
-    TAnn annotation inner -> fromMaybe (typeSpan inner) (fromAnnotation @SourceSpan annotation)
+    TAnn annotation inner -> fromAnnotation @SourceSpan annotation <|> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner
     TKindSig inner _ -> typeSpan inner
-    _ -> NoSourceSpan
-
-orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
-orSourceSpan NoSourceSpan fallback = fallback
-orSourceSpan sourceSpan _ = sourceSpan
+    _ -> Nothing
 
 unsnoc :: [a] -> Maybe ([a], a)
 unsnoc [] = Nothing
