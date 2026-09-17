@@ -16,6 +16,7 @@
 -- so it is written, compiled and reused with the object of that module.
 module Aihc.Capi
   ( CapiWrapper (..),
+    CapiValue (..),
     capiWrapperSymbol,
     moduleCapiWrappers,
     interfaceCapiWrappers,
@@ -25,7 +26,7 @@ module Aihc.Capi
 where
 
 import Aihc.Resolve (PackageId (..))
-import Aihc.Tc (TcInterface, TcTermKey (..), tcInterfaceForeignImports)
+import Aihc.Tc (CType (..), TcInterface, TcTermKey (..), tcInterfaceForeignImports)
 import Aihc.Tc.Annotations
   ( TcForeignAbiType (..),
     TcForeignCApi (..),
@@ -78,10 +79,21 @@ data CapiWrapper = CapiWrapper
   { capiWrapperName :: !Text,
     capiWrapperEntity :: !Text,
     capiWrapperCApi :: !TcForeignCApi,
-    capiWrapperArguments :: ![TcForeignAbiType],
-    capiWrapperResult :: !TcForeignAbiType
+    capiWrapperArguments :: ![CapiValue],
+    capiWrapperResult :: !CapiValue
   }
   deriving (Eq, Show)
+
+-- | A value a wrapper passes or returns: its ABI type, and the C type its
+-- @CTYPE@ pragmas spell it as, when they do.
+data CapiValue = CapiValue
+  { capiValueAbiType :: !TcForeignAbiType,
+    capiValueCType :: !(Maybe CType)
+  }
+  deriving (Eq, Show)
+
+capiValue :: TcForeignMarshal -> CapiValue
+capiValue marshal = CapiValue {capiValueAbiType = tcForeignAbiType marshal, capiValueCType = tcForeignCType marshal}
 
 -- | The wrappers a module defines, in a stable order.
 --
@@ -103,8 +115,8 @@ interfaceCapiWrappersWhere owned interface =
           { capiWrapperName = capiWrapperSymbol key,
             capiWrapperEntity = tcForeignSymbol plan,
             capiWrapperCApi = capi,
-            capiWrapperArguments = map tcForeignAbiType (tcForeignArguments plan),
-            capiWrapperResult = tcForeignAbiType (tcForeignResult plan)
+            capiWrapperArguments = map capiValue (tcForeignArguments plan),
+            capiWrapperResult = capiValue (tcForeignResult plan)
           }
       | (key@(TcTermGlobal _ owner _), TcForeignCCallImport _ plan) <- tcInterfaceForeignImports interface,
         owned owner,
@@ -125,8 +137,14 @@ renderCapiStub moduleName wrappers =
       <> map definition wrappers
   where
     -- A header is included once however many wrappers name it, and an import
-    -- that names none, which capi allows, adds nothing.
-    headers = nub [header | wrapper <- wrappers, Just header <- [tcForeignCApiHeader (capiWrapperCApi wrapper)]]
+    -- that names none, which capi allows, adds nothing.  A @CTYPE@ pragma
+    -- may name the header that declares its type, and that header is
+    -- included ahead of the import's own so the type is known when the
+    -- import's header is read.
+    headers =
+      nub $
+        [header | wrapper <- wrappers, value <- capiWrapperResult wrapper : capiWrapperArguments wrapper, Just spelled <- [capiValueCType value], Just header <- [cTypeHeader spelled]]
+          <> [header | wrapper <- wrappers, Just header <- [tcForeignCApiHeader (capiWrapperCApi wrapper)]]
     includeDirective header = "#include \"" <> header <> "\""
     definition wrapper =
       cType (capiWrapperResult wrapper)
@@ -144,7 +162,7 @@ renderCapiStub moduleName wrappers =
     -- A wrapper whose result is unit calls its entity as a statement, which
     -- is the only way to reach a C function that returns void.
     body wrapper =
-      let returned = case capiWrapperResult wrapper of
+      let returned = case capiValueAbiType (capiWrapperResult wrapper) of
             TcForeignVoid -> ""
             _ -> "return "
        in returned <> entity wrapper <> ";"
@@ -158,13 +176,23 @@ renderCapiStub moduleName wrappers =
             <> ")"
     argumentName index = "a" <> T.pack (show index)
 
--- | The C spelling of an ABI type.
+-- | The C spelling of a wrapper value.
 --
 -- These are the types of the wrapper, not of the entity: the C compiler
 -- converts between them and whatever the header declares, which is the whole
--- point of reaching the entity through its header.
-cType :: TcForeignAbiType -> Text
-cType abiType =
+-- point of reaching the entity through its header.  The conversion is only
+-- implicit for a function, though.  An entity that is a macro reads through
+-- a pointer argument itself, and a @void *@ cannot be read through, so a
+-- value whose @CTYPE@ pragmas spell a C type is declared with that type
+-- instead of its ABI type, as GHC declares it.
+cType :: CapiValue -> Text
+cType value =
+  case capiValueCType value of
+    Just spelled -> cTypeName spelled
+    Nothing -> abiCType (capiValueAbiType value)
+
+abiCType :: TcForeignAbiType -> Text
+abiCType abiType =
   case abiType of
     TcForeignInt -> "HsInt"
     TcForeignInt8 -> "HsInt8"

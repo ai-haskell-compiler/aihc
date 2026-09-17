@@ -104,6 +104,7 @@ tests =
           "install"
           [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
             testCase "compiles and archives capi wrappers" (test_installCapi primStore),
+            testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
             testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
             testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
             testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi primStore),
@@ -1262,6 +1263,73 @@ test_installCapi getStore =
     assertBool "the wrapper still reads the macro" ("return DEMO_ANSWER;" `isInfixOf` rebuilt)
     settled <- install options
     assertEqual "the rebuilt module is reusable again" [] (installWrittenModules settled)
+
+-- | A @capi@ entity may be a macro that reads through a pointer argument,
+-- as the signal-set macros of macOS do, and a @void *@ cannot be read
+-- through.  The wrapper therefore spells a pointer argument as a pointer to
+-- the C type the pointee's @CTYPE@ pragma names, as GHC does, and a value
+-- with a pragma of its own by that pragma.  The header a pragma names is
+-- included ahead of the entity's header.  A pointer whose pointee has no
+-- pragma keeps the @HsPtr@ spelling, which any C function accepts.
+test_installCapiCType :: IO SeedStore -> Assertion
+test_installCapiCType getStore =
+  withSandbox getStore "aihc-install-capi-ctype" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let sourceRoot = sandboxRoot sandbox </> "source"
+        sourceDir = sourceRoot </> "src"
+        includeDir = sourceRoot </> "include"
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm
+    createDirectoryIfMissing True sourceDir
+    createDirectoryIfMissing True includeDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  include-dirs: include",
+            "  default-language: Haskell2010",
+            "  default-extensions: CApiFFI, MagicHash"
+          ]
+      )
+    writeFile
+      (includeDir </> "demo_cell.h")
+      (unlines ["struct demo_cell { int value; };", "typedef int demo_count;"])
+    writeFile
+      (includeDir </> "demo_macros.h")
+      ( unlines
+          [ "#define demo_cell_value(cell) ((cell)->value)",
+            "#define demo_cell_set(cell, count) ((cell)->value = (count), 0)",
+            "#define demo_count_double(count) ((count) * 2)",
+            "#define demo_opaque_id(pointer) (pointer)"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      ( unlines
+          [ "module Demo where",
+            "import GHC.Prim (Addr#, Int32#)",
+            "data Int32 = I32# Int32#",
+            "data Ptr a = Ptr Addr#",
+            "data {-# CTYPE \"demo_cell.h\" \"struct demo_cell\" #-} Cell",
+            "newtype {-# CTYPE \"demo_count\" #-} Count = Count Int32",
+            "data Opaque",
+            "foreign import capi unsafe \"demo_macros.h demo_cell_value\" cellValue :: Ptr Cell -> Int32",
+            "foreign import capi unsafe \"demo_macros.h demo_cell_set\" cellSet :: Ptr Cell -> Count -> Int32",
+            "foreign import capi unsafe \"demo_macros.h demo_count_double\" countDouble :: Count -> Count",
+            "foreign import capi unsafe \"demo_macros.h demo_opaque_id\" opaqueId :: Ptr Opaque -> Ptr Opaque"
+          ]
+      )
+    result <- install options
+    stub <- readFile (installStorePath result </> "Demo" </> "Demo.capi.c")
+    assertBool "the pointee's header is included before the entity's" (("#include \"demo_cell.h\"" `isInfixOf` stub) && ("#include \"demo_cell.h\"\n#include \"demo_macros.h\"" `isInfixOf` stub))
+    assertBool "a pointer argument is spelled from the pointee's pragma" ("(struct demo_cell * a1)" `isInfixOf` stub)
+    assertBool "a value argument is spelled from its own pragma" ("(struct demo_cell * a1, demo_count a2)" `isInfixOf` stub)
+    assertBool "a result is spelled from its pragma" ("demo_count aihc_capi_demo_m0_d1_d0_d0_Demo_countDouble(demo_count a1)" `isInfixOf` stub)
+    assertBool "a pointer to a type without a pragma keeps the ABI spelling" ("HsPtr aihc_capi_demo_m0_d1_d0_d0_Demo_opaqueId(HsPtr a1)" `isInfixOf` stub)
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

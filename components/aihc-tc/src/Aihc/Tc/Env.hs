@@ -11,6 +11,7 @@ module Aihc.Tc.Env
 
     -- * Datatype and constructor info
     DataTypeInfo (..),
+    CType (..),
     dataTypeKey,
     DataConInfo (..),
     PatSynDirection (..),
@@ -111,11 +112,24 @@ data DataTypeInfo = DataTypeInfo
     dtiFlavor :: !TyConFlavor,
     dtiConstructors :: ![DataConInfo],
     -- | Parameters with an explicit nominal role.
-    dtiNominalRoles :: ![Bool]
+    dtiNominalRoles :: ![Bool],
+    -- | The C type the declaration's @CTYPE@ pragma names, if it has one.
+    dtiCType :: !(Maybe CType)
   }
   deriving (Eq, Show, Read, Generic)
 
 instance NFData DataTypeInfo
+
+-- | The C type a Haskell type stands for in a @capi@ import, from the
+-- @CTYPE@ pragma of its declaration: the header that declares it, when the
+-- pragma names one, and the C spelling of the type.
+data CType = CType
+  { cTypeHeader :: !(Maybe Text),
+    cTypeName :: !Text
+  }
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData CType
 
 dataTypeKey :: DataTypeInfo -> TcTypeKey
 dataTypeKey = tyConKey . dtiTyCon
