@@ -1,8 +1,6 @@
 -- | Shared file-system utilities for Hackage package processing.
 module Aihc.Hackage.Util
-  ( readTextFileLenient,
-    existingPaths,
-    dedupeExistingFiles,
+  ( existingPaths,
     findCabalFiles,
     chooseBestCabalFile,
     moduleFilesForBuildInfo,
@@ -12,14 +10,10 @@ where
 
 import Aihc.Hackage.Preprocessor (preprocessorExtensions)
 import Control.Monad (forM)
-import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.List (isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
-import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8With)
-import Data.Text.Encoding.Error (lenientDecode)
 import Distribution.ModuleName (ModuleName, toFilePath)
 import Distribution.PackageDescription (BuildInfo, hsSourceDirs)
 import Distribution.Utils.Path (getSymbolicPath)
@@ -30,12 +24,6 @@ import System.Directory
   )
 import System.FilePath (makeRelative, normalise, splitDirectories, takeFileName, (<.>), (</>))
 
--- | Read a file as 'Text' with lenient UTF-8 decoding.
-readTextFileLenient :: FilePath -> IO Text
-readTextFileLenient filePath = do
-  bytes <- BS.readFile filePath
-  pure (decodeUtf8With lenientDecode bytes)
-
 -- | Return only the paths that exist on disk, normalised.
 existingPaths :: [FilePath] -> IO [FilePath]
 existingPaths candidates = do
@@ -43,13 +31,6 @@ existingPaths candidates = do
     fileExists <- doesFileExist candidate
     pure (if fileExists then Just (normalise candidate) else Nothing)
   pure (catMaybes existing)
-
--- | Deduplicate and filter to existing files.
---
--- 'Data.List.nub' is quadratic, and the paths of one package share a long
--- directory prefix, so each comparison is expensive too.
-dedupeExistingFiles :: [FilePath] -> IO [FilePath]
-dedupeExistingFiles files = fmap dedupePaths (existingPaths files)
 
 -- | Keep the first occurrence of each path, in order.
 dedupePaths :: [FilePath] -> [FilePath]

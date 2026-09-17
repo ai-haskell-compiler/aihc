@@ -1,14 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Aihc.Resolve.Span
   ( pushSpanFromAnn,
-    effectiveResolutionSpan,
     sourceSpanFromAnns,
     peelDeclSpan,
     peelPatternSpan,
     peelGuardQualifierSpan,
-    peelDataConSpan,
     peelImportItemSpan,
     rhsSpan,
     annotateUnhandledDecl,
@@ -32,7 +31,6 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     ClassDeclItem (..),
-    DataConDecl (..),
     Decl (..),
     Expr (..),
     GuardQualifier (..),
@@ -42,64 +40,65 @@ import Aihc.Parser.Syntax
     InstanceDeclItem (..),
     Pattern (..),
     Rhs (..),
-    SourceSpan (..),
+    SourceSpan,
     Type (..),
     fromAnnotation,
     mkAnnotation,
+    pattern SourceSpan,
   )
 import Aihc.Resolve.Types
+import Control.Applicative ((<|>))
 import Data.Data (Data, showConstr, toConstr)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | Use a 'SourceSpan' stored in a dynamic annotation as the innermost ambient span.
-pushSpanFromAnn :: SourceSpan -> Annotation -> SourceSpan
-pushSpanFromAnn cur ann = fromMaybe cur (fromAnnotation @SourceSpan ann)
+-- | The innermost span of a chain of annotations: a 'SourceSpan' on the
+-- annotation if it carries one, and otherwise the span already in hand.
+--
+-- Syntax the compiler synthesized carries no 'SourceSpan' annotation at all,
+-- so a span the resolver looks for is a 'Maybe'. A span it has found is a
+-- concrete span; @aihc-parser@ has no empty one.
+pushSpanFromAnn :: Maybe SourceSpan -> Annotation -> Maybe SourceSpan
+pushSpanFromAnn cur ann = fromAnnotation @SourceSpan ann <|> cur
 
--- | Prefer a concrete span on a node; fall back to the ambient span from annotations.
-effectiveResolutionSpan :: SourceSpan -> SourceSpan -> SourceSpan
-effectiveResolutionSpan ambient localSpan =
-  case localSpan of
-    NoSourceSpan -> ambient
-    _ -> localSpan
-
--- | Merge concrete source spans embedded in a list of annotations.
-sourceSpanFromAnns :: [Annotation] -> SourceSpan
-sourceSpanFromAnns anns =
-  case mapMaybe (fromAnnotation @SourceSpan) anns of
-    [] -> NoSourceSpan
-    s : _ -> s
+-- | The first source span embedded in a list of annotations.
+sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
+sourceSpanFromAnns = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
 
 -- | Resolver-owned span tracking for nodes that now store source spans only in
 -- annotations.
-peelDeclSpan :: SourceSpan -> Decl -> (SourceSpan, Decl)
-peelDeclSpan ambient (DeclAnn ann inner) = peelDeclSpan (pushSpanFromAnn ambient ann) inner
-peelDeclSpan ambient decl = (ambient, decl)
+peelDeclSpan :: Decl -> (Maybe SourceSpan, Decl)
+peelDeclSpan = go Nothing
+  where
+    go ambient (DeclAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
+    go ambient decl = (ambient, decl)
 
-peelPatternSpan :: SourceSpan -> Pattern -> SourceSpan
-peelPatternSpan ambient (PAnn ann inner) = peelPatternSpan (pushSpanFromAnn ambient ann) inner
-peelPatternSpan ambient _ = ambient
+peelPatternSpan :: Pattern -> Maybe SourceSpan
+peelPatternSpan = go Nothing
+  where
+    go ambient (PAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
+    go ambient _ = ambient
 
-peelGuardQualifierSpan :: SourceSpan -> GuardQualifier -> SourceSpan
-peelGuardQualifierSpan ambient (GuardAnn ann inner) = peelGuardQualifierSpan (pushSpanFromAnn ambient ann) inner
-peelGuardQualifierSpan ambient _ = ambient
+peelGuardQualifierSpan :: GuardQualifier -> Maybe SourceSpan
+peelGuardQualifierSpan = go Nothing
+  where
+    go ambient (GuardAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
+    go ambient _ = ambient
 
-peelDataConSpan :: SourceSpan -> DataConDecl -> SourceSpan
-peelDataConSpan ambient (DataConAnn ann inner) = peelDataConSpan (pushSpanFromAnn ambient ann) inner
-peelDataConSpan ambient _ = ambient
+peelImportItemSpan :: ImportItem -> Maybe SourceSpan
+peelImportItemSpan = go Nothing
+  where
+    go ambient (ImportAnn ann inner) = go (pushSpanFromAnn ambient ann) inner
+    go ambient _ = ambient
 
-peelImportItemSpan :: SourceSpan -> ImportItem -> SourceSpan
-peelImportItemSpan ambient (ImportAnn ann inner) = peelImportItemSpan (pushSpanFromAnn ambient ann) inner
-peelImportItemSpan ambient _ = ambient
-
-rhsSpan :: Rhs body -> SourceSpan
+rhsSpan :: Rhs body -> Maybe SourceSpan
 rhsSpan rhs =
   case rhs of
     UnguardedRhs anns _ _ -> sourceSpanFromAnns anns
     GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
-unhandledSyntaxAnnotation :: (Data a) => ResolutionNamespace -> SourceSpan -> a -> ResolutionAnnotation
+unhandledSyntaxAnnotation :: (Data a) => ResolutionNamespace -> Maybe SourceSpan -> a -> ResolutionAnnotation
 unhandledSyntaxAnnotation namespace span' node =
   ResolutionAnnotation
     span'
@@ -107,44 +106,46 @@ unhandledSyntaxAnnotation namespace span' node =
     namespace
     (ResolvedError "unhandled syntax")
 
-annotateUnhandledDecl :: SourceSpan -> Decl -> Decl
+annotateUnhandledDecl :: Maybe SourceSpan -> Decl -> Decl
 annotateUnhandledDecl span' decl =
   annotateDecl (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' decl) decl
 
-annotateUnhandledClassDeclItem :: SourceSpan -> ClassDeclItem -> ClassDeclItem
+annotateUnhandledClassDeclItem :: Maybe SourceSpan -> ClassDeclItem -> ClassDeclItem
 annotateUnhandledClassDeclItem span' item =
   ClassItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
 
-annotateUnhandledInstanceDeclItem :: SourceSpan -> InstanceDeclItem -> InstanceDeclItem
+annotateUnhandledInstanceDeclItem :: Maybe SourceSpan -> InstanceDeclItem -> InstanceDeclItem
 annotateUnhandledInstanceDeclItem span' item =
   InstanceItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
 
-annotateUnhandledExpr :: SourceSpan -> Expr -> Expr
+annotateUnhandledExpr :: Maybe SourceSpan -> Expr -> Expr
 annotateUnhandledExpr span' expr =
   annotateExpr (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' expr) expr
 
-annotateUnhandledPattern :: SourceSpan -> Pattern -> Pattern
+annotateUnhandledPattern :: Maybe SourceSpan -> Pattern -> Pattern
 annotateUnhandledPattern span' pat =
   annotatePattern (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' pat) pat
 
-annotateUnhandledType :: SourceSpan -> Type -> Type
+annotateUnhandledType :: Maybe SourceSpan -> Type -> Type
 annotateUnhandledType span' ty =
   annotateType (unhandledSyntaxAnnotation ResolutionNamespaceType span' ty) ty
 
-spanStartNameSpan :: SourceSpan -> Text -> SourceSpan
-spanStartNameSpan span' name =
-  case span' of
-    SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
-      let width = T.length name
-       in SourceSpan
-            sourceName
-            startLine
-            startCol
-            startLine
-            (startCol + width)
-            startOffset
-            (min endOffset (startOffset + width))
-    NoSourceSpan -> NoSourceSpan
+-- | Narrow a span to the name that starts at it. There is nothing to narrow
+-- when the syntax had no span to begin with.
+spanStartNameSpan :: Maybe SourceSpan -> Text -> Maybe SourceSpan
+spanStartNameSpan span' name = flip spanStartNameSpanAt name <$> span'
+
+spanStartNameSpanAt :: SourceSpan -> Text -> SourceSpan
+spanStartNameSpanAt (SourceSpan sourceName startLine startCol _ _ startOffset endOffset) name =
+  let width = T.length name
+   in SourceSpan
+        sourceName
+        startLine
+        startCol
+        startLine
+        (startCol + width)
+        startOffset
+        (min endOffset (startOffset + width))
 
 annotateDecl :: ResolutionAnnotation -> Decl -> Decl
 annotateDecl annotation = DeclAnn (mkAnnotation annotation)
@@ -162,9 +163,10 @@ annotateImport :: ResolutionAnnotation -> ImportDecl -> ImportDecl
 annotateImport annotation importDecl =
   importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
 
-importModuleNameSpan :: ImportDecl -> SourceSpan
+importModuleNameSpan :: ImportDecl -> Maybe SourceSpan
 importModuleNameSpan importDecl =
-  shiftSpanStartNameSpan (sourceSpanFromAnns (importDeclAnns importDecl)) prefixWidth (importDeclModule importDecl)
+  (\sp -> shiftSpanStartNameSpanAt sp prefixWidth (importDeclModule importDecl))
+    <$> sourceSpanFromAnns (importDeclAnns importDecl)
   where
     prefixWidth =
       T.length "import "
@@ -193,56 +195,40 @@ importModuleNameSpan importDecl =
         Just packageName -> T.length packageName + T.length "\"\" "
         Nothing -> 0
 
-importMemberNameSpan :: SourceSpan -> Text -> SourceSpan
-importMemberNameSpan itemSpan memberName =
-  case itemSpan of
-    SourceSpan sourceName startLine startCol endLine endCol startOffset endOffset ->
-      let width = T.length memberName
-          (memberStartCol, memberStartOffset)
-            | startLine == endLine =
-                let col = max startCol (endCol - width - 1)
-                 in (col, startOffset + (col - startCol))
-            | otherwise = (startCol, startOffset)
-       in SourceSpan
-            sourceName
-            startLine
-            memberStartCol
-            endLine
-            endCol
-            memberStartOffset
-            endOffset
-    NoSourceSpan -> NoSourceSpan
+importMemberNameSpan :: Maybe SourceSpan -> Text -> Maybe SourceSpan
+importMemberNameSpan span' name = flip importMemberNameSpanAt name <$> span'
 
-shiftSpanStartNameSpan :: SourceSpan -> Int -> Text -> SourceSpan
-shiftSpanStartNameSpan span' offset name =
-  case span' of
-    SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
-      let shiftedStartOffset = startOffset + offset
-          shifted =
-            SourceSpan
-              sourceName
-              startLine
-              (startCol + offset)
-              startLine
-              (startCol + offset)
-              shiftedStartOffset
-              endOffset
-       in spanStartNameSpan shifted name
-    NoSourceSpan -> NoSourceSpan
+importMemberNameSpanAt :: SourceSpan -> Text -> SourceSpan
+importMemberNameSpanAt (SourceSpan sourceName startLine startCol endLine endCol startOffset endOffset) memberName =
+  let width = T.length memberName
+      (memberStartCol, memberStartOffset)
+        | startLine == endLine =
+            let col = max startCol (endCol - width - 1)
+             in (col, startOffset + (col - startCol))
+        | otherwise = (startCol, startOffset)
+   in SourceSpan
+        sourceName
+        startLine
+        memberStartCol
+        endLine
+        endCol
+        memberStartOffset
+        endOffset
 
-declKeywordNameSpan :: Text -> SourceSpan -> Text -> SourceSpan
+shiftSpanStartNameSpanAt :: SourceSpan -> Int -> Text -> SourceSpan
+shiftSpanStartNameSpanAt (SourceSpan sourceName startLine startCol _ _ startOffset endOffset) offset name =
+  let shifted =
+        SourceSpan
+          sourceName
+          startLine
+          (startCol + offset)
+          startLine
+          (startCol + offset)
+          (startOffset + offset)
+          endOffset
+   in spanStartNameSpanAt shifted name
+
+-- | Narrow a declaration's span to the name that follows its keyword.
+declKeywordNameSpan :: Text -> Maybe SourceSpan -> Text -> Maybe SourceSpan
 declKeywordNameSpan keyword span' name =
-  case span' of
-    SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
-      let keywordWidth = T.length keyword
-          shifted =
-            SourceSpan
-              sourceName
-              startLine
-              (startCol + keywordWidth)
-              startLine
-              (startCol + keywordWidth)
-              (startOffset + keywordWidth)
-              endOffset
-       in spanStartNameSpan shifted name
-    NoSourceSpan -> NoSourceSpan
+  (\sp -> shiftSpanStartNameSpanAt sp (T.length keyword) name) <$> span'

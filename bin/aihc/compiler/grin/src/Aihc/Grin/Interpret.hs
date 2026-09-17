@@ -962,6 +962,9 @@ evalPrimitive "-#" [left, right] = evalIntPrimitive "-#" (-) left right
 evalPrimitive "*#" [left, right] = evalIntPrimitive "*#" (*) left right
 evalPrimitive "quotInt#" [left, right] = evalIntPrimitive "quotInt#" quot left right
 evalPrimitive "remInt#" [left, right] = evalIntPrimitive "remInt#" rem left right
+evalPrimitive "negateInt#" [value] = do
+  int <- expectIntPrimitiveArgument "negateInt#" value
+  pure [intRuntimeValue (negate int)]
 evalPrimitive "addIntC#" [left, right] = evalIntCarryPrimitive "addIntC#" (+) left right
 evalPrimitive "subIntC#" [left, right] = evalIntCarryPrimitive "subIntC#" (-) left right
 evalPrimitive "plusWord#" [left, right] = evalWordPrimitive "plusWord#" (+) left right

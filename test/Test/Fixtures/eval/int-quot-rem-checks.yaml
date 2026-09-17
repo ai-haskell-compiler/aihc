@@ -1,0 +1,31 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException (..), evaluate, try)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print [quotRem (17 :: Int) 5, quotRem (-17) 5, quotRem 17 (-5), quotRem (-17) (-5)]
+      print [divMod (17 :: Int) 5, divMod (-17) 5, divMod 17 (-5), divMod (-17) (-5)]
+      print [quot (minBound :: Int) 2, rem minBound 3, rem minBound (-1), quot 7 (-1), rem 7 (-1), div (-7) 2, mod (-7) 2]
+      zero <- try (evaluate (quot (1 :: Int) 0)) :: IO (Either ArithException Int)
+      print zero
+      overflow <- try (evaluate (quot (minBound :: Int) (-1))) :: IO (Either ArithException Int)
+      print overflow
+      modZero <- try (evaluate (mod (1 :: Int) 0)) :: IO (Either ArithException Int)
+      print modZero
+stdout: |
+  [(3,2),(-3,-2),(-3,2),(3,-2)]
+  [(3,2),(-4,3),(-4,-3),(3,-2)]
+  [-4611686018427387904,-2,0,-7,0,-4,1]
+  Left divide by zero
+  Left arithmetic overflow
+  Left divide by zero
+output: |
+  ()
+expression: main
+status: pass
+reason: Int division runs on quotInt# and remInt# with GHC's two checks, a zero divisor raises DivideByZero and minBound `quot` (-1) raises Overflow while its remainder is zero

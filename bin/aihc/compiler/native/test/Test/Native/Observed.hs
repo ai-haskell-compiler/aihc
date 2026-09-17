@@ -1,26 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Native.Observed
-  ( ObservedProgram (..),
-    renderObservedMetadata,
+  ( renderObservedMetadata,
     snapshotSourcePath,
   )
 where
 
 import Aihc.Grin.Syntax
-import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import System.Directory (doesFileExist, getCurrentDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))
-
-data ObservedProgram = ObservedProgram
-  { observedObject :: !BL.ByteString,
-    observedMetadataSource :: !Text
-  }
-  deriving (Eq, Show)
 
 renderObservedMetadata ::
   (GrinRep -> error) ->

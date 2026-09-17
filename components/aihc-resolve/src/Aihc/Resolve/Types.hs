@@ -5,7 +5,6 @@
 module Aihc.Resolve.Types
   ( pattern DeclResolution,
     pattern EResolution,
-    pattern ImportResolution,
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
@@ -21,7 +20,6 @@ module Aihc.Resolve.Types
     VisibleTermIdentities (..),
     ResolveError (..),
     ResolveResult (..),
-    resolvedModuleAsts,
   )
 where
 
@@ -29,18 +27,16 @@ import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
     Extension,
-    ImportDecl (..),
     Module (..),
     Name (..),
     Pattern (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
     fromAnnotation,
   )
 import Control.DeepSeq (NFData)
-import Data.Maybe (listToMaybe, mapMaybe)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -133,7 +129,9 @@ instance NFData Identifier
 instance NFData ResolutionNamespace
 
 data ResolutionAnnotation = ResolutionAnnotation
-  { resolutionSpan :: !SourceSpan,
+  { -- | Where the identifier is in the source, or 'Nothing' for syntax the
+    -- compiler synthesized.
+    resolutionSpan :: !(Maybe SourceSpan),
     resolutionIdentifier :: !Identifier,
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !ResolvedName
@@ -142,7 +140,7 @@ data ResolutionAnnotation = ResolutionAnnotation
 
 data ResolveError
   = ResolveResolutionError
-      { resolveErrorSpan :: !SourceSpan,
+      { resolveErrorSpan :: !(Maybe SourceSpan),
         resolveErrorName :: !Text,
         resolveErrorNamespace :: !ResolutionNamespace,
         resolveErrorMessage :: !String
@@ -156,9 +154,6 @@ data ResolveResult = ResolveResult
   }
   deriving (Show)
 
-resolvedModuleAsts :: ResolveResult -> [Module]
-resolvedModuleAsts = map moduleUnitAst . resolvedModules
-
 pattern DeclResolution :: ResolutionAnnotation -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
 
@@ -170,12 +165,3 @@ pattern TResolution resolution <- TAnn (fromAnnotation -> Just resolution) _
 
 pattern EResolution :: ResolutionAnnotation -> Expr
 pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _
-
-pattern ImportResolution :: ResolutionAnnotation -> ImportDecl
-pattern ImportResolution resolution <- (importResolutionAnnotation -> Just resolution)
-
-importResolutionAnnotation :: ImportDecl -> Maybe ResolutionAnnotation
-importResolutionAnnotation = listToMaybe . importResolutionAnnotations
-
-importResolutionAnnotations :: ImportDecl -> [ResolutionAnnotation]
-importResolutionAnnotations = mapMaybe fromAnnotation . importDeclAnns

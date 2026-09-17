@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 -- |
 -- Module      : Aihc.PackagePlan.Diagnostic
 -- Description : Human-readable rendering of JSON diagnostics
@@ -16,7 +18,7 @@ module Aihc.PackagePlan.Diagnostic
 where
 
 import Aihc.Cpp qualified as Cpp
-import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Parser.Syntax (SourceSpan, pattern SourceSpan)
 import Control.Applicative ((<|>))
 import Data.Aeson (object, (.:), (.=))
 import Data.Aeson qualified as Aeson
@@ -259,19 +261,16 @@ cppDiagnosticValue diag =
     ]
 
 sourceSpanValue :: SourceSpan -> Aeson.Value
-sourceSpanValue span' =
-  case span' of
-    NoSourceSpan -> Aeson.Null
-    SourceSpan file startLine startCol endLine endCol startOffset endOffset ->
-      object
-        [ "file" .= file,
-          "startLine" .= startLine,
-          "startColumn" .= startCol,
-          "endLine" .= endLine,
-          "endColumn" .= endCol,
-          "startOffset" .= startOffset,
-          "endOffset" .= endOffset
-        ]
+sourceSpanValue (SourceSpan file startLine startCol endLine endCol startOffset endOffset) =
+  object
+    [ "file" .= file,
+      "startLine" .= startLine,
+      "startColumn" .= startCol,
+      "endLine" .= endLine,
+      "endColumn" .= endCol,
+      "startOffset" .= startOffset,
+      "endOffset" .= endOffset
+    ]
 
 padLeft :: Int -> Char -> String -> String
 padLeft width char value =

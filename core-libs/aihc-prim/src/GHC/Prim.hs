@@ -175,6 +175,7 @@ module GHC.Prim
     quotWord#,
     quotInt#,
     remInt#,
+    negateInt#,
     raise#,
     raiseIO#,
     reallyUnsafePtrEquality#,
@@ -582,6 +583,8 @@ foreign import prim divInt# :: Int# -> Int# -> Int#
 foreign import prim quotInt# :: Int# -> Int# -> Int#
 
 foreign import prim remInt# :: Int# -> Int# -> Int#
+
+foreign import prim negateInt# :: Int# -> Int#
 
 infixl 6 +#, -#
 

@@ -4,42 +4,15 @@
 -- Haskell type. Parsing is delegated to @aihc-parser@ and semantic conversion
 -- (including kind checking) is delegated to @aihc-tc@.
 module Aihc.Tc.TypeScheme
-  ( parseTypeScheme,
-    typeSchemeFromType,
+  ( typeSchemeFromType,
     schemeToType,
     equivalentTypeSchemes,
-    typeSchemeArity,
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseSignatureType)
-import Aihc.Parser.Syntax (Extension (ExplicitForAll, KindSignatures, MagicHash, UnboxedTuples))
-import Aihc.Tc.Error (TcDiagnostic (..), TcSeverity (TcError))
-import Aihc.Tc.Kind (sigToScheme)
-import Aihc.Tc.Monad (TcConfig, emptyTcEnv, initTcState, runTcM, tcAbortMessage, tcsDiagnostics)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (defaultTypeSchemeKinds)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Text (Text)
-
--- | Parse and kind-check a standalone type scheme.
-parseTypeScheme :: TcConfig -> Text -> Either String TypeScheme
-parseTypeScheme config source =
-  case parseSignatureType parserConfig source of
-    ParseErr errors -> Left (show errors)
-    ParseOk surfaceType ->
-      case runTcM (emptyTcEnv config) initTcState $ sigToScheme surfaceType >>= defaultTypeSchemeKinds of
-        Left abort -> Left (tcAbortMessage abort)
-        Right (scheme, state) ->
-          case [diagnostic | diagnostic <- tcsDiagnostics state, diagSeverity diagnostic == TcError] of
-            [] -> Right scheme
-            errors -> Left (show errors)
-  where
-    parserConfig =
-      defaultConfig
-        { parserExtensions = [ExplicitForAll, KindSignatures, MagicHash, UnboxedTuples]
-        }
 
 -- | Recover a scheme from the explicit forall and context nodes carried by a
 -- type-checker type.
@@ -74,12 +47,6 @@ equivalentTypeSchemes (ForAll leftVars leftPredicates leftBody) (ForAll rightVar
             && equivalentType renaming leftBody rightBody
   where
     onTyVar compareKinds left right = compareKinds (tvKind left) (tvKind right)
-
-typeSchemeArity :: TypeScheme -> Int
-typeSchemeArity (ForAll _ _ body) = go body
-  where
-    go (TcFunTy _ result) = 1 + go result
-    go _ = 0
 
 equivalentType :: Map Unique Unique -> TcType -> TcType -> Bool
 equivalentType renaming left right =

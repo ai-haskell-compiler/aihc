@@ -9,7 +9,6 @@ module Aihc.Arm64.Assemble
     Arm64Condition (..),
     Arm64FloatOp (..),
     assembleMachO,
-    assembleMachOChunks,
     applyStatement,
     alignmentFill,
     arm64Align,
@@ -254,17 +253,6 @@ assembleMachO statements = assembleObject id writeArm64MachO (`applyStatements` 
 -- | Apply a list of statements to an object.
 applyStatements :: Object s -> [Arm64Statement] -> ST s (Either ObjectError ())
 applyStatements object = applyAll (applyStatement object)
-
--- | Assemble statements that arrive in chunks, folding each one in before
--- the next is produced. A failed chunk ends the assembly with its error;
--- an object error is the other side.
-assembleMachOChunks :: [Either error [Arm64Statement]] -> Either (Either error ObjectError) BL.ByteString
-assembleMachOChunks chunks = assembleObject Right writeArm64MachO (\object -> applyAll (applyChunk object) chunks)
-  where
-    applyChunk object chunk =
-      case chunk of
-        Left err -> pure (Left (Left err))
-        Right statements -> either (Left . Right) Right <$> applyStatements object statements
 
 arm64Section :: SectionRole -> Arm64Statement
 arm64Section = Arm64Section

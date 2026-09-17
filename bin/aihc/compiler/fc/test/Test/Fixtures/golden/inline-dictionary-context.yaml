@@ -105,63 +105,6 @@ expected: |-
   pub val 1.veqPair :: 1.tPair 2.tBool 2.→ 1.tPair 2.tBool 2.→ 2.tBool
    = λ(x : 1.tPair 2.tBool).
     λ(y : 1.tPair 2.tBool).
-      case x as (_scrut : 1.tPair 2.tBool) return (2.tBool) of {
-          1.cPair (a : 2.tBool) (b : 2.tBool) →
-              case y as (_scrut{1} : 1.tPair 2.tBool) return (2.tBool) of {
-                  1.cPair (c : 2.tBool) (d : 2.tBool) →
-                      case a as (_scrut{2} : 2.tBool) return (2.tBool) of {
-                          2.cTrue →
-                              case c as (_scrut{3} : 2.tBool) return (2.tBool) of {
-                                  2.cTrue →
-                                      case b as (_scrut{4} : 2.tBool) return (2.tBool) of {
-                                          2.cTrue →
-                                              case d as (_scrut{5} : 2.tBool) return (2.tBool) of {
-                                                  2.cTrue →
-                                                      2.cTrue;
-                                                  _ →
-                                                      2.cFalse
-                                              };
-                                          2.cFalse →
-                                              case d as (_scrut{5} : 2.tBool) return (2.tBool) of {
-                                                  2.cFalse →
-                                                      2.cTrue;
-                                                  _ →
-                                                      2.cFalse
-                                              };
-                                          _ →
-                                              2.cFalse
-                                      };
-                                  _ →
-                                      2.cFalse
-                              };
-                          2.cFalse →
-                              case c as (_scrut{3} : 2.tBool) return (2.tBool) of {
-                                  2.cFalse →
-                                      case b as (_scrut{4} : 2.tBool) return (2.tBool) of {
-                                          2.cTrue →
-                                              case d as (_scrut{5} : 2.tBool) return (2.tBool) of {
-                                                  2.cTrue →
-                                                      2.cTrue;
-                                                  _ →
-                                                      2.cFalse
-                                              };
-                                          2.cFalse →
-                                              case d as (_scrut{5} : 2.tBool) return (2.tBool) of {
-                                                  2.cFalse →
-                                                      2.cTrue;
-                                                  _ →
-                                                      2.cFalse
-                                              };
-                                          _ →
-                                              2.cFalse
-                                      };
-                                  _ →
-                                      2.cFalse
-                              };
-                          _ →
-                              2.cFalse
-                      }
-              }
-      }
+      1.v$fMyEqPaira$ceq @2.tBool 1.v$fMyEqBool x y
 status: pass
 reason: The helper of a dictionary with a context takes the context, and a method of an applied dictionary becomes a call of the helper.

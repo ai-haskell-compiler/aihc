@@ -508,6 +508,7 @@ supportedNativePrimitiveNames =
     "remWord#",
     "quotInt#",
     "remInt#",
+    "negateInt#",
     "quotRemWord#",
     "quotRemWord2#",
     "and#",

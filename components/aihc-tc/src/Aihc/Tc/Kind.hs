@@ -5,7 +5,6 @@ module Aihc.Tc.Kind
     ParamInfo (..),
     checkSurfaceType,
     checkRuntimeType,
-    convertSurfaceType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
     deferKindMetas,
@@ -36,7 +35,7 @@ where
 import Aihc.Parser.Syntax
   ( BuiltinCon (..),
     Name (..),
-    SourceSpan (..),
+    SourceSpan,
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
@@ -60,6 +59,7 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (normalizeFamilyPred)
 import Aihc.Tc.Types
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
 import Data.List (nub)
 import Data.Map.Strict (Map)
@@ -176,11 +176,6 @@ prenexKindForalls kind =
        in (tyVars, TcFunTy argument result')
     _ -> ([], kind)
 
-convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
-convertSurfaceType tvMap ty = do
-  let tvEnv = Map.map (\tv -> (tv, tvKind tv)) tvMap
-  checkRuntimeType tvEnv ty
-
 checkSurfaceType :: TvKindEnv -> Type -> TcType -> TcM TcType
 checkSurfaceType tvEnv ty expected = do
   -- @()@ is the unit type at kind 'Type' and the empty constraint tuple at
@@ -205,15 +200,12 @@ checkSurfaceType tvEnv ty expected = do
       pure tcTy
 
 -- | The source span of a surface type, when its annotations give one.
-surfaceTypeSpan :: Type -> SourceSpan
+surfaceTypeSpan :: Type -> Maybe SourceSpan
 surfaceTypeSpan ty =
   case ty of
-    TAnn ann inner ->
-      case fromAnnotation ann of
-        Just sp -> sp
-        Nothing -> surfaceTypeSpan inner
+    TAnn ann inner -> fromAnnotation ann <|> surfaceTypeSpan inner
     TParen inner -> surfaceTypeSpan inner
-    _ -> NoSourceSpan
+    _ -> Nothing
 
 -- | Check that a surface type is a value-bearing type of kind @TYPE rep@.
 -- Unconstrained kind metas default to lifted representation; explicitly
@@ -316,7 +308,7 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       (innerTy, innerKind) <- convertSurfaceTypeWithKinds tvEnv' inner
       pure (foldr (TcForAllTy . paramTyVar) innerTy params, innerKind)
     _ -> do
-      emitError NoSourceSpan (OtherError ("unsupported surface type in kind checker: " <> take 80 (show ty)))
+      emitError Nothing (OtherError ("unsupported surface type in kind checker: " <> take 80 (show ty)))
       meta <- freshMetaTv
       pure (meta, typeKind kinds)
 
@@ -478,7 +470,7 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
   kinds <- getKinds
   case tsiBody synonym of
     Nothing -> do
-      emitError NoSourceSpan (OtherError ("recursive or incomplete type synonym: " <> T.unpack synonymName))
+      emitError Nothing (OtherError ("recursive or incomplete type synonym: " <> T.unpack synonymName))
       meta <- freshMetaTv
       pure (meta, typeKind kinds)
     Just body -> do
@@ -487,7 +479,7 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
           (synonymArguments, remainingArguments) = splitAt arity arguments
       if length synonymArguments /= arity
         then do
-          emitError NoSourceSpan (OtherError ("type synonym " <> T.unpack synonymName <> " is not fully applied"))
+          emitError Nothing (OtherError ("type synonym " <> T.unpack synonymName <> " is not fully applied"))
           meta <- freshMetaTv
           pure (meta, typeKind kinds)
         else do
@@ -532,7 +524,7 @@ expandTcTypeSynonyms expanding ty = do
             length expandedArguments >= length params ->
               if tyConKey tyCon `Set.member` expanding
                 then do
-                  emitError NoSourceSpan (OtherError ("recursive type synonym: " <> T.unpack (tyConName tyCon)))
+                  emitError Nothing (OtherError ("recursive type synonym: " <> T.unpack (tyConName tyCon)))
                   pure (TcTyCon tyCon expandedArguments)
                 else do
                   let (synonymArguments, remainingArguments) = splitAt (length params) expandedArguments
@@ -725,10 +717,10 @@ kindFromSurfaceType tvEnv ty = do
       pure tcType
 
 unifyKinds :: TcType -> TcType -> TcM ()
-unifyKinds = unifyKindsAt NoSourceSpan
+unifyKinds = unifyKindsAt Nothing
 
 -- | Unify two kinds and report a mismatch at the given span.
-unifyKindsAt :: SourceSpan -> TcType -> TcType -> TcM ()
+unifyKindsAt :: Maybe SourceSpan -> TcType -> TcType -> TcM ()
 unifyKindsAt sp expected actual = do
   expected' <- zonkKind expected >>= refineGivenKind
   actual' <- zonkKind actual >>= refineGivenKind
@@ -845,9 +837,9 @@ isGroundKind ty =
 
 -- | Solve a kind meta with a kind, with no source span to report at.
 bindKindMeta :: Unique -> TcType -> TcM ()
-bindKindMeta = bindKindMetaAt NoSourceSpan
+bindKindMeta = bindKindMetaAt Nothing
 
-bindKindMetaAt :: SourceSpan -> Unique -> TcType -> TcM ()
+bindKindMetaAt :: Maybe SourceSpan -> Unique -> TcType -> TcM ()
 bindKindMetaAt sp u kind
   | kind == TcMetaTv u = pure ()
   | occursInKind u kind = emitError sp (KindMismatch (KMeta u) kind)
@@ -1033,7 +1025,7 @@ tcTypeKind ty =
         case maybeInfo of
           Just info -> instantiateTyConKind info
           Nothing -> do
-            emitError NoSourceSpan (OtherError ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
+            emitError Nothing (OtherError ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
             kinds <- getKinds
             pure (foldr KFun (typeKind kinds) (replicate (tyConArity tyCon) (typeKind kinds)))
       foldM applyArgument initialKind arguments
@@ -1056,7 +1048,7 @@ tcTypeKind ty =
           zonkKind resultKind
         _ -> do
           kinds <- getKinds
-          emitError NoSourceSpan (KindMismatch (TcFunTy (typeKind kinds) (typeKind kinds)) functionKind')
+          emitError Nothing (KindMismatch (TcFunTy (typeKind kinds) (typeKind kinds)) functionKind')
           pure (typeKind kinds)
 
 listType :: TcType -> TcM TcType
@@ -1171,7 +1163,7 @@ surfaceClassPredToPred tvEnv ty = do
               case constraintTypeToPred kinds expanded of
                 Just predicate -> normalizeFamilyPred predicate
                 Nothing -> do
-                  emitError NoSourceSpan (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
+                  emitError Nothing (OtherError ("constraint synonym does not expand to one constraint: " <> T.unpack classNameText))
                   abortTc "invalid constraint synonym expansion"
         Just classInfo
           | isEqualityTyCon kinds (tciTyCon classInfo),
@@ -1192,10 +1184,10 @@ surfaceClassPredToPred tvEnv ty = do
           args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
           pure (ClassPred (tciTyCon classInfo) args)
         Nothing -> do
-          emitError NoSourceSpan (OtherError ("unknown class predicate: " <> T.unpack classNameText))
+          emitError Nothing (OtherError ("unknown class predicate: " <> T.unpack classNameText))
           abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
     Nothing -> do
-      emitError NoSourceSpan (OtherError ("invalid class predicate: " <> show ty))
+      emitError Nothing (OtherError ("invalid class predicate: " <> show ty))
       abortTc "invalid checked class predicate"
 
 classPredicateArgKinds :: Name -> Int -> TcM [TcType]

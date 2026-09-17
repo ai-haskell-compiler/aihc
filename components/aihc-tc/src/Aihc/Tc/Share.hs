@@ -9,8 +9,7 @@
 -- interfaces so that they share every equal part. The result is equal to
 -- the input; only the heap layout changes.
 module Aihc.Tc.Share
-  ( shareTcInterface,
-    shareTcInterfaces,
+  ( shareTcInterfaces,
   )
 where
 
@@ -40,13 +39,6 @@ import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (mkTyVarId, traverseScheme)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-
--- | Share the parts of one interface.
-shareTcInterface :: TcInterface -> TcInterface
-shareTcInterface interface =
-  case shareTcInterfaces [interface] of
-    [shared] -> shared
-    _ -> interface
 
 -- | Share the parts of several interfaces with one another, for interfaces
 -- that live together: the modules of one unit, or of one package.

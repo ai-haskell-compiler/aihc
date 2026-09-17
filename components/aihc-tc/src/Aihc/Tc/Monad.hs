@@ -87,7 +87,6 @@ module Aihc.Tc.Monad
     lookupTyConByIdentity,
     extendTyConEnvPermanent,
     replaceTyConEnvPermanent,
-    getTyConEnv,
     addDataType,
     addPatSyn,
     getPatSyns,
@@ -96,9 +95,7 @@ module Aihc.Tc.Monad
     patSynKey,
     getDataTypes,
     lookupDataType,
-    localTcOptions,
     tcMonoLocalBinds,
-    tcMonomorphismRestriction,
     localDefaultTypes,
     getDefaultTypes,
     getUndecidableInstances,
@@ -121,7 +118,6 @@ module Aihc.Tc.Monad
     addTypeFamilyInstance,
     getTypeFamilyInstances,
     addClass,
-    getClasses,
     lookupClass,
     lookupClassByName,
     lookupClassNamed,
@@ -136,7 +132,6 @@ module Aihc.Tc.Monad
     emitError,
     emitWarning,
     withAmbientSpan,
-    getDiagnostics,
     withErrorTracking,
     currentErrorCount,
 
@@ -145,7 +140,7 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor, UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
@@ -154,6 +149,7 @@ import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
+import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
@@ -243,7 +239,7 @@ data TcEnv = TcEnv
     -- | The span of the declaration being checked. A diagnostic that is
     -- emitted without a span of its own, as the checks of internal types
     -- do, reports here instead of nowhere.
-    tcEnvAmbientSpan :: !SourceSpan,
+    tcEnvAmbientSpan :: !(Maybe SourceSpan),
     tcEnvVisibleTerms :: !(Set.Set TcTermKey)
   }
   deriving (Show)
@@ -441,7 +437,7 @@ emptyTcEnv config =
       tcEnvComponentTyCons = Set.empty,
       tcEnvGivenPredicates = [],
       tcEnvScopedTyVars = Map.empty,
-      tcEnvAmbientSpan = NoSourceSpan,
+      tcEnvAmbientSpan = Nothing,
       tcEnvVisibleTerms = Set.empty
     }
 
@@ -816,9 +812,6 @@ typeUseResolution =
   find ((/= ResolutionNamespaceModule) . resolutionNamespace)
     . mapMaybe fromAnnotation
 
-getTyConEnv :: TcM (Map TyCon TyConInfo)
-getTyConEnv = lift $ gets $ Map.fromList . map (\info -> (tciTyCon info, info)) . Map.elems . tcsGlobalTyCons
-
 extendTyConEnvPermanent :: TyConInfo -> TcM ()
 extendTyConEnvPermanent info = do
   tyCons <- lift $ gets tcsGlobalTyCons
@@ -912,9 +905,6 @@ addClass classInfo = do
   classes <- lift $ gets tcsClasses
   classes' <- insertNewMap "class state" (classInfoKey classInfo) classInfo classes
   lift $ modify' $ \state -> state {tcsClasses = classes'}
-
-getClasses :: TcM [ClassInfo]
-getClasses = lift $ gets (Map.elems . tcsClasses)
 
 -- | Look up a class by its exact type constructor.
 lookupClass :: TyCon -> TcM (Maybe ClassInfo)
@@ -1018,19 +1008,8 @@ getGivenPredicates = asks tcEnvGivenPredicates
 getScopedTyVars :: TcM (Map Text (TyVarId, TcType))
 getScopedTyVars = asks tcEnvScopedTyVars
 
-localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a
-localTcOptions monoLocal monomorphism =
-  local $ \env ->
-    env
-      { tcEnvMonoLocalBinds = monoLocal (tcEnvMonoLocalBinds env),
-        tcEnvMonomorphismRestriction = monomorphism (tcEnvMonomorphismRestriction env)
-      }
-
 tcMonoLocalBinds :: TcM Bool
 tcMonoLocalBinds = asks tcEnvMonoLocalBinds
-
-tcMonomorphismRestriction :: TcM Bool
-tcMonomorphismRestriction = asks tcEnvMonomorphismRestriction
 
 -- | Emit a diagnostic (error or warning).
 emitDiagnostic :: TcDiagnostic -> TcM ()
@@ -1039,7 +1018,7 @@ emitDiagnostic d = lift $ modify' $ \s ->
 
 -- | Emit an error diagnostic. Without a span it reports at the
 -- declaration being checked, when one is known.
-emitError :: SourceSpan -> TcErrorKind -> TcM ()
+emitError :: Maybe SourceSpan -> TcErrorKind -> TcM ()
 emitError loc kind = do
   location <- diagnosticLoc loc
   emitDiagnostic
@@ -1051,7 +1030,7 @@ emitError loc kind = do
 
 -- | Emit a warning diagnostic. Without a span it reports at the
 -- declaration being checked, when one is known.
-emitWarning :: SourceSpan -> TcErrorKind -> TcM ()
+emitWarning :: Maybe SourceSpan -> TcErrorKind -> TcM ()
 emitWarning loc kind = do
   location <- diagnosticLoc loc
   emitDiagnostic
@@ -1061,22 +1040,17 @@ emitWarning loc kind = do
         diagKind = kind
       }
 
-diagnosticLoc :: SourceSpan -> TcM (Maybe SourceSpan)
-diagnosticLoc NoSourceSpan = do
-  ambient <- asks tcEnvAmbientSpan
-  pure (case ambient of NoSourceSpan -> Nothing; sp -> Just sp)
-diagnosticLoc sp = pure (Just sp)
+-- | Where a diagnostic reports: its own span, or the span of the
+-- declaration being checked when it has none of its own.
+diagnosticLoc :: Maybe SourceSpan -> TcM (Maybe SourceSpan)
+diagnosticLoc loc = (loc <|>) <$> asks tcEnvAmbientSpan
 
 -- | Run an action with the span of the declaration it checks, so its
--- span-less diagnostics report there. 'NoSourceSpan' keeps the span of
--- the enclosing declaration.
-withAmbientSpan :: SourceSpan -> TcM a -> TcM a
-withAmbientSpan NoSourceSpan action = action
+-- span-less diagnostics report there. A declaration the compiler
+-- synthesized has no span, and keeps the span of the enclosing one.
+withAmbientSpan :: Maybe SourceSpan -> TcM a -> TcM a
+withAmbientSpan Nothing action = action
 withAmbientSpan sp action = local (\env -> env {tcEnvAmbientSpan = sp}) action
-
--- | Get all diagnostics collected so far.
-getDiagnostics :: TcM [TcDiagnostic]
-getDiagnostics = lift $ gets (reverse . tcsDiagnostics)
 
 -- | Run a recoverable phase and report whether it emitted any errors.
 --

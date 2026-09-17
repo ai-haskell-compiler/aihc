@@ -259,8 +259,8 @@ in rec {
           } {});
           aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-parser";
-            ver = "3.0.1.0";
-            sha256 = "0cl1wfixcd8whnis182ib7p9y7fqm20dw9ygvrib6mz56hvyn6zp";
+            ver = "4.0.0.0";
+            sha256 = "1i23x8ywbik3c77jn90imq9rgxnnng3y548lqxn497irg3gbwbzd";
           } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (

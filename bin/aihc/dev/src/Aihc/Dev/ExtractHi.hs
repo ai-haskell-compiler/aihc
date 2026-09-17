@@ -8,7 +8,6 @@
 -- by following exported names to their defining modules.
 module Aihc.Dev.ExtractHi
   ( extractPackage,
-    extractPackageMaybe,
     extractSourcePackage,
   )
 where
@@ -108,13 +107,6 @@ extractPackage :: String -> IO PackageInterface
 extractPackage pkgName = do
   (pkgId, importDir, exposedMods) <- queryPackage pkgName
   extractPackageFromQuery pkgId importDir exposedMods
-
-extractPackageMaybe :: String -> IO (Maybe PackageInterface)
-extractPackageMaybe pkgName = do
-  mPackage <- queryPackageMaybe pkgName
-  case mPackage of
-    Nothing -> pure Nothing
-    Just (pkgId, importDir, exposedMods) -> Just <$> extractPackageFromQuery pkgId importDir exposedMods
 
 extractSourcePackage :: FilePath -> String -> IO PackageInterface
 extractSourcePackage root pkgName = do
@@ -895,18 +887,6 @@ queryPackage pkgName = do
   exposedModsRaw <- readGhcPkg ["field", pkgName, "exposed-modules", "--simple-output"]
   let exposedMods = map stripComma (words exposedModsRaw)
   pure (pkgId, importDir, exposedMods)
-
-queryPackageMaybe :: String -> IO (Maybe (String, FilePath, [String]))
-queryPackageMaybe pkgName = do
-  mPkgId <- fmap trim <$> tryReadGhcPkg ["field", pkgName, "id", "--simple-output"]
-  mImportDir <- fmap trim <$> tryReadGhcPkg ["field", pkgName, "import-dirs", "--simple-output"]
-  mExposedModsRaw <- tryReadGhcPkg ["field", pkgName, "exposed-modules", "--simple-output"]
-  pure $ do
-    pkgId <- mPkgId
-    importDir <- mImportDir
-    exposedModsRaw <- mExposedModsRaw
-    let exposedMods = map stripComma (words exposedModsRaw)
-    pure (pkgId, importDir, exposedMods)
 
 -- | Query @ghc-pkg@ for a package's import directory by unit id.
 queryImportDir :: String -> IO (Maybe FilePath)
