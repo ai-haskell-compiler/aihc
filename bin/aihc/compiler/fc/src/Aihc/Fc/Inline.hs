@@ -65,6 +65,12 @@ data InlineMode
   | -- | Accept a use site that makes the program grow while the program
     -- size stays at or under the given limit.
     InlineBudget !Int
+  | -- | Inline nothing: walk every body once with the rewrites that need
+    -- no copy of a callee, such as a cast against its symmetry, a let in
+    -- the head of an application, and a lambda applied to an argument.
+    -- This is the pass that runs after the eta expansion that follows
+    -- the inliner, which leaves such shapes behind.
+    InlineSimplify
   deriving (Eq, Show)
 
 data InlineConfig = InlineConfig
@@ -296,13 +302,18 @@ simplifyValue config known recursive st name
               candidates =
                 Map.fromList
                   [ (callee, candidate callee calleeBody)
-                  | callee <- Set.toList reachable,
+                  | inlineMode config /= InlineSimplify,
+                    callee <- Set.toList reachable,
                     callee /= name,
                     callee `Set.notMember` recursive,
                     Just calleeBody <- [Map.lookup callee (inBodies st)],
                     isInlinable calleeBody
                   ]
-           in if Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+              -- With candidates, a body that references none of them and
+              -- scrutinises nothing known is left alone. A simplifying walk
+              -- has no candidates and visits every body.
+              skip = inlineMode config /= InlineSimplify && Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+           in if skip
                 then st
                 else
                   let simpl =
@@ -323,10 +334,12 @@ simplifyValue config known recursive st name
                       discount =
                         case inlineMode config of
                           InlineShrink -> 0
+                          InlineSimplify -> 0
                           InlineBudget {} -> functionArgumentDiscount
                       allowance =
                         case inlineMode config of
                           InlineShrink -> 0
+                          InlineSimplify -> 0
                           InlineBudget limit -> max 0 (limit - inTotal st)
                       (body', simplState) =
                         runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
@@ -497,7 +510,7 @@ isKnownConstructor arities expr =
         _ -> False
 
 -- | A body that can be inlined: a function, which is inlined at a call
--- that gives every parameter, or a trivial value. A constructor
+-- that gives it an argument, or a trivial value. A constructor
 -- application is not inlined as a value: a case on it selects a field
 -- through 'knownConstructor' instead, and a copy at any other site only
 -- allocates what the shared value already holds.
@@ -598,7 +611,7 @@ simplifyExpr env expr =
     ExCase scrutinee binder resultType alternatives
       | (ExVar name, args) <- collectSpine (fromMaybe scrutinee (pushHeadCasts scrutinee)),
         Just candidate <- Map.lookup name (spInline env),
-        saturates candidate args ->
+        takesArgument env candidate args ->
           inlineScrutinee env name candidate args binder resultType alternatives
       | otherwise -> do
           scrutinee' <- simplifyExpr env scrutinee
@@ -733,9 +746,37 @@ tailsAreKnown env expr =
     ExLit {} -> True
     _ -> isKnownConstructor (spArity env) expr
 
--- | Whether a call gives a candidate every parameter.
-saturates :: Candidate -> [Arg] -> Bool
-saturates candidate args = length [() | Right _ <- args] >= functionArity (candidateBody candidate)
+-- | Whether a call gives a candidate enough arguments to inline.
+--
+-- A call that gives every parameter reduces to the body. A call that
+-- gives fewer reduces to the lambdas that are left, with the arguments
+-- bound outside them, so no work moves under a lambda that a partial
+-- application shared. What the copy shows is the function value the call
+-- built: @(.) f g@ becomes @λx. f (g x)@, and a caller whose result that
+-- was is then a function of one more argument to the arity analysis,
+-- where before it returned a partial application.
+--
+-- Such a call is taken only when one of its arguments is interesting: not
+-- a variable, or a variable that names a known function. That is GHC's
+-- rule for an unsaturated call, and it is what keeps an instance method
+-- out of its own dictionary. The method helper is applied to the
+-- dictionary parameters alone, @$fEqPair$c== @a $d@, and copying its body
+-- into the constructor would make every case on the dictionary reduce to
+-- that body, whatever its size. The size rule still decides a site that
+-- this rule admits.
+takesArgument :: Simpl -> Candidate -> [Arg] -> Bool
+takesArgument env candidate args =
+  count >= functionArity (candidateBody candidate)
+    || (count > 0 && any interesting valueArgs)
+  where
+    valueArgs = rights args
+    count = length valueArgs
+    interesting argument =
+      case argument of
+        ExVar name -> Map.member name (spArity env)
+        ExTyApp body _ -> interesting body
+        ExCast body _ -> interesting body
+        _ -> True
 
 -- | A fresh copy of a candidate applied to simplified arguments. The
 -- candidate is not inlined into its own copy.
@@ -839,7 +880,7 @@ simplifyApp env headExpr args = do
   case headExpr' of
     ExVar name
       | Just candidate <- Map.lookup name (spInline env),
-        saturates candidate args' -> do
+        takesArgument env candidate args' -> do
           let original = rebuildSpine headExpr' args'
           before <- get
           result <- inlineCandidate env name candidate args'

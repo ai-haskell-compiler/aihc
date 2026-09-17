@@ -98,8 +98,8 @@ data FcCase = FcCase
     -- given number of rounds, and pin its output instead of the desugared
     -- modules.
     caseInline :: !(Maybe (InlineMode, Int)),
-    -- | Run the arity analysis and eta expand the merged program before
-    -- the inliner, and pin the result.
+    -- | Run the arity analysis and eta expand the merged program, before
+    -- the inliner and again after it when both run, and pin the result.
     caseEta :: !Bool
   }
   deriving (Eq, Show)
@@ -209,21 +209,23 @@ parseFcFixture path value = do
         caseEta = eta
       }
 
--- | The @inline@ key: @shrink@, or @budget@ with the size limit that the
--- inliner may fill, and the number of @rounds@ it may walk (four unless
--- given).
+-- | The @inline@ key: @shrink@, @simplify@, or @budget@ with the size
+-- limit that the inliner may fill, and the number of @rounds@ it may
+-- walk (four unless given).
 parseInlineMode :: Y.Value -> Y.Parser (InlineMode, Int)
 parseInlineMode value =
   case value of
     Y.String "shrink" -> pure (InlineShrink, 4)
+    Y.String "simplify" -> pure (InlineSimplify, 4)
     Y.Object obj -> do
       mode <- obj .: "mode"
       rounds <- obj .:? "rounds" .!= 4
       case mode :: Text of
         "shrink" -> pure (InlineShrink, rounds)
+        "simplify" -> pure (InlineSimplify, rounds)
         "budget" -> (\limit -> (InlineBudget limit, rounds)) <$> obj .: "limit"
-        _ -> fail "inline mode must be shrink or budget"
-    _ -> fail "inline must be shrink, or an object with mode and limit"
+        _ -> fail "inline mode must be shrink, simplify, or budget"
+    _ -> fail "inline must be shrink, simplify, or an object with mode and limit"
 
 parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->
@@ -282,10 +284,11 @@ renderFcCase tc =
     -- The modules merge into one program, as a whole-program build merges
     -- them, and the passes run on it with every public value as a root.
     -- A fixture may ask for eta expansion, inlining, or both, in the order
-    -- a build runs them.
+    -- a build runs them: eta expansion on either side of the inliner.
     lintAndRenderOptimized programs =
       let merged = mergePrograms programs
-          expanded = if caseEta tc then fst (etaExpandProgram merged) else merged
+          eta program = if caseEta tc then fst (etaExpandProgram program) else program
+          expanded = eta merged
           config (mode, rounds) =
             InlineConfig
               { inlineMode = mode,
@@ -295,7 +298,7 @@ renderFcCase tc =
               }
           inlined = case caseInline tc of
             Nothing -> expanded
-            Just inline -> fst (inlineProgram (config inline) expanded)
+            Just inline -> eta (fst (inlineProgram (config inline) expanded))
        in case renderResult inlined of
             Left renderError -> Left renderError
             Right rendered ->
