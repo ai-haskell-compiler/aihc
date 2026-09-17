@@ -180,6 +180,8 @@ in rec {
       ".hs-boot"
       ".cabal"
       ".c"
+      # The C++ source of the cxx-sources build fixture.
+      ".cpp"
       ".h"
       ".wit"
       ".yaml"
