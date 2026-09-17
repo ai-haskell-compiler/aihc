@@ -62,7 +62,7 @@ annotated:
   twiceBag :: Twice Bag -> Nat
   twiceBag (Bag n) = n
   │         │   └─ type: Nat
-  │         └─ type: Twice Bag
+  │         └─ type: Bag
   └─ type: Twice Bag → Nat
   bagFirst :: Nat
   bagFirst = S (firstElem (fromElems [Z] :: Bag))

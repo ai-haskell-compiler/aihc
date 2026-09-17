@@ -3010,7 +3010,7 @@ typeLiteralSupportTerms prim =
 addReferencedFacts :: [TyCon] -> [TcTermKey] -> TcInterface -> TcInterface -> TcInterface
 addReferencedFacts extraRoots extraTerms complete interface =
   interface
-    { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList callStackSupportTerms,
+    { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
       tcInterfaceTyConMap = tcInterfaceTyConMap interface <> supportTyCons,
       tcInterfaceDataTypeMap = tcInterfaceDataTypeMap interface <> supportDataTypes,
       tcInterfaceClassMap = tcInterfaceClassMap interface <> supportClasses
@@ -3055,6 +3055,19 @@ addReferencedFacts extraRoots extraTerms complete interface =
         <> Set.fromList callStackSupportTyCons
         <> Set.fromList extraRoots
     reachable = closeTyCons Set.empty referenced
+    -- Typeable evidence for an applied type desugars to a call of the
+    -- class's @typeRep@ selector on the evidence of each argument. The
+    -- class reaches a module as the superclass of one it names, so the
+    -- module may hold the class without ever importing the selector.
+    typeableSupportTerms =
+      [ (key, scheme)
+      | tyCon <- Set.toList reachable,
+        tyConName tyCon == "Typeable",
+        tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
+        let key = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
+        key `Map.notMember` tcInterfaceTermMap interface,
+        Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
+      ]
     reachableKeys = Set.map tyConKey reachable
     supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))
     supportDataTypes = Map.restrictKeys availableDataTypes (reachableKeys `Set.difference` Map.keysSet (tcInterfaceDataTypeMap interface))
