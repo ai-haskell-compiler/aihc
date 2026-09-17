@@ -1,0 +1,22 @@
+extensions:
+- TypeFamilies
+- FlexibleContexts
+- FlexibleInstances
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  import GHC.Types (Char)
+  class IsString a where
+    fromString :: [Char] -> a
+  class Stream s where
+    type Tokens s
+    chunk :: s -> Tokens s
+  data Parser s a = Parser (s -> a)
+  tokens :: Stream s => Tokens s -> Parser s (Tokens s)
+  tokens t = Parser (\_ -> t)
+  instance (a ~ Tokens s, IsString a, Stream s) => IsString (Parser s a) where
+    fromString s = tokens (fromString s)
+status: pass
+reason: A given equality whose right side is an associated family application rewrites a class wanted on that application to the given class constraint.

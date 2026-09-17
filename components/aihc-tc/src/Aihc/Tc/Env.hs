@@ -25,6 +25,7 @@ module Aihc.Tc.Env
     AssociatedTypeInfo (..),
     FunDep (..),
     classInfoKey,
+    classFieldTypes,
 
     -- * Instance info
     InstanceInfo (..),
@@ -247,6 +248,33 @@ data ClassInfo = ClassInfo
   deriving (Eq, Show, Read, Generic)
 
 instance NFData ClassInfo
+
+-- | The field types of a class dictionary, in layout order: the superclass
+-- dictionaries followed by the methods, under a substitution for the class
+-- variables.
+classFieldTypes :: ClassInfo -> Map Unique TcType -> [TcType]
+classFieldTypes classInfo substitution =
+  map (applySubst substitution) (ciSuperClassTypes classInfo)
+    <> map (methodFieldType classInfo substitution . snd) (ciMethods classInfo)
+
+methodFieldType :: ClassInfo -> Map Unique TcType -> TypeScheme -> TcType
+methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
+  applySubst substitution $
+    foldr TcForAllTy qualifiedBody extraTypeVariables
+  where
+    classVariables = ciTyVars classInfo
+    extraTypeVariables = filter (`notElem` classVariables) typeVariables
+    remainingPredicates = filter (not . isClassPredicate) predicates
+    qualifiedBody
+      | null remainingPredicates = body
+      | otherwise = TcQualTy remainingPredicates body
+    isClassPredicate predicate =
+      case predicate of
+        ClassPred className _ -> tyConKey className == tyConKey (ciTyCon classInfo)
+        EqPred {} -> False
+        QuantifiedPred {} -> False
+        IParamPred {} -> False
+        IrredPred {} -> False
 
 -- | A functional dependency of a class. Both sides are positions into
 -- 'ciTyVars', so the dependency survives the renaming that an interface

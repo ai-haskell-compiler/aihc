@@ -1,14 +1,14 @@
 -- | Congruence closure with explicit nominal evidence.
 module Aihc.Tc.Solve.Congruence
   ( proveGivenEquality,
+    givenEqualities,
   )
 where
 
-import Aihc.Tc.Env (ClassInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), classFieldTypes)
 import Aihc.Tc.Evidence
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Dict (classFieldTypes)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Data.List qualified as List
