@@ -23,6 +23,9 @@ module System.Posix.Internals
     -- * The runtime
     hostIsThreaded,
 
+    -- * Descriptors
+    fdGetMode,
+
     -- * The calls and their constants
     module System.Posix.Internals.Syscalls,
   )
@@ -32,12 +35,15 @@ import Control.Monad (when)
 import Data.Bool (Bool (..))
 import Data.Foldable (elem)
 import Data.Maybe (Maybe (..))
+import Foreign.C.Error (Errno (..), eINVAL, errnoToIOError)
 import Foreign.C.String (CString, CStringLen, newCString, peekCString, peekCStringLen, withCString)
-import GHC.Base ((>>))
+import GHC.Base (Monad (..), (>>))
+import GHC.IO.IOMode (IOMode (..))
+import GHC.IO.Runtime (decodeError, descriptorMode)
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..), ioError)
 import System.Posix.Internals.Syscalls
 import System.Posix.Internals.Types
-import Prelude (FilePath, IO)
+import Prelude (FilePath, IO, Int, fromIntegral, (<), (==))
 
 -- | Run an action on the encoded form of a file path.
 --
@@ -92,3 +98,35 @@ throwInternalNulError path =
 -- comes in both forms.
 hostIsThreaded :: Bool
 hostIsThreaded = False
+
+-- | The mode a descriptor was opened with.
+--
+-- A descriptor the program already has says how it may be used, and that is
+-- what decides whether a 'GHC.IO.Handle.Types.Handle' over it reads, writes
+-- or does both. GHC asks @fcntl@ for the @open(2)@ flags; here the runtime
+-- answers, because it is the runtime that will own the descriptor, and the
+-- host with no descriptors to report a mode for says so rather than
+-- guessing.
+fdGetMode :: FD -> IO IOMode
+fdGetMode descriptor = do
+  mode <- descriptorMode (fromIntegral descriptor)
+  case mode < 0 of
+    True -> failWith (Errno (fromIntegral (decodeError mode)))
+    False -> case ioModeOfNumber mode of
+      Just ioMode -> return ioMode
+      Nothing -> failWith eINVAL
+  where
+    failWith errno = ioError (errnoToIOError "fdGetMode" errno Nothing Nothing)
+
+-- | The 'IOMode' an open request numbers this way.
+ioModeOfNumber :: Int -> Maybe IOMode
+ioModeOfNumber number =
+  case number == 0 of
+    True -> Just ReadMode
+    False -> case number == 1 of
+      True -> Just WriteMode
+      False -> case number == 2 of
+        True -> Just AppendMode
+        False -> case number == 3 of
+          True -> Just ReadWriteMode
+          False -> Nothing

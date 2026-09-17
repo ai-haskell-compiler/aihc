@@ -1,0 +1,76 @@
+annotated:
+- |-
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies, FlexibleContexts, KindSignatures, StarIsType, TypeFamilies, NoImplicitPrelude #-}
+  module Main where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  type family Shape a :: *
+              └─ type: Type → Type
+  class Visit s where
+  └─ class methods: visit ∷ ∀ s. (Visit s) ⇒ s → ()
+    visit :: s -> Unit
+  instance Visit Unit where
+  └─ $fVisitUnit ∷ () ⇒ Visit ()
+    visit _ = Unit
+    │     └─ type: ()
+    └─ visit ∷ () → ()
+  class Walk a where
+  └─ class methods: walk ∷ ∀ a. (Walk a) ⇒ a → ()
+    walk :: a -> Unit
+    default walk :: Visit (Shape a) => a -> Unit
+    walk _ = Unit
+    │    └─ type: a
+    └─ walk ∷ ∀ a. (Walk a, Visit (Shape a)) ⇒ a → ()
+  data Leaf = Leaf
+  │    │      └─ type: Leaf
+  │    └─ type: Type
+  └─ deriving plans: anyclass Walk Leaf [context: ()] [methods: walk]
+    deriving anyclass Walk
+                      └─ $fWalkLeaf ∷ () ⇒ Walk Leaf
+  type instance Shape Leaf = Unit
+  data Pair a = Pair a a
+  │    │        └─ type: ∀ a. a → a → Pair a
+  │    └─ type: Type → Type
+  └─ deriving plans: anyclass Walk (Pair a) [context: Visit a] [methods: walk]
+    deriving anyclass Walk
+                      └─ $fWalkPaira ∷ ∀ a. (Visit a) ⇒ Walk (Pair a)
+  type instance Shape (Pair a) = a
+  data Stuck = Stuck
+  │    │       └─ type: Stuck
+  │    └─ type: Type
+  └─ deriving plans: anyclass Walk Stuck [context: infer] [methods: walk]
+    deriving anyclass Walk
+                      └─ error: unsolved constraint Visit Shape Stuck
+extensions:
+- DefaultSignatures
+- DeriveAnyClass
+- DerivingStrategies
+- FlexibleContexts
+- KindSignatures
+- StarIsType
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies, FlexibleContexts, KindSignatures, StarIsType, TypeFamilies, NoImplicitPrelude #-}
+  module Main where
+  data Unit = Unit
+  type family Shape a :: *
+  class Visit s where
+    visit :: s -> Unit
+  instance Visit Unit where
+    visit _ = Unit
+  class Walk a where
+    walk :: a -> Unit
+    default walk :: Visit (Shape a) => a -> Unit
+    walk _ = Unit
+  data Leaf = Leaf
+    deriving anyclass Walk
+  type instance Shape Leaf = Unit
+  data Pair a = Pair a a
+    deriving anyclass Walk
+  type instance Shape (Pair a) = a
+  data Stuck = Stuck
+    deriving anyclass Walk
+status: pass
+reason: a default signature that constrains a type family application reduces it with the equations in scope while the anyclass context is inferred

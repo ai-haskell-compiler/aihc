@@ -1,0 +1,25 @@
+extensions:
+- TypeFamilies
+- FunctionalDependencies
+- MultiParamTypeClasses
+- FlexibleContexts
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  import GHC.Types (Bool(..))
+  data Word8 = W8
+  class Num a where
+    fromInteger :: Bool -> a
+  instance Num Word8 where
+    fromInteger _ = W8
+  class Stream s where
+    type Token s
+    tokenOf :: s -> Token s
+  class Stream s => MonadParsec s m | m -> s where
+    token :: Token s -> m (Token s)
+  newline :: (MonadParsec s m, Token s ~ Word8) => m (Token s)
+  newline = token (fromInteger True)
+status: pass
+reason: A given equality whose left side is an associated family application rewrites a class wanted on that application.

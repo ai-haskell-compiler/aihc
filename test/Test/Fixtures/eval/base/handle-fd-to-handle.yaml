@@ -1,0 +1,34 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (SomeException, try)
+    import GHC.IO.Handle.FD (fdToHandle)
+    import GHC.IO.Handle.Types (Handle)
+    import System.IO (hFlush, hPutStrLn)
+
+    -- A descriptor this high is open in no process the suite runs in, so the
+    -- adoption fails the same way on every host.
+    unopened :: Int
+    unopened = 1000000
+
+    main :: IO ()
+    main = do
+      -- Descriptor 1 is the program's own output, and its mode says the
+      -- handle over it writes. The handle is left open: closing it would
+      -- close the output of the program.
+      output <- fdToHandle 1
+      hPutStrLn output "adopted descriptor 1 writes"
+      hFlush output
+      adopted <- try (fdToHandle (fromIntegral unopened)) :: IO (Either SomeException Handle)
+      case adopted of
+        Left err -> putStrLn ("unopened descriptor raises: " ++ show (seq err True))
+        Right _ -> putStrLn "unopened descriptor raises: False"
+stdout: |
+  adopted descriptor 1 writes
+  unopened descriptor raises: True
+output: |
+  ()
+expression: main
+status: pass
+reason: fdToHandle asks the runtime for the mode of a descriptor the program already has and builds a handle over it, and raises the error the runtime reports when there is no such descriptor

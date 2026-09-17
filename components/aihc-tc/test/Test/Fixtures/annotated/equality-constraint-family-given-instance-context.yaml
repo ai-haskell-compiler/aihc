@@ -1,0 +1,52 @@
+annotated:
+- |-
+  module Test where
+  import GHC.Types (Char)
+  class IsString a where
+  └─ class methods: fromString ∷ ∀ a. (IsString a) ⇒ [Char] → a
+    fromString :: [Char] -> a
+  class Stream s where
+  └─ class methods: chunk ∷ ∀ s. (Stream s) ⇒ s → Tokens s
+    type Tokens s
+         └─ type: Type → Type
+    chunk :: s -> Tokens s
+  data Parser s a = Parser (s -> a)
+       │            └─ type: ∀ s a. (s → a) → Parser s a
+       └─ type: Type → Type → Type
+  tokens :: Stream s => Tokens s -> Parser s (Tokens s)
+  tokens t = Parser (\_ -> t)
+  │      │   │       │└─ type: s
+  │      │   │       │└─ type: s
+  │      │   │       └─ type: s → Tokens s
+  │      │   └─ type: (s → Tokens s) → Parser s (Tokens s); type-args: s, Tokens s
+  │      └─ type: Tokens s
+  └─ type: ∀ s. (Stream s) ⇒ Tokens s → Parser s (Tokens s)
+  instance (a ~ Tokens s, IsString a, Stream s) => IsString (Parser s a) where
+  └─ $fIsStringParsersa ∷ ∀ a s. (a ~ (Tokens s), IsString a, Stream s) ⇒ IsString (Parser s a)
+    fromString s = tokens (fromString s)
+    │          │   │       └─ type: [GHC.Types.Char] → Tokens s; type-args: Tokens s; evidence: cast(given IsString a, sym (IsString sym (given a ~ Tokens s)))
+    │          │   └─ type: Tokens s → Parser s (Tokens s); type-args: s; evidence: given Stream s
+    │          └─ type: [GHC.Types.Char]
+    └─ fromString ∷ [Char] → Parser s a
+extensions:
+- TypeFamilies
+- FlexibleContexts
+- FlexibleInstances
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  import GHC.Types (Char)
+  class IsString a where
+    fromString :: [Char] -> a
+  class Stream s where
+    type Tokens s
+    chunk :: s -> Tokens s
+  data Parser s a = Parser (s -> a)
+  tokens :: Stream s => Tokens s -> Parser s (Tokens s)
+  tokens t = Parser (\_ -> t)
+  instance (a ~ Tokens s, IsString a, Stream s) => IsString (Parser s a) where
+    fromString s = tokens (fromString s)
+status: pass
+reason: A given equality whose right side is an associated family application rewrites a class wanted on that application to the given class constraint.

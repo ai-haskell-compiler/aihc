@@ -372,6 +372,12 @@ const AihcResume *aihc_thread_done(AihcMachine *machine);
 void *aihc_io_stdin(void);
 void *aihc_io_stdout(void);
 void *aihc_io_stderr(void);
+/* The access mode of a descriptor the program already has, numbered as an
+   open request numbers its mode, or a negative aihc_io_error. */
+int64_t aihc_io_descriptor_mode(int64_t descriptor);
+/* An IO handle over a descriptor the program already has, or an open error.
+   The host that has no descriptors to adopt reports one. */
+void *aihc_io_adopt(int64_t descriptor, int64_t mode);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_errno_get(void);
@@ -430,4 +436,12 @@ void aihc_set_exit_status(AihcMachine *machine, int64_t status);
 int64_t aihc_get_exit_status(const AihcMachine *machine);
 _Noreturn void aihc_exit_process(int64_t status);
 AihcEntry aihc_halt(AihcMachine *machine);
+/* The entry points of GHC's RTS API that package C code calls, declared for
+   it by the Rts.h that Aihc.Hackage.Headers writes. Their names are GHC's,
+   because the callers are not aihc's to rename. */
+void startTimer(void);
+void stopTimer(void);
+void blockUserSignals(void);
+void unblockUserSignals(void);
+int rtsSupportsBoundThreads(void);
 #endif

@@ -15,6 +15,7 @@ module GHC.Exts
     FunPtr (..),
     Constraint,
     coerce,
+    considerAccessible,
     lazy,
     inline,
     oneShot,
@@ -124,6 +125,14 @@ import GHC.Prim
 import GHC.Ptr (FunPtr (..), Ptr (..))
 import GHC.Types (Bool (..), Constraint, Double (..), Float (..), Int (..), Levity (..), RuntimeRep (..), TYPE, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
+
+-- | 'True', written so that the pattern-match checker cannot tell.
+--
+-- GHC uses it to mark a branch that the checker would otherwise call
+-- unreachable. Nothing here checks pattern matches, so it is an ordinary
+-- 'True' that the optimiser is not told about.
+considerAccessible :: Bool
+considerAccessible = True
 
 -- | The value is returned unchanged. Strictness analysis does not apply.
 lazy :: a -> a

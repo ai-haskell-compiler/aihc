@@ -766,9 +766,15 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
       scrutCt <- constructorScrutineeCt gadtHandling sp constructorKey scrutTy conResTy
       subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
       predicateGivens <- mapM (constructorGiven sp conName) predicates
+      -- The annotation carries the constructor's result type, not the
+      -- scrutinee's: the desugarer reads the type arguments of a newtype
+      -- coercion from it, and a scrutinee type may be an unreduced type
+      -- family application (@MutableGen (STGen g) (ST s)@) whose arguments
+      -- are not the newtype's.
       let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
           annotatedPattern
-            | null predicateGivens && null skolems = rebuiltPattern
+            | null predicateGivens && null skolems =
+                annotatePendingPatternAt (patternOwnSpan originalPat <|> sp) (pendingAnnotation conResTy [] [] []) rebuiltPattern
             | otherwise =
                 PAnn
                   ( mkAnnotation

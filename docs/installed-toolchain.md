@@ -108,6 +108,17 @@ the `*_HOST_OS` and `*_HOST_ARCH` macros. `MachDeps.h` gives the Haskell
 sizes. `ghcautoconf.h` has no feature macros, because aihc runs no configure
 script.
 
+Two more headers stand in for the runtime's own. `Stg.h` spells the Haskell
+types the way the RTS does, `StgInt` and `StgWord` and their sized siblings,
+each an alias of the `HsFFI.h` type of the same width. `Rts.h` includes it
+and declares the entry points that package C code calls: `stopTimer` and
+`startTimer`, which `unix` and `process` call around `fork`,
+`blockUserSignals` and `unblockUserSignals`, and `rtsSupportsBoundThreads`.
+The runtime defines each of them, as a no-op where aihc has nothing to do:
+it runs no interval timer and installs no signal handlers. Neither header
+describes a closure or a capability, so C code that reads GHC's heap fails to
+compile instead of linking against a heap with another layout.
+
 ## Linking on another host
 
 `aihc build --no-link` stops before the link and writes a bundle directory
