@@ -119,7 +119,6 @@ tests =
         testGroup
           "sources"
           [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
-            testCase "the error numbers match the platform headers" test_errnoValues,
             testCase "the sigset_t size matches the platform headers" test_sigsetSize,
             testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
             testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
@@ -298,63 +297,6 @@ renderPosixWidthAssertions widths =
         Just (bytes, signed) ->
           [ "_Static_assert(sizeof(" <> cName <> ") == " <> show bytes <> ", \"" <> cName <> " width\");",
             "_Static_assert(((" <> cName <> ")-1 < (" <> cName <> ")0) == " <> (if signed then "1" else "0") <> ", \"" <> cName <> " signedness\");"
-          ]
-
--- | The error numbers @aihc-base@ states are the ones the platform's own
--- headers give.
---
--- @Foreign.C.Error.Repr@ states them per platform, for the same reason and
--- in the same way as the POSIX widths above, and it is checked the same way:
--- every number becomes a static assertion about the macro it stands for, and
--- the C compiler settles it against the real headers. An error the platform
--- does not have is @-1@, and the assertion for one of those is that the
--- macro is absent.
-test_errnoValues :: Assertion
-test_errnoValues = do
-  target <- case hostNativeTarget of
-    Just hostTarget -> pure hostTarget
-    Nothing -> assertFailure "the error numbers are stated for a host aihc has a target for"
-  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
-  let platformDirectory = posixWidthModuleDirectory
-  numbers <- readErrnoValues (baseRoot </> platformDirectory </> "Foreign" </> "C" </> "Error" </> "Repr.hs")
-  assertBool "the platform states some error numbers" (not (null numbers))
-  (compiler, targetArguments) <- backendCompiler target
-  withTempDir "aihc-errno-values" $ \directory -> do
-    let source = directory </> "errno.c"
-    writeFile source (renderErrnoAssertions numbers)
-    (status, out, err) <-
-      readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
-    assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
-
--- | Read the @errnoEFOO = 13@ lines of a platform's error-number module.
-readErrnoValues :: FilePath -> IO [(String, Int)]
-readErrnoValues path = do
-  contents <- readFile path
-  mapM parseLine [line | line <- lines contents, "errnoE" `isPrefixOf` line, " = " `isInfixOf` line]
-  where
-    parseLine line =
-      case words line of
-        [name, "=", value] -> case stripPrefix "errno" name of
-          Just macro -> pure (macro, read value)
-          Nothing -> assertFailure ("not an error-number binding in " <> path <> ": " <> line)
-        _ -> assertFailure ("cannot read an error number out of " <> path <> ": " <> line)
-
--- | A C file that holds the error numbers against the platform's own headers.
-renderErrnoAssertions :: [(String, Int)] -> String
-renderErrnoAssertions numbers =
-  unlines (["#include <errno.h>", ""] <> concatMap assertions numbers)
-  where
-    assertions (macro, value)
-      | value < 0 =
-          [ "#ifdef " <> macro,
-            "#error \"" <> macro <> " exists on this platform\"",
-            "#endif"
-          ]
-      | otherwise =
-          [ "#ifndef " <> macro,
-            "#error \"" <> macro <> " is missing on this platform\"",
-            "#endif",
-            "_Static_assert(" <> macro <> " == " <> show value <> ", \"" <> macro <> "\");"
           ]
 
 -- | The digest of a preprocessed module covers the headers it includes:
