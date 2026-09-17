@@ -1,0 +1,38 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- FlexibleContexts
+- KindSignatures
+- ScopedTypeVariables
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, KindSignatures, ScopedTypeVariables, TypeFamilies, TypeOperators, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Constraint)
+  type family Assert (b :: Bool) (c :: Constraint) :: Constraint where
+    Assert 'True c = ()
+    Assert b c = c
+  type family Same (a :: Bool) (b :: Bool) :: Bool where
+    Same a a = 'True
+    Same a b = 'False
+  -- GHC's @x <= y@ has this shape: a constraint synonym written infix,
+  -- standing for a family application that is stuck until its argument
+  -- is known.
+  type a <== b = Assert (Same a b) ()
+  infix 4 <==
+  class (Big g <== 'True) => Sized g where
+    type Big g :: Bool
+    size :: g -> Bool
+  data S = S
+  instance Sized S where
+    type Big S = 'True
+    size _ = True
+  useStuck :: forall g. (Sized g, Big g <== 'True) => g -> Bool
+  useStuck = size
+  useSolved :: Bool
+  useSolved = useStuck S
+status: pass
+reason: a constraint synonym applied infix expands like one applied prefix, and its family-headed expansion is the same irreducible predicate whether it is a given or a wanted
