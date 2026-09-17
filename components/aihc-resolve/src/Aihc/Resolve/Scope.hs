@@ -51,6 +51,8 @@ import Aihc.Parser.Syntax
     ImportDecl (..),
     ImportItem (..),
     ImportSpec (..),
+    InstanceDecl (..),
+    InstanceDeclItem (..),
     Module (..),
     Name (..),
     NameType (..),
@@ -80,7 +82,7 @@ import Aihc.Resolve.Types
 import Control.DeepSeq (NFData)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -406,7 +408,33 @@ declExportedNames recordFields decl =
           fields = patSynFieldNames patSyn
        in DeclExports (name : fields) [] Map.empty (patSynRecordFieldMap name fields) Map.empty Map.empty Map.empty
     DeclPatSynSig names _ -> DeclExports names [] Map.empty Map.empty Map.empty Map.empty Map.empty
-    _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty Map.empty
+    -- The data family instances of a class instance bind their constructors
+    -- and record fields at the top level, as @data instance@ declarations do.
+    DeclInstance instanceDecl ->
+      foldr unionDeclExports noDeclExports (mapMaybe instanceItemDataFamilyExports (instanceDeclItems instanceDecl))
+    _ -> noDeclExports
+
+noDeclExports :: DeclExports
+noDeclExports = DeclExports [] [] Map.empty Map.empty Map.empty Map.empty Map.empty
+
+unionDeclExports :: DeclExports -> DeclExports -> DeclExports
+unionDeclExports (DeclExports leftTerms leftTypes leftConstructors leftFields leftMethods leftAssociated leftFixities) (DeclExports rightTerms rightTypes rightConstructors rightFields rightMethods rightAssociated rightFixities) =
+  DeclExports
+    (leftTerms <> rightTerms)
+    (leftTypes <> rightTypes)
+    (Map.unionWith (<>) leftConstructors rightConstructors)
+    (Map.union leftFields rightFields)
+    (Map.union leftMethods rightMethods)
+    (Map.union leftAssociated rightAssociated)
+    (Map.union leftFixities rightFixities)
+
+-- | The names a data family instance inside a class instance binds.
+instanceItemDataFamilyExports :: InstanceDeclItem -> Maybe DeclExports
+instanceItemDataFamilyExports item =
+  case item of
+    InstanceItemAnn _ inner -> instanceItemDataFamilyExports inner
+    InstanceItemDataFamilyInst familyInst -> Just (dataFamilyInstExports familyInst)
+    _ -> Nothing
 
 -- | The field selectors of a record pattern synonym.
 patSynFieldNames :: PatSynDecl -> [UnqualifiedName]

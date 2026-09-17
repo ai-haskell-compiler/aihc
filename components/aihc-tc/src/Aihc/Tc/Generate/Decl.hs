@@ -154,6 +154,7 @@ import Control.Monad (filterM, foldM, forM, forM_, replicateM, unless, void, whe
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
+import Data.Either (partitionEithers)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
@@ -285,6 +286,7 @@ declBindings wiring kinds origin decl =
       maybe [] (\constructor -> dataConBindings wiring origin constructor <> recordSelectorBindings origin constructor) (newtypeDeclConstructor newtypeDecl)
     DeclDataFamilyInst familyInst ->
       concatMap (dataConBindings wiring origin) (dataFamilyInstConstructors familyInst)
+        <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
     _ -> []
 
 annotationBindings :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
@@ -473,7 +475,7 @@ tcModule unit = do
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
 tcModuleScc :: [ModuleUnit] -> TcM [Module]
-tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
+tcModuleScc sourceUnits = withPolyKindOrigins polyKindOrigins $ do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
   -- bodies, then register value-level declarations against those expanded
@@ -535,13 +537,48 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
   where
+    units = [unit {moduleUnitAst = hoistAssociatedDataFamilies (moduleUnitAst unit)} | unit <- sourceUnits]
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
+
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration
 
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
 atDecl :: (Decl -> TcM a) -> Decl -> TcM a
 atDecl check declaration = withAmbientSpan (peelDeclSpan declaration) (check declaration)
+
+-- | Move the associated data families of a module to the top level. The
+-- data family a class declares and the instance a class instance gives it
+-- mean the same as the @data family@ and @data instance@ declarations
+-- written beside the class and the instance, which is how the checker and
+-- every later phase see them. Each moved declaration follows the class or
+-- instance it came from and keeps its span.
+hoistAssociatedDataFamilies :: Module -> Module
+hoistAssociatedDataFamilies modu = modu {moduleDecls = concatMap hoistDecl (moduleDecls modu)}
+  where
+    hoistDecl decl =
+      case decl of
+        DeclAnn ann inner ->
+          case hoistDecl inner of
+            inner' : hoisted -> DeclAnn ann inner' : hoisted
+            [] -> [decl]
+        DeclClass classDecl ->
+          let (items, families) = partitionEithers (map classItem (classDeclItems classDecl))
+           in DeclClass classDecl {classDeclItems = items} : families
+        DeclInstance instanceDecl ->
+          let (items, instances) = partitionEithers (map instanceItem (instanceDeclItems instanceDecl))
+           in DeclInstance instanceDecl {instanceDeclItems = items} : instances
+        _ -> [decl]
+    classItem item =
+      case item of
+        ClassItemAnn ann inner -> either (Left . ClassItemAnn ann) (Right . DeclAnn ann) (classItem inner)
+        ClassItemDataFamilyDecl familyDecl -> Right (DeclDataFamilyDecl familyDecl)
+        _ -> Left item
+    instanceItem item =
+      case item of
+        InstanceItemAnn ann inner -> either (Left . InstanceItemAnn ann) (Right . DeclAnn ann) (instanceItem inner)
+        InstanceItemDataFamilyInst familyInst -> Right (DeclDataFamilyInst familyInst)
+        _ -> Left item
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -1013,15 +1050,25 @@ registerDerivedInstances selected modu = do
     origin = resolvedModuleOrigin modu
 
 annotateDeclDerivingTc :: [Extension] -> Decl -> TcM Decl
-annotateDeclDerivingTc extensions decl =
-  case decl of
-    DeclAnn annotation inner -> DeclAnn annotation <$> annotateDeclDerivingTc extensions inner
-    DeclData dataDecl ->
-      annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) decl
-    DeclNewtype newtypeDecl ->
-      annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
-    DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
-    _ -> pure decl
+annotateDeclDerivingTc extensions = go Nothing
+  where
+    go declSpan decl =
+      case decl of
+        DeclAnn annotation inner -> DeclAnn annotation <$> go (fromAnnotation annotation <|> declSpan) inner
+        DeclData dataDecl ->
+          annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) decl
+        DeclNewtype newtypeDecl ->
+          annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
+        DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
+        -- Deriving works from a datatype header with parameters; a data
+        -- instance has an applied head instead, which the planner does not
+        -- take yet. The instances are missing, so a use of one is an
+        -- unsolved constraint at the use site.
+        DeclDataFamilyInst familyInst
+          | not (null (dataFamilyInstDeriving familyInst)) -> do
+              emitWarning declSpan (OtherError "deriving clauses on data family instances are not supported yet; no instance is derived")
+              pure decl
+        _ -> pure decl
 
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Bool -> Decl -> TcM Decl
 annotateDeclTc origin classMethods checkedValueTypes derived decl =
@@ -4069,19 +4116,24 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                         tciTypeSynonym = Nothing,
                         tciInjectivity = Nothing
                       }
-                  instanceInfo =
-                    DataFamilyInstanceInfo
-                      { dfiiFamilyName = familyName,
-                        dfiiFamilyType = familyType,
-                        dfiiTyVars = map paramTyVar paramInfos,
-                        dfiiRepresentationTyCon = representationTyCon,
-                        dfiiAxiomName = axiomName,
-                        dfiiConstructorNames = constructorNames,
-                        dfiiIsNewtype = dataFamilyInstIsNewtype familyInst
-                      }
               extendTyConEnvPermanent representationInfo
-              addDataFamilyInstance instanceInfo
-              mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
+              bindings <- mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
+              -- The constructors belong to the module of the instance, which
+              -- the representation type constructor names.
+              constructors <- concat <$> mapM (checkedDataConInfos representationTyCon) (dataFamilyInstConstructors familyInst)
+              addDataFamilyInstance
+                DataFamilyInstanceInfo
+                  { dfiiFamilyName = familyName,
+                    dfiiFamilyType = familyType,
+                    dfiiTyVars = map paramTyVar paramInfos,
+                    dfiiRepresentationTyCon = representationTyCon,
+                    dfiiAxiomName = axiomName,
+                    dfiiConstructorNames = constructorNames,
+                    dfiiConstructors = constructors,
+                    dfiiIsNewtype = dataFamilyInstIsNewtype familyInst
+                  }
+              selectorBindings <- registerRecordSelectors (packageName, moduleName') constructors
+              pure (bindings <> selectorBindings)
         _ -> do
           emitError Nothing (OtherError ("data-family instance head does not name a data family: " <> T.unpack (tyConName familyTyCon)))
           pure []

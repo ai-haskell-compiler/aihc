@@ -399,7 +399,7 @@ resolveDeclCore termDefinition decl =
     DeclTypeFamilyDecl familyDecl ->
       DeclTypeFamilyDecl <$> resolveTypeFamilyDecl familyDecl
     DeclDataFamilyDecl dataFamilyDecl ->
-      DeclDataFamilyDecl <$> resolveDataFamilyDecl dataFamilyDecl
+      DeclDataFamilyDecl <$> resolveDataFamilyDecl "data family " dataFamilyDecl
     DeclTypeFamilyInst familyInst ->
       DeclTypeFamilyInst <$> resolveTypeFamilyInst familyInst
     DeclDataFamilyInst dataFamilyInst ->
@@ -546,7 +546,7 @@ resolveClassDeclItem classDeclItem =
       | ignoredPragma (pragmaType pragma) -> pure classDeclItem
       | otherwise -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
     ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> resolveTypeFamilyDecl familyDecl
-    ClassItemDataFamilyDecl {} -> annotateUnhandledClassDeclItem <$> currentSpan <*> pure classDeclItem
+    ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> resolveDataFamilyDecl "data " familyDecl
     ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> resolveTypeFamilyInst familyInst
 
 resolveInstanceDecl :: InstanceDecl -> ResolveM InstanceDecl
@@ -647,7 +647,10 @@ resolveInstanceDeclItem headClass instanceDeclItem =
       scope <- currentScope
       let familyScope = associatedTypeInstanceScope headClass scope (typeFamilyInstLhs familyInst)
       InstanceItemTypeFamilyInst <$> extendScope familyScope (resolveTypeFamilyInst familyInst)
-    InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+    InstanceItemDataFamilyInst familyInst -> do
+      scope <- currentScope
+      let familyScope = associatedTypeInstanceScope headClass scope (dataFamilyInstHead familyInst)
+      InstanceItemDataFamilyInst <$> extendScope familyScope (resolveDataFamilyInst familyInst)
     InstanceItemPragma pragma
       | ignoredPragma (pragmaType pragma) -> pure instanceDeclItem
       | otherwise -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
@@ -1274,10 +1277,17 @@ declSignatureScope decl signatureScopes =
     Just (_, name) -> Map.lookup (renderUnqualifiedName name) signatureScopes
     Nothing -> Nothing
 
+-- | Bind a sequence of patterns left to right. A view pattern's expression
+-- sees the variables that the patterns before it bind, so
+-- @f egr (find egr -> i)@ and @(x, f x -> y)@ resolve as GHC scopes them.
 bindPatterns :: [Pattern] -> ResolveM (Scope, [Pattern])
-bindPatterns pats = do
-  (scopes, pats') <- mapAndUnzipM bindPattern pats
-  pure (foldr unionScope emptyScope scopes, pats')
+bindPatterns = go emptyScope
+  where
+    go bound [] = pure (bound, [])
+    go bound (pat : pats) = do
+      (scope, pat') <- extendScope bound (bindPattern pat)
+      (bound', pats') <- go (scope `unionScope` bound) pats
+      pure (bound', pat' : pats')
 
 bindPattern :: Pattern -> ResolveM (Scope, Pattern)
 bindPattern pat =
@@ -1591,13 +1601,16 @@ resolveTypeFamilyInst familyInst = do
         typeFamilyInstRhs = rhs'
       }
 
-resolveDataFamilyDecl :: DataFamilyDecl -> ResolveM DataFamilyDecl
-resolveDataFamilyDecl familyDecl = do
+-- | Resolve a data family declaration. The keyword is what the declaration
+-- starts with, which locates the family name inside the declaration span:
+-- @data family@ at the top level and @data@ inside a class body.
+resolveDataFamilyDecl :: Text -> DataFamilyDecl -> ResolveM DataFamilyDecl
+resolveDataFamilyDecl keyword familyDecl = do
   scope <- currentScope
   declSpan <- currentSpan
   let resolveHeadName name =
         let rendered = renderUnqualifiedName name
-            span' = declKeywordNameSpan "data family " declSpan rendered
+            span' = declKeywordNameSpan keyword declSpan rendered
          in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
   head' <- resolveBinderHeadKinds resolveHeadName (dataFamilyDeclHead familyDecl)
   kind' <- traverse resolveType (dataFamilyDeclKind familyDecl)

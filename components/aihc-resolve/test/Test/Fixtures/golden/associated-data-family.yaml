@@ -1,0 +1,75 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Scheduler (..), Stat (..), Backoff (..), Nat (..)) where
+    data Nat = Z | S Nat
+    data Backoff = Backoff Nat
+    class Scheduler s where
+      data Stat s
+      isBanned :: Stat s -> Nat
+    instance Scheduler Backoff where
+      data Stat Backoff = BSS { bannedUntil :: Nat, timesBanned :: Nat }
+      isBanned s = bannedUntil s
+  - |
+    module Consumer where
+    import Provider (Scheduler (..), Stat (..), Backoff (..), Nat (..))
+    banned :: Nat
+    banned = isBanned (BSS (S Z) Z)
+    count :: Stat Backoff -> Nat
+    count = timesBanned
+annotated:
+  - |-
+    module Consumer where
+    import Provider (Scheduler (..), Stat (..), Backoff (..), Nat (..))
+    banned :: Nat
+    │         └─ t Provider
+    └─ v Consumer
+    banned = isBanned (BSS (S Z) Z)
+    │        │         │    │ │  └─ v Provider
+    │        │         │    │ └─ v Provider
+    │        │         │    └─ v Provider
+    │        │         └─ v Provider
+    │        └─ v Provider
+    └─ v Consumer
+    count :: Stat Backoff -> Nat
+    │        │    │          └─ t Provider
+    │        │    └─ t Provider
+    │        └─ t Provider
+    └─ v Consumer
+    count = timesBanned
+    │       └─ v Provider
+    └─ v Consumer
+  - |-
+    module Provider (Scheduler (..), Stat (..), Backoff (..), Nat (..)) where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Provider
+         │     │   └─ v Provider
+         │     └─ v Provider
+         └─ t Provider
+    data Backoff = Backoff Nat
+         │         │       └─ t Provider
+         │         └─ v Provider
+         └─ t Provider
+    class Scheduler s where
+          └─ t Provider
+      data Stat s
+           └─ t Provider
+      isBanned :: Stat s -> Nat
+      │           │         └─ t Provider
+      │           └─ t Provider
+      └─ v Provider
+    instance Scheduler Backoff where
+             │         └─ t Provider
+             └─ t Provider
+      data Stat Backoff = BSS { bannedUntil :: Nat, timesBanned :: Nat }
+           │    │         └─ v Provider        └─ t Provider       └─ t Provider
+           │    └─ t Provider
+           └─ t Provider
+      isBanned s = bannedUntil s
+      │        │   │           └─ v 0
+      │        │   └─ v Provider
+      │        └─ v 0
+      └─ v Provider
+status: pass
+reason: an associated data family and its instance resolve like top-level data family declarations, and the instance constructors and fields are top-level names of the instance module

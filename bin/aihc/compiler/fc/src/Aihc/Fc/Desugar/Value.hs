@@ -253,10 +253,15 @@ prepareValueInterface interface =
     constructorInfos =
       Map.fromListWith
         (<>)
-        [ (dciName constructor, [constructor])
-        | dataType <- tcInterfaceDataTypes interface,
-          constructor <- dtiConstructors dataType
-        ]
+        ( [ (dciName constructor, [constructor])
+          | dataType <- tcInterfaceDataTypes interface,
+            constructor <- dtiConstructors dataType
+          ]
+            <> [ (dciName constructor, [constructor])
+               | info <- tcInterfaceDataFamilyInstances interface,
+                 constructor <- dfiiConstructors info
+               ]
+        )
     newtypes =
       Map.fromList
         [ (TcTermGlobal package moduleName' (dciName constructor), dataType)
@@ -543,6 +548,7 @@ desugarEarlyDecl declaration =
           | otherwise -> desugarEarlyDecl inner
         Syn.DeclData dataDecl -> desugarRecordSelectors (Syn.dataDeclConstructors dataDecl)
         Syn.DeclNewtype newtypeDecl -> desugarRecordSelectors (maybeToList (Syn.newtypeDeclConstructor newtypeDecl))
+        Syn.DeclDataFamilyInst familyInst -> desugarRecordSelectors (Syn.dataFamilyInstConstructors familyInst)
         _ -> pure []
 
 -- | Make one selector function for each record label of a data or newtype
@@ -616,14 +622,30 @@ desugarRecordSelector constructors label = do
 desugarRecordSelection :: Text -> TcType -> TcType -> Binder -> [DataConInfo] -> ValueM Expr
 desugarRecordSelection label scrutineeType fieldType argument constructors = do
   newtypes <- gets vsNewtypeConstructors
-  let newtypeInfos =
-        [ dataType
-        | constructor <- constructors,
-          let (package, moduleName') = dciOrigin constructor,
-          Just dataType <- [Map.lookup (TcTermGlobal package moduleName' (dciName constructor)) newtypes]
-        ]
-  case newtypeInfos of
-    dataType : _ -> do
+  families <- gets vsFamilyConstructors
+  let constructorKey constructor =
+        let (package, moduleName') = dciOrigin constructor
+         in TcTermGlobal package moduleName' (dciName constructor)
+      newtypeInfos = [dataType | constructor <- constructors, Just dataType <- [Map.lookup (constructorKey constructor) newtypes]]
+      familyInfos = [info | constructor <- constructors, Just info <- [Map.lookup (constructorKey constructor) families]]
+  case (newtypeInfos, familyInfos) of
+    -- A data-family constructor matches the representation type: cast the
+    -- record with the family axiom first, as a pattern on it does. A
+    -- newtype instance has no constructor in System FC, so its field is
+    -- the record cast with the representation axiom as well.
+    ([], info : _) -> do
+      instanceArguments <- familyInstanceArguments info scrutineeType
+      axiomArguments <- mapM convertCheckedType instanceArguments
+      let familyCoercion = CoAxiom (familyAxiomName info) axiomArguments
+          record = ExVar (binderName argument)
+      if dfiiIsNewtype info
+        then pure (ExCast record (CoTrans familyCoercion (CoAxiom (familyRepresentationAxiomName info) axiomArguments)))
+        else do
+          caseBinder <- freshBinder "$record_scrut" (TcTyCon (dfiiRepresentationTyCon info) instanceArguments)
+          fieldType' <- convertCheckedType fieldType
+          alternatives <- concat <$> mapM (recordSelectorAlternative label) constructors
+          pure (ExCase (ExCast record familyCoercion) caseBinder fieldType' alternatives)
+    (dataType : _, _) -> do
       typeArguments <-
         case scrutineeType of
           TcTyCon _ arguments -> pure arguments
@@ -632,7 +654,7 @@ desugarRecordSelection label scrutineeType fieldType argument constructors = do
       let tyCon = dtiTyCon dataType
           axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
       pure (ExCast (ExVar (binderName argument)) (CoAxiom axiom convertedArguments))
-    [] -> do
+    ([], []) -> do
       caseBinder <- freshBinder "$record_scrut" scrutineeType
       fieldType' <- convertCheckedType fieldType
       alternatives <- concat <$> mapM (recordSelectorAlternative label) constructors
@@ -1656,7 +1678,9 @@ desugarViewPattern resultType fallback argument arguments argumentTypes (match, 
     if null rest
       then pure fallback
       else Just <$> desugarMatchArguments resultType fallback (argument : arguments) argumentTypes rest
-  function <- desugarExpr viewFunction
+  -- The view function sees the variables that the columns to its left
+  -- bind, which the row has collected.
+  function <- withLocals (matchLocalBinders locals) (desugarExpr viewFunction)
   innerType <- viewPatternResultType viewFunction
   viewBinder <- freshPatternBinder inner innerType
   extra <- patternMatchBindings viewPattern argument ty

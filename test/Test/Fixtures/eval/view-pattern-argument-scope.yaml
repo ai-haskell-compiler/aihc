@@ -1,0 +1,29 @@
+extensions:
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    data Bool = True | False
+    data Nat = Z | S Nat
+    data Pair = Pair Nat Nat
+    pick :: Bool -> Pair -> Nat
+    pick True (Pair a _) = a
+    pick False (Pair _ b) = b
+    select :: Bool -> Pair -> Nat
+    select which (pick which -> chosen) = chosen
+    both :: (Bool, Pair) -> Nat
+    both (which, pick which -> chosen) = chosen
+    isZero :: Nat -> Bool
+    isZero Z = True
+    isZero _ = False
+    result :: Bool
+    result = case select True (Pair Z (S Z)) of
+      Z -> isZero (both (False, Pair (S Z) Z))
+      S _ -> False
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: a view pattern expression uses a variable bound by an earlier argument and by an earlier component of the same tuple pattern

@@ -235,6 +235,7 @@ walkDataFamilyInstanceInfo :: DataFamilyInstanceInfo -> Parts ()
 walkDataFamilyInstanceInfo info = do
   void (internType (dfiiFamilyType info))
   traverse_ internTyVar (dfiiTyVars info)
+  traverse_ walkDataConInfo (dfiiConstructors info)
 
 walkTypeFamilyInstanceInfo :: TypeFamilyInstanceInfo -> Parts ()
 walkTypeFamilyInstanceInfo info = do
