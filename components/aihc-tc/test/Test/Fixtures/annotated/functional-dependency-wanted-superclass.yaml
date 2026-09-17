@@ -1,0 +1,66 @@
+annotated:
+- |-
+  {-# LANGUAGE UndecidableInstances #-}
+  module Test where
+  data Comment = Comment
+       │         └─ type: Comment
+       └─ type: Type
+  class C e m | m -> e where
+  └─ class methods: tag ∷ ∀ e m. (C e m) ⇒ m e; fundeps: m → e
+    tag :: m e
+  class C e m => D e m where
+  └─ class methods: dbg ∷ ∀ e m a. (D e m) ⇒ Comment → m a → m a
+    dbg :: Comment -> m a -> m a
+  newtype StateT s m a = StateT (s -> m a)
+          │              └─ type: ∀ s m a. (s → m a) → StateT s m a
+          └─ type: Type → (Type → Type) → Type → Type
+  withComment :: D e m => Comment -> m a -> m a
+  withComment = dbg
+  │             └─ type: Comment → m a → m a; type-args: e, m, a; evidence: given D e m
+  └─ type: ∀ e m a. (D e m) ⇒ Comment → m a → m a
+  instance C e m => C e (StateT s m) where
+  └─ $fCeStateTsm ∷ ∀ e m s. (C e m) ⇒ C e (StateT s m)
+    tag = StateT (\_ -> tag)
+    │     │       │││    └─ type: m e; type-args: e, m; evidence: given C e m
+    │     │       │└─ type: s
+    │     │       │└─ type: s
+    │     │       └─ type: s → m e
+    │     └─ type: (s → m e) → StateT s m e; type-args: s, m, e
+    └─ tag ∷ StateT s m e
+  instance D e m => D e (StateT s m) where
+  └─ $fDeStateTsm ∷ ∀ e m s. (D e m) ⇒ D e (StateT s m) [superclasses: $fCeStateTsm @e @m @s (super[0](given D e m))]
+    dbg c (StateT f) = StateT (\s -> withComment c (f s))
+    │   │  │      │    │       ││    └─ type: Comment → m a → m a; type-args: e, m, a; evidence: given D e m
+    │   │  │      │    │       │└─ type: s
+    │   │  │      │    │       └─ type: s → m a
+    │   │  │      │    └─ type: (s → m a) → StateT s m a; type-args: s, m, a
+    │   │  │      └─ type: s → m a
+    │   │  └─ type: StateT s m a
+    │   └─ type: Comment
+    └─ dbg ∷ ∀ a. Comment → StateT s m a → StateT s m a
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+- FlexibleContexts
+- FlexibleInstances
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE UndecidableInstances #-}
+  module Test where
+  data Comment = Comment
+  class C e m | m -> e where
+    tag :: m e
+  class C e m => D e m where
+    dbg :: Comment -> m a -> m a
+  newtype StateT s m a = StateT (s -> m a)
+  withComment :: D e m => Comment -> m a -> m a
+  withComment = dbg
+  instance C e m => C e (StateT s m) where
+    tag = StateT (\_ -> tag)
+  instance D e m => D e (StateT s m) where
+    dbg c (StateT f) = StateT (\s -> withComment c (f s))
+status: pass
+reason: the call to withComment names the parser types only in its context, so the
+  wanted D t0 (StateT s m) is solved by the functional dependency of its superclass C
+  against the superclass of the given D e m
