@@ -1,3 +1,243 @@
+annotated:
+- |-
+  {-# LANGUAGE StarIsType, KindSignatures, TypeFamilies, TypeOperators, NoImplicitPrelude #-}
+  module GHC.Generics where
+  import GHC.Types (Bool)
+  data V1 (p :: *)
+       └─ type: Type → Type
+  data U1 (p :: *) = U1
+       │             └─ type: ∀ p. U1 p
+       └─ type: Type → Type
+  newtype K1 (i :: *) (c :: *) (p :: *) = K1 {unK1 :: c}
+          │                               └─ type: ∀ i c p. c → K1 i c p
+          └─ type: Type → Type → Type → Type
+  newtype M1 (i :: *) (c :: Meta) (f :: * -> *) (p :: *) = M1 {unM1 :: f p}
+          │                                                └─ type: ∀ i c f p. f p → M1 i c f p
+          └─ type: Type → Meta → (Type → Type) → Type → Type
+  infixr 5 :+:
+  data (:+:) (f :: * -> *) (g :: * -> *) (p :: *) = L1 (f p) | R1 (g p)
+        │                                           │          └─ type: ∀ f g p. g p → :+: f g p
+        │                                           └─ type: ∀ f g p. f p → :+: f g p
+        └─ type: (Type → Type) → (Type → Type) → Type → Type
+  infixr 6 :*:
+  data (:*:) (f :: * -> *) (g :: * -> *) (p :: *) = f p :*: g p
+        │                                           └─ type: ∀ f g p. f p → g p → :*: f g p
+        └─ type: (Type → Type) → (Type → Type) → Type → Type
+  data R
+       └─ type: Type
+  data D
+       └─ type: Type
+  data C
+       └─ type: Type
+  data S
+       └─ type: Type
+  type Rec0 = K1 R
+       └─ type: Type → Type → Type
+  type D1 = M1 D
+       └─ type: Meta → (Type → Type) → Type → Type
+  type C1 = M1 C
+       └─ type: Meta → (Type → Type) → Type → Type
+  type S1 = M1 S
+       └─ type: Meta → (Type → Type) → Type → Type
+  data FixityI = PrefixI | InfixI Associativity
+       │         │         └─ type: Associativity → FixityI
+       │         └─ type: FixityI
+       └─ type: Type
+  data Associativity = LeftAssociative | RightAssociative | NotAssociative
+       └─ type: Type   │                 │                  └─ type: Associativity
+                       │                 └─ type: Associativity
+                       └─ type: Associativity
+  data SourceUnpackedness = NoSourceUnpackedness | SourceNoUnpack | SourceUnpack
+       └─ type: Type        │                      │                └─ type: SourceUnpackedness
+                            │                      └─ type: SourceUnpackedness
+                            └─ type: SourceUnpackedness
+  data SourceStrictness = NoSourceStrictness | SourceLazy | SourceStrict
+       └─ type: Type      │                    │            └─ type: SourceStrictness
+                          │                    └─ type: SourceStrictness
+                          └─ type: SourceStrictness
+  data DecidedStrictness = DecidedLazy | DecidedStrict | DecidedUnpack
+       └─ type: Type       │             │               └─ type: DecidedStrictness
+                           │             └─ type: DecidedStrictness
+                           └─ type: DecidedStrictness
+  data Meta
+       └─ type: Type
+    = MetaData Bool
+      └─ type: GHC.Types.Bool → Meta
+    | MetaCons FixityI Bool
+      └─ type: FixityI → GHC.Types.Bool → Meta
+    | MetaSel SourceUnpackedness SourceStrictness DecidedStrictness
+      └─ type: SourceUnpackedness → SourceStrictness → DecidedStrictness → Meta
+  class Generic a where
+  └─ class methods: from ∷ ∀ a x. (Generic a) ⇒ a → Rep a x, to ∷ ∀ a x. (Generic a) ⇒ Rep a x → a
+    type Rep a :: * -> *
+         └─ type: Type → Type → Type
+    from :: a -> Rep a x
+    to :: Rep a x -> a
+- |-
+  {-# LANGUAGE StarIsType, KindSignatures, TypeFamilies, TypeOperators, NoImplicitPrelude #-}
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DeriveGeneric, DerivingStrategies, FlexibleContexts, TypeApplications, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Generics
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Int = MkInt
+       │     └─ type: Int
+       └─ type: Type
+  class GNFData (arity :: *) (f :: * -> *) where
+  └─ class methods: grnf ∷ ∀ arity f a. (GNFData arity f) ⇒ f a → ()
+    grnf :: f a -> Unit
+  instance GNFData arity V1 where
+  └─ $fGNFDataarityV1 ∷ ∀ arity. () ⇒ GNFData arity V1
+    grnf x = Unit
+    │    └─ type: GHC.Generics.V1 a
+    └─ grnf ∷ ∀ a. V1 a → ()
+  instance GNFData arity U1 where
+  └─ $fGNFDataarityU1 ∷ ∀ arity. () ⇒ GNFData arity U1
+    grnf U1 = Unit
+    │    └─ type: GHC.Generics.U1 a
+    └─ grnf ∷ ∀ a. U1 a → ()
+  instance NFData a => GNFData arity (K1 i a) where
+  └─ $fGNFDataarityK1ia ∷ ∀ a arity i. (NFData a) ⇒ GNFData arity (K1 i a)
+    grnf (K1 x) = rnf x
+    │     │  │    └─ type: a → (); type-args: a; evidence: given NFData a
+    │     │  └─ type: a
+    │     └─ type: GHC.Generics.K1 i a a
+    └─ grnf ∷ ∀ a. K1 i a a → ()
+  instance GNFData arity a => GNFData arity (M1 i c a) where
+  └─ $fGNFDataarityM1ica ∷ ∀ arity a i c. (GNFData arity a) ⇒ GNFData arity (M1 i c a)
+    grnf (M1 x) = grnf @arity x
+    │     │  │    └─ type: a a → (); type-args: arity, a, a; evidence: given GNFData arity a
+    │     │  └─ type: a a
+    │     └─ type: GHC.Generics.M1 i c a a
+    └─ grnf ∷ ∀ a. M1 i c a a → ()
+  instance (GNFData arity a, GNFData arity b) => GNFData arity (a :*: b) where
+  └─ $fGNFDataarity:*:ab ∷ ∀ arity a b. (GNFData arity a, GNFData arity b) ⇒ GNFData arity (:*: a b)
+    grnf (x :*: y) = grnf @arity x
+    │     │ │   │    └─ type: a a → (); type-args: arity, a, a; evidence: given GNFData arity a
+    │     │ │   └─ type: b a
+    │     │ └─ type: GHC.Generics.:*: a b a
+    │     └─ type: a a
+    └─ grnf ∷ ∀ a. :*: a b a → ()
+  instance (GNFData arity a, GNFData arity b) => GNFData arity (a :+: b) where
+  └─ $fGNFDataarity:+:ab ∷ ∀ arity a b. (GNFData arity a, GNFData arity b) ⇒ GNFData arity (:+: a b)
+    grnf (L1 x) = grnf @arity x
+    │     │  │    └─ type: a a → (); type-args: arity, a, a; evidence: given GNFData arity a
+    │     │  └─ type: a a
+    │     └─ type: GHC.Generics.:+: a b a
+    └─ grnf ∷ ∀ a. :+: a b a → ()
+    grnf (R1 x) = grnf @arity x
+    │     │  │    └─ type: b a → (); type-args: arity, b, a; evidence: given GNFData arity b
+    │     │  └─ type: b a
+    │     └─ type: GHC.Generics.:+: a b a
+    └─ grnf ∷ ∀ a. :+: a b a → ()
+  data Zero
+       └─ type: Type
+  class NFData a where
+  └─ class methods: rnf ∷ ∀ a. (NFData a) ⇒ a → ()
+    rnf :: a -> Unit
+    default rnf :: (Generic a, GNFData Zero (Rep a)) => a -> Unit
+    rnf x = grnf @Zero (from x)
+    │   │   │           └─ type: a → GHC.Generics.Rep a (); type-args: a, (); evidence: given Generic a
+    │   │   └─ type: GHC.Generics.Rep a () → (); type-args: Zero, Rep a, (); evidence: given GNFData Zero Rep a
+    │   └─ type: a
+    └─ rnf ∷ ∀ a. (NFData a, Generic a, GNFData Zero (Rep a)) ⇒ a → ()
+  instance NFData Int where
+  └─ $fNFDataInt ∷ () ⇒ NFData Int
+    rnf MkInt = Unit
+    │   └─ type: Int
+    └─ rnf ∷ Int → ()
+  newtype Pos = Pos Int
+  │       │     └─ type: Int → Pos
+  │       └─ type: Type
+  └─ deriving plans: stock Generic Pos [context: ()] [methods: from, to], anyclass NFData Pos [context: ()] [methods: rnf]
+    deriving (Generic, NFData)
+              ││││││││││││││││││        └─ $fNFDataPos ∷ () ⇒ NFData Pos
+              └─ type: Pos
+              └─ $fGenericPos ∷ () ⇒ Generic Pos [associated types: Rep Pos = M1 D ('MetaData 'True) (M1 C ('MetaCons 'PrefixI 'False) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int)))]
+              └─ type: Pos
+              └─ from ∷ ∀ x. Pos → Rep Pos x
+              └─ type: Pos
+              └─ to ∷ ∀ x. Rep Pos x → Pos
+              └─ type: Int → GHC.Generics.K1 GHC.Generics.R Int x; type-args: R, Int, x
+              └─ type: GHC.Generics.K1 GHC.Generics.R Int x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Int, x
+              └─ type: Int
+              └─ type: GHC.Generics.K1 GHC.Generics.R Int x → Int; type-args: R, Int, x
+              └─ type: GHC.Generics.Rep Pos x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x → GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x; type-args: C, 'MetaCons 'PrefixI 'False, M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int), x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x → GHC.Generics.M1 GHC.Generics.D ('GHC.Generics.MetaData 'GHC.Types.True) (GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x; type-args: D, 'MetaData 'True, M1 C ('MetaCons 'PrefixI 'False) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int)), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x → GHC.Generics.K1 GHC.Generics.R Int x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Int, x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x; type-args: C, 'MetaCons 'PrefixI 'False, M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x
+              └─ type: GHC.Generics.M1 GHC.Generics.D ('GHC.Generics.MetaData 'GHC.Types.True) (GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x → GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x; type-args: D, 'MetaData 'True, M1 C ('MetaCons 'PrefixI 'False) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int)), x
+  data SourcePos = SourcePos {sourceName :: Pos, sourceLine :: Int}
+  │    │           └─ type: Pos → Int → SourcePos
+  │    └─ type: Type
+  └─ deriving plans: stock Generic SourcePos [context: ()] [methods: from, to]
+    deriving (Generic)
+              └─ $fGenericSourcePos ∷ () ⇒ Generic SourcePos [associated types: Rep SourcePos = M1 D ('MetaData 'False) (M1 C ('MetaCons 'PrefixI 'True) (:*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int))))]
+              └─ type: SourcePos
+              └─ from ∷ ∀ x. SourcePos → Rep SourcePos x
+              └─ type: SourcePos
+              └─ to ∷ ∀ x. Rep SourcePos x → SourcePos
+              └─ type: SourcePos
+              └─ type: GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x
+              └─ type: Pos → GHC.Generics.K1 GHC.Generics.R Pos x; type-args: R, Pos, x
+              └─ type: GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x → GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x; type-args: C, 'MetaCons 'PrefixI 'True, :*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int)), x
+              └─ type: Pos
+              └─ type: GHC.Generics.K1 GHC.Generics.R Int x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Int, x
+              └─ type: Int → GHC.Generics.K1 GHC.Generics.R Int x; type-args: R, Int, x
+              └─ type: GHC.Generics.K1 GHC.Generics.R Int x → Int; type-args: R, Int, x
+              └─ type: Int
+              └─ type: GHC.Generics.K1 GHC.Generics.R Pos x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Pos, x
+              └─ type: GHC.Generics.Rep SourcePos x
+              └─ type: GHC.Generics.K1 GHC.Generics.R Pos x → Pos; type-args: R, Pos, x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x → GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x; type-args: M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos), M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int), x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x → GHC.Generics.K1 GHC.Generics.R Pos x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Pos, x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x → GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)) x; type-args: C, 'MetaCons 'PrefixI 'True, :*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int)), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x → GHC.Generics.M1 GHC.Generics.D ('GHC.Generics.MetaData 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)))) x; type-args: D, 'MetaData 'False, M1 C ('MetaCons 'PrefixI 'True) (:*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int))), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x → GHC.Generics.K1 GHC.Generics.R Int x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Int, x
+              └─ type: GHC.Generics.M1 GHC.Generics.D ('GHC.Generics.MetaData 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int)))) x → GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int))) x; type-args: D, 'MetaData 'False, M1 C ('MetaCons 'PrefixI 'True) (:*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Int))), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Int) x
+  instance NFData SourcePos
+  └─ $fNFDataSourcePos ∷ () ⇒ NFData SourcePos
+  data PosState s = PosState {pstateInput :: s, pstateOffset :: Pos}
+  │    │            └─ type: ∀ s. s → Pos → PosState s
+  │    └─ type: Type → Type
+  └─ deriving plans: stock Generic (PosState s) [context: ()] [methods: from, to]
+    deriving (Generic)
+              └─ $fGenericPosStates ∷ ∀ s. () ⇒ Generic (PosState s) [associated types: Rep (PosState s) = M1 D ('MetaData 'False) (M1 C ('MetaCons 'PrefixI 'True) (:*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R s)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos))))]
+              └─ type: s → Pos → PosState s; type-args: s
+              └─ from ∷ ∀ x. PosState s → Rep (PosState s) x
+              └─ type: s → GHC.Generics.K1 GHC.Generics.R s x; type-args: R, s, x
+              └─ to ∷ ∀ x. Rep (PosState s) x → PosState s
+              └─ type: s
+              └─ type: GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) x
+              └─ type: PosState s
+              └─ type: GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) x → GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos))) x; type-args: C, 'MetaCons 'PrefixI 'True, :*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R s)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)), x
+              └─ type: PosState s
+              └─ type: GHC.Generics.K1 GHC.Generics.R Pos x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Pos, x
+              └─ type: PosState s
+              └─ type: GHC.Generics.K1 GHC.Generics.R Pos x → Pos; type-args: R, Pos, x
+              └─ type: Pos → GHC.Generics.K1 GHC.Generics.R Pos x; type-args: R, Pos, x
+              └─ type: GHC.Generics.K1 GHC.Generics.R s x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s) x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R s, x
+              └─ type: Pos
+              └─ type: GHC.Generics.K1 GHC.Generics.R s x → s; type-args: R, s, x
+              └─ type: GHC.Generics.Rep (PosState s) x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos))) x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s) x → GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x → GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) x; type-args: M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R s), M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos), x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos))) x → GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)) x; type-args: C, 'MetaCons 'PrefixI 'True, :*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R s)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos)), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s) x → GHC.Generics.K1 GHC.Generics.R s x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R s, x
+              └─ type: GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos))) x → GHC.Generics.M1 GHC.Generics.D ('GHC.Generics.MetaData 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)))) x; type-args: D, 'MetaData 'False, M1 C ('MetaCons 'PrefixI 'True) (:*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R s)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos))), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s) x
+              └─ type: GHC.Generics.M1 GHC.Generics.D ('GHC.Generics.MetaData 'GHC.Types.False) (GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos)))) x → GHC.Generics.M1 GHC.Generics.C ('GHC.Generics.MetaCons 'GHC.Generics.PrefixI 'GHC.Types.True) (GHC.Generics.:*: (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R s)) (GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos))) x; type-args: D, 'MetaData 'False, M1 C ('MetaCons 'PrefixI 'True) (:*: (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R s)) (M1 S ('MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 R Pos))), x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x → GHC.Generics.K1 GHC.Generics.R Pos x; type-args: S, 'MetaSel 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy, K1 R Pos, x
+              └─ type: GHC.Generics.M1 GHC.Generics.S ('GHC.Generics.MetaSel 'GHC.Generics.NoSourceUnpackedness 'GHC.Generics.NoSourceStrictness 'GHC.Generics.DecidedLazy) (GHC.Generics.K1 GHC.Generics.R Pos) x
+  instance (NFData s) => NFData (PosState s)
+  └─ $fNFDataPosStates ∷ ∀ s. (NFData s) ⇒ NFData (PosState s)
 extensions:
 - StarIsType
 - KindSignatures

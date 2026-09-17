@@ -130,6 +130,9 @@ expected: |
       λ(x : 1.tWrapped a).
         x
 
+  pub val 1.v$fParentBoth :: 1.t$Dict$Parent 1.tBoth
+   = 1.c$Dict$Parent @1.tBoth
+
   pub val 1.v$fAnyWrappeda :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.t$Dict$Any (1.tWrapped a)
    = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Required a).
@@ -143,13 +146,9 @@ expected: |
   pub val 1.v$fChildBoth :: 1.t$Dict$Child 1.tBoth
    = 1.c$Dict$Child @1.tBoth 1.v$fParentBoth
 
-  pub val 1.v$fParentBoth :: 1.t$Dict$Parent 1.tBoth
-   = 1.c$Dict$Parent @1.tBoth
-
   pub val 1.vuseAny :: ∀(a : 2.sType). 1.t$Dict$Required a 2.→ 1.tWrapped a 2.→ 1.tWrapped a
    = Λ(a : 2.sType).
     λ($d0 : 1.t$Dict$Required a).
       1.vanyValue @(1.tWrapped a) (1.v$fAnyWrappeda @a $d0)
-
 status: pass
 reason: the derived anyclass instance is an ordinary instance declaration that lowers to a dictionary
