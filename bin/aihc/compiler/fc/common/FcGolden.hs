@@ -208,19 +208,21 @@ parseFcFixture path value = do
         caseEta = eta
       }
 
--- | The @inline@ key: @shrink@, or @budget@ with the size limit that the
--- inliner may fill.
+-- | The @inline@ key: @shrink@, @simplify@, or @budget@ with the size
+-- limit that the inliner may fill.
 parseInlineMode :: Y.Value -> Y.Parser InlineMode
 parseInlineMode value =
   case value of
     Y.String "shrink" -> pure InlineShrink
+    Y.String "simplify" -> pure InlineSimplify
     Y.Object obj -> do
       mode <- obj .: "mode"
       case mode :: Text of
         "shrink" -> pure InlineShrink
+        "simplify" -> pure InlineSimplify
         "budget" -> InlineBudget <$> obj .: "limit"
-        _ -> fail "inline mode must be shrink or budget"
-    _ -> fail "inline must be shrink, or an object with mode and limit"
+        _ -> fail "inline mode must be shrink, simplify, or budget"
+    _ -> fail "inline must be shrink, simplify, or an object with mode and limit"
 
 parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->
