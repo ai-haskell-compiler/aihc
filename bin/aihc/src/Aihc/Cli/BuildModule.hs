@@ -27,6 +27,7 @@ import Aihc.Cli.Install
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
     ModuleCompileResult (..),
+    archiveHasMembers,
     buildEnvironmentIdentity,
     compileModules,
     installPlanPackages,
@@ -264,7 +265,10 @@ finishExecutable compileConfig inputs = do
   let orderedPackages = linkOrderedPackages packages
   cObjects <- fmap concat (mapM packageCObjects orderedPackages)
   let objects = programObjects <> compileObjectPaths compiled <> executableExtraObjects inputs <> cObjects
-      archives = map packageArchive orderedPackages
+  -- A package whose archive holds no member is left out of the link: a
+  -- @--lto@ build leaves the archive of a package without C sources empty,
+  -- and so does a package whose modules are all empty standins.
+  archives <- filterM archiveHasMembers (map packageArchive orderedPackages)
   if executableNoLink inputs
     then writeLinkBundle target output objects archives entry runtime
     else linkExecutable target output objects archives entry runtime

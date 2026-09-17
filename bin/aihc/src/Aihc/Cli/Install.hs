@@ -2,6 +2,7 @@ module Aihc.Cli.Install
   ( InstallResult (..),
     InstallLocations (..),
     InstalledPackage (..),
+    archiveHasMembers,
     FcModule (..),
     ModuleCompileConfig (..),
     ModuleCompileRequest (..),
@@ -2937,8 +2938,20 @@ buildLibraryArchive target verbose archive moduleObjects = do
       let archiveEnvironment = ("ZERO_AR_DATE", "1") : filter ((/= "ZERO_AR_DATE") . fst) environment
       runToolWithEnvironment (Just archiveEnvironment) archiver (["rcs", archive] <> nonemptyObjects)
   verbose ("Write archive: " <> archive)
-  where
-    emptyArchive = BS8.pack "!<arch>\n"
+
+-- | The global header every archive format begins with. An archive that
+-- stops here holds no member.
+emptyArchive :: BS.ByteString
+emptyArchive = BS8.pack "!<arch>\n"
+
+-- | Whether the archive holds a member. An archive of the header alone is a
+-- valid empty archive for GNU ld, lld and wasm-ld, but the ld64 of the
+-- cctools binutils rejects it as a file too small to read, so the link
+-- leaves such an archive out rather than passing it to the linker.
+archiveHasMembers :: FilePath -> IO Bool
+archiveHasMembers archive = do
+  size <- getFileSize archive
+  pure (size > fromIntegral (BS.length emptyArchive))
 
 runTool :: FilePath -> [String] -> IO ()
 runTool = runToolWithEnvironment Nothing
