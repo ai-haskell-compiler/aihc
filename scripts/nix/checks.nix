@@ -108,6 +108,11 @@
                   # tool; the standalone one, not GHC's wrapper, which adds
                   # GHC's own C flags and include directory.
                   export AIHC_HSC2HS=${pkgs.haskellPackages.hsc2hs}/bin/hsc2hs
+                  # The wasm32-wasip3 entries of the seed store are keyed by
+                  # the sysroot they were built against, so reading them
+                  # takes the same sysroot the seed store derivation used.
+                  export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+                  export AIHC_WASM_SYSROOT=${wasmSysroot}
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"
                   ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
