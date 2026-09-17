@@ -347,7 +347,7 @@ firstMetaInstanceMethodAnnotation ann =
 
 firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
 firstMetaDataFamilyInstance info =
-  firstMetaType (dfiiFamilyType info)
+  firstMetaType (dfiiFamilyType info) <|> firstJusts (map firstMetaDataConInfo (dfiiConstructors info))
 
 firstMetaTypeFamilyInstance :: TypeFamilyInstanceInfo -> Maybe Unique
 firstMetaTypeFamilyInstance info =

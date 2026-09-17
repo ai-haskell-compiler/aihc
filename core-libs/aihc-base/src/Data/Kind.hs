@@ -1,6 +1,7 @@
 module Data.Kind
   ( Type,
+    Constraint,
   )
 where
 
-import GHC.Types (Type)
+import GHC.Types (Constraint, Type)

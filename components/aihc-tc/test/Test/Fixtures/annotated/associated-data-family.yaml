@@ -1,0 +1,38 @@
+annotated:
+- |-
+  module Test where
+  data Backoff = Backoff
+       │         └─ type: Backoff
+       └─ type: Type
+  class Scheduler s where
+  └─ class methods: isBanned ∷ ∀ s. (Scheduler s) ⇒ Stat s → Backoff
+    data Stat s
+         └─ type: Type → Type
+    isBanned :: Stat s -> Backoff
+  instance Scheduler Backoff where
+  └─ $fSchedulerBackoff ∷ () ⇒ Scheduler Backoff
+    data Stat Backoff = BSS { bannedUntil :: Backoff, timesBanned :: Backoff }
+                        └─ type: Backoff → Backoff → Stat Backoff
+    isBanned s = bannedUntil s
+    │        └─ type: Stat Backoff
+    └─ isBanned ∷ Stat Backoff → Backoff
+  count :: Stat Backoff -> Backoff
+  count = timesBanned
+  └─ type: Stat Backoff → Backoff
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Backoff = Backoff
+  class Scheduler s where
+    data Stat s
+    isBanned :: Stat s -> Backoff
+  instance Scheduler Backoff where
+    data Stat Backoff = BSS { bannedUntil :: Backoff, timesBanned :: Backoff }
+    isBanned s = bannedUntil s
+  count :: Stat Backoff -> Backoff
+  count = timesBanned
+reason: an associated data family is checked as a top-level data family, and a record
+  selector of its instance has the family type as its argument
+status: pass

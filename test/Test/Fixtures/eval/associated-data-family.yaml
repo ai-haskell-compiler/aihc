@@ -1,0 +1,43 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    data Nat = Z | S Nat
+    data Backoff = Backoff Nat
+    data Simple = Simple
+    lessThan :: Nat -> Nat -> Bool
+    lessThan Z (S _) = True
+    lessThan (S a) (S b) = lessThan a b
+    lessThan _ _ = False
+    class Scheduler s where
+      data Stat s
+      initialStat :: s -> Stat s
+      isBanned :: Nat -> Stat s -> Bool
+    instance Scheduler Backoff where
+      data Stat Backoff = BSS { bannedUntil :: Nat, timesBanned :: Nat }
+      initialStat (Backoff n) = BSS n (S Z)
+      isBanned i s = lessThan i (bannedUntil s)
+    instance Scheduler Simple where
+      newtype Stat Simple = SimpleStat Bool
+      initialStat Simple = SimpleStat True
+      isBanned _ (SimpleStat banned) = banned
+    bans :: Stat Backoff -> Nat
+    bans = timesBanned
+    result :: Bool
+    result = case isBanned (S Z) (initialStat (Backoff (S (S Z)))) of
+      True -> case isBanned Z (initialStat Simple) of
+        True -> case bans (initialStat (Backoff Z)) of
+          S Z -> case isBanned (S (S (S Z))) (initialStat (Backoff (S Z))) of
+            False -> True
+            True -> False
+          _ -> False
+        False -> False
+      False -> False
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: an associated data family and its data and newtype instances compile as top-level data family declarations, including the record selectors of an instance constructor

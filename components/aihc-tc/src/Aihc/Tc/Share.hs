@@ -236,7 +236,8 @@ shareDataFamilyInstanceInfo info = do
   familyType <- shareType (dfiiFamilyType info)
   tyVars <- mapM shareTyVar (dfiiTyVars info)
   representation <- shareTyCon (dfiiRepresentationTyCon info)
-  pure info {dfiiFamilyType = familyType, dfiiTyVars = tyVars, dfiiRepresentationTyCon = representation}
+  constructors <- mapM shareDataConInfo (dfiiConstructors info)
+  pure info {dfiiFamilyType = familyType, dfiiTyVars = tyVars, dfiiRepresentationTyCon = representation, dfiiConstructors = constructors}
 
 shareTypeFamilyInstanceInfo :: TypeFamilyInstanceInfo -> Share TypeFamilyInstanceInfo
 shareTypeFamilyInstanceInfo info = do

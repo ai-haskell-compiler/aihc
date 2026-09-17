@@ -74,7 +74,7 @@ genInterface = do
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [])
   tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [] [FunDep [0] [1]])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" ("pkg", moduleName) ty [] [] [])
-  tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] False)
+  tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] [] False)
   tcInterfaceTypeFamilyInstances <- optionalEntry (TypeFamilyInstanceInfo "F" "$axF" (packageId, moduleName) [] ty ty False)
   pure (tcInterfaceFromLists tcInterfaceTerms tcInterfaceTyCons tcInterfaceDataTypes tcInterfaceClasses tcInterfaceInstances tcInterfaceDataFamilyInstances tcInterfaceTypeFamilyInstances [] [])
 

@@ -767,26 +767,28 @@ getInstanceInfo table = do
 
 putDataFamilyInstanceInfo :: PartIndex -> DataFamilyInstanceInfo -> Builder.Builder
 putDataFamilyInstanceInfo table info =
-  cborArray 7
+  cborArray 8
     <> cborText (dfiiFamilyName info)
     <> putType table (dfiiFamilyType info)
     <> encodeList (putTyVar table) (dfiiTyVars info)
     <> putTyCon table (dfiiRepresentationTyCon info)
     <> cborText (dfiiAxiomName info)
     <> encodeList cborText (dfiiConstructorNames info)
+    <> encodeList (putDataConInfo table) (dfiiConstructors info)
     <> putBool (dfiiIsNewtype info)
 
 getDataFamilyInstanceInfo :: PartTable -> Get.Get DataFamilyInstanceInfo
 getDataFamilyInstanceInfo table = do
-  expectArray 7
+  expectArray 8
   dfiiFamilyName <- getText
   dfiiFamilyType <- getType table
   dfiiTyVars <- getList (getTyVar table)
   dfiiRepresentationTyCon <- getTyCon table
   dfiiAxiomName <- getText
   dfiiConstructorNames <- getList getText
+  dfiiConstructors <- getList (getDataConInfo table)
   dfiiIsNewtype <- getBool
-  pure DataFamilyInstanceInfo {dfiiFamilyName, dfiiFamilyType, dfiiTyVars, dfiiRepresentationTyCon, dfiiAxiomName, dfiiConstructorNames, dfiiIsNewtype}
+  pure DataFamilyInstanceInfo {dfiiFamilyName, dfiiFamilyType, dfiiTyVars, dfiiRepresentationTyCon, dfiiAxiomName, dfiiConstructorNames, dfiiConstructors, dfiiIsNewtype}
 
 putTypeFamilyInstanceInfo :: PartIndex -> TypeFamilyInstanceInfo -> Builder.Builder
 putTypeFamilyInstanceInfo table info =

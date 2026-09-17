@@ -396,6 +396,10 @@ data DataFamilyInstanceInfo = DataFamilyInstanceInfo
     dfiiRepresentationTyCon :: !TyCon,
     dfiiAxiomName :: !Text,
     dfiiConstructorNames :: ![Text],
+    -- | The checked constructors, in source order. A record selector and
+    -- a pattern on one of them find its fields here, as they do for a
+    -- data type in 'dtiConstructors'.
+    dfiiConstructors :: ![DataConInfo],
     dfiiIsNewtype :: !Bool
   }
   deriving (Eq, Show, Read, Generic)

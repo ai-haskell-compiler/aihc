@@ -8,5 +8,35 @@ modules:
   class Has a where
     data Item a
   newtype N a = N a deriving Has
-reason: the resolver rejects associated data-family declarations before TC
-status: fail
+expected: |-
+  scope 1 = "" Main
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.t$Dict$Has (a : 2.sType) :: 2.sType {
+      pub 1.c$Dict$Has :: ∀(a : 2.sType). 1.t$Dict$Has a
+  }
+
+  pub type 1.tItem (a : 2.sType) :: 2.sType @N {}
+
+  pub type 1.tN (a : 2.sType) :: 2.sType {}
+
+  axiom 1.$ax$N (a : 2.sType) : 1.tN a ~R a
+
+  pub val 1.v$fHasNa :: ∀(a : 2.sType). 1.t$Dict$Has (1.tN a)
+   = Λ(a : 2.sType).
+    1.c$Dict$Has @(1.tN a)
+status: pass
+reason: an associated data family is hoisted to a top-level empty family type, and the newtype-derived instance of its class has no methods to coerce

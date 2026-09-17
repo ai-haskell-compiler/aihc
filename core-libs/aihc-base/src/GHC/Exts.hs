@@ -22,6 +22,11 @@ module GHC.Exts
     runRW#,
     build,
     augment,
+    shiftL#,
+    shiftRL#,
+    iShiftL#,
+    iShiftRA#,
+    iShiftRL#,
     Addr#,
     ByteArray#,
     copyAddrToByteArray#,
@@ -117,7 +122,7 @@ where
 import Data.Coerce (coerce)
 import Data.Ord (Down (..))
 import Data.String (IsString (..))
-import GHC.Base (augment, build)
+import GHC.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))

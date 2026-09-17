@@ -32,6 +32,11 @@ module GHC.Base
     foldr,
     map,
     otherwise,
+    shiftL#,
+    shiftRL#,
+    iShiftL#,
+    iShiftRA#,
+    iShiftRL#,
   )
 where
 
@@ -108,3 +113,45 @@ foldr combine initial (value : values) = combine value (foldr combine initial va
 ($) function = function
 
 infixr 0 $
+
+-- | Shift a word left, giving zero for a shift of the word size or more.
+-- The unchecked primop leaves such a shift undefined.
+shiftL# :: Word# -> Int# -> Word#
+shiftL# word count =
+  case count >=# 64# of
+    1# -> 0##
+    _ -> uncheckedShiftL# word count
+
+-- | Shift a word right, filling with zeros, giving zero for a shift of the
+-- word size or more.
+shiftRL# :: Word# -> Int# -> Word#
+shiftRL# word count =
+  case count >=# 64# of
+    1# -> 0##
+    _ -> uncheckedShiftRL# word count
+
+-- | Shift an integer left, giving zero for a shift of the word size or more.
+iShiftL# :: Int# -> Int# -> Int#
+iShiftL# value count =
+  case count >=# 64# of
+    1# -> 0#
+    _ -> uncheckedIShiftL# value count
+
+-- | Shift an integer right arithmetically, replicating the sign bit. A shift
+-- of the word size or more gives all sign bits.
+iShiftRA# :: Int# -> Int# -> Int#
+iShiftRA# value count =
+  case count >=# 64# of
+    1# ->
+      case value <# 0# of
+        1# -> negateInt# 1#
+        _ -> 0#
+    _ -> uncheckedIShiftRA# value count
+
+-- | Shift an integer right, filling with zeros, giving zero for a shift of
+-- the word size or more.
+iShiftRL# :: Int# -> Int# -> Int#
+iShiftRL# value count =
+  case count >=# 64# of
+    1# -> 0#
+    _ -> uncheckedIShiftRL# value count

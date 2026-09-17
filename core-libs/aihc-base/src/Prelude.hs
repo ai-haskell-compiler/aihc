@@ -46,7 +46,7 @@ module Prelude
     (*>),
     (.),
     (++),
-    Foldable (elem, foldMap, foldl, foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
+    Foldable (elem, foldMap, foldl, foldl', foldl1, foldr, foldr1, length, maximum, minimum, null, product, sum),
     Traversable (traverse, sequenceA, mapM, sequence),
     map,
     sequence_,

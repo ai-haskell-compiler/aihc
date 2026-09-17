@@ -1,0 +1,68 @@
+extensions:
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    data Nat = Z | S Nat
+    data Pair = Pair Nat Nat
+    pick :: Nat -> Pair -> Nat
+    pick Z (Pair a _) = a
+    pick _ (Pair _ b) = b
+    select :: Nat -> Pair -> Nat
+    select n (pick n -> chosen) = chosen
+    both :: (Nat, Pair) -> Nat
+    both (n, pick n -> chosen) = chosen
+annotated:
+  - |-
+    {-# LANGUAGE ViewPatterns #-}
+    module Test where
+    data Nat = Z | S Nat
+         │     │   │ └─ t Test
+         │     │   └─ v Test
+         │     └─ v Test
+         └─ t Test
+    data Pair = Pair Nat Nat
+         │      │    │   └─ t Test
+         │      │    └─ t Test
+         │      └─ v Test
+         └─ t Test
+    pick :: Nat -> Pair -> Nat
+    │       │      │       └─ t Test
+    │       │      └─ t Test
+    │       └─ t Test
+    └─ v Test
+    pick Z (Pair a _) = a
+    │    │  │    └─ v 0 └─ v 0
+    │    │  └─ v Test
+    │    └─ v Test
+    └─ v Test
+    pick _ (Pair _ b) = b
+    │       │      │    └─ v 1
+    │       │      └─ v 1
+    │       └─ v Test
+    └─ v Test
+    select :: Nat -> Pair -> Nat
+    └─ v Test │      │       └─ t Test
+              │      └─ t Test
+              └─ t Test
+    select n (pick n -> chosen) = chosen
+    │      │  │    │    └─ v 3    └─ v 3
+    │      │  │    └─ v 2
+    │      │  └─ v Test
+    │      └─ v 2
+    └─ v Test
+    both :: (Nat, Pair) -> Nat
+    │       ││    │        └─ t Test
+    │       ││    └─ t Test
+    │       │└─ t Test
+    │       └─ t Builtin (,)
+    └─ v Test
+    both (n, pick n -> chosen) = chosen
+    │     │  │    │    └─ v 5    └─ v 5
+    │     │  │    └─ v 4
+    │     │  └─ v Test
+    │     └─ v 4
+    └─ v Test
+status: pass
+reason: a view pattern expression sees the variables that the patterns to its left bind, both across curried arguments and inside one pattern

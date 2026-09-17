@@ -36,7 +36,7 @@ import Aihc.Parser.Syntax
     peelLiteralAnn,
     peelPatternAnn,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
@@ -156,8 +156,38 @@ functionArgumentName pat =
     PTypeSig inner _ -> functionArgumentName inner
     _ -> "<pattern>"
 
+-- | Check patterns left to right. A view pattern's expression sees the
+-- binders of the patterns before it, across a function's arguments and
+-- inside one constructor or tuple pattern alike.
 checkPatternsWith :: GadtHandling -> Maybe SourceSpan -> [(Pattern, TcType)] -> TcM PatternCheck
-checkPatternsWith gadtHandling sp = fmap mconcat . mapM (uncurry (checkPatternWith gadtHandling sp))
+checkPatternsWith gadtHandling sp = go mempty
+  where
+    go done [] = pure done
+    go done ((pat, ty) : rest) = do
+      check <- withEarlierPatternBindings (pcBindings done) (checkPatternWith gadtHandling sp pat ty)
+      go (done <> check) rest
+
+-- | Bring the binders of the patterns checked so far into scope for the
+-- patterns that follow, so a view pattern's expression can name them. A
+-- binder that a placeholder already stands for keeps the placeholder, and
+-- the module-level binders of a pattern binding are in the environment
+-- already.
+withEarlierPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
+withEarlierPatternBindings [] action = action
+withEarlierPatternBindings ((name, ty) : rest) action =
+  case localBinderKey name of
+    Nothing -> withEarlierPatternBindings rest action
+    Just key -> do
+      bound <- lookupTermKey key
+      case bound of
+        Just _ -> withEarlierPatternBindings rest action
+        Nothing -> extendTermEnv key (TcMonoIdBinder ty) (withEarlierPatternBindings rest action)
+
+localBinderKey :: UnqualifiedName -> Maybe TcTermKey
+localBinderKey name =
+  case mapMaybe (fromAnnotation @ResolutionAnnotation) (unqualifiedNameAnns name) of
+    resolution : _ | ResolvedLocal unique _ <- resolutionTarget resolution -> Just (TcTermLocal unique)
+    _ -> Nothing
 
 checkPattern :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPattern = checkPatternWith GadtAsWanted
@@ -415,7 +445,7 @@ checkListPattern gadtHandling sp items scrutTy =
         [itemTy, tailTy] -> do
           scrutCts <- constructorScrutineeCt gadtHandling sp (tyConTermKey consCon) scrutTy resultTy
           itemCheck <- checkPatternWith gadtHandling sp item itemTy
-          tailCheck <- checkListPattern gadtHandling sp rest tailTy
+          tailCheck <- withEarlierPatternBindings (pcBindings itemCheck) (checkListPattern gadtHandling sp rest tailTy)
           predicateGivens <- mapM (constructorGiven sp (tyConName consCon)) predicates
           let nestedCheck = itemCheck <> tailCheck
               checkedTailItems = case checkedPattern tailCheck of
