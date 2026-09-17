@@ -2,24 +2,35 @@
 extensions: []
 modules:
 - |
-  module Test (eqBool) where
+  module Test (first, second, third) where
   import GHC.Types (Bool (..))
 
-  class MyEq a where
-    eq :: a -> a -> Bool
-    neq :: a -> a -> Bool
-
-  instance MyEq Bool where
-    eq True True = True
-    eq False False = True
-    eq _ _ = False
-    neq x y = case eq x y of
+  once :: Bool -> Bool -> Bool
+  once x w = case x of
+    True -> case w of
       True -> False
       False -> True
+    False -> case w of
+      True -> True
+      False -> False
 
-  eqBool :: Bool -> Bool -> Bool
-  eqBool x y = eq x y
-inline: shrink
+  first :: Bool -> Bool -> Bool
+  first y v = once y v
+
+  helper :: Bool -> Bool
+  helper x = case x of
+    True -> False
+    False -> True
+
+  second :: Bool -> Bool -> Bool
+  second z v = helper (first z v)
+
+  third :: Bool -> Bool
+  third w = helper w
+inline:
+  mode: budget
+  limit: 52
+  rounds: 1
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
@@ -40,36 +51,7 @@ expected: |-
     2.sLiftedRep = 2.cBoxedRep 2.cLifted;
     2.sType = 2.tTYPE 2.sLiftedRep
 
-  type 1.t$Dict$MyEq (a : 2.sType) :: 2.sType {
-      1.c$Dict$MyEq :: ∀(a : 2.sType). (a 2.→ a 2.→ 2.tBool) 2.→ (a 2.→ a 2.→ 2.tBool) 2.→ 1.t$Dict$MyEq a
-  }
-
-  pub val 1.v$fMyEqBool :: 1.t$Dict$MyEq 2.tBool
-   = 1.c$Dict$MyEq @2.tBool 1.v$fMyEqBool$ceq 1.v$fMyEqBool$cneq
-
-  val 1.v$fMyEqBool$ceq :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
-   = λ(x : 2.tBool).
-    λ(y : 2.tBool).
-      case x as (_scrut : 2.tBool) return (2.tBool) of {
-          2.cTrue →
-              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
-                  2.cTrue →
-                      2.cTrue;
-                  _ →
-                      2.cFalse
-              };
-          2.cFalse →
-              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
-                  2.cFalse →
-                      2.cTrue;
-                  _ →
-                      2.cFalse
-              };
-          _ →
-              2.cFalse
-      }
-
-  val 1.v$fMyEqBool$cneq :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+  pub val 1.vfirst :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
       case x as (_scrut : 2.tBool) return (2.tBool) of {
@@ -77,23 +59,45 @@ expected: |-
               case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
                   2.cTrue →
                       2.cFalse;
-                  _ →
+                  2.cFalse →
                       2.cTrue
               };
           2.cFalse →
               case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cTrue →
+                      2.cTrue;
                   2.cFalse →
-                      2.cFalse;
-                  _ →
-                      2.cTrue
-              };
-          _ →
-              2.cTrue
+                      2.cFalse
+              }
       }
 
-  pub val 1.veqBool :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
+  pub val 1.vsecond :: 2.tBool 2.→ 2.tBool 2.→ 2.tBool
    = λ(x : 2.tBool).
     λ(y : 2.tBool).
-      1.v$fMyEqBool$ceq x y
+      case x as (_scrut : 2.tBool) return (2.tBool) of {
+          2.cTrue →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cTrue →
+                      2.cTrue;
+                  2.cFalse →
+                      2.cFalse
+              };
+          2.cFalse →
+              case y as (_scrut{1} : 2.tBool) return (2.tBool) of {
+                  2.cTrue →
+                      2.cFalse;
+                  2.cFalse →
+                      2.cTrue
+              }
+      }
+
+  pub val 1.vthird :: 2.tBool 2.→ 2.tBool
+   = λ(x : 2.tBool).
+    case x as (_scrut : 2.tBool) return (2.tBool) of {
+        2.cTrue →
+            2.cFalse;
+        2.cFalse →
+            2.cTrue
+    }
 status: pass
-reason: Each method body of a dictionary gets a helper, and a method of a known dictionary becomes a direct call of the helper.
+reason: A value with one use moves to that use in the first round and is dead from then on. The budget counts the program without it, so the sites after it in the same round still have their allowance, although the dead value is only dropped at the end of the round.
