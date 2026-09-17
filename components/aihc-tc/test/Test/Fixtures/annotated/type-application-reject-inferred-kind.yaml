@@ -1,0 +1,17 @@
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  data Proxy t = Proxy
+  -- Only t can be given; its invented kind cannot, so the second
+  -- application has no binder left to instantiate.
+  value :: Proxy Type
+  value = Proxy @Type @Type
+status: xfail
+reason: an inferred binder cannot be instantiated by a visible type application, so the constructor has one specified binder, not two

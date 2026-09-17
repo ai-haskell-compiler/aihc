@@ -258,6 +258,9 @@ data PendingTcAnnotation = PendingTcAnnotation
   { pendingTcAnnType :: !TcType,
     pendingTcAnnTypeBinders :: ![TyVarId],
     pendingTcAnnTypeArgs :: ![TcType],
+    -- | How many leading type arguments instantiate inferred binders. A
+    -- visible type application skips them; the desugarer applies them all.
+    pendingTcAnnInferredTypeArgs :: !Int,
     pendingTcAnnEvidenceVars :: ![EvVar],
     pendingTcAnnEvidenceBinders :: ![EvVar],
     pendingTcAnnTermArgTypes :: ![TcType]
@@ -429,11 +432,11 @@ annotateDecl ann = DeclAnn (mkAnnotation ann)
 
 pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
 pendingAnnotation ty typeArgs evidenceVars =
-  PendingTcAnnotation ty [] typeArgs evidenceVars []
+  PendingTcAnnotation ty [] typeArgs 0 evidenceVars []
 
 pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> [EvVar] -> PendingTcAnnotation
 pendingTypeLambdaAnnotation ty binders evidenceBinders =
-  PendingTcAnnotation ty binders [] [] evidenceBinders []
+  PendingTcAnnotation ty binders [] 0 [] evidenceBinders []
 
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String

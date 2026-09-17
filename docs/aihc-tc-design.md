@@ -134,8 +134,20 @@ data TyVarFlavor s
 
 type MetaRef s = STRef s (Maybe (TcType s))
 
-data TypeScheme s = ForAll [TyVar s] [Pred s] (TcType s)
+data TypeScheme s = Scheme [TyVar s] [TyVar s] [Pred s] (TcType s)
+--                        inferred   specified
 ```
+
+The first binder list holds the *inferred* binders: variables the checker
+invented, such as the kind of a parameter the source left unannotated. A
+visible type application skips them, as GHC's `forall {k} (a :: k)` says;
+the *specified* binders follow in source order and `@t` instantiates the
+first of those. Instantiation allocates all of them, inferred first. The
+match-only pattern `ForAll tyVars preds body` reads every binder, so code
+that instantiates or walks a scheme need not know the split; building one
+names it, through `Scheme` or `specifiedScheme`. `withInventedKindVariables`
+(`Generate/Decl.hs`) is where the invented kind variables enter, in
+dependency order.
 
 ### 4.1 Conversion from surface types
 

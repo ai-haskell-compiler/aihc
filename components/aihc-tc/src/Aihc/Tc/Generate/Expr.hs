@@ -255,14 +255,15 @@ inferNameOccurrence ambient nameSyntax = do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
       let typeArgs = instTypeArgs inst
+          inferredCount = length typeArgs - length (instSpecifiedArgs inst)
           evidenceVars = map ctEvVar cts
-          pending = occurrenceAnnotation (instType inst) typeArgs evidenceVars
+          pending = occurrenceAnnotation (instType inst) typeArgs inferredCount evidenceVars
       pure (pending, instType inst, cts)
     Just (TcMonoIdBinder ty) -> do
       (instantiatedTy, typeArgs, predicates) <- instantiateSigmaType ty
       cts <- mapM (predToCt sp name) predicates
       let evidenceVars = map ctEvVar cts
-      pure (occurrenceAnnotation instantiatedTy typeArgs evidenceVars, instantiatedTy, cts)
+      pure (occurrenceAnnotation instantiatedTy typeArgs 0 evidenceVars, instantiatedTy, cts)
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
 
@@ -277,10 +278,10 @@ rejectUnidirectionalPatSyn sp name target = do
           emitError sp (OtherError ("unidirectional pattern synonym " <> T.unpack name <> " cannot be used as an expression"))
     _ -> pure ()
 
-occurrenceAnnotation :: TcType -> [TcType] -> [EvVar] -> Maybe PendingTcAnnotation
-occurrenceAnnotation ty typeArgs evidenceVars
+occurrenceAnnotation :: TcType -> [TcType] -> Int -> [EvVar] -> Maybe PendingTcAnnotation
+occurrenceAnnotation ty typeArgs inferredCount evidenceVars
   | null typeArgs && null evidenceVars = Nothing
-  | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars [])
+  | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars []) {pendingTcAnnInferredTypeArgs = inferredCount}
 
 -- | An expression signature stands in a result position, not at a binder,
 -- so its type needs no fixed runtime representation: any @TYPE r@ will do.
@@ -1096,7 +1097,7 @@ pendingTypeArgs expr =
   case expr of
     EAnn ann inner ->
       case fromAnnotation @PendingTcAnnotation ann of
-        Just pending -> pendingTcAnnTypeArgs pending
+        Just pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
         Nothing -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner

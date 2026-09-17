@@ -1,0 +1,18 @@
+extensions:
+- DataKinds
+- KindSignatures
+- PolyKinds
+- TypeApplications
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  -- The source names k, so it is a specified binder of the constructor
+  -- -- GHC's @T :: forall k (a :: k). T a@ -- and the first visible type
+  -- application instantiates it.
+  data T (a :: k) = T
+  value :: T Type
+  value = T @Type @Type
+status: pass
+reason: a kind variable the source writes in a declaration head is a specified binder of the constructor, in the order GHC gives it

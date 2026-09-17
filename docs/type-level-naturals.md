@@ -389,26 +389,50 @@ Tests: annotated `infix-constraint-synonym-family` and
 - Depends on the parallel unlifted-expression-signature task for the
   `proxy# :: Proxy# (SeedSize g)` call site.
 
-**Where the install stands (Sep 17 2026).** `Seed.hs` resolves, the
-`SeedGen` class and every `SeedGen g => SeedGen (… g)` instance check. The
-one remaining type error in the module is
+**Where the install stands (Sep 17 2026).** `Seed.hs` resolves, and the
+`SeedGen` class and every `SeedGen g => SeedGen (… g)` instance check.
+Two more compiler gaps stood between that and a linted install, both
+fixed in the follow-up PR:
 
-```haskell
-seedGenTypeName :: forall g. SeedGen g => String
-seedGenTypeName = show (typeOf (Proxy @g))
--- error: unsolved constraint Typeable (Proxy t0)
-```
+- `seedGenTypeName = show (typeOf (Proxy @g))` failed with `Typeable (Proxy
+  t0)`. GHC types the constructor `Proxy :: forall {k} (t :: k). Proxy t`:
+  a kind variable the checker invents is an *inferred* binder, which
+  visible type application skips, while one the source writes anywhere
+  (`data T (a :: k)`) is specified. `TypeScheme` now carries the inferred
+  binders apart from the specified ones (`docs/aihc-tc-design.md`), and
+  `Data.Proxy` is written `data Proxy t = Proxy`, as base writes it, so
+  its kind variable is invented. A binding without a signature quantifies
+  only inferred binders, as in GHC.
+- The FC lint compared no two type literals equal, and reduced type
+  families from their equations only, so a dictionary field of type
+  `Assert (OrdCond (Compare 1 16) …) msg` never matched the `()` evidence
+  the solver had computed for it. `Aihc.Tc.TypeLitFamily` now holds the
+  built-in comparisons and arithmetic once, and both the solver and
+  `Fc.TypeOf.reduceType` compute them.
 
-GHC gives the constructor the type `Proxy :: forall {k} (t :: k). Proxy t`:
-the kind variable is an *inferred* binder, which visible type application
-skips. `TypeScheme` carries no binder visibility, and `closeKindVariables`
-prepends a constructor's implicit kind variables to its universals, so `@g`
-instantiates `k` and `t` is left a meta. The next prerequisite is inferred
-binders — at least for data constructors, whose implicit kind variables are
-exactly the ones `closeKindVariables` adds — with the visible type
-application in `Tc.Generate.Expr` skipping them. The install aborts at the
-first failing module, so what follows in `System.Random.Stateful` is not
-known yet.
+Two further gaps showed once the lint reached the `SeedGen` instances,
+both fixed in the same PR. A closed family's equations carried every
+declared parameter as a binder, used or not, and an FC axiom applies only
+when each binder is matched, so `OrdCond 'LT lt _ _ = lt` never fired;
+the equations of a kind-polymorphic family also had their kind argument
+defaulted to `Type` instead of quantified, which the solver never noticed
+because it matches types and ignores kinds. And `Fc.TypeOf` reduced a
+closed family by the first equation that *matched*, with no apartness
+check, so under a binder `Assert (OrdCond (Compare 1 (SeedSize g)) …) msg`
+fell through to the catch-all and became the `TypeError`; it now stops at
+an earlier equation that a stuck argument could still match, as the
+solver does. FC knows a family only by its equations, so an application
+of a family that has none in scope still counts as rigid there; the
+built-in families are known by module.
+
+**Where the install stands after that.** `System.Random.Seed` checks and
+lints. `System.Random.Stateful` fails the FC lint on three unrelated
+defects: the newtype coercion axioms of `AtomicGenM`, `IOGenM` and
+`TGenM` are applied with the wrong number of arguments, the
+`FrozenGen (STGen g) (ST s)` instance applies a coercion axiom to a
+polytype (`KindMismatch … coercion axiom argument`), and the module
+references `Type.Reflection.Internal.typeRep`, which nothing declares.
+Those are the next PR.
 
 ## Traps
 

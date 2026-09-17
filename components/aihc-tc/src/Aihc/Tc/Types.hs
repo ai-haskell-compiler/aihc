@@ -31,7 +31,12 @@ module Aihc.Tc.Types
     tyConNamespace,
     mkTyConWithOrigin,
     mkTyConWithNamespace,
-    TypeScheme (..),
+    TypeScheme (.., ForAll),
+    specifiedScheme,
+    traverseScheme,
+    defaultMethodWorkerScheme,
+    typeSchemeInferred,
+    typeSchemeSpecified,
     TyLit (..),
     tyLitKind,
     tyLitKindTyCon,
@@ -239,10 +244,50 @@ data TyLit
 
 instance NFData TyLit
 
-data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
+-- | A type scheme. The first binders are the *inferred* ones: variables
+-- the checker invented, such as the kind of a parameter the source left
+-- unannotated. A visible type application skips them, as GHC's
+-- @forall {k}@ says. The *specified* binders follow, in source order; an
+-- explicit @\@@ argument instantiates the first of those. Instantiation
+-- allocates all of them, inferred first, since a specified binder's kind
+-- may mention an inferred one.
+data TypeScheme = Scheme ![TyVarId] ![TyVarId] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TypeScheme
+
+-- | Every binder of a scheme, inferred first. This is how a scheme is
+-- read; building one names the two kinds of binder apart.
+pattern ForAll :: [TyVarId] -> [Pred] -> TcType -> TypeScheme
+pattern ForAll tyVars predicates body <- (schemeBinders -> (tyVars, predicates, body))
+
+{-# COMPLETE ForAll #-}
+
+schemeBinders :: TypeScheme -> ([TyVarId], [Pred], TcType)
+schemeBinders (Scheme inferred specified predicates body) = (inferred <> specified, predicates, body)
+
+-- | A scheme whose binders the source all wrote.
+specifiedScheme :: [TyVarId] -> [Pred] -> TcType -> TypeScheme
+specifiedScheme = Scheme []
+
+-- | Rebuild a scheme part by part, keeping which binders are inferred.
+traverseScheme :: (Applicative f) => (TyVarId -> f TyVarId) -> (Pred -> f Pred) -> (TcType -> f TcType) -> TypeScheme -> f TypeScheme
+traverseScheme onTyVar onPred onBody (Scheme inferred specified predicates body) =
+  Scheme <$> traverse onTyVar inferred <*> traverse onTyVar specified <*> traverse onPred predicates <*> onBody body
+
+-- | The scheme of a default method's worker: the default signature's,
+-- with the class predicate of the ordinary method signature in front.
+defaultMethodWorkerScheme :: TypeScheme -> TypeScheme -> TypeScheme
+defaultMethodWorkerScheme ordinaryScheme scheme@(Scheme inferred specified predicates body) =
+  case ordinaryScheme of
+    ForAll _ (classPredicate : _) _ -> Scheme inferred specified (classPredicate : predicates) body
+    _ -> scheme
+
+typeSchemeInferred :: TypeScheme -> [TyVarId]
+typeSchemeInferred (Scheme inferred _ _ _) = inferred
+
+typeSchemeSpecified :: TypeScheme -> [TyVarId]
+typeSchemeSpecified (Scheme _ specified _ _) = specified
 
 -- | Whether a type is a polytype: a leading quantifier or context. A
 -- meta-variable never stands for a polytype, so an argument of such a
@@ -869,7 +914,8 @@ data TcTypeApplicationKinds = TcTypeApplicationKinds
 
 typeApplicationKinds :: TcKinds -> TcKindEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
 typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
-  ForAll quantified _ resultKind <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
+  scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
+  let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
       (argumentSubstitution, remainingKind, skipped) = go quantifiedUniques 0 Map.empty resultKind arguments
       resultSubstitution =

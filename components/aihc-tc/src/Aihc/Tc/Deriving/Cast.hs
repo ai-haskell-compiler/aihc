@@ -55,8 +55,10 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
     fieldType (ForAll variables predicates body) =
       foldr TcForAllTy (if null predicates then body else TcQualTy predicates body) variables
     checkMethod headTypes index name = do
-      ForAll variables sourcePredicates source <- methodScheme info headTypes name
-      ForAll _ targetPredicates target <- methodScheme info (tcInstanceHeadTypes annotation) name
+      sourceScheme <- methodScheme info headTypes name
+      targetScheme <- methodScheme info (tcInstanceHeadTypes annotation) name
+      let ForAll variables sourcePredicates source = sourceScheme
+          ForAll _ targetPredicates target = targetScheme
       -- The coercion search finds the newtypes it needs itself, so a plan
       -- needs no datatype metadata of its own to prove a method cast.
       proof <-

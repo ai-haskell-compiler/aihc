@@ -38,11 +38,14 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId)
+import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, typeLitFamilyModules)
 import Aihc.Tc.Types (Unique (..))
+import Aihc.Tc.Types qualified as Tc
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text qualified as T
 
 -- | Local headers, synonym bodies, and binder types used by typeOf.
 data TypeEnv = TypeEnv
@@ -339,11 +342,100 @@ reduceTypeWith families env ty =
   where
     reduceFamily reduced
       | families,
+        Just result <- builtinFamily env reduced =
+          reduceTypeWith families env result
+      | families,
         Just family <- typeHead reduced,
         Just equations <- Map.lookup family (teFamilyAxioms env),
-        Just result <- firstJust (map (\equation -> applyNominalAxiom env equation reduced) equations) =
+        Just result <- applyFamilyEquations env equations reduced =
           reduceTypeWith families env result
       | otherwise = reduced
+
+-- | Rewrite a family application with the first equation that matches it.
+-- An earlier equation that does not match but is not apart from the
+-- application blocks the later ones: @Assert 'True _ = ()@ may still
+-- match @Assert (F g) msg@ once @F g@ reduces, so the catch-all
+-- @Assert _ msg = msg@ after it must not fire. As in GHC's apartness
+-- check, a type variable or a stuck family application in the
+-- application unifies with any pattern.
+applyFamilyEquations :: TypeEnv -> [AxiomDecl] -> Type -> Maybe Type
+applyFamilyEquations env equations source =
+  case equations of
+    [] -> Nothing
+    equation : rest
+      | Just result <- applyNominalAxiom env equation source -> Just result
+      | axiomRole equation == Nominal,
+        (patternHead, patternArguments) <- spine [] (reduceSynonyms env (axiomLeft equation)),
+        (sourceHead, sourceArguments) <- spine [] source,
+        patternHead == sourceHead,
+        length patternArguments == length sourceArguments,
+        and (zipWith couldUnify patternArguments sourceArguments) ->
+          Nothing
+      | otherwise -> applyFamilyEquations env rest source
+  where
+    spine arguments (TyApp function argument) = spine (argument : arguments) function
+    spine arguments headType = (headType, arguments)
+    couldUnify patternType target =
+      case (patternType, target) of
+        (TyVar _, _) -> True
+        (_, TyVar _) -> True
+        (_, _) | isFamilyApplication target -> True
+        (TyCon name, TyCon targetName) -> name == targetName
+        (TyLit _ literal, TyLit _ targetLiteral) -> literal == targetLiteral
+        (TyApp function argument, TyApp targetFunction targetArgument) ->
+          couldUnify function targetFunction && couldUnify argument targetArgument
+        (TyFun _ _ argument result, TyFun _ _ targetArgument targetResult) ->
+          couldUnify argument targetArgument && couldUnify result targetResult
+        _ -> False
+    isFamilyApplication ty =
+      case typeHead ty of
+        Just name -> Map.member name (teFamilyAxioms env) || builtinFamilyHead name
+        Nothing -> False
+    builtinFamilyHead name =
+      case nameOrigin name of
+        OriginTop _ moduleName -> moduleName `elem` typeLitFamilyModules
+        _ -> False
+
+-- | The value of a built-in type-literal family -- the comparisons and the
+-- arithmetic on naturals -- at literal arguments. The solver computes the
+-- same functions, so a type it reduced compares equal to its result here.
+-- The kind arguments of the family, if any, come before the literals.
+--
+-- An ordering result is a constructor of the family's result type, named
+-- through the family's header so that it carries the package identity the
+-- rest of the module uses, which is not the wired-in one.
+builtinFamily :: TypeEnv -> Type -> Maybe Type
+builtinFamily env ty =
+  case spine [] ty of
+    (TyCon family, arguments)
+      | OriginTop _ moduleName <- nameOrigin family,
+        moduleName `elem` typeLitFamilyModules,
+        (_, literalArguments@(TyLit kindName _ : _)) <- break isLiteral arguments,
+        Just literals <- traverse literal literalArguments -> do
+          value <- evaluateTypeLitFamily (nameText family) literals
+          case value of
+            TypeLitNatural natural -> pure (TyLit kindName (TyLitNat natural))
+            TypeLitOrdering ordering -> do
+              header <- lookupHeaderType env family
+              TyCon orderingType <- pure (resultType header)
+              pure (TyCon (Name (T.pack (show ordering)) SortDataConstructor (nameOrigin orderingType)))
+    _ -> Nothing
+  where
+    resultType header =
+      case header of
+        TyForAll _ body -> resultType body
+        TyFun _ _ _ result -> resultType result
+        result -> result
+    spine arguments (TyApp function argument) = spine (argument : arguments) function
+    spine arguments headType = (headType, arguments)
+    isLiteral TyLit {} = True
+    isLiteral _ = False
+    literal argument =
+      case argument of
+        TyLit _ (TyLitNat value) -> Just (Tc.TyLitNat value)
+        TyLit _ (TyLitSymbol value) -> Just (Tc.TyLitSymbol value)
+        TyLit _ (TyLitChar value) -> Just (Tc.TyLitChar value)
+        _ -> Nothing
 
 -- | The function type of a saturated application of the arrow constructor.
 -- The instantiation of a type variable with @(->)@ makes such an
@@ -357,13 +449,6 @@ saturatedArrow env ty =
         Just r2 <- repOf env result ->
           TyFun r1 r2 argument result
     _ -> ty
-
-firstJust :: [Maybe a] -> Maybe a
-firstJust values =
-  case values of
-    [] -> Nothing
-    Just value : _ -> Just value
-    Nothing : rest -> firstJust rest
 
 -- | Rewrite a type with a nominal family axiom whose left-hand side matches
 -- it. The arguments of the type are already reduced.
@@ -531,6 +616,7 @@ typesEqual env left right =
         spine args headType = (headType, args)
     eq (TyVar a) (TyVar b) = a == b
     eq (TyCon a) (TyCon b) = a == b
+    eq (TyLit kind1 literal1) (TyLit kind2 literal2) = kind1 == kind2 && literal1 == literal2
     eq (TyApp function1 argument1) (TyApp function2 argument2) =
       eq function1 function2 && eq argument1 argument2
     eq (TyFun r1a r2a a1 b1) (TyFun r1b r2b a2 b2) =

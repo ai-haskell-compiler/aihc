@@ -22,6 +22,7 @@ import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
 import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, writeMetaTv)
 import Aihc.Tc.Tidy (tidyDiagnostic)
 import Aihc.Tc.Types
+import Control.Monad ((>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets, modify')
 
@@ -76,18 +77,10 @@ defaultTypeKinds ty =
     TcAppTy function argument -> mkAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
-defaultTypeSchemeKinds (ForAll tyVars predicates body) =
-  ForAll
-    <$> mapM defaultTyVarKinds tyVars
-    <*> mapM defaultPredKinds predicates
-    <*> defaultTypeKinds body
+defaultTypeSchemeKinds = traverseScheme defaultTyVarKinds defaultPredKinds defaultTypeKinds
 
 defaultTyConKindScheme :: TypeScheme -> TcM TypeScheme
-defaultTyConKindScheme scheme@(ForAll tyVars predicates _) = do
-  tyVars' <- mapM defaultTyVarKinds tyVars
-  predicates' <- mapM defaultPredKinds predicates
-  kind <- defaultKindMetas (typeSchemeBody scheme) >>= zonkKind
-  pure (ForAll tyVars' predicates' kind)
+defaultTyConKindScheme = traverseScheme defaultTyVarKinds defaultPredKinds (defaultKindMetas >=> zonkKind)
 
 defaultPredKinds :: Pred -> TcM Pred
 defaultPredKinds predicate =
