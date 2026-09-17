@@ -109,12 +109,17 @@ data Sandbox = Sandbox
 -- | The targets the @install@ tests exercise, and therefore the targets
 -- aihc-prim is seeded for. Seeding the extra targets is cheap because the
 -- frontend Core is shared: only the backend runs again.
+--
+-- @AppleArm64@ was here for the install tests that pinned it whatever the
+-- host was. Those are gone, and nothing asks for it any more. What is left
+-- is the portable @Llvm@ and the two the sandbox can archive and assemble
+-- for.
 installTestTargets :: IO [NativeTarget]
 installTestTargets = do
   foreignArchives <- arSupportsForeignObjects
   wasm <- clangSupportsWasm
   pure $
-    [AppleArm64, Llvm]
+    [Llvm]
       <> [LinuxAmd64 | foreignArchives]
       <> [Wasm32Wasip3 | wasm && foreignArchives]
 
