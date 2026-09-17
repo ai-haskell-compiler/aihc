@@ -17,7 +17,6 @@
 -- 4. Attach type annotations to AST nodes.
 module Aihc.Tc
   ( -- * Entry point
-    typecheckExpr,
     typecheckModulesWithInterface,
     typecheckModuleSccWithInterface,
 
@@ -152,12 +151,10 @@ import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (
 import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc)
-import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (mkTcKinds)
-import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
+import Aihc.Tc.Zonk (finalizeDiagnostics)
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
@@ -329,40 +326,6 @@ unionTcInterfaces (first : rest) = List.foldl' union first rest
           tcInterfacePatSynMap = Map.union (tcInterfacePatSynMap left) (tcInterfacePatSynMap right),
           tcInterfaceForeignImportMap = Map.union (tcInterfaceForeignImportMap left) (tcInterfaceForeignImportMap right)
         }
-
--- | Type-check a single expression in an empty environment.
---
--- This is the primary entry point for testing. For modules, use
--- `typecheckModulesWithInterface`.
-typecheckExpr :: TcConfig -> Expr -> TcResult
-typecheckExpr config expr =
-  case runTcM (emptyTcEnv config) initTcState (typecheckExprM expr <* finalizeDiagnostics) of
-    Left _abort ->
-      TcResult
-        { tcResultType = TcMetaTv (Unique (-1)),
-          tcResultDiagnostics = [],
-          tcResultSuccess = False
-        }
-    Right (ty, st) ->
-      let diags = reverse (tcsDiagnostics st)
-          hasErrors = any isError diags
-       in TcResult
-            { tcResultType = ty,
-              tcResultDiagnostics = diags,
-              tcResultSuccess = not hasErrors
-            }
-  where
-    isError d = diagSeverity d == TcError
-
--- | Internal: type-check an expression in TcM.
-typecheckExprM :: Expr -> TcM TcType
-typecheckExprM expr = do
-  -- 1. Generate constraints.
-  (_expr', ty, cts) <- inferExpr expr
-  -- 2. Solve constraints.
-  _result <- solveConstraints cts
-  -- 3. Zonk the result type.
-  zonkType ty
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
 tcModuleBindings :: TcWiring -> Module -> [TcBindingResult]

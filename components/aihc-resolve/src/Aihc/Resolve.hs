@@ -5,7 +5,6 @@
 module Aihc.Resolve
   ( pattern DeclResolution,
     pattern EResolution,
-    pattern ImportResolution,
     pattern PResolution,
     pattern TResolution,
     resolveWithDeps,
@@ -28,7 +27,6 @@ module Aihc.Resolve
     unionScope,
     ResolveError (..),
     ResolveResult (..),
-    resolvedModuleAsts,
     ResolutionNamespace (..),
     Identifier (..),
     displayIdentifier,

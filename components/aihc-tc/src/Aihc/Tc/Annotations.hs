@@ -42,7 +42,6 @@ module Aihc.Tc.Annotations
     -- * Pattern synonyms for extracting annotations
 
     -- * Helpers
-    annotateExpr,
     annotateDecl,
     pendingAnnotation,
     pendingTypeLambdaAnnotation,
@@ -423,10 +422,6 @@ data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
     tcInstanceMethodType :: !TcType
   }
   deriving (Eq, Show)
-
--- | Wrap an expression with a type annotation.
-annotateExpr :: TcAnnotation -> Expr -> Expr
-annotateExpr ann = EAnn (mkAnnotation ann)
 
 -- | Wrap a declaration with a type annotation.
 annotateDecl :: TcAnnotation -> Decl -> Decl

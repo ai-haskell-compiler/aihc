@@ -11,7 +11,6 @@ module Aihc.Tc.Generate.Bind
     checkGuardedRhss,
     collectRawSigs,
     sigToScheme,
-    renderBinderName,
   )
 where
 
@@ -28,7 +27,6 @@ import Aihc.Parser.Syntax
     LambdaCaseAlt (..),
     Match (..),
     Name (..),
-    NameType (..),
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
@@ -942,13 +940,6 @@ patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
-
-renderBinderName :: UnqualifiedName -> Text
-renderBinderName uname =
-  case unqualifiedNameType uname of
-    NameVarSym -> "(" <> unqualifiedNameText uname <> ")"
-    NameConSym -> "(" <> unqualifiedNameText uname <> ")"
-    _ -> unqualifiedNameText uname
 
 freeVarsDecls :: [Decl] -> TcM (Set.Set TcTermKey)
 freeVarsDecls decls =

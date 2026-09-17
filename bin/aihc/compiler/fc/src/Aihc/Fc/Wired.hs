@@ -8,7 +8,6 @@ module Aihc.Fc.Wired
     functionArrowConstructor,
     runtimeRepConstructor,
     levityConstructor,
-    constraintName,
     liftedRepName,
     unliftedRepName,
     equalityRep,
@@ -58,10 +57,6 @@ runtimeRepConstructor package =
 levityConstructor :: PackageId -> Name
 levityConstructor package =
   wiredGhcTypes package "Levity" SortTypeConstructor
-
-constraintName :: PackageId -> Name
-constraintName package =
-  wiredGhcTypes package "Constraint" SortTypeConstructor
 
 liftedRepName :: PackageId -> Name
 liftedRepName package =

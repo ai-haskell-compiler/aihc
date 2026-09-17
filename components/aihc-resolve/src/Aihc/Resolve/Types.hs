@@ -5,7 +5,6 @@
 module Aihc.Resolve.Types
   ( pattern DeclResolution,
     pattern EResolution,
-    pattern ImportResolution,
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
@@ -21,7 +20,6 @@ module Aihc.Resolve.Types
     VisibleTermIdentities (..),
     ResolveError (..),
     ResolveResult (..),
-    resolvedModuleAsts,
   )
 where
 
@@ -29,7 +27,6 @@ import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
     Extension,
-    ImportDecl (..),
     Module (..),
     Name (..),
     Pattern (..),
@@ -40,7 +37,6 @@ import Aihc.Parser.Syntax
     fromAnnotation,
   )
 import Control.DeepSeq (NFData)
-import Data.Maybe (listToMaybe, mapMaybe)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -158,9 +154,6 @@ data ResolveResult = ResolveResult
   }
   deriving (Show)
 
-resolvedModuleAsts :: ResolveResult -> [Module]
-resolvedModuleAsts = map moduleUnitAst . resolvedModules
-
 pattern DeclResolution :: ResolutionAnnotation -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
 
@@ -172,12 +165,3 @@ pattern TResolution resolution <- TAnn (fromAnnotation -> Just resolution) _
 
 pattern EResolution :: ResolutionAnnotation -> Expr
 pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _
-
-pattern ImportResolution :: ResolutionAnnotation -> ImportDecl
-pattern ImportResolution resolution <- (importResolutionAnnotation -> Just resolution)
-
-importResolutionAnnotation :: ImportDecl -> Maybe ResolutionAnnotation
-importResolutionAnnotation = listToMaybe . importResolutionAnnotations
-
-importResolutionAnnotations :: ImportDecl -> [ResolutionAnnotation]
-importResolutionAnnotations = mapMaybe fromAnnotation . importDeclAnns
