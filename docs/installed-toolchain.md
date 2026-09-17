@@ -195,6 +195,7 @@ A copy of a constructor application is never made: a case on a known constructor
 `-O1` and `-O2` also keep a copy that makes the program larger, until the program has grown by half.
 A value that nothing uses after the walk is dropped, unless it is a root.
 A public value of a module is a root at `-O1`, and the entry of the program is the root at `-O2` and `-Os`.
+Arity analysis eta expands the program before the walk and again after it, and one walk that copies nothing follows the second expansion to reduce the applications it leaves behind.
 
 Before the walk, each method body of a dictionary becomes a top-level helper.
 A dictionary is then a small constructor application, and a method of a known dictionary becomes a direct call of the helper.

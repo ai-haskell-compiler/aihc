@@ -2368,8 +2368,8 @@ inlineConfigFor level roots program =
 
 -- | Run the System FC passes of the level of the build on a program:
 -- arity analysis with eta expansion, then the inliner, then the arity
--- analysis again. The roots are the values the program must keep, or
--- 'Nothing' to keep every public value.
+-- analysis again, then one simplifying walk. The roots are the values
+-- the program must keep, or 'Nothing' to keep every public value.
 --
 -- @-O0@ runs none of them. It is the level that has to be quick, and a
 -- pass that makes the code faster is not what it is for.
@@ -2411,7 +2411,24 @@ optimizeFcProgram config verbose roots name program
                 <> " values dropped"
             )
           lintOptimized config "inlining" name optimized
-          etaExpandFcProgram config verbose name optimized
+          expanded' <- etaExpandFcProgram config verbose name optimized
+          -- The second expansion wraps a value in a lambda that applies
+          -- the old body to the new parameter, under the casts of a
+          -- newtype it unfolded. One simplifying walk, with nothing to
+          -- inline, reduces those applications and cancels the casts;
+          -- without it they reach the lowered code as they are.
+          let simplifyConfig = inlineConfig {Fc.inlineMode = Fc.InlineSimplify, Fc.inlineRounds = 1}
+              (simplified, simplifyReport) = Fc.inlineProgram simplifyConfig expanded'
+          verbose
+            ( "Simplify FC: "
+                <> T.unpack name
+                <> ", size "
+                <> show (Fc.reportSizeBefore simplifyReport)
+                <> " -> "
+                <> show (Fc.reportSizeAfter simplifyReport)
+            )
+          lintOptimized config "simplifying" name simplified
+          pure simplified
 
 -- | Eta expand the top-level values of a program to the arity the arity
 -- analysis finds for them.

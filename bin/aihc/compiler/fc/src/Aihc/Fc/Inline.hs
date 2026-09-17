@@ -65,6 +65,12 @@ data InlineMode
   | -- | Accept a use site that makes the program grow while the program
     -- size stays at or under the given limit.
     InlineBudget !Int
+  | -- | Inline nothing: walk every body once with the rewrites that need
+    -- no copy of a callee, such as a cast against its symmetry, a let in
+    -- the head of an application, and a lambda applied to an argument.
+    -- This is the pass that runs after the eta expansion that follows
+    -- the inliner, which leaves such shapes behind.
+    InlineSimplify
   deriving (Eq, Show)
 
 data InlineConfig = InlineConfig
@@ -273,13 +279,18 @@ simplifyValue config counts known recursive st name =
           candidates =
             Map.fromList
               [ (callee, Candidate calleeBody (unconditional callee calleeBody))
-              | callee <- Set.toList reachable,
+              | inlineMode config /= InlineSimplify,
+                callee <- Set.toList reachable,
                 callee /= name,
                 callee `Set.notMember` recursive,
                 Just calleeBody <- [Map.lookup callee (inBodies st)],
                 isInlinable calleeBody
               ]
-       in if Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+          -- With candidates, a body that references none of them and
+          -- scrutinises nothing known is left alone. A simplifying walk
+          -- has no candidates and visits every body.
+          skip = inlineMode config /= InlineSimplify && Map.null candidates && Map.null known && not (hasLiteralPrimitiveCall body)
+       in if skip
             then st
             else
               let simpl =
@@ -300,10 +311,12 @@ simplifyValue config counts known recursive st name =
                   discount =
                     case inlineMode config of
                       InlineShrink -> 0
+                      InlineSimplify -> 0
                       InlineBudget {} -> functionArgumentDiscount
                   allowance =
                     case inlineMode config of
                       InlineShrink -> 0
+                      InlineSimplify -> 0
                       InlineBudget limit -> max 0 (limit - inTotal st)
                   (body', simplState) =
                     runState (simplifyExpr simpl body) (SimplState (inSupply st) allowance 0)
