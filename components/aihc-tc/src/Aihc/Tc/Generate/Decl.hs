@@ -2343,11 +2343,6 @@ checkUserSig userSig = do
         checkedSigPartial = hasWildcardType (userSigType userSig)
       }
 
-splitContext :: Type -> ([Type], Type)
-splitContext (TAnn _ inner) = splitContext inner
-splitContext (TContext preds inner) = (preds, inner)
-splitContext ty = ([], ty)
-
 -- | Order type variables so that a variable comes after every variable its
 -- kind mentions: @instance C (TypeRep (a :: k))@ quantifies @k@ before
 -- @a@. The order is otherwise stable.
