@@ -3063,14 +3063,20 @@ desugarLambdaCaseMatches matches = do
   desugarMatches ty matches
 
 -- | The type of a lambda-case: the pattern types of its first alternative
--- to the type of its right-hand side.
+-- to the type of its right-hand side. The right-hand side may apply a
+-- binder of the alternative's own patterns, so their checked types are in
+-- scope for it.
 lambdaCaseType :: [Syn.Match] -> ValueM TcType
 lambdaCaseType matches =
   case matches of
     [] -> failValue "lambda-case has no alternative"
     first : _ -> do
       types <- mapM requiredPatternType (Syn.matchPats first)
-      resultType <- requiredRhsType (Syn.matchRhs first)
+      binderTypes <- concat <$> mapM patternBinderSpecs (Syn.matchPats first)
+      resultType <-
+        withBindingTypes
+          [(key, ty) | (key, _, ty) <- binderTypes]
+          (requiredRhsType (Syn.matchRhs first))
       pure (foldr TcFunTy resultType types)
 
 requiredRhsType :: Syn.Rhs Syn.Expr -> ValueM TcType
@@ -4497,6 +4503,34 @@ lookupBindingType key = do
         Just ty -> pure ty
         Nothing -> failValue ("missing checked type for " <> show key)
 
+-- | The checked type of a named binding, with the source name in the error.
+lookupNamedBindingType :: Syn.Name -> ValueM TcType
+lookupNamedBindingType name = do
+  key <- requiredNameTermKey name
+  local <- Map.lookup key <$> gets vsLocals
+  types <- gets vsBindingTypes
+  case (snd <$> local) <|> Map.lookup key types of
+    Just ty -> pure ty
+    Nothing -> failValue ("missing checked type for " <> T.unpack (Syn.nameText name) <> " (" <> show key <> ")")
+
+-- | The checked types of the binders a local declaration group introduces.
+localGroupBinderTypes :: LocalValueGroup -> ValueM [(TcTermKey, TcType)]
+localGroupBinderTypes group =
+  case group of
+    LocalNamedGroup named -> pure [(groupKey named, groupType named)]
+    LocalPatternGroup pattern' _ _ _ -> map (\(key, _, ty) -> (key, ty)) <$> patternBinderSpecs pattern'
+    LocalImplicitParamGroup {} -> pure []
+
+-- | Run an action with the checked types of more bindings in scope, for
+-- type inference over an expression that is not being desugared.
+withBindingTypes :: [(TcTermKey, TcType)] -> ValueM a -> ValueM a
+withBindingTypes additions action = do
+  previous <- gets vsBindingTypes
+  modify' (\state -> state {vsBindingTypes = foldr (uncurry Map.insert) previous additions})
+  result <- action
+  modify' (\state -> state {vsBindingTypes = previous})
+  pure result
+
 requiredExprType :: Syn.Expr -> ValueM TcType
 requiredExprType expression =
   case exprType expression of
@@ -4507,7 +4541,7 @@ inferExprType :: Syn.Expr -> ValueM TcType
 inferExprType expression =
   case expression of
     Syn.EAnn _ inner -> inferExprType inner
-    Syn.EVar name -> lookupBindingType =<< requiredNameTermKey name
+    Syn.EVar name -> lookupNamedBindingType name
     Syn.EApp function _ -> do
       functionType <- inferExprType function
       case applicationResultType functionType of
@@ -4526,8 +4560,13 @@ inferExprType expression =
     Syn.EPragma _ inner -> inferExprType inner
     Syn.ETypeSig inner _ -> inferExprType inner
     Syn.ETypeApp inner _ -> inferExprType inner
-    -- A let expression and an if expression have the type of their body.
-    Syn.ELetDecls _ body -> inferExprType body
+    -- A let expression has the type of its body, which may apply one of
+    -- the let's own binders, so their checked types are in scope for it.
+    Syn.ELetDecls declarations body -> do
+      groups <- groupLocalValues declarations
+      types <- concat <$> mapM localGroupBinderTypes groups
+      withBindingTypes types (inferExprType body)
+    -- An if expression has the type of its branches.
     Syn.EIf _ thenExpression _ -> inferExprType thenExpression
     Syn.ELambdaCase alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
     Syn.ELambdaCases alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
