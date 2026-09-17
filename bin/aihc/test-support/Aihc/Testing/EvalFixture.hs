@@ -20,7 +20,7 @@ module Aihc.Testing.EvalFixture
 where
 
 import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
-import Aihc.Cli.CapiStub (capiStubArguments, noCapiStubOptions)
+import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments, noCapiStubOptions)
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget (AppleArm64), OptimizationLevel (O2), backendCompiler, hostNativeTarget)
@@ -261,7 +261,7 @@ evaluateEvalCase env evaluator tc =
   case compileEvalCaseWithWrappers env tc of
     Left errMsg -> pure (classifyCompileFailure tc errMsg)
     Right (program, wrappers) -> do
-      loaded <- loadCapiWrappers wrappers
+      loaded <- loadCapiWrappers noCapiStubOptions wrappers
       case loaded of
         Left errMsg -> pure (classifyCompileFailure tc errMsg)
         Right () -> do
@@ -271,6 +271,15 @@ evaluateEvalCase env evaluator tc =
             case renderResult of
               Right actual -> classifySuccess tc (T.unpack actual) actualStdout
               Left failure -> classifyEvaluationFailure tc failure actualStdout
+
+-- | Where a wrapper of a core-library capi import looks for its headers.
+--
+-- A capi import may name a header of the package it is declared in, and
+-- @Foreign.C.Error@ does, so the wrappers are compiled with the include
+-- directory an install would give them.
+coreLibraryCapiStubOptions :: FilePath -> CapiStubOptions
+coreLibraryCapiStubOptions baseRoot =
+  noCapiStubOptions {capiStubIncludeDirs = [baseRoot </> "include"]}
 
 -- | Build the C wrappers of the capi imports of a fixture and load them into
 -- this process.
@@ -283,8 +292,8 @@ evaluateEvalCase env evaluator tc =
 -- The wrapper names carry the module and the Haskell name of the import, so
 -- two fixtures collide only if both declare a capi import of the same name in
 -- a module of the same name.
-loadCapiWrappers :: [CapiWrapper] -> IO (Either String ())
-loadCapiWrappers wrappers =
+loadCapiWrappers :: CapiStubOptions -> [CapiWrapper] -> IO (Either String ())
+loadCapiWrappers options wrappers =
   case (renderCapiStub "the fixture" wrappers, hostNativeTarget) of
     (Nothing, _) -> pure (Right ())
     (Just _, Nothing) -> pure (Left "capi wrappers need a native target for this host")
@@ -296,7 +305,7 @@ loadCapiWrappers wrappers =
       TIO.writeFile stubSource source
       (compiler, _) <- backendCompiler target
       headerDirectory <- ensureCompilerHeaders target directory
-      arguments <- capiStubArguments target O2 noCapiStubOptions headerDirectory
+      arguments <- capiStubArguments target O2 options headerDirectory
       (code, _, errors) <-
         readProcessWithExitCode compiler (arguments <> ["-fPIC", "-shared", stubSource, "-o", library]) ""
       if code /= ExitSuccess
@@ -540,6 +549,13 @@ loadEvalEnvironment = do
       unless (all Fc.dsSuccess results) $
         fail ("core library desugar error: " <> unlines (concatMap Fc.dsErrors results))
       let program = Fc.mergePrograms (map Fc.dsProgram results)
+      -- The core libraries declare capi imports of their own, and every
+      -- fixture reaches them, so their wrappers are compiled and opened once
+      -- here rather than per fixture.
+      loadedCore <- loadCapiWrappers (coreLibraryCapiStubOptions baseRoot) (interfaceCapiWrappers interface)
+      case loadedCore of
+        Left errMsg -> fail ("core library capi wrappers: " <> errMsg)
+        Right () -> pure ()
       -- Force the shared structures once so no fixture pays for them again.
       _ <- evaluate (length (Fc.programDecls program))
       _ <- evaluate (length (tcInterfaceTerms interface))
