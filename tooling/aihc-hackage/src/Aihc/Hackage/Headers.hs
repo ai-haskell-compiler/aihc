@@ -83,6 +83,8 @@ compilerHeaderTexts target =
     ("ghcplatform.h", ghcplatformHeader target),
     ("MachDeps.h", machDepsHeader target),
     ("HsFFI.h", hsFfiHeader),
+    ("Stg.h", stgHeader),
+    ("Rts.h", rtsHeader),
     ("rts" </> "Signals.h", rtsSignalsHeader)
   ]
 
@@ -212,16 +214,81 @@ rtsSignalsHeader =
       ("STG_SIG_RST", "(-5)")
     ]
 
+-- | The C names of the Haskell types as the RTS spells them.
+--
+-- GHC's @Stg.h@ is the first header of the code generator's world: it also
+-- holds the STG register model, the closure macros and the tables the
+-- generated code reads.  None of that describes aihc's heap, so the header
+-- carries only the type names, each an alias of the @HsFFI.h@ type with the
+-- same width.  Package C code that names @StgInt@ or @StgWord@ to match a
+-- foreign import compiles against these; code that dereferences a closure
+-- does not compile, which is the right answer, since it could not run.
+stgHeader :: Text
+stgHeader =
+  headerLines
+    "STG_H"
+    ["#include \"HsFFI.h\""]
+    [ "typedef HsInt StgInt;",
+      "typedef HsWord StgWord;",
+      "typedef HsInt8 StgInt8;",
+      "typedef HsInt16 StgInt16;",
+      "typedef HsInt32 StgInt32;",
+      "typedef HsInt64 StgInt64;",
+      "typedef HsWord8 StgWord8;",
+      "typedef HsWord16 StgWord16;",
+      "typedef HsWord32 StgWord32;",
+      "typedef HsWord64 StgWord64;",
+      "typedef HsChar StgChar;",
+      "typedef HsBool StgBool;",
+      "typedef HsFloat StgFloat;",
+      "typedef HsDouble StgDouble;",
+      "typedef HsPtr StgAddr;",
+      "typedef StgWord *StgPtr;",
+      "typedef HsFunPtr StgFunPtr;",
+      "typedef HsStablePtr StgStablePtr;"
+    ]
+
+-- | The API of the runtime, as GHC's @Rts.h@ presents it to package C code.
+--
+-- GHC's header is the umbrella over the whole runtime: the storage manager,
+-- the scheduler, the capabilities and the closure layouts.  Package code
+-- includes it for a few entry points and nothing else.  @unix@, @process@,
+-- @posix-pty@ and @rawfilepath@ stop the interval timer and block the user
+-- signals around @fork@, so that the child sees neither; @basement@ and
+-- @byteslice@ want the @Stg*@ types.  The header declares those entry points
+-- and stops there.  A package that reaches for a closure layout fails to
+-- compile rather than link against a runtime whose heap looks different.
+--
+-- aihc's runtime defines every function declared here, in
+-- @aihc_runtime.c@.  It runs no interval timer and installs no signal
+-- handlers of its own, so the timer and signal calls do nothing, and there is
+-- no threaded runtime to support bound threads.
+rtsHeader :: Text
+rtsHeader =
+  headerLines
+    "RTS_H"
+    ["#include \"Stg.h\"", "#include \"rts/Signals.h\""]
+    [ "void startTimer(void);",
+      "void stopTimer(void);",
+      "void blockUserSignals(void);",
+      "void unblockUserSignals(void);",
+      "HsBool rtsSupportsBoundThreads(void);"
+    ]
+
 sizeAndAlignment :: (Text, Int) -> [(Text, Text)]
 sizeAndAlignment (name, bytes) =
   [("SIZEOF_" <> name, tshow bytes), ("ALIGNMENT_" <> name, tshow bytes)]
 
 header :: Text -> [Text] -> [(Text, Text)] -> Text
-header guard includes definitions =
-  T.unlines
-    (["#ifndef " <> guard, "#define " <> guard] <> includes <> map define definitions <> ["#endif"])
+header guard includes definitions = headerLines guard includes (map define definitions)
   where
     define (name, value) = "#define " <> name <> " " <> value
+
+-- | A guarded header whose body is arbitrary C lines.
+headerLines :: Text -> [Text] -> [Text] -> Text
+headerLines guard includes body =
+  T.unlines
+    (["#ifndef " <> guard, "#define " <> guard] <> includes <> body <> ["#endif"])
 
 tshow :: Int -> Text
 tshow = T.pack . show
