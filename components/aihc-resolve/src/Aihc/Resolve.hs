@@ -3,9 +3,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Resolve
-  ( noSourceSpan,
-    pattern NoSourceSpan,
-    pattern DeclResolution,
+  ( pattern DeclResolution,
     pattern EResolution,
     pattern ImportResolution,
     pattern PResolution,
@@ -236,7 +234,7 @@ annotateMissingImportItems originScope importDecl =
 annotateImportItemError :: ResolutionAnnotation -> ImportItem -> ImportItem
 annotateImportItemError annotation item =
   -- Keep the diagnostic span as the carrier span for annotated-source overlays.
-  ImportAnn (mkAnnotation annotation) (ImportAnn (mkAnnotation (resolutionSpan annotation)) item)
+  ImportAnn (mkAnnotation annotation) (maybe id (ImportAnn . mkAnnotation) (resolutionSpan annotation) item)
 
 missingImportItemAnnotation :: Scope -> ImportItem -> Maybe ResolutionAnnotation
 missingImportItemAnnotation originScope item =
@@ -273,7 +271,7 @@ missingImportMemberAnnotation originScope item members =
     missingMemberAnnotation member =
       let memberName = nameText (ieBundledMemberName member)
        in ResolutionAnnotation
-            (importMemberNameSpan (peelImportItemSpan NoSourceSpan item) memberName)
+            (importMemberNameSpan (peelImportItemSpan item) memberName)
             (IdentifierNamed memberName)
             ResolutionNamespaceTerm
             (ResolvedError "not exported")
@@ -284,7 +282,7 @@ missingImportedName item namespace itemName candidates
   | otherwise =
       Just
         ( ResolutionAnnotation
-            (spanStartNameSpan (peelImportItemSpan NoSourceSpan item) rendered)
+            (spanStartNameSpan (peelImportItemSpan item) rendered)
             (IdentifierNamed rendered)
             namespace
             (ResolvedError "not exported")
@@ -495,7 +493,7 @@ patSynArgNames args =
 
 -- | The span of the pattern synonym name. An infix name follows its left
 -- argument.
-patSynNameSpan :: SourceSpan -> PatSynDecl -> SourceSpan
+patSynNameSpan :: Maybe SourceSpan -> PatSynDecl -> Maybe SourceSpan
 patSynNameSpan sp patSyn =
   case patSynDeclArgs patSyn of
     PatSynInfixArgs left _ -> declKeywordNameSpan ("pattern " <> left <> " ") sp nameText'
@@ -503,7 +501,7 @@ patSynNameSpan sp patSyn =
   where
     nameText' = unqualifiedNameText (patSynDeclName patSyn)
 
-unboundPatSynArgAnnotation :: SourceSpan -> Text -> ResolutionAnnotation
+unboundPatSynArgAnnotation :: Maybe SourceSpan -> Text -> ResolutionAnnotation
 unboundPatSynArgAnnotation sp arg =
   ResolutionAnnotation sp (IdentifierNamed arg) ResolutionNamespaceTerm (ResolvedError "pattern synonym argument is not bound by the pattern")
 
@@ -692,7 +690,7 @@ resolveMatch :: Match -> ResolveM Match
 resolveMatch match =
   withEffectiveSpan (sourceSpanFromAnns (matchAnns match)) $ do
     (patScope, pats') <- bindPatterns (matchPats match)
-    rhsHere <- effectiveResolutionSpan <$> currentSpan <*> pure (rhsSpan (matchRhs match))
+    rhsHere <- (rhsSpan (matchRhs match) <|>) <$> currentSpan
     rhs' <- extendScope patScope (withAmbientSpan rhsHere (resolveRhs (matchRhs match)))
     pure match {matchPats = pats', matchRhs = rhs'}
 
@@ -741,10 +739,10 @@ resolveGuardQualifiers qualifiers = do
 
 resolveGuardQualifier :: GuardQualifier -> ResolveM (Scope, GuardQualifier)
 resolveGuardQualifier qualifier =
-  withEffectiveSpan (peelGuardQualifierSpan NoSourceSpan qualifier) $ do
+  withEffectiveSpan (peelGuardQualifierSpan qualifier) $ do
     scope <- currentScope
-    let qualifierSpan = peelGuardQualifierSpan NoSourceSpan qualifier
-        wrap = GuardAnn (mkAnnotation qualifierSpan)
+    let qualifierSpan = peelGuardQualifierSpan qualifier
+        wrap = maybe id (GuardAnn . mkAnnotation) qualifierSpan
     case peelGuardQualifierAnn qualifier of
       GuardExpr expr -> do
         expr' <- resolveExpr expr
@@ -817,7 +815,7 @@ resolveExpr expr =
       name' <- resolveTermUse name
       fields' <- resolveRecordFields fields
       ambient <- currentSpan
-      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      let sp = sourceSpanFromAnns (nameAnns name') <|> ambient
       wildcardFields <- resolveRecordConWildcardFields sp name fields wildcard
       pure (ERecordCon name' (fields' <> wildcardFields) False)
     ERecordUpd record fields ->
@@ -905,7 +903,7 @@ resolveStringLiteral expr = do
 --
 -- The result is 'Nothing' when the built-in scope does not have Integer.
 -- A module without Integer then gives the literal only the fromInteger term.
-integerTypeAnnotation :: SourceSpan -> ResolveM (Maybe ResolutionAnnotation)
+integerTypeAnnotation :: Maybe SourceSpan -> ResolveM (Maybe ResolutionAnnotation)
 integerTypeAnnotation sp = do
   annotation <- primitiveLiteralTypeAnnotation sp "Integer"
   pure $ case resolutionTarget annotation of
@@ -939,7 +937,7 @@ resolvePrimitiveLiteralTypeName name expr = do
   pure (EAnn (mkAnnotation annotation) expr)
 
 -- | The resolution annotation that names the type of a primitive literal.
-primitiveLiteralTypeAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
+primitiveLiteralTypeAnnotation :: Maybe SourceSpan -> Text -> ResolveM ResolutionAnnotation
 primitiveLiteralTypeAnnotation sp name = do
   info <- currentModuleInfo
   let resolved = lookupType name (moduleInfoBuiltinScope info)
@@ -1024,11 +1022,11 @@ annotatePatternLiteral pat lit = do
         PNegLit {} -> [conversion, "negate", "=="]
         _ -> [conversion, "=="]
 
-literalSpan :: SourceSpan -> Literal -> SourceSpan
+literalSpan :: Maybe SourceSpan -> Literal -> Maybe SourceSpan
 literalSpan ambient (LitAnn ann inner) = literalSpan (pushSpanFromAnn ambient ann) inner
 literalSpan ambient _ = ambient
 
-syntaxTermAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
+syntaxTermAnnotation :: Maybe SourceSpan -> Text -> ResolveM ResolutionAnnotation
 syntaxTermAnnotation sp name = do
   resolved <- resolveSyntaxTerm name
   pure (ResolutionAnnotation sp (IdentifierNamed name) ResolutionNamespaceTerm resolved)
@@ -1145,13 +1143,13 @@ resolveRecordFields =
 -- | A record wildcard in a construction fills each remaining field with the
 -- variable that has the field name. The construction lists these fields as
 -- puns, so a later phase sees an ordinary record construction.
-resolveRecordConWildcardFields :: SourceSpan -> Name -> [RecordField Expr] -> Bool -> ResolveM [RecordField Expr]
+resolveRecordConWildcardFields :: Maybe SourceSpan -> Name -> [RecordField Expr] -> Bool -> ResolveM [RecordField Expr]
 resolveRecordConWildcardFields sp conName fields wildcard = do
   scope <- currentScope
   mapM fieldPun (recordWildcardFieldNames (scopeRecordFields scope) conName fields wildcard)
   where
     fieldPun fieldName = do
-      value <- resolveTermUse (Name Nothing NameVarId fieldName [mkAnnotation sp])
+      value <- resolveTermUse (Name Nothing NameVarId fieldName (map mkAnnotation (maybeToList sp)))
       pure
         RecordField
           { recordFieldName = Name Nothing NameVarId fieldName [],
@@ -1252,14 +1250,14 @@ markMixedImplicitParamGroup decls
   | otherwise = pure decls
   where
     isImplicitParamDecl decl =
-      case snd (peelDeclSpan NoSourceSpan decl) of
+      case snd (peelDeclSpan decl) of
         DeclImplicitParam {} -> True
         _ -> False
     mark decl =
-      case peelDeclSpan NoSourceSpan decl of
+      case peelDeclSpan decl of
         (declSpan, DeclImplicitParam name _ _) -> do
           ambient <- currentSpan
-          let loc = spanStartNameSpan (effectiveResolutionSpan ambient declSpan) name
+          let loc = spanStartNameSpan (declSpan <|> ambient) name
               resolution =
                 ResolutionAnnotation
                   loc
@@ -1365,7 +1363,7 @@ bindPattern pat =
           fields
       wildcardEntries <- bindRecordWildcardFields name fields wildcard
       ambient <- currentSpan
-      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      let sp = sourceSpanFromAnns (nameAnns name') <|> ambient
       -- A record wildcard binds each remaining field to a variable with the
       -- field name. The pattern lists these fields as puns, so a later phase
       -- sees an ordinary record pattern.
@@ -1373,7 +1371,7 @@ bindPattern pat =
           wildcardFields =
             [ RecordField
                 { recordFieldName = Name Nothing NameVarId fieldName [],
-                  recordFieldValue = PVar (resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName ((mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = [mkAnnotation sp]})),
+                  recordFieldValue = PVar (resolveUnqualifiedNameTo sp ResolutionNamespaceTerm resolvedName ((mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = map mkAnnotation (maybeToList sp)})),
                   recordFieldPun = True
                 }
             | (fieldName, resolvedName) <- wildcardEntries
@@ -1455,7 +1453,7 @@ resolvePatternDefinition termDefinition pat =
           fields
       wildcardNames <- wildcardFieldNames name fields wildcard
       ambient <- currentSpan
-      let sp = effectiveResolutionSpan ambient (sourceSpanFromAnns (nameAnns name'))
+      let sp = sourceSpanFromAnns (nameAnns name') <|> ambient
       -- A record wildcard binds each remaining field to a variable with the
       -- field name. The pattern lists these fields as puns, so a later phase
       -- sees an ordinary record pattern.
@@ -1466,7 +1464,7 @@ resolvePatternDefinition termDefinition pat =
                   recordFieldPun = True
                 }
             | fieldName <- wildcardNames,
-              let binder = (mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = [mkAnnotation sp]}
+              let binder = (mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = map mkAnnotation (maybeToList sp)}
             ]
       pure (PRecord name' (fields' <> wildcardFields) False)
     PTypeSig inner ty ->
@@ -1796,9 +1794,9 @@ resolveTypeSignature ty =
       ty' <- resolveType ty
       pure (emptyScope, ty')
 
-annotateTypeSyntax :: SourceSpan -> ResolutionAnnotation -> Type -> Type
+annotateTypeSyntax :: Maybe SourceSpan -> ResolutionAnnotation -> Type -> Type
 annotateTypeSyntax sp resolution =
-  TAnn (mkAnnotation resolution) . TAnn (mkAnnotation sp)
+  TAnn (mkAnnotation resolution) . maybe id (TAnn . mkAnnotation) sp
 
 bindTyVarBinders :: [TyVarBinder] -> ResolveM (Scope, [TyVarBinder])
 bindTyVarBinders =
@@ -1826,38 +1824,36 @@ allocateLocalDeclBinders decls = do
       pure (Map.insert key resolvedName targets, insertTerm key resolvedName scope)
 
 -- | Collect all term binders introduced by a declaration (handles tuple patterns etc.)
-declBinderCandidates :: Map.Map Text [Text] -> Decl -> [(SourceSpan, UnqualifiedName)]
+declBinderCandidates :: Map.Map Text [Text] -> Decl -> [(Maybe SourceSpan, UnqualifiedName)]
 declBinderCandidates recordFields decl =
-  let (outerSp, innerDecl) = peelDeclSpan NoSourceSpan decl
+  let (outerSp, innerDecl) = peelDeclSpan decl
    in case innerDecl of
         DeclValue valueDecl ->
           case valueDecl of
             FunctionBind name _ ->
-              let loc = effectiveResolutionSpan outerSp NoSourceSpan
+              let loc = outerSp
                in [(spanStartNameSpan loc (renderUnqualifiedName name), name)]
             PatternBind _ pat _ ->
-              let loc = effectiveResolutionSpan outerSp (peelPatternSpan NoSourceSpan pat)
+              let loc = peelPatternSpan pat <|> outerSp
                in collectPatVarBinders recordFields loc pat
         DeclTypeSig [name] _ ->
           [(spanStartNameSpan outerSp (renderUnqualifiedName name), name)]
         _ -> []
 
-declBinderCandidate :: Decl -> Maybe (SourceSpan, UnqualifiedName)
+declBinderCandidate :: Decl -> Maybe (Maybe SourceSpan, UnqualifiedName)
 declBinderCandidate decl =
-  let (outerSp, innerDecl) = peelDeclSpan NoSourceSpan decl
+  let (outerSp, innerDecl) = peelDeclSpan decl
    in case innerDecl of
         DeclValue valueDecl ->
           case valueDecl of
             FunctionBind name _ ->
-              let loc = effectiveResolutionSpan outerSp NoSourceSpan
+              let loc = outerSp
                in Just (spanStartNameSpan loc (renderUnqualifiedName name), name)
             PatternBind _ pat _ ->
               case peelPatternAnn pat of
                 PVar name ->
                   let loc =
-                        effectiveResolutionSpan
-                          (effectiveResolutionSpan outerSp NoSourceSpan)
-                          (peelPatternSpan NoSourceSpan pat)
+                        peelPatternSpan pat <|> outerSp
                    in Just (spanStartNameSpan loc (renderUnqualifiedName name), name)
                 _ -> Nothing
         DeclTypeSig [name] _ ->
@@ -1868,14 +1864,14 @@ topLevelTermDefinition :: Scope -> TermDefinition
 topLevelTermDefinition scope name =
   Just (lookupTerm (renderUnqualifiedName name) scope)
 
-resolveTermDefinitionAt :: SourceSpan -> TermDefinition -> UnqualifiedName -> UnqualifiedName
+resolveTermDefinitionAt :: Maybe SourceSpan -> TermDefinition -> UnqualifiedName -> UnqualifiedName
 resolveTermDefinitionAt span' termDefinition name =
   case termDefinition name of
     Just resolved ->
       resolveUnqualifiedNameTo (spanStartNameSpan span' (renderUnqualifiedName name)) ResolutionNamespaceTerm resolved name
     Nothing -> name
 
-resolveUnqualifiedNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> UnqualifiedName -> UnqualifiedName
+resolveUnqualifiedNameTo :: Maybe SourceSpan -> ResolutionNamespace -> ResolvedName -> UnqualifiedName -> UnqualifiedName
 resolveUnqualifiedNameTo span' namespace resolved name =
   name
     { unqualifiedNameAnns =
@@ -1883,7 +1879,7 @@ resolveUnqualifiedNameTo span' namespace resolved name =
           : unqualifiedNameAnns name
     }
 
-resolveNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> Name -> Name
+resolveNameTo :: Maybe SourceSpan -> ResolutionNamespace -> ResolvedName -> Name -> Name
 resolveNameTo span' namespace resolved name =
   name
     { nameAnns =
@@ -1931,13 +1927,13 @@ reassociateResolvedInfixExpr operands names fallbackExpr = do
     Nothing ->
       pure (rebuildInfixExpr operands ops)
 
-ambiguousFixityName :: SourceSpan -> ResolvedInfixOp -> Name
+ambiguousFixityName :: Maybe SourceSpan -> ResolvedInfixOp -> Name
 ambiguousFixityName ambient op =
   name
     { nameAnns =
         mkAnnotation
           ( ResolutionAnnotation
-              (effectiveResolutionSpan (spanStartNameSpan ambient (nameText name)) (sourceSpanFromAnns (nameAnns name)))
+              (sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan ambient (nameText name))
               (IdentifierNamed (nameText name))
               ResolutionNamespaceTerm
               (ResolvedError "ambiguous fixity")
@@ -2072,7 +2068,7 @@ resolveTypeUseAtName :: Name -> ResolveM Name
 resolveTypeUseAtName name = do
   sp <- currentSpan
   scope <- currentScope
-  let nameSpan = effectiveResolutionSpan (spanStartNameSpan sp (nameText name)) (sourceSpanFromAnns (nameAnns name))
+  let nameSpan = sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan sp (nameText name)
   pure (resolveNameTo nameSpan ResolutionNamespaceType (resolveTypeName scope name) name)
 
 resolveScopedTypeVariableUse :: UnqualifiedName -> ResolveM UnqualifiedName
@@ -2088,7 +2084,7 @@ resolveScopedTypeVariableUse name = do
 
 resolveDataConDefinitions :: Scope -> DataConDecl -> DataConDecl
 resolveDataConDefinitions scope =
-  go NoSourceSpan
+  go Nothing
   where
     go ambient current =
       case current of

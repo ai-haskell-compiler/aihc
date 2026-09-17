@@ -19,7 +19,8 @@ module Aihc.Tc.Deriving.Generate
 where
 
 import Aihc.Parser.Syntax
-  ( ArrowKind (..),
+  ( Annotation,
+    ArrowKind (..),
     CaseAlt (..),
     Decl (..),
     Expr (..),
@@ -68,7 +69,7 @@ import Aihc.Tc.Types
 import Control.Monad (forM, zipWithM)
 import Data.Foldable (foldrM)
 import Data.Functor ((<&>))
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -98,7 +99,7 @@ declDerivedInstances references primPackage origin decl =
 
 -- | The generation context of one plan.
 data Gen = Gen
-  { genSpan :: !SourceSpan,
+  { genSpan :: !(Maybe SourceSpan),
     genKinds :: !TcKinds,
     genReferences :: !DerivingReferences,
     -- | The primitive package, which most references come from.
@@ -134,7 +135,7 @@ generatePlan kinds references primPackage origin sourceDecl plan =
                 items <&> \generated ->
                   markCoerced $
                     DeclAnn (mkAnnotation TcDerivedInstance) $
-                      DeclAnn (mkAnnotation (genSpan gen)) $
+                      maybe id (DeclAnn . mkAnnotation) (genSpan gen) $
                         DeclInstance
                           InstanceDecl
                             { instanceDeclPragmas = [],
@@ -1067,14 +1068,13 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 -- and annotations of the generated code point at the clause.
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
-  InstanceItemAnn
-    (mkAnnotation (genSpan gen))
-    (InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name [mkAnnotation (genSpan gen)]) matches))
+  maybe id (InstanceItemAnn . mkAnnotation) (genSpan gen) $
+    InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen)) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =
   Match
-    { matchAnns = [mkAnnotation (genSpan gen)],
+    { matchAnns = genSpanAnns gen,
       matchHeadForm = MatchHeadPrefix,
       matchPats = patterns,
       matchRhs = UnguardedRhs [] body Nothing
@@ -1083,17 +1083,22 @@ simpleMatch gen patterns body =
 -- | Place a generated expression at the deriving clause, so every type
 -- annotation the checker attaches to it has a source position.
 at :: Gen -> Expr -> Expr
-at gen = EAnn (mkAnnotation (genSpan gen))
+at gen = maybe id (EAnn . mkAnnotation) (genSpan gen)
+
+-- | The span annotation of generated syntax, or none when the deriving
+-- clause it came from had no span of its own.
+genSpanAnns :: Gen -> [Annotation]
+genSpanAnns = map mkAnnotation . maybeToList . genSpan
 
 atPattern :: Gen -> Pattern -> Pattern
-atPattern gen = PAnn (mkAnnotation (genSpan gen))
+atPattern gen = maybe id (PAnn . mkAnnotation) (genSpan gen)
 
 caseOf :: Gen -> Expr -> [(Pattern, Expr)] -> Expr
 caseOf gen scrutinee alternatives =
   at gen $
     ECase
       scrutinee
-      [ CaseAlt {caseAltAnns = [mkAnnotation (genSpan gen)], caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] body Nothing}
+      [ CaseAlt {caseAltAnns = genSpanAnns gen, caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] body Nothing}
       | (pat, body) <- alternatives
       ]
 
@@ -1118,9 +1123,9 @@ freshLocal gen text = do
     ( UnqualifiedName
         NameVarId
         text
-        [ mkAnnotation (genSpan gen),
-          mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))
-        ]
+        ( genSpanAnns gen
+            <> [mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+        )
     )
 
 localExpr :: Gen -> UnqualifiedName -> Expr
@@ -1188,17 +1193,17 @@ intLiteral gen value =
     (primTypePackage, primTypeModule, primTypeName) =
       referenceIdentityOf gen (derivingIntPrimType (genReferences gen))
 
-resolvedName :: SourceSpan -> PackageId -> Text -> NameType -> ResolutionNamespace -> Text -> Name
+resolvedName :: Maybe SourceSpan -> PackageId -> Text -> NameType -> ResolutionNamespace -> Text -> Name
 resolvedName sp packageId moduleName' nameType namespace text =
   Name
     (Just moduleName')
     nameType
     text
-    [ mkAnnotation sp,
-      mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (ResolvedTopLevel packageId moduleName' (Name Nothing nameType text [])))
-    ]
+    ( map mkAnnotation (maybeToList sp)
+        <> [mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (ResolvedTopLevel packageId moduleName' (Name Nothing nameType text [])))]
+    )
 
-tyConNameSyntax :: SourceSpan -> TyCon -> Name
+tyConNameSyntax :: Maybe SourceSpan -> TyCon -> Name
 tyConNameSyntax sp tyCon =
   resolvedName sp (tyConPackageId tyCon) (tyConModuleName tyCon) (constructorNameType (tyConName tyCon)) (tyConNamespace tyCon) (tyConName tyCon)
 
@@ -1225,7 +1230,7 @@ isSymbolic text =
 
 -- | The checked type as the source syntax that the instance checker reads
 -- back, or 'Nothing' for a type without a source form.
-surfaceType :: SourceSpan -> TcType -> Maybe Type
+surfaceType :: Maybe SourceSpan -> TcType -> Maybe Type
 surfaceType sp ty =
   case ty of
     TcTyVar tyVar -> Just (TVar (mkUnqualifiedName NameVarId (tvName tyVar)))
@@ -1236,7 +1241,7 @@ surfaceType sp ty =
           foldl TApp (TCon (tyConNameSyntax sp tyCon) Unpromoted) <$> mapM (surfaceType sp) arguments
     _ -> Nothing
 
-surfacePred :: SourceSpan -> Pred -> Maybe Type
+surfacePred :: Maybe SourceSpan -> Pred -> Maybe Type
 surfacePred sp predicate =
   case predicate of
     ClassPred classTyCon arguments ->

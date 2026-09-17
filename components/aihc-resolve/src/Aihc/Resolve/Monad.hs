@@ -24,11 +24,12 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Types
+import Control.Applicative ((<|>))
 
 data ResolveEnv = ResolveEnv
   { envScope :: !Scope,
     envModuleInfo :: !ModuleInfo,
-    envSpan :: !SourceSpan
+    envSpan :: !(Maybe SourceSpan)
   }
 
 data ModuleInfo = ModuleInfo
@@ -68,7 +69,7 @@ instance Monad ResolveM where
 
 runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, a)
 runResolveM scope moduleInfo nextLocal action =
-  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = NoSourceSpan}
+  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = Nothing}
       initialState = ResolveState {stateNextLocal = nextLocal}
       (result, finalState) = unResolveM action initialEnv initialState
    in (stateNextLocal finalState, result)
@@ -95,7 +96,7 @@ currentScope = asks envScope
 currentModuleInfo :: ResolveM ModuleInfo
 currentModuleInfo = asks envModuleInfo
 
-currentSpan :: ResolveM SourceSpan
+currentSpan :: ResolveM (Maybe SourceSpan)
 currentSpan = asks envSpan
 
 withScope :: Scope -> ResolveM a -> ResolveM a
@@ -104,13 +105,15 @@ withScope scope = local (\env -> env {envScope = scope})
 extendScope :: Scope -> ResolveM a -> ResolveM a
 extendScope localScope = local (\env -> env {envScope = localScope `unionScope` envScope env})
 
-withAmbientSpan :: SourceSpan -> ResolveM a -> ResolveM a
+withAmbientSpan :: Maybe SourceSpan -> ResolveM a -> ResolveM a
 withAmbientSpan span' = local (\env -> env {envSpan = span'})
 
-withEffectiveSpan :: SourceSpan -> ResolveM a -> ResolveM a
+-- | Resolve under @localSpan@ when the node carries one, and otherwise keep
+-- the span already in force.
+withEffectiveSpan :: Maybe SourceSpan -> ResolveM a -> ResolveM a
 withEffectiveSpan localSpan action = do
   ambient <- currentSpan
-  withAmbientSpan (effectiveResolutionSpan ambient localSpan) action
+  withAmbientSpan (localSpan <|> ambient) action
 
 withPushedSpan :: Annotation -> ResolveM a -> ResolveM a
 withPushedSpan ann action = do

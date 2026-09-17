@@ -1,4 +1,3 @@
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Entry point for the aihc type checker.
@@ -149,9 +148,8 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
     sourceSpanSourceName,
-    pattern SourceSpan,
   )
-import Aihc.Resolve (ModuleUnit (..), PackageId (..), pattern NoSourceSpan)
+import Aihc.Resolve (ModuleUnit (..), PackageId (..))
 import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
@@ -168,12 +166,11 @@ import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics, zonkType)
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
-import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Typeable (cast)
@@ -570,9 +567,7 @@ attachSccDiagnostics diagnostics modules = foldl attachOne modules diagnostics
 
 moduleSourceNames :: Module -> [Text]
 moduleSourceNames modu =
-  case spanFromAnnotations (moduleAnns modu) of
-    NoSourceSpan -> []
-    SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
+  map sourceSpanSourceName (maybeToList (spanFromAnnotations (moduleAnns modu)))
 
 typecheckModuleWithState :: TcConfig -> TcState -> ModuleUnit -> (Module, TcState)
 typecheckModuleWithState config st unit =
@@ -663,7 +658,7 @@ attachDiagnosticHere sp diagnostic value =
   where
     diagnosticAnn = mkAnnotation diagnostic
     atExactSpan span' wrap =
-      if span' == sp
+      if span' == Just sp
         then cast wrap
         else Nothing
     attachTyped :: forall node. (Data node) => (node -> Maybe node) -> Maybe a
@@ -723,7 +718,7 @@ attachDiagnosticHere sp diagnostic value =
       attachTyped $ \(item :: ImportItem) ->
         atExactSpan (wrappedSpan peelImportAnnOnce item) (ImportAnn diagnosticAnn item)
 
-wrappedSpan :: (node -> Maybe (Annotation, node)) -> node -> SourceSpan
+wrappedSpan :: (node -> Maybe (Annotation, node)) -> node -> Maybe SourceSpan
 wrappedSpan peel =
   spanFromAnnotations . fst . peelLeading peel
 
@@ -796,17 +791,12 @@ peelImportAnnOnce :: ImportItem -> Maybe (Annotation, ImportItem)
 peelImportAnnOnce (ImportAnn ann inner) = Just (ann, inner)
 peelImportAnnOnce _ = Nothing
 
-spanFromAnnotations :: [Annotation] -> SourceSpan
+spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
 spanFromAnnotations =
-  fromMaybe NoSourceSpan . foldr ((<|>) . spanFromAnnotation) Nothing
+  foldr ((<|>) . spanFromAnnotation) Nothing
 
 spanFromAnnotation :: Annotation -> Maybe SourceSpan
-spanFromAnnotation =
-  concreteSpan <=< fromAnnotation
-
-concreteSpan :: SourceSpan -> Maybe SourceSpan
-concreteSpan NoSourceSpan = Nothing
-concreteSpan sp = Just sp
+spanFromAnnotation = fromAnnotation
 
 collectTcDiagnostics :: Module -> [TcDiagnostic]
 collectTcDiagnostics = collectAnnotations fromAnnotation

@@ -325,7 +325,7 @@ data TcDerivingContext
 -- generated instance declaration is an ordinary 'DeclInstance' that the
 -- instance checker and System FC lowering treat like source.
 data TcDerivingPlan = TcDerivingPlan
-  { tcDerivingSourceSpan :: !SourceSpan,
+  { tcDerivingSourceSpan :: !(Maybe SourceSpan),
     tcDerivingStrategy :: !TcDerivingStrategy,
     tcDerivingStockFallback :: !Bool,
     tcDerivingClassName :: !Text,

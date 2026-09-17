@@ -1,5 +1,3 @@
-{-# LANGUAGE PatternSynonyms #-}
-
 -- | Unification of types.
 --
 -- Handles meta-variable solving with occurs check.
@@ -11,7 +9,6 @@ module Aihc.Tc.Unify
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
-import Aihc.Resolve (pattern NoSourceSpan)
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (refineGivenTyVarKinds, tcTypeKind, unifyKindsAt)
@@ -23,7 +20,7 @@ import Aihc.Tc.Zonk (zonkType)
 
 -- | Unify two types, recording the solution and emitting an error if
 -- they are incompatible.
-unify :: SourceSpan -> CtOrigin -> TcType -> TcType -> TcM ()
+unify :: Maybe SourceSpan -> CtOrigin -> TcType -> TcType -> TcM ()
 unify loc origin t1 t2 = do
   stuck <- unifyDeferring loc origin t1 t2
   mapM_ reportStuck stuck
@@ -38,7 +35,7 @@ unify loc origin t1 t2 = do
 -- may still reduce once a meta variable of its arguments is solved,
 -- which can happen long after this unification. The caller turns the
 -- result into wanted constraints for the solver.
-unifyDeferring :: SourceSpan -> CtOrigin -> TcType -> TcType -> TcM [(TcType, TcType)]
+unifyDeferring :: Maybe SourceSpan -> CtOrigin -> TcType -> TcType -> TcM [(TcType, TcType)]
 unifyDeferring loc origin t1 t2 = do
   t1' <- zonkType t1 >>= reduceTypeFamilies
   t2' <- zonkType t2 >>= reduceTypeFamilies
@@ -66,10 +63,10 @@ unifyDeferring loc origin t1 t2 = do
 
 -- | Attempt to unify two types, returning an error kind on failure.
 unifyTypes :: TcType -> TcType -> TcM (Either TcErrorKind ())
-unifyTypes = unifyTypesAt NoSourceSpan
+unifyTypes = unifyTypesAt Nothing
 
 -- | Attempt to unify two types. A kind mismatch is reported at the span.
-unifyTypesAt :: SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind ())
+unifyTypesAt :: Maybe SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind ())
 unifyTypesAt loc t1 t2 = do
   result <- unifyCollecting loc t1 t2
   case result of
@@ -78,7 +75,7 @@ unifyTypesAt loc t1 t2 = do
 
 -- | Unify two types, collecting the pairs that a type family application
 -- no equation reduces yet has held back.
-unifyCollecting :: SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind [(TcType, TcType)])
+unifyCollecting :: Maybe SourceSpan -> TcType -> TcType -> TcM (Either TcErrorKind [(TcType, TcType)])
 unifyCollecting _ (TcMetaTv u1) (TcMetaTv u2)
   | u1 == u2 = pure (Right [])
 unifyCollecting loc (TcMetaTv u) ty = fmap (const []) <$> unifyMetaTv loc u ty
@@ -98,7 +95,7 @@ unifyCollecting loc t1 t2
           children <- decomposeNominalEquality t1 t2
           case children of
             Just pairs -> fmap concat . sequence <$> mapM (uncurry (unifyCollecting loc)) pairs
-            Nothing -> pure (Left (UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing))
+            Nothing -> pure (Left (UnificationError t1 t2 (UnifyOrigin Nothing) Nothing))
 
 -- | Whether either side is a saturated type family application that no
 -- equation reduces. Decomposing such an equality is unsound: the
@@ -112,18 +109,18 @@ isStuckFamilyEquality t1 t2 = do
 -- | Retry the equalities that a stuck type family application held back.
 -- Unifying the other pairs may have solved the meta variables that kept
 -- the application from reducing.
-retryDeferred :: SourceSpan -> [(TcType, TcType)] -> TcM (Either TcErrorKind ())
+retryDeferred :: Maybe SourceSpan -> [(TcType, TcType)] -> TcM (Either TcErrorKind ())
 retryDeferred loc pairs = sequence_ <$> mapM retryOne pairs
   where
     retryOne (t1, t2) = do
       t1' <- zonkType t1 >>= reduceTypeFamilies
       t2' <- zonkType t2 >>= reduceTypeFamilies
       if (t1', t2') == (t1, t2)
-        then pure (Left (UnificationError t1 t2 (UnifyOrigin NoSourceSpan) Nothing))
+        then pure (Left (UnificationError t1 t2 (UnifyOrigin Nothing) Nothing))
         else unifyTypesAt loc t1' t2'
 
 -- | Unify a meta-variable with a type, performing the occurs check.
-unifyMetaTv :: SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())
+unifyMetaTv :: Maybe SourceSpan -> Unique -> TcType -> TcM (Either TcErrorKind ())
 unifyMetaTv loc u ty = do
   ty' <- zonkType ty >>= refineGivenTyVarKinds
   case ty' of
@@ -132,7 +129,7 @@ unifyMetaTv loc u ty = do
       | occursIn u ty' -> pure $ Left $ OccursCheckError (TcMetaTv u) ty'
       -- A meta-variable stands for a monotype. Binding it to a polytype
       -- would let inference guess an impredicative instantiation.
-      | isPolyType ty' -> pure $ Left $ UnificationError (TcMetaTv u) ty' (UnifyOrigin NoSourceSpan) Nothing
+      | isPolyType ty' -> pure $ Left $ UnificationError (TcMetaTv u) ty' (UnifyOrigin Nothing) Nothing
       | otherwise -> do
           declaredKind <- readMetaTvKind u
           solvedKind <- tcTypeKind ty'

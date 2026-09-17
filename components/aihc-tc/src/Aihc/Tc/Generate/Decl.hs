@@ -1,6 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -97,7 +96,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..), pattern NoSourceSpan)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), VisibleTermIdentities (..))
 import Aihc.Resolve.Traverse (annotationList)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
@@ -169,15 +168,12 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 -- | Merge concrete source spans embedded in a list of annotations.
-sourceSpanFromAnns :: [Annotation] -> SourceSpan
-sourceSpanFromAnns anns =
-  case mapMaybe (fromAnnotation @SourceSpan) anns of
-    [] -> NoSourceSpan
-    s : _ -> s
+sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
+sourceSpanFromAnns = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
 
-peelDeclSpan :: SourceSpan -> Decl -> SourceSpan
+peelDeclSpan :: Maybe SourceSpan -> Decl -> Maybe SourceSpan
 peelDeclSpan ambient (DeclAnn ann inner) =
-  peelDeclSpan (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
+  peelDeclSpan (fromAnnotation @SourceSpan ann <|> ambient) inner
 peelDeclSpan ambient _ = ambient
 
 -- | Result of type-checking a single binding.
@@ -200,14 +196,14 @@ tbName = termKeyName . tbKey
 data UserSig = UserSig
   { userSigName :: !Text,
     userSigType :: !Type,
-    userSigSpan :: !SourceSpan
+    userSigSpan :: !(Maybe SourceSpan)
   }
   deriving (Show)
 
 data CheckedSig = CheckedSig
   { checkedSigName :: !Text,
     checkedSigScheme :: !TypeScheme,
-    checkedSigSpan :: !SourceSpan,
+    checkedSigSpan :: !(Maybe SourceSpan),
     -- | The names of the explicit @forall@ variables. They scope over the
     -- binding.
     checkedSigScopedNames :: ![Text],
@@ -616,7 +612,7 @@ tcModuleScc units = withPolyKindOrigins polyKindOrigins $ do
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
 atDecl :: (Decl -> TcM a) -> Decl -> TcM a
-atDecl check declaration = withAmbientSpan (peelDeclSpan NoSourceSpan declaration) (check declaration)
+atDecl check declaration = withAmbientSpan (peelDeclSpan Nothing declaration) (check declaration)
 
 -- | Keep explicit nominal roles in the checked interface.
 registerNominalRoles :: Decl -> TcM ()
@@ -1014,12 +1010,11 @@ checkTopLevelUnliftedBindings sourceGroups results =
   forM_ results $ \result ->
     case Map.lookup (tcGroupId result) groupsById of
       Just group
-        | sourceSpan <- declGroupSourceSpan group,
-          sourceSpan /= NoSourceSpan ->
+        | Just sourceSpan <- declGroupSourceSpan group ->
             forM_ (tcGroupBindingResults result) $ \binding -> do
               kind <- tcTypeKind (tbType binding)
               when (isUnliftedKind kind) $
-                emitError sourceSpan (TopLevelUnliftedBinding (tbDisplayName binding) (tbType binding))
+                emitError (Just sourceSpan) (TopLevelUnliftedBinding (tbDisplayName binding) (tbType binding))
       _ -> pure ()
   where
     groupsById = Map.fromList sourceGroups
@@ -1029,10 +1024,10 @@ checkTopLevelUnliftedBindings sourceGroups results =
         Right _ -> True
         Left _ -> False
 
-declGroupSourceSpan :: DeclGroup -> SourceSpan
+declGroupSourceSpan :: DeclGroup -> Maybe SourceSpan
 declGroupSourceSpan group =
   case group of
-    SingleDecl decl -> peelDeclSpan NoSourceSpan decl
+    SingleDecl decl -> peelDeclSpan Nothing decl
     MergedFunctionBind sourceSpan _ _ _ -> sourceSpan
 
 renderCheckedGroup :: Map Int [Decl] -> (Int, DeclGroup) -> [Decl]
@@ -1107,7 +1102,7 @@ annotateInstanceHeaderTc origin derived decl =
     DeclAnn ann inner
       | Just (TcCoercedDeriving plan) <- fromAnnotation ann,
         DeclInstance instanceDecl <- peelDeclAnn inner ->
-          DeclAnn (mkAnnotation (tcDerivingSourceSpan plan)) <$> annotateInstanceDeclWithPlan origin True (Just plan) instanceDecl
+          maybe id (DeclAnn . mkAnnotation) (tcDerivingSourceSpan plan) <$> annotateInstanceDeclWithPlan origin True (Just plan) instanceDecl
     DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin (derived || isDerivedInstanceAnn ann) inner
     DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
     _ -> pure decl
@@ -1356,7 +1351,7 @@ annotateForeignDeclTc foreignDecl = do
     _ -> pure annotated
 
 -- | A primitive declaration must retain the configured primitive type.
-checkPrimitiveImportType :: SourceSpan -> TcTermKey -> TcType -> TcM ()
+checkPrimitiveImportType :: Maybe SourceSpan -> TcTermKey -> TcType -> TcM ()
 checkPrimitiveImportType sourceSpan key declaredType = do
   wiring <- getWiring
   case key of
@@ -1413,7 +1408,7 @@ foreignCApiFor capi entity
           }
 
 -- | Read the C entity of a foreign import and report a bad entity.
-checkForeignEntity :: SourceSpan -> Bool -> Text -> ForeignEntitySpec -> TcM ForeignEntity
+checkForeignEntity :: Maybe SourceSpan -> Bool -> Text -> ForeignEntitySpec -> TcM ForeignEntity
 checkForeignEntity sourceSpan capi declaredName entity =
   case resolveForeignEntity capi declaredName entity of
     Right resolved -> pure resolved
@@ -1511,7 +1506,7 @@ valueEntity = ForeignEntity TcForeignCall Nothing True
 -- | An address import (@foreign import ccall "&sym"@) names static data
 -- rather than a function, so it takes no arguments and its value is the
 -- symbol address itself.
-checkForeignTarget :: SourceSpan -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
+checkForeignTarget :: Maybe SourceSpan -> TcForeignImportAnnotation -> TcM TcForeignImportAnnotation
 checkForeignTarget sourceSpan plan =
   case tcForeignTarget plan of
     TcForeignAddress -> do
@@ -1532,7 +1527,7 @@ checkForeignTarget sourceSpan plan =
           pure plan
       | otherwise -> pure plan
 
-checkForeignImportType :: SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
+checkForeignImportType :: Maybe SourceSpan -> TcForeignTarget -> Text -> TcType -> TcM TcForeignImportAnnotation
 checkForeignImportType sourceSpan target symbol ty = do
   let (argumentTypes, resultType) = splitFunctionType ty
       (effect, valueResultType) =
@@ -1562,7 +1557,7 @@ splitFunctionType ty =
        in (argument : arguments, finalResult)
     _ -> ([], ty)
 
-checkForeignValueType :: SourceSpan -> TcType -> TcM TcForeignMarshal
+checkForeignValueType :: Maybe SourceSpan -> TcType -> TcM TcForeignMarshal
 checkForeignValueType sourceSpan ty = do
   resolved <- resolveForeignValueType ty
   case resolved of
@@ -1661,19 +1656,19 @@ primitiveMarshal sourceType constructors primitiveName abiType = do
         tcForeignAbiType = abiType
       }
 
-annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
-annotateDeclAt NoSourceSpan tcAnn decl =
+annotateDeclAt :: Maybe SourceSpan -> TcAnnotation -> Decl -> Decl
+annotateDeclAt Nothing tcAnn decl =
   annotateDecl tcAnn decl
-annotateDeclAt sp tcAnn decl =
+annotateDeclAt (Just sp) tcAnn decl =
   DeclAnn (mkAnnotation sp) (annotateDecl tcAnn decl)
 
-valueDeclSpan :: ValueDecl -> SourceSpan
+valueDeclSpan :: ValueDecl -> Maybe SourceSpan
 valueDeclSpan valueDecl =
   case valueDecl of
     FunctionBind name _ -> unqualifiedNameSpan name
     PatternBind _ pat _ -> patternSpan pat
 
-unqualifiedNameSpan :: UnqualifiedName -> SourceSpan
+unqualifiedNameSpan :: UnqualifiedName -> Maybe SourceSpan
 unqualifiedNameSpan =
   sourceSpanFromAnns . unqualifiedNameAnns
 
@@ -1897,7 +1892,7 @@ solveInstanceDefaultSignature className givens predicates = do
 solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do
   evidenceVariable <- freshEvVar
-  let constraint = mkWantedCt predicate evidenceVariable (InstOrigin className) NoSourceSpan
+  let constraint = mkWantedCt predicate evidenceVariable (InstOrigin className) Nothing
   result <- case predicate of
     EqPred {} -> do
       equality <- withGivenPredicates givens (solveEquality constraint)
@@ -2133,7 +2128,7 @@ solveBodyConstraintsWithGivens givens cts impls = withGivenPredicates givens $ d
     givenConstraint predicate = do
       evidence <- freshEvVar
       let origin = InstOrigin "class body"
-      pure ((mkWantedCt predicate evidence origin NoSourceSpan) {ctFlavor = Given})
+      pure ((mkWantedCt predicate evidence origin Nothing) {ctFlavor = Given})
     -- Solve what it can and collect the rest. Reporting waits until
     -- defaulting has had its turn.
     attemptClassCt ct
@@ -2324,7 +2319,7 @@ matchOne subst (patternTy, targetTy)
 -- | Collect type signatures from a list of declarations.
 collectUserSigs :: [Decl] -> TcM (Map TcTermKey UserSig)
 collectUserSigs decls = do
-  signatures <- concat <$> mapM (extractSig NoSourceSpan) decls
+  signatures <- concat <$> mapM (extractSig Nothing) decls
   foldM insertSignature Map.empty signatures
   where
     insertSignature collected (key, signature)
@@ -2335,7 +2330,7 @@ collectUserSigs decls = do
         ( \n -> do
             key <- resolvedUnqualifiedTermKey n
             let name = unqualifiedNameText n
-                sigSp = ambient `orSourceSpan` unqualifiedNameSpan n `orSourceSpan` typeSpan ty
+                sigSp = ambient <|> unqualifiedNameSpan n <|> typeSpan ty
             pure (key, UserSig name ty sigSp)
         )
         names
@@ -2344,10 +2339,10 @@ collectUserSigs decls = do
           do
             key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
             let name = unqualifiedNameText (foreignName foreignDecl)
-                sigSp = ambient `orSourceSpan` unqualifiedNameSpan (foreignName foreignDecl) `orSourceSpan` typeSpan (foreignType foreignDecl)
+                sigSp = ambient <|> unqualifiedNameSpan (foreignName foreignDecl) <|> typeSpan (foreignType foreignDecl)
             pure [(key, UserSig name (foreignType foreignDecl) sigSp)]
     extractSig ambient (DeclAnn ann inner) =
-      extractSig (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
+      extractSig (fromAnnotation @SourceSpan ann <|> ambient) inner
     extractSig ambient (DeclPatSynSig names ty) = extractSig ambient (DeclTypeSig names ty)
     extractSig _ _ = pure []
 
@@ -2444,7 +2439,7 @@ splitFunTy ty _ = ([], ty)
 -- Multiple FunctionBind equations for the same name are merged.
 data DeclGroup
   = SingleDecl Decl
-  | MergedFunctionBind SourceSpan UnqualifiedName [Decl] [Match]
+  | MergedFunctionBind (Maybe SourceSpan) UnqualifiedName [Decl] [Match]
 
 data DeclGraphKey
   = DeclGraphBinder !TcTermKey
@@ -2463,11 +2458,11 @@ groupValueDecls (d : ds) = case extractFunctionBind d of
   Nothing -> SingleDecl d : groupValueDecls ds
 
 -- | Extract function bind info from a declaration.
-extractFunctionBind :: Decl -> Maybe (SourceSpan, UnqualifiedName, [Match])
+extractFunctionBind :: Decl -> Maybe (Maybe SourceSpan, UnqualifiedName, [Match])
 extractFunctionBind decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) ->
-      let sp = peelDeclSpan NoSourceSpan decl
+      let sp = peelDeclSpan Nothing decl
        in Just (sp, name, matches)
     _ -> Nothing
 
@@ -2597,7 +2592,7 @@ tcSingleDeclGroup sigs groupId d =
           (maybeMatches, bindings) <-
             case Map.lookup key sigs of
               Just sig ->
-                tcTopLevelWithSig key displayName sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+                tcTopLevelWithSig key displayName sig [zeroArgMatch (patternSpan pat <|> peelDeclSpan Nothing d) rhs]
               Nothing ->
                 tcFunctionInfer key displayName [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
@@ -2627,7 +2622,7 @@ tcSingleDeclGroup sigs groupId d =
 -- at the unit type, which is what GHC uses @Any@ for.
 tcTopLevelPatternBind :: Map TcTermKey CheckedSig -> Int -> Decl -> Pattern -> Rhs Expr -> TcM TcDeclGroupResult
 tcTopLevelPatternBind sigs groupId d pat rhs = do
-  let sp = patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d
+  let sp = patternSpan pat <|> peelDeclSpan Nothing d
       binders = patternBinderNames pat
   -- A binder with a signature is already in the environment. The others
   -- get a placeholder that the checked pattern fills in.
@@ -2854,8 +2849,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
                           -- The annotated output needs a span on the checked pattern.
                           spannedPat =
                             case patternSpan checkedPat of
-                              NoSourceSpan -> checkedPat
-                              patSpan -> PAnn (mkAnnotation patSpan) checkedPat
+                              Nothing -> checkedPat
+                              Just patSpan -> PAnn (mkAnnotation patSpan) checkedPat
                           patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir'}
                           annotation = TcPatSynAnnotation matcherMatch' maybeBuilderMatches selectorMatches
                           decl' = DeclAnn (mkAnnotation annotation) (replacePatSynDecl patSyn' decl)
@@ -2867,11 +2862,11 @@ tcPatSynDecl sigs groupId decl patSyn = do
 -- type as its scrutinee type.
 checkBundledPatSyns :: Module -> TcM ()
 checkBundledPatSyns modu =
-  mapM_ (go NoSourceSpan) (fromMaybe [] (moduleExports modu))
+  mapM_ (go Nothing) (fromMaybe [] (moduleExports modu))
   where
     go sp spec =
       case spec of
-        ExportAnn ann inner -> go (fromMaybe sp (fromAnnotation ann)) inner
+        ExportAnn ann inner -> go (fromAnnotation @SourceSpan ann <|> sp) inner
         ExportWith _ _ typeName members -> mapM_ (checkMember sp (nameText typeName)) members
         ExportWithAll _ _ typeName _ members -> mapM_ (checkMember sp (nameText typeName)) members
         _ -> pure ()
@@ -2950,7 +2945,7 @@ patSynLayoutFromSig name arity sig = do
 -- binds the argument types. The unsolved constraints of the pattern are
 -- required. The class constraints that constructors in the pattern give
 -- are provided, and their skolems are existential.
-inferPatSynLayout :: SourceSpan -> Text -> Pattern -> [UnqualifiedName] -> TcM (Maybe PatSynLayout)
+inferPatSynLayout :: Maybe SourceSpan -> Text -> Pattern -> [UnqualifiedName] -> TcM (Maybe PatSynLayout)
 inferPatSynLayout sp name pat argBinders = do
   scrutTy <- freshMetaTv
   ((patCheck, argTys, residual), failed) <-
@@ -3010,7 +3005,7 @@ inferPatSynLayout sp name pat argBinders = do
 -- are produced by the continuation and consumed by the caller of the
 -- matcher, and the matcher only jumps. GRIN calls that shape
 -- 'Aihc.Grin.Syntax.ResultForwarded'.
-patSynMatcherSig :: Text -> SourceSpan -> PatSynLayout -> TcM CheckedSig
+patSynMatcherSig :: Text -> Maybe SourceSpan -> PatSynLayout -> TcM CheckedSig
 patSynMatcherSig matcherName sp layout = do
   kinds <- getKinds
   unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
@@ -3068,7 +3063,7 @@ patSynFieldTermKey key field =
 -- the universal variables and keeps the required context, so it has the
 -- type @req => scrutinee -> field@. A field whose type mentions an
 -- existential variable has no selector.
-tcPatSynRecordSelectors :: PackageId -> Text -> SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
+tcPatSynRecordSelectors :: PackageId -> Text -> Maybe SourceSpan -> PatSynLayout -> PatSynArgs -> Pattern -> [UnqualifiedName] -> TcM ([(Text, Match)], [TcBindingResult])
 tcPatSynRecordSelectors package moduleName' nameSpan layout args pat argBinders = do
   checked <- sequence (zipWith3 selector (patSynRecordFields args) argBinders (patSynLayoutArgTypes layout))
   pure (concatMap fst checked, concatMap snd checked)
@@ -3113,12 +3108,12 @@ patSynArgNames args =
 
 -- | The span of a pattern synonym binder. The resolver gives the name its
 -- definition span.
-patSynBinderSpan :: UnqualifiedName -> SourceSpan
+patSynBinderSpan :: UnqualifiedName -> Maybe SourceSpan
 patSynBinderSpan binder =
   unqualifiedNameSpan binder
-    `orSourceSpan` case [resolutionSpan resolution | Just resolution <- map fromAnnotation (unqualifiedNameAnns binder)] of
+    <|> case [resolutionSpan resolution | Just resolution <- map fromAnnotation (unqualifiedNameAnns binder)] of
       sp : _ -> sp
-      [] -> NoSourceSpan
+      [] -> Nothing
 
 -- | The binder in a pattern that has the given name.
 patternVarBinder :: Text -> Pattern -> Maybe UnqualifiedName
@@ -3155,7 +3150,7 @@ synthesizedLocal unique text =
   UnqualifiedName
     NameVarId
     text
-    [mkAnnotation (ResolutionAnnotation NoSourceSpan (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
+    [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (ResolvedLocal unique (mkUnqualifiedName NameVarId text)))]
 
 localVar :: UnqualifiedName -> Expr
 localVar = EVar . qualifyName Nothing
@@ -3457,7 +3452,7 @@ rejectEscapingExistentials outerType implications = do
       escaping = filter (`typeMentionsTyVar` zonkedOuterType) skolems
   unless (null escaping) $
     emitError
-      NoSourceSpan
+      Nothing
       ( OtherError
           ( "existential type variable escapes its pattern-match branch: "
               <> T.unpack (T.intercalate ", " (map tvName escaping))
@@ -3807,7 +3802,7 @@ registerAssociatedTypeFamily origin classParamNames defaults familyDecl =
           [] -> pure Nothing
           [familyInst] -> checkTypeFamilyEquation origin False (typeFamilyInstForall familyInst) (typeFamilyInstEquation familyInst)
           _ -> do
-            emitError NoSourceSpan (OtherError ("more than one default equation for associated type " <> T.unpack familyName))
+            emitError Nothing (OtherError ("more than one default equation for associated type " <> T.unpack familyName))
             pure Nothing
       pure
         ( Just
@@ -4085,7 +4080,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
   familyType <- checkSurfaceType tvEnv (dataFamilyInstHead familyInst) (typeKind kinds)
   case (familyType, constructorNames) of
     (_, []) -> do
-      emitError NoSourceSpan (OtherError "data-family instances without constructors are not supported")
+      emitError Nothing (OtherError "data-family instances without constructors are not supported")
       pure []
     (TcTyCon familyTyCon _, firstConstructor : _) -> do
       maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
@@ -4126,10 +4121,10 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
               addDataFamilyInstance instanceInfo
               mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
         _ -> do
-          emitError NoSourceSpan (OtherError ("data-family instance head does not name a data family: " <> T.unpack (tyConName familyTyCon)))
+          emitError Nothing (OtherError ("data-family instance head does not name a data family: " <> T.unpack (tyConName familyTyCon)))
           pure []
     _ -> do
-      emitError NoSourceSpan (OtherError ("invalid data-family instance head: " <> show familyType))
+      emitError Nothing (OtherError ("invalid data-family instance head: " <> show familyType))
       pure []
 
 -- | The data family that one instance head names.
@@ -4239,7 +4234,7 @@ registerTypeFamilyDeclHeaderWith :: Map Text TcType -> Maybe TypeScheme -> TypeF
 registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
   case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
     Nothing ->
-      emitError NoSourceSpan (OtherError "type family head does not name a type family")
+      emitError Nothing (OtherError "type family head does not name a type family")
     Just familyBinder -> do
       let familyName = unqualifiedNameText familyBinder
           params = typeFamilyDeclParams familyDecl
@@ -4374,10 +4369,10 @@ checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equatio
                       }
               pure (Just instanceInfo)
         _ -> do
-          emitError NoSourceSpan (OtherError ("type-family instance head does not name a type family: " <> T.unpack (tyConName familyTyCon)))
+          emitError Nothing (OtherError ("type-family instance head does not name a type family: " <> T.unpack (tyConName familyTyCon)))
           pure Nothing
     Nothing -> do
-      emitError NoSourceSpan (OtherError ("invalid type-family instance head: " <> show lhs))
+      emitError Nothing (OtherError ("invalid type-family instance head: " <> show lhs))
       pure Nothing
 
 -- | Bind every meta left in a family equation's left-hand side to a fresh
@@ -4457,7 +4452,7 @@ typeDeclParamInfos maybeKindScheme params =
           let checkedParams = zipWith setParamKind expectedKinds paramInfos
           pure (kindParams, checkedParams)
         else do
-          emitError NoSourceSpan (OtherError "standalone kind signature arity does not match its type declaration")
+          emitError Nothing (OtherError "standalone kind signature arity does not match its type declaration")
           pure (kindParams, paramInfos)
   where
     kindParam tyVar = ParamInfo (tvName tyVar) tyVar (tvKind tyVar)
@@ -5032,7 +5027,7 @@ patternBinderName :: Pattern -> Maybe (Text, Text)
 patternBinderName pat =
   binderBindingName <$> patternBinderSyntaxName pat
 
-zeroArgMatch :: SourceSpan -> Rhs Expr -> Match
+zeroArgMatch :: Maybe SourceSpan -> Rhs Expr -> Match
 zeroArgMatch sp rhs =
   Match
     { matchAnns = sourceSpanAnn sp,
@@ -5041,22 +5036,13 @@ zeroArgMatch sp rhs =
       matchRhs = rhs
     }
 
-sourceSpanAnn :: SourceSpan -> [Annotation]
-sourceSpanAnn NoSourceSpan = []
-sourceSpanAnn sp = [mkAnnotation sp]
+sourceSpanAnn :: Maybe SourceSpan -> [Annotation]
+sourceSpanAnn = map mkAnnotation . maybeToList
 
-orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
-orSourceSpan NoSourceSpan fallback = fallback
-orSourceSpan sp _ = sp
-
-patternSpan :: Pattern -> SourceSpan
+patternSpan :: Pattern -> Maybe SourceSpan
 patternSpan pat =
   case pat of
-    -- The parser gives some nodes an empty span. Use the inner span then.
-    PAnn ann inner ->
-      case fromAnnotation ann of
-        Just sp | sp /= NoSourceSpan -> sp
-        _ -> patternSpan inner
+    PAnn ann inner -> fromAnnotation @SourceSpan ann <|> patternSpan inner
     PVar name -> sourceSpanFromAnns (unqualifiedNameAnns name)
     PParen inner -> patternSpan inner
     PAs name _ -> sourceSpanFromAnns (unqualifiedNameAnns name)
@@ -5064,41 +5050,41 @@ patternSpan pat =
     PIrrefutable inner -> patternSpan inner
     PCon name _ _ -> nameSpan name
     PInfix _ name _ -> nameSpan name
-    _ -> NoSourceSpan
+    _ -> Nothing
   where
     -- The resolver gives a constructor occurrence its span.
     nameSpan name =
       sourceSpanFromAnns (nameAnns name)
-        `orSourceSpan` case [resolutionSpan resolution | Just resolution <- map fromAnnotation (nameAnns name)] of
+        <|> case [resolutionSpan resolution | Just resolution <- map fromAnnotation (nameAnns name)] of
           sp : _ -> sp
-          [] -> NoSourceSpan
+          [] -> Nothing
 
-typeSpan :: Type -> SourceSpan
+typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
     TAnn ann inner ->
-      fromMaybe (typeSpan inner) (fromAnnotation @SourceSpan ann)
+      fromAnnotation @SourceSpan ann <|> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner
     TKindSig inner _ -> typeSpan inner
-    _ -> NoSourceSpan
+    _ -> Nothing
 
-rhsExprSpan :: Rhs Expr -> SourceSpan
+rhsExprSpan :: Rhs Expr -> Maybe SourceSpan
 rhsExprSpan rhs =
   case rhs of
-    UnguardedRhs anns expr _ -> exprSpan expr `orSourceSpan` sourceSpanFromAnns anns
+    UnguardedRhs anns expr _ -> exprSpan expr <|> sourceSpanFromAnns anns
     GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
-exprSpan :: Expr -> SourceSpan
+exprSpan :: Expr -> Maybe SourceSpan
 exprSpan expr =
   case expr of
     EAnn ann inner ->
-      fromMaybe (exprSpan inner) (fromAnnotation @SourceSpan ann)
+      fromAnnotation @SourceSpan ann <|> exprSpan inner
     EParen inner -> exprSpan inner
     EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner
-    _ -> NoSourceSpan
+    _ -> Nothing
 
 -- | Type-check a list of matches (equations for a function binding).
 --
@@ -5143,7 +5129,7 @@ tcMatchEquation expectedOrigin argTys resTy match = do
   (rhs', rhsTy, rhsCts) <- withGivenPredicates (map ctPred (pcGivenCts patCheck)) (withPatternBindings (pcBindings patCheck) (checkRhs resTy (matchRhs match)))
   -- RHS type must match the expected result type.
   ev <- freshEvVar
-  let rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
+  let rhsSp = rhsExprSpan (matchRhs match) <|> sp
       resCt =
         mkWantedEqCt
           TypeTrace
@@ -5181,7 +5167,7 @@ unifyMatchRhs expectedTy match = do
   (rhs', rhsTy, rhsCts) <- inferRhsExpr (matchRhs match)
   ev <- freshEvVar
   let sp = sourceSpanFromAnns (matchAnns match)
-      rhsSp = rhsExprSpan (matchRhs match) `orSourceSpan` sp
+      rhsSp = rhsExprSpan (matchRhs match) <|> sp
       eqCt =
         mkWantedEqCt
           TypeTrace

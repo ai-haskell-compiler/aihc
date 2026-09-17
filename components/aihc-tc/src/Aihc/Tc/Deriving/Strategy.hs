@@ -30,7 +30,7 @@ import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> TcType -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
+checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> TcType -> Maybe SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
 checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy = do
   references <- getDerivingReferences
   let isStock = isStockClass references className classOrigin
@@ -74,7 +74,7 @@ defaultStockFallback className origin requested selected = do
         && newtypeDefaultingOf className == NewtypeWithGnd
     )
 
-selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> SourceSpan -> TcM TcDerivingStrategy
+selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Bool -> Maybe SourceSpan -> TcM TcDerivingStrategy
 selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSpan
   | isStock, targetFlavor == NewtypeTyCon, defaulting == NewtypeAlways = pure TcDerivingNewtype
   | isStock, targetFlavor == NewtypeTyCon, defaulting == NewtypeWithGnd, GeneralizedNewtypeDeriving `elem` extensions = pure TcDerivingNewtype
@@ -95,7 +95,7 @@ selectDefaultDerivingStrategy extensions targetFlavor className isStock sourceSp
   where
     defaulting = newtypeDefaultingOf className
 
-checkStockDeriving :: [Extension] -> Text -> Bool -> SourceSpan -> TcM ()
+checkStockDeriving :: [Extension] -> Text -> Bool -> Maybe SourceSpan -> TcM ()
 checkStockDeriving extensions className isStock sourceSpan
   | not isStock =
       emitError sourceSpan (OtherError "stock deriving requires a standard class")
@@ -131,7 +131,7 @@ isGeneratedStockClass references className origin =
       any (\location -> stockClassLocationMatches classOrigin location className) (derivingStockClasses references)
     Nothing -> False
 
-requireDerivingExtension :: [Extension] -> Extension -> String -> SourceSpan -> TcM ()
+requireDerivingExtension :: [Extension] -> Extension -> String -> Maybe SourceSpan -> TcM ()
 requireDerivingExtension extensions extension mechanism sourceSpan =
   unless (extension `elem` extensions) $
     emitError sourceSpan (OtherError (mechanism <> " requires " <> derivingExtensionName extension))
