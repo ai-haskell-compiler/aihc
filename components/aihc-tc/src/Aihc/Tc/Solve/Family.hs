@@ -1,4 +1,3 @@
-
 -- | Type family reduction.
 --
 -- A saturated application of a type family rewrites to the right-hand
