@@ -1,0 +1,53 @@
+annotated:
+- |-
+  module Test where
+  import GHC.Types (Bool(..))
+  data Word8 = W8
+       │       └─ type: Word8
+       └─ type: Type
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Bool → a
+    fromInteger :: Bool -> a
+  instance Num Word8 where
+  └─ $fNumWord8 ∷ () ⇒ Num Word8
+    fromInteger _ = W8
+    │           └─ type: GHC.Types.Bool
+    └─ fromInteger ∷ Bool → Word8
+  class Stream s where
+  └─ class methods: tokenOf ∷ ∀ s. (Stream s) ⇒ s → Token s
+    type Token s
+         └─ type: Type → Type
+    tokenOf :: s -> Token s
+  class Stream s => MonadParsec s m | m -> s where
+  └─ class methods: token ∷ ∀ s m. (MonadParsec s m) ⇒ Token s → m (Token s); fundeps: m → s
+    token :: Token s -> m (Token s)
+  newline :: (MonadParsec s m, Token s ~ Word8) => m (Token s)
+  newline = token (fromInteger True)
+  │         │      └─ type: GHC.Types.Bool → Token s; type-args: Token s; evidence: cast($fNumWord8, sym (Num given Token s ~ Word8))
+  │         └─ type: Token s → m (Token s); type-args: s, m; evidence: given MonadParsec s m
+  └─ type: ∀ s m. (MonadParsec s m, (Token s) ~ Word8) ⇒ m (Token s)
+extensions:
+- TypeFamilies
+- FunctionalDependencies
+- MultiParamTypeClasses
+- FlexibleContexts
+- GADTs
+- TypeOperators
+modules:
+- |
+  module Test where
+  import GHC.Types (Bool(..))
+  data Word8 = W8
+  class Num a where
+    fromInteger :: Bool -> a
+  instance Num Word8 where
+    fromInteger _ = W8
+  class Stream s where
+    type Token s
+    tokenOf :: s -> Token s
+  class Stream s => MonadParsec s m | m -> s where
+    token :: Token s -> m (Token s)
+  newline :: (MonadParsec s m, Token s ~ Word8) => m (Token s)
+  newline = token (fromInteger True)
+status: pass
+reason: A given equality whose left side is an associated family application rewrites a class wanted on that application.

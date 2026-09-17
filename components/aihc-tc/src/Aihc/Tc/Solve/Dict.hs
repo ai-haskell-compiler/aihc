@@ -22,13 +22,14 @@ import Aihc.Parser.Syntax (pattern SourceSpan)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (renderTcType)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
+import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
+import Aihc.Tc.Solve.Congruence (givenEqualities)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, matchTypes, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
@@ -110,7 +111,10 @@ solveNormalizedDict visited givens ct
                 ("KnownSymbol", [ty]) -> tryTypeLit "KnownSymbol" isSymbolLiteral ty
                 _ -> do
                   instances <- getClassInstances className
-                  tryInstances (ctPred ct : visited) className args' instances
+                  result <- tryInstances (ctPred ct : visited) className args' instances
+                  case result of
+                    DictSolved -> pure DictSolved
+                    DictStuck _ -> solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
         IrredPred constraint -> do
           -- A stuck constraint says nothing until its families reduce. Once
           -- they do it is an ordinary constraint -- a class, an equality, or
@@ -151,6 +155,32 @@ solveNormalizedDict visited givens ct
   where
     givenDict visited' zonkedGivens className args =
       firstGivenOrSuperclass visited' (ClassPred className args) zonkedGivens
+
+    -- A given equality with a type family application on one side rewrites
+    -- that application in the wanted: @Token s ~ Word8@ turns @Num (Token
+    -- s)@ into @Num Word8@, which an instance solves, and @a ~ Tokens s@
+    -- turns @IsString (Tokens s)@ into @IsString a@, which is a given. The
+    -- evidence for the rewritten wanted is cast back to the original
+    -- predicate along the congruence of the given coercions.
+    solveThroughGivenEqualities visited' zonkedGivens className args = do
+      outerGivens <- mapM zonkPred =<< getGivenPredicates
+      rules <- familyRewriteRules (zonkedGivens <> filter (`notElem` zonkedGivens) outerGivens)
+      let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
+      if null rules || and (zipWith sameType rewrittenArgs args)
+        then pure (DictStuck ct)
+        else do
+          rewrittenEvidence <- freshEvVar
+          let rewritten = ClassPred className rewrittenArgs
+          result <- solveDictWithGivensVisited visited' zonkedGivens (ct {ctPred = rewritten, ctEvVar = rewrittenEvidence})
+          case result of
+            DictStuck _ -> pure (DictStuck ct)
+            DictSolved -> do
+              inner <- lookupEvidence rewrittenEvidence
+              case inner of
+                Nothing -> pure (DictStuck ct)
+                Just evidence -> do
+                  bindEvidence (ctEvVar ct) (EvCast evidence (Sym (TyConAppCo className args coercions)))
+                  pure DictSolved
 
     firstGivenOrSuperclass _ _ [] = pure Nothing
     firstGivenOrSuperclass visited' target (given : rest)
@@ -405,29 +435,52 @@ typeableArguments ty =
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
 
-classFieldTypes :: ClassInfo -> Map Unique TcType -> [TcType]
-classFieldTypes classInfo substitution =
-  map (applySubst substitution) (ciSuperClassTypes classInfo)
-    <> map (methodFieldType classInfo substitution . snd) (ciMethods classInfo)
-
-methodFieldType :: ClassInfo -> Map Unique TcType -> TypeScheme -> TcType
-methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
-  applySubst substitution $
-    foldr TcForAllTy qualifiedBody extraTypeVariables
+-- | The given equalities that rewrite a type family application, oriented
+-- from the family application to the other side. A given whose two sides
+-- are both family applications rewrites nothing. The coercion proves
+-- @from ~ to@.
+familyRewriteRules :: [Pred] -> TcM [(TcType, TcType, Coercion)]
+familyRewriteRules givens = do
+  equalities <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
+  concat <$> mapM orient equalities
   where
-    classVariables = ciTyVars classInfo
-    extraTypeVariables = filter (`notElem` classVariables) typeVariables
-    remainingPredicates = filter (not . isClassPredicate) predicates
-    qualifiedBody
-      | null remainingPredicates = body
-      | otherwise = TcQualTy remainingPredicates body
-    isClassPredicate predicate =
-      case predicate of
-        ClassPred className _ -> tyConKey className == tyConKey (ciTyCon classInfo)
-        EqPred {} -> False
-        QuantifiedPred {} -> False
-        IParamPred {} -> False
-        IrredPred {} -> False
+    orient (left, right, proof) = do
+      leftIsFamily <- isTypeFamilyApplication left
+      rightIsFamily <- isTypeFamilyApplication right
+      pure $ case (leftIsFamily, rightIsFamily) of
+        (True, False) -> [(left, right, proof)]
+        (False, True) -> [(right, left, Sym proof)]
+        _ -> []
+
+-- | Rewrite every occurrence of a rule's left side, outermost first, and
+-- prove the result equal to the original by congruence. Types under a
+-- binder stay as they are.
+rewriteWithRules :: [(TcType, TcType, Coercion)] -> TcType -> (TcType, Coercion)
+rewriteWithRules rules = go
+  where
+    go ty =
+      case [(to, proof) | (from, to, proof) <- rules, sameType from ty] of
+        (to, proof) : _ -> (to, proof)
+        [] ->
+          case ty of
+            TcTyCon tyCon arguments ->
+              let (arguments', proofs) = unzip (map go arguments)
+               in if and (zipWith sameType arguments' arguments)
+                    then (ty, Refl ty)
+                    else (TcTyCon tyCon arguments', TyConAppCo tyCon arguments proofs)
+            TcAppTy function argument ->
+              let (function', functionProof) = go function
+                  (argument', argumentProof) = go argument
+               in if sameType function' function && sameType argument' argument
+                    then (ty, Refl ty)
+                    else (mkAppTy function' argument', AppCo functionProof argumentProof)
+            TcFunTy domain range ->
+              let (domain', domainProof) = go domain
+                  (range', rangeProof) = go range
+               in if sameType domain' domain && sameType range' range
+                    then (ty, Refl ty)
+                    else (TcFunTy domain' range', FunCo domainProof rangeProof)
+            _ -> (ty, Refl ty)
 
 -- | The evidence for a wanted implicit parameter from the evidence of its binding.
 --
