@@ -1,0 +1,55 @@
+---
+extensions: []
+modules:
+- |
+  module Test (render) where
+
+  import GHC.Types (Bool (..))
+
+  compose :: (b -> c) -> (a -> b) -> a -> c
+  compose f g = \x -> f (g x)
+
+  cons :: Bool -> [Bool] -> [Bool]
+  cons x xs = x : xs
+
+  render :: Bool -> [Bool] -> [Bool]
+  render flag = case flag of
+    True -> compose (cons True) (cons False)
+    False -> cons flag
+eta: true
+inline:
+  mode: budget
+  limit: 1000
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tBool :: 2.sType;
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.t[] :: ∀(a : 2.sType). 2.sType;
+    2.c: :: ∀(a : 2.sType). a 2.→ 2.t[] a 2.→ 2.t[] a;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cFalse :: 2.tBool;
+    2.cLifted :: 2.tLevity;
+    2.cTrue :: 2.tBool
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub val 1.vrender :: 2.tBool 2.→ 2.t[] 2.tBool 2.→ 2.t[] 2.tBool
+   = λ(x : 2.tBool).
+    λ(eta : 2.t[] 2.tBool).
+      case x as (_scrut : 2.tBool) return (2.t[] 2.tBool) of {
+          2.cTrue →
+              2.c: @2.tBool 2.cTrue (2.c: @2.tBool 2.cFalse eta);
+          2.cFalse →
+              2.c: @2.tBool x eta
+      }
+status: pass
+reason: The call 'compose (cons True) (cons False)' gives two of three parameters. It is inlined all the same, to the lambda that is left, and the arity analysis then sees that every alternative of 'render' is a function, so 'render' takes the list itself.
