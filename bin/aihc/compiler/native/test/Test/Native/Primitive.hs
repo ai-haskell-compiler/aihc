@@ -173,10 +173,10 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           ["eqWord8#", "word8ToWord#", "wordToWord8#"],
-      testCase "accepts the Char# comparison and Int# division primitives in native programs" $
+      testCase "accepts the Char# comparison and Int# division and negation primitives in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["eqChar#", "neChar#", "ltChar#", "leChar#", "gtChar#", "geChar#", "quotInt#", "remInt#"],
+          ["eqChar#", "neChar#", "ltChar#", "leChar#", "gtChar#", "geChar#", "quotInt#", "remInt#", "negateInt#"],
       -- Aihc.Grin.Primitive decides which primitives a heap reservation may
       -- span. It sits below this module and cannot read these tables, so it
       -- states the answer again, and these two cases hold the copies
