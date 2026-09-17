@@ -1,0 +1,56 @@
+cabal-version: 3.8
+name: aihc-rts
+version: 1.0.2
+build-type: Simple
+license: NONE
+synopsis: The AIHC runtime system, standing in for the GHC rts package
+description:
+  The C and Lir units every compiled program links: the machine, the
+  semispace collector, the host layer of the target, and the Lir runtime
+  units. The package has no Haskell modules. Its objects reach a program
+  through the ordinary package link, so a change to a runtime source is a
+  change to this package, and the store fingerprints it like any other.
+
+  The Lir units are named by the aihc-specific field x-aihc-lir-sources
+  and compiled with the Lir backend of the target. aihc_constants.lir is
+  included by the other units and produces no code of its own.
+
+  The wasm32-wasip3 host takes the WASI 0.3 bindings under wasm/generated,
+  which wit-bindgen writes from the world in bin/aihc/compiler/wasm/runtime/wit.
+  Regenerate them with scripts/update-wit-bindings.sh.
+
+library
+  default-language: GHC2021
+  include-dirs: native
+  c-sources:
+    native/aihc_gc_semispace.c
+    native/aihc_runtime.c
+
+  x-aihc-lir-sources:
+    native/aihc_array.lir
+    native/aihc_byte_array.lir
+    native/aihc_constants.lir
+    native/aihc_enter.lir
+    native/aihc_helpers.lir
+    native/aihc_mutvar.lir
+    native/aihc_runtime_options.lir
+    native/aihc_stable_name.lir
+
+  cc-options:
+    -O2
+    -std=c11
+    -Wall
+    -Wextra
+    -Werror
+
+  if os(wasi)
+    include-dirs:
+      wasm
+      wasm/generated
+
+    c-sources:
+      native/aihc_host_wasip3.c
+      wasm/aihc_wasip3.c
+      wasm/generated/command.c
+  else
+    c-sources: native/aihc_host_posix.c

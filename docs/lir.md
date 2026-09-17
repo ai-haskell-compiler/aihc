@@ -20,9 +20,9 @@ Every target consumes Lir. The module `Aihc.Lir.Lower` lowers GC-GRIN to Lir.
 The backends are `Aihc.Arm64.Lir` (Mach-O objects for Apple ARM64),
 `Aihc.Amd64.Lir` (ELF objects for Linux AMD64), `Aihc.Llvm.Lir` (textual
 LLVM IR), and `Aihc.Wasm.Lir` (WebAssembly assembly for WASI P3). The module
-`Aihc.Cli.Backend` selects the backend of a target for `aihc install`,
-`aihc prepare-runtime`, and `aihc build`. The sections "Lowering from
-GC-GRIN" and "Backends" describe them.
+`Aihc.Cli.Backend` selects the backend of a target for `aihc install` and
+`aihc build`. The sections "Lowering from GC-GRIN" and "Backends" describe
+them.
 
 `aihc build --keep-lir` writes the Lir of each module of the executable to
 `<Module>.o.lir` beside its object, whatever the target. On `apple-arm64`
@@ -607,9 +607,11 @@ than the Lir text.
 
 ## Runtime units
 
-A runtime unit is a `.lir` file in `bin/aihc/compiler/native/runtime` that
-`aihc prepare-runtime` parses, lints, and compiles with the backend of the
-target. Its object joins the C objects in the runtime archive.
+A runtime unit is a `.lir` file in `core-libs/aihc-rts/native`, named by
+the `x-aihc-lir-sources` field of the `aihc-rts` package. Installing the
+package parses, lints, and compiles each unit with the backend of the
+target, and its object joins the C objects of the package in its `cbits`
+directory, which every link takes object by object.
 Calls between Lir and C use the `c` convention.
 Calls to shared Lir helpers use the `aihc` convention.
 
@@ -618,12 +620,13 @@ Runtime units take shared constants from `aihc_constants.lir` with
 frame kinds, and scheduler resumption kinds. This file contains only
 constants, so it does not produce an object file.
 
-The archive is what a program links. `Aihc.Cli.Runtime.buildRuntimeArchive`
-builds one, and a test harness that needs its own runtime — an instrumented
-one, or one with a smaller semispace — calls it with the extra C arguments
-instead of naming the runtime sources. Moving a unit from C to Lir then
-changes no test. A link places the archive after the objects that reference
-it.
+A program links the objects of the installed package. A test harness that
+needs its own runtime — an instrumented one, or one with a smaller
+semispace — calls `Aihc.Testing.RuntimeArchive.buildRuntimeArchive`, which reads the
+same Cabal file and builds one archive outside the store with the extra C
+arguments, instead of naming the runtime sources. Moving a unit from C to
+Lir then changes no test. A link places that archive after the objects that
+reference it.
 
 The units are:
 

@@ -12,20 +12,13 @@ module Test.Lir.NativeSuite
 where
 
 import Aihc.Cli.Backend (BackendOutput (..), compileGrinTo, compileLirTo)
-import Aihc.Cli.Runtime (RuntimeBuild (..))
 import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
-import Aihc.Native
-  ( NativeTarget (..),
-    RuntimeGarbageCollector (..),
-    RuntimePlan (..),
-    executableEntryName,
-    runtimePlan,
-  )
+import Aihc.Native (NativeTarget (..), executableEntryName)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
-import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, evaluate)
@@ -50,7 +43,7 @@ import System.IO (hClose, hFlush, hPutStr, openTempFile)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
 import Test.Lir.Observed (lowerObservedProgram)
 import Test.Native.Observed (snapshotSourcePath)
-import Test.Tasty (TestTree, testGroup)
+import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 -- | One native backend under test.
@@ -76,24 +69,22 @@ tests backend = do
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
-  plan <- runtimePlan (backendTarget backend) RuntimeGcSemispace
-  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources plan)
-  let runtimeExports = Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export]
   pure
     ( testGroup
         (backendName backend)
         [ testGroup "Lir evaluation fixtures" (map (fixtureTest backend directory) names),
-          testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend runtimeExports snapshotDirectory) snapshots),
+          -- The exports are read from the aihc-rts sources when a snapshot
+          -- test first runs, not while the tree is built: the tree is built
+          -- where those sources may be absent, such as a check that only
+          -- compiles the tests.
+          withResource (runtimeExports (backendTarget backend)) (const (pure ())) $ \getExports ->
+            testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend getExports snapshotDirectory) snapshots),
           testGroup
             "programs through Lir"
-            [ testGroup
-                (collectorName collector)
-                [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend collector "PCAB" schedulerProgram),
-                  testCase "catches a synchronous exception" (programTest backend collector "E" synchronousExceptionProgram),
-                  testCase "blocks and wakes threads that enter a shared blackhole" (programTest backend collector "TA" blackholeSchedulerProgram),
-                  testCase "waits for stdin and resumes an async stdio continuation" (stdioTest backend collector)
-                ]
-            | collector <- [RuntimeGcSemispace]
+            [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend "PCAB" schedulerProgram),
+              testCase "catches a synchronous exception" (programTest backend "E" synchronousExceptionProgram),
+              testCase "blocks and wakes threads that enter a shared blackhole" (programTest backend "TA" blackholeSchedulerProgram),
+              testCase "waits for stdin and resumes an async stdio continuation" (stdioTest backend)
             ]
         ]
     )
@@ -271,8 +262,16 @@ instance FromJSON SnapshotFixture where
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
 -- and compare the native heap snapshot with the fixture.
-snapshotTest :: NativeBackend -> Map.Map Symbol Signature -> FilePath -> FilePath -> TestTree
-snapshotTest backend runtimeExports directory name = testCase name $ do
+-- | The functions the Lir units of the runtime export, by name.
+runtimeExports :: NativeTarget -> IO (Map.Map Symbol Signature)
+runtimeExports target = do
+  sources <- runtimeSources target
+  runtimeModules <- mapM (either (assertFailure . renderLoadError) pure <=< loadModule) (runtimeLirSources sources)
+  pure (Map.fromList [(functionName function, functionSignature function) | runtimeModule <- runtimeModules, ItemFunction function <- moduleItems runtimeModule, functionLinkage function == Export])
+
+snapshotTest :: NativeBackend -> IO (Map.Map Symbol Signature) -> FilePath -> FilePath -> TestTree
+snapshotTest backend getExports directory name = testCase name $ do
+  exports <- getExports
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
@@ -280,13 +279,13 @@ snapshotTest backend runtimeExports directory name = testCase name $ do
   (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
   -- Every fixture must use the runtime exports without local copies.
-  let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) runtimeExports]
+  let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) exports]
   assertEqual "local copies of runtime functions" [] localRuntimeFunctions
   forM_ [external | ItemExternFunction external <- moduleItems lirModule, "aihc_lir_" `T.isPrefixOf` unSymbol (externFunctionName external)] $ \external ->
     assertEqual
       ("runtime helper signature: " <> T.unpack (unSymbol (externFunctionName external)))
       (Just (externFunctionSignature external))
-      (Map.lookup (externFunctionName external) runtimeExports)
+      (Map.lookup (externFunctionName external) exports)
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule
@@ -307,7 +306,7 @@ snapshotTest backend runtimeExports directory name = testCase name $ do
 runObservedUnit :: NativeBackend -> BackendOutput -> Text -> IO (Either Text Text)
 runObservedUnit backend output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeBuild <- nativeRuntimeBuild backend RuntimeGcSemispace
+    runtimeBuild <- nativeRuntimeBuild backend
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
@@ -370,25 +369,20 @@ compileProgramUnits backend program = do
   entryUnit <- compileUnit backend entryLir
   pure [moduleUnit, entryUnit]
 
-collectorName :: RuntimeGarbageCollector -> String
-collectorName collector =
-  case collector of
-    RuntimeGcSemispace -> "semispace collector"
-
-programTest :: NativeBackend -> RuntimeGarbageCollector -> String -> GrinProgram -> IO ()
-programTest backend collector expected program = do
+programTest :: NativeBackend -> String -> GrinProgram -> IO ()
+programTest backend expected program = do
   units <- compileProgramUnits backend program
   when (backendRuns backend) $
-    withProgramExecutable backend collector units $ \executablePath -> do
+    withProgramExecutable backend units $ \executablePath -> do
       (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
       assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
       assertEqual "program stdout" expected programOut
 
-stdioTest :: NativeBackend -> RuntimeGarbageCollector -> IO ()
-stdioTest backend collector = do
+stdioTest :: NativeBackend -> IO ()
+stdioTest backend = do
   units <- compileProgramUnits backend stdioSchedulerProgram
   when (backendRuns backend) $
-    withProgramExecutable backend collector units $ \executablePath -> do
+    withProgramExecutable backend units $ \executablePath -> do
       (Just childInput, Just childOutput, Just childError, processHandle) <-
         createProcess (proc executablePath []) {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe}
       threadDelay 50000
@@ -401,10 +395,10 @@ stdioTest backend collector = do
       assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
       assertEqual "async stdout" "Buffered async IO\n" programOut
 
-withProgramExecutable :: NativeBackend -> RuntimeGarbageCollector -> [BackendOutput] -> (FilePath -> IO ()) -> IO ()
-withProgramExecutable backend collector units action =
+withProgramExecutable :: NativeBackend -> [BackendOutput] -> (FilePath -> IO ()) -> IO ()
+withProgramExecutable backend units action =
   withTempDirectory "aihc-lir-program" $ \directory -> do
-    runtimeBuild <- nativeRuntimeBuild backend collector
+    runtimeBuild <- nativeRuntimeBuild backend
     unitPaths <- forM (zip [0 :: Int ..] units) $ \(index, unit) -> writeUnit backend directory ("program-" <> show index) unit
     let executablePath = directory </> "program"
     (clangExit, _, clangErr) <-
@@ -415,13 +409,13 @@ withProgramExecutable backend collector units action =
     assertEqual ("clang failed to link the program:\n" <> clangErr) ExitSuccess clangExit
     action executablePath
 
--- | The runtime archive of one link. Every link with the same target and
--- collector shares one archive, and takes the include directories first and
--- the archive last, so the test stays independent of how the runtime is put
+-- | The runtime archive of one link. Every link with the same target
+-- shares one archive, and takes the include directories first and the
+-- archive last, so the test stays independent of how the runtime is put
 -- together.
-nativeRuntimeBuild :: NativeBackend -> RuntimeGarbageCollector -> IO RuntimeBuild
-nativeRuntimeBuild backend garbageCollector =
-  cachedRuntimeArchive (backendTarget backend) garbageCollector ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+nativeRuntimeBuild :: NativeBackend -> IO RuntimeBuild
+nativeRuntimeBuild backend =
+  cachedRuntimeArchive (backendTarget backend) ["-std=c11", "-Wall", "-Wextra", "-Werror"]
 
 runtimeIncludeArguments :: RuntimeBuild -> [String]
 runtimeIncludeArguments build =

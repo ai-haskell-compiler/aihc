@@ -198,7 +198,6 @@ buildPackage options = do
       compileConfig
       ExecutableInputs
         { executableStoreRoot = storeRoot,
-          executableGarbageCollector = buildGarbageCollector options,
           executableNoLink = buildNoLink options,
           executableOutput = output,
           executableBuildRoot = outputRoot,

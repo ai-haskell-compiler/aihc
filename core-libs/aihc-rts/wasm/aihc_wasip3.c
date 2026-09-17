@@ -551,6 +551,16 @@ static command_callback_code_t aihc_pump(int32_t finished) {
   return COMMAND_CALLBACK_CODE_WAIT(aihc_wasi_io.wait_set);
 }
 
+/* The generated command.c pulls in the object wit-bindgen would write beside
+   it, which carries the component type of the world, by calling this symbol.
+   The bindings are committed without that object and the link embeds the
+   type from the world itself (wasm-tools component embed), so the symbol is
+   defined here and does nothing. */
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+void __component_type_object_force_link_command(void);
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
+void __component_type_object_force_link_command(void) {}
+
 command_callback_code_t exports_wasi_cli_run_run(void) {
   aihc_wasi_initialize_arguments();
   return aihc_pump(aihc_lir_program_start());

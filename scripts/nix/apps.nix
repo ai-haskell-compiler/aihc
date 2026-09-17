@@ -165,7 +165,6 @@ in {
       pkgs.llvmPackages.clang
       pkgs.llvmPackages.clang-unwrapped
       pkgs.wasm-tools
-      pkgs.wit-bindgen
       wasmLd
       pkgs.haskellPackages.hsc2hs
     ] ''

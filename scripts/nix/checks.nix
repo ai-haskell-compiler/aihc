@@ -23,8 +23,10 @@
   # This example uses more than the temporary 100 MB heap limit.
   disabledExampleNames = ["unboxed-tail-recursion"];
   exampleNames = builtins.filter (name: !builtins.elem name disabledExampleNames) allExampleNames;
+  # The test C sources include the runtime headers by name, as the tests
+  # compile them with the include directories of the aihc-rts package.
   cTidyCompilerFlags =
-    ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
+    ["-std=c11" "-Wall" "-Wextra" "-Wpedantic" "-Icore-libs/aihc-rts/native"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       "-isysroot"
       "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
@@ -106,10 +108,16 @@
                   # tool; the standalone one, not GHC's wrapper, which adds
                   # GHC's own C flags and include directory.
                   export AIHC_HSC2HS=${pkgs.haskellPackages.hsc2hs}/bin/hsc2hs
+                  # The wasm32-wasip3 entries of the seed store are keyed by
+                  # the sysroot they were built against, so reading them
+                  # takes the same sysroot the seed store derivation used.
+                  export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+                  export AIHC_WASM_SYSROOT=${wasmSysroot}
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"
                   ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
                   ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
+                  ln -sfn ${sources.rtsSrc pkgs} "$coreLibsRoot/core-libs/aihc-rts"
                   ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
                   ln -sfn ${sources.templateHaskellSrc pkgs} "$coreLibsRoot/core-libs/aihc-template-haskell"
                   ln -sfn ${sources.systemCxxStdLibSrc pkgs} "$coreLibsRoot/core-libs/system-cxx-std-lib"
@@ -140,7 +148,6 @@
       flags = [];
     }
   ];
-  garbageCollectors = ["semispace"];
   nativeBackendBySystem = {
     "aarch64-darwin" = "apple-arm64";
     "x86_64-linux" = "linux-amd64";
@@ -162,22 +169,15 @@
     then "llvm"
     else nativeBackend;
   compilationMatrix = builtins.concatLists (
-    map (
-      backend:
-        builtins.concatLists (
-          map (compilation: map (gc: {inherit backend compilation gc;}) garbageCollectors) compilationModes
-        )
-    )
-    backends
+    map (backend: map (compilation: {inherit backend compilation;}) compilationModes) backends
   );
   wasip3CompilationModes = _exampleName: compilationModes;
 
   renderExampleTest = {
     backend,
     compilation,
-    gc,
   }: ''
-    executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
+    executable="$TMPDIR/$example_name-${backend}-${compilation.name}"
     actual_stdout="$executable.stdout"
     actual_stderr="$executable.stderr"
     timeout_stderr="$executable.timeout-stderr"
@@ -200,7 +200,6 @@
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} build "$source" \
       --target ${backend} \
-      --gc ${gc} \
       --store "$store" \
       --build-root "$TMPDIR/.aihc-target" \
       "''${package_flags[@]}" \
@@ -210,9 +209,9 @@
     else
       compile_exit=$?
       if [[ "$compile_exit" -eq 124 || "$compile_exit" -eq 137 ]]; then
-        echo "Timed out compiling $example_name/${backend}-${compilation.name}-${gc}" >&2
+        echo "Timed out compiling $example_name/${backend}-${compilation.name}" >&2
       else
-        echo "Compiler failed for $example_name/${backend}-${compilation.name}-${gc} with exit $compile_exit" >&2
+        echo "Compiler failed for $example_name/${backend}-${compilation.name} with exit $compile_exit" >&2
       fi
       exit "$compile_exit"
     fi
@@ -226,18 +225,18 @@
       actual_exit=$?
     fi
     if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
-      echo "Timed out running $example_name/${backend}-${compilation.name}-${gc}" >&2
+      echo "Timed out running $example_name/${backend}-${compilation.name}" >&2
       cat "$timeout_stderr" >&2
       exit 1
     fi
     if [[ "$expected_exit" == nonzero ]]; then
       if [[ "$actual_exit" -eq 0 ]]; then
-        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to fail" >&2
+        echo "Expected $example_name/${backend}-${compilation.name} to fail" >&2
         exit 1
       fi
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
-        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to exit with $expected_exit, got $actual_exit" >&2
+        echo "Expected $example_name/${backend}-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
         exit 1
       fi
     else
@@ -246,11 +245,11 @@
     fi
     diff --unified \
       --label "$example_name/stdout-expected" \
-      --label "$example_name/stdout-${backend}-${compilation.name}-${gc}" \
+      --label "$example_name/stdout-${backend}-${compilation.name}" \
       "$expected_stdout" "$actual_stdout"
     diff --unified \
       --label "$example_name/stderr-expected" \
-      --label "$example_name/stderr-${backend}-${compilation.name}-${gc}" \
+      --label "$example_name/stderr-${backend}-${compilation.name}" \
       "$expected_stderr" "$actual_stderr"
   '';
 
@@ -389,29 +388,40 @@
       | xargs -0 -r ormolu --mode check
   '';
 
-  cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils pkgs.wit-bindgen] ''
-    bindings_directory="$TMPDIR/aihc-wasip3-bindings"
-    mkdir -p "$bindings_directory"
-    wit-bindgen c --world command --out-dir "$bindings_directory" bin/aihc/compiler/wasm/runtime/wit
+  cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils] ''
     while IFS= read -r -d "" file; do
-      if [[ "$file" == *bin/aihc/compiler/wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then
+      if [[ "$file" == *core-libs/aihc-rts/wasm/*.c || "$file" == *aihc_host_wasip3.c ]]; then
         clang-tidy-unwrapped --quiet "$file" -- \
           --target=wasm32-wasip1 \
           --sysroot=${wasmSysroot} \
           -std=c11 -Wall -Wextra -Wpedantic \
-          -Ibin/aihc/compiler/wasm/runtime \
-          -Ibin/aihc/compiler/native/runtime \
-          -isystem "$bindings_directory"
+          -Icore-libs/aihc-rts/wasm \
+          -Icore-libs/aihc-rts/native \
+          -isystem core-libs/aihc-rts/wasm/generated
       else
         clang-tidy --quiet "$file" -- ${pkgs.lib.escapeShellArgs cTidyCompilerFlags}
       fi
-    done < <(find . -type f -name '*.c' -print0)
+    done < <(find . -type f -name '*.c' -not -path '*/generated/*' -print0)
   '';
 
   cFormat = mkSourceCheck "aihc-c-format" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils] ''
-    find . -type f \( -name '*.c' -o -name '*.h' \) -print0 \
+    find . -type f \( -name '*.c' -o -name '*.h' \) -not -path '*/generated/*' -print0 \
       | xargs -0 -r clang-format --dry-run --Werror
   '';
+
+  # The WASI 0.3 C bindings of aihc-rts are committed, so a compiler needs no
+  # wit-bindgen to build a wasm32-wasip3 program. This keeps them what the
+  # pinned wit-bindgen writes from the world; scripts/update-wit-bindings.sh
+  # rewrites them.
+  witBindings =
+    pkgs.runCommand "aihc-wit-bindings" {
+      nativeBuildInputs = [pkgs.diffutils pkgs.wit-bindgen];
+    } ''
+      wit-bindgen c --world command --no-object-file --out-dir "$TMPDIR/generated" \
+        ${sources.aihcSrc pkgs}/bin/aihc/compiler/wasm/runtime/wit
+      diff --unified --recursive ${sources.rtsSrc pkgs}/wasm/generated "$TMPDIR/generated"
+      touch "$out"
+    '';
 
   cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.cabalSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
     failed=0
@@ -436,18 +446,23 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target apple-arm64
+      # aihc-prim depends on aihc-rts, whose C sources take the C compiler of
+      # the target, so this runs for the host backend: cross compiling the
+      # runtime would make the check need a C toolchain for a foreign
+      # platform. The cross-examples package covers apple-arm64 with the
+      # macOS SDK.
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --immutable --keep-core --keep-grin --lint --target ${hostBackendTarget}
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
+      test -n "$(find "$store" -path '*/lib/libaihc-rts.a' -print -quit)"
+      test -n "$(find "$store" -path '*/cbits/native_aihc_helpers.o' -print -quit)"
       test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
 
       # aihc-template-haskell depends on base, so this install builds aihc-base
-      # too. It therefore runs for the host backend rather than the fixed
-      # apple-arm64 above: cross compiling aihc-base would make the check need
-      # a C toolchain for a foreign platform.
+      # too, for the same host backend.
       ${aihcExe} install core-libs/aihc-template-haskell --store "$store" --immutable --keep-core --lint --target ${hostBackendTarget}
 
       test -n "$(find "$store" -path '*/Language/Haskell/TH/core' -print -quit)"
@@ -476,7 +491,6 @@
         pkgs.llvmPackages.clang
         pkgs.llvmPackages.clang-unwrapped
         pkgs.wasm-tools
-        pkgs.wit-bindgen
         wasmLd
       ];
     } ''
@@ -507,9 +521,10 @@
       ${aihcExe} install core-libs/aihc-base --store "$out/lto" --immutable --target ${hostBackendTarget} -O2
     '';
 
-  # The compiler owns preparation of the installed toolchain. Runtime archives
-  # are built once per backend/GC pair, and ordinary package installation emits
-  # the reusable library interfaces and target-specific archives.
+  # The compiler owns preparation of the installed toolchain: ordinary package
+  # installation emits the reusable library interfaces and target-specific
+  # archives, and the runtime is the aihc-rts package that aihc-prim depends
+  # on.
   #
   # One derivation per target, rather than one that loops over them: installing
   # aihc-base takes minutes and runs single-threaded, so a combined derivation
@@ -570,12 +585,11 @@
       ${extraSetup}
       mkdir -p "$out"
 
-      ${aihcExe} prepare-runtime --target ${target} --gc semispace --store "$out"
       ${aihcExe} install core-libs/aihc-base --store "$out" --immutable --lint --target ${target}
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
-      test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
+      test -n "$(find "$out" -type f -name 'libaihc-rts.a' -print -quit)"
     '';
 
   hackage = import ./hackage-packages.nix;
@@ -631,7 +645,6 @@
         pkgs.llvmPackages.clang
         pkgs.llvmPackages.clang-unwrapped
         pkgs.wasm-tools
-        pkgs.wit-bindgen
         wasmLd
         pkgs.haskellPackages.hsc2hs
       ];
@@ -900,7 +913,6 @@
     pkgs.llvmPackages.clang-unwrapped
     pkgs.wasm-tools
     pkgs.wasmtime
-    pkgs.wit-bindgen
     wasmLd
   ];
 
@@ -976,7 +988,6 @@
         store=${storeFor exampleName}
         timeout --foreground --kill-after=5s 300s ${aihcExe} build "examples/$example_name/Main.hs" \
           --target ${target} \
-          --gc semispace \
           --store "$store" \
           --build-root "$TMPDIR/.aihc-target-$example_name" \
           "''${package_flags[@]}" \
@@ -1030,6 +1041,7 @@ in {
     haskell-format = haskellFormat;
     c-lint = cLint;
     c-format = cFormat;
+    wit-bindings = witBindings;
     cabal-format = cabalFormat;
     core-libraries-install = coreLibrariesInstall;
     hackage-install-tests = hackageInstallTests;

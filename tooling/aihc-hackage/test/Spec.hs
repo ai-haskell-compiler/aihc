@@ -269,6 +269,10 @@ test_collectsCSources = do
     "expected cc-options from the cabal file"
     ["-std=c11"]
     (HC.cCompileCcOptions info)
+  assertEqual
+    "expected Lir units from the x-aihc-lir-sources field"
+    ["/pkg/lir/helpers.lir", "/pkg/lir/enter.lir"]
+    (HC.cCompileLirSources info)
   assertBool
     "inactive javascript C source is not selected"
     (not (any ("js.c" `isSuffixOf`) (HC.cCompileSources info)))
@@ -508,6 +512,7 @@ cSourcesCabal =
       "  c-sources: cbits/helper.c",
       "  include-dirs: cbits",
       "  cc-options: -std=c11",
+      "  x-aihc-lir-sources: lir/helpers.lir, lir/enter.lir",
       "  default-language: Haskell2010",
       "  if arch(javascript)",
       "    c-sources: cbits/js.c"

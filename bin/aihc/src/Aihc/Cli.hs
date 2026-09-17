@@ -8,7 +8,6 @@ import Aihc.Cli.Build (runBuild)
 import Aihc.Cli.BuildModule (runLinkExe)
 import Aihc.Cli.Install (runInstall)
 import Aihc.Cli.Options (Command (..), parseCommandIO)
-import Aihc.Cli.Runtime (runPrepareRuntime)
 import Control.Exception (IOException, displayException, try)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -26,4 +25,3 @@ runCommand :: Command -> IO ()
 runCommand (CmdBuild opts) = runBuild opts
 runCommand (CmdInstall opts) = runInstall opts
 runCommand (CmdLinkExe opts) = runLinkExe opts
-runCommand (CmdPrepareRuntime opts) = runPrepareRuntime opts

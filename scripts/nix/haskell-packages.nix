@@ -37,6 +37,13 @@
       supportsDocs = false;
       supportsCoverage = false;
     };
+    aihc-rts = {
+      src = sources.rtsSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-internal = {
       src = sources.internalSrc;
       disableProfiling = true;

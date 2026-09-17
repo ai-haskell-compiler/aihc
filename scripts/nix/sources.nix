@@ -41,7 +41,8 @@
 
   # The core libraries carry headers of their own: a capi import of
   # Foreign.C.Error names one, and its wrapper is compiled against it.
-  coreLibrarySourceSuffixes = exampleSourceSuffixes ++ [".h"];
+  # The runtime package aihc-rts is C, headers and Lir units.
+  coreLibrarySourceSuffixes = exampleSourceSuffixes ++ [".c" ".h" ".lir"];
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
@@ -112,6 +113,13 @@ in rec {
     ".hs"
     ".hs-boot"
     ".cabal"
+  ];
+
+  rtsSrc = mkComponentSrc "/core-libs/aihc-rts" [
+    ".cabal"
+    ".c"
+    ".h"
+    ".lir"
   ];
 
   internalSrc = mkComponentSrc "/core-libs/aihc-internal" [

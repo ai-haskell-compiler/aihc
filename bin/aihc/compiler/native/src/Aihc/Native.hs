@@ -7,8 +7,6 @@ module Aihc.Native
     NativeRuntimeCall (..),
     NativeTarget (..),
     OptimizationLevel (..),
-    RuntimeGarbageCollector (..),
-    RuntimePlan (..),
     WasmSysroot (..),
     backendArchiver,
     backendCompiler,
@@ -28,19 +26,19 @@ module Aihc.Native
     optimizationArgument,
     parseNativeTarget,
     parseOptimizationLevel,
+    readWasmClangProcessWithExitCode,
     renderLinkedFunctionSymbol,
     renderLinkedConstructorInfoSymbol,
     renderLinkedPartialConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
     renderNativeTarget,
     renderOptimizationLevel,
-    runtimePlan,
     supportedNativePrimitiveNames,
+    wasmClangCommand,
     wasmSysroot,
   )
 where
 
-import Aihc.DataFiles (getDataFileName)
 import Aihc.Grin.Syntax
 import Control.Monad (filterM)
 import Data.Bits (shiftR, (.&.))
@@ -57,8 +55,11 @@ import Data.Text.Encoding qualified as Text
 import Data.Word (Word8)
 import System.Directory (doesFileExist, findExecutable)
 import System.Environment (lookupEnv)
-import System.FilePath (takeDirectory, (</>))
+import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
+import System.IO.Error (tryIOError)
 import System.Info qualified as System
+import System.Process (readProcessWithExitCode)
 
 -- | The fixed linked global that starts each executable.
 executableEntryName :: Text
@@ -79,19 +80,6 @@ data NativeTarget
   | Llvm
   | Wasm32Wasip3
   deriving (Bounded, Enum, Eq, Ord, Show)
-
-data RuntimeGarbageCollector
-  = RuntimeGcSemispace
-  deriving (Eq, Ord, Show)
-
-data RuntimePlan = RuntimePlan
-  { runtimeSources :: ![FilePath],
-    -- | Runtime units written in Lir. Every target compiles them with its own
-    -- Lir backend instead of a C compiler. See @docs/lir.md@.
-    runtimeLirSources :: ![FilePath],
-    runtimeIncludeDirectories :: ![FilePath]
-  }
-  deriving (Eq, Show)
 
 renderNativeTarget :: NativeTarget -> String
 renderNativeTarget target =
@@ -453,29 +441,57 @@ buildAddrLiteralPool program =
   where
     values = Set.toAscList (Set.fromList [value | GrinLitAddr value <- grinProgramLiterals program])
 
-runtimeSourcePath :: IO FilePath
-runtimeSourcePath = getDataFileName "compiler/native/runtime/aihc_runtime.c"
+-- | Select the ordinary Clang driver used for WebAssembly objects. Nix can
+-- override only the executable to bypass its host-target compiler wrapper.
+-- The sysroot is not part of this: an assembly input needs no headers, and
+-- the C compilations add it themselves.
+wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
+wasmClangCommand override =
+  (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])
 
-runtimePlan :: NativeTarget -> RuntimeGarbageCollector -> IO RuntimePlan
-runtimePlan target garbageCollector = do
-  core <- runtimeSourcePath
-  collector <-
-    getDataFileName $ case garbageCollector of
-      RuntimeGcSemispace -> "compiler/native/runtime/aihc_gc_semispace.c"
-  host <-
-    getDataFileName $ case target of
-      Wasm32Wasip3 -> "compiler/native/runtime/aihc_host_wasip3.c"
-      _ -> "compiler/native/runtime/aihc_host_posix.c"
-  lirUnits <-
-    traverse
-      (getDataFileName . ("compiler/native/runtime/" <>))
-      ["aihc_helpers.lir", "aihc_enter.lir", "aihc_array.lir", "aihc_byte_array.lir", "aihc_mutvar.lir", "aihc_runtime_options.lir", "aihc_stable_name.lir"]
-  pure
-    RuntimePlan
-      { runtimeSources = [core, collector, host],
-        runtimeLirSources = lirUnits,
-        runtimeIncludeDirectories = [takeDirectory core]
-      }
+-- | Run Clang and, after a WebAssembly compilation failure, inspect its
+-- registered targets so a target-limited installation gets an actionable
+-- diagnostic without obscuring Clang's original error.
+readWasmClangProcessWithExitCode :: FilePath -> [String] -> IO (ExitCode, String, String)
+readWasmClangProcessWithExitCode clang arguments = do
+  result@(exitCode, stdout, stderr) <- readProcessWithExitCode clang arguments ""
+  case exitCode of
+    ExitSuccess -> pure result
+    ExitFailure _ -> do
+      targetsResult <- tryIOError (readProcessWithExitCode clang ["-print-targets"] "")
+      pure
+        ( exitCode,
+          stdout,
+          case targetsResult of
+            Right (ExitSuccess, targets, _targetsStderr)
+              | not (hasWasm32Target targets) -> appendWasm32TargetNotice stderr
+            _ -> stderr
+        )
+
+hasWasm32Target :: String -> Bool
+hasWasm32Target = any lineIsWasm32Target . lines
+  where
+    lineIsWasm32Target line =
+      case words line of
+        target : _ -> target == "wasm32"
+        [] -> False
+
+appendWasm32TargetNotice :: String -> String
+appendWasm32TargetNotice originalError =
+  originalError
+    <> separator
+    <> unlines
+      [ "AIHC notice: this Clang installation does not include the wasm32 target.",
+        "The default Clang shipped with macOS omits WebAssembly support. Install LLVM Clang",
+        "with Homebrew (`brew install llvm`) or Nix",
+        "(`nix shell nixpkgs#llvmPackages.clang-unwrapped`), then set AIHC_WASM_CLANG",
+        "to that Clang executable."
+      ]
+  where
+    separator
+      | null originalError = ""
+      | last originalError == '\n' = "\n"
+      | otherwise = "\n\n"
 
 -- | Primitive operations implemented directly by every native backend or by
 -- the shared runtime ABI.

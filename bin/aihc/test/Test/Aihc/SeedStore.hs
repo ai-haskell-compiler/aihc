@@ -34,9 +34,9 @@ where
 
 import Aihc.Cli.Install (install)
 import Aihc.Cli.Options (InstallOptions (..))
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory, wasmSysroot)
 import Control.Exception (IOException, bracket, bracketOnError, try)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, void)
 import Data.List (isPrefixOf, nub)
 import Data.Maybe (fromMaybe)
 import System.Directory
@@ -118,10 +118,14 @@ installTestTargets :: IO [NativeTarget]
 installTestTargets = do
   foreignArchives <- arSupportsForeignObjects
   wasm <- clangSupportsWasm
+  -- The runtime package has C sources, so a wasm install compiles C against
+  -- the WASI sysroot, and even reading a wasm store entry needs the sysroot
+  -- that is part of its fingerprint.
+  sysroot <- wasmSysrootAvailable
   pure $
     [Llvm]
       <> [LinuxAmd64 | foreignArchives]
-      <> [Wasm32Wasip3 | wasm && foreignArchives]
+      <> [Wasm32Wasip3 | wasm && foreignArchives && sysroot]
 
 -- | Every target the seed store holds aihc-prim for: what the install tests
 -- ask for, plus whatever @build@ compiles to. Seeding the extra targets is
@@ -287,6 +291,11 @@ clangSupportsWasm = do
       case words line of
         target : _ -> target == "wasm32"
         [] -> False
+
+wasmSysrootAvailable :: IO Bool
+wasmSysrootAvailable = do
+  result <- try (void wasmSysroot) :: IO (Either IOException ())
+  pure (either (const False) (const True) result)
 
 arSupportsForeignObjects :: IO Bool
 arSupportsForeignObjects = do

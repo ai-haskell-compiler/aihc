@@ -17,9 +17,8 @@ module Test.Native.GcFuzz
   )
 where
 
-import Aihc.Cli.Runtime (RuntimeBuild (..))
-import Aihc.Native (NativeTarget (Llvm), RuntimeGarbageCollector (..), backendCompiler)
-import Aihc.Testing.RuntimeArchive (cachedRuntimeArchive)
+import Aihc.Native (NativeTarget (Llvm), backendCompiler)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), cachedRuntimeArchive)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception (IOException, SomeException, throwIO, try)
 import Control.Monad (forM, replicateM, unless)
@@ -1010,7 +1009,7 @@ compileDriver = do
       -- so each attempt gets its own cached archive.
       buildAndLink extra = do
         attempt <- tryIOError $ do
-          build <- cachedRuntimeArchive Llvm RuntimeGcSemispace (extra <> base)
+          build <- cachedRuntimeArchive Llvm (extra <> base)
           -- Link with the driver that built the archive, so the sanitizer
           -- runtime of the driver matches the instrumented runtime objects.
           (compiler, _targetArguments) <- backendCompiler Llvm

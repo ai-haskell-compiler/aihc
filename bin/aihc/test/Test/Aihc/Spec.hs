@@ -6,10 +6,9 @@ import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build)
 import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
-import Aihc.Cli.Options (BuildOptions (..), Command (..), GarbageCollector (GcSemispace), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
+import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
-import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -104,6 +103,7 @@ tests =
           "install"
           [ testCase "code-quality install fixtures" (testInstallFixtures primStore),
             testCase "compiles and archives capi wrappers" (test_installCapi primStore),
+            testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
             testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
             testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
@@ -428,7 +428,6 @@ withBuildModuleSandbox getStore prefix action = do
               buildSourceDirectories = [fixtureRoot],
               buildPackageConstraints = ["aihc-base == 4.21.2.0"],
               buildTarget = buildHostTarget,
-              buildGarbageCollector = GcSemispace,
               buildStoreRoot = Just storeRoot,
               buildBuildRoot = Nothing,
               buildWorkspace = Nothing,
@@ -494,8 +493,11 @@ test_buildModuleSourceDirectories getStore =
     void (withCurrentDirectory root (build options))
     BS.writeFile unusedType typeBytes
     void (withCurrentDirectory root (build options {buildLint = True}))
-    entryExists <- doesFileExist (installedEntryArchivePath storeRoot target)
-    assertBool "target entry archive exists" entryExists
+    -- The entry unit is generated beside the module objects of the
+    -- executable, and the runtime is an installed package like any other.
+    assertFileExists (root </> ".aihc-target" </> nativeTargetStoreDirectory target </> "entry.o")
+    rtsPackage <- seededPackagePath storeRoot target "aihc-rts"
+    assertFileExists (rtsPackage </> "cbits" </> "native_aihc_runtime.o")
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "executable exit status" ExitSuccess status
     assertEqual "executable stdout" "build works\n" stdout
@@ -586,7 +588,9 @@ test_buildModuleLinkBundle getStore =
     assertEqual "bundle target" (buildTarget options) (linkBundleTarget manifest)
     assertBool "bundle lists the main object" (any ("Main.o" `isSuffixOf`) (linkBundleObjects manifest))
     assertBool "bundle lists the base archive" (any ("libaihc-base.a" `isSuffixOf`) (linkBundleArchives manifest))
-    forM_ (linkBundleObjects manifest <> linkBundleArchives manifest <> [linkBundleEntry manifest, linkBundleRuntime manifest]) $ \input -> do
+    assertBool "bundle lists the entry object" (any ("entry.o" `isSuffixOf`) (linkBundleObjects manifest))
+    assertBool "bundle lists the runtime objects" (any ("native_aihc_runtime.o" `isSuffixOf`) (linkBundleObjects manifest))
+    forM_ (linkBundleObjects manifest <> linkBundleArchives manifest) $ \input -> do
       assertBool ("bundle input is relative: " <> input) ("inputs/" `isPrefixOf` input)
       assertFileExists (bundle </> input)
     removeDirectoryRecursive storeRoot
@@ -749,7 +753,6 @@ withBuildPackageSandbox getStore prefix action = do
               buildSourceDirectories = [],
               buildPackageConstraints = [],
               buildTarget = buildHostTarget,
-              buildGarbageCollector = GcSemispace,
               buildStoreRoot = Just storeRoot,
               buildBuildRoot = Just buildRoot,
               buildWorkspace = Nothing,
@@ -1005,6 +1008,33 @@ test_installRtsHeaderInclude getStore =
     target <- hostBackendTarget
     result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
+
+-- | The runtime is an installed package that aihc-prim depends on, so the
+-- seed of aihc-prim brings it along for every target. Its C sources and
+-- Lir units are compiled into its @cbits@ directory, which a link takes
+-- object by object, and a Lir unit of constants alone produces no object.
+test_installRuntimePackage :: IO SeedStore -> Assertion
+test_installRuntimePackage getStore = do
+  targets <- installTestTargets
+  withSandbox getStore "aihc-rts-install" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    forM_ targets $ \target -> do
+      rtsPackage <- seededPackagePath storeRoot target "aihc-rts"
+      manifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath rtsPackage)
+      assertEqual "the runtime has no modules" [] (packageManifestModules manifest)
+      assertFileExists (rtsPackage </> "lib" </> "libaihc-rts.a")
+      let cbits = rtsPackage </> "cbits"
+          hostObject = case target of
+            Wasm32Wasip3 -> "native_aihc_host_wasip3.o"
+            _ -> "native_aihc_host_posix.o"
+      forM_ ["native_aihc_runtime.o", "native_aihc_gc_semispace.o", hostObject, "native_aihc_helpers.o", "native_aihc_enter.o", "native_aihc_array.o"] $ \object ->
+        assertFileExists (cbits </> object)
+      assertFileDoesNotExist (cbits </> "native_aihc_constants.o")
+      case target of
+        Wasm32Wasip3 -> do
+          assertFileExists (cbits </> "wasm_aihc_wasip3.o")
+          assertFileExists (cbits </> "wasm_generated_command.o")
+        _ -> assertFileDoesNotExist (cbits </> "wasm_aihc_wasip3.o")
 
 -- A @capi@ import that names @Rts.h@ compiles its wrapper against the
 -- compiler's copy of the header. @unix@ imports @stopTimer@ this way before it

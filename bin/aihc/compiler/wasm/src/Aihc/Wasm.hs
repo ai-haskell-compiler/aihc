@@ -1,22 +1,16 @@
--- | The WebAssembly runtime sources of the WASI P3 target. The code
--- generator is "Aihc.Wasm.Lir".
+-- | The WebAssembly component world of the WASI P3 target. The code
+-- generator is "Aihc.Wasm.Lir"; the runtime sources are the @aihc-rts@
+-- package under @core-libs@.
 module Aihc.Wasm
-  ( wasip3RuntimeSourcePath,
-    wasip3RuntimeSourcePaths,
-    wasip3WorldPath,
+  ( wasip3WorldPath,
   )
 where
 
 import Aihc.DataFiles (getDataFileName)
 
-wasip3RuntimeSourcePath :: IO FilePath
-wasip3RuntimeSourcePath = getDataFileName "compiler/wasm/runtime/aihc_wasip3.c"
-
-wasip3RuntimeSourcePaths :: IO [FilePath]
-wasip3RuntimeSourcePaths =
-  mapM
-    getDataFileName
-    ["compiler/wasm/runtime/aihc_wasip3.c"]
-
+-- | The directory holding @command.wit@ and its dependencies. The link
+-- embeds the component type of this world into the core module, and the
+-- C bindings of the runtime are generated from it; see
+-- @scripts/update-wit-bindings.sh@.
 wasip3WorldPath :: IO FilePath
 wasip3WorldPath = getDataFileName "compiler/wasm/runtime/wit"

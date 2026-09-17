@@ -1,7 +1,7 @@
 #ifndef AIHC_SNAPSHOT_H
 #define AIHC_SNAPSHOT_H
 
-#include "../../../runtime/aihc_runtime.h"
+#include "aihc_runtime.h"
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,

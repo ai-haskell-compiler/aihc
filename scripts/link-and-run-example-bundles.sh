@@ -66,7 +66,7 @@ for bundle in "$bundles"/*/; do
 	inputs=()
 	while IFS= read -r input; do
 		inputs+=("$link/$input")
-	done < <(jq -r '.objects[], .archives[], .entry, .runtime' "$link/link.json")
+	done < <(jq -r '.objects[], .archives[]' "$link/link.json")
 	if ! clang "--target=$triple" "${inputs[@]}" -o "$executable" >"$result/link.log" 2>&1; then
 		echo link-failed >"$result/status"
 		echo "$name: link failed"
