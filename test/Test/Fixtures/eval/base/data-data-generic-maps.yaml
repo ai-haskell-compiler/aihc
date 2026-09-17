@@ -1,0 +1,43 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+
+    import Data.Data
+
+    -- The generic maps are class defaults written with gfoldl; the pair
+    -- and list instances give them children to visit.
+    sizeOf :: Data a => a -> Int
+    sizeOf x = 1 + sum (gmapQ sizeOf x)
+
+    bumpInts :: Data a => a -> a
+    bumpInts x = case cast x of
+      Just n -> case cast (n + 1 :: Int) of
+        Just y -> y
+        Nothing -> x
+      Nothing -> gmapT bumpInts x
+
+    childCount :: Data a => a -> Int
+    childCount = gmapQl (+) 0 (const 1)
+
+    childNames :: Data a => a -> [String]
+    childNames = gmapQr (:) [] (showConstr . toConstr)
+
+    secondChild :: Data a => a -> String
+    secondChild = gmapQi 1 (showConstr . toConstr)
+
+    results :: Bool
+    results =
+      sizeOf ((1 :: Int), True) == 3
+        && sizeOf [(1 :: Int), 2, 3] == 7
+        && childCount ((1 :: Int), True) == 2
+        && childNames ((1 :: Int), True) == ["1", "True"]
+        && secondChild ((1 :: Int), True) == "True"
+        && (case bumpInts ((1 :: Int), True) of (n, b) -> n == 2 && b)
+        && (case bumpInts [(1 :: Int), 2] of xs -> xs == [2, 3])
+        && (case gmapM (\d -> Just d) ((1 :: Int), True) of Just (n, _) -> n == 1; Nothing -> False)
+output: "True"
+expression: results
+status: pass
+reason: the gmapT/gmapQ family of Data methods have GHC's gfoldl-based defaults
