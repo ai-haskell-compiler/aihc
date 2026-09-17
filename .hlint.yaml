@@ -4,6 +4,12 @@
 - ignore:
     name: Use camelCase
     within: GHC.IO.Exception
+# The POSIX layer names each call and constant after the C entity it reaches,
+# exactly as GHC's own does, because @unix@ imports these names by their GHC
+# spellings.
+- ignore:
+    name: Use camelCase
+    within: System.Posix.Internals.Syscalls
 - ignore:
     name: Use foldl
     within: GHC.Read.Lex
