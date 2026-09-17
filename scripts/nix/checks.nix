@@ -147,11 +147,12 @@
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
-  # Test.Aihc.SeedStore installs aihc-prim for apple-arm64 and llvm always, and
-  # for linux-amd64 and wasm32-wasip3 when the toolchain supports them, which it
-  # does inside the sandbox.
+  # Test.Aihc.SeedStore installs aihc-prim for llvm always, and for linux-amd64
+  # and wasm32-wasip3 when the toolchain supports them, which it does inside
+  # the sandbox. apple-arm64 is no longer among them: the install tests that
+  # named it whatever the host was are gone.
   specSeedPrimTargets =
-    pkgs.lib.unique (["apple-arm64" "llvm" "linux-amd64" "wasm32-wasip3"] ++ [hostBackendTarget]);
+    pkgs.lib.unique (["llvm" "linux-amd64" "wasm32-wasip3"] ++ [hostBackendTarget]);
   # The target aihc-base is built for. aihc-prim cross compiles freely -- it is
   # Haskell all the way down -- but aihc-base is only ever built for the
   # backend of the host, so nothing has to supply a C toolchain for a foreign
