@@ -1,0 +1,69 @@
+extensions: []
+modules:
+- |
+  module Test where
+  data Tree = Leaf | Tree :<: Tree | Tree :>: Tree
+  infixl 5 :<:
+  infixr 6 :>:
+  left = Leaf :<: Leaf :<: Leaf
+  right = Leaf Test.:>: Leaf Test.:>: Leaf
+  mixed = Leaf :<: Leaf :>: Leaf :>: Leaf
+  paren = (Leaf :<: Leaf) :>: Leaf
+  pick (a :<: b :>: c :>: d) = d
+  single (a :>: b) = b
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    2.tLevity :: 2.sType;
+    2.sLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.sType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.sType;
+    2.sType :: 2.sType;
+    2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.cLifted :: 2.tLevity
+
+  import synonyms
+    2.sLiftedRep = 2.cBoxedRep 2.cLifted;
+    2.sType = 2.tTYPE 2.sLiftedRep
+
+  pub type 1.tTree :: 2.sType {
+      pub 1.cLeaf :: 1.tTree;
+      pub 1.c:<: :: 1.tTree 2.→ 1.tTree 2.→ 1.tTree;
+      pub 1.c:>: :: 1.tTree 2.→ 1.tTree 2.→ 1.tTree
+  }
+
+  pub val 1.vleft :: 1.tTree
+   = 1.c:<: (1.c:<: 1.cLeaf 1.cLeaf) 1.cLeaf
+
+  pub val 1.vright :: 1.tTree
+   = 1.c:>: 1.cLeaf (1.c:>: 1.cLeaf 1.cLeaf)
+
+  pub val 1.vmixed :: 1.tTree
+   = 1.c:<: 1.cLeaf (1.c:>: 1.cLeaf (1.c:>: 1.cLeaf 1.cLeaf))
+
+  pub val 1.vparen :: 1.tTree
+   = 1.c:>: (1.c:<: 1.cLeaf 1.cLeaf) 1.cLeaf
+
+  pub val 1.vpick :: 1.tTree 2.→ 1.tTree
+   = λ(x : 1.tTree).
+    case x as (_scrut : 1.tTree) return (1.tTree) of {
+        1.c:<: (a : 1.tTree) (_pat : 1.tTree) →
+            case _pat as (_scrut{1} : 1.tTree) return (1.tTree) of {
+                1.c:>: (b : 1.tTree) (_pat{1} : 1.tTree) →
+                    case _pat{1} as (_scrut{2} : 1.tTree) return (1.tTree) of {
+                        1.c:>: (c : 1.tTree) (d : 1.tTree) →
+                            d
+                    }
+            }
+    }
+
+  pub val 1.vsingle :: 1.tTree 2.→ 1.tTree
+   = λ(x : 1.tTree).
+    case x as (_scrut : 1.tTree) return (1.tTree) of {
+        1.c:>: (a : 1.tTree) (b : 1.tTree) →
+            b
+    }
+status: pass
+reason: Preserve left, right, mixed, qualified, and parenthesized infix trees in expressions and patterns.

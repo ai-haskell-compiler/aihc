@@ -59,7 +59,6 @@ import Aihc.Parser.Syntax
     Expr (..),
     Extension (..),
     FieldDecl (..),
-    FixityAssoc (..),
     FloatType (..),
     ForallTelescope (..),
     ForeignDecl (..),
@@ -113,6 +112,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameAnns,
     unqualifiedNameText,
   )
+import Aihc.Resolve.Infix
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
@@ -1350,11 +1350,10 @@ bindPattern pat =
       (scope, pats') <- bindPatterns pats
       pure (scope, PBuiltinCon builtin typeArgs' pats')
     PInfix {} -> do
-      let (operands, names) = flattenInfixPattern pat
-      bound <- mapM bindPattern operands
-      (names', reassociated) <- resolveInfixOperators names
+      bound <- traverse bindPattern (flattenInfixPattern pat)
       let scope = foldr (\(operandScope, _) acc -> unionScope acc operandScope) emptyScope bound
-      pure (scope, reassociateResolvedInfixPattern (map snd bound) names' reassociated)
+      pat' <- resolveInfixChain PInfix (fmap snd bound)
+      pure (scope, pat')
     PView expr inner -> do
       expr' <- resolveExpr expr
       (scope, inner') <- bindPattern inner
@@ -1456,10 +1455,8 @@ resolvePatternDefinition termDefinition pat =
     PBuiltinCon builtin typeArgs pats ->
       PBuiltinCon builtin <$> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PInfix {} -> do
-      let (operands, names) = flattenInfixPattern pat
-      operands' <- mapM (resolvePatternDefinition termDefinition) operands
-      (names', reassociated) <- resolveInfixOperators names
-      pure (reassociateResolvedInfixPattern operands' names' reassociated)
+      operands <- traverse (resolvePatternDefinition termDefinition) (flattenInfixPattern pat)
+      resolveInfixChain PInfix operands
     PView expr inner ->
       PView <$> withResetLocalSupply (resolveExpr expr) <*> resolvePatternDefinition termDefinition inner
     PAs alias inner -> do
@@ -1926,53 +1923,30 @@ resolveTermUseAtName name = do
   scope <- currentScope
   resolveNameTo (spanStartNameSpan sp (nameText name)) ResolutionNamespaceTerm (resolveTermName scope name) name
 
-data ResolvedInfixOp = ResolvedInfixOp
-  { resolvedInfixIndex :: !Int,
-    resolvedInfixName :: !Name,
-    resolvedInfixFixity :: !OperatorFixity
-  }
-
 resolveInfixExpr :: Expr -> ResolveM Expr
 resolveInfixExpr expr = do
-  let (operands, names) = flattenInfixExpr expr
-  operands' <- mapM resolveExpr operands
-  (names', reassociated) <- resolveInfixOperators names
-  case reassociated of
-    Just ops -> pure (rebuildInfixExpr operands' ops)
-    Nothing -> pure (buildLeftInfixExpr expr operands' names')
+  operands <- traverse resolveExpr (flattenInfixExpr expr)
+  resolveInfixChain EInfix operands
 
--- | Resolve the operators of an infix chain, and say how the chain reads.
---
--- 'Just' gives the operators to reassociate the chain by. 'Nothing' is a
--- chain whose operators share a precedence but disagree on how to
--- associate, which has no reading: the operator that makes it ambiguous
--- resolves to that ambiguity rather than to whatever its name would name,
--- and the caller falls back to the left-associative shape.
---
--- The ambiguity is settled before any operator is annotated, so each one
--- carries exactly one resolution.
-resolveInfixOperators :: [Name] -> ResolveM ([Name], Maybe [ResolvedInfixOp])
-resolveInfixOperators names = do
+-- | Check fixities before annotation. Each operator gets one resolution.
+-- An ambiguous chain keeps its left-nested tree and marks the selected operator.
+resolveInfixChain :: (a -> Name -> a -> a) -> InfixChain Name a -> ResolveM a
+resolveInfixChain build chain = do
   scope <- currentScope
   ambient <- currentSpan
-  let ops =
-        [ ResolvedInfixOp index name (resolveFixityName scope name)
-        | (index, name) <- zip [0 :: Int ..] names
-        ]
+  let ops = prepareInfix (resolveFixityName scope) chain
   case ambiguousInfixOp ops of
-    Nothing -> do
-      names' <- mapM resolveTermUseAtName names
-      pure (names', Just (zipWith (\op name' -> op {resolvedInfixName = name'}) ops names'))
-    Just ambiguous -> do
-      names' <-
-        mapM
-          ( \(index, name) ->
-              if index == resolvedInfixIndex ambiguous
-                then ambiguousFixityName ambient name
-                else resolveTermUseAtName name
-          )
-          (zip [0 :: Int ..] names)
-      pure (names', Nothing)
+    Nothing -> rebuildInfix build <$> traverseOperators resolveOperator ops
+    Just ambiguous ->
+      buildLeftInfix build <$> traverseOperators (resolveAmbiguousOperator ambient ambiguous) ops
+  where
+    resolveOperator op = do
+      name <- resolveTermUseAtName (resolvedInfixName op)
+      pure op {resolvedInfixName = name}
+    resolveAmbiguousOperator ambient ambiguous op
+      | resolvedInfixIndex op == resolvedInfixIndex ambiguous =
+          ambiguousFixityName ambient (resolvedInfixName op)
+      | otherwise = resolveTermUseAtName (resolvedInfixName op)
 
 ambiguousFixityName :: Maybe SourceSpan -> Name -> ResolveM Name
 ambiguousFixityName ambient name = do
@@ -1984,94 +1958,17 @@ ambiguousFixityName ambient name = do
       (ResolvedError "ambiguous fixity")
   pure name {nameAnns = ann : nameAnns name}
 
-buildLeftInfixExpr :: Expr -> [Expr] -> [Name] -> Expr
-buildLeftInfixExpr fallbackExpr [] _ = fallbackExpr
-buildLeftInfixExpr _ (operand : operands) ops =
-  List.foldl' (\left (op, right) -> EInfix left op right) operand (zip ops operands)
-
-flattenInfixExpr :: Expr -> ([Expr], [Name])
-flattenInfixExpr expr =
-  case expr of
-    EInfix left op right ->
-      let (operands, ops) = flattenInfixExpr left
-       in (operands <> [right], ops <> [op])
-    _ -> ([expr], [])
-
-ambiguousInfixOp :: [ResolvedInfixOp] -> Maybe ResolvedInfixOp
-ambiguousInfixOp ops =
-  listToMaybe
-    [ right
-    | (leftIndex, left) <- indexed,
-      let leftPrec = infixPrecedence left,
-      (rightIndex, right) <- drop (leftIndex + 1) indexed,
-      infixPrecedence right == leftPrec,
-      all ((> leftPrec) . infixPrecedence) [between | (index, between) <- indexed, index > leftIndex, index < rightIndex],
-      incompatibleSamePrecedence left right
-    ]
+flattenInfixExpr :: Expr -> InfixChain Name Expr
+flattenInfixExpr = flattenInfix split
   where
-    indexed = zip [0 :: Int ..] ops
+    split (EInfix left op right) = Just (left, op, right)
+    split _ = Nothing
 
-incompatibleSamePrecedence :: ResolvedInfixOp -> ResolvedInfixOp -> Bool
-incompatibleSamePrecedence left right =
-  infixAssoc left /= infixAssoc right || infixAssoc left == Infix || infixAssoc right == Infix
-
-infixAssoc :: ResolvedInfixOp -> FixityAssoc
-infixAssoc = operatorFixityAssoc . resolvedInfixFixity
-
-infixPrecedence :: ResolvedInfixOp -> Int
-infixPrecedence = operatorFixityPrecedence . resolvedInfixFixity
-
-rebuildInfixExpr :: [Expr] -> [ResolvedInfixOp] -> Expr
-rebuildInfixExpr = rebuildInfix EInfix
-
--- | The operands and operators of a left-nested infix pattern chain, as
--- the parser gives it.
-flattenInfixPattern :: Pattern -> ([Pattern], [Name])
-flattenInfixPattern pat =
-  case pat of
-    PInfix left op right ->
-      let (operands, ops) = flattenInfixPattern left
-       in (operands <> [right], ops <> [op])
-    _ -> ([pat], [])
-
--- | Rebuild a resolved infix pattern chain with the fixities of its
--- operators, like an infix expression. An ambiguous pair keeps the left
--- nesting and marks the operator.
--- | Build one infix pattern from its operands and the operators that
--- 'resolveInfixOperators' resolved.
-reassociateResolvedInfixPattern :: [Pattern] -> [Name] -> Maybe [ResolvedInfixOp] -> Pattern
-reassociateResolvedInfixPattern operands names reassociated =
-  case reassociated of
-    Just ops -> rebuildInfix PInfix operands ops
-    Nothing -> buildLeftInfixPattern operands names
-
-buildLeftInfixPattern :: [Pattern] -> [Name] -> Pattern
-buildLeftInfixPattern [] _ = error "flattenInfixPattern returned no operands"
-buildLeftInfixPattern (operand : operands) ops =
-  List.foldl' (\left (op, right) -> PInfix left op right) operand (zip ops operands)
-
--- | Rebuild an infix chain by operator precedence and associativity. The
--- builder makes one infix node.
-rebuildInfix :: (a -> Name -> a -> a) -> [a] -> [ResolvedInfixOp] -> a
-rebuildInfix build (operand : operands) ops =
-  let (result, _, _) = parseInfix build 0 operand operands ops
-   in result
-rebuildInfix _ [] _ = error "an infix chain has no operands"
-
-parseInfix :: (a -> Name -> a -> a) -> Int -> a -> [a] -> [ResolvedInfixOp] -> (a, [a], [ResolvedInfixOp])
-parseInfix build minPrec lhs operands ops =
-  case ops of
-    op : restOps
-      | infixPrecedence op >= minPrec,
-        rhsOperand : restOperands <- operands ->
-          let nextMinPrec =
-                case infixAssoc op of
-                  InfixR -> infixPrecedence op
-                  Infix -> infixPrecedence op + 1
-                  InfixL -> infixPrecedence op + 1
-              (rhs, operands', ops') = parseInfix build nextMinPrec rhsOperand restOperands restOps
-           in parseInfix build minPrec (build lhs (resolvedInfixName op) rhs) operands' ops'
-    _ -> (lhs, operands, ops)
+flattenInfixPattern :: Pattern -> InfixChain Name Pattern
+flattenInfixPattern = flattenInfix split
+  where
+    split (PInfix left op right) = Just (left, op, right)
+    split _ = Nothing
 
 resolveTypeConstructorUse :: TypePromotion -> Name -> ResolveM Name
 resolveTypeConstructorUse promotion name =

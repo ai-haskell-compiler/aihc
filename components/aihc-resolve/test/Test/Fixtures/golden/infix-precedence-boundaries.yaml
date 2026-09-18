@@ -1,0 +1,87 @@
+extensions: []
+modules:
+- |
+  module Main where
+  infixl 5 %%
+  infixr 5 ^^
+  infixl 7 **
+  infixr 7 !!
+  infixl 3 $$
+  infix 4 ==
+  (%%) x y = x
+  (^^) x y = y
+  (**) x y = x
+  (!!) x y = y
+  ($$) x y = x
+  (==) x y = x
+  higher = 'a' %% 'b' ** 'c' ^^ 'd'
+  lower = 'a' %% 'b' $$ 'c' ^^ 'd'
+  priority = 'a' %% 'b' ** 'c' !! 'd' ^^ 'e'
+  repeatOp = 'a' %% 'b' %% 'c' ^^ 'd'
+  nonassoc = 'a' == 'b' ** 'c' == 'd'
+  paren = ('a' %% 'b') ^^ 'c'
+annotated:
+- |-
+  module Main where
+  infixl 5 %%
+  infixr 5 ^^
+  infixl 7 **
+  infixr 7 !!
+  infixl 3 $$
+  infix 4 ==
+  (%%) x y = x
+   │   │ │   └─ v 0
+   │   │ └─ v 1
+   │   └─ v 0
+   └─ v Main
+  (^^) x y = y
+   │   │ │   └─ v 3
+   │   │ └─ v 3
+   │   └─ v 2
+   └─ v Main
+  (**) x y = x
+   │   │ │   └─ v 4
+   │   │ └─ v 5
+   │   └─ v 4
+   └─ v Main
+  (!!) x y = y
+   │   │ │   └─ v 7
+   │   │ └─ v 7
+   │   └─ v 6
+   └─ v Main
+  ($$) x y = x
+   │   │ │   └─ v 8
+   │   │ └─ v 9
+   │   └─ v 8
+   └─ v Main
+  (==) x y = x
+   │   │ │   └─ v 10
+   │   │ └─ v 11
+   │   └─ v 10
+   └─ v Main
+  higher = 'a' %% 'b' ** 'c' ^^ 'd'
+  └─ v Main    │      │      └─ v Error ambiguous fixity
+               │      └─ v Main
+               └─ v Main
+  lower = 'a' %% 'b' $$ 'c' ^^ 'd'
+  └─ v Main   │      │      └─ v Main
+              │      └─ v Main
+              └─ v Main
+  priority = 'a' %% 'b' ** 'c' !! 'd' ^^ 'e'
+  └─ v Main      │      │      │      └─ v Error ambiguous fixity
+                 │      │      └─ v Main
+                 │      └─ v Main
+                 └─ v Main
+  repeatOp = 'a' %% 'b' %% 'c' ^^ 'd'
+  └─ v Main      │      │      └─ v Error ambiguous fixity
+                 │      └─ v Main
+                 └─ v Main
+  nonassoc = 'a' == 'b' ** 'c' == 'd'
+  └─ v Main      │      │      └─ v Error ambiguous fixity
+                 │      └─ v Main
+                 └─ v Main
+  paren = ('a' %% 'b') ^^ 'c'
+  └─ v Main    │       └─ v Main
+               └─ v Main
+status: pass
+reason: Preserve precedence boundaries and the first ambiguous pair in source order.
