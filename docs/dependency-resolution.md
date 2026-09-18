@@ -118,7 +118,7 @@ over partial assignments.
 
 ## Search
 
-Plain chronological backtracking:
+Conflict-directed backjumping:
 
 1. Start with the roots as pending goals, each carrying the union of the ranges
    its dependents demand.
@@ -128,13 +128,33 @@ Plain chronological backtracking:
    dependency list is checked against the packages already assigned; a range
    that an assigned version violates rejects the candidate. Dependencies not
    yet assigned become pending goals or narrow existing ones.
-4. On a goal with no candidates left, return to the previous choice.
+4. On a goal with no candidates left, return to the choice the failure blames.
 5. Stop after a fixed number of backtracks and fail with the log.
 
-There are no conflict sets and no backjumping. At the scale aihc plans, tens of
-packages, this is fast, and the structure allows a failure to return the set of
-packages involved later if thrashing ever appears. The order is deterministic,
-so the same inputs give the same plan.
+Every failure carries a conflict set: the packages whose assignment it depends
+on.
+
+- A candidate rejected by an assigned version blames that package and the
+  candidate's own package.
+- An exhausted goal blames everything its candidates blamed, together with the
+  assigned dependents that fixed its range, and drops itself: the search above
+  cannot reassign a package it has just given up on.
+
+When the search under a candidate of `p` fails without blaming `p`, no other
+version or flag assignment of `p` can make that failure go away, so the
+remaining ones are skipped and the failure travels on to the choice that is to
+blame. The order is deterministic, so the same inputs give the same plan.
+
+Chronological backtracking was the original design, on the reasoning that at
+the scale aihc plans, tens of packages, thrashing would not appear. It did.
+`process-1.6.30.0` has its own automatic `os-string` flag whose default branch
+pins `filepath` below 1.5, which no `directory` in `process`'s range accepts.
+`directory` has the most candidates, so it is decided last, below `exceptions`,
+`stm`, and `array`, none of which have anything to do with the conflict. The
+same doomed `directory` goal was re-derived once per combination of those
+versions, and the backtrack limit ran out before the search ever reached
+`process +os-string`. Blaming `filepath` and `process` instead skips straight
+back to the flag.
 
 The result is an assignment from package name to version, flag assignment, and
 source (Hackage, local, or core). The plan builder then follows the
