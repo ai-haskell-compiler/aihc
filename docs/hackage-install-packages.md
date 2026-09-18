@@ -54,6 +54,16 @@ Hackage relaxes them after the fact. The `nix flake check` list in
 | splitmix | 0.1.3.2 |
 | parsec | 3.1.18.0 |
 | regex-base | 0.94.0.3 |
+| stm | 2.5.3.1 |
+| exceptions | 0.10.12 |
+| os-string | 2.0.11 |
+| filepath | 1.5.5.0 |
+| aihc-cpp | 2.0.0.0 |
+| hashable | 1.5.1.0 |
+| case-insensitive | 1.2.1.0 |
+| integer-logarithms | 1.0.5 |
+| scientific | 0.3.8.1 |
+| megaparsec | 9.8.2 |
 
 ## Running it locally
 
