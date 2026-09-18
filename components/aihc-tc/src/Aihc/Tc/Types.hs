@@ -4,7 +4,11 @@
 
 -- | Core type representation for the type checker.
 module Aihc.Tc.Types
-  ( Unique (..),
+  ( TcTermKey (..),
+    tyConTermKey,
+    tyConMemberTermKey,
+    termKeyName,
+    Unique (..),
     TyVarId (TyVarId, tvName, tvUnique),
     mkTyVarId,
     tvKind,
@@ -117,6 +121,29 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+
+data TcTermKey
+  = TcTermLocal !Int
+  | TcTermGlobal !PackageId !Text !Text
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TcTermKey
+
+-- | The term key with the name and origin of a type constructor.
+tyConTermKey :: TyCon -> TcTermKey
+tyConTermKey tyCon = tyConMemberTermKey tyCon (tyConName tyCon)
+
+-- | The term key of a constructor, record selector, or class method.
+-- The type constructor supplies the package and module.
+tyConMemberTermKey :: TyCon -> Text -> TcTermKey
+tyConMemberTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon)
+
+-- | The name of a term key for a diagnostic.
+termKeyName :: TcTermKey -> Text
+termKeyName key =
+  case key of
+    TcTermGlobal _ _ name -> name
+    TcTermLocal unique -> T.pack ("<local " <> show unique <> ">")
 
 newtype Unique = Unique Int
   deriving (Eq, Ord, Show, Read, Generic)

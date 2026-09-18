@@ -27,8 +27,8 @@ where
 import Aihc.Tc.Constraint (Ct (..))
 import Aihc.Tc.Env (ClassInfo (..), FunDep (..), InstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, getClassInstances, getKinds, lookupClass)
-import Aihc.Tc.Solve.Family (matchTypes)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred)

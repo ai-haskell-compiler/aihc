@@ -2,8 +2,9 @@
 module Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens, isRepresentationParameter) where
 
 import Aihc.Tc.Env
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Family (matchTypes, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)

@@ -16,7 +16,7 @@ module Aihc.Tc.Generalize
 where
 
 import Aihc.Tc.Kind (defaultKindMetas, deferKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, deferKindMeta, freshSkolemTv, getKinds, getMetaTermEnv, getPolyKinds, readMetaTv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, deferKindMeta, freshSkolemTv, getKinds, getMetaTermEnv, getPolyKinds, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, void, when)

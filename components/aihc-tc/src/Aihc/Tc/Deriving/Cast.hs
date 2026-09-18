@@ -11,8 +11,8 @@ import Aihc.Tc.Env
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
 import Data.Map.Strict qualified as Map

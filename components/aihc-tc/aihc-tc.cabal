@@ -19,32 +19,42 @@ library
     Aihc.Tc
     Aihc.Tc.Annotations
     Aihc.Tc.Constraint
+    Aihc.Tc.Deriving.References
+    Aihc.Tc.Deriving.StockClass
+    Aihc.Tc.Env
+    Aihc.Tc.Error
+    Aihc.Tc.Evidence
+    Aihc.Tc.Generate.Bind
+    Aihc.Tc.Generate.Pattern
+    Aihc.Tc.Interface
+    Aihc.Tc.Kind
+    Aihc.Tc.Match
+    Aihc.Tc.Monad
+    Aihc.Tc.Share
+    Aihc.Tc.TypeLitFamily
+    Aihc.Tc.TypeScheme
+    Aihc.Tc.Types
+    Aihc.Tc.Wiring
+    Aihc.Tc.Zonk
+
+  other-modules:
     Aihc.Tc.Deriving
     Aihc.Tc.Deriving.Cast
     Aihc.Tc.Deriving.Coerce
     Aihc.Tc.Deriving.Context
     Aihc.Tc.Deriving.Functorial
     Aihc.Tc.Deriving.Generate
-    Aihc.Tc.Deriving.References
-    Aihc.Tc.Deriving.StockClass
     Aihc.Tc.Deriving.Strategy
-    Aihc.Tc.Env
-    Aihc.Tc.Error
-    Aihc.Tc.Evidence
+    Aihc.Tc.Diagnostics
     Aihc.Tc.Finalize
     Aihc.Tc.FunDep
     Aihc.Tc.Generalize
-    Aihc.Tc.Generate.Bind
     Aihc.Tc.Generate.Decl
     Aihc.Tc.Generate.Expr
-    Aihc.Tc.Generate.Pattern
     Aihc.Tc.Generate.PatternBranch
     Aihc.Tc.Generate.Record
     Aihc.Tc.Instantiate
-    Aihc.Tc.Kind
-    Aihc.Tc.Monad
     Aihc.Tc.QuickLook
-    Aihc.Tc.Share
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Coercible
@@ -59,12 +69,7 @@ library
     Aihc.Tc.Solve.Injective
     Aihc.Tc.Solve.Worklist
     Aihc.Tc.Tidy
-    Aihc.Tc.TypeLitFamily
-    Aihc.Tc.TypeScheme
-    Aihc.Tc.Types
     Aihc.Tc.Unify
-    Aihc.Tc.Wiring
-    Aihc.Tc.Zonk
 
   hs-source-dirs: src
   build-depends:
