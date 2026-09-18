@@ -45,7 +45,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
+import Aihc.Tc.Kind (checkSurfaceType, runtimeRepOrLifted, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
@@ -402,15 +402,18 @@ checkTypeSigPattern gadtHandling sp inner tyAnn scrutTy = do
 
 checkTuplePattern :: GadtHandling -> Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern gadtHandling sp flavor items scrutTy = do
+  kinds <- getKinds
   elemTys <- mapM (const freshMetaTv) items
   let arity = length items
   wired <- wiredTupleTyCon flavor arity
-  let typeName = tyConName wired
-  maybeTyCon <- lookupTyCon typeName
-  tupleTyCon <-
-    case maybeTyCon of
-      Just info -> pure (tciTyCon info)
-      Nothing -> abortTc ("tuple pattern needs the type constructor " <> T.unpack typeName <> ", which is not in scope")
+  elementKinds <- mapM tcTypeKind elemTys
+  let fallbackKind =
+        case flavor of
+          Boxed -> foldr KFun (typeKind kinds) elementKinds
+          Unboxed -> foldr KFun (mkTYPEKind kinds (tupleRep kinds (map (runtimeRepOrLifted kinds) elementKinds))) elementKinds
+  -- The wiring gives the full identity of the tuple type constructor.
+  -- A bare name lookup can find a different constructor with the same name.
+  tupleTyCon <- mkWiredTyCon wired fallbackKind
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)

@@ -25,6 +25,7 @@ module Aihc.Tc.Kind
     takeVisibleArgumentKinds,
     tyConKindFromParams,
     tyConKindFromParamsWith,
+    runtimeRepOrLifted,
     tcTypeKind,
     refineGivenTyVarKinds,
     unifyKinds,
