@@ -178,11 +178,14 @@ derivingObligations kinds plan =
 -- | Whether a strategy reuses the instance of another type instead of
 -- generating a structural one. A structural instance can be recursive, so a
 -- context that refers to the plan itself is admissible there; a reused one
--- would stand on itself.
+-- would stand on itself. Anyclass deriving generates a structural instance:
+-- a generic default walks the representation of the datatype, so the
+-- obligation of a recursive field is the instance being derived, exactly as
+-- for a stock one.
 reusesInstance :: TcDerivingStrategy -> Bool
 reusesInstance strategy =
   case strategy of
-    TcDerivingAnyclass -> True
+    TcDerivingAnyclass -> False
     TcDerivingNewtype -> True
     TcDerivingVia {} -> True
     TcDerivingStock -> False
