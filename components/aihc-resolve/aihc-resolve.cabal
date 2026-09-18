@@ -17,6 +17,7 @@ library
     Aihc.Resolve.Types
 
   other-modules:
+    Aihc.Resolve.Infix
     Aihc.Resolve.Monad
     Aihc.Resolve.Scope
     Aihc.Resolve.Span
