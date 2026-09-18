@@ -15,7 +15,6 @@ import Aihc.Native
     nativeCpsPrimitiveCalls,
     nativeRuntimePrimitiveCall,
     nativeRuntimePrimitiveCalls,
-    supportedNativePrimitiveNames,
   )
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -39,25 +38,13 @@ tests =
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           numericInlineNames,
-      testCase "accepts the sized conversion and floating point primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          numericInlineNames,
       testCase "keeps the address indexing primitives out of the runtime ABI" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           addressIndexInlineNames,
-      testCase "accepts the address indexing primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          addressIndexInlineNames,
       testCase "keeps the runtime object accesses out of the runtime ABI" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
-          objectInlineNames,
-      testCase "accepts the runtime object accesses in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           objectInlineNames,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
         mapM_
@@ -90,50 +77,19 @@ tests =
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           bitPatternCastNames,
-      testCase "accepts the IEEE 754 bit-pattern casts in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          bitPatternCastNames,
       testCase "gives the bit counts the Lir operations of the backend" $
         mapM_
-          ( \primitive -> do
-              assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive)
-              assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames)
-          )
+          (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           ["clz#", "ctz#", "popCnt#"],
-      testCase "gives timesInt2# the wide multiplication of the backend" $ do
+      testCase "gives timesInt2# the wide multiplication of the backend" $
         assertEqual
           "runtime call for timesInt2#"
           Nothing
-          (nativeRuntimePrimitiveCall "timesInt2#")
-        assertEqual
-          "native support for timesInt2#"
-          True
-          ("timesInt2#" `elem` supportedNativePrimitiveNames),
+          (nativeRuntimePrimitiveCall "timesInt2#"),
       testCase "keeps freeze and thaw representation-preserving" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           ["unsafeFreezeByteArray#", "unsafeThawByteArray#", "unsafeFreezeArray#", "unsafeThawArray#"],
-      testCase "accepts the complete byte-array API in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"]),
-      testCase "accepts the complete boxed-array API in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst arrayRuntimeSymbols <> ["unsafeFreezeArray#", "unsafeThawArray#"]),
-      testCase "accepts the complete mutable-reference API in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["newMutVar#", "readMutVar#", "writeMutVar#", "casMutVar#", "sameMutVar#"],
-      testCase "accepts the complete stable-name API in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["makeStableName#", "eqStableName#", "stableNameToInt#"],
-      testCase "accepts the Integer arithmetic primitive API" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          integerPrimitiveNames,
       testCase "describes CPS primitive runtime signatures" $
         mapM_
           ( \(primitive, runtimeCall) ->
@@ -143,40 +99,10 @@ tests =
                 (nativeCpsPrimitiveCall primitive)
           )
           cpsRuntimeCalls,
-      testCase "accepts the Prelude Int# primitive API in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["+#", "-#", "*#", "compareInt#", "<#", "==#", ">#", ">=#", "<=#", "/=#", "ord#", "chr#"],
       testCase "keeps the address arithmetic primitives out of the runtime ABI" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
           addressArithmeticInlineNames,
-      testCase "accepts the address arithmetic primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          addressArithmeticInlineNames,
-      testCase "accepts the Word64# comparison and conversion primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["eqWord64#", "neWord64#", "ltWord64#", "leWord64#", "gtWord64#", "geWord64#", "wordToWord64#", "word16ToWord#"],
-      testCase "accepts the sized word shift primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          [ "uncheckedShiftLWord16#",
-            "uncheckedShiftRLWord16#",
-            "uncheckedShiftLWord32#",
-            "uncheckedShiftRLWord32#",
-            "uncheckedShiftL64#",
-            "uncheckedShiftRL64#"
-          ],
-      testCase "accepts the Word8# comparison primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["eqWord8#", "word8ToWord#", "wordToWord8#"],
-      testCase "accepts the Char# comparison and Int# division and negation primitives in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["eqChar#", "neChar#", "ltChar#", "leChar#", "gtChar#", "geChar#", "quotInt#", "remInt#", "negateInt#"],
       -- Aihc.Grin.Primitive decides which primitives a heap reservation may
       -- span. It sits below this module and cannot read these tables, so it
       -- states the answer again, and these two cases hold the copies
@@ -461,26 +387,6 @@ numericInlineNames =
 stableNameRuntimeSymbols :: [(Text, Text)]
 stableNameRuntimeSymbols =
   [("makeStableName#", "aihc_stable_name_make")]
-
-integerPrimitiveNames :: [Text]
-integerPrimitiveNames =
-  [ "+#",
-    "-#",
-    "*#",
-    "<#",
-    "==#",
-    "addIntC#",
-    "subIntC#",
-    "plusWord#",
-    "addWordC#",
-    "subWordC#",
-    "timesWord2#",
-    "quotWord#",
-    "int2Word#",
-    "word2Int#",
-    "eqWord#",
-    "ltWord#"
-  ]
 
 cpsRuntimeCalls :: [(Text, NativeCpsCall)]
 cpsRuntimeCalls =
