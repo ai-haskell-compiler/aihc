@@ -13,9 +13,9 @@ import Aihc.Tc.Deriving.Context (typeTyVars)
 import Aihc.Tc.Env
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Coercible (isRepresentationParameter)
-import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
 import Data.List (nub)

@@ -16,6 +16,7 @@ module Aihc.Tc.Env
     DataConInfo (..),
     PatSynDirection (..),
     PatSynInfo (..),
+    patSynKey,
     DataConFieldInfo (..),
     DataConFieldUnpack (..),
     DataConSourceForm (..),
@@ -239,6 +240,13 @@ data PatSynInfo = PatSynInfo
   deriving (Eq, Show, Read, Generic)
 
 instance NFData PatSynInfo
+
+-- | The term key of a pattern synonym. The builder term of a bidirectional
+-- pattern synonym has the same key.
+patSynKey :: PatSynInfo -> TcTermKey
+patSynKey info =
+  let (package, moduleName') = psiOrigin info
+   in TcTermGlobal package moduleName' (psiName info)
 
 -- | What record syntax names: a data constructor or a record pattern
 -- synonym. Both give record syntax a field order and an arity, and both

@@ -46,8 +46,8 @@ import Aihc.Tc.Deriving.Functorial (fieldUse, fieldUseObligations)
 import Aihc.Tc.Deriving.StockClass (StockObligations (..), generatesStockMethods, stockClassObligationsOf)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), instanceIsForClass)
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Types
 import Control.Monad (foldM)

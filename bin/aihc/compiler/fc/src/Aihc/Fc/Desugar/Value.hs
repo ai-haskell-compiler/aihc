@@ -32,7 +32,6 @@ import Aihc.Tc
     PatSynInfo (..),
     TcBindingResult (..),
     TcInterface (..),
-    TcTermKey (..),
     TyConFlavor (..),
     defaultMethodName,
     patSynKey,
@@ -63,10 +62,11 @@ import Aihc.Tc.Annotations
     TcPatSynAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Solve.Dict (matchTypes)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcKinds,
+    TcTermKey (..),
     TcType (..),
     TyCon,
     TyVarId,
