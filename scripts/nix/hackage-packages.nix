@@ -125,11 +125,19 @@ let
       name = "binary";
       version = "0.8.9.3";
       hash = "sha256-bbZd+kxUyizC0ojW0FIBmkyC9asBClfJNPfuE99EtDc=";
+      # `containers` needs `deepseq`, and the workspace has to hold the whole
+      # transitive closure: a name missing from it sends the solver to the
+      # Hackage index, which the sandbox has no network to reach.
       dependencies = [
         {
           name = "array";
           version = "0.5.8.0";
           hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+        }
+        {
+          name = "deepseq";
+          version = "1.5.2.0";
+          hash = "sha256-vNcooswfE2geBWNtB08cATNIhQlJRRF587lcjfD3XyM=";
         }
         {
           name = "bytestring";
