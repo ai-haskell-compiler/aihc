@@ -98,6 +98,10 @@ table =
         [ (name, ([Just wordRep, Just intRep], shift wordRep 64 operation))
         | (name, operation) <- [("uncheckedShiftL#", shiftL), ("uncheckedShiftRL#", shiftR)]
         ],
+        [ (name, ([Just intRep, Just intRep], shift intRep 64 operation))
+        | (name, operation) <- [("uncheckedIShiftL#", shiftL), ("uncheckedIShiftRA#", shiftR)]
+        ],
+        [("uncheckedIShiftRL#", ([Just intRep, Just intRep], shift intRep 64 logicalShiftR))],
         [ (name, ([Just word64Rep, Just intRep], shift word64Rep 64 operation))
         | (name, operation) <- [("uncheckedShiftL64#", shiftL), ("uncheckedShiftRL64#", shiftR)]
         ],
@@ -163,6 +167,9 @@ table =
     shift rep width operation [PrimInt _ value, PrimInt _ amount]
       | amount >= 0 && amount < width = Just (PrimInt rep (normalize rep (operation value (fromInteger amount))))
     shift _ _ _ _ = Nothing
+    -- A logical right shift of an @Int#@ fills with zeros, so it runs on the
+    -- unsigned bit pattern and @normalize@ gives the result its sign back.
+    logicalShiftR value amount = normalize wordRep value `shiftR` amount
     comparison operation [PrimInt _ left, PrimInt _ right] = Just (PrimInt intRep (fromBool operation left right))
     comparison _ _ = Nothing
     charComparison operation [PrimChar left, PrimChar right] = Just (PrimInt intRep (fromBool operation left right))
