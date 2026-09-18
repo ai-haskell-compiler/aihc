@@ -58,7 +58,7 @@ import Aihc.Resolve
     collectModuleExportsWithDeps,
     emptyScope,
     lookupImportedModule,
-    resolveWithDeps,
+    resolveUnit,
     unionScope,
     unnamedPackage,
   )
@@ -319,15 +319,16 @@ compileEvalCaseWithWrappers :: EvalEnvironment -> EvalCase -> Either String (Fc.
 compileEvalCaseWithWrappers env tc = do
   (modules, expr) <- parseInputs tc
   let packageModules = [ModuleUnit unnamedPackage (fixtureExtensions fixtureLanguageEdition modu) modu | modu <- combineModules modules expr]
-  case resolveWithDeps (envBuiltinScope env) (envExports env) packageModules of
+  let fixtureExports = collectModuleExportsWithDeps (envExports env) packageModules
+      visibleExports = fixtureExports <> envExports env
+  case resolveUnit (envBuiltinScope env) visibleExports packageModules of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
       let (tcResults, localInterface) = typecheckModulesWithInterface evalTcConfig (envInterface env) resolvedModules
       unless (all tcModuleSuccess tcResults) $
         Left ("typecheck error: " <> renderTcErrors tcResults)
       let interface = mergeTcInterfaces CheckMergedFacts [envInterface env, localInterface]
           bindings = envBindings env <> moduleGroupBindings tcResults
-          configs =
-            desugarConfigsByModule (collectModuleExportsWithDeps (envExports env) packageModules) packageModules
+          configs = desugarConfigsByModule fixtureExports packageModules
           results = map (\checked -> Fc.desugarModuleFc (evalDesugarConfig configs checked) bindings interface checked) tcResults
       unless (all Fc.dsSuccess results) $
         Left ("desugar error: " <> unlines (concatMap Fc.dsErrors results))
@@ -538,7 +539,7 @@ loadEvalEnvironment = do
   let packageModules = orderPackageModules (primModules <> baseModules)
   let exports = collectModuleExportsWithDeps mempty packageModules
       builtinScope = evalBuiltinScope exports
-  case resolveWithDeps builtinScope mempty packageModules of
+  case resolveUnit builtinScope exports packageModules of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
       let (tcResults, interface) = typecheckCoreModules resolvedModules
       unless (all tcModuleSuccess tcResults) $

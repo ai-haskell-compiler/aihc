@@ -19,6 +19,7 @@ module Aihc.Resolve.Types
     ResolutionAnnotation (..),
     VisibleTermIdentities (..),
     ResolveError (..),
+    resolutionError,
     ResolveResult (..),
   )
 where
@@ -147,6 +148,16 @@ data ResolveError
       }
   | ResolveNotImplemented String
   deriving (Eq, Show)
+
+-- | The error that one failed resolution stands for.
+resolutionError :: ResolutionAnnotation -> String -> ResolveError
+resolutionError annotation message =
+  ResolveResolutionError
+    { resolveErrorSpan = resolutionSpan annotation,
+      resolveErrorName = displayIdentifier (resolutionIdentifier annotation),
+      resolveErrorNamespace = resolutionNamespace annotation,
+      resolveErrorMessage = message
+    }
 
 data ResolveResult = ResolveResult
   { resolvedModules :: [ModuleUnit],

@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig)
-import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, extractInterface, lookupImportedModule, modulesInPackage, resolveWithDeps, unionScope)
+import Aihc.Resolve (ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveResult (..), Scope, collectModuleExportsWithDeps, emptyScope, lookupImportedModule, modulesInPackage, resolveUnit, unionScope)
 import Aihc.Tc
   ( MergeCheck (..),
     TcConfig,
@@ -295,11 +295,14 @@ checkTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (fixtureBuiltinScope modules) (supportScopes primitiveSupport) (fixtureUnits modules) of
-            ResolveResult {resolvedModules, resolveErrors = []} ->
-              typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) resolvedModules
-            ResolveResult {resolveErrors} ->
-              Left ("resolve error: " <> show resolveErrors)
+          let visibleExports =
+                collectModuleExportsWithDeps (supportScopes primitiveSupport) (fixtureUnits modules)
+                  <> supportScopes primitiveSupport
+           in case resolveUnit (fixtureBuiltinScope visibleExports) visibleExports (fixtureUnits modules) of
+                ResolveResult {resolvedModules, resolveErrors = []} ->
+                  typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface primitiveSupport) resolvedModules
+                ResolveResult {resolveErrors} ->
+                  Left ("resolve error: " <> show resolveErrors)
   where
     parseOne input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
@@ -379,14 +382,14 @@ preparePrimitiveSupport primitiveModules =
       let packageModules = modulesInPackage primitivePackage (map withPragmaExtensions modules)
           exports = collectModuleExportsWithDeps mempty packageModules
           builtinScope = lookupImportedModule primitivePackage Nothing "GHC.Prim" exports
-       in case resolveWithDeps builtinScope mempty packageModules of
-            resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+       in case resolveUnit builtinScope exports packageModules of
+            ResolveResult {resolvedModules, resolveErrors = []} ->
               let (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface resolvedModules
                in if all tcModuleSuccess primitiveTcResults
                     then
                       Right
                         PrimitiveSupport
-                          { supportScopes = extractInterface resolved,
+                          { supportScopes = exports,
                             supportTcInterface = tcInterface
                           }
                     else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
@@ -411,14 +414,11 @@ primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
 fixturePackage :: Package
 fixturePackage = Package "" (PackageId "")
 
-fixtureBuiltinScope :: [Module] -> Scope
-fixtureBuiltinScope modules =
+fixtureBuiltinScope :: ModuleExports -> Scope
+fixtureBuiltinScope visibleExports =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
-    dependencyExports = supportScopes primitiveSupport
-    packageModules = fixtureUnits modules
-    allExports = collectModuleExportsWithDeps dependencyExports packageModules <> dependencyExports
-    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name allExports
+    lookupBuiltin name = lookupImportedModule fixturePackage Nothing name visibleExports
     builtinFunctionModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real"]
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module

@@ -147,10 +147,13 @@ import Aihc.Resolve
     Scope (..),
     collectModuleExportsWithDeps,
     emptyScope,
-    extractInterfaceWithDeps,
+    filterModuleExports,
     lookupImportedModule,
+    lookupModuleExport,
+    moduleExportKeys,
+    moduleExportsFromList,
     modulesInPackage,
-    resolveWithDeps,
+    resolveUnit,
     unionScope,
   )
 import Aihc.Tc
@@ -829,8 +832,8 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
   writePackageManifest (packageManifestPath storePath) manifest
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
-        Map.filterWithKey
-          (\moduleKey _ -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
+        filterModuleExports
+          (\moduleKey -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
           allExports
   pure
     InstalledPackage
@@ -927,7 +930,7 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
   -- that names the work rather than on whichever task first asks for it.
   setupStart <- getMonotonicTimeNSec
   loadedDependencies <- evaluate . force =<< loadRequiredDependencies parsed dependencies
-  let dependencyExports = Map.unions (map installedExports loadedDependencies)
+  let dependencyExports = mconcat (map installedExports loadedDependencies)
       dependencyTypes = LazyMap.unions (map installedTypes loadedDependencies)
       dependencyScopeHashes = Map.unions (map installedScopeHashes loadedDependencies)
       dependencyTypeHashes = LazyMap.unions (map installedTypeHashes loadedDependencies)
@@ -1002,11 +1005,11 @@ compileModulesWithDependencies config capiOptions outputRoot packageRoot resolve
           ]
   frontendFailure <- renderFrontendFailure (excerptSourceLoader (compileHeaderDirectory config) packageRoot versions files) parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
-  let localExports = Map.unions (map resolveUnitExports resolveResults)
+  let localExports = mconcat (map resolveUnitExports resolveResults)
       localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
       localTypes = Map.unions (map typeUnitTypes typeResults)
       localTypeHashes = Map.unions (map typeUnitHashes typeResults)
-      allExports = localExports `Map.union` dependencyExports
+      allExports = localExports <> dependencyExports
       allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
       allTypes = localTypes `LazyMap.union` dependencyTypes
       allTypeHashes = localTypeHashes `LazyMap.union` dependencyTypeHashes
@@ -1059,7 +1062,7 @@ packagePrimIdentity resolvePackage dependencyExports =
       else
         listToMaybe
           [ dependencyIdentity
-          | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
+          | ModuleKey (Package dependencyName dependencyIdentity) _ <- moduleExportKeys dependencyExports,
             dependencyName == "aihc-prim"
           ]
 
@@ -1269,7 +1272,7 @@ loadInstalledPackage requirements immutable storePath = do
   let instanceFacts' = decodedFacts
       interfaces = [interface | (_, _, interface) <- entries]
       package = Package (packageManifestName manifest) (PackageId (packageManifestUnitId manifest))
-      exports = Map.fromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
+      exports = moduleExportsFromList [(ModuleKey package name, scope) | (name, scope, _) <- entries]
       types = LazyMap.fromList (zip [name | (name, _, _) <- entries] interfaces)
       exposed = Map.restrictKeys (packageDigestsModules digests) (Set.fromList (packageManifestModules manifest))
       scopeHashes = Map.map moduleScopeDigest exposed
@@ -1726,7 +1729,7 @@ runResolveUnit context runtimes runtime = do
       unitNames = map sourceName sources
       importedNames = nub (concatMap sourceDependencyNames sources)
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
-      availableExports = Map.unions (map resolveUnitExports dependencyResults) `Map.union` dependencyExports
+      availableExports = mconcat (map resolveUnitExports dependencyResults) <> dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
       scopeInputs = [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
@@ -1755,10 +1758,11 @@ runResolveUnit context runtimes runtime = do
           TypeInputParsed packageModules
         )
     Nothing -> do
-      let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
-          resolved = resolveWithDeps builtinScope availableExports packageModules
+      let unitExports = collectModuleExportsWithDeps availableExports packageModules
+          visibleExports = unitExports <> availableExports
+          builtinScope = builtinFunctionScope resolvePackage visibleExports
+          resolved = resolveUnit builtinScope visibleExports packageModules
           errors = resolveErrors resolved
-          unitExports = extractInterfaceWithDeps availableExports resolved
           success = parseSuccess && dependenciesSucceeded && null errors
       scopeHashes <-
         if success
@@ -1802,7 +1806,7 @@ reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
             Right artifacts ->
               pure
                 ( Just
-                    ( Map.fromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactScope artifact) | artifact <- artifacts],
+                    ( moduleExportsFromList [(ModuleKey resolvePackage (resolveArtifactModuleName artifact), resolveArtifactScope artifact) | artifact <- artifacts],
                       resolveStampScopes recorded
                     )
                 )
@@ -1832,7 +1836,7 @@ runTypeUnit context runtimes runtime = do
       dependencyNames = nub (importedNames <> wiredInterfaceModules)
       availableTypes = LazyMap.unions (map typeUnitTypes dependencyResults) `LazyMap.union` dependencyTypes
       availableTypeHashes = LazyMap.unions (map typeUnitHashes dependencyResults) `LazyMap.union` dependencyTypeHashes
-      availableExports = Map.unions (map resolveUnitExports dependencyResolveResults) `Map.union` dependencyExports
+      availableExports = mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports
       availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResolveResults) `Map.union` dependencyScopeHashes
       sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
       scopeInputs =
@@ -1892,8 +1896,8 @@ runTypeUnit context runtimes runtime = do
               case typeInput of
                 TypeInputResolved result -> result
                 TypeInputParsed packageModules ->
-                  let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
-                   in resolveWithDeps builtinScope availableExports packageModules
+                  let visibleExports = collectModuleExportsWithDeps availableExports packageModules <> availableExports
+                   in resolveUnit (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules
             checked =
               typecheckModuleSccWithInterface
                 (primTcConfig primIdentity)
@@ -2219,12 +2223,13 @@ wiredDerivingModules =
 wiredInterfaceModules :: [Text]
 wiredInterfaceModules = wiredTypeModules <> wiredDerivingModules
 
-builtinFunctionScope :: Package -> ModuleExports -> [ModuleUnit] -> Scope
-builtinFunctionScope currentPackage dependencyExports packageModules =
+-- | The scope of the functions that desugaring reaches without an import.
+-- The argument is everything the unit can see, as 'resolveUnit' takes it.
+builtinFunctionScope :: Package -> ModuleExports -> Scope
+builtinFunctionScope currentPackage visibleExports =
   foldr (unionScope . lookupBuiltin) emptyScope builtinFunctionModules
   where
-    allExports = collectModuleExportsWithDeps dependencyExports packageModules `Map.union` dependencyExports
-    lookupBuiltin name = lookupImportedModule currentPackage Nothing name allExports
+    lookupBuiltin name = lookupImportedModule currentPackage Nothing name visibleExports
     builtinFunctionModules = ["GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String"]
 
 measureTime :: IO a -> IO (a, Word64)
@@ -3001,7 +3006,7 @@ moduleTypeInterface kinds supportTerms exports package interface source =
       }
   where
     name = sourceModuleName source
-    scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
+    scope = fromMaybe (error "missing resolve scope") (lookupModuleExport (ModuleKey package name) exports)
     termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTerms scope)))
     typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
     localIdentity identifier = (packageId package, name, identifier)
@@ -3155,7 +3160,7 @@ writeArtifact :: (String -> IO ()) -> ModuleExports -> Package -> FilePath -> So
 writeArtifact verbose exports package path source = do
   createDirectoryIfMissing True (takeDirectory path)
   let name = sourceModuleName source
-      scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
+      scope = fromMaybe (error "missing resolve scope") (lookupModuleExport (ModuleKey package name) exports)
       (artifactBytes, scopeBytes) = encodeResolveArtifactParts (ResolveArtifact name scope)
   BL.writeFile path artifactBytes
   verbose ("Write resolve context: " <> T.unpack name)
