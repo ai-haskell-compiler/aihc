@@ -3,12 +3,11 @@
 -- boundary can wrap. @Data.Text.length@ is @negate . measureOff maxBound@
 -- and measures against exactly such a count.
 --
--- Nothing here prints a 'Data.Text.Text' or a 'String' built from one:
--- 'Data.Text.unpack' reaches @GHC.Base@'s shift wrappers, whose
--- @uncheckedIShiftL#@, @uncheckedIShiftRA#@ and @uncheckedIShiftRL#@ the
--- native backends do not lower. Byte lists say the same thing, and keep the
--- output ASCII so that it does not depend on the encoding of the standard
--- output handle either.
+-- A 'Data.Text.Text' that holds no ASCII prints through @show@; one that
+-- does prints as its UTF-8 bytes, because aihc's @showLitChar@ does not
+-- escape a character above @\\DEL@ the way GHC's does, and this example is
+-- diffed against GHC. Byte lists also keep the output ASCII, so it does not
+-- depend on the encoding of the standard output handle either.
 module Main where
 
 import qualified Data.ByteString as B
@@ -29,8 +28,8 @@ main = do
   -- bound it measures against to survive the trip through size_t.
   print (T.length hello, T.length ascii, T.length wide)
   print (B.length (TE.encodeUtf8 ascii), B.length (TE.encodeUtf8 wide))
+  print (ascii, T.splitAt 2 hello, T.reverse hello)
   print (bytes (T.take 4 wide))
   print (bytes (T.drop 6 wide))
-  print (bytes (T.reverse hello))
-  print (T.splitAt 2 hello == (T.pack "he", T.pack "llo"))
   print (T.isInfixOf (T.pack "caf") wide, T.isInfixOf (T.pack "fac") wide)
+  print (T.all (< '\x80') hello, T.all (< '\x80') wide)
