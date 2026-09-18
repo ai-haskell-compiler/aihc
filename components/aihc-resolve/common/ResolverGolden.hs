@@ -42,7 +42,7 @@ import Aihc.Resolve
     displayIdentifier,
     emptyScope,
     lookupImportedModule,
-    resolveWithDeps,
+    resolveUnit,
     unionScope,
     unnamedPackage,
   )
@@ -191,7 +191,7 @@ evaluateResolverCase meta =
                   (unionScope . lookupBuiltin)
                   emptyScope
                   builtinModuleNames
-              result = resolveWithDeps builtinScope mempty modules
+              result = resolveUnit builtinScope exports modules
               fixtureResult = result {resolvedModules = drop supportModuleCount (resolvedModules result)}
               actualAnnotated = showAnnotated fixtureResult
               outputMatches = actualAnnotated == caseAnnotated meta

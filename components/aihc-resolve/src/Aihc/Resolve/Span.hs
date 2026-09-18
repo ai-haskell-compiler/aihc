@@ -10,12 +10,7 @@ module Aihc.Resolve.Span
     peelGuardQualifierSpan,
     peelImportItemSpan,
     rhsSpan,
-    annotateUnhandledDecl,
-    annotateUnhandledClassDeclItem,
-    annotateUnhandledInstanceDeclItem,
-    annotateUnhandledExpr,
-    annotateUnhandledPattern,
-    annotateUnhandledType,
+    unhandledSyntaxName,
     spanStartNameSpan,
     annotateDecl,
     annotateExpr,
@@ -30,14 +25,12 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
-    ClassDeclItem (..),
     Decl (..),
     Expr (..),
     GuardQualifier (..),
     ImportDecl (..),
     ImportItem (..),
     ImportLevel (..),
-    InstanceDeclItem (..),
     Pattern (..),
     Rhs (..),
     SourceSpan,
@@ -98,37 +91,10 @@ rhsSpan rhs =
     UnguardedRhs anns _ _ -> sourceSpanFromAnns anns
     GuardedRhss anns _ _ -> sourceSpanFromAnns anns
 
-unhandledSyntaxAnnotation :: (Data a) => ResolutionNamespace -> Maybe SourceSpan -> a -> ResolutionAnnotation
-unhandledSyntaxAnnotation namespace span' node =
-  ResolutionAnnotation
-    span'
-    (IdentifierNamed (T.pack (showConstr (toConstr node))))
-    namespace
-    (ResolvedError "unhandled syntax")
-
-annotateUnhandledDecl :: Maybe SourceSpan -> Decl -> Decl
-annotateUnhandledDecl span' decl =
-  annotateDecl (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' decl) decl
-
-annotateUnhandledClassDeclItem :: Maybe SourceSpan -> ClassDeclItem -> ClassDeclItem
-annotateUnhandledClassDeclItem span' item =
-  ClassItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
-
-annotateUnhandledInstanceDeclItem :: Maybe SourceSpan -> InstanceDeclItem -> InstanceDeclItem
-annotateUnhandledInstanceDeclItem span' item =
-  InstanceItemAnn (mkAnnotation (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' item)) item
-
-annotateUnhandledExpr :: Maybe SourceSpan -> Expr -> Expr
-annotateUnhandledExpr span' expr =
-  annotateExpr (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' expr) expr
-
-annotateUnhandledPattern :: Maybe SourceSpan -> Pattern -> Pattern
-annotateUnhandledPattern span' pat =
-  annotatePattern (unhandledSyntaxAnnotation ResolutionNamespaceTerm span' pat) pat
-
-annotateUnhandledType :: Maybe SourceSpan -> Type -> Type
-annotateUnhandledType span' ty =
-  annotateType (unhandledSyntaxAnnotation ResolutionNamespaceType span' ty) ty
+-- | The name a diagnostic gives to syntax the resolver has no case for:
+-- the constructor of the form it met.
+unhandledSyntaxName :: (Data a) => a -> Text
+unhandledSyntaxName node = T.pack (showConstr (toConstr node))
 
 -- | Narrow a span to the name that starts at it. There is nothing to narrow
 -- when the syntax had no span to begin with.

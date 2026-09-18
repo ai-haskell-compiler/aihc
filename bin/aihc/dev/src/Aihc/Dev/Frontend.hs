@@ -68,8 +68,9 @@ import Aihc.Resolve
     PackageId (..),
     ResolveError,
     ResolveResult (..),
-    extractInterfaceWithDeps,
-    resolveWithDeps,
+    collectModuleExportsWithDeps,
+    filterModuleExports,
+    resolveUnit,
   )
 import Aihc.Tc
   ( TcDiagnostic (..),
@@ -270,7 +271,7 @@ runPackage config jobs headerDirectory dependencies root = do
     -- Resolve: every unit, in dependency order, against the exports of
     -- the units below it and of the packages before this one.
     let units = sourceModuleUnits sources
-        dependencyExports = Map.unions (map checkedExports dependencies)
+        dependencyExports = mconcat (map checkedExports dependencies)
     (resolved, resolveTime) <- timed (resolveUnits jobs resolvePackage dependencyExports units)
     reportPhase "resolve" resolveTime (show (length units) <> " " <> plural (length units) "unit")
     stopOnFailure loader [] (concatMap (resolveErrors . resolvedUnitResult) resolved) []
@@ -286,9 +287,9 @@ runPackage config jobs headerDirectory dependencies root = do
     stopOnFailure loader [] [] [diagnostic | unit <- checked, diagnostic@(_, TcDiagnostic {diagSeverity = TcError}) <- checkedUnitDiagnostics unit]
     let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
         ownExports =
-          Map.filterWithKey
-            (\moduleKey _ -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
-            (Map.unions (map resolvedUnitExports resolved))
+          filterModuleExports
+            (\moduleKey -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
+            (mconcat (map resolvedUnitExports resolved))
         providers =
           Map.fromList
             [ (sourceModuleName source, interfaceInstanceProviders (checkedUnitInstanceInterface unit))
@@ -350,11 +351,12 @@ resolveUnits jobs resolvePackage dependencyExports units = do
   let task unit =
         unitTask TaskResolve unit $ do
           below <- readBelow results unit
-          let availableExports = Map.unions (map resolvedUnitExports below) `Map.union` dependencyExports
+          let availableExports = mconcat (map resolvedUnitExports below) <> dependencyExports
           packageModules <- takePackageModuleUnits resolvePackage (sourceUnitSources unit)
-          let builtinScope = builtinFunctionScope resolvePackage availableExports packageModules
-              result = resolveWithDeps builtinScope availableExports packageModules
-              exports = extractInterfaceWithDeps availableExports result
+          let exports = collectModuleExportsWithDeps availableExports packageModules
+              visibleExports = exports <> availableExports
+              builtinScope = builtinFunctionScope resolvePackage visibleExports
+              result = resolveUnit builtinScope visibleExports packageModules
           -- The resolver annotates lazily: the exports alone would leave
           -- the bodies to the type checker's clock.
           _ <- evaluate (force exports)

@@ -8,7 +8,7 @@ where
 
 import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition))
-import Aihc.Resolve (ModuleUnit (..), ResolveResult (..), emptyScope, extractInterface, lookupImportedModule, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleUnit (..), ResolveResult (..), collectModuleExportsWithDeps, emptyScope, lookupImportedModule, resolveUnit, unnamedPackage)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
 import Data.Text (Text)
@@ -27,10 +27,11 @@ testDependencyBackedGhcNum :: Assertion
 testDependencyBackedGhcNum =
   case (parse "GHC.Num" numSource, parse "Prelude" preludeSource) of
     (Right numModule, Right preludeModule) -> do
-      let dependencyResult = resolveWithDeps emptyScope mempty [unit numModule]
-          dependencyExports = extractInterface dependencyResult
+      let dependencyExports = collectModuleExportsWithDeps mempty [unit numModule]
+          dependencyResult = resolveUnit emptyScope dependencyExports [unit numModule]
           builtinScope = lookupImportedModule unnamedPackage Nothing "GHC.Num" dependencyExports
-          result = resolveWithDeps builtinScope dependencyExports [unit preludeModule]
+          preludeExports = collectModuleExportsWithDeps dependencyExports [unit preludeModule] <> dependencyExports
+          result = resolveUnit builtinScope preludeExports [unit preludeModule]
       case resolveErrors dependencyResult of
         [] ->
           case resolveErrors result of

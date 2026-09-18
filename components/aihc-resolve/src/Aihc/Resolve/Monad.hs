@@ -1,6 +1,8 @@
 module Aihc.Resolve.Monad
   ( ResolveM,
     runResolveM,
+    resolution,
+    withResolution,
     ModuleInfo (..),
     currentModuleInfo,
     currentScope,
@@ -20,6 +22,7 @@ import Aihc.Parser.Syntax
     Extension,
     SourceSpan,
     UnqualifiedName,
+    mkAnnotation,
   )
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
@@ -38,8 +41,11 @@ data ModuleInfo = ModuleInfo
     moduleInfoBuiltinScope :: !Scope
   }
 
-newtype ResolveState = ResolveState
-  { stateNextLocal :: Int
+data ResolveState = ResolveState
+  { stateNextLocal :: !Int,
+    -- | The resolutions that failed, most recent first. 'runResolveM' puts
+    -- them back in source order.
+    stateErrors :: ![ResolveError]
   }
 
 newtype ResolveM a = ResolveM
@@ -67,12 +73,51 @@ instance Monad ResolveM where
       let (result, state') = unResolveM action env state
        in unResolveM (next result) env state'
 
-runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, a)
+-- | Run a resolution, and give what it produced together with the next
+-- unused local number and every resolution that failed, in source order.
+runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, [ResolveError], a)
 runResolveM scope moduleInfo nextLocal action =
   let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = Nothing}
-      initialState = ResolveState {stateNextLocal = nextLocal}
+      initialState = ResolveState {stateNextLocal = nextLocal, stateErrors = []}
       (result, finalState) = unResolveM action initialEnv initialState
-   in (stateNextLocal finalState, result)
+   in (stateNextLocal finalState, reverse (stateErrors finalState), result)
+
+-- | Attach a resolution to a piece of syntax, and record the resolution
+-- if it failed.
+--
+-- Every resolution annotation the resolver attaches to syntax is made here.
+-- A failed resolution is thus collected as it is made, and nothing has to
+-- walk the resolved syntax afterwards looking for one.
+--
+-- The caller passes what to attach the annotation to rather than taking
+-- the annotation and attaching it itself. This runs on every name the
+-- resolver looks at, and the state monad pays for a bind in allocation, so
+-- the whole thing is one step.
+withResolution ::
+  Maybe SourceSpan ->
+  Identifier ->
+  ResolutionNamespace ->
+  ResolvedName ->
+  (Annotation -> a) ->
+  ResolveM a
+withResolution span' identifier namespace target attach =
+  ResolveM $ \_env state ->
+    let annotation = ResolutionAnnotation span' identifier namespace target
+        -- Settle whether this one failed now rather than leaving a thunk
+        -- over the state behind for every name in the module.
+        state' = case target of
+          ResolvedError message -> state {stateErrors = resolutionError annotation message : stateErrors state}
+          ResolvedTopLevel {} -> state
+          ResolvedLocal {} -> state
+          ResolvedSyntax -> state
+     in state' `seq` (attach (mkAnnotation annotation), state')
+{-# INLINE withResolution #-}
+
+-- | The annotation for one resolution, when the caller has nothing to
+-- attach it to yet.
+resolution :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> ResolvedName -> ResolveM Annotation
+resolution span' identifier namespace target =
+  withResolution span' identifier namespace target id
 
 asks :: (ResolveEnv -> a) -> ResolveM a
 asks f = ResolveM $ \env state -> (f env, state)

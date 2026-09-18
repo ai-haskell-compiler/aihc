@@ -4,6 +4,10 @@ module Aihc.Resolve.Scope
   ( Scope (..),
     OperatorFixity (..),
     ModuleExports,
+    moduleExportsFromList,
+    moduleExportKeys,
+    lookupModuleExport,
+    filterModuleExports,
     isTermNamespace,
     ModuleKey (..),
     collectModuleExports,
@@ -120,35 +124,98 @@ data ModuleKey = ModuleKey
 
 instance NFData ModuleKey
 
-type ModuleExports = Map.Map ModuleKey Scope
+-- | The scope each module makes visible to the modules that import it.
+--
+-- An import names a module and, at most, the package it wants the module
+-- from, so the entries are keyed by module name first: an import looks at
+-- the packages that define that name rather than at every module of every
+-- package. Several packages can define a module of the same name, and an
+-- import that does not say which one it means resolves only when exactly
+-- one package is in play.
+newtype ModuleExports = ModuleExports (Map.Map Text (Map.Map Package Scope))
+  deriving (Eq, Generic)
+
+instance NFData ModuleExports
+
+-- | Left-biased, as 'Map.union' is: where both sides hold a scope for the
+-- same module of the same package, the left one wins.
+instance Semigroup ModuleExports where
+  ModuleExports left <> ModuleExports right =
+    ModuleExports (Map.unionWith Map.union left right)
+
+instance Monoid ModuleExports where
+  mempty = ModuleExports Map.empty
+
+moduleExportsFromList :: [(ModuleKey, Scope)] -> ModuleExports
+moduleExportsFromList entries =
+  ModuleExports
+    ( Map.fromListWith
+        Map.union
+        [(name, Map.singleton package scope) | (ModuleKey package name, scope) <- entries]
+    )
+
+-- | Every module the map holds a scope for.
+moduleExportKeys :: ModuleExports -> [ModuleKey]
+moduleExportKeys (ModuleExports byName) =
+  [ModuleKey package name | (name, byPackage) <- Map.toList byName, package <- Map.keys byPackage]
+
+lookupModuleExport :: ModuleKey -> ModuleExports -> Maybe Scope
+lookupModuleExport (ModuleKey package name) (ModuleExports byName) =
+  Map.lookup name byName >>= Map.lookup package
+
+filterModuleExports :: (ModuleKey -> Bool) -> ModuleExports -> ModuleExports
+filterModuleExports keep (ModuleExports byName) =
+  ModuleExports
+    ( Map.filter
+        (not . Map.null)
+        (Map.mapWithKey (\name -> Map.filterWithKey (\package _ -> keep (ModuleKey package name))) byName)
+    )
 
 collectModuleExports :: [ModuleUnit] -> ModuleExports
-collectModuleExports = collectModuleExportsWithDeps Map.empty
+collectModuleExports = collectModuleExportsWithDeps mempty
 
 -- | Extract interfaces for a compilation unit while allowing its explicit
 -- export lists to re-export names supplied by predecessor units.
--- The fixed point only changes the scopes of the modules of this unit. The
--- scopes of the dependencies stay as the caller gave them. The loop thus
--- holds the local scopes alone and compares only those. A comparison of the
--- dependency scopes finds no difference, and they are much more numerous
--- than the local scopes.
+--
+-- A module's exported scope is built from what it declares and what it
+-- imports. When no module of the unit imports another, one pass over the
+-- modules is exact, because every import is already in @depExports@.
+--
+-- A unit whose modules do import each other needs a fixed point: the first
+-- pass sees a sibling's scope as empty. The fixed point only changes the
+-- scopes of the modules of this unit. The scopes of the dependencies stay
+-- as the caller gave them. The loop thus holds the local scopes alone and
+-- compares only those. A comparison of the dependency scopes finds no
+-- difference, and they are much more numerous than the local scopes.
 collectModuleExportsWithDeps :: ModuleExports -> [ModuleUnit] -> ModuleExports
-collectModuleExportsWithDeps depExports packageModules = closeExports localExports
+collectModuleExportsWithDeps depExports packageModules
+  | any importsSibling packageModules = closeExports emptyLocalScopes
+  | otherwise = exportScopes emptyLocalScopes
   where
-    localExports =
-      Map.fromList
+    siblingNames =
+      Set.fromList [moduleKey modu | ModuleUnit {moduleUnitAst = modu} <- packageModules]
+    importsSibling ModuleUnit {moduleUnitAst = modu} =
+      any ((`Set.member` siblingNames) . importDeclModule) (moduleImports modu)
+
+    emptyLocalScopes =
+      moduleExportsFromList
         [ (exportKey package modu, emptyScope)
         | ModuleUnit {moduleUnitPackage = package, moduleUnitAst = modu} <- packageModules
         ]
 
+    -- The exported scope of every module of the unit, each read against the
+    -- scopes in hand for its siblings.
+    exportScopes localScopes =
+      let exports = localScopes <> depExports
+       in moduleExportsFromList
+            [ (exportKey package modu, exportedScope package exports extensions modu)
+            | ModuleUnit {moduleUnitPackage = package, moduleUnitExtensions = extensions, moduleUnitAst = modu} <- packageModules
+            ]
+
     closeExports localScopes =
-      let exports = localScopes `Map.union` depExports
-          localScopes' =
-            Map.fromList
-              [ (exportKey package modu, exportedScope package exports extensions modu)
-              | ModuleUnit {moduleUnitPackage = package, moduleUnitExtensions = extensions, moduleUnitAst = modu} <- packageModules
-              ]
+      let localScopes' = exportScopes localScopes
        in if localScopes' == localScopes then localScopes else closeExports localScopes'
+
     exportKey package modu = ModuleKey package (moduleKey modu)
 
 -- | The top-level names that one module makes visible to other modules,
@@ -169,7 +236,7 @@ collectModuleExportsWithDeps depExports packageModules = closeExports localExpor
 -- caller must read as \"assume every name is exported\".
 exportedLocalNames :: Package -> Text -> ModuleExports -> Maybe (Set (ResolutionNamespace, Text))
 exportedLocalNames package name exports =
-  localNames <$> Map.lookup (ModuleKey package name) exports
+  localNames <$> lookupModuleExport (ModuleKey package name) exports
   where
     localNames scope =
       Set.fromList
@@ -189,8 +256,8 @@ exportedScope package exports extensions modu =
     Nothing -> ownScope
     Just specs -> List.foldl' unionScope emptyScope (map exportSpecScope specs)
   where
-    ownScope = topLevelScope (importedRecordFields package exports extensions modu) package modu
-    availableScope = ownScope `unionScope` importedScope package exports modu
+    (ownScope, imported) = ownAndImportedScopes package exports extensions modu
+    availableScope = ownScope `unionScope` imported
 
     exportSpecScope spec =
       case spec of
@@ -245,15 +312,24 @@ reexportedModuleScope qualified available =
 selectTerm :: Text -> Scope -> Scope
 selectTerm name scope =
   emptyScope
-    { scopeTerms = Map.filterWithKey (\n _ -> n == name) (scopeTerms scope),
-      scopeFixities = Map.filterWithKey (\n _ -> n == name) (scopeFixities scope)
+    { scopeTerms = restrictToKey name (scopeTerms scope),
+      scopeFixities = restrictToKey name (scopeFixities scope)
     }
 
 selectType :: Text -> Scope -> Scope
 selectType name scope =
   emptyScope
-    { scopeTypes = Map.filterWithKey (\n _ -> n == name) (scopeTypes scope)
+    { scopeTypes = restrictToKey name (scopeTypes scope)
     }
+
+-- | The entry a map holds for one key, as a map of its own. An export or
+-- import item names one entity, so this is a lookup rather than a walk over
+-- the whole scope.
+restrictToKey :: Text -> Map.Map Text value -> Map.Map Text value
+restrictToKey name entries =
+  case Map.lookup name entries of
+    Nothing -> Map.empty
+    Just value -> Map.singleton name value
 
 -- | Select a type with its bundled members. A bundled member that is a
 -- term but not a constructor, a record field, or a method of the type is a
@@ -262,26 +338,29 @@ selectTypeWithMembers :: Text -> Scope -> [Text] -> Scope
 selectTypeWithMembers name scope members =
   selectType name scope
     `unionScope` emptyScope
-      { scopeTerms = Map.filterWithKey (\n _ -> n `elem` members) (scopeTerms scope),
-        scopeTypes = Map.filterWithKey (\n _ -> n `elem` bundledAssociatedTypes) (scopeTypes scope),
+      { scopeTerms = Map.restrictKeys (scopeTerms scope) memberSet,
+        scopeTypes = Map.restrictKeys (scopeTypes scope) (Set.fromList bundledAssociatedTypes),
         scopeConstructors = bundledConstructors,
-        scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` members) (scopeRecordFields scope),
-        scopeMethods = Map.filterWithKey (\n _ -> n == name) (scopeMethods scope),
+        scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) memberSet,
+        scopeMethods = restrictToKey name (scopeMethods scope),
         scopeAssociatedTypes =
           if null bundledAssociatedTypes then Map.empty else Map.singleton name bundledAssociatedTypes,
-        scopeFixities = Map.filterWithKey (\n _ -> n `elem` members) (scopeFixities scope)
+        scopeFixities = Map.restrictKeys (scopeFixities scope) memberSet
       }
   where
+    memberSet = Set.fromList members
     existingConstructors = Map.findWithDefault [] name (scopeConstructors scope)
     bundledAssociatedTypes =
-      [member | member <- associatedTypeMembers name scope, member `elem` members]
+      [member | member <- associatedTypeMembers name scope, member `Set.member` memberSet]
     knownMembers =
-      existingConstructors
-        <> concat (Map.elems (scopeRecordFields scope))
-        <> concat (Map.elems (scopeMethods scope))
-        <> bundledAssociatedTypes
+      Set.fromList
+        ( existingConstructors
+            <> concat (Map.elems (scopeRecordFields scope))
+            <> concat (Map.elems (scopeMethods scope))
+            <> bundledAssociatedTypes
+        )
     bundledPatternSynonyms =
-      List.nub [member | member <- members, member `notElem` knownMembers, Map.member member (scopeTerms scope)]
+      List.nub [member | member <- members, member `Set.notMember` knownMembers, Map.member member (scopeTerms scope)]
     bundledConstructors
       | Map.member name (scopeConstructors scope) || not (null bundledPatternSynonyms) =
           Map.singleton name (existingConstructors <> bundledPatternSynonyms)
@@ -555,16 +634,16 @@ dataConDeclRecordFields dataConDecl =
 moduleScope :: Package -> ModuleExports -> [Extension] -> Module -> Scope
 moduleScope packageId exports extensions modu =
   ownScope
-    `unionScope` importedScope packageId exports modu
+    `unionScope` imported
     `unionScope` implicitPrelude
     `unionScope` listConstructorScope
     `unionScope` equalityScope
     `unionScope` builtinScope
   where
+    (unqualifiedOwnScope, imported) = ownAndImportedScopes packageId exports extensions modu
     -- A module's own top-level names are also in scope qualified by the
     -- module name, so @M.x@ inside module @M@ names the local @x@.
     ownScope = insertQualifiedModule (moduleKey modu) unqualifiedOwnScope unqualifiedOwnScope
-    unqualifiedOwnScope = topLevelScope (importedRecordFields packageId exports extensions modu) packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude
@@ -578,12 +657,18 @@ moduleScope packageId exports extensions modu =
     -- Equality syntax uses the exported type identity without an import.
     equalityScope = selectType "~" ghcTypesScope
 
--- | The record fields of each constructor that a module gets from another
--- module. A record wildcard in a top-level pattern binding needs them.
-importedRecordFields :: Package -> ModuleExports -> [Extension] -> Module -> Map.Map Text [Text]
-importedRecordFields packageId exports extensions modu =
-  scopeRecordFields (importedScope packageId exports modu) `Map.union` preludeFields
+-- | What a module's own declarations bind, and what its imports bring in.
+--
+-- The two come together because the own scope needs the imported one: a
+-- record wildcard in a top-level pattern binding binds one name for each
+-- field of the constructor, and the constructor can be an imported one.
+-- Both callers need both scopes, and the imports are the expensive half.
+ownAndImportedScopes :: Package -> ModuleExports -> [Extension] -> Module -> (Scope, Scope)
+ownAndImportedScopes packageId exports extensions modu = (ownScope, imported)
   where
+    imported = importedScope packageId exports modu
+    ownScope = topLevelScope recordFields packageId modu
+    recordFields = scopeRecordFields imported `Map.union` preludeFields
     preludeFields
       | moduleImportsImplicitPrelude extensions modu =
           scopeRecordFields (lookupImportedModule packageId Nothing "Prelude" exports)
@@ -624,38 +709,45 @@ lookupImportedModule currentPackage requestedPackage moduleName' exports =
     matchingScopes = matchingModuleScopes currentPackage requestedPackage moduleName' exports
 
 matchingModuleScopes :: Package -> Maybe Text -> Text -> ModuleExports -> [Scope]
-matchingModuleScopes currentPackage requestedPackage moduleName' exports =
-  [ scope
-  | (ModuleKey package name, scope) <- Map.toList exports,
-    name == moduleName',
-    packageMatches package
-  ]
-  where
-    packageMatches package = case requestedPackage of
-      Nothing -> True
-      Just "this" -> package == currentPackage
-      Just requested -> requested == packageName package
+matchingModuleScopes currentPackage requestedPackage moduleName' (ModuleExports byName) =
+  case Map.lookup moduleName' byName of
+    Nothing -> []
+    Just byPackage ->
+      case requestedPackage of
+        Nothing -> Map.elems byPackage
+        Just "this" -> maybeToList (Map.lookup currentPackage byPackage)
+        Just requested ->
+          [scope | (package, scope) <- Map.toList byPackage, packageName package == requested]
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
   case maybeSpec of
     Nothing -> scope
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      let allowedTypes = allowedTypeNames scope importSpecItems
-          allowedTerms = allowedTermNames scope importSpecItems
+      let allowedTypes = Set.fromList (allowedTypeNames scope importSpecItems)
+          allowedTerms = Set.fromList (allowedTermNames scope importSpecItems)
        in Scope
-            { scopeTerms =
-                Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeTerms scope),
-              scopeTypes = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeTypes scope),
-              scopeConstructors = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeConstructors scope),
-              scopeRecordFields = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeRecordFields scope),
-              scopeMethods = Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeMethods scope),
-              scopeAssociatedTypes = Map.map (filter (`elem` allowedTypes)) (Map.filterWithKey (\n _ -> n `elem` allowedTypes) (scopeAssociatedTypes scope)),
-              scopeFixities = Map.filterWithKey (\n _ -> n `elem` allowedTerms) (scopeFixities scope),
+            { scopeTerms = Map.restrictKeys (scopeTerms scope) allowedTerms,
+              scopeTypes = Map.restrictKeys (scopeTypes scope) allowedTypes,
+              scopeConstructors = Map.restrictKeys (scopeConstructors scope) allowedTypes,
+              scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) allowedTerms,
+              scopeMethods = Map.restrictKeys (scopeMethods scope) allowedTypes,
+              scopeAssociatedTypes =
+                Map.map (filter (`Set.member` allowedTypes)) (Map.restrictKeys (scopeAssociatedTypes scope) allowedTypes),
+              scopeFixities = Map.restrictKeys (scopeFixities scope) allowedTerms,
               scopeQualifiedModules = scopeQualifiedModules scope
             }
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
-      filterScopeByNames (`notElem` (allowedTypeNames scope importSpecItems <> allowedTermNames scope importSpecItems)) scope
+      let hidden = Set.fromList (allowedTypeNames scope importSpecItems <> allowedTermNames scope importSpecItems)
+       in scope
+            { scopeTerms = Map.withoutKeys (scopeTerms scope) hidden,
+              scopeTypes = Map.withoutKeys (scopeTypes scope) hidden,
+              scopeConstructors = Map.withoutKeys (scopeConstructors scope) hidden,
+              scopeRecordFields = Map.withoutKeys (scopeRecordFields scope) hidden,
+              scopeMethods = Map.withoutKeys (scopeMethods scope) hidden,
+              scopeAssociatedTypes = Map.withoutKeys (scopeAssociatedTypes scope) hidden,
+              scopeFixities = Map.withoutKeys (scopeFixities scope) hidden
+            }
 
 -- | The type names that an import list admits. A bundled member of a class
 -- item that is an associated type family of the class is a type name.
