@@ -813,7 +813,7 @@ lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup (tyConKey tyCon) . tcsGlo
 
 lookupTyConOrigin :: ResolutionNamespace -> PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
 lookupTyConOrigin namespace packageId moduleName name =
-  lift $ gets $ Map.lookup (packageId, moduleName, namespace, name) . tcsGlobalTyCons
+  lift $ gets $ Map.lookup (TcTypeKey name packageId moduleName namespace) . tcsGlobalTyCons
 
 typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
 typeResolution =

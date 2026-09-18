@@ -781,7 +781,7 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
         resolutionNamespace resolution == ResolutionNamespaceType,
         ResolvedTopLevel package moduleName' name <- [resolutionTarget resolution],
-        Just owner <- [Map.lookup (package, moduleName', ResolutionNamespaceType, nameText name) owners]
+        Just owner <- [Map.lookup (TcTypeKey (nameText name) package moduleName' ResolutionNamespaceType) owners]
       ]
     flatten (AcyclicSCC declaration) = [declaration]
     flatten (CyclicSCC group) = group
@@ -1188,7 +1188,7 @@ annotateClassDefaultItem classTyCon item =
       case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
         Nothing -> pure item
         Just familyBinder -> do
-          ty <- tyConBindingType (unqualifiedNameText familyBinder)
+          ty <- tyConBindingType familyBinder
           let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] [] []) (typeFamilyDeclHead familyDecl)
           pure (ClassItemTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
     _ -> pure item
@@ -1211,7 +1211,7 @@ annotateDataDeclTc :: DataDecl -> TcM Decl
 annotateDataDeclTc dataDecl = do
   let binder = binderHeadName (dataDeclHead dataDecl)
       tyName = unqualifiedNameText binder
-  ty <- tyConBindingType tyName
+  ty <- tyConBindingType binder
   parent <- mkDeclaredTyCon binder tyName (length (binderHeadParams (dataDeclHead dataDecl)))
   constructors <- mapM (annotateDataConDeclTc parent) (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataDeclHead dataDecl)
@@ -1221,7 +1221,7 @@ annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
 annotateNewtypeDeclTc newtypeDecl = do
   let binder = binderHeadName (newtypeDeclHead newtypeDecl)
       tyName = unqualifiedNameText binder
-  ty <- tyConBindingType tyName
+  ty <- tyConBindingType binder
   parent <- mkDeclaredTyCon binder tyName (length (binderHeadParams (newtypeDeclHead newtypeDecl)))
   constructor <- mapM (annotateDataConDeclTc parent) (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (newtypeDeclHead newtypeDecl)
@@ -1229,15 +1229,13 @@ annotateNewtypeDeclTc newtypeDecl = do
 
 annotateTypeSynDeclTc :: TypeSynDecl -> TcM Decl
 annotateTypeSynDeclTc typeSynDecl = do
-  let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
-  ty <- tyConBindingType tyName
+  ty <- tyConBindingType (binderHeadName (typeSynHead typeSynDecl))
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (typeSynHead typeSynDecl)
   pure (DeclTypeSyn (typeSynDecl {typeSynHead = annotatedHead}))
 
 annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
 annotateDataFamilyDeclTc familyDecl = do
-  let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-  ty <- tyConBindingType familyName
+  ty <- tyConBindingType (binderHeadName (dataFamilyDeclHead familyDecl))
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataFamilyDeclHead familyDecl)
   pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
 
@@ -1246,7 +1244,7 @@ annotateTypeFamilyDeclTc familyDecl =
   case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
     Nothing -> pure (DeclTypeFamilyDecl familyDecl)
     Just familyBinder -> do
-      ty <- tyConBindingType (unqualifiedNameText familyBinder)
+      ty <- tyConBindingType familyBinder
       let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] [] []) (typeFamilyDeclHead familyDecl)
       pure (DeclTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
 
@@ -1733,12 +1731,19 @@ unqualifiedNameSpan :: UnqualifiedName -> Maybe SourceSpan
 unqualifiedNameSpan =
   sourceSpanFromAnns . unqualifiedNameAnns
 
-tyConBindingType :: Text -> TcM TcType
-tyConBindingType name = do
-  mInfo <- lookupTyCon name
+-- | The kind a declaration head is annotated with.
+--
+-- The binder carries the resolver identity of the declaration it heads, so
+-- the kind is read from that declaration's own entry. Looking the name up
+-- across the whole type-constructor environment would pick whichever
+-- same-named constructor the environment iterates first, and default its
+-- kind meta-variables rather than this declaration's.
+tyConBindingType :: UnqualifiedName -> TcM TcType
+tyConBindingType binder = do
+  mInfo <- lookupDeclaredTyCon binder
   case mInfo of
     Just info -> defaultKindMetas (typeSchemeBody (tciKindScheme info))
-    Nothing -> missingTypeInfo ("type constructor " <> T.unpack name)
+    Nothing -> missingTypeInfo ("type constructor " <> T.unpack (unqualifiedNameText binder))
 
 annotateValueDeclTc :: Map Text TcType -> ValueDecl -> TcM (TcType, ValueDecl)
 annotateValueDeclTc checkedValueTypes valueDecl =
@@ -3571,7 +3576,7 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
 resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
 resolvedTypeKey name = do
   ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId moduleName' resolvedName} <- nameResolution name
-  pure (packageId, moduleName', namespace, nameText resolvedName)
+  pure (TcTypeKey (nameText resolvedName) packageId moduleName' namespace)
 
 -- | Register the head of a type-level declaration. A type constructor is
 -- not a term binding, so this reports nothing: it only stores the kind.
