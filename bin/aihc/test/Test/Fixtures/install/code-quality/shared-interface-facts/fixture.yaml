@@ -1,0 +1,4 @@
+status: pass
+reason: Two import paths must preserve shared types, hidden kinds, and class instances.
+expect-type-constructors:
+  - [Public, [K, Proxy, Box, Payload, Select]]

@@ -81,7 +81,7 @@ import Aihc.Tc
     tcModuleDiagnostics,
     typecheckModuleSccWithInterface,
   )
-import Aihc.Tc.Share (shareTcInterfaces)
+import Aihc.Tc.Share (shareTcInterface)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (readMVar)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
@@ -407,17 +407,13 @@ typecheckUnits jobs config resolvePackage primIdentity dependencyTypes dependenc
                     mergeTcInterfaces
                       mergeCheck
                       (importedInstanceInterface : [interface | name <- dependencyNames, Just interface <- [Map.lookup name availableTypes]])
-                  (checkedModules, checkedInterface) =
+                  (checkedModules, newInterface) =
                     typecheckModuleSccWithInterface (primTcConfig primIdentity) importedTypes (resolvedModules (resolvedUnitResult resolvedOne))
+                  checkedInterface = shareTcInterface newInterface
                   diagnostics = [(unitLabel unit, diagnostic) | diagnostic <- concatMap tcModuleDiagnostics checkedModules]
                   completeInterface = mergeTcInterfaces mergeCheck [importedTypes, checkedInterface]
-                  (ownFacts, unitTypes) =
-                    case shareTcInterfaces
-                      ( addReferencedFacts (typeLiteralKindTyCons kinds) supportTerms completeInterface (instanceFacts checkedInterface)
-                          : map (moduleTypeInterface kinds supportTerms (resolvedUnitExports resolvedOne) resolvePackage completeInterface) sources
-                      ) of
-                      facts : rest -> (facts, rest)
-                      [] -> error "shareTcInterfaces dropped the unit facts"
+                  ownFacts = addReferencedFacts (typeLiteralKindTyCons kinds) supportTerms completeInterface (instanceFacts checkedInterface)
+                  unitTypes = map (moduleTypeInterface kinds supportTerms (resolvedUnitExports resolvedOne) resolvePackage completeInterface) sources
                   checked =
                     CheckedUnit
                       { checkedUnitTypes = Map.fromList (zip unitNames unitTypes),
@@ -426,7 +422,10 @@ typecheckUnits jobs config resolvePackage primIdentity dependencyTypes dependenc
                         checkedUnitDiagnostics = diagnostics
                       }
               _ <- evaluate (length diagnostics)
-              _ <- evaluate (force (checkedUnitTypes checked, checkedUnitOwnFacts checked, checkedUnitInstanceInterface checked))
+              -- Dependencies already forced their facts. Force only the new
+              -- facts, then the strict maps that select and combine them.
+              _ <- evaluate (force checkedInterface)
+              _ <- evaluate checked
               atomically (putTMVar (unitResult results unit) checked)
   _ <- runTaskGraph jobs (map task resolvedUnits)
   mapM (atomically . readTMVar . unitResult results) units

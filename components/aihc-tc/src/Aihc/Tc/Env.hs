@@ -46,6 +46,7 @@ module Aihc.Tc.Env
     instanceEnvFromList,
     addInstanceEnv,
     instanceEnvList,
+    instanceEnvSince,
     instanceEnvForClass,
 
     -- * Data family instances
@@ -425,13 +426,14 @@ instanceIsForClass classTyCon instanceInfo =
 -- instances are also grouped by the exact class type constructor. Both
 -- views list the most recent instance first.
 data InstanceEnv = InstanceEnv
-  { instanceEnvAll :: ![InstanceInfo],
+  { instanceEnvSize :: !Int,
+    instanceEnvAll :: ![InstanceInfo],
     instanceEnvByClass :: !(Map TcTypeKey [InstanceInfo])
   }
   deriving (Show)
 
 emptyInstanceEnv :: InstanceEnv
-emptyInstanceEnv = InstanceEnv [] Map.empty
+emptyInstanceEnv = InstanceEnv 0 [] Map.empty
 
 -- | Build an environment that lists the instances in the given order.
 instanceEnvFromList :: [InstanceInfo] -> InstanceEnv
@@ -440,7 +442,8 @@ instanceEnvFromList = foldr addInstanceEnv emptyInstanceEnv
 addInstanceEnv :: InstanceInfo -> InstanceEnv -> InstanceEnv
 addInstanceEnv instanceInfo env =
   InstanceEnv
-    { instanceEnvAll = instanceInfo : instanceEnvAll env,
+    { instanceEnvSize = instanceEnvSize env + 1,
+      instanceEnvAll = instanceInfo : instanceEnvAll env,
       instanceEnvByClass = case instanceClassTyCon instanceInfo of
         Nothing -> instanceEnvByClass env
         Just classTyCon -> Map.insertWith (<>) (tyConKey classTyCon) [instanceInfo] (instanceEnvByClass env)
@@ -449,6 +452,12 @@ addInstanceEnv instanceInfo env =
 -- | Every instance, most recent first.
 instanceEnvList :: InstanceEnv -> [InstanceInfo]
 instanceEnvList = instanceEnvAll
+
+-- | The instances added after a snapshot, most recent first.
+-- The current environment must extend the snapshot without removal or reorder.
+instanceEnvSince :: InstanceEnv -> InstanceEnv -> [InstanceInfo]
+instanceEnvSince current previous =
+  take (instanceEnvSize current - instanceEnvSize previous) (instanceEnvAll current)
 
 -- | The instances of the exact class, most recent first.
 instanceEnvForClass :: TyCon -> InstanceEnv -> [InstanceInfo]

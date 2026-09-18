@@ -81,7 +81,7 @@ import Aihc.Cli.BuildStamp
   )
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
-import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
+import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceNonTermRootTyCons, interfaceTermTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
@@ -180,14 +180,13 @@ import Aihc.Tc
     renderTcType,
     tcInterfaceDataFamilyInstances,
     tcInterfaceInstances,
-    tcInterfaceTerms,
     tcInterfaceTypeFamilyInstances,
     tcModuleBindings,
     tcModuleDiagnostics,
     tyConKey,
     typecheckModuleSccWithInterface,
   )
-import Aihc.Tc.Share (shareTcInterfaces)
+import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TcTypeKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
@@ -2005,17 +2004,11 @@ runTypeUnit context runtimes runtime = do
             }
         putTMVar (runtimeBackendInput runtime) Nothing
     Nothing -> do
-      ((checkedModules, checkedInterface), diagnostics) <- checkUnit
-      let completeInterface = mergeTcInterfaces (configMergeCheck config) [importedTypes, checkedInterface]
-          -- What the unit publishes outlives this task, so its equal
-          -- parts are made one object each; the checking state is not.
-          (ownInstanceInterface, unitTypes) =
-            case shareTcInterfaces
-              ( addReferencedFacts (typeLiteralKindTyCons (primKinds primIdentity)) (typeLiteralSupportTerms primIdentity) completeInterface (instanceFacts checkedInterface)
-                  : map (moduleTypeInterface (primKinds primIdentity) (typeLiteralSupportTerms primIdentity) (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
-              ) of
-              facts : rest -> (facts, rest)
-              [] -> error "shareTcInterfaces dropped the unit facts"
+      ((checkedModules, newInterface), diagnostics) <- checkUnit
+      let checkedInterface = shareTcInterface newInterface
+          completeInterface = mergeTcInterfaces (configMergeCheck config) [importedTypes, checkedInterface]
+          ownInstanceInterface = addReferencedFacts (typeLiteralKindTyCons (primKinds primIdentity)) (typeLiteralSupportTerms primIdentity) completeInterface (instanceFacts checkedInterface)
+          unitTypes = map (moduleTypeInterface (primKinds primIdentity) (typeLiteralSupportTerms primIdentity) (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
           completeInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownInstanceInterface]
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
           success = resolveSuccess && dependencySuccess && typeSuccess
@@ -3124,6 +3117,7 @@ typeLiteralSupportTerms prim =
   [TcTermGlobal prim "GHC.Prim.Natural" "naturalFromInteger#"]
 
 -- | Carry into an interface the facts it refers to but does not hold.
+-- The selected interface must contain only facts from the complete interface.
 --
 -- The extra roots are type constructors the module needs that nothing in
 -- its own facts names: the kinds of the type-level literals, which a
@@ -3140,37 +3134,39 @@ addReferencedFacts extraRoots extraTerms complete = go
     -- The type constructors that each fact of the complete interface refers
     -- to. The values are thunks, so a fact no module reaches costs its key
     -- alone, and one that many modules reach is walked once for all of them.
-    tyConDependencies :: LazyMap.Map TcTypeKey (Set.Set TyCon)
+    tyConDependencies :: LazyMap.Map TcTypeKey [TyCon]
     tyConDependencies =
       LazyMap.fromSet
         ( \key ->
-            maybe mempty tyConInfoTyCons (Map.lookup key availableTyCons)
-              <> maybe mempty dataTypeInfoTyCons (Map.lookup key availableDataTypes)
-              <> maybe mempty classInfoTyCons (Map.lookup key availableClasses)
+            Set.toList
+              ( maybe mempty tyConInfoTyCons (Map.lookup key availableTyCons)
+                  <> maybe mempty dataTypeInfoTyCons (Map.lookup key availableDataTypes)
+                  <> maybe mempty classInfoTyCons (Map.lookup key availableClasses)
+              )
         )
         (Map.keysSet availableTyCons <> Map.keysSet availableDataTypes <> Map.keysSet availableClasses)
-    closeTyCons found pending
-      | Set.null pending = found
+    closeTyCons found [] = found
+    closeTyCons found (tyCon : pending)
+      | tyCon `Set.member` found = closeTyCons found pending
       | otherwise =
-          let (tyCon, pending') = Set.deleteFindMin pending
-              dependencies = LazyMap.findWithDefault mempty (tyConKey tyCon) tyConDependencies
-              found' = Set.insert tyCon found
-           in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
+          let dependencies = LazyMap.findWithDefault [] (tyConKey tyCon) tyConDependencies
+           in closeTyCons (Set.insert tyCon found) (dependencies <> pending)
     go interface =
       interface
         { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
-          tcInterfaceTyConMap = tcInterfaceTyConMap interface <> supportTyCons,
-          tcInterfaceDataTypeMap = tcInterfaceDataTypeMap interface <> supportDataTypes,
-          tcInterfaceClassMap = tcInterfaceClassMap interface <> supportClasses
+          tcInterfaceTyConMap = Map.restrictKeys availableTyCons reachableKeys,
+          tcInterfaceDataTypeMap = Map.restrictKeys availableDataTypes reachableKeys,
+          tcInterfaceClassMap = Map.restrictKeys availableClasses reachableKeys
         }
       where
+        termTyCons = interfaceTermTyCons interface
         -- A use of a function with a HasCallStack constraint desugars to
         -- calls of the call-stack helpers, even when the module does not
         -- import them.
         callStackModules =
           Set.fromList
             [ (tyConPackageId tyCon, tyConModuleName tyCon)
-            | tyCon <- Set.toList (Set.unions (map (typeSchemeTyCons . snd) (tcInterfaceTerms interface))),
+            | tyCon <- Set.toList termTyCons,
               tyConName tyCon == "CallStack"
             ]
         callStackSupportTerms =
@@ -3196,11 +3192,12 @@ addReferencedFacts extraRoots extraTerms complete = go
                 tyConName tyCon `elem` ["SrcLoc", "CallStack"]
               ]
         referenced =
-          interfaceTyCons interface
+          termTyCons
+            <> interfaceNonTermRootTyCons interface
             <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
             <> Set.fromList callStackSupportTyCons
             <> Set.fromList extraRoots
-        reachable = closeTyCons Set.empty referenced
+        reachable = closeTyCons Set.empty (Set.toList referenced)
         -- Typeable evidence for an applied type desugars to a call of the
         -- class's @typeRep@ selector on the evidence of each argument. The
         -- class reaches a module as the superclass of one it names, so the
@@ -3215,9 +3212,6 @@ addReferencedFacts extraRoots extraTerms complete = go
             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
           ]
         reachableKeys = Set.map tyConKey reachable
-        supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))
-        supportDataTypes = Map.restrictKeys availableDataTypes (reachableKeys `Set.difference` Map.keysSet (tcInterfaceDataTypeMap interface))
-        supportClasses = Map.restrictKeys availableClasses (reachableKeys `Set.difference` Map.keysSet (tcInterfaceClassMap interface))
 
 writeTypeArtifact :: (String -> IO ()) -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
 writeTypeArtifact verbose artifactPath source interface = do
