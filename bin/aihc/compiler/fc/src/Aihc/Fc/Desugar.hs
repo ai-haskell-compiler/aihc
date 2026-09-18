@@ -69,7 +69,7 @@ import Aihc.Tc.Types
     TcAxiomKey (..),
     TcKinds,
     TcType (..),
-    TcTypeKey,
+    TcTypeKey (..),
     TyVarId,
     TypeScheme (..),
     Unique (..),
@@ -561,22 +561,22 @@ associatedFamilyParamNames familyName classDecl =
 
 sourceTyConKey :: PackageId -> Text -> Text -> TcTypeKey
 sourceTyConKey package moduleName' name =
-  (package, moduleName', ResolutionNamespaceType, name)
+  TcTypeKey name package moduleName' ResolutionNamespaceType
 
 dataTypeSourceKey :: DataTypeInfo -> TcTypeKey
 dataTypeSourceKey info =
   let tyCon = dtiTyCon info
-   in (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, dtiName info)
+   in TcTypeKey (dtiName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
 tyConSourceKey :: TyConInfo -> TcTypeKey
 tyConSourceKey info =
   let tyCon = tciTyCon info
-   in (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, tciName info)
+   in TcTypeKey (tciName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
 classSourceKey :: ClassInfo -> TcTypeKey
 classSourceKey info =
   let tyCon = ciTyCon info
-   in (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, ciName info)
+   in TcTypeKey (ciName info) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
 lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> Map.Map TcTypeKey DataTypeInfo -> Either String DataTypeInfo
 lookupDataType flavor package moduleName' name dataTypes =

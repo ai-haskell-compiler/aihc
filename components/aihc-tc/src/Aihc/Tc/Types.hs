@@ -18,7 +18,7 @@ module Aihc.Tc.Types
     setTyVarKind,
     TcType (..),
     isPolyType,
-    TcTypeKey,
+    TcTypeKey (..),
     TcAxiomKey (..),
     TcKindEnv,
     TyCon (TyCon, tyConName, tyConArity),
@@ -153,17 +153,32 @@ setTyVarKind :: TcType -> TyVarId -> TyVarId
 setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
 
 -- | A type-constructor identity. Kind schemes live in the type-constructor environment.
-data TyCon = TyConInternal !PackageId !Text !ResolutionNamespace !Text !Int
+data TyCon = TyConInternal !Text !PackageId !Text !ResolutionNamespace !Int
   deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData TyCon
 
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ _ tyConName tyConArity
+pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName _ _ _ tyConArity
 
 {-# COMPLETE TyCon #-}
 
-type TcTypeKey = (PackageId, Text, ResolutionNamespace, Text)
+-- | The identity a type constructor is registered under: everything a
+-- 'TyCon' carries except its arity, which two constructors of one identity
+-- may differ in.
+--
+-- The derived 'Ord' compares the fields in the order they are declared, and
+-- the name comes first deliberately: it is what discriminates, where a
+-- package id is a long 'Text' that a whole package shares.
+data TcTypeKey = TcTypeKey
+  { typeKeyName :: !Text,
+    typeKeyPackage :: !PackageId,
+    typeKeyModule :: !Text,
+    typeKeyNamespace :: !ResolutionNamespace
+  }
+  deriving (Eq, Ord, Show, Read, Generic)
+
+instance NFData TcTypeKey
 
 -- | Package, module, and axiom name. This identity is unique across modules.
 data TcAxiomKey = TcAxiomKey
@@ -178,10 +193,10 @@ instance NFData TcAxiomKey
 type TcKindEnv = Map TcTypeKey TypeScheme
 
 tyConPackageId :: TyCon -> PackageId
-tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
+tyConPackageId (TyConInternal _ packageId _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
-tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
+tyConModuleName (TyConInternal _ _ moduleName _ _) = moduleName
 
 -- | Apply a type to an argument.
 --
@@ -197,18 +212,18 @@ mkAppTy function argument =
     _ -> TcAppTy function argument
 
 tyConNamespace :: TyCon -> ResolutionNamespace
-tyConNamespace (TyConInternal _ _ namespace _ _) = namespace
+tyConNamespace (TyConInternal _ _ _ namespace _) = namespace
 
 tyConKey :: TyCon -> TcTypeKey
-tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, tyConName tyCon)
+tyConKey tyCon = TcTypeKey (tyConName tyCon) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> TyCon
-mkTyConWithOrigin packageId moduleName =
-  TyConInternal packageId moduleName ResolutionNamespaceType
+mkTyConWithOrigin packageId moduleName name =
+  TyConInternal name packageId moduleName ResolutionNamespaceType
 
 mkTyConWithNamespace :: ResolutionNamespace -> PackageId -> Text -> Text -> Int -> TyCon
-mkTyConWithNamespace namespace packageId moduleName =
-  TyConInternal packageId moduleName namespace
+mkTyConWithNamespace namespace packageId moduleName name =
+  TyConInternal name packageId moduleName namespace
 
 -- | Internal types. Kinds use this same representation.
 data TcType

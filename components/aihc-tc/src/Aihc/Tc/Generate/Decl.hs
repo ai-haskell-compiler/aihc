@@ -781,7 +781,7 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
         Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
         resolutionNamespace resolution == ResolutionNamespaceType,
         ResolvedTopLevel package moduleName' name <- [resolutionTarget resolution],
-        Just owner <- [Map.lookup (package, moduleName', ResolutionNamespaceType, nameText name) owners]
+        Just owner <- [Map.lookup (TcTypeKey (nameText name) package moduleName' ResolutionNamespaceType) owners]
       ]
     flatten (AcyclicSCC declaration) = [declaration]
     flatten (CyclicSCC group) = group
@@ -3576,7 +3576,7 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
 resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
 resolvedTypeKey name = do
   ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId moduleName' resolvedName} <- nameResolution name
-  pure (packageId, moduleName', namespace, nameText resolvedName)
+  pure (TcTypeKey (nameText resolvedName) packageId moduleName' namespace)
 
 -- | Register the head of a type-level declaration. A type constructor is
 -- not a term binding, so this reports nothing: it only stores the kind.

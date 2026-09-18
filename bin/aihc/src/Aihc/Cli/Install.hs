@@ -189,7 +189,7 @@ import Aihc.Tc
     unionTcInterfaces,
   )
 import Aihc.Tc.Share (shareTcInterfaces)
-import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (TcTypeKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.MVar (MVar, newMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar, takeTMVar)
@@ -3090,7 +3090,7 @@ moduleTypeInterface kinds supportTerms exports package interface source =
               ResolutionNamespaceType -> (scopeTypes scope, typeIdentities)
               ResolutionNamespaceModule -> (Map.empty, Set.empty)
        in Map.member (tciName info) namespaceScope || identity `Set.member` namespaceIdentities || identity == localIdentity (tciName info)
-    visibleTypeIdentity (packageId', moduleName', namespace, identifier) =
+    visibleTypeIdentity (TcTypeKey identifier packageId' moduleName' namespace) =
       let identity = (packageId', moduleName', identifier)
        in namespace == ResolutionNamespaceType
             && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
@@ -3240,4 +3240,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-32"
+packageArtifactFormatVersion = "aihc-artifacts-33"
