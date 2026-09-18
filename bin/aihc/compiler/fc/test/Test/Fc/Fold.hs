@@ -33,6 +33,13 @@ fcFoldTests =
         assertEqual "-#" (Just (PrimInt "IntRep" (-1))) (foldPrimitive "-#" [PrimInt "IntRep" 0, PrimInt "IntRep" 1])
         assertEqual "intToInt32# wraps" (Just (PrimInt "Int32Rep" (-1))) (foldPrimitive "intToInt32#" [PrimInt "IntRep" 0xffffffff])
         assertEqual "chr#" (Just (PrimChar 'a')) (foldPrimitive "chr#" [PrimInt "IntRep" 97]),
+      testCase "folds the shifts of a signed int" $ do
+        assertEqual "uncheckedIShiftL#" (Just (PrimInt "IntRep" 48)) (foldPrimitive "uncheckedIShiftL#" [PrimInt "IntRep" 3, PrimInt "IntRep" 4])
+        assertEqual "uncheckedIShiftL# wraps" (Just (PrimInt "IntRep" (negate (shiftL 1 63)))) (foldPrimitive "uncheckedIShiftL#" [PrimInt "IntRep" 1, PrimInt "IntRep" 63])
+        assertEqual "uncheckedIShiftRA#" (Just (PrimInt "IntRep" (-3))) (foldPrimitive "uncheckedIShiftRA#" [PrimInt "IntRep" (-48), PrimInt "IntRep" 4])
+        assertEqual "uncheckedIShiftRA# keeps the sign" (Just (PrimInt "IntRep" (-1))) (foldPrimitive "uncheckedIShiftRA#" [PrimInt "IntRep" (-1), PrimInt "IntRep" 63])
+        assertEqual "uncheckedIShiftRL#" (Just (PrimInt "IntRep" 3)) (foldPrimitive "uncheckedIShiftRL#" [PrimInt "IntRep" 48, PrimInt "IntRep" 4])
+        assertEqual "uncheckedIShiftRL# fills with zeros" (Just (PrimInt "IntRep" (shiftL 1 4 - 1))) (foldPrimitive "uncheckedIShiftRL#" [PrimInt "IntRep" (-1), PrimInt "IntRep" 60]),
       testCase "leaves a partial operation alone" $ do
         assertEqual "quotInt# by zero" Nothing (foldPrimitive "quotInt#" [PrimInt "IntRep" 1, PrimInt "IntRep" 0])
         assertEqual "shift by the width" Nothing (foldPrimitive "uncheckedShiftL#" [PrimInt "WordRep" 1, PrimInt "IntRep" 64])
