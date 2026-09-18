@@ -73,13 +73,13 @@ import Aihc.Resolve
     resolveUnit,
   )
 import Aihc.Tc
-  ( TcDiagnostic (..),
+  ( MergeCheck (..),
+    TcDiagnostic (..),
     TcInterface,
     TcSeverity (..),
     mergeTcInterfaces,
     tcModuleDiagnostics,
     typecheckModuleSccWithInterface,
-    unionTcInterfaces,
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Control.Concurrent (getNumCapabilities)
@@ -402,7 +402,7 @@ typecheckUnits jobs config resolvePackage primIdentity dependencyTypes dependenc
                   availableTypes = Map.unions (map checkedUnitTypes below) `Map.union` dependencyTypes
                   externalProviders = Set.unions [Map.findWithDefault Set.empty name dependencyInstanceProviders | name <- dependencyNames]
                   externalInstanceInterface = selectInstanceProviders dependencyInstanceFacts externalProviders
-                  importedInstanceInterface = unionTcInterfaces (externalInstanceInterface : map checkedUnitInstanceInterface below)
+                  importedInstanceInterface = mergeTcInterfaces TrustMergedFacts (externalInstanceInterface : map checkedUnitInstanceInterface below)
                   importedTypes =
                     mergeTcInterfaces
                       mergeCheck
@@ -418,7 +418,7 @@ typecheckUnits jobs config resolvePackage primIdentity dependencyTypes dependenc
                     CheckedUnit
                       { checkedUnitTypes = Map.fromList (zip unitNames unitTypes),
                         checkedUnitOwnFacts = ownFacts,
-                        checkedUnitInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownFacts],
+                        checkedUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
                         checkedUnitDiagnostics = diagnostics
                       }
               _ <- evaluate (length diagnostics)

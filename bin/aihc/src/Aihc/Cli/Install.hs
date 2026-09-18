@@ -185,7 +185,6 @@ import Aihc.Tc
     tcModuleDiagnostics,
     tyConKey,
     typecheckModuleSccWithInterface,
-    unionTcInterfaces,
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TcTypeKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
@@ -1918,7 +1917,8 @@ runTypeUnit context runtimes runtime = do
       -- Each dependency carries the instance closure of its own dependencies,
       -- so the closures agree wherever they overlap.
       importedInstanceInterface =
-        unionTcInterfaces
+        mergeTcInterfaces
+          TrustMergedFacts
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
       importedTypes =
         mergeTcInterfaces
@@ -1995,7 +1995,7 @@ runTypeUnit context runtimes runtime = do
               typeUnitHashes = unitStampTypes recorded,
               typeUnitOwnInstanceInterface = ownFacts,
               typeUnitFactsDigest = unitStampFacts recorded,
-              typeUnitInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownFacts],
+              typeUnitInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownFacts],
               typeUnitDiagnostics = [],
               typeUnitWritten = Set.empty,
               typeUnitReused = Set.fromList unitNames,
@@ -2009,7 +2009,7 @@ runTypeUnit context runtimes runtime = do
           completeInterface = mergeTcInterfaces (configMergeCheck config) [importedTypes, checkedInterface]
           ownInstanceInterface = addReferencedFacts (typeLiteralKindTyCons (primKinds primIdentity)) (typeLiteralSupportTerms primIdentity) completeInterface (instanceFacts checkedInterface)
           unitTypes = map (moduleTypeInterface (primKinds primIdentity) (typeLiteralSupportTerms primIdentity) (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
-          completeInstanceInterface = unionTcInterfaces [importedInstanceInterface, ownInstanceInterface]
+          completeInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownInstanceInterface]
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
           success = resolveSuccess && dependencySuccess && typeSuccess
       (ownTypeHashes, factsDigest) <-

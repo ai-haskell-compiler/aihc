@@ -31,9 +31,10 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.FunDep (atPositions)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, lookupTyConByIdentity)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (familyEquations, isTypeFamilyApplication, matchTypes, reduceTypeFamilies, unsaturateFamilyApplication)
+import Aihc.Tc.Solve.Family (familyEquations, isTypeFamilyApplication, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)

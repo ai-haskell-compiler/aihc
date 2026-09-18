@@ -13,7 +13,6 @@ module Aihc.Tc.Solve.Dict
     callStackOrigin,
     isCallStackPred,
     reportUnsolvedDict,
-    matchTypes,
     classFieldTypes,
   )
 where
@@ -27,10 +26,11 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind (..), TypeableTyCon (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, tcTypeKind, unifyKinds, zonkKind)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, wiredTyCon)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (givenEqualities)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, matchTypes, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, normalizeFamilyPred, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Wiring (TcWiring (..))

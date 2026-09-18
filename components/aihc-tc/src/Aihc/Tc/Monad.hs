@@ -53,10 +53,6 @@ module Aihc.Tc.Monad
     listTyConOfWiring,
     TcEnv (..),
     TcBinder (..),
-    TcTermKey (..),
-    tyConTermKey,
-    tyConMemberTermKey,
-    termKeyName,
     Closedness (..),
     emptyTcEnv,
     mkWiredTyCon,
@@ -96,7 +92,6 @@ module Aihc.Tc.Monad
     getPatSyns,
     lookupPatSyn,
     lookupPatSynTarget,
-    patSynKey,
     getDataTypes,
     lookupDataType,
     tcMonoLocalBinds,
@@ -148,13 +143,12 @@ import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor, Unqua
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, patSynRecordHead, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
 import Control.Applicative ((<|>))
-import Control.DeepSeq (NFData)
 import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
@@ -170,8 +164,6 @@ import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
-import Data.Text qualified as T
-import GHC.Generics (Generic)
 
 -- | The type checker monad.
 --
@@ -400,31 +392,6 @@ data TcBinder
   | -- | Monomorphic binding (lambda-bound, pattern-bound, local let).
     TcMonoIdBinder !TcType
   deriving (Show)
-
-data TcTermKey
-  = TcTermLocal !Int
-  | TcTermGlobal !PackageId !Text !Text
-  deriving (Eq, Ord, Show, Read, Generic)
-
-instance NFData TcTermKey
-
--- | The term key of a name that a type constructor's identity carries,
--- such as a data constructor or a wired-in binder.
-tyConTermKey :: TyCon -> TcTermKey
-tyConTermKey tyCon = tyConMemberTermKey tyCon (tyConName tyCon)
-
--- | The term key of a name that a type constructor owns: a constructor or
--- record selector of its data type, or a method of its class. These are
--- declared with the type, so they live in its package and module.
-tyConMemberTermKey :: TyCon -> Text -> TcTermKey
-tyConMemberTermKey tyCon = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon)
-
--- | The name a term key spells, for a diagnostic.
-termKeyName :: TcTermKey -> Text
-termKeyName key =
-  case key of
-    TcTermGlobal _ _ name -> name
-    TcTermLocal unique -> T.pack ("<local " <> show unique <> ">")
 
 -- | An empty environment at the top level.
 emptyTcEnv :: TcConfig -> TcEnv
@@ -886,13 +853,6 @@ addDataType info = do
 
 getDataTypes :: TcM [DataTypeInfo]
 getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
-
--- | The term key of a pattern synonym. The builder term of a bidirectional
--- pattern synonym has the same key.
-patSynKey :: PatSynInfo -> TcTermKey
-patSynKey info =
-  let (package, moduleName') = psiOrigin info
-   in TcTermGlobal package moduleName' (psiName info)
 
 addPatSyn :: PatSynInfo -> TcM ()
 addPatSyn info = do

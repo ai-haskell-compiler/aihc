@@ -22,7 +22,6 @@ import Aihc.Tc
     InstanceInfo (..),
     MergeCheck (..),
     TcInterface (..),
-    TcTermKey (..),
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),

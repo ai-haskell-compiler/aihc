@@ -9,30 +9,10 @@ module Aihc.Tc.Share
   )
 where
 
-import Aihc.Tc
-  ( AssociatedTypeInfo (..),
-    ClassInfo (..),
-    DataConFieldInfo (..),
-    DataConInfo (..),
-    DataFamilyInstanceInfo (..),
-    DataTypeInfo (..),
-    InstanceInfo (..),
-    PatSynInfo (..),
-    Pred (..),
-    TcInterface (..),
-    TcType (..),
-    TyCon,
-    TyConInfo (..),
-    TyVarId,
-    TypeFamilyInstanceInfo (..),
-    TypeScheme (..),
-    tvKind,
-    tvName,
-    tvUnique,
-  )
 import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..))
-import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyVarId, traverseScheme)
+import Aihc.Tc.Env
+import Aihc.Tc.Interface
+import Aihc.Tc.Types
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 

@@ -13,20 +13,18 @@ module Aihc.Tc.Solve.Family
     isTypeFamilyApplication,
     unsaturateFamilyApplication,
     familyEquations,
-    matchTypes,
   )
 where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), getKinds, getTypeFamilyInstances, getWiring, lookupTyConByIdentity)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
-import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.List (sortOn)
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
@@ -230,29 +228,3 @@ couldUnify family = go
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
           go function targetFunction && go argument targetArgument
         _ -> patternType == target
-
--- | Match pattern types against target types. The type variables of the
--- patterns are the pattern variables.
-matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
-matchTypes patterns targets
-  | length patterns /= length targets = Nothing
-  | otherwise = foldM matchOne Map.empty (zip patterns targets)
-
-matchOne :: Map Unique TcType -> (TcType, TcType) -> Maybe (Map Unique TcType)
-matchOne subst (TcTyVar tv, target) =
-  case Map.lookup (tvUnique tv) subst of
-    Nothing -> Just (Map.insert (tvUnique tv) target subst)
-    Just existing
-      | existing == target -> Just subst
-      | otherwise -> Nothing
-matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
-  | tc == targetTc,
-    length args == length targetArgs =
-      foldM matchOne subst (zip args targetArgs)
-matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =
-  matchOne subst (a, targetA) >>= \subst' -> matchOne subst' (b, targetB)
-matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
-  matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
-matchOne subst (patternTy, targetTy)
-  | patternTy == targetTy = Just subst
-  | otherwise = Nothing
