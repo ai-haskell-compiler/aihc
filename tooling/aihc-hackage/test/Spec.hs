@@ -292,6 +292,11 @@ test_collectsCSources = do
 -- flag that gives @text@ its C++ validator. Every other target keeps the
 -- default, and the override reaches the C++ sources, the exposed modules,
 -- and the CPP options alike.
+--
+-- The same target also turns @pure-haskell@ on, because @text@ reaches its C
+-- routines through a @size_t@ that is narrower than an @Int@ there: see
+-- 'HC.targetFlagOverrides'. That override has to drop the C sources and
+-- define @PURE_HASKELL@ for the Haskell ones.
 test_wasmTextSimdutfOverride :: Assertion
 test_wasmTextSimdutfOverride = do
   gpd <- parseTestCabal textSimdutfCabal
@@ -304,7 +309,16 @@ test_wasmTextSimdutfOverride = do
   wasmFiles <- HC.collectLibraryFilesFor Wasi Wasm32 gpd "/pkg"
   assertBool "host defines SIMDUTF" (all (elem "-DSIMDUTF" . HC.fileInfoCppOptions) hostFiles)
   assertBool "wasm32 does not define SIMDUTF" (not (any (elem "-DSIMDUTF" . HC.fileInfoCppOptions) wasmFiles))
-  assertEqual "the override names the flag" [(mkFlagName "simdutf", False)] (HC.targetFlagOverrides Wasm32 (mkPackageName "text"))
+  assertEqual
+    "host compiles the C measuring routine and the simdutf shim"
+    ["/pkg/cbits/measure_off.c", "/pkg/simdutf/hs_simdutf.c"]
+    (HC.cCompileSources hostInfo)
+  assertBool "host does not define PURE_HASKELL" (all (notElem "-DPURE_HASKELL" . HC.fileInfoCppOptions) hostFiles)
+  assertBool "wasm32 defines PURE_HASKELL" (all (elem "-DPURE_HASKELL" . HC.fileInfoCppOptions) wasmFiles)
+  assertEqual
+    "the overrides name both flags"
+    [(mkFlagName "simdutf", False), (mkFlagName "pure-haskell", True)]
+    (HC.targetFlagOverrides Wasm32 (mkPackageName "text"))
   assertEqual "another package keeps its flags on wasm32" [] (HC.targetFlagOverrides Wasm32 (mkPackageName "bytestring"))
   assertEqual "text keeps its flags elsewhere" [] (HC.targetFlagOverrides buildArch (mkPackageName "text"))
 
@@ -571,6 +585,10 @@ textSimdutfCabal =
       "  exposed-modules: Data.Text",
       "  hs-source-dirs: src",
       "  default-language: Haskell2010",
+      "  if arch(javascript) || flag(pure-haskell)",
+      "    cpp-options: -DPURE_HASKELL",
+      "  else",
+      "    c-sources: cbits/measure_off.c",
       "  if flag(simdutf) && !(arch(javascript) || flag(pure-haskell))",
       "    exposed-modules: Data.Text.Internal.Validate.Simd",
       "    include-dirs: simdutf",
