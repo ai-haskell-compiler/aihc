@@ -714,28 +714,34 @@ annotatePendingModule pending = do
   -- they must not be rendered as successful inferred types.
   annotateModuleTc (Map.fromList [(tbName result, tbType result) | result <- pendingValueResults pending]) (pendingSyntax pending)
 
+-- | The global tables as one pass left them, so that a later pass can tell
+-- the entries it added from the ones that were already there.
+--
+-- The tables themselves are kept rather than their key sets: a persistent
+-- map costs nothing to hold on to, where taking its keys walked every
+-- entry the imported interfaces brought in, once per module and per table.
 data GlobalStateKeys = GlobalStateKeys
-  { globalTermKeys :: !(Set.Set TcTermKey),
-    globalTyConKeys :: !(Set.Set TcTypeKey),
-    globalDataTypeKeys :: !(Set.Set TcTypeKey),
-    globalClassKeys :: !(Set.Set TcTypeKey),
+  { globalTerms :: !(Map TcTermKey TcBinder),
+    globalTyCons :: !(Map TcTypeKey TyConInfo),
+    globalDataTypes :: !(Map TcTypeKey DataTypeInfo),
+    globalClasses :: !(Map TcTypeKey ClassInfo),
     globalInstanceKeys :: !(Set.Set ((Text, Text), Text)),
-    globalDataFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
-    globalTypeFamilyInstanceKeys :: !(Set.Set TcAxiomKey),
-    globalPatSynKeys :: !(Set.Set TcTermKey)
+    globalDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
+    globalTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
+    globalPatSyns :: !(Map TcTermKey PatSynInfo)
   }
 
 globalStateKeys :: TcState -> GlobalStateKeys
 globalStateKeys state =
   GlobalStateKeys
-    { globalTermKeys = Map.keysSet (tcsGlobalTerms state),
-      globalTyConKeys = Map.keysSet (tcsGlobalTyCons state),
-      globalDataTypeKeys = Map.keysSet (tcsDataTypes state),
-      globalClassKeys = Map.keysSet (tcsClasses state),
+    { globalTerms = tcsGlobalTerms state,
+      globalTyCons = tcsGlobalTyCons state,
+      globalDataTypes = tcsDataTypes state,
+      globalClasses = tcsClasses state,
       globalInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances state))),
-      globalDataFamilyInstanceKeys = Map.keysSet (tcsDataFamilyInstances state),
-      globalTypeFamilyInstanceKeys = Map.keysSet (tcsTypeFamilyInstances state),
-      globalPatSynKeys = Map.keysSet (tcsPatSyns state)
+      globalDataFamilyInstances = tcsDataFamilyInstances state,
+      globalTypeFamilyInstances = tcsTypeFamilyInstances state,
+      globalPatSyns = tcsPatSyns state
     }
 
 -- | Settle the kinds that a local generalization left open. The bodies
@@ -751,7 +757,7 @@ defaultDeferredKindMetas = do
 componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set TcTypeKey)
 componentTyConKeys initialKeys = do
   state <- lift get
-  pure (Map.keysSet (tcsGlobalTyCons state) `Set.difference` globalTyConKeys initialKeys)
+  pure (Map.keysSet (Map.difference (tcsGlobalTyCons state) (globalTyCons initialKeys)))
 
 -- | The kind meta-variables the component's own type constructors still
 -- hold in their kind schemes, as they stand now. Unification rewrites
@@ -873,14 +879,18 @@ freeKindVariables ty = case ty of
 defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
 defaultGlobalKindMetas initialKeys = do
   state <- lift get
-  tyCons <- traverseNewMap globalTyConKeys defaultTyConInfoKinds (tcsGlobalTyCons state)
-  terms <- traverseNewMap globalTermKeys defaultBinderKinds (tcsGlobalTerms state)
-  dataTypes <- traverseNewMap globalDataTypeKeys defaultDataTypeKinds (tcsDataTypes state)
-  classes <- traverseNewMap globalClassKeys defaultClassKinds (tcsClasses state)
-  instances <- instanceEnvFromList <$> mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (instanceEnvList (tcsInstances state))
-  dataFamilyInstances <- traverseNewMap globalDataFamilyInstanceKeys defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
-  typeFamilyInstances <- traverseNewMap globalTypeFamilyInstanceKeys defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
-  patSyns <- traverseNewMap globalPatSynKeys defaultPatSynKinds (tcsPatSyns state)
+  tyCons <- traverseNewMap globalTyCons defaultTyConInfoKinds (tcsGlobalTyCons state)
+  terms <- traverseNewMap globalTerms defaultBinderKinds (tcsGlobalTerms state)
+  dataTypes <- traverseNewMap globalDataTypes defaultDataTypeKinds (tcsDataTypes state)
+  classes <- traverseNewMap globalClasses defaultClassKinds (tcsClasses state)
+  let allInstances = instanceEnvList (tcsInstances state)
+  instances <-
+    if length allInstances == Set.size (globalInstanceKeys initialKeys)
+      then pure (tcsInstances state)
+      else instanceEnvFromList <$> mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) allInstances
+  dataFamilyInstances <- traverseNewMap globalDataFamilyInstances defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
+  typeFamilyInstances <- traverseNewMap globalTypeFamilyInstances defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
+  patSyns <- traverseNewMap globalPatSyns defaultPatSynKinds (tcsPatSyns state)
   lift $
     modify' $ \current ->
       current
@@ -896,10 +906,17 @@ defaultGlobalKindMetas initialKeys = do
   where
     -- Only the entries that this component added need defaulting. Restrict
     -- the walk to them before the traversal.
-    traverseNewMap selectKeys transform current = do
-      let fresh = Map.withoutKeys current (selectKeys initialKeys)
-      defaulted <- traverse transform fresh
-      pure (Map.union defaulted current)
+    -- A table only ever gains entries, so one of the same size as the
+    -- snapshot has nothing new in it and needs no walk at all. Most of
+    -- these tables are untouched by most declaration groups, and they hold
+    -- every entry the imported interfaces brought in.
+    traverseNewMap selectPrevious transform current
+      | Map.size current == Map.size previous = pure current
+      | otherwise = do
+          defaulted <- traverse transform (Map.difference current previous)
+          pure (Map.union defaulted current)
+      where
+        previous = selectPrevious initialKeys
     traverseNewList selectKeys key transform value
       | key value `Set.member` selectKeys initialKeys = pure value
       | otherwise = transform value

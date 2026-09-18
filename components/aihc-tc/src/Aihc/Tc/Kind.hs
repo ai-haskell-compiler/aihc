@@ -32,6 +32,7 @@ module Aihc.Tc.Kind
     unifyKindsAt,
     surfaceTypeSpan,
     zonkKind,
+    kindNeedsZonkIn,
   )
 where
 
@@ -64,6 +65,9 @@ import Aihc.Tc.Solve.Family (normalizeFamilyPred)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, replicateM, when, zipWithM, zipWithM_)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get)
+import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -751,11 +755,17 @@ unifyKindsAt sp expected actual = do
     _ -> emitError sp (KindMismatch expected' actual')
 
 -- | Use scoped equality evidence when a pattern refines a kind variable.
+-- With no equality in scope there is nothing to rewrite with, and the walk
+-- would only rebuild the kind as it already is. Most scopes are like that
+-- and every kind unification asks.
 refineGivenKind :: TcType -> TcM TcType
 refineGivenKind kind = do
   predicates <- getGivenPredicates
-  equalities <- mapM zonkEquality [(left, right) | EqPred left right <- predicates]
-  pure (rewrite equalities Set.empty kind)
+  case [(left, right) | EqPred left right <- predicates] of
+    [] -> pure kind
+    givenEqualities -> do
+      equalities <- mapM zonkEquality givenEqualities
+      pure (rewrite equalities Set.empty kind)
   where
     zonkEquality (left, right) = (,) <$> zonkKind left <*> zonkKind right
     rewrite equalities visited ty
@@ -848,8 +858,51 @@ bindKindMetaAt sp u kind
   | occursInKind u kind = emitError sp (KindMismatch (KMeta u) kind)
   | otherwise = writeMetaTv u kind
 
+-- | Zonk a kind, giving back the kind itself when nothing in it changes.
+--
+-- A kind is walked over and over -- every meta-variable the checker
+-- allocates carries one, and every unification zonks both sides -- and
+-- almost every one of those walks finds a settled kind such as
+-- @TYPE (BoxedRep Lifted)@. Asking first whether the kind holds anything
+-- to rewrite is a pure walk that allocates nothing, and it keeps the
+-- checker from filling the heap with equal copies of the kinds it has.
 zonkKind :: TcType -> TcM TcType
-zonkKind kind =
+zonkKind kind = do
+  state <- lift get
+  if kindNeedsZonkIn state kind then rebuildZonkedKind kind else pure kind
+
+-- | Whether 'rebuildZonkedKind' would change anything in a kind: a solved
+-- meta-variable, or a type synonym to expand. The two walk the same shapes.
+kindNeedsZonkIn :: TcState -> TcType -> Bool
+kindNeedsZonkIn state = goKind
+  where
+    goKind kind =
+      case kind of
+        TcArrowTy -> False
+        TcTyLit {} -> False
+        TcMetaTv (Unique key) -> IntMap.member key (tcsMetaSolutions state)
+        TcTyVar tyVar -> goKind (tvKind tyVar)
+        TcTyCon tyCon arguments
+          | Just synonym <- kindSynonymIn state tyCon,
+            Just {} <- tsiBody synonym,
+            length arguments >= length (tsiParams synonym) ->
+              True
+          | otherwise -> any goKind arguments
+        TcFunTy argument result -> goKind argument || goKind result
+        TcForAllTy tyVar body -> goKind (tvKind tyVar) || goKind body
+        TcQualTy predicates body -> any goPred predicates || goKind body
+        TcAppTy function argument -> goKind function || goKind argument
+    goPred predicate =
+      case predicate of
+        ClassPred _ arguments -> any goKind arguments
+        EqPred left right -> goKind left || goKind right
+        IParamPred _ payload -> goKind payload
+        IrredPred constraint -> goKind constraint
+        QuantifiedPred variables antecedents consequent ->
+          any (goKind . tvKind) variables || any goPred antecedents || goPred consequent
+
+rebuildZonkedKind :: TcType -> TcM TcType
+rebuildZonkedKind kind =
   case kind of
     TcArrowTy -> pure kind
     TcTyLit {} -> pure kind
@@ -858,11 +911,11 @@ zonkKind kind =
       case solution of
         Nothing -> pure kind
         Just solved -> do
-          zonked <- zonkKind solved
+          zonked <- rebuildZonkedKind solved
           writeMetaTv unique zonked
           pure zonked
     TcTyVar tyVar -> do
-      kind' <- zonkKind (tvKind tyVar)
+      kind' <- rebuildZonkedKind (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))
     TcTyCon tyCon arguments -> do
       let tyCon' = tyCon
@@ -871,38 +924,41 @@ zonkKind kind =
         Just synonym
           | Just {} <- tsiBody synonym,
             length arguments >= length (tsiParams synonym) ->
-              zonkKind =<< expandTcTypeSynonyms Set.empty (TcTyCon tyCon' arguments)
-        _ -> TcTyCon tyCon' <$> mapM zonkKind arguments
-    TcFunTy argument result -> TcFunTy <$> zonkKind argument <*> zonkKind result
+              rebuildZonkedKind =<< expandTcTypeSynonyms Set.empty (TcTyCon tyCon' arguments)
+        _ -> TcTyCon tyCon' <$> mapM rebuildZonkedKind arguments
+    TcFunTy argument result -> TcFunTy <$> rebuildZonkedKind argument <*> rebuildZonkedKind result
     TcForAllTy tyVar body -> do
-      kind' <- zonkKind (tvKind tyVar)
-      TcForAllTy (setTyVarKind kind' tyVar) <$> zonkKind body
-    TcQualTy predicates body -> TcQualTy <$> mapM zonkKindPred predicates <*> zonkKind body
-    TcAppTy function argument -> TcAppTy <$> zonkKind function <*> zonkKind argument
+      kind' <- rebuildZonkedKind (tvKind tyVar)
+      TcForAllTy (setTyVarKind kind' tyVar) <$> rebuildZonkedKind body
+    TcQualTy predicates body -> TcQualTy <$> mapM zonkKindPred predicates <*> rebuildZonkedKind body
+    TcAppTy function argument -> TcAppTy <$> rebuildZonkedKind function <*> rebuildZonkedKind argument
   where
     zonkKindPred predicate =
       case predicate of
-        ClassPred className arguments -> ClassPred className <$> mapM zonkKind arguments
-        EqPred left right -> EqPred <$> zonkKind left <*> zonkKind right
-        IParamPred name payload -> IParamPred name <$> zonkKind payload
-        IrredPred constraint -> IrredPred <$> zonkKind constraint
+        ClassPred className arguments -> ClassPred className <$> mapM rebuildZonkedKind arguments
+        EqPred left right -> EqPred <$> rebuildZonkedKind left <*> rebuildZonkedKind right
+        IParamPred name payload -> IParamPred name <$> rebuildZonkedKind payload
+        IrredPred constraint -> IrredPred <$> rebuildZonkedKind constraint
         QuantifiedPred variables antecedents consequent ->
           QuantifiedPred
             <$> mapM zonkVariable variables
             <*> mapM zonkKindPred antecedents
             <*> zonkKindPred consequent
-    zonkVariable variable = setTyVarKind <$> zonkKind (tvKind variable) <*> pure variable
+    zonkVariable variable = setTyVarKind <$> rebuildZonkedKind (tvKind variable) <*> pure variable
 
 -- | The synonym declaration of a type constructor in a kind, if it has one.
 --
 -- A promoted data constructor is never a synonym. The common kind
 -- constructors @BoxedRep@ and @Lifted@ thus need no environment lookup.
 lookupKindSynonym :: TyCon -> TcM (Maybe TypeSynonymInfo)
-lookupKindSynonym tyCon
-  | tyConNamespace tyCon == ResolutionNamespaceTerm = pure Nothing
-  | otherwise = do
-      maybeInfo <- lookupTyConByIdentity tyCon
-      pure (maybeInfo >>= tciTypeSynonym)
+lookupKindSynonym tyCon = do
+  state <- lift get
+  pure (kindSynonymIn state tyCon)
+
+kindSynonymIn :: TcState -> TyCon -> Maybe TypeSynonymInfo
+kindSynonymIn state tyCon
+  | tyConNamespace tyCon == ResolutionNamespaceTerm = Nothing
+  | otherwise = tciTypeSynonym =<< Map.lookup (tyConKey tyCon) (tcsGlobalTyCons state)
 
 defaultKindMetas :: TcType -> TcM TcType
 defaultKindMetas = settleKindMetas Nothing
@@ -914,7 +970,11 @@ defaultKindMetas = settleKindMetas Nothing
 deferKindMetas :: (Unique -> TcM ()) -> TcType -> TcM TcType
 deferKindMetas = settleKindMetas . Just
 
+-- A kind with no meta-variable in it has nothing to settle, and walking it
+-- would only rebuild it as it already is.
 settleKindMetas :: Maybe (Unique -> TcM ()) -> TcType -> TcM TcType
+settleKindMetas _ kind
+  | not (kindMentionsMeta kind) = pure kind
 settleKindMetas defer kind =
   case kind of
     TcArrowTy -> pure kind
@@ -979,6 +1039,32 @@ settleKindMetas defer kind =
             <*> mapM defaultKindPred antecedents
             <*> defaultKindPred consequent
     defaultVariable variable = setTyVarKind <$> recur (tvKind variable) <*> pure variable
+
+-- | Whether a kind mentions a meta-variable anywhere, the kind of a type
+-- variable it binds or occurs in included.
+kindMentionsMeta :: TcType -> Bool
+kindMentionsMeta kind =
+  case kind of
+    TcMetaTv {} -> True
+    TcArrowTy -> False
+    TcTyLit {} -> False
+    TcTyVar tyVar -> kindMentionsMeta (tvKind tyVar)
+    TcTyCon _ arguments -> any kindMentionsMeta arguments
+    TcFunTy argument result -> kindMentionsMeta argument || kindMentionsMeta result
+    TcForAllTy tyVar body -> kindMentionsMeta (tvKind tyVar) || kindMentionsMeta body
+    TcQualTy predicates body -> any predicateMentions predicates || kindMentionsMeta body
+    TcAppTy function argument -> kindMentionsMeta function || kindMentionsMeta argument
+  where
+    predicateMentions predicate =
+      case predicate of
+        ClassPred _ arguments -> any kindMentionsMeta arguments
+        EqPred left right -> kindMentionsMeta left || kindMentionsMeta right
+        IParamPred _ payload -> kindMentionsMeta payload
+        IrredPred constraint -> kindMentionsMeta constraint
+        QuantifiedPred variables antecedents consequent ->
+          any (kindMentionsMeta . tvKind) variables
+            || any predicateMentions antecedents
+            || predicateMentions consequent
 
 freshKindMeta :: TcM TcType
 freshKindMeta = do

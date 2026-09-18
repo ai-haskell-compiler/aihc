@@ -237,18 +237,24 @@ rejectMetaTcAnnotation ann =
             <> renderTcType (tidyType kinds (tcAnnType ann))
         )
 
+-- | An annotation carries one value, so the first cast that matches is the
+-- only one that can. This runs over every annotation of every finalized
+-- module, and trying all seven casts each time was most of its cost.
 rejectMetaFinalAnnotation :: Annotation -> TcM ()
-rejectMetaFinalAnnotation ann = do
-  traverseReject "type annotation" (firstMetaTcAnnotation <$> fromAnnotation @TcAnnotation ann)
-  traverseReject "class annotation" (firstMetaClassAnnotation <$> fromAnnotation @TcClassAnnotation ann)
-  traverseReject "deriving annotation" (firstMetaDerivingAnnotation <$> fromAnnotation @TcDerivingAnnotation ann)
-  traverseReject "instance annotation" (firstMetaInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation ann)
-  traverseReject "instance method annotation" (firstMetaInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation ann)
-  traverseReject "data-family instance annotation" (firstMetaDataFamilyInstance <$> fromAnnotation @DataFamilyInstanceInfo ann)
-  traverseReject "type-family instance annotation" (firstMetaTypeFamilyInstance <$> fromAnnotation @TypeFamilyInstanceInfo ann)
+rejectMetaFinalAnnotation ann =
+  case firstJusts
+    [ reject "type annotation" firstMetaTcAnnotation (fromAnnotation @TcAnnotation ann),
+      reject "class annotation" firstMetaClassAnnotation (fromAnnotation @TcClassAnnotation ann),
+      reject "deriving annotation" firstMetaDerivingAnnotation (fromAnnotation @TcDerivingAnnotation ann),
+      reject "instance annotation" firstMetaInstanceAnnotation (fromAnnotation @TcInstanceAnnotation ann),
+      reject "instance method annotation" firstMetaInstanceMethodAnnotation (fromAnnotation @TcInstanceMethodAnnotation ann),
+      reject "data-family instance annotation" firstMetaDataFamilyInstance (fromAnnotation @DataFamilyInstanceInfo ann),
+      reject "type-family instance annotation" firstMetaTypeFamilyInstance (fromAnnotation @TypeFamilyInstanceInfo ann)
+    ] of
+    Nothing -> pure ()
+    Just action -> action
   where
-    traverseReject _ Nothing = pure ()
-    traverseReject context (Just maybeMeta) = rejectMeta ("finalized " <> context) maybeMeta
+    reject context firstMeta = fmap (rejectMeta ("finalized " <> context) . firstMeta)
 
 rejectMeta :: String -> Maybe Unique -> TcM ()
 rejectMeta context maybeMeta =

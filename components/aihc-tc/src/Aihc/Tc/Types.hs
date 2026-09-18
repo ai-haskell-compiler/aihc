@@ -98,6 +98,8 @@ module Aihc.Tc.Types
     applySubstPred,
     typeMentionsTyVar,
     predicateMentionsTyVar,
+    typeMentionsMeta,
+    predicateMentionsMeta,
     kindMentionsUnique,
     Pred (..),
     constraintTypeToPred,
@@ -108,7 +110,7 @@ module Aihc.Tc.Types
 where
 
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData (..))
 import Control.Monad (zipWithM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -119,7 +121,14 @@ import GHC.Generics (Generic)
 newtype Unique = Unique Int
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData Unique
+-- | Every field of these types is strict and holds a value that is already
+-- in normal form once it is in weak head normal form -- a 'Text' is a
+-- byte array and an offset, a namespace is a nullary constructor -- so
+-- forcing the constructor forces the whole value. The derived instances
+-- went through the generic representation of the type instead, and these
+-- are forced often enough for that to show.
+instance NFData Unique where
+  rnf unique = unique `seq` ()
 
 -- | A type variable and its type-level kind. Equality is structural: two
 -- occurrences of one variable whose kinds differ (a GADT match can refine
@@ -128,7 +137,8 @@ instance NFData Unique
 data TyVarId = TyVarIdInternal !Text !Unique !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TyVarId
+instance NFData TyVarId where
+  rnf (TyVarIdInternal _ _ kind) = rnf kind
 
 -- The identity of a variable: its name and unique, without its kind.
 tyVarIdentity :: TyVarId -> (Unique, Text)
@@ -156,7 +166,8 @@ setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique 
 data TyCon = TyConInternal !Text !PackageId !Text !ResolutionNamespace !Int
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TyCon
+instance NFData TyCon where
+  rnf tyCon = tyCon `seq` ()
 
 pattern TyCon :: Text -> Int -> TyCon
 pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName _ _ _ tyConArity
@@ -178,7 +189,8 @@ data TcTypeKey = TcTypeKey
   }
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TcTypeKey
+instance NFData TcTypeKey where
+  rnf key = key `seq` ()
 
 -- | Package, module, and axiom name. This identity is unique across modules.
 data TcAxiomKey = TcAxiomKey
@@ -188,7 +200,8 @@ data TcAxiomKey = TcAxiomKey
   }
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TcAxiomKey
+instance NFData TcAxiomKey where
+  rnf key = key `seq` ()
 
 type TcKindEnv = Map TcTypeKey TypeScheme
 
@@ -246,7 +259,17 @@ data TcType
     TcTyLit !TyLit
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TcType
+instance NFData TcType where
+  rnf ty = case ty of
+    TcTyVar tyVar -> rnf tyVar
+    TcMetaTv {} -> ()
+    TcTyCon _ arguments -> rnf arguments
+    TcArrowTy -> ()
+    TcFunTy argument result -> rnf argument `seq` rnf result
+    TcForAllTy tyVar body -> rnf tyVar `seq` rnf body
+    TcQualTy predicates body -> rnf predicates `seq` rnf body
+    TcAppTy function argument -> rnf function `seq` rnf argument
+    TcTyLit {} -> ()
 
 -- | A type-level literal, by sort. A natural stands at kind
 -- @GHC.Num.Natural.Natural@, a symbol at @GHC.Types.Symbol@ and a
@@ -257,7 +280,8 @@ data TyLit
   | TyLitChar !Char
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TyLit
+instance NFData TyLit where
+  rnf literal = literal `seq` ()
 
 -- | A type scheme. The first binders are the *inferred* ones: variables
 -- the checker invented, such as the kind of a parameter the source left
@@ -269,7 +293,9 @@ instance NFData TyLit
 data TypeScheme = Scheme ![TyVarId] ![TyVarId] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData TypeScheme
+instance NFData TypeScheme where
+  rnf (Scheme inferred specified predicates body) =
+    rnf inferred `seq` rnf specified `seq` rnf predicates `seq` rnf body
 
 -- | Every binder of a scheme, inferred first. This is how a scheme is
 -- read; building one names the two kinds of binder apart.
@@ -330,7 +356,14 @@ data Pred
     IrredPred !TcType
   deriving (Eq, Ord, Show, Read, Generic)
 
-instance NFData Pred
+instance NFData Pred where
+  rnf predicate = case predicate of
+    ClassPred _ arguments -> rnf arguments
+    EqPred left right -> rnf left `seq` rnf right
+    QuantifiedPred variables antecedents consequent ->
+      rnf variables `seq` rnf antecedents `seq` rnf consequent
+    IParamPred _ payload -> rnf payload
+    IrredPred constraint -> rnf constraint
 
 -- | Convert a constraint-kinded type to a predicate.
 constraintTypeToPred :: TcKinds -> TcType -> Maybe Pred
@@ -610,6 +643,36 @@ applySubstPred substitution predicate =
             [setTyVarKind (applySubst scopedSubstitution (tvKind variable)) variable | variable <- variables]
             (map (applySubstPred scopedSubstitution) antecedents)
             (applySubstPred scopedSubstitution consequent)
+
+-- | Whether a type mentions a meta-variable, without building the list of
+-- them. A caller that only asks whether there are any pays for the walk
+-- alone; 'Aihc.Tc.Generalize.collectMetaVars' answers the same question
+-- with a list, and these two must agree on where they look.
+typeMentionsMeta :: TcType -> Bool
+typeMentionsMeta ty =
+  case ty of
+    TcMetaTv {} -> True
+    TcTyVar {} -> False
+    TcArrowTy -> False
+    TcTyLit {} -> False
+    TcTyCon _ arguments -> any typeMentionsMeta arguments
+    TcFunTy argument result -> typeMentionsMeta argument || typeMentionsMeta result
+    TcForAllTy _ body -> typeMentionsMeta body
+    TcQualTy predicates body -> any predicateMentionsMeta predicates || typeMentionsMeta body
+    TcAppTy function argument -> typeMentionsMeta function || typeMentionsMeta argument
+
+-- | Whether a predicate mentions a meta-variable.
+predicateMentionsMeta :: Pred -> Bool
+predicateMentionsMeta predicate =
+  case predicate of
+    ClassPred _ arguments -> any typeMentionsMeta arguments
+    EqPred left right -> typeMentionsMeta left || typeMentionsMeta right
+    IParamPred _ payload -> typeMentionsMeta payload
+    IrredPred constraint -> typeMentionsMeta constraint
+    QuantifiedPred variables antecedents consequent ->
+      any (typeMentionsMeta . tvKind) variables
+        || any predicateMentionsMeta antecedents
+        || predicateMentionsMeta consequent
 
 -- | Whether a type mentions one type variable.
 --

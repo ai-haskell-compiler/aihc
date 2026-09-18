@@ -77,6 +77,7 @@ module Aihc.Tc.Monad
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
     getTermEnv,
+    getMetaTermEnv,
     withVisibleTerms,
     isTermVisible,
     lookupTyCon,
@@ -464,6 +465,17 @@ data TcState = TcState
     -- Global keys store the package, module, and identifier selected by
     -- @aihc-resolve@.
     tcsGlobalTerms :: !(Map TcTermKey TcBinder),
+    -- | The global terms whose binder may still mention a meta-variable.
+    --
+    -- A binding the checker has not generalized yet is registered globally
+    -- with a monomorphic placeholder type, and generalization must not
+    -- quantify the meta-variables of such a binding. Only those entries
+    -- can hold one: everything else is a scheme, either read from an
+    -- interface or committed after generalization. The set is a
+    -- conservative superset -- an entry stays in it until it is written
+    -- again -- so that the generalizer can look at these alone instead of
+    -- walking every term the imported interfaces brought in.
+    tcsMetaTerms :: !(Set.Set TcTermKey),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map TcTypeKey TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
@@ -512,6 +524,7 @@ initTcState =
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = Map.empty,
+      tcsMetaTerms = Set.empty,
       tcsGlobalTyCons = Map.empty,
       tcsDataTypes = Map.empty,
       tcsPatSyns = Map.empty,
@@ -656,6 +669,32 @@ getTermEnv = do
   globals <- lift $ gets tcsGlobalTerms
   pure (locals <> globals)
 
+-- | The visible term bindings that can still mention a meta-variable: the
+-- local ones, which the enclosing scope is still inferring, and the global
+-- placeholders of 'tcsMetaTerms'. A local binding shadows a global one, as
+-- in 'getTermEnv'.
+getMetaTermEnv :: TcM (Map TcTermKey TcBinder)
+getMetaTermEnv = do
+  locals <- asks tcEnvTerms
+  globals <- lift $ gets tcsGlobalTerms
+  metaKeys <- lift $ gets tcsMetaTerms
+  pure (locals <> Map.restrictKeys globals metaKeys)
+
+-- | Note a global term that a generalization has to look at, when its
+-- binder still mentions a meta-variable.
+noteMetaTerm :: TcTermKey -> TcBinder -> TcM ()
+noteMetaTerm key binder
+  | binderMentionsMeta binder =
+      lift $ modify' $ \state -> state {tcsMetaTerms = Set.insert key (tcsMetaTerms state)}
+  | otherwise = pure ()
+
+-- | Whether a binder's type still mentions a meta-variable.
+binderMentionsMeta :: TcBinder -> Bool
+binderMentionsMeta binder =
+  case binder of
+    TcIdBinder (ForAll _ predicates ty) _ -> any predicateMentionsMeta predicates || typeMentionsMeta ty
+    TcMonoIdBinder ty -> typeMentionsMeta ty
+
 -- | Use the resolver's scope facts without another name resolution pass.
 withVisibleTerms :: [TcTermKey] -> TcM a -> TcM a
 withVisibleTerms terms = local (\env -> env {tcEnvVisibleTerms = Set.fromList terms})
@@ -687,12 +726,14 @@ extendTermKeyEnvPermanent key binder = do
   terms <- lift $ gets tcsGlobalTerms
   terms' <- insertNewMap "global term environment" key binder terms
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
+  noteMetaTerm key binder
 
 -- | Replace a permanent global term entry. A synthesized binding registers
 -- a provisional type before its check and the checked type after it.
 replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
-replaceTermKeyEnvPermanent key binder =
+replaceTermKeyEnvPermanent key binder = do
   lift $ modify' $ \state -> state {tcsGlobalTerms = Map.insert key binder (tcsGlobalTerms state)}
+  noteMetaTerm key binder
 
 -- | Replace the temporary monomorphic entries for one inferred top-level
 -- binding. No other permanent term entry can use this operation.

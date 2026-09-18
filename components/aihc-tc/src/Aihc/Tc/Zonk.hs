@@ -18,17 +18,62 @@ where
 
 import Aihc.Tc.Constraint (EqProvenance (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..))
-import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
+import Aihc.Tc.Kind (defaultKindMetas, kindNeedsZonkIn, zonkKind)
 import Aihc.Tc.Monad (TcM, TcState (..), getKinds, readMetaTv, writeMetaTv)
 import Aihc.Tc.Tidy (tidyDiagnostic)
 import Aihc.Tc.Types
 import Control.Monad ((>=>))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (gets, modify')
+import Control.Monad.Trans.State.Strict (get, gets, modify')
+import Data.IntMap.Strict qualified as IntMap
 
 -- | Zonk a type: chase meta-variable solutions to their final values.
+--
+-- A type with nothing to chase is given back as it is. The checker zonks
+-- the same types over and over -- before every unification, every
+-- generalization and every annotation -- and a rebuilt copy of a settled
+-- type is only heap for the collector to move. The question is decided by
+-- a pure walk that allocates nothing.
 zonkType :: TcType -> TcM TcType
-zonkType ty = case ty of
+zonkType ty = do
+  state <- lift get
+  if typeNeedsZonkIn state ty then rebuildZonkedType ty else pure ty
+
+-- | Whether 'rebuildZonkedType' would change anything in a type: a solved
+-- meta-variable, a kind that 'zonkKind' rewrites, or an application that
+-- 'mkAppTy' normalises.
+typeNeedsZonkIn :: TcState -> TcType -> Bool
+typeNeedsZonkIn state ty = case ty of
+  TcArrowTy -> False
+  TcTyLit {} -> False
+  TcMetaTv (Unique key) -> IntMap.member key (tcsMetaSolutions state)
+  TcTyVar tv -> kindNeedsZonkIn state (tvKind tv)
+  TcTyCon _ args -> any (typeNeedsZonkIn state) args
+  TcFunTy a b -> typeNeedsZonkIn state a || typeNeedsZonkIn state b
+  TcForAllTy tv body -> kindNeedsZonkIn state (tvKind tv) || typeNeedsZonkIn state body
+  TcQualTy preds body -> any (predNeedsZonkIn state) preds || typeNeedsZonkIn state body
+  TcAppTy f a -> normalises f || typeNeedsZonkIn state f || typeNeedsZonkIn state a
+  where
+    -- The shapes 'mkAppTy' rewrites rather than rebuilds.
+    normalises f = case f of
+      TcTyCon {} -> True
+      TcAppTy TcArrowTy _ -> True
+      _ -> False
+
+-- | Whether 'rebuildZonkedPred' would change anything in a predicate.
+predNeedsZonkIn :: TcState -> Pred -> Bool
+predNeedsZonkIn state predicate = case predicate of
+  ClassPred _ args -> any (typeNeedsZonkIn state) args
+  EqPred a b -> typeNeedsZonkIn state a || typeNeedsZonkIn state b
+  IParamPred _ payload -> typeNeedsZonkIn state payload
+  IrredPred constraint -> typeNeedsZonkIn state constraint
+  QuantifiedPred variables antecedents consequent ->
+    any (kindNeedsZonkIn state . tvKind) variables
+      || any (predNeedsZonkIn state) antecedents
+      || predNeedsZonkIn state consequent
+
+rebuildZonkedType :: TcType -> TcM TcType
+rebuildZonkedType ty = case ty of
   TcArrowTy -> pure ty
   TcTyLit {} -> pure ty
   TcMetaTv u -> do
@@ -36,24 +81,29 @@ zonkType ty = case ty of
     case mSol of
       Nothing -> pure ty
       Just sol -> do
-        zonked <- zonkType sol
+        zonked <- rebuildZonkedType sol
         writeMetaTv u zonked
         pure zonked
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
-  TcTyCon tc args -> TcTyCon tc <$> mapM zonkType args
-  TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
-  TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
-  TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
-  TcAppTy f a -> mkAppTy <$> zonkType f <*> zonkType a
+  TcTyCon tc args -> TcTyCon tc <$> mapM rebuildZonkedType args
+  TcFunTy a b -> TcFunTy <$> rebuildZonkedType a <*> rebuildZonkedType b
+  TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> rebuildZonkedType body
+  TcQualTy preds body -> TcQualTy <$> mapM rebuildZonkedPred preds <*> rebuildZonkedType body
+  TcAppTy f a -> mkAppTy <$> rebuildZonkedType f <*> rebuildZonkedType a
 
--- | Zonk a predicate.
+-- | Zonk a predicate, giving it back as it is when nothing changes.
 zonkPred :: Pred -> TcM Pred
-zonkPred (ClassPred cls args) = ClassPred cls <$> mapM zonkType args
-zonkPred (EqPred a b) = EqPred <$> zonkType a <*> zonkType b
-zonkPred (IParamPred name payload) = IParamPred name <$> zonkType payload
-zonkPred (IrredPred constraint) = IrredPred <$> zonkType constraint
-zonkPred (QuantifiedPred variables antecedents consequent) =
-  QuantifiedPred <$> mapM zonkTyVar variables <*> mapM zonkPred antecedents <*> zonkPred consequent
+zonkPred predicate = do
+  state <- lift get
+  if predNeedsZonkIn state predicate then rebuildZonkedPred predicate else pure predicate
+
+rebuildZonkedPred :: Pred -> TcM Pred
+rebuildZonkedPred (ClassPred cls args) = ClassPred cls <$> mapM rebuildZonkedType args
+rebuildZonkedPred (EqPred a b) = EqPred <$> rebuildZonkedType a <*> rebuildZonkedType b
+rebuildZonkedPred (IParamPred name payload) = IParamPred name <$> rebuildZonkedType payload
+rebuildZonkedPred (IrredPred constraint) = IrredPred <$> rebuildZonkedType constraint
+rebuildZonkedPred (QuantifiedPred variables antecedents consequent) =
+  QuantifiedPred <$> mapM zonkTyVar variables <*> mapM rebuildZonkedPred antecedents <*> rebuildZonkedPred consequent
 
 zonkTyVar :: TyVarId -> TcM TyVarId
 zonkTyVar tv = do

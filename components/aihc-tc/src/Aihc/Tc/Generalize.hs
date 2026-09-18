@@ -16,7 +16,7 @@ module Aihc.Tc.Generalize
 where
 
 import Aihc.Tc.Kind (defaultKindMetas, deferKindMetas)
-import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, deferKindMeta, freshSkolemTv, getKinds, getPolyKinds, getTermEnv, readMetaTv, readMetaTvKind, writeMetaTv)
+import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, deferKindMeta, freshSkolemTv, getKinds, getMetaTermEnv, getPolyKinds, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (forM_, void, when)
@@ -151,7 +151,7 @@ reachableMetaVars = go []
 -- quantify over them. The ignored binders are not part of the environment.
 environmentMetaVars :: Set.Set TcTermKey -> TcM [Unique]
 environmentMetaVars ignoredKeys = do
-  env <- getTermEnv
+  env <- getMetaTermEnv
   nubOrd . concat
     <$> mapM
       binderMetaVars
@@ -264,13 +264,13 @@ zonkPred (QuantifiedPred variables antecedents consequent) =
 -- environment are closed top-level schemes.
 binderMetaVars :: TcBinder -> TcM [Unique]
 binderMetaVars (TcIdBinder (ForAll _ preds ty) _)
-  | null (collectMetaVars ty) && all (null . predMetaVars) preds = pure []
+  | not (typeMentionsMeta ty) && not (any predicateMentionsMeta preds) = pure []
   | otherwise = do
       ty' <- zonkType ty
       preds' <- mapM zonkPred preds
       pure (collectMetaVars ty' ++ concatMap predMetaVars preds')
 binderMetaVars (TcMonoIdBinder ty)
-  | null (collectMetaVars ty) = pure []
+  | not (typeMentionsMeta ty) = pure []
   | otherwise = collectMetaVars <$> zonkType ty
 
 -- | Remove duplicates from an ordered list.
