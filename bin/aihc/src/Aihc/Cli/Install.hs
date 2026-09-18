@@ -3049,63 +3049,65 @@ runToolWith adjust executable arguments = do
             )
         )
 
+-- Applied to the unit's interface and no more, this gives a function the
+-- unit's modules share, so 'addReferencedFacts' prepares its tables once.
 moduleTypeInterface :: TcKinds -> [TcTermKey] -> ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
-moduleTypeInterface kinds supportTerms exports package interface source =
-  addReferencedFacts
-    (typeLiteralKindTyCons kinds)
-    supportTerms
-    interface
-    interface
-      { tcInterfaceTermMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceTermMap interface),
-        tcInterfaceTyConMap = Map.filter visibleTyCon (tcInterfaceTyConMap interface),
-        tcInterfaceDataTypeMap = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface),
-        tcInterfaceClassMap = Map.filter visibleClass (tcInterfaceClassMap interface),
-        tcInterfaceInstanceMap = Map.filter visibleInstance (tcInterfaceInstanceMap interface),
-        tcInterfaceDataFamilyInstanceMap = Map.filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstanceMap interface),
-        tcInterfaceTypeFamilyInstanceMap = Map.filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
-        tcInterfacePatSynMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfacePatSynMap interface),
-        tcInterfaceForeignImportMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceForeignImportMap interface)
-      }
+moduleTypeInterface kinds supportTerms exports package interface = go
   where
-    name = sourceModuleName source
-    scope = fromMaybe (error "missing resolve scope") (lookupModuleExport (ModuleKey package name) exports)
-    termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTerms scope)))
-    typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
-    localIdentity identifier = (packageId package, name, identifier)
-    localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
-    visibleTerm (TcTermGlobal packageId' moduleName' identifier) =
-      visibleTermIdentity (packageId', moduleName', identifier)
-        || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
-    visibleTerm (TcTermLocal {}) = False
-    visibleTermIdentity identity@(_, _, identifier) =
-      Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
-    -- The matcher and the builder of a visible pattern synonym are visible.
-    patSynHelperBase identifier = mapMaybe (`T.stripPrefix` identifier) ["$m", "$b"]
-    visibleTyCon info =
-      let tyCon = tciTyCon info
-          identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
-          (namespaceScope, namespaceIdentities) =
-            case tyConNamespace tyCon of
-              ResolutionNamespaceTerm -> (scopeTerms scope, termIdentities)
-              ResolutionNamespaceType -> (scopeTypes scope, typeIdentities)
-              ResolutionNamespaceModule -> (Map.empty, Set.empty)
-       in Map.member (tciName info) namespaceScope || identity `Set.member` namespaceIdentities || identity == localIdentity (tciName info)
-    visibleTypeIdentity (TcTypeKey identifier packageId' moduleName' namespace) =
-      let identity = (packageId', moduleName', identifier)
-       in namespace == ResolutionNamespaceType
-            && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
-    visibleClass info =
-      case ciOrigin info of
-        Just (packageIdText, moduleName') ->
-          let identity = (PackageId packageIdText, moduleName', ciName info)
-           in Map.member (ciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
-        Nothing -> False
-    visibleInstance info = iiDictOrigin info == (packageIdText (packageId package), name)
-    visibleDataFamilyInstance = localTyCon . dfiiRepresentationTyCon
-    visibleTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
-    resolvedIdentity resolved = case resolved of
-      ResolvedTopLevel packageId' resolvedModule resolvedName -> Just (packageId', resolvedModule, nameText resolvedName)
-      _ -> Nothing
+    addReference = addReferencedFacts (typeLiteralKindTyCons kinds) supportTerms interface
+    go source =
+      addReference
+        interface
+          { tcInterfaceTermMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceTermMap interface),
+            tcInterfaceTyConMap = Map.filter visibleTyCon (tcInterfaceTyConMap interface),
+            tcInterfaceDataTypeMap = Map.filterWithKey (\key _ -> visibleTypeIdentity key) (tcInterfaceDataTypeMap interface),
+            tcInterfaceClassMap = Map.filter visibleClass (tcInterfaceClassMap interface),
+            tcInterfaceInstanceMap = Map.filter visibleInstance (tcInterfaceInstanceMap interface),
+            tcInterfaceDataFamilyInstanceMap = Map.filter visibleDataFamilyInstance (tcInterfaceDataFamilyInstanceMap interface),
+            tcInterfaceTypeFamilyInstanceMap = Map.filter visibleTypeFamilyInstance (tcInterfaceTypeFamilyInstanceMap interface),
+            tcInterfacePatSynMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfacePatSynMap interface),
+            tcInterfaceForeignImportMap = Map.filterWithKey (\key _ -> visibleTerm key) (tcInterfaceForeignImportMap interface)
+          }
+      where
+        name = sourceModuleName source
+        scope = fromMaybe (error "missing resolve scope") (lookupModuleExport (ModuleKey package name) exports)
+        termIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTerms scope)))
+        typeIdentities = Set.fromList (mapMaybe resolvedIdentity (Map.elems (scopeTypes scope)))
+        localIdentity identifier = (packageId package, name, identifier)
+        localTyCon tyCon = tyConPackageId tyCon == packageId package && tyConModuleName tyCon == name
+        visibleTerm (TcTermGlobal packageId' moduleName' identifier) =
+          visibleTermIdentity (packageId', moduleName', identifier)
+            || any (visibleTermIdentity . (packageId',moduleName',)) (patSynHelperBase identifier)
+        visibleTerm (TcTermLocal {}) = False
+        visibleTermIdentity identity@(_, _, identifier) =
+          Map.member identifier (scopeTerms scope) || identity `Set.member` termIdentities || identity == localIdentity identifier
+        -- The matcher and the builder of a visible pattern synonym are visible.
+        patSynHelperBase identifier = mapMaybe (`T.stripPrefix` identifier) ["$m", "$b"]
+        visibleTyCon info =
+          let tyCon = tciTyCon info
+              identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
+              (namespaceScope, namespaceIdentities) =
+                case tyConNamespace tyCon of
+                  ResolutionNamespaceTerm -> (scopeTerms scope, termIdentities)
+                  ResolutionNamespaceType -> (scopeTypes scope, typeIdentities)
+                  ResolutionNamespaceModule -> (Map.empty, Set.empty)
+           in Map.member (tciName info) namespaceScope || identity `Set.member` namespaceIdentities || identity == localIdentity (tciName info)
+        visibleTypeIdentity (TcTypeKey identifier packageId' moduleName' namespace) =
+          let identity = (packageId', moduleName', identifier)
+           in namespace == ResolutionNamespaceType
+                && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
+        visibleClass info =
+          case ciOrigin info of
+            Just (packageIdText, moduleName') ->
+              let identity = (PackageId packageIdText, moduleName', ciName info)
+               in Map.member (ciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
+            Nothing -> False
+        visibleInstance info = iiDictOrigin info == (packageIdText (packageId package), name)
+        visibleDataFamilyInstance = localTyCon . dfiiRepresentationTyCon
+        visibleTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
+        resolvedIdentity resolved = case resolved of
+          ResolvedTopLevel packageId' resolvedModule resolvedName -> Just (packageId', resolvedModule, nameText resolvedName)
+          _ -> Nothing
 
 -- | The kinds of the type-level literals. A literal names no type
 -- constructor of its own, but its kind is one and the desugarer needs that
@@ -3126,82 +3128,96 @@ typeLiteralSupportTerms prim =
 -- The extra roots are type constructors the module needs that nothing in
 -- its own facts names: the kinds of the type-level literals, which a
 -- literal refers to without naming.
+-- Applying this to the complete interface and no more gives a function the
+-- modules of a unit share: they all close over the same facts, and the
+-- dependencies of each fact are then found once rather than once per module.
 addReferencedFacts :: [TyCon] -> [TcTermKey] -> TcInterface -> TcInterface -> TcInterface
-addReferencedFacts extraRoots extraTerms complete interface =
-  interface
-    { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
-      tcInterfaceTyConMap = tcInterfaceTyConMap interface <> supportTyCons,
-      tcInterfaceDataTypeMap = tcInterfaceDataTypeMap interface <> supportDataTypes,
-      tcInterfaceClassMap = tcInterfaceClassMap interface <> supportClasses
-    }
+addReferencedFacts extraRoots extraTerms complete = go
   where
     availableTyCons = tcInterfaceTyConMap complete
     availableDataTypes = tcInterfaceDataTypeMap complete
     availableClasses = tcInterfaceClassMap complete
-    -- A use of a function with a HasCallStack constraint desugars to calls
-    -- of the call-stack helpers, even when the module does not import them.
-    callStackModules =
-      Set.fromList
-        [ (tyConPackageId tyCon, tyConModuleName tyCon)
-        | tyCon <- Set.toList (Set.unions (map (typeSchemeTyCons . snd) (tcInterfaceTerms interface))),
-          tyConName tyCon == "CallStack"
-        ]
-    callStackSupportTerms =
-      [ (key, scheme)
-      | (package', moduleName') <- Set.toList callStackModules,
-        identifier <- ["pushCallStack", "emptyCallStack"],
-        let key = TcTermGlobal package' moduleName' identifier,
-        key `Map.notMember` tcInterfaceTermMap interface,
-        Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
-      ]
-        <> [ (key, scheme)
-           | key <- extraTerms,
-             key `Map.notMember` tcInterfaceTermMap interface,
-             Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
-           ]
-    callStackSupportTyCons
-      | Set.null callStackModules = []
-      | otherwise =
-          [ tyCon
-          | info <- Map.elems availableTyCons,
-            let tyCon = tciTyCon info,
-            (tyConPackageId tyCon, tyConModuleName tyCon) `Set.member` callStackModules,
-            tyConName tyCon `elem` ["SrcLoc", "CallStack"]
-          ]
-    referenced =
-      interfaceTyCons interface
-        <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
-        <> Set.fromList callStackSupportTyCons
-        <> Set.fromList extraRoots
-    reachable = closeTyCons Set.empty referenced
-    -- Typeable evidence for an applied type desugars to a call of the
-    -- class's @typeRep@ selector on the evidence of each argument. The
-    -- class reaches a module as the superclass of one it names, so the
-    -- module may hold the class without ever importing the selector.
-    typeableSupportTerms =
-      [ (key, scheme)
-      | tyCon <- Set.toList reachable,
-        tyConName tyCon == "Typeable",
-        tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
-        let key = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
-        key `Map.notMember` tcInterfaceTermMap interface,
-        Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
-      ]
-    reachableKeys = Set.map tyConKey reachable
-    supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))
-    supportDataTypes = Map.restrictKeys availableDataTypes (reachableKeys `Set.difference` Map.keysSet (tcInterfaceDataTypeMap interface))
-    supportClasses = Map.restrictKeys availableClasses (reachableKeys `Set.difference` Map.keysSet (tcInterfaceClassMap interface))
+    -- The type constructors that each fact of the complete interface refers
+    -- to. The values are thunks, so a fact no module reaches costs its key
+    -- alone, and one that many modules reach is walked once for all of them.
+    tyConDependencies :: LazyMap.Map TcTypeKey (Set.Set TyCon)
+    tyConDependencies =
+      LazyMap.fromSet
+        ( \key ->
+            maybe mempty tyConInfoTyCons (Map.lookup key availableTyCons)
+              <> maybe mempty dataTypeInfoTyCons (Map.lookup key availableDataTypes)
+              <> maybe mempty classInfoTyCons (Map.lookup key availableClasses)
+        )
+        (Map.keysSet availableTyCons <> Map.keysSet availableDataTypes <> Map.keysSet availableClasses)
     closeTyCons found pending
       | Set.null pending = found
       | otherwise =
           let (tyCon, pending') = Set.deleteFindMin pending
-              key = tyConKey tyCon
-              dependencies =
-                maybe mempty tyConInfoTyCons (Map.lookup key availableTyCons)
-                  <> maybe mempty dataTypeInfoTyCons (Map.lookup key availableDataTypes)
-                  <> maybe mempty classInfoTyCons (Map.lookup key availableClasses)
+              dependencies = LazyMap.findWithDefault mempty (tyConKey tyCon) tyConDependencies
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
+    go interface =
+      interface
+        { tcInterfaceTermMap = tcInterfaceTermMap interface <> Map.fromList (callStackSupportTerms <> typeableSupportTerms),
+          tcInterfaceTyConMap = tcInterfaceTyConMap interface <> supportTyCons,
+          tcInterfaceDataTypeMap = tcInterfaceDataTypeMap interface <> supportDataTypes,
+          tcInterfaceClassMap = tcInterfaceClassMap interface <> supportClasses
+        }
+      where
+        -- A use of a function with a HasCallStack constraint desugars to
+        -- calls of the call-stack helpers, even when the module does not
+        -- import them.
+        callStackModules =
+          Set.fromList
+            [ (tyConPackageId tyCon, tyConModuleName tyCon)
+            | tyCon <- Set.toList (Set.unions (map (typeSchemeTyCons . snd) (tcInterfaceTerms interface))),
+              tyConName tyCon == "CallStack"
+            ]
+        callStackSupportTerms =
+          [ (key, scheme)
+          | (package', moduleName') <- Set.toList callStackModules,
+            identifier <- ["pushCallStack", "emptyCallStack"],
+            let key = TcTermGlobal package' moduleName' identifier,
+            key `Map.notMember` tcInterfaceTermMap interface,
+            Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
+          ]
+            <> [ (key, scheme)
+               | key <- extraTerms,
+                 key `Map.notMember` tcInterfaceTermMap interface,
+                 Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
+               ]
+        callStackSupportTyCons
+          | Set.null callStackModules = []
+          | otherwise =
+              [ tyCon
+              | info <- Map.elems availableTyCons,
+                let tyCon = tciTyCon info,
+                (tyConPackageId tyCon, tyConModuleName tyCon) `Set.member` callStackModules,
+                tyConName tyCon `elem` ["SrcLoc", "CallStack"]
+              ]
+        referenced =
+          interfaceTyCons interface
+            <> Set.unions (map (typeSchemeTyCons . snd) callStackSupportTerms)
+            <> Set.fromList callStackSupportTyCons
+            <> Set.fromList extraRoots
+        reachable = closeTyCons Set.empty referenced
+        -- Typeable evidence for an applied type desugars to a call of the
+        -- class's @typeRep@ selector on the evidence of each argument. The
+        -- class reaches a module as the superclass of one it names, so the
+        -- module may hold the class without ever importing the selector.
+        typeableSupportTerms =
+          [ (key, scheme)
+          | tyCon <- Set.toList reachable,
+            tyConName tyCon == "Typeable",
+            tyConModuleName tyCon `elem` ["Type.Reflection", "Type.Reflection.Internal"],
+            let key = TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) "typeRep",
+            key `Map.notMember` tcInterfaceTermMap interface,
+            Just scheme <- [Map.lookup key (tcInterfaceTermMap complete)]
+          ]
+        reachableKeys = Set.map tyConKey reachable
+        supportTyCons = Map.restrictKeys availableTyCons (reachableKeys `Set.difference` Map.keysSet (tcInterfaceTyConMap interface))
+        supportDataTypes = Map.restrictKeys availableDataTypes (reachableKeys `Set.difference` Map.keysSet (tcInterfaceDataTypeMap interface))
+        supportClasses = Map.restrictKeys availableClasses (reachableKeys `Set.difference` Map.keysSet (tcInterfaceClassMap interface))
 
 writeTypeArtifact :: (String -> IO ()) -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
 writeTypeArtifact verbose artifactPath source interface = do
