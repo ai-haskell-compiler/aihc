@@ -176,7 +176,7 @@ import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerA
 import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
 import GHC.Num (Num (..))
-import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#))
+import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, word8ToWord#, (+#), (<#), (==#), (>#))
 import GHC.Prim.Read (ReadS, minPrec)
 import GHC.Real
   ( Fractional (..),
@@ -621,18 +621,30 @@ showLitChar char@(C# value) =
 
 showLitCode :: Char -> Int# -> ShowS
 showLitCode char code =
-  case (<#) code 32# of
-    1# -> showChar '\\' . showString (asciiControlName code)
+  case (>#) code 127# of
+    1# -> showNumericEscape code
     _ ->
       case (==#) code 127# of
         1# -> showString "\\DEL"
         _ ->
-          case (<#) code 128# of
-            1# -> showChar char
-            _ ->
-              case (<#) code 160# of
-                1# -> showNumericEscape code
-                _ -> showChar char
+          case (<#) code 32# of
+            1# -> showControlEscape code
+            _ -> showChar char
+
+showControlEscape :: Int# -> ShowS
+showControlEscape code =
+  case (==#) code 14# of
+    1# -> showShiftOutEscape
+    _ -> showChar '\\' . showString (asciiControlName code)
+
+-- A literal @H@ directly after @\\SO@ would read back as @\\SOH@, so an empty
+-- escape separates them.
+showShiftOutEscape :: ShowS
+showShiftOutEscape suffix = showString "\\SO" (protectShiftOutEscape suffix)
+
+protectShiftOutEscape :: String -> String
+protectShiftOutEscape chars@('H' : _) = '\\' : '&' : chars
+protectShiftOutEscape chars = chars
 
 asciiControlName :: Int# -> String
 asciiControlName code =
