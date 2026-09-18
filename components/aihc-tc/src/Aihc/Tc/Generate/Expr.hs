@@ -42,13 +42,13 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName, displayIdentifier)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), annotateExprCast, annotateFunCast, annotateRhsCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), PatSynDirection (..), PatSynInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Generate.Record (constructorNameSyntax, lookupRecordConstructor, orderRecordFields, recordFieldLabel, recordUpdateConstructors, synthesizedRecordLocal)
+import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields, recordFieldLabel, recordHeadNameSyntax, recordUpdateHeads, synthesizedRecordLocal)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkRuntimeType, checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind)
 import Aihc.Tc.Monad
@@ -603,35 +603,40 @@ inferRecordCon sp name fields wildcard = do
   -- means the constructor's fields were not in scope.
   when wildcard $
     abortTc ("the fields of the record wildcard construction of " <> T.unpack (nameText name) <> " are not in scope at " <> show sp)
-  con <- lookupRecordConstructor name
-  args <- orderRecordFields sp con fields missingField
+  -- A record pattern synonym builds through its builder, which is bound
+  -- under the synonym's own name, so both heads expand the same way.
+  head' <- lookupRecordHead name
+  args <- orderRecordFields sp head' fields missingField
   inferExprAt sp (foldl EApp (EVar name) args)
   where
-    missingField field =
-      abortTc ("record construction of " <> T.unpack (nameText name) <> " does not give the field " <> show (fromMaybe "<positional>" (dcfiLabel field)) <> " at " <> show sp)
+    missingField label =
+      abortTc ("record construction of " <> T.unpack (nameText name) <> " does not give the field " <> show (fromMaybe "<positional>" label) <> " at " <> show sp)
 
 -- | A record update is a case expression. Each alternative matches one
--- constructor that has every updated field and rebuilds it with the new
--- field values.
+-- head that has every updated field and rebuilds it with the new field
+-- values. A record pattern synonym is one such head, and it has exactly
+-- one alternative.
 inferRecordUpdate :: Maybe SourceSpan -> Expr -> [RecordField Expr] -> TcM (Expr, TcType, [Ct])
 inferRecordUpdate sp record fields = do
   (record', recordTy, recordCts) <- inferExprAt sp record
   zonked <- zonkType recordTy
-  constructors <- recordUpdateConstructors sp (Just zonked) (map recordFieldLabel fields)
-  alts <- mapM updateAlternative constructors
+  heads <- recordUpdateHeads sp (Just zonked) (map recordFieldLabel fields)
+  alts <- mapM updateAlternative heads
   resTy <- freshMetaTv
   (alts', altCts) <- inferCaseAlts sp recordTy resTy alts
   let pending = pendingAnnotation resTy [] [] []
   pure (annotatePendingExprAt sp pending (ECase record' alts'), resTy, recordCts ++ altCts)
   where
-    updateAlternative con = do
-      binders <- mapM (\index -> synthesizedRecordLocal ("$field" <> T.pack (show index))) [1 .. length (dciFields con)]
-      let conSyntax = constructorNameSyntax con
-          argument field binder =
-            case [recordFieldValue occurrence | occurrence <- fields, Just (recordFieldLabel occurrence) == dcfiLabel field] of
+    updateAlternative :: RecordHead -> TcM (CaseAlt Expr)
+    updateAlternative head' = do
+      let labels = rhFields head'
+      binders <- mapM (\index -> synthesizedRecordLocal ("$field" <> T.pack (show index))) [1 .. length labels]
+      let conSyntax = recordHeadNameSyntax head'
+          argument label binder =
+            case [recordFieldValue occurrence | occurrence <- fields, Just (recordFieldLabel occurrence) == label] of
               value : _ -> value
               [] -> EVar (Name Nothing (unqualifiedNameType binder) (unqualifiedNameText binder) (unqualifiedNameAnns binder))
-          body = foldl EApp (EVar conSyntax) (zipWith argument (dciFields con) binders)
+          body = foldl EApp (EVar conSyntax) (zipWith argument labels binders)
       pure (CaseAlt [] (PCon conSyntax [] (map PVar binders)) (UnguardedRhs [] body Nothing))
 
 inferLambdaCases :: Maybe SourceSpan -> [LambdaCaseAlt] -> TcM (Expr, TcType, [Ct])

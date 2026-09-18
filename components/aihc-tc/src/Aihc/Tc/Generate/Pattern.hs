@@ -43,7 +43,7 @@ import Aihc.Tc.Env (PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
-import Aihc.Tc.Generate.Record (lookupRecordConstructor, orderRecordFields)
+import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
@@ -359,8 +359,8 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PRecord name fields wildcard -> do
       when wildcard $
         abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
-      con <- lookupRecordConstructor name
-      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) con fields (\_ -> pure PWildcard)
+      head' <- lookupRecordHead name
+      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ -> pure PWildcard)
       checkConPattern gadtHandling sp (PCon name [] subPats) name subPats scrutTy
     PList items -> checkListPattern gadtHandling sp items scrutTy
     PView viewExpr inner -> do
