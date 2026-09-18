@@ -126,7 +126,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -487,6 +487,7 @@ tcModuleScc sourceUnits = withPolyKindOrigins polyKindOrigins $ do
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
   mapM_ (atDecl predeclareTypeConstructor) declarations
   mapM_ (atDecl predeclareTypeLevelDataConstructors) declarations
+  mapM_ (atDecl registerDeclaredRecordPatSyn) declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
   mapM_ (atDecl (registerTypeDeclHeader standaloneKindSchemes)) declarations
   let structuralDeclarations =
@@ -2897,6 +2898,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                           { psiName = name,
                             psiOrigin = (package, moduleName'),
                             psiArity = arity,
+                            psiFields = patSynRecordFields (patSynDeclArgs patSyn),
                             psiDirection = direction,
                             psiScheme = scheme,
                             psiReqTheta = patSynLayoutRequired layout,
@@ -3106,6 +3108,28 @@ commitCheckedHelper key results =
       let binder = TcIdBinder (typeToScheme ty) Closed
       replaceTermKeyEnvPermanent key binder
     [] -> pure ()
+
+-- | Register the record head of a record pattern synonym before any body
+-- of the component is checked. A record update names only its field
+-- labels, so nothing orders the binding group of the pattern synonym that
+-- owns them first, and the update still has to find it.
+registerDeclaredRecordPatSyn :: Decl -> TcM ()
+registerDeclaredRecordPatSyn decl =
+  case peelDeclAnn decl of
+    DeclPatSyn patSyn
+      | fields@(_ : _) <- patSynRecordFields (patSynDeclArgs patSyn) -> do
+          key <- resolvedUnqualifiedTermKey (patSynDeclName patSyn)
+          case key of
+            TcTermGlobal package moduleName' name ->
+              addDeclaredRecordPatSyn
+                key
+                RecordHead
+                  { rhName = name,
+                    rhOrigin = (package, moduleName'),
+                    rhFields = map Just fields
+                  }
+            TcTermLocal {} -> pure ()
+    _ -> pure ()
 
 -- | The field labels of a record pattern synonym. Other forms have none.
 patSynRecordFields :: PatSynArgs -> [Text]

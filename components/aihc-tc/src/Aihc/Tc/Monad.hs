@@ -89,6 +89,9 @@ module Aihc.Tc.Monad
     replaceTyConEnvPermanent,
     addDataType,
     addPatSyn,
+    addDeclaredRecordPatSyn,
+    declaredRecordPatSynOwners,
+    recordPatSynHeads,
     getPatSyns,
     lookupPatSyn,
     lookupPatSynTarget,
@@ -144,7 +147,7 @@ import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor, Unqua
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -477,6 +480,15 @@ data TcState = TcState
     tcsGadtCons :: !(Set TcTermKey),
     -- | Pattern synonyms in scope, keyed like their builder term.
     tcsPatSyns :: !(Map TcTermKey PatSynInfo),
+    -- | Record heads of the record pattern synonyms declared in the
+    -- component being checked, keyed like their builder term.
+    --
+    -- A record update names only its field labels, so nothing makes the
+    -- binding group of the pattern synonym that owns them come first.
+    -- These heads are registered before any body is checked, which is all
+    -- a record update needs to expand: the labels give it a field order,
+    -- and the expansion checks against the pattern synonym itself.
+    tcsDeclaredRecordPatSyns :: !(Map TcTermKey RecordHead),
     -- | The checked calling convention of each foreign import in scope.
     tcsForeignImports :: !(Map TcTermKey TcForeignImportInfo),
     -- | Kind meta-variables a generalization left open on purpose.
@@ -503,6 +515,7 @@ initTcState =
       tcsGlobalTyCons = Map.empty,
       tcsDataTypes = Map.empty,
       tcsPatSyns = Map.empty,
+      tcsDeclaredRecordPatSyns = Map.empty,
       tcsClasses = Map.empty,
       tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
@@ -845,6 +858,35 @@ addPatSyn info = do
   patSyns <- lift $ gets tcsPatSyns
   patSyns' <- insertNewMap "pattern synonym state" (patSynKey info) info patSyns
   lift $ modify' $ \state -> state {tcsPatSyns = patSyns'}
+
+-- | Register the record head of a pattern synonym the component declares,
+-- before its own binding group is checked.
+addDeclaredRecordPatSyn :: TcTermKey -> RecordHead -> TcM ()
+addDeclaredRecordPatSyn key head' =
+  lift $ modify' $ \state ->
+    state {tcsDeclaredRecordPatSyns = Map.insert key head' (tcsDeclaredRecordPatSyns state)}
+
+-- | The keys of the declared record pattern synonyms that own the given
+-- field labels. Dependency analysis uses them: a record update that names
+-- a label has to be checked after the pattern synonym it rebuilds.
+declaredRecordPatSynOwners :: [Text] -> TcM [TcTermKey]
+declaredRecordPatSynOwners labels = lift $ gets $ \state ->
+  [ key
+  | (key, head') <- Map.toList (tcsDeclaredRecordPatSyns state),
+    any ((`elem` rhFields head') . Just) labels
+  ]
+
+-- | The record heads of every record pattern synonym in scope: the ones
+-- the component declares and the ones its imports bring in.
+recordPatSynHeads :: TcM [RecordHead]
+recordPatSynHeads = lift $ gets $ \state ->
+  let imported =
+        Map.fromList
+          [ (patSynKey info, patSynRecordHead info)
+          | info <- Map.elems (tcsPatSyns state),
+            not (null (psiFields info))
+          ]
+   in Map.elems (Map.union (tcsDeclaredRecordPatSyns state) imported)
 
 lookupPatSyn :: TcTermKey -> TcM (Maybe PatSynInfo)
 lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)

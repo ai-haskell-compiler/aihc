@@ -1,0 +1,17 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+    data Flag = On | Off
+    data Pair = Pair Flag Flag
+    pattern Point {px, py} = Pair px py
+    swap :: Pair -> Pair
+    swap Point {px = a, py = b} = Point {px = b, py = a}
+output: |
+  Pair Off On
+expression: |
+  swap Point {px = On, py = Off}
+status: pass
+reason: record construction and record patterns accept a record pattern synonym as their head

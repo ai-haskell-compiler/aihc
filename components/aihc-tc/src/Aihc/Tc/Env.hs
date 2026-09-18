@@ -21,6 +21,11 @@ module Aihc.Tc.Env
     DataConSourceForm (..),
     dataConArgTypes,
 
+    -- * Record syntax heads
+    RecordHead (..),
+    dataConRecordHead,
+    patSynRecordHead,
+
     -- * Class info
     ClassInfo (..),
     AssociatedTypeInfo (..),
@@ -219,6 +224,9 @@ data PatSynInfo = PatSynInfo
     -- | Package and module that define the pattern synonym.
     psiOrigin :: !(PackageId, Text),
     psiArity :: !Int,
+    -- | Field labels of a record pattern synonym, in argument order. A
+    -- pattern synonym declared with prefix or infix arguments has none.
+    psiFields :: ![Text],
     psiDirection :: !PatSynDirection,
     -- | The constructor-like type. Its predicates are the required
     -- predicates and then the provided predicates.
@@ -231,6 +239,44 @@ data PatSynInfo = PatSynInfo
   deriving (Eq, Show, Read, Generic)
 
 instance NFData PatSynInfo
+
+-- | What record syntax names: a data constructor or a record pattern
+-- synonym. Both give record syntax a field order and an arity, and both
+-- expand to the same positional forms, an application of the name and a
+-- constructor pattern.
+data RecordHead = RecordHead
+  { rhName :: !Text,
+    -- | Package and module that define the head.
+    rhOrigin :: !(PackageId, Text),
+    -- | One entry per argument, in order. A positional argument has no
+    -- label, so record syntax can only leave it out.
+    rhFields :: ![Maybe Text]
+  }
+  deriving (Eq, Show, Read, Generic)
+
+instance NFData RecordHead
+
+dataConRecordHead :: DataConInfo -> RecordHead
+dataConRecordHead con =
+  RecordHead
+    { rhName = dciName con,
+      rhOrigin = dciOrigin con,
+      rhFields = map dcfiLabel (dciFields con)
+    }
+
+-- | A pattern synonym declared with prefix or infix arguments has no
+-- labelled field, which still lets the empty form, @P {}@, match every
+-- argument.
+patSynRecordHead :: PatSynInfo -> RecordHead
+patSynRecordHead info =
+  RecordHead
+    { rhName = psiName info,
+      rhOrigin = psiOrigin info,
+      rhFields =
+        if null (psiFields info)
+          then replicate (psiArity info) Nothing
+          else map Just (psiFields info)
+    }
 
 -- | Information about a type class.
 data ClassInfo = ClassInfo

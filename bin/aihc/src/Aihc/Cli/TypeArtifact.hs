@@ -353,10 +353,11 @@ getForeignAbiType = do
 
 putPatSynInfo :: PartIndex -> PatSynInfo -> Builder.Builder
 putPatSynInfo table info =
-  cborArray 7
+  cborArray 8
     <> cborText (psiName info)
     <> putOrigin (psiOrigin info)
     <> cborWord (fromIntegral (psiArity info))
+    <> encodeList cborText (psiFields info)
     <> putPatSynDirection (psiDirection info)
     <> putTypeScheme table (psiScheme info)
     <> encodeList (putPred table) (psiReqTheta info)
@@ -364,15 +365,16 @@ putPatSynInfo table info =
 
 getPatSynInfo :: PartTable -> Get.Get PatSynInfo
 getPatSynInfo table = do
-  expectArray 7
+  expectArray 8
   psiName <- getText
   psiOrigin <- getOrigin
   psiArity <- fromIntegral <$!> getWord
+  psiFields <- getList getText
   psiDirection <- getPatSynDirection
   psiScheme <- getTypeScheme table
   psiReqTheta <- getList (getPred table)
   psiProvTheta <- getList (getPred table)
-  pure PatSynInfo {psiName, psiOrigin, psiArity, psiDirection, psiScheme, psiReqTheta, psiProvTheta}
+  pure PatSynInfo {psiName, psiOrigin, psiArity, psiFields, psiDirection, psiScheme, psiReqTheta, psiProvTheta}
 
 putPatSynDirection :: PatSynDirection -> Builder.Builder
 putPatSynDirection direction =
