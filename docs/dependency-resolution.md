@@ -7,14 +7,24 @@ keep it small, and the lock file that makes a plan reproducible.
 
 ## Status
 
-Design. The current planner in `tooling/aihc-package-plan` maps every
-dependency name to the version Hackage prefers, independently of who depends on
-it, and evaluates every cabal flag at its default. Version ranges in
-`build-depends` are never consulted. The failure this produces is silent: `unix`
-declares an automatic `os-string` flag whose default branch requires `filepath`
-below 1.5, the planner hands it `filepath` 1.5.5.0 anyway, and the build fails
-later with missing modules instead of a plan error. Cabal would flip the flag
-and add `os-string`.
+Implemented (September 2026). The solver is `Aihc.PackagePlan.Solver`, the
+lock file is `Aihc.PackagePlan.Lock`, and `Aihc.PackagePlan.planPackages`
+ties them to the Hackage index and the source directories for `aihc install`,
+`aihc build`, and `aihc-haddock`. The design below is what was built; the
+places where the implementation refines it are marked *as built*.
+
+Before this, the planner mapped every dependency name to the version Hackage
+prefers, independently of who depends on it, and evaluated every cabal flag at
+its default. Version ranges in `build-depends` were never consulted. The
+failure this produced was silent: `unix` declares an automatic `os-string`
+flag whose default branch requires `filepath` below 1.5, the planner handed it
+`filepath` 1.5.5.0 anyway, and the build failed later with missing modules
+instead of a plan error. The solver flips the flag and adds `os-string`, as
+Cabal does.
+
+Not done yet: the daily Hackage install workflow still pins its versions in
+the table of `docs/hackage-install-packages.md` and a workspace of unpacked
+releases rather than in a committed lock.
 
 ## Why not cabal-install-solver or snapshots
 
@@ -62,7 +72,11 @@ Further reductions of the package model:
 
 ## Inputs
 
-The solver is a pure function. Everything it reads is passed in:
+The solver is a pure function. Everything it reads is passed in. *As built*,
+the candidates and cabal files arrive through a record of lookups in a
+caller-chosen monad, so the tests run the solver in `Identity` over in-memory
+maps and the compiler runs it in `IO` over the index cache; the solver itself
+does nothing but call those lookups.
 
 - **Candidates**: a lookup from package name to its versions, each with the
   latest revision of its cabal file and whether Hackage deprecates it. The
@@ -73,13 +87,17 @@ The solver is a pure function. Everything it reads is passed in:
 - **Installed packages**: the core-library standins, each at the single version
   the emulated GHC release fixes, with no flags. A candidate whose range
   excludes that version is dropped before the search starts, which prunes a
-  great deal of Hackage up front.
+  great deal of Hackage up front. *As built*, a standin is a single candidate
+  like a local package, so its own `build-depends` (`aihc-base` on
+  `aihc-prim`, say) are followed, and the boot library names are aliases:
+  a dependency on `base` is a dependency on `aihc-base`, which is the name
+  the plan and the lock use.
 - **Platform**: the target OS and architecture, and the emulated compiler
   version. All `os`, `arch`, and `impl` conditions are closed by these, as the
   existing condition evaluator already does.
 - **Constraints**: `--constraint NAME ==VERSION`, `--constraint NAME +flag`,
   `--constraint NAME -flag`, and the contents of the lock file when one is
-  present.
+  present. A constraint takes any Cabal version range, not only `==`.
 - **Roots**: the packages to plan, with the stanzas requested for each.
 
 ## Flags
@@ -119,9 +137,11 @@ packages involved later if thrashing ever appears. The order is deterministic,
 so the same inputs give the same plan.
 
 The result is an assignment from package name to version, flag assignment, and
-source (Hackage, local, or core). The recursive plan builder then follows the
+source (Hackage, local, or core). The plan builder then follows the
 assignment instead of choosing versions on its own; the per-name version
-callback in `DependencyResolver` goes away.
+callback in `DependencyResolver` is gone. The cabal file a Hackage release is
+built with is the one the solver read from the index, at the recorded
+revision, rather than the one in the downloaded source tree.
 
 ## Failures
 
@@ -209,8 +229,18 @@ that changed:
 - **Absent**: the solver runs and writes the lock.
 - `--locked` fails instead of rewriting a stale or absent lock. CI uses it, so a
   plan change never happens implicitly.
-- `--update [NAME]` ignores the lock for every package or for one package and
-  its dependents, and rewrites it.
+- `--update` ignores the lock for every package and rewrites it;
+  `--update-package NAME` ignores it for one package and its dependents.
+  (The design had `--update [NAME]`; an option with an optional argument
+  does not parse unambiguously next to the positional package argument.)
+- *As built*, a lock is only written when the plan contains a Hackage
+  release. A plan of local packages and core libraries alone is a function
+  of the sources, so there is nothing to pin, and the test fixtures and
+  examples in the repository do not grow lock files. An existing lock is
+  read either way.
+- Validity *as built* also requires that every locked package is still
+  reached from the roots, so a dependency that was dropped leaves the lock
+  stale and is removed on the rewrite.
 
 The daily install workflow in `docs/hackage-install-packages.md` gets its
 pinning from a committed lock in its workspace instead of from exact versions
@@ -220,15 +250,24 @@ in the table and its top-to-bottom ordering.
 
 Two things outside the solver change with it.
 
-- **The index cache exposes every version.** `Aihc.Hackage.IndexCache` today
-  reduces the tarball to one preferred version per name. The solver needs every
-  version's latest cabal file and its revision number, plus the deprecation
-  ranges from `preferred-versions`. The tarball already contains all of it; this
+- **The index cache exposes every version.** `Aihc.Hackage.IndexCache` used
+  to reduce the tarball to one preferred version per name. The solver needs
+  every version's cabal file at any revision, plus the deprecation ranges
+  from `preferred-versions`. The cache now keeps the index tarball
+  uncompressed (about a gigabyte, the same as cabal-install keeps) beside a
+  derived table, `index.txt`, with one line per cabal entry: package, version,
+  revision, and the entry's block offset. A cabal file is read from the
+  tarball at that offset, so a solve reads the cabal files of the versions
+  it tries and nothing else. The tarball already contained all of it; this
   is an indexing change, not a new download.
-- **Flag assignments join package identity.** The store fingerprint and the
-  manifest flags include the cabal flag assignment, since `unix` built with
-  `os-string` off and on are different packages and must not collide in the
-  store.
+- **Flag assignments join package identity.** The store fingerprint includes
+  the decided cabal flags and the cabal file revision, and the manifest
+  records the flags under `cabalFlags`, since `unix` built with `os-string`
+  off and on are different packages and must not collide in the store.
+- **Cabal conditions close under the plan's flags.** The helpers in
+  `Aihc.Hackage.Cabal` that select modules, C sources, and executables take
+  a `BuildContext` of platform and decided flags, so the files a package
+  compiles agree with the dependencies it was planned with.
 
 ## Non-goals
 

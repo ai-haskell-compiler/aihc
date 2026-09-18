@@ -23,10 +23,9 @@ module Aihc.Cli.Install
     install,
     installWith,
     installPlanPackages,
-    networkDependencyResolver,
+    installTargetRoot,
     parsePackageTarget,
-    resolveInstallTarget,
-    resolvePreferredVersion,
+    planRequestFor,
     runInstall,
 
     -- * The front end, one phase at a time
@@ -84,7 +83,7 @@ import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, compilerHeaderIdentity, ensureCompilerHeaders, hostPlatformMacros)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
-import Aihc.Cli.Options (InstallOptions (..))
+import Aihc.Cli.Options (InstallOptions (..), PlanOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifactParts)
 import Aihc.Cli.Store (defaultStoreRoot)
@@ -103,24 +102,26 @@ import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
-import Aihc.Hackage.Download qualified as HackageDownload
-import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
+import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, newHackageIndex)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
-import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Lir.Resolve qualified as Lir
 import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, hostNativeTarget, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
 import Aihc.PackagePlan
-  ( DependencyResolver (..),
-    DependencyVersions,
+  ( DependencyVersions,
+    LockMode (..),
     PackagePlan (..),
     PlanOrigin (..),
-    ResolvedSource (..),
-    buildPackagePlanWithResolver,
+    PlanRequest (..),
+    PlanRoot (..),
+    PlannedPackages (..),
     dependencyVersionsFromManifests,
-    localDependencyResolverWithFallback,
-    packageSpecFromSource,
+    parseConstraint,
+    parseSourcePackageDescriptionAt,
+    planBuildContext,
+    planPackages,
   )
 import Aihc.PackagePlan.Diagnostic (DiagnosticSourceMap, renderHumanDiagnostic)
+import Aihc.PackagePlan.Lock (lockFileName)
 import Aihc.PackagePlan.Source (ParsedInterfaceFile (..), moduleDepsDigest, parseInterfaceBytes)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -210,17 +211,20 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
+import Distribution.Package (mkPackageName)
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (GenericPackageDescription, HookedBuildInfo, emptyHookedBuildInfo, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseHookedBuildInfo, runParseResult)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (Arch, OS)
+import Distribution.Types.Flag (unFlagAssignment, unFlagName)
 import Distribution.Version (nullVersion)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
@@ -509,11 +513,13 @@ installWith output options = do
   let verbose message = when (installVerbose options) (hPutStrLn output message)
       printTimings message = when (installPrintTimings options) (hPutStrLn output message)
   hackageIndex <- newHackageIndex defaultIndexOptions
-  (root, origin) <- resolveInstallTarget hackageIndex (installPackageTarget options)
-  spec <- packageSpecFromSource root
-  let resolver = localDependencyResolverWithFallback (networkDependencyResolver hackageIndex) root spec
-  plan <- buildPackagePlanWithResolver resolver spec
-  buildRoot <- maybe (pure (defaultBuildRoot root)) pure (installBuildRoot options)
+  (root, origin, lockDirectory) <- installTargetRoot (installPackageTarget options)
+  request <- planRequestFor hackageIndex (installPlanOptions options) (cabalPlatformForTarget target) [] lockDirectory verbose
+  planned <- planPackages request {requestRoots = [root]}
+  plan <- case plannedRoots planned of
+    [rootPlan] -> pure rootPlan
+    _ -> ioError (userError "The plan has no root")
+  buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
   buildIdentity <- buildEnvironmentIdentity target
   -- The headers go under the store and not under the build directory,
   -- because an immutable install writes no build directory at all.
@@ -545,7 +551,7 @@ installWith output options = do
             locationImmutable = installImmutable options,
             locationReinstall = installReinstall options
           }
-  -- The resolver finds the package being installed by its name, which marks
+  -- The plan finds the package being installed by its name, which marks
   -- it local. What the user asked for decides instead: a directory is local,
   -- a Hackage release is not.
   installedResult <$> installPackagePlan config locations plan {planOrigin = origin}
@@ -554,17 +560,20 @@ installWith output options = do
 defaultBuildRoot :: FilePath -> FilePath
 defaultBuildRoot root = root </> ".aihc-target"
 
--- | Turn the install argument into a local package directory and say where
--- it came from.
+-- | Turn the install argument into a plan root, say where it came from,
+-- and where its lock file lives.
 --
--- An existing directory is used as-is. Anything else is parsed as a Hackage
--- package name with an optional version (@NAME@ or @NAME-VERSION@) and
--- downloaded from Hackage; without a version the preferred version is used.
-resolveInstallTarget :: HackageIndex -> String -> IO (FilePath, PlanOrigin)
-resolveInstallTarget index target = do
+-- An existing directory is used as-is, and its lock lives beside its cabal
+-- file. Anything else is parsed as a Hackage package name with an optional
+-- version (@NAME@ or @NAME-VERSION@), and its lock lives in the working
+-- directory; without a version the solver picks one.
+installTargetRoot :: String -> IO (PlanRoot, PlanOrigin, FilePath)
+installTargetRoot target = do
   isDirectory <- doesDirectoryExist target
   if isDirectory
-    then pure (target, PlanLocal)
+    then do
+      (cabalFile, _) <- parseSourcePackageDescriptionAt target
+      pure (RootLocal target, PlanLocal, takeDirectory cabalFile)
     else case parsePackageTarget target of
       Nothing ->
         ioError
@@ -572,12 +581,10 @@ resolveInstallTarget index target = do
               (target <> " is not an existing directory nor a Hackage package name (NAME[-VERSION])")
           )
       Just (name, requestedVersion) -> do
-        version <- maybe (resolvePreferredVersion index name) pure requestedVersion
-        path <-
-          HackageDownload.downloadPackageWithOptions
-            HackageDownload.defaultDownloadOptions
-            PackageSpec {pkgName = name, pkgVersion = version}
-        pure (path, PlanHackage)
+        version <- forM requestedVersion $ \text ->
+          maybe (ioError (userError ("Invalid version " <> text))) pure (simpleParsec text)
+        directory <- getCurrentDirectory
+        pure (RootHackage name version, PlanHackage, directory)
 
 -- | Split a Hackage target into its package name and optional version.
 parsePackageTarget :: String -> Maybe (String, Maybe String)
@@ -589,19 +596,31 @@ parsePackageTarget target = do
       if version == nullVersion then Nothing else Just (prettyShow version)
     )
 
--- | The newest non-deprecated version of a package, from the cached Hackage
--- index.
-resolvePreferredVersion :: HackageIndex -> String -> IO String
-resolvePreferredVersion index name = do
-  result <- indexPreferredVersion index name
-  either (ioError . userError) pure result
-
-networkDependencyResolver :: HackageIndex -> DependencyResolver
-networkDependencyResolver index =
-  DependencyResolver
-    { resolverResolveVersion = resolvePreferredVersion index,
-      resolverSourcePath = fmap (`ResolvedSource` PlanHackage) . HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
-    }
+-- | The plan request the command-line plan options describe, without its
+-- roots and goals. The lock file is @aihc.lock@ in the given directory.
+planRequestFor :: HackageIndex -> PlanOptions -> (OS, Arch) -> [FilePath] -> FilePath -> (String -> IO ()) -> IO PlanRequest
+planRequestFor index options platform workspaces lockDirectory verbose = do
+  constraints <- forM (planConstraints options) $ \text ->
+    either (ioError . userError) pure (parseConstraint text)
+  lockMode <-
+    case (planLocked options, planUpdate options, planUpdatePackages options) of
+      (True, False, []) -> pure LockLocked
+      (False, True, []) -> pure LockUpdateAll
+      (False, False, []) -> pure LockNormal
+      (False, False, names) -> pure (LockUpdate (map mkPackageName names))
+      _ -> ioError (userError "--locked, --update, and --update-package exclude one another")
+  pure
+    PlanRequest
+      { requestRoots = [],
+        requestGoals = [],
+        requestWorkspaces = workspaces,
+        requestPlatform = platform,
+        requestConstraints = concat constraints,
+        requestLockFile = lockDirectory </> lockFileName,
+        requestLockMode = lockMode,
+        requestIndex = index,
+        requestVerbose = verbose
+      }
 
 -- | Where the packages of a plan go.
 --
@@ -652,6 +671,11 @@ installPlanNode config locations installed root plan = do
 data PackageInputs = PackageInputs
   { inputCabalFile :: !FilePath,
     inputDescription :: !GenericPackageDescription,
+    -- | The platform and the cabal flags the plan decided, which close
+    -- the conditions of the cabal file.
+    inputContext :: !HackageCabal.BuildContext,
+    -- | The cabal file revision of a Hackage release.
+    inputRevision :: !(Maybe Int),
     inputSources :: ![HackageCabal.FileInfo],
     inputCCompileInfo :: !HackageCabal.CCompileInfo,
     -- | The configure script of a @build-type: Configure@ package.
@@ -667,8 +691,8 @@ readPackageInputs config plan = do
   let root = planSourcePath plan
       cabalFile = planCabalFile plan
       gpd = planDescription plan
-  let (targetOs, targetArch) = cabalPlatformForTarget (compileTarget config)
-  files <- HackageCabal.collectLibraryFilesFor targetOs targetArch gpd root
+  let context = planBuildContext (cabalPlatformForTarget (compileTarget config)) plan
+  files <- HackageCabal.collectLibraryFilesIn context gpd root
   configureScript <- case HackageCabal.packageBuildType gpd of
     HackageCabal.Configure -> do
       let script = root </> "configure"
@@ -681,10 +705,12 @@ readPackageInputs config plan = do
     PackageInputs
       { inputCabalFile = cabalFile,
         inputDescription = gpd,
+        inputContext = context,
+        inputRevision = planRevision plan,
         inputSources = files,
-        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoFor targetOs targetArch gpd root,
+        inputCCompileInfo = HackageCabal.collectLibraryCCompileInfoIn context gpd root,
         inputConfigureScript = configureScript,
-        inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesFor targetOs targetArch gpd
+        inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd
       }
 
 -- | Install an immutable package into the store, unless the store has it.
@@ -822,13 +848,14 @@ installPackageDirect config packageDirectory unitIdentity immutable storeRoot de
             packageManifestIdentity = T.pack packageDirectory,
             packageManifestUnitId = unitIdentity,
             packageManifestDependencies = sortOn id (map installedIdentity dependencies),
-            packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd),
+            packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd),
             packageManifestCompiledModules = sortOn id (map sourceName parsed),
             packageManifestFlags = compileFlagNames config,
+            packageManifestCabalFlags = Map.fromList [(T.pack (unFlagName flag), value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
             packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources cCompileInfo))
           }
   writePackageManifest (packageManifestPath storePath) manifest
-  let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
+  let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModulesIn (inputContext inputs) gpd)
       ownExports =
         Map.filterWithKey
           (\moduleKey _ -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
@@ -1067,10 +1094,10 @@ packagePrimIdentity resolvePackage dependencyExports =
 -- | The directory name and unit identity of a package in the store.
 --
 -- The fingerprint is a function of the plan: the package name and version,
--- the compiler, the target, and the identities of the dependencies. It does
--- not read the sources, so a consumer computes it without them. A Hackage
--- release never changes, and a core library is identified by the compiler
--- it ships with.
+-- the cabal flags and revision the plan decided, the compiler, the target,
+-- and the identities of the dependencies. It does not read the sources, so
+-- a consumer computes it without them. A Hackage release never changes,
+-- and a core library is identified by the compiler it ships with.
 storePackageIdentity :: ModuleCompileConfig -> [InstalledPackage] -> PackageInputs -> IO (FilePath, Text)
 storePackageIdentity config dependencies inputs = do
   let (unitIdentity, packageNameText, packageVersionText) = packageUnitIdentity inputs
@@ -1095,10 +1122,22 @@ storePackageIdentity config dependencies inputs = do
                   : T.pack (show cSysrootArguments)
                   : packageNameText
                   : packageVersionText
+                  : packageFlagsKey inputs
                   : sortOn id (map installedIdentity dependencies)
               )
           )
   pure (T.unpack unitIdentity <> "-" <> take 16 fingerprint, unitIdentity)
+
+-- | The cabal flags the plan decided and the revision it read, so that a
+-- package built with a flag on and with it off are two store entries.
+packageFlagsKey :: PackageInputs -> Text
+packageFlagsKey inputs =
+  T.pack
+    ( show
+        ( sortOn fst [(unFlagName flag, value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
+          inputRevision inputs
+        )
+    )
 
 -- | The directory name and unit identity of a package in a build directory.
 localPackageIdentity :: PackageInputs -> (FilePath, Text)
@@ -3196,4 +3235,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-31"
+packageArtifactFormatVersion = "aihc-artifacts-32"

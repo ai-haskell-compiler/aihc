@@ -98,6 +98,7 @@ import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (GenericPackageDescription, package, packageDescription)
 import Distribution.Pretty (prettyShow)
+import Distribution.Types.Flag (mkFlagAssignment)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (doesDirectoryExist, getTemporaryDirectory, removeDirectoryRecursive)
 import System.Exit (die, exitFailure)
@@ -240,10 +241,13 @@ runPackage config jobs headerDirectory dependencies root = do
   (cabalFile, gpd) <- parseSourcePackageDescriptionAt root
   let plan =
         PackagePlan
-          { planSourcePath = root,
+          { planName = CabalPackage.packageName (package (packageDescription gpd)),
+            planSourcePath = root,
             planCabalFile = cabalFile,
             planDescription = gpd,
             planOrigin = PlanLocal,
+            planRevision = Nothing,
+            planFlags = mkFlagAssignment [],
             planDependencyPlans = []
           }
   inputs <- readPackageInputs config plan

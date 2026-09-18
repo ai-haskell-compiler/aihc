@@ -6,7 +6,7 @@ import Aihc.Capi (parseDependencyFile)
 import Aihc.Cli.Build (build)
 import Aihc.Cli.BuildModule (LinkBundle (..), linkBundleManifestPath, runLinkExe)
 import Aihc.Cli.Install (InstallResult (..), install, parsePackageTarget)
-import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), parseCommandPure)
+import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
@@ -387,7 +387,7 @@ testInstallFixtures getStore = do
     assertBool (name <> ": empty expected diagnostic") (maybe True (not . null) (installFixtureError fixture))
     withSandbox getStore ("aihc-" <> name) $ \sandbox -> do
       store <- sandboxStore sandbox "store"
-      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget))
+      outcome <- try (install (InstallOptions directory (Just store) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False True False False buildHostTarget defaultPlanOptions))
       case outcome :: Either IOException InstallResult of
         Left err -> do
           assertBool (name <> ": unexpected error: " <> show err) (maybe False (`isInfixOf` show err) (installFixtureError fixture))
@@ -443,7 +443,8 @@ withBuildModuleSandbox getStore prefix action = do
               buildOptimization = O0,
               buildNoLink = False,
               buildVerbose = False,
-              buildOutput = Just (sandboxRoot sandbox </> "program")
+              buildOutput = Just (sandboxRoot sandbox </> "program"),
+              buildPlanOptions = defaultPlanOptions
             }
     action sandbox fixtureRoot storeRoot options
 
@@ -685,7 +686,7 @@ test_installLto getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/keep-grin"
   withSandbox getStore "aihc-install-lto" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
-    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True O2 False False False False buildHostTarget
+    let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False True O2 False False False False buildHostTarget defaultPlanOptions
     result <- install options
     let packageRoot = installStorePath result
     assertEqual "lto install writes the module" ["Demo"] (installWrittenModules result)
@@ -769,7 +770,8 @@ withBuildPackageSandbox getStore prefix action = do
               buildOptimization = O0,
               buildNoLink = False,
               buildVerbose = False,
-              buildOutput = Nothing
+              buildOutput = Nothing,
+              buildPlanOptions = defaultPlanOptions
             }
     action sandbox buildRoot options
 
@@ -839,7 +841,8 @@ test_buildCxxSources getStore = do
               buildOptimization = O0,
               buildNoLink = False,
               buildVerbose = False,
-              buildOutput = Nothing
+              buildOutput = Nothing,
+              buildPlanOptions = defaultPlanOptions
             }
     outputs <- withCurrentDirectory root (build options)
     assertEqual "built executables" [targetRoot </> "bin" </> "triangle"] outputs
@@ -967,7 +970,7 @@ test_installArchSourceDirs getStore = do
   withSandbox getStore "aihc-install-arch-source-dirs" $ \sandbox -> do
     storeRoot <- sandboxStore sandbox "store"
     forM_ targets $ \target -> do
-      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False target)
+      result <- install (InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False True False False False False False O0 False False False False target defaultPlanOptions)
       core <- readFile (installStorePath result </> "Payload" </> "core")
       let expected = archSourceDirPayload target
           unexpected = if expected == "32#" then "64#" else "32#"
@@ -1026,7 +1029,7 @@ test_installMinVersionMacros getStore =
           ]
       )
     target <- hostBackendTarget
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target defaultPlanOptions)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- A module that includes an RTS header by its own name resolves it out of
@@ -1066,7 +1069,7 @@ test_installRtsHeaderInclude getStore =
           ]
       )
     target <- hostBackendTarget
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False target defaultPlanOptions)
     assertEqual "written modules" ["Demo"] (installWrittenModules result)
 
 -- | The runtime is an installed package that aihc-prim depends on, so the
@@ -1132,7 +1135,7 @@ test_installRtsCapi getStore =
             "foreign import capi unsafe \"Rts.h rtsSupportsBoundThreads\" boundThreads :: Int32"
           ]
       )
-    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm)
+    result <- install (InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm defaultPlanOptions)
     let stubSource = installStorePath result </> "Demo" </> "Demo.capi.c"
     stub <- readFile stubSource
     assertBool "the wrapper includes Rts.h" ("#include \"Rts.h\"" `isInfixOf` stub)
@@ -1190,7 +1193,7 @@ test_installCapi getStore =
         sourceDir = sourceRoot </> "src"
         includeDir = sourceRoot </> "include"
         header = includeDir </> "demo_capi.h"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm defaultPlanOptions
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile
@@ -1278,7 +1281,7 @@ test_installCapiCType getStore =
     let sourceRoot = sandboxRoot sandbox </> "source"
         sourceDir = sourceRoot </> "src"
         includeDir = sourceRoot </> "include"
-        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm
+        options = InstallOptions sourceRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False O0 False False False False Llvm defaultPlanOptions
     createDirectoryIfMissing True sourceDir
     createDirectoryIfMissing True includeDir
     writeFile
