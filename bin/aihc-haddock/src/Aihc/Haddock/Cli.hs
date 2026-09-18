@@ -16,9 +16,7 @@ module Aihc.Haddock.Cli
   )
 where
 
-import Aihc.Hackage.Download qualified as HackageDownload
-import Aihc.Hackage.IndexCache (HackageIndex, defaultIndexOptions, indexPreferredVersion, newHackageIndex)
-import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
 import Aihc.Haddock.Compare
 import Aihc.Haddock.Hoogle (renderHoogle)
 import Aihc.Haddock.Model
@@ -26,7 +24,8 @@ import Aihc.Haddock.Reference.Hoogle (parseHoogleFile)
 import Aihc.Haddock.Reference.Json (decodeReferenceInterface)
 import Aihc.Haddock.Store
 import Aihc.PackagePlan
-import Control.Monad (forM_, unless, when)
+import Aihc.PackagePlan.Lock (lockFileName)
+import Control.Monad (forM, forM_, unless, when)
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -34,10 +33,12 @@ import Data.Text.IO qualified as TIO
 import Distribution.Package qualified as CabalPackage
 import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (buildArch, buildOS)
 import Distribution.Version (nullVersion)
 import Options.Applicative
-import System.Directory (doesDirectoryExist)
+import System.Directory (doesDirectoryExist, getCurrentDirectory)
 import System.Exit (exitFailure)
+import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 
 data BuildOptions = BuildOptions
@@ -118,13 +119,26 @@ runCommand cmd =
 runBuild :: BuildOptions -> IO ()
 runBuild options = do
   hackageIndex <- newHackageIndex defaultIndexOptions
-  root <- resolveTarget hackageIndex (buildTarget options)
+  (root, lockDirectory) <- resolveTarget (buildTarget options)
   storeRoot' <- maybe defaultStoreRoot pure (buildStoreRoot options)
   let store = Store storeRoot'
       say message = when (buildVerbose options) (hPutStrLn stderr message)
-  spec <- packageSpecFromSource root
-  let resolver = localDependencyResolverWithFallback (networkResolver hackageIndex) root spec
-  plan <- buildPackagePlanWithResolver resolver spec
+  planned <-
+    planPackages
+      PlanRequest
+        { requestRoots = [root],
+          requestGoals = [],
+          requestWorkspaces = [],
+          requestPlatform = (buildOS, buildArch),
+          requestConstraints = [],
+          requestLockFile = lockDirectory </> lockFileName,
+          requestLockMode = LockNormal,
+          requestIndex = hackageIndex,
+          requestVerbose = say
+        }
+  plan <- case plannedRoots planned of
+    [rootPlan] -> pure rootPlan
+    _ -> ioError (userError "The plan has no root")
   package <- documentPlan store (buildUseCache options) (buildDependencies options) say plan
   forM_ (buildJsonOutput options) $ \path -> BL.writeFile path (encodePackageDoc package)
   forM_ (buildHoogleOutput options) $ \path -> TIO.writeFile path (renderHoogle package)
@@ -145,17 +159,23 @@ runBuild options = do
       forM_ (moduleDocDiagnostics modu) $ \diagnostic ->
         hPutStrLn stderr (T.unpack (moduleDocName modu <> ": " <> diagnostic))
 
--- | A directory is used as-is; anything else is a Hackage package.
-resolveTarget :: HackageIndex -> String -> IO FilePath
-resolveTarget index target = do
+-- | A directory is used as-is, with its lock beside its cabal file;
+-- anything else is a Hackage package, with its lock in the working
+-- directory.
+resolveTarget :: String -> IO (PlanRoot, FilePath)
+resolveTarget target = do
   isDirectory <- doesDirectoryExist target
   if isDirectory
-    then pure target
+    then do
+      (cabalFile, _) <- parseSourcePackageDescriptionAt target
+      pure (RootLocal target, takeDirectory cabalFile)
     else case parsePackageTarget target of
       Nothing -> ioError (userError (target <> " is not a directory nor a Hackage package NAME[-VERSION]"))
       Just (name, requestedVersion) -> do
-        version <- maybe (resolvePreferredVersion index name) pure requestedVersion
-        HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions (PackageSpec name version)
+        version <- forM requestedVersion $ \text ->
+          maybe (ioError (userError ("Invalid version " <> text))) pure (simpleParsec text)
+        directory <- getCurrentDirectory
+        pure (RootHackage name version, directory)
 
 parsePackageTarget :: String -> Maybe (String, Maybe String)
 parsePackageTarget target = do
@@ -165,13 +185,3 @@ parsePackageTarget target = do
     ( CabalPackage.unPackageName (CabalPackage.pkgName packageId),
       if version == nullVersion then Nothing else Just (prettyShow version)
     )
-
-resolvePreferredVersion :: HackageIndex -> String -> IO String
-resolvePreferredVersion index name = indexPreferredVersion index name >>= either (ioError . userError) pure
-
-networkResolver :: HackageIndex -> DependencyResolver
-networkResolver index =
-  DependencyResolver
-    { resolverResolveVersion = resolvePreferredVersion index,
-      resolverSourcePath = fmap (`ResolvedSource` PlanHackage) . HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
-    }

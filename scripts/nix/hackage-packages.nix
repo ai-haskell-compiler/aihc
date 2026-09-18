@@ -9,6 +9,14 @@
 #   name     Hackage package name.
 #   version  Exact Hackage version.
 #   hash     SRI hash of the unpacked tarball.
+#   revision Optional. The Hackage cabal file revision to build with, as
+#            `{ number = N; hash = "..."; }`, where the hash is the SRI hash
+#            of https://hackage.haskell.org/package/NAME-VERSION/revision/N.cabal
+#            as printed by `nix hash file --sri N.cabal`. A revision relaxes
+#            the version bounds of a release after the fact; the tarball
+#            carries the original file, which the dependency solver would
+#            reject when the bounds exclude the packages the release is
+#            built against.
 #   lint     Optional. Pass `--lint` to `aihc install`. Defaults to true.
 #   targets  Optional list of targets. Defaults to the host targets that the
 #            example tests use.
@@ -28,6 +36,10 @@ let
       name = "array";
       version = "0.5.8.0";
       hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+      revision = {
+        number = 2;
+        hash = "sha256-zLz7SYAd4SjK+EBLy62ZzVXMsbZZB7tTkQ2j1h7Aw5s=";
+      };
     }
     {
       name = "split";
@@ -50,6 +62,10 @@ let
       name = "base64-bytestring";
       version = "1.2.1.0";
       hash = "sha256-Oe2u9XbsjSFi10dsUqlZbjoz+Bl5jn+s3xTTCono/oE=";
+      revision = {
+        number = 1;
+        hash = "sha256-RTBcz4kUxm04W1GHIUcse4yFjxmGlFN390+FweDUmAM=";
+      };
       dependencies = [
         {
           name = "bytestring";
@@ -84,6 +100,10 @@ let
       name = "dlist";
       version = "1.0";
       hash = "sha256-D2gFpv68TRj7z5xCmhi/MWUQ7uyg4zxPgHLRrFGbDNI=";
+      revision = {
+        number = 2;
+        hash = "sha256-hUcnWUxagWqz0Q8VsbxP7a+eP30e9Reiu5AR8puiYdI=";
+      };
       dependencies = [
         {
           name = "deepseq";
@@ -118,21 +138,39 @@ let
           name = "array";
           version = "0.5.8.0";
           hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+          revision = {
+            number = 2;
+            hash = "sha256-zLz7SYAd4SjK+EBLy62ZzVXMsbZZB7tTkQ2j1h7Aw5s=";
+          };
         }
       ];
     }
   ];
 
+  # The unpacked release, with its cabal file replaced by the pinned
+  # revision when the entry names one, as cabal-install does when it unpacks.
   fetchPackage = pkgs: {
     name,
     version,
     hash,
+    revision ? null,
     ...
-  }:
-    pkgs.fetchzip {
+  }: let
+    source = pkgs.fetchzip {
       url = "https://hackage.haskell.org/package/${name}-${version}/${name}-${version}.tar.gz";
       inherit hash;
     };
+  in
+    if revision == null
+    then source
+    else
+      pkgs.runCommand "${name}-${version}-r${toString revision.number}" {} ''
+        cp -R --no-preserve=mode ${source} "$out"
+        cp ${pkgs.fetchurl {
+          url = "https://hackage.haskell.org/package/${name}-${version}/revision/${toString revision.number}.cabal";
+          inherit (revision) hash;
+        }} "$out/${name}.cabal"
+      '';
 in {
   inherit packages fetchPackage;
 }

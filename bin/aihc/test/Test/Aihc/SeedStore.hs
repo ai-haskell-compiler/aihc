@@ -33,7 +33,7 @@ module Test.Aihc.SeedStore
 where
 
 import Aihc.Cli.Install (install)
-import Aihc.Cli.Options (InstallOptions (..))
+import Aihc.Cli.Options (InstallOptions (..), defaultPlanOptions)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory, wasmSysroot)
 import Control.Exception (IOException, bracket, bracketOnError, try)
 import Control.Monad (forM_, unless, void)
@@ -201,7 +201,7 @@ installCoreLibrary = installCoreLibraryWith O0
 -- | Install a core library into the store at a level.
 installCoreLibraryWith :: OptimizationLevel -> FilePath -> FilePath -> NativeTarget -> IO ()
 installCoreLibraryWith level source storeRoot target = do
-  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False False level False False False False target)
+  _ <- install (InstallOptions source (Just storeRoot) Nothing True False False False False False False level False False False False target defaultPlanOptions)
   pure ()
 
 -- | Give a test a scratch directory and copies of the seeded store.

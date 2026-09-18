@@ -137,6 +137,16 @@ while read -r name version; do
 	tar -xzf "$archive" -C "$work_directory"
 	rm -f "$archive"
 	mv "$work_directory/$name-$version" "$workspace/$name"
+	# A Hackage revision relaxes the bounds of a release after the fact, and
+	# the tarball carries the original cabal file. Take the latest revision,
+	# as cabal-install does when it unpacks, so the dependency solver sees
+	# the bounds Hackage publishes today.
+	if ! curl --fail --silent --show-error --location \
+		--output "$workspace/$name/$name.cabal" \
+		"https://hackage.haskell.org/package/$name-$version/$name.cabal" \
+		2>>"$logs/$name.log"; then
+		echo "  could not fetch the revised cabal file, keeping the one of the tarball"
+	fi
 done <<<"$packages"
 
 # The level is part of the identity of an installed package, so aihc-base is

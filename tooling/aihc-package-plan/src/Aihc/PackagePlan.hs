@@ -1,51 +1,83 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- |
 -- Module      : Aihc.PackagePlan
 -- Description : Dependency resolution shared by the aihc tools
 --
--- Resolves a package and its transitive library dependencies to source
--- directories. Core libraries (@base@, @ghc-prim@, @ghc-internal@,
--- @template-haskell@) are redirected to the standins under @core-libs@; every
--- other package is resolved through a caller-supplied 'DependencyResolver'.
+-- Turns a set of root packages into a plan: one version and one flag
+-- assignment for every package the build needs, each resolved to a source
+-- directory. The versions come from the solver in "Aihc.PackagePlan.Solver"
+-- and are kept in the @aihc.lock@ file of "Aihc.PackagePlan.Lock", so that
+-- a later build reuses the plan instead of solving. Core libraries (@base@,
+-- @ghc-prim@, @ghc-internal@, @template-haskell@) are redirected to the
+-- standins under @core-libs@; local packages and the packages of a
+-- workspace shadow Hackage; everything else is a Hackage release.
 --
--- The compiler and the documentation tool share this module so that both see
--- the same dependency graph for a package.
+-- The compiler and the documentation tool share this module so that both
+-- see the same dependency graph for a package.
 module Aihc.PackagePlan
-  ( DependencyResolver (..),
+  ( -- * Planning
+    PlanRequest (..),
+    PlanRoot (..),
+    LockMode (..),
+    PlannedPackages (..),
+    planPackages,
     PackagePlan (..),
     PlanOrigin (..),
-    ResolvedSource (..),
-    buildPackagePlanWithResolver,
+    planBuildContext,
+    canonicalPackageName,
+    parseConstraint,
+
+    -- * Core libraries
     DependencyVersions,
     dependencyVersionsFromManifests,
     coreProviders,
     coreProviderSourcePath,
     aihcRtsProvider,
     CoreProvider (..),
-    localDependencyResolverWithFallback,
     lookupCoreProvider,
-    workspaceDependencyResolver,
+
+    -- * Cabal files
     packageSpecFromSource,
     parseSourcePackageDescription,
     parseSourcePackageDescriptionAt,
   )
 where
 
-import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Cabal (BuildContext (..))
 import Aihc.Hackage.Cpp (DependencyVersions)
-import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibraryByStandin, showVersionBranch)
-import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
+import Aihc.Hackage.Download qualified as HackageDownload
+import Aihc.Hackage.Index (IndexEntry (..))
+import Aihc.Hackage.IndexCache (HackageIndex, IndexVersion (..), indexPackageVersions, indexReadCabalFile, indexState)
+import Aihc.Hackage.Release (BootLibrary (..), GhcRelease (..), emulatedGhc, lookupBootLibraryByStandin, releaseVersionText, showVersionBranch)
+import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Hackage.Util qualified as HackageUtil
+import Aihc.PackagePlan.Lock
+import Aihc.PackagePlan.Solver
+import Control.Monad (forM, forM_, unless, when)
 import Data.ByteString qualified as BS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
-import Data.List (nub, sort)
+import Data.List (intercalate, sort)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
+import Distribution.Package (PackageName, mkPackageName, unPackageName)
 import Distribution.Package qualified as CabalPackage
-import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, libBuildInfo, package, packageDescription)
+import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Parsec (simpleParsec)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (Arch, OS)
+import Distribution.Types.Dependency (Dependency (..))
+import Distribution.Types.Flag (FlagAssignment, mkFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Types.Version (Version, mkVersion)
+import Distribution.Types.VersionRange (VersionRange, anyVersion, thisVersion)
 import System.Directory
   ( doesDirectoryExist,
     doesFileExist,
@@ -54,14 +86,21 @@ import System.Directory
 import System.Environment (lookupEnv)
 import System.FilePath (normalise, takeDirectory, (</>))
 
+-- | One package of a plan, with the plans of its dependencies.
 data PackagePlan = PackagePlan
-  { planSourcePath :: !FilePath,
-    -- | The @.cabal@ file the plan read under 'planSourcePath'.
+  { planName :: !PackageName,
+    planSourcePath :: !FilePath,
+    -- | The @.cabal@ file under 'planSourcePath'.
     planCabalFile :: !FilePath,
-    -- | What that file says. The installer reuses it instead of parsing the
-    -- file a second time.
+    -- | What the plan solved with. For a Hackage release this is the
+    -- cabal file of the recorded revision, which may be newer than the one
+    -- in the source tree.
     planDescription :: GenericPackageDescription,
     planOrigin :: !PlanOrigin,
+    -- | The cabal file revision of a Hackage release.
+    planRevision :: !(Maybe Int),
+    -- | The flags the solver decided. Every other flag takes its default.
+    planFlags :: !FlagAssignment,
     planDependencyPlans :: ![PackagePlan]
   }
   deriving (Eq, Show)
@@ -78,62 +117,385 @@ data PlanOrigin
     PlanCore
   deriving (Eq, Ord, Show)
 
-data ResolvedSource = ResolvedSource
-  { resolvedSourcePath :: !FilePath,
-    resolvedSourceOrigin :: !PlanOrigin
-  }
+-- | The conditions a planned package is built under on one platform.
+planBuildContext :: (OS, Arch) -> PackagePlan -> BuildContext
+planBuildContext (os, arch) plan = BuildContext os arch (planFlags plan)
+
+-- | A package the plan is made for.
+data PlanRoot
+  = -- | A directory holding a cabal file.
+    RootLocal FilePath
+  | -- | A Hackage package, at one version or at whichever the solver
+    -- picks.
+    RootHackage String (Maybe Version)
   deriving (Eq, Show)
 
-data DependencyResolver = DependencyResolver
-  { resolverResolveVersion :: String -> IO String,
-    resolverSourcePath :: PackageSpec -> IO ResolvedSource
+-- | What to do with the lock file.
+data LockMode
+  = -- | Take a valid lock, solve around a stale or absent one and rewrite
+    -- it.
+    LockNormal
+  | -- | Fail instead of rewriting a stale or absent lock.
+    LockLocked
+  | -- | Ignore the lock for every package and rewrite it.
+    LockUpdateAll
+  | -- | Ignore the lock for these packages and their dependents, and
+    -- rewrite it.
+    LockUpdate [PackageName]
+  deriving (Eq, Show)
+
+data PlanRequest = PlanRequest
+  { requestRoots :: ![PlanRoot],
+    -- | Packages to plan besides the roots, each with the range it must
+    -- satisfy: the @-p@ constraints of a main module.
+    requestGoals :: ![(PackageName, VersionRange)],
+    -- | Directories whose subdirectory @NAME@ is the source of the package
+    -- @NAME@, before Hackage.
+    requestWorkspaces :: ![FilePath],
+    requestPlatform :: !(OS, Arch),
+    requestConstraints :: ![Constraint],
+    -- | Where the lock file lives.
+    requestLockFile :: !FilePath,
+    requestLockMode :: !LockMode,
+    requestIndex :: !HackageIndex,
+    requestVerbose :: String -> IO ()
   }
+
+data PlannedPackages = PlannedPackages
+  { plannedSolution :: !Solution,
+    -- | Every package of the plan under its canonical name.
+    plannedPlans :: !(Map PackageName PackagePlan),
+    -- | The roots, in request order.
+    plannedRoots :: ![PackagePlan]
+  }
+
+-- | The name a dependency resolves to: the standin of a boot library, or
+-- the name itself.
+canonicalPackageName :: PackageName -> PackageName
+canonicalPackageName name = fromMaybe name (Map.lookup name packageAliases)
+
+packageAliases :: Map PackageName PackageName
+packageAliases =
+  Map.fromList
+    [ (mkPackageName (bootLibraryName library), mkPackageName (bootLibraryStandin library))
+    | library <- releaseBootLibraries emulatedGhc,
+      bootLibraryName library /= bootLibraryStandin library
+    ]
+
+-- | Parse a @--constraint@ argument: @NAME RANGE@, or @NAME@ followed by
+-- @+flag@ and @-flag@ words.
+parseConstraint :: String -> Either String [Constraint]
+parseConstraint input =
+  case words input of
+    [] -> Left "empty constraint"
+    name : flags@(_ : _)
+      | all isFlagWord flags,
+        Just packageName <- simpleParsec name ->
+          Right [ConstraintFlag packageName (mkFlagName (drop 1 flag)) (take 1 flag == "+") | flag <- flags]
+    _ ->
+      case simpleParsec input of
+        Just (Dependency name range _) -> Right [ConstraintVersion name range]
+        Nothing -> Left ("Invalid constraint: " <> input <> " (expected NAME RANGE, NAME +flag, or NAME -flag)")
+  where
+    isFlagWord flag = case flag of
+      '+' : _ : _ -> True
+      '-' : _ : _ -> True
+      _ -> False
+
+-- | Plan the roots and goals of a request.
+planPackages :: PlanRequest -> IO PlannedPackages
+planPackages request = do
+  roots <- forM (requestRoots request) $ \case
+    RootLocal path -> do
+      (cabalFile, gpd) <- parseSourcePackageDescriptionAt path
+      pure (packageNameOf gpd, Left (path, cabalFile, gpd))
+    RootHackage name version -> pure (mkPackageName name, Right version)
+  descriptions <- newIORef Map.empty
+  let localRoots = Map.fromList [(name, path) | (name, Left (path, _, _)) <- roots]
+      -- The package itself and its siblings resolve before the workspace,
+      -- and the workspace before Hackage.
+      localDirectories = [takeDirectory (normalise path) | (_, Left (path, _, _)) <- roots] <> requestWorkspaces request
+      config =
+        SolverConfig
+          { configPlatform = requestPlatform request,
+            configAliases = packageAliases,
+            configConstraints =
+              requestConstraints request
+                <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots],
+            configPreferences = Map.empty,
+            configRoots = Map.fromList [(name, noStanzas) | (name, _) <- roots],
+            -- Every package depends on aihc-prim, so the plan needs it even
+            -- when no cabal file names it; see 'withImplicitPrimDependency'.
+            configGoals =
+              requestGoals request
+                <> [(prim, anyVersion) | all ((`notElem` [prim, mkPackageName "aihc-rts"]) . fst) roots],
+            configMaxBacktracks = 2000
+          }
+      inputs = solverInputs request descriptions localRoots localDirectories
+  forM_ (Map.toList localRoots) $ \(name, path) ->
+    when (Map.member name packageAliases) $
+      ioError (userError ("The package " <> unPackageName name <> " at " <> path <> " has the name of a boot library"))
+  (solution, solved) <- solveWithLock request inputs config
+  checkBuildTools request inputs config solution
+  plans <- buildPlans inputs solution
+  when (solved && any usesHackage (Map.elems solution) && requestLockMode request /= LockLocked) $
+    writeLock request solution
+  pure
+    PlannedPackages
+      { plannedSolution = solution,
+        plannedPlans = plans,
+        plannedRoots = [plans Map.! canonicalPackageName name | (name, _) <- roots]
+      }
+  where
+    usesHackage assignment = assignmentSource assignment == CandidateHackage
+    prim = mkPackageName "aihc-prim"
+
+-- | Take the plan from a valid lock, or solve and say so.
+solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> IO (Solution, Bool)
+solveWithLock request inputs config = do
+  lock <- readLockFile (requestLockFile request)
+  entries <-
+    case lock of
+      Nothing -> pure Nothing
+      Just (Left problem) -> ioError (userError ("Invalid lock file " <> requestLockFile request <> ": " <> problem))
+      Just (Right file)
+        | lockCompiler file /= compilerName -> do
+            requestVerbose request ("Ignoring " <> requestLockFile request <> ": it was written for " <> lockCompiler file <> ", this compiler is " <> compilerName)
+            pure Nothing
+        | otherwise -> pure (Map.lookup platform (lockPlatforms file))
+  verified <-
+    case entries of
+      Just locked | requestLockMode request /= LockUpdateAll -> Just <$> verifySolution inputs config (lockRecorded locked)
+      _ -> pure Nothing
+  case (requestLockMode request, entries, verified) of
+    (LockLocked, Nothing, _) ->
+      ioError (userError ("No plan for " <> platform <> " in " <> requestLockFile request <> ", and --locked forbids solving"))
+    (LockLocked, Just _, Just (Left problem)) ->
+      ioError (userError ("The lock file " <> requestLockFile request <> " is stale (" <> problem <> "), and --locked forbids solving"))
+    (mode, Just _, Just (Right solution))
+      | mode == LockNormal || mode == LockLocked -> do
+          requestVerbose request ("Plan taken from " <> requestLockFile request)
+          pure (solution, False)
+    (mode, Just locked, _) -> do
+      case verified of
+        Just (Left problem) -> requestVerbose request ("The lock file " <> requestLockFile request <> " is stale: " <> problem)
+        _ -> pure ()
+      let dropped = case mode of
+            LockUpdate names -> Set.fromList (map canonicalPackageName names)
+            _ -> Set.empty
+          dependents = case verified of
+            Just (Right solution) -> transitiveDependents solution dropped
+            _ -> dropped
+          preferences = Map.withoutKeys (lockPreferences locked) dependents
+      runSolve config {configPreferences = if mode == LockUpdateAll then Map.empty else preferences}
+    (_, Nothing, _) -> runSolve config
+  where
+    platform = uncurry platformKey (requestPlatform request)
+    runSolve solverConfig = do
+      result <- solve inputs solverConfig
+      case result of
+        Left failure -> ioError (userError ("Could not resolve dependencies:\n" <> renderSolveFailure failure))
+        Right solution -> pure (solution, True)
+
+-- | The packages that depend on any of the given ones, transitively,
+-- together with the given ones.
+transitiveDependents :: Solution -> Set.Set PackageName -> Set.Set PackageName
+transitiveDependents solution = go
+  where
+    go known =
+      let next =
+            Set.fromList
+              [ name
+              | (name, assignment) <- Map.toList solution,
+                any (`Set.member` known) (Map.keys (assignmentDependencies assignment))
+              ]
+       in if next `Set.isSubsetOf` known then known else go (Set.union known next)
+
+compilerName :: String
+compilerName = "ghc-" <> releaseVersionText emulatedGhc
+
+writeLock :: PlanRequest -> Solution -> IO ()
+writeLock request solution = do
+  existing <- readLockFile (requestLockFile request)
+  state <- indexState (requestIndex request)
+  let otherPlatforms =
+        case existing of
+          Just (Right file) | lockCompiler file == compilerName -> lockPlatforms file
+          _ -> Map.empty
+      lock =
+        LockFile
+          { lockCompiler = compilerName,
+            lockIndexState = Just (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" (posixSecondsToUTCTime (fromIntegral state))),
+            lockPlatforms = Map.insert (uncurry platformKey (requestPlatform request)) (lockEntriesFromSolution solution) otherPlatforms
+          }
+  requestVerbose request ("Writing " <> requestLockFile request)
+  writeLockFile (requestLockFile request) lock
+
+-- | Every build tool the plan needs must be one the host can run.
+checkBuildTools :: PlanRequest -> SolverInputs IO -> SolverConfig -> Solution -> IO ()
+checkBuildTools request inputs config solution = do
+  problems <- forM (Map.toList solution) $ \(name, assignment) -> do
+    gpd <- inputsDescription inputs (assignmentCandidate name assignment)
+    let unknown = unknownBuildTools (requestPlatform request) (assignmentFlags assignment) (Map.lookup name (configRoots config)) gpd
+    pure [unPackageName name <> "-" <> prettyShow (assignmentVersion assignment) <> " needs the build tool " <> tool | tool <- unknown]
+  unless (all null problems) $
+    ioError (userError ("The plan needs build tools this compiler cannot run:\n" <> intercalate "\n" (map ("  " <>) (concat problems))))
+
+assignmentCandidate :: PackageName -> Assignment -> Candidate
+assignmentCandidate name assignment =
+  Candidate
+    { candidateName = name,
+      candidateVersion = assignmentVersion assignment,
+      candidateRevision = assignmentRevision assignment,
+      candidateDeprecated = False,
+      candidateSource = assignmentSource assignment
+    }
+
+-- | The candidates and cabal files the solver reads: core standins, the
+-- roots, their siblings and the workspace, then Hackage.
+solverInputs :: PlanRequest -> IORef (Map FilePath (FilePath, GenericPackageDescription)) -> Map PackageName FilePath -> [FilePath] -> SolverInputs IO
+solverInputs request descriptions localRoots localDirectories =
+  SolverInputs
+    { inputsCandidates = candidates,
+      inputsDescription = description
+    }
+  where
+    candidates name preference =
+      case Map.lookup name localRoots of
+        Just path -> pure <$> localCandidate name path
+        Nothing ->
+          case lookupCoreProvider (unPackageName name) of
+            Just provider -> do
+              path <- coreProviderSourcePath provider
+              pure [Candidate name (mkVersion (bootVersion provider)) 0 False (CandidateCore path)]
+            Nothing -> do
+              local <- findLocal name localDirectories
+              case local of
+                Just path -> pure <$> localCandidate name path
+                Nothing -> hackageCandidates name preference
+
+    bootVersion provider =
+      maybe [] bootLibraryVersion (lookupBootLibraryByStandin (coreProviderName provider) emulatedGhc)
+
+    findLocal _ [] = pure Nothing
+    findLocal name (directory : rest) = do
+      let candidate = directory </> unPackageName name
+      exists <- doesDirectoryExist candidate
+      cabalFiles <- if exists then HackageUtil.findCabalFiles candidate else pure []
+      if null cabalFiles then findLocal name rest else pure (Just candidate)
+
+    localCandidate name path = do
+      (_, gpd) <- describeLocal path
+      let actual = packageNameOf gpd
+      when (actual /= name) $
+        ioError (userError ("The package at " <> path <> " is " <> unPackageName actual <> ", not " <> unPackageName name))
+      pure (Candidate name (CabalPackage.packageVersion (package (packageDescription gpd))) 0 False (CandidateLocal path))
+
+    hackageCandidates name preference = do
+      versions <- indexPackageVersions (requestIndex request) (unPackageName name)
+      pure
+        [ Candidate name (indexVersionVersion version) revision (indexVersionDeprecated version) CandidateHackage
+        | version <- fromMaybe [] versions,
+          let latest = maximum (map indexEntryRevision (indexVersionRevisions version))
+              revision =
+                case preference of
+                  Just chosen
+                    | preferredVersion chosen == indexVersionVersion version,
+                      Just wanted <- preferredRevision chosen,
+                      wanted `elem` map indexEntryRevision (indexVersionRevisions version) ->
+                        wanted
+                  _ -> latest
+        ]
+
+    description candidate =
+      case candidateSource candidate of
+        CandidateLocal path -> snd <$> describeLocal path
+        CandidateCore path -> snd <$> describeLocal path
+        CandidateHackage -> do
+          result <- indexReadCabalFile (requestIndex request) (unPackageName (candidateName candidate)) (candidateVersion candidate) (Just (candidateRevision candidate))
+          case result of
+            Left problem -> ioError (userError problem)
+            Right (_, bytes) -> parseDescriptionBytes (unPackageName (candidateName candidate) <> "-" <> prettyShow (candidateVersion candidate) <> " from the Hackage index") bytes
+
+    describeLocal path = do
+      known <- Map.lookup path <$> readIORef descriptions
+      case known of
+        Just parsed -> pure parsed
+        Nothing -> do
+          parsed <- parseSourcePackageDescriptionAt path
+          modifyIORef' descriptions (Map.insert path parsed)
+          pure parsed
+
+-- | Turn the solution into plan trees, one node per package, fetching the
+-- Hackage releases it chose.
+buildPlans :: SolverInputs IO -> Solution -> IO (Map PackageName PackagePlan)
+buildPlans inputs solution = do
+  built <- newIORef Map.empty
+  forM_ (Map.keys solution) (build built [])
+  readIORef built
+  where
+    build built stack name
+      | name `elem` stack =
+          ioError (userError ("Cyclic dependency: " <> intercalate " -> " (map unPackageName (reverse (name : stack)))))
+      | otherwise = do
+          known <- Map.lookup name <$> readIORef built
+          case known of
+            Just plan -> pure plan
+            Nothing -> do
+              let assignment = solution Map.! name
+              let dependencyNames = withImplicitPrimDependency name (Map.keys (assignmentDependencies assignment))
+              dependencies <- mapM (build built (name : stack)) (sort dependencyNames)
+              (sourcePath, origin) <-
+                case assignmentSource assignment of
+                  CandidateLocal path -> pure (path, PlanLocal)
+                  CandidateCore path -> pure (path, PlanCore)
+                  CandidateHackage -> do
+                    path <-
+                      HackageDownload.downloadPackageWithOptions
+                        HackageDownload.defaultDownloadOptions
+                        PackageSpec {pkgName = unPackageName name, pkgVersion = prettyShow (assignmentVersion assignment)}
+                    pure (path, PlanHackage)
+              cabalFiles <- HackageUtil.findCabalFiles sourcePath
+              cabalFile <-
+                case cabalFiles of
+                  [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
+                  files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
+              gpd <- inputsDescription inputs (assignmentCandidate name assignment)
+              let plan =
+                    PackagePlan
+                      { planName = name,
+                        planSourcePath = sourcePath,
+                        planCabalFile = cabalFile,
+                        planDescription = gpd,
+                        planOrigin = origin,
+                        planRevision = case assignmentSource assignment of
+                          CandidateHackage -> Just (assignmentRevision assignment)
+                          _ -> Nothing,
+                        planFlags = assignmentFlags assignment,
+                        planDependencyPlans = dependencies
+                      }
+              modifyIORef' built (Map.insert name plan)
+              pure plan
+
+-- | Every package depends on @aihc-prim@, whether its Cabal file says so or
+-- not. The two packages below it are the exception: @aihc-prim@ itself, and
+-- the runtime it depends on, which has no Haskell modules.
+withImplicitPrimDependency :: PackageName -> [PackageName] -> [PackageName]
+withImplicitPrimDependency name dependencies
+  | unPackageName name `elem` ["aihc-prim", "aihc-rts"] = dependencies
+  | prim `elem` dependencies = dependencies
+  | otherwise = prim : dependencies
+  where
+    prim = mkPackageName "aihc-prim"
+
+packageNameOf :: GenericPackageDescription -> PackageName
+packageNameOf = CabalPackage.packageName . package . packageDescription
 
 data CoreProvider = CoreProvider
   { coreProviderName :: !String,
     coreProviderVersion :: !String,
     coreProviderSourceRel :: !FilePath
   }
-
--- | Prefer the package being installed and its siblings in the directory
--- above it over the fallback resolver. The caller passes the spec of the
--- root package so the resolver does not parse that Cabal file again.
-localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> PackageSpec -> DependencyResolver
-localDependencyResolverWithFallback fallback rootSource rootSpec =
-  localPackagesResolver fallback (Just (rootSpec, rootSource)) (takeDirectory (normalise rootSource))
-
--- | Prefer the packages that are directories of the workspace over the
--- fallback resolver.
-workspaceDependencyResolver :: DependencyResolver -> FilePath -> DependencyResolver
-workspaceDependencyResolver fallback = localPackagesResolver fallback Nothing
-
-localPackagesResolver :: DependencyResolver -> Maybe (PackageSpec, FilePath) -> FilePath -> DependencyResolver
-localPackagesResolver fallback rootPackage workspace =
-  DependencyResolver
-    { resolverResolveVersion = \name -> do
-        local <- localPackage name
-        maybe (resolverResolveVersion fallback name) (pure . pkgVersion . fst) local,
-      resolverSourcePath = \spec -> do
-        local <- localPackage (pkgName spec)
-        case local of
-          Just (localSpec, path)
-            | pkgVersion localSpec == pkgVersion spec -> pure (ResolvedSource path PlanLocal)
-          _ -> resolverSourcePath fallback spec
-    }
-  where
-    localPackage name =
-      case rootPackage of
-        Just (rootSpec, source)
-          | pkgName rootSpec == name ->
-              pure (Just (rootSpec, source))
-        _ -> do
-          let candidate = workspace </> name
-          exists <- doesDirectoryExist candidate
-          if exists
-            then do
-              spec <- packageSpecFromSource candidate
-              pure (Just (spec, candidate))
-            else pure Nothing
 
 -- | Read the package name and version from the Cabal file of a source tree.
 packageSpecFromSource :: FilePath -> IO PackageSpec
@@ -160,73 +522,14 @@ parseSourcePackageDescriptionAt sourcePath = do
       [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
       files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
   cabalBytes <- BS.readFile cabalFile
+  parsed <- parseDescriptionBytes cabalFile cabalBytes
+  pure (cabalFile, parsed)
+
+parseDescriptionBytes :: String -> BS.ByteString -> IO GenericPackageDescription
+parseDescriptionBytes label cabalBytes =
   case runParseResult (parseGenericPackageDescription cabalBytes) of
-    (_, Right parsed) -> pure (cabalFile, parsed)
-    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
-
-buildPackagePlanWithResolver :: DependencyResolver -> PackageSpec -> IO PackagePlan
-buildPackagePlanWithResolver resolver spec = do
-  -- The dependency graph is a DAG that the recursion walks as a tree: without
-  -- the cache a package shared by several dependents is resolved and parsed
-  -- once per path that reaches it.
-  cache <- newIORef Map.empty
-  buildPackagePlanRecursive cache resolver [] spec
-
-buildPackagePlanRecursive :: IORef (Map.Map (String, String) PackagePlan) -> DependencyResolver -> [PackageSpec] -> PackageSpec -> IO PackagePlan
-buildPackagePlanRecursive cache resolver stack rawSpec
-  | packageSpecIdentity spec `elem` map packageSpecIdentity stack =
-      ioError (userError ("Cyclic dependency while installing " <> formatPackage spec))
-  | otherwise = do
-      cached <- Map.lookup (packageSpecIdentity spec) <$> readIORef cache
-      case cached of
-        -- A cached plan is complete, so it took part in no cycle.
-        Just plan -> pure plan
-        Nothing -> do
-          plan <- buildPlan
-          modifyIORef' cache (Map.insert (packageSpecIdentity spec) plan)
-          pure plan
-  where
-    buildPlan = do
-      ResolvedSource sourcePath origin <- sourcePathForSpec resolver spec
-      (cabalFile, gpd) <- parseSourcePackageDescriptionAt sourcePath
-      let dependencyNames = packageDependencyNames gpd
-      dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec dependencyNames)
-      dependencyPlans <- mapM (buildPackagePlanRecursive cache resolver (spec : stack)) dependencySpecs
-      pure
-        PackagePlan
-          { planSourcePath = sourcePath,
-            planCabalFile = cabalFile,
-            planDescription = gpd,
-            planOrigin = origin,
-            planDependencyPlans = dependencyPlans
-          }
-
-    spec = canonicalPackageSpec rawSpec
-    resolveDependencySpec dependencyName = do
-      version <- resolveVersionForDependency dependencyName
-      pure (canonicalPackageSpec (PackageSpec dependencyName version))
-
-    resolveVersionForDependency dependencyName =
-      case lookupCoreProvider dependencyName of
-        Just provider -> pure (coreProviderVersion provider)
-        Nothing -> resolverResolveVersion resolver dependencyName
-
--- | Every package depends on @aihc-prim@, whether its Cabal file says so or
--- not. The two packages below it are the exception: @aihc-prim@ itself, and
--- the runtime it depends on, which has no Haskell modules.
-withImplicitPrimDependency :: PackageSpec -> [String] -> [String]
-withImplicitPrimDependency spec dependencies
-  | pkgName spec `elem` ["aihc-prim", "aihc-rts"] = dependencies
-  | any isPrimDependency dependencies = dependencies
-  | otherwise = "aihc-prim" : dependencies
-  where
-    isPrimDependency name = name == "aihc-prim" || name == "ghc-prim"
-
-sourcePathForSpec :: DependencyResolver -> PackageSpec -> IO ResolvedSource
-sourcePathForSpec resolver spec =
-  case lookupCoreProvider (pkgName spec) of
-    Just provider -> (`ResolvedSource` PlanCore) <$> coreProviderSourcePath provider
-    Nothing -> resolverSourcePath resolver spec
+    (_, Right parsed) -> pure parsed
+    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> label <> ": " <> show errs))
 
 -- | The standin that provides a package name, under either the name of the
 -- boot library or the name of the standin itself.
@@ -245,12 +548,6 @@ lookupCoreProvider name =
     "aihc-template-haskell" -> Just aihcTemplateHaskellProvider
     "system-cxx-std-lib" -> Just systemCxxStdLibProvider
     _ -> Nothing
-
-canonicalPackageSpec :: PackageSpec -> PackageSpec
-canonicalPackageSpec spec =
-  case lookupCoreProvider (pkgName spec) of
-    Just provider -> PackageSpec (coreProviderName provider) (coreProviderVersion provider)
-    Nothing -> spec
 
 -- | Every standin under @core-libs@, with the version of the boot library it
 -- replaces. The versions come from the emulated GHC release so that a
@@ -346,27 +643,3 @@ coreProviderSourcePath provider = do
           if parent == dir
             then ioError (userError ("Could not find local core library " <> providerRel <> " from current directory"))
             else findAncestorContaining marker parent
-
-packageSpecIdentity :: PackageSpec -> (String, String)
-packageSpecIdentity spec =
-  (pkgName spec, pkgVersion spec)
-
-packageDependencyNames :: GenericPackageDescription -> [String]
-packageDependencyNames gpd =
-  (sort . nub . map T.unpack)
-    ( concatMap
-        (filter (/= currentPackageName) . libraryDependencies)
-        libraryTrees
-    )
-  where
-    evalCond = HackageCabal.conditionEvaluator gpd
-    currentPackageName = T.pack . CabalPackage.unPackageName . CabalPackage.packageName . package $ packageDescription gpd
-    libraryTrees =
-      maybe [] pure (condLibrary gpd)
-        <> map snd (condSubLibraries gpd)
-
-    libraryDependencies tree =
-      let build = HackageCabal.collectMergedBuildInfo evalCond libBuildInfo tree
-       in if buildable build
-            then HackageCabal.extractDependencies build
-            else []

@@ -20,6 +20,13 @@ against Hackage. Versions are exact for the same reason — a floating version
 would make the run depend on whatever Hackage prefers that day, and a failure
 would no longer point at a change in aihc.
 
+Each unpacked release gets the latest Hackage revision of its cabal file, as
+it would under cabal-install. The dependency solver checks the version bounds
+of every package, and the bounds a release was uploaded with often exclude the
+newer `base` or `bytestring` it is built against here; a revision is how
+Hackage relaxes them after the fact. The `nix flake check` list in
+`scripts/nix/hackage-packages.nix` pins the revision it uses per package.
+
 ## Packages
 
 | Package | Version |

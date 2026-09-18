@@ -12,6 +12,8 @@ import Control.DeepSeq (NFData)
 import Data.Aeson ((.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import System.FilePath ((</>))
@@ -32,7 +34,10 @@ data PackageManifest = PackageManifest
     packageManifestFlags :: ![Text],
     -- | The package has @cxx-sources@, so its objects need the C++
     -- standard library. An executable that links the package links it.
-    packageManifestCxxStdLib :: !Bool
+    packageManifestCxxStdLib :: !Bool,
+    -- | The cabal flags the dependency plan decided for the package. Every
+    -- other flag is at its default.
+    packageManifestCabalFlags :: !(Map Text Bool)
   }
   deriving (Eq, Show, Generic)
 
@@ -41,7 +46,7 @@ instance NFData PackageManifest
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =
     Aeson.object
-      [ "schemaVersion" .= (6 :: Int),
+      [ "schemaVersion" .= (7 :: Int),
         "name" .= packageManifestName manifest,
         "version" .= packageManifestVersion manifest,
         "identity" .= packageManifestIdentity manifest,
@@ -50,7 +55,8 @@ instance Aeson.ToJSON PackageManifest where
         "modules" .= packageManifestModules manifest,
         "compiledModules" .= packageManifestCompiledModules manifest,
         "flags" .= packageManifestFlags manifest,
-        "cxxStdLib" .= packageManifestCxxStdLib manifest
+        "cxxStdLib" .= packageManifestCxxStdLib manifest,
+        "cabalFlags" .= packageManifestCabalFlags manifest
       ]
 
 instance Aeson.FromJSON PackageManifest where
@@ -67,6 +73,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> pure []
           <*> pure []
           <*> pure False
+          <*> pure Map.empty
       3 ->
         PackageManifest
           <$> object .: "name"
@@ -78,6 +85,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> pure []
           <*> pure []
           <*> pure False
+          <*> pure Map.empty
       4 ->
         PackageManifest
           <$> object .: "name"
@@ -89,6 +97,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> pure []
           <*> object .: "flags"
           <*> pure False
+          <*> pure Map.empty
       5 ->
         PackageManifest
           <$> object .: "name"
@@ -100,6 +109,7 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "compiledModules"
           <*> object .: "flags"
           <*> pure False
+          <*> pure Map.empty
       6 ->
         PackageManifest
           <$> object .: "name"
@@ -111,6 +121,19 @@ instance Aeson.FromJSON PackageManifest where
           <*> object .: "compiledModules"
           <*> object .: "flags"
           <*> object .: "cxxStdLib"
+          <*> pure Map.empty
+      7 ->
+        PackageManifest
+          <$> object .: "name"
+          <*> object .: "version"
+          <*> object .: "identity"
+          <*> object .: "unitId"
+          <*> object .: "dependencies"
+          <*> object .: "modules"
+          <*> object .: "compiledModules"
+          <*> object .: "flags"
+          <*> object .: "cxxStdLib"
+          <*> object .: "cabalFlags"
       _ -> fail "unsupported package manifest schema"
 
 packageManifestPath :: FilePath -> FilePath
