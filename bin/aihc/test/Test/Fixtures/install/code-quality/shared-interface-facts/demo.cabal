@@ -1,0 +1,21 @@
+cabal-version: 3.0
+name: shared-interface-facts
+version: 0.1.0.0
+
+library
+  exposed-modules: Public
+  other-modules:
+    First
+    Hidden
+    Reexport
+    Second
+
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  default-language: Haskell2010
+  default-extensions:
+    DataKinds
+    FlexibleInstances
+    KindSignatures
+    NoImplicitPrelude
+    PolyKinds

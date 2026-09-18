@@ -911,9 +911,14 @@ rebuildZonkedKind kind =
       case solution of
         Nothing -> pure kind
         Just solved -> do
-          zonked <- rebuildZonkedKind solved
-          writeMetaTv unique zonked
-          pure zonked
+          state <- lift get
+          -- Keep a settled solution and avoid another store write.
+          if kindNeedsZonkIn state solved
+            then do
+              zonked <- rebuildZonkedKind solved
+              writeMetaTv unique zonked
+              pure zonked
+            else pure solved
     TcTyVar tyVar -> do
       kind' <- rebuildZonkedKind (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))

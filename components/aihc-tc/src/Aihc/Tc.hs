@@ -149,7 +149,7 @@ import Aihc.Resolve.Generic (everywhereM)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcForeignImportInfo (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Deriving.References (DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), derivingReferenceList)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), classInfoKey, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc)
 import Aihc.Tc.Monad
@@ -163,7 +163,6 @@ import Data.Data (Data)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Typeable (cast)
 import GHC.Generics (Generic)
@@ -348,10 +347,12 @@ tcModuleSuccess =
 -- | Type-check dependency-ordered modules with an imported semantic interface.
 -- Return only facts that the specified modules define.
 typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
-typecheckModulesWithInterface config imported units =
-  let initialState = initialTcState imported
-      (finalState, checkedModules) = List.mapAccumL check initialState units
-   in (checkedModules, tcInterfaceDifference initialState finalState)
+typecheckModulesWithInterface config imported units
+  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  | otherwise =
+      let initialState = initialTcState imported
+          (finalState, checkedModules) = List.mapAccumL check initialState units
+       in (checkedModules, tcInterfaceDifference initialState finalState)
   where
     check st m =
       let (result, st') = typecheckModuleWithState config st m
@@ -360,10 +361,14 @@ typecheckModulesWithInterface config imported units =
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
 typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ModuleUnit] -> ([Module], TcInterface)
-typecheckModuleSccWithInterface config imported units =
-  let initialState = initialTcState imported
-      (checkedModules, finalState) = typecheckModuleSccWithState config initialState units
-   in (checkedModules, tcInterfaceDifference initialState finalState)
+typecheckModuleSccWithInterface config imported units
+  -- Name resolution already checked imports and exports. Without declarations,
+  -- the component adds no types, evidence, or diagnostics.
+  | all (null . moduleDecls . moduleUnitAst) units = (map moduleUnitAst units, emptyTcInterface)
+  | otherwise =
+      let initialState = initialTcState imported
+          (checkedModules, finalState) = typecheckModuleSccWithState config initialState units
+       in (checkedModules, tcInterfaceDifference initialState finalState)
 
 initialTcState :: TcInterface -> TcState
 initialTcState imported =
@@ -382,23 +387,25 @@ initialTcState imported =
 tcInterfaceDifference :: TcState -> TcState -> TcInterface
 tcInterfaceDifference initial state =
   TcInterface
-    { tcInterfaceTermMap = exportedGlobalTerms (Map.difference (tcsGlobalTerms state) (tcsGlobalTerms initial)),
-      tcInterfaceTyConMap = Map.difference (tcsGlobalTyCons state) (tcsGlobalTyCons initial),
-      tcInterfaceDataTypeMap = Map.difference (tcsDataTypes state) (tcsDataTypes initial),
-      tcInterfaceClassMap = Map.difference (tcsClasses state) (tcsClasses initial),
+    { tcInterfaceTermMap = exportedGlobalTerms (newEntries (tcsGlobalTerms state) (tcsGlobalTerms initial)),
+      tcInterfaceTyConMap = newEntries (tcsGlobalTyCons state) (tcsGlobalTyCons initial),
+      tcInterfaceDataTypeMap = newEntries (tcsDataTypes state) (tcsDataTypes initial),
+      tcInterfaceClassMap = newEntries (tcsClasses state) (tcsClasses initial),
       tcInterfaceInstanceMap =
         Map.fromList
           [ (instanceInfoKey info, info)
-          | info <- instanceEnvList (tcsInstances state),
-            instanceInfoKey info `Set.notMember` initialInstanceKeys
+          | info <- instanceEnvSince (tcsInstances state) (tcsInstances initial)
           ],
-      tcInterfaceDataFamilyInstanceMap = Map.difference (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial),
-      tcInterfaceTypeFamilyInstanceMap = Map.difference (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial),
-      tcInterfacePatSynMap = Map.difference (tcsPatSyns state) (tcsPatSyns initial),
-      tcInterfaceForeignImportMap = Map.difference (tcsForeignImports state) (tcsForeignImports initial)
+      tcInterfaceDataFamilyInstanceMap = newEntries (tcsDataFamilyInstances state) (tcsDataFamilyInstances initial),
+      tcInterfaceTypeFamilyInstanceMap = newEntries (tcsTypeFamilyInstances state) (tcsTypeFamilyInstances initial),
+      tcInterfacePatSynMap = newEntries (tcsPatSyns state) (tcsPatSyns initial),
+      tcInterfaceForeignImportMap = newEntries (tcsForeignImports state) (tcsForeignImports initial)
     }
   where
-    initialInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances initial)))
+    -- These tables only gain keys. Equal sizes thus mean no new facts.
+    newEntries current previous
+      | Map.size current == Map.size previous = Map.empty
+      | otherwise = Map.difference current previous
 
 exportedGlobalTerms :: Map.Map TcTermKey TcBinder -> Map.Map TcTermKey TypeScheme
 exportedGlobalTerms = Map.mapMaybe binderScheme

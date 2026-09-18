@@ -81,9 +81,14 @@ rebuildZonkedType ty = case ty of
     case mSol of
       Nothing -> pure ty
       Just sol -> do
-        zonked <- rebuildZonkedType sol
-        writeMetaTv u zonked
-        pure zonked
+        state <- lift get
+        -- A settled solution needs neither a new type nor another store write.
+        if typeNeedsZonkIn state sol
+          then do
+            zonked <- rebuildZonkedType sol
+            writeMetaTv u zonked
+            pure zonked
+          else pure sol
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> TcTyCon tc <$> mapM rebuildZonkedType args
   TcFunTy a b -> TcFunTy <$> rebuildZonkedType a <*> rebuildZonkedType b

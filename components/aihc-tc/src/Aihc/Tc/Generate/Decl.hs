@@ -126,7 +126,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
 import Aihc.Tc.Deriving.Context (inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvFromList, instanceEnvList, instanceInfoKey, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceClassTyCon, instanceEnvSince, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -725,7 +725,7 @@ data GlobalStateKeys = GlobalStateKeys
     globalTyCons :: !(Map TcTypeKey TyConInfo),
     globalDataTypes :: !(Map TcTypeKey DataTypeInfo),
     globalClasses :: !(Map TcTypeKey ClassInfo),
-    globalInstanceKeys :: !(Set.Set ((Text, Text), Text)),
+    globalInstances :: !InstanceEnv,
     globalDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
     globalTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
     globalPatSyns :: !(Map TcTermKey PatSynInfo)
@@ -738,7 +738,7 @@ globalStateKeys state =
       globalTyCons = tcsGlobalTyCons state,
       globalDataTypes = tcsDataTypes state,
       globalClasses = tcsClasses state,
-      globalInstanceKeys = Set.fromList (map instanceInfoKey (instanceEnvList (tcsInstances state))),
+      globalInstances = tcsInstances state,
       globalDataFamilyInstances = tcsDataFamilyInstances state,
       globalTypeFamilyInstances = tcsTypeFamilyInstances state,
       globalPatSyns = tcsPatSyns state
@@ -883,11 +883,9 @@ defaultGlobalKindMetas initialKeys = do
   terms <- traverseNewMap globalTerms defaultBinderKinds (tcsGlobalTerms state)
   dataTypes <- traverseNewMap globalDataTypes defaultDataTypeKinds (tcsDataTypes state)
   classes <- traverseNewMap globalClasses defaultClassKinds (tcsClasses state)
-  let allInstances = instanceEnvList (tcsInstances state)
-  instances <-
-    if length allInstances == Set.size (globalInstanceKeys initialKeys)
-      then pure (tcsInstances state)
-      else instanceEnvFromList <$> mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) allInstances
+  let previousInstances = globalInstances initialKeys
+  newInstances <- mapM defaultInstanceKinds (instanceEnvSince (tcsInstances state) previousInstances)
+  let instances = foldr addInstanceEnv previousInstances newInstances
   dataFamilyInstances <- traverseNewMap globalDataFamilyInstances defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
   typeFamilyInstances <- traverseNewMap globalTypeFamilyInstances defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
   patSyns <- traverseNewMap globalPatSyns defaultPatSynKinds (tcsPatSyns state)
@@ -917,9 +915,6 @@ defaultGlobalKindMetas initialKeys = do
           pure (Map.union defaulted current)
       where
         previous = selectPrevious initialKeys
-    traverseNewList selectKeys key transform value
-      | key value `Set.member` selectKeys initialKeys = pure value
-      | otherwise = transform value
     defaultPatSynKinds info = do
       scheme <- defaultTypeSchemeKinds (psiScheme info)
       required <- mapM defaultPredKinds (psiReqTheta info)

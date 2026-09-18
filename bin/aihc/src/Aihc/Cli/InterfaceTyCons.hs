@@ -6,6 +6,8 @@
 -- above it -- was most of what this cost.
 module Aihc.Cli.InterfaceTyCons
   ( interfaceTyCons,
+    interfaceTermTyCons,
+    interfaceNonTermRootTyCons,
     tyConInfoTyCons,
     dataTypeInfoTyCons,
     classInfoTyCons,
@@ -31,17 +33,28 @@ each collect values acc = foldr collect acc values
 
 interfaceTyCons :: TcInterface -> Set.Set TyCon
 interfaceTyCons interface =
-  ( each typeSchemeTyConsInto (map snd (tcInterfaceTerms interface))
-      . each tyConInfoTyConsInto (tcInterfaceTyCons interface)
-      . each dataTypeInfoTyConsInto (tcInterfaceDataTypes interface)
-      . each classInfoTyConsInto (tcInterfaceClasses interface)
-      . each instanceInfoTyCons (tcInterfaceInstances interface)
-      . each dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)
-      . each typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
-      . each patSynInfoTyCons (tcInterfacePatSyns interface)
-      . each foreignImportInfoTyCons (map snd (tcInterfaceForeignImports interface))
-  )
-    Set.empty
+  interfaceTyConsWith tyConInfoTyConsInto dataTypeInfoTyConsInto classInfoTyConsInto interface (interfaceTermTyCons interface)
+
+-- | Collect the type constructors of all terms into one set.
+interfaceTermTyCons :: TcInterface -> Set.Set TyCon
+interfaceTermTyCons interface = each typeSchemeTyConsInto (map snd (tcInterfaceTerms interface)) Set.empty
+
+-- | The roots outside term schemes for a closure over a complete interface.
+-- The closure reads type, data, and class declarations from its tables.
+-- Start with their identities here to avoid a second walk of their types.
+interfaceNonTermRootTyCons :: TcInterface -> Set.Set TyCon
+interfaceNonTermRootTyCons = collected (interfaceTyConsWith (Set.insert . tciTyCon) (Set.insert . dtiTyCon) (Set.insert . ciTyCon))
+
+interfaceTyConsWith :: Collect TyConInfo -> Collect DataTypeInfo -> Collect ClassInfo -> Collect TcInterface
+interfaceTyConsWith onTyCon onDataType onClass interface =
+  each onTyCon (tcInterfaceTyCons interface)
+    . each onDataType (tcInterfaceDataTypes interface)
+    . each onClass (tcInterfaceClasses interface)
+    . each instanceInfoTyCons (tcInterfaceInstances interface)
+    . each dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)
+    . each typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
+    . each patSynInfoTyCons (tcInterfacePatSyns interface)
+    . each foreignImportInfoTyCons (map snd (tcInterfaceForeignImports interface))
 
 tyConInfoTyCons :: TyConInfo -> Set.Set TyCon
 tyConInfoTyCons = collected tyConInfoTyConsInto

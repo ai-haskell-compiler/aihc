@@ -1,15 +1,11 @@
--- | Share the equal parts of type interfaces.
+-- | Share equal parts of a unit's new interface facts.
 --
--- The type checker builds every type it records as a fresh heap object,
--- and the artifact decoder does the same for every type it reads. An
--- interface lives for the rest of an install (its dependents check against
--- it, and the package artifacts are assembled from it at the end), so it
--- is much smaller when each distinct type variable, type, predicate, type
--- scheme, and type constructor is one object. This pass rebuilds
--- interfaces so that they share every equal part. The result is equal to
--- the input; only the heap layout changes.
+-- Apply this pass before the merge with imported facts and the export
+-- projection. Each module then retains the same objects for imported
+-- facts. A new copy of those facts would increase both time and memory.
+-- The result equals the input. Only the heap layout changes.
 module Aihc.Tc.Share
-  ( shareTcInterfaces,
+  ( shareTcInterface,
   )
 where
 
@@ -40,11 +36,10 @@ import Aihc.Tc.Types (mkTyVarId, traverseScheme)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
--- | Share the parts of several interfaces with one another, for interfaces
--- that live together: the modules of one unit, or of one package.
-shareTcInterfaces :: [TcInterface] -> [TcInterface]
-shareTcInterfaces interfaces =
-  case runShare (mapM shareInterface interfaces) emptyState of
+-- | Share equal parts of the facts that one unit declares.
+shareTcInterface :: TcInterface -> TcInterface
+shareTcInterface interface =
+  case runShare (shareInterface interface) emptyState of
     Result shared _ -> shared
 
 -- The tables of the parts seen so far. A part is looked up after its own
