@@ -1,0 +1,14 @@
+modules:
+  - |
+    module Test where
+
+    data Colour = Red | Green | Blue
+      deriving (Enum)
+
+    result :: Colour
+    result = toEnum 7
+expression: result
+output: ""
+error: InterpretNoMatchingAlternative (RuntimeLit (GrinLitInt IntRep 7))
+status: fail
+reason: a tag outside a derived enumeration matches no alternative of toEnum
