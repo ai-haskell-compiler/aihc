@@ -742,14 +742,28 @@ conditionEvaluatorIn context gpd = eval
 -- | The flags of a package a target sets away from their defaults.
 --
 -- aihc has no way to ask for a flag on the command line, so the few flags a
--- target cannot take at their default are listed here. The WebAssembly
--- target has a libc but no C++ standard library in its sysroot, and
+-- target cannot take at their default are listed here. Both entries are
+-- @text@ on the WebAssembly target.
+--
+-- The target has a libc but no C++ standard library in its sysroot, and
 -- @text@ enables its @cxx-sources@ (the simdutf validator) on every
--- architecture but JavaScript, so that flag is turned off there and the
--- package validates UTF-8 with its C and Haskell routines instead.
+-- architecture but JavaScript, so @simdutf@ is turned off there.
+--
+-- @pure-haskell@ replaces the rest of the C routines with Haskell ones.
+-- @text@ calls them through @size_t@, which is four bytes on wasm32 while an
+-- @Int@ is eight (see 'Aihc.Hackage.Headers.haskellWordBytes'), a combination
+-- no GHC platform has. @Data.Text.length@ is
+-- @negate . measureOff maxBound@, and @measureOff@ hands that bound to
+-- @_hs_text_measure_off@ as a @CSize@: on wasm32 @fromIntegral (maxBound ::
+-- Int)@ wraps to @0xffffffff@, the C routine subtracts the characters it
+-- measured from it, and the difference is no longer a count, so @length@
+-- answers 1 for every non-empty string. The Haskell routines count
+-- characters directly and never depend on that bound fitting, so the target
+-- takes them.
 targetFlagOverrides :: Arch -> PackageName -> [(FlagName, Bool)]
 targetFlagOverrides arch name
-  | arch == Wasm32 && name == mkPackageName "text" = [(mkFlagName "simdutf", False)]
+  | arch == Wasm32 && name == mkPackageName "text" =
+      [(mkFlagName "simdutf", False), (mkFlagName "pure-haskell", True)]
   | otherwise = []
 
 -- | Collect all data nodes from a 'CondTree', evaluating conditions.
