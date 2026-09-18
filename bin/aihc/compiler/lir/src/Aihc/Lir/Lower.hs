@@ -1593,6 +1593,10 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     -- alive and gives no code.
     ("touch#", [_])
       | null vars -> pure env
+    -- A computation is never duplicated, so noDuplicate# has nothing to
+    -- guard against; the state token it threads carries no runtime value.
+    ("noDuplicate#", [])
+      | null vars -> pure env
     ("float2Double#", [value]) -> do
       operand <- floatOperand F32 value
       result <- emitValue "result" F64 (Convert FpExt F32 operand F64)
