@@ -108,6 +108,13 @@ the `*_HOST_OS` and `*_HOST_ARCH` macros. `MachDeps.h` gives the Haskell
 sizes. `ghcautoconf.h` has no feature macros, because aihc runs no configure
 script.
 
+No GHC platform pairs an eight-byte `Int#` with four-byte pointers, so
+`wasm32` is the one target where a package may convert an `Int` to a
+pointer-width C type, such as `CSize` or `CPtrdiff`, and lose the high half.
+A package that relies on the conversion being exact needs a target override;
+`text` is the one that does, and `Aihc.Hackage.Cabal.targetFlagOverrides`
+gives it the Haskell routines there instead of the C ones.
+
 Two more headers stand in for the runtime's own. `Stg.h` spells the Haskell
 types the way the RTS does, `StgInt` and `StgWord` and their sized siblings,
 each an alias of the `HsFFI.h` type of the same width. `Rts.h` includes it

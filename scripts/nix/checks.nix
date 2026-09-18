@@ -598,6 +598,7 @@
     bytestring = ["deepseq" "bytestring"];
     containers = ["deepseq" "array" "containers"];
     pretty = ["deepseq" "pretty"];
+    text = ["deepseq" "array" "containers" "bytestring" "binary" "text"];
   };
   findHackagePackage = name:
     pkgs.lib.findFirst (package: package.name == name) (throw "missing Hackage package ${name}") hackage.packages;
