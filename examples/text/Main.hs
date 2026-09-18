@@ -4,8 +4,11 @@
 -- and measures against exactly such a count.
 --
 -- Nothing here prints a 'Data.Text.Text' or a 'String' built from one:
--- 'Data.Text.unpack' reaches @noDuplicate#@, which the native runtime does
--- not implement. Byte lists say the same thing.
+-- 'Data.Text.unpack' reaches @GHC.Base@'s shift wrappers, whose
+-- @uncheckedIShiftL#@, @uncheckedIShiftRA#@ and @uncheckedIShiftRL#@ the
+-- native backends do not lower. Byte lists say the same thing, and keep the
+-- output ASCII so that it does not depend on the encoding of the standard
+-- output handle either.
 module Main where
 
 import qualified Data.ByteString as B
@@ -22,6 +25,8 @@ main = do
       -- ASCII, so that a character count and a byte count differ.
       wide = T.pack "na\239ve caf\233 \955"
       ascii = TE.decodeUtf8 (B.pack [0x41, 0x42, 0x43])
+  -- length is negate . measureOff maxBound, so it is the one that needs the
+  -- bound it measures against to survive the trip through size_t.
   print (T.length hello, T.length ascii, T.length wide)
   print (B.length (TE.encodeUtf8 ascii), B.length (TE.encodeUtf8 wide))
   print (bytes (T.take 4 wide))
