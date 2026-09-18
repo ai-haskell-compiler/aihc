@@ -25,14 +25,12 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
-    ClassDeclItem (..),
     Decl (..),
     Expr (..),
     GuardQualifier (..),
     ImportDecl (..),
     ImportItem (..),
     ImportLevel (..),
-    InstanceDeclItem (..),
     Pattern (..),
     Rhs (..),
     SourceSpan,
