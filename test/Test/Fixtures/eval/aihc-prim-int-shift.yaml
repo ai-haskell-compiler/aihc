@@ -1,0 +1,26 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (uncheckedIShiftL# 3# 4#))
+        (I# (uncheckedIShiftL# 1# 63#))
+        (I# (uncheckedIShiftRA# -48# 4#))
+        (I# (uncheckedIShiftRA# -1# 63#))
+        (I# (uncheckedIShiftRL# 48# 4#))
+        (I# (uncheckedIShiftRL# -1# 60#))
+output: |
+  Results (I# 48) (I# -9223372036854775808) (I# -3) (I# -1) (I# 3) (I# 15)
+expression: |
+  results
+status: pass
+reason: a left shift of an int wraps, an arithmetic shift right replicates the sign bit, and a logical shift right fills with zeros

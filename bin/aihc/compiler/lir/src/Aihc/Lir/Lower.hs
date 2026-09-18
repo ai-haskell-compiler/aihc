@@ -1890,6 +1890,9 @@ binaryPrimitives =
     ("xor#", Xor),
     ("uncheckedShiftL#", Shl),
     ("uncheckedShiftRL#", ShrU),
+    ("uncheckedIShiftL#", Shl),
+    ("uncheckedIShiftRA#", ShrS),
+    ("uncheckedIShiftRL#", ShrU),
     ("uncheckedShiftL64#", Shl),
     ("uncheckedShiftRL64#", ShrU)
   ]

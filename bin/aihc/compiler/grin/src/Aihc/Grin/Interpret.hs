@@ -1009,6 +1009,10 @@ evalPrimitive "not#" [value] = do
   pure [wordRuntimeValue (complement word)]
 evalPrimitive "uncheckedShiftL#" [value, amount] = evalWordShift "uncheckedShiftL#" shiftL value amount
 evalPrimitive "uncheckedShiftRL#" [value, amount] = evalWordShift "uncheckedShiftRL#" shiftR value amount
+evalPrimitive "uncheckedIShiftL#" [value, amount] = evalIntShift "uncheckedIShiftL#" shiftL value amount
+evalPrimitive "uncheckedIShiftRA#" [value, amount] = evalIntShift "uncheckedIShiftRA#" shiftR value amount
+evalPrimitive "uncheckedIShiftRL#" [value, amount] =
+  evalIntShift "uncheckedIShiftRL#" (\int count -> normalizeWord int `shiftR` count) value amount
 evalPrimitive "uncheckedShiftLWord16#" [value, amount] =
   evalSizedWordShift "uncheckedShiftLWord16#" Word16Rep 0xffff shiftL value amount
 evalPrimitive "uncheckedShiftRLWord16#" [value, amount] =
@@ -1988,6 +1992,15 @@ evalWordShift name operation value amount = do
   word <- expectWordPrimitiveArgument name value
   shiftAmount <- expectIntPrimitiveArgument name amount
   pure [wordRuntimeValue (operation word (fromInteger shiftAmount))]
+
+-- | Shift a signed int. @uncheckedIShiftRA#@ replicates the sign bit, which is
+-- what 'shiftR' on an 'Integer' does, while @uncheckedIShiftRL#@ passes an
+-- operation that first takes the unsigned bit pattern so it fills with zeros.
+evalIntShift :: Text -> (Integer -> Int -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalIntShift name operation value amount = do
+  int <- expectIntPrimitiveArgument name value
+  shiftAmount <- expectIntPrimitiveArgument name amount
+  pure [intRuntimeValue (operation int (fromInteger shiftAmount))]
 
 -- | Keep the low bits of an int as a sized signed value.
 evalIntNarrow :: Text -> GrinRep -> Int -> RuntimeValue -> EvalM [RuntimeValue]
