@@ -624,8 +624,11 @@ lexeme parser = parser <* space
 symbol :: Text -> Parser Text
 symbol value = lexeme (MPC.string value)
 
+-- | A keyword only matches when the identifier stops there. The whole
+-- match backtracks, as a longer identifier may begin with a keyword:
+-- @case letter as ...@ opens with the keyword @let@ but names a binder.
 keyword :: Text -> Parser Text
-keyword value = lexeme $ do
+keyword value = MP.try . lexeme $ do
   _ <- MPC.string value
   following <- MP.optional (MP.lookAhead MP.anySingle)
   case following of
