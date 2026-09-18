@@ -25,9 +25,9 @@ modules:
       print (castCCharToChar (castCharToCChar 'z'), castCUCharToChar (castCharToCUChar 'q'))
 expression: main
 stdout: |
-  (14,"héllo, wörld")
+  (14,"h\233llo, w\246rld")
   4
-  "añb"
+  "a\241b"
   3
   "latin"
   ('z','q')

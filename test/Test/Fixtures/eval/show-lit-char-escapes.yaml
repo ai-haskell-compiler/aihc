@@ -1,0 +1,19 @@
+modules:
+  - |
+    module Test where
+
+    data Results = Results Bool Bool Bool Bool Bool Bool
+
+    result :: Results
+    result =
+      Results
+        (show '\233' == "'\\233'")
+        (show "na\239ve \955" == "\"na\\239ve \\955\"")
+        (show "\SOH" == "\"\\SOH\"")
+        (show ['\SO', 'H'] == "\"\\SO\\&H\"")
+        (show ['\233', '5'] == "\"\\233\\&5\"")
+        (show "ok ~\DEL\n" == "\"ok ~\\DEL\\n\"")
+expression: result
+output: Results True True True True True True
+status: pass
+reason: showLitChar escapes every character above DEL as a decimal escape and separates an ambiguous follower with the empty escape, as GHC does
