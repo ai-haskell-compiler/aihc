@@ -157,6 +157,10 @@ let
           name = "array";
           version = "0.5.8.0";
           hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+          revision = {
+            number = 2;
+            hash = "sha256-zLz7SYAd4SjK+EBLy62ZzVXMsbZZB7tTkQ2j1h7Aw5s=";
+          };
         }
         {
           name = "deepseq";
@@ -184,6 +188,10 @@ let
           name = "array";
           version = "0.5.8.0";
           hash = "sha256-YGP+ZsyP6onvdd7QbEGQJLPFH2kSubQnVfO/YgpjcwY=";
+          revision = {
+            number = 2;
+            hash = "sha256-zLz7SYAd4SjK+EBLy62ZzVXMsbZZB7tTkQ2j1h7Aw5s=";
+          };
         }
         {
           name = "binary";
