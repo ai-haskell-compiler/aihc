@@ -3,6 +3,8 @@ module Aihc.Cli.Options
     BuildOptions (..),
     InstallOptions (..),
     LinkExeOptions (..),
+    PlanOptions (..),
+    defaultPlanOptions,
     parseCommandIO,
     parseCommandPure,
     parserInfo,
@@ -52,9 +54,29 @@ data BuildOptions = BuildOptions
     -- | The executable of a main module, or the directory the executables
     -- of a package go under; a link bundle takes the place of an executable
     -- with @--no-link@.
-    buildOutput :: !(Maybe FilePath)
+    buildOutput :: !(Maybe FilePath),
+    buildPlanOptions :: !PlanOptions
   }
   deriving (Eq, Show)
+
+-- | How the dependency plan is solved and kept, see
+-- @docs/dependency-resolution.md@.
+data PlanOptions = PlanOptions
+  { -- | @NAME RANGE@, @NAME +flag@ or @NAME -flag@ restrictions on the
+    -- plan.
+    planConstraints :: ![String],
+    -- | Fail instead of rewriting a stale or absent @aihc.lock@.
+    planLocked :: !Bool,
+    -- | Ignore the lock for every package and rewrite it.
+    planUpdate :: !Bool,
+    -- | Ignore the lock for these packages and their dependents.
+    planUpdatePackages :: ![String]
+  }
+  deriving (Eq, Show)
+
+-- | Take the lock as it is, or solve and write it.
+defaultPlanOptions :: PlanOptions
+defaultPlanOptions = PlanOptions [] False False []
 
 -- | Link an executable from a bundle that @build --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
@@ -79,7 +101,8 @@ data InstallOptions = InstallOptions
     installNoCode :: !Bool,
     installVerbose :: !Bool,
     installPrintTimings :: !Bool,
-    installTarget :: !NativeTarget
+    installTarget :: !NativeTarget,
+    installPlanOptions :: !PlanOptions
   }
   deriving (Eq, Show)
 
@@ -175,6 +198,33 @@ buildOptionsParser =
               <> OA.short 'o'
               <> OA.metavar "PATH"
               <> OA.help "Write the executable of a main module to PATH, or the executables of a package under the directory PATH; with --no-link, the link bundles take their place"
+          )
+      )
+    <*> planOptionsParser
+
+planOptionsParser :: OA.Parser PlanOptions
+planOptionsParser =
+  PlanOptions
+    <$> OA.many
+      ( OA.strOption
+          ( OA.long "constraint"
+              <> OA.metavar "CONSTRAINT"
+              <> OA.help "Restrict the dependency plan: NAME RANGE fixes the versions of a package, NAME +flag and NAME -flag fix one of its cabal flags"
+          )
+      )
+    <*> OA.switch
+      ( OA.long "locked"
+          <> OA.help "Take the plan from aihc.lock and fail if the lock is absent or stale, instead of solving and rewriting it"
+      )
+    <*> OA.switch
+      ( OA.long "update"
+          <> OA.help "Ignore aihc.lock, solve the plan afresh, and rewrite the lock"
+      )
+    <*> OA.many
+      ( OA.strOption
+          ( OA.long "update-package"
+              <> OA.metavar "NAME"
+              <> OA.help "Ignore what aihc.lock says about NAME and the packages that depend on it, and rewrite the lock"
           )
       )
 
@@ -351,3 +401,4 @@ installOptionsParser =
           <> OA.help "Print compiler stage timings"
       )
     <*> nativeTargetOption
+    <*> planOptionsParser

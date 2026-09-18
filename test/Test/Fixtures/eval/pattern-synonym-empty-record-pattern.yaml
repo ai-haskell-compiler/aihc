@@ -1,0 +1,17 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+    data Pair = Pair Int Int
+    pattern Swapped :: Int -> Int -> Pair
+    pattern Swapped a b = Pair b a
+    isPair :: Pair -> Bool
+    isPair Swapped {} = True
+output: |
+  True
+expression: |
+  isPair (Pair 1 2)
+status: pass
+reason: the empty record form matches every argument of a pattern synonym declared with prefix arguments

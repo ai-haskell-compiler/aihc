@@ -1,0 +1,17 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Test where
+    data Flag = On | Off
+    data Pair = Pair Flag Flag
+    pattern Point {px, py} = Pair px py
+    turnOn :: Pair -> Pair
+    turnOn p = p {px = On}
+output: |
+  Pair On Off
+expression: |
+  turnOn (Pair Off Off)
+status: pass
+reason: a record update rebuilds through the builder of a record pattern synonym

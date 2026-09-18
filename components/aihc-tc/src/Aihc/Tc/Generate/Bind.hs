@@ -209,11 +209,20 @@ annotateRecursiveOccurrences binders decls = do
 -- declaration, so the result is a superset of the free variables. The
 -- dependency analysis only looks up the binders of the group in it.
 declTermReferences :: Decl -> TcM (Set.Set TcTermKey)
-declTermReferences decl =
-  Set.fromList <$> mapM resolvedTermKey [name | name <- everything collectName decl, hasTermResolution name]
+declTermReferences decl = do
+  named <- mapM resolvedTermKey [name | name <- everything collectName decl, hasTermResolution name]
+  -- A record update names field labels and no head, so nothing above
+  -- resolves the pattern synonym it rebuilds. Look its owner up by label.
+  updated <- declaredRecordPatSynOwners (everything collectUpdatedLabel decl)
+  pure (Set.fromList (named <> updated))
   where
     collectName :: (Data b) => b -> [Name]
     collectName value = maybeToList (cast value)
+    collectUpdatedLabel :: (Data b) => b -> [Text]
+    collectUpdatedLabel value =
+      case cast value of
+        Just (ERecordUpd _ fields) -> map (nameText . recordFieldName) fields
+        _ -> []
     hasTermResolution name =
       case mapMaybe fromAnnotation (nameAnns name) of
         resolution : _ -> resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm
@@ -995,7 +1004,10 @@ freeVarsPattern pat =
     PCon name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)
     PBuiltinCon _ _ subPats -> Set.unions <$> mapM freeVarsPattern subPats
     PInfix lhs name rhs -> Set.insert <$> resolvedTermKey name <*> (Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs)
-    PRecord _ fields _ -> Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields
+    -- The head of a record pattern is a free variable like the head of a
+    -- constructor pattern: a record pattern synonym has to be checked
+    -- before the pattern that matches through it.
+    PRecord name fields _ -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields)
     PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
     _ -> pure Set.empty
 
@@ -1098,8 +1110,14 @@ freeVarsExpr expr =
       pure (Set.unions branchVars <> Set.difference bodyVars binders)
     ERecordCon name fields _ ->
       Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields)
-    ERecordUpd record fields ->
-      Set.union <$> freeVarsExpr record <*> (Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields)
+    ERecordUpd record fields -> do
+      recordVars <- freeVarsExpr record
+      fieldVars <- Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields
+      -- A record update names field labels and no head, so nothing else
+      -- brings in the record pattern synonym it may rebuild. Its group has
+      -- to be checked first for the expansion to find the builder.
+      owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
+      pure (Set.fromList owners <> recordVars <> fieldVars)
     EGetField record _ -> freeVarsExpr record
     EUnboxedSum _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty

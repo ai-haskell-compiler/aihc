@@ -13,6 +13,8 @@ library
   exposed-modules:
     Aihc.PackagePlan
     Aihc.PackagePlan.Diagnostic
+    Aihc.PackagePlan.Lock
+    Aihc.PackagePlan.Solver
     Aihc.PackagePlan.Source
 
   hs-source-dirs: src
@@ -29,7 +31,35 @@ library
     directory >=1.2.3 && <1.5,
     filepath >=1.3.0.1 && <1.6,
     text >=2.1.4 && <2.2,
+    time >=1.9 && <1.15,
+    transformers,
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall
+  default-language: GHC2021
+
+test-suite spec
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    aihc-hackage,
+    aihc-package-plan,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   default-language: GHC2021

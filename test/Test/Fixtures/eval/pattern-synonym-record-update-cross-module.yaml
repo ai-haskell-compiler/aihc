@@ -1,0 +1,20 @@
+extensions:
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms #-}
+    module Lib (Flag (..), Pair (..), pattern Point, px, py) where
+    data Flag = On | Off
+    data Pair = Pair Flag Flag
+    pattern Point {px, py} = Pair px py
+  - |
+    module Test where
+    import Lib
+    turnOn :: Pair -> Pair
+    turnOn p = p {px = On}
+output: |
+  Pair On Off
+expression: |
+  turnOn (Pair Off Off)
+status: pass
+reason: a record update finds a record pattern synonym that an import brings in

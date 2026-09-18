@@ -20,12 +20,10 @@ where
 import Aihc.Cli.BuildModule
   ( ExecutableInputs (..),
     InstalledPackage (..),
-    dependencyConstraint,
     finishExecutable,
     generatedEntryText,
-    implicitConstraint,
     installedPackage,
-    planConstraint,
+    plannedPackage,
     requirePackageArchive,
     runBuildModule,
     validateSelectedPackageNames,
@@ -42,8 +40,8 @@ import Aihc.Cli.Install
     compilePackageCFiles,
     defaultBuildRoot,
     installPlanPackages,
-    networkDependencyResolver,
-    resolveInstallTarget,
+    installTargetRoot,
+    planRequestFor,
   )
 import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.Options (BuildOptions (..))
@@ -52,22 +50,24 @@ import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal (ExecutableInfo (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
-import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.PackagePlan
   ( PackagePlan (..),
     PlanOrigin (..),
-    localDependencyResolverWithFallback,
-    packageSpecFromSource,
-    parseSourcePackageDescription,
-    workspaceDependencyResolver,
+    PlanRequest (..),
+    PlannedPackages (..),
+    planBuildContext,
+    planPackages,
   )
 import Aihc.Resolve (Package (..), PackageId (..))
 import Control.Monad (forM, when)
+import Data.List (nub)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Distribution.Package (mkPackageName, unPackageName)
+import Distribution.Types.Dependency (depPkgName)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
 import System.FilePath (takeDirectory, (<.>), (</>))
 
@@ -93,13 +93,21 @@ buildPackage options = do
   storeRoot <- maybe defaultStoreRoot pure (buildStoreRoot options)
   currentDirectory <- getCurrentDirectory
   hackageIndex <- newHackageIndex defaultIndexOptions
-  (root, origin) <- resolveInstallTarget hackageIndex (buildInput options)
-  spec <- packageSpecFromSource root
-  gpd <- parseSourcePackageDescription root
+  (rootPackage, origin, lockDirectory) <- installTargetRoot (buildInput options)
   let target = buildTarget options
       targetDirectory = nativeTargetStoreDirectory target
       (os, arch) = cabalPlatformForTarget target
       verbose message = when (buildVerbose options) (putStrLn message)
+  -- The package itself and its siblings resolve locally before the
+  -- workspace and Hackage, so an executable that depends on the library
+  -- of its own package finds it in the source tree.
+  request <- planRequestFor hackageIndex (buildPlanOptions options) (os, arch) (maybe [] pure (buildWorkspace options)) lockDirectory verbose
+  planned <- planPackages request {requestRoots = [rootPackage]}
+  rootPlan <- case plannedRoots planned of
+    [plan] -> pure plan
+    _ -> ioError (userError "The plan has no root")
+  let root = planSourcePath rootPlan
+      gpd = planDescription rootPlan
       -- A Hackage release builds its executables under the working
       -- directory: its source tree is the download cache, which is shared
       -- by every build that unpacks the release.
@@ -109,9 +117,9 @@ buildPackage options = do
           (buildBuildRoot options)
       buildRoot = localBuildRoot </> targetDirectory
       outputDirectory = fromMaybe (buildRoot </> "bin") (buildOutput options)
-  executables <- HackageCabal.collectExecutablesFor os arch gpd root
+  executables <- HackageCabal.collectExecutablesIn (planBuildContext (os, arch) rootPlan) gpd root
   when (null executables) $
-    ioError (userError ("The package " <> pkgName spec <> " has no buildable executable"))
+    ioError (userError ("The package " <> unPackageName (planName rootPlan) <> " has no buildable executable"))
   buildIdentity <- buildEnvironmentIdentity target
   headerDirectory <- ensureCompilerHeaders target buildRoot
   let plan = optimizationPlan (buildLto options) (buildOptimization options)
@@ -145,12 +153,6 @@ buildPackage options = do
             compileKeepLir = False,
             compileKeepNative = False
           }
-      -- The package itself and its siblings resolve locally before the
-      -- workspace and Hackage, so an executable that depends on the library
-      -- of its own package finds it in the source tree.
-      hackageResolver = networkDependencyResolver hackageIndex
-      fallback = maybe hackageResolver (workspaceDependencyResolver hackageResolver) (buildWorkspace options)
-      resolver = localDependencyResolverWithFallback fallback root spec
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,
@@ -162,11 +164,10 @@ buildPackage options = do
   forM executables $ \executable -> do
     let name = executableInfoName executable
     verbose ("Build executable: " <> name)
-    let constraints =
-          map dependencyConstraint (executableInfoDependencies executable)
-            <> map implicitConstraint ["aihc-base", "aihc-prim"]
-    plans <- mapM (planConstraint resolver) constraints
-    -- The resolver finds the package being built by its name, which marks
+    let dependencyPackages =
+          nub (map depPkgName (executableInfoDependencies executable) <> map mkPackageName ["aihc-base", "aihc-prim"])
+    plans <- mapM (plannedPackage planned) dependencyPackages
+    -- The plan finds the package being built by its name, which marks
     -- it local. What the user asked for decides instead: a directory is
     -- local, a Hackage release is not.
     rootedPlans <- mapM (markRootPlan canonicalRoot origin) plans

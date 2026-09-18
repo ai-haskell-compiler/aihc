@@ -11,15 +11,24 @@ module Aihc.Hackage.Cabal
     lirSourcesField,
     collectComponentFiles,
     collectExecutablesFor,
+    collectExecutablesIn,
     collectLibraryCCompileInfo,
     collectLibraryCCompileInfoFor,
+    collectLibraryCCompileInfoIn,
     collectLibraryExposedModules,
+    collectLibraryExposedModulesIn,
     collectLibraryFiles,
     collectLibraryFilesFor,
+    collectLibraryFilesIn,
 
     -- * Condition evaluation
+    BuildContext (..),
+    hostBuildContext,
+    buildContextFor,
     conditionEvaluator,
     conditionEvaluatorFor,
+    conditionEvaluatorIn,
+    packageFlagAssignment,
     targetFlagOverrides,
     collectCondTreeData,
     collectMergedBuildInfo,
@@ -28,6 +37,7 @@ module Aihc.Hackage.Cabal
     BuildType (..),
     packageBuildType,
     collectLibraryAutogenIncludesFor,
+    collectLibraryAutogenIncludesIn,
     applyHookedBuildInfo,
     prependIncludeDirs,
 
@@ -133,6 +143,7 @@ import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
 import Distribution.Types.Dependency (Dependency, depPkgName)
 import Distribution.Types.ExeDependency (ExeDependency (..))
+import Distribution.Types.Flag (FlagAssignment, mkFlagAssignment, unFlagAssignment)
 import Distribution.Types.ForeignLib (foreignLibBuildInfo)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
 import Distribution.Types.LegacyExeDependency (LegacyExeDependency (..))
@@ -204,8 +215,13 @@ collectLibraryFiles = collectLibraryFilesFor buildOS buildArch
 
 -- | Collect source files from buildable library components for one platform.
 collectLibraryFilesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectLibraryFilesFor os arch gpd packageRoot = do
-  let evalCond = conditionEvaluatorFor gpd os arch
+collectLibraryFilesFor os arch = collectLibraryFilesIn (buildContextFor os arch)
+
+-- | Collect source files from buildable library components under the
+-- conditions of one build context.
+collectLibraryFilesIn :: BuildContext -> GenericPackageDescription -> FilePath -> IO [FileInfo]
+collectLibraryFilesIn context gpd packageRoot = do
+  let evalCond = conditionEvaluatorIn context gpd
       pkgDescr = packageDescription gpd
       libraryTrees = maybe [] (pure . (LMainLibName,)) (condLibrary gpd) <> map (first LSubLibName) (condSubLibraries gpd)
 
@@ -218,7 +234,12 @@ collectLibraryCCompileInfo = collectLibraryCCompileInfoFor buildOS buildArch
 
 -- | Collect C compile inputs from buildable library components for one platform.
 collectLibraryCCompileInfoFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> CCompileInfo
-collectLibraryCCompileInfoFor os arch gpd packageRoot =
+collectLibraryCCompileInfoFor os arch = collectLibraryCCompileInfoIn (buildContextFor os arch)
+
+-- | Collect C compile inputs from buildable library components under the
+-- conditions of one build context.
+collectLibraryCCompileInfoIn :: BuildContext -> GenericPackageDescription -> FilePath -> CCompileInfo
+collectLibraryCCompileInfoIn context gpd packageRoot =
   mergeCCompileInfo
     [ cCompileInfoFromBuild packageRoot build
     | tree <- libraryTrees,
@@ -226,7 +247,7 @@ collectLibraryCCompileInfoFor os arch gpd packageRoot =
       buildable build
     ]
   where
-    evalCond = conditionEvaluatorFor gpd os arch
+    evalCond = conditionEvaluatorIn context gpd
     libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
 cCompileInfoFromBuild :: FilePath -> BuildInfo -> CCompileInfo
@@ -261,7 +282,12 @@ packageBuildType = buildType . packageDescription
 -- for one platform: the files a configure script is expected to write. The
 -- paths are relative to the include directories.
 collectLibraryAutogenIncludesFor :: OS -> Arch -> GenericPackageDescription -> [FilePath]
-collectLibraryAutogenIncludesFor os arch gpd =
+collectLibraryAutogenIncludesFor os arch = collectLibraryAutogenIncludesIn (buildContextFor os arch)
+
+-- | The @autogen-includes@ of the active library components under the
+-- conditions of one build context.
+collectLibraryAutogenIncludesIn :: BuildContext -> GenericPackageDescription -> [FilePath]
+collectLibraryAutogenIncludesIn context gpd =
   nub
     [ getSymbolicPath path
     | tree <- libraryTrees,
@@ -270,7 +296,7 @@ collectLibraryAutogenIncludesFor os arch gpd =
       path <- autogenIncludes build
     ]
   where
-    evalCond = conditionEvaluatorFor gpd os arch
+    evalCond = conditionEvaluatorIn context gpd
     libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
 -- | Overlay the build info a configure script wrote to @<package>.buildinfo@
@@ -304,7 +330,12 @@ prependIncludeDirs directories file =
 -- Private @other-modules@ are intentionally absent even though
 -- 'collectLibraryFiles' includes their source files for compilation.
 collectLibraryExposedModules :: GenericPackageDescription -> [Text]
-collectLibraryExposedModules gpd =
+collectLibraryExposedModules = collectLibraryExposedModulesIn hostBuildContext
+
+-- | The exposed modules of the active library components under the
+-- conditions of one build context.
+collectLibraryExposedModulesIn :: BuildContext -> GenericPackageDescription -> [Text]
+collectLibraryExposedModulesIn context gpd =
   nub
     [ T.pack (prettyShow moduleName)
     | tree <- libraryTrees,
@@ -314,7 +345,7 @@ collectLibraryExposedModules gpd =
       moduleName <- exposedModules library
     ]
   where
-    evalCond = conditionEvaluator gpd
+    evalCond = conditionEvaluatorIn context gpd
     libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
 collectExecutableFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
@@ -343,10 +374,15 @@ data ExecutableInfo = ExecutableInfo
 -- | The buildable executables of a package for one platform, in the order
 -- the Cabal file declares them.
 collectExecutablesFor :: OS -> Arch -> GenericPackageDescription -> FilePath -> IO [ExecutableInfo]
-collectExecutablesFor os arch gpd packageRoot =
+collectExecutablesFor os arch = collectExecutablesIn (buildContextFor os arch)
+
+-- | The buildable executables of a package under the conditions of one
+-- build context, in the order the Cabal file declares them.
+collectExecutablesIn :: BuildContext -> GenericPackageDescription -> FilePath -> IO [ExecutableInfo]
+collectExecutablesIn context gpd packageRoot =
   concat <$> mapM executableInfo (condExecutables gpd)
   where
-    evalCond = conditionEvaluatorFor gpd os arch
+    evalCond = conditionEvaluatorIn context gpd
     pkgDescr = packageDescription gpd
     executableInfo (exeName, tree) = do
       let build = collectMergedBuildInfo evalCond buildInfo tree
@@ -644,20 +680,49 @@ componentSuffix componentName =
     CLibName (LSubLibName name) -> "-lib-" <> prettyShow name
     CNotLibName _ -> "-exe-" <> maybe "unnamed" prettyShow (componentNameString componentName)
 
+-- | What closes the conditions of a Cabal file: the platform the package is
+-- built for and the flags the plan decided. Flags the plan did not decide
+-- take their defaults.
+data BuildContext = BuildContext
+  { contextOs :: !OS,
+    contextArch :: !Arch,
+    -- | The flags the dependency plan decided for the package, on top of
+    -- the defaults and the target's overrides.
+    contextFlags :: !FlagAssignment
+  }
+  deriving (Eq, Show)
+
+-- | The host platform with every flag at its default.
+hostBuildContext :: BuildContext
+hostBuildContext = buildContextFor buildOS buildArch
+
+-- | One platform with every flag at its default.
+buildContextFor :: OS -> Arch -> BuildContext
+buildContextFor os arch = BuildContext os arch (mkFlagAssignment [])
+
 -- | Evaluate cabal conditions using the emulated compiler and default flag values.
 conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
-conditionEvaluator gpd = conditionEvaluatorFor gpd buildOS buildArch
+conditionEvaluator = conditionEvaluatorIn hostBuildContext
 
 -- | Evaluate cabal conditions for one OS and architecture.
 conditionEvaluatorFor :: GenericPackageDescription -> OS -> Arch -> Condition ConfVar -> Bool
-conditionEvaluatorFor gpd os arch = eval
+conditionEvaluatorFor gpd os arch = conditionEvaluatorIn (buildContextFor os arch) gpd
+
+-- | The value of every flag of a package under a build context: the
+-- default, unless the target overrides it or the context decided it.
+packageFlagAssignment :: BuildContext -> GenericPackageDescription -> Map.Map FlagName Bool
+packageFlagAssignment context gpd =
+  Map.unions
+    [ Map.fromList (unFlagAssignment (contextFlags context)),
+      Map.fromList (targetFlagOverrides (contextArch context) (packageName (packageDescription gpd))),
+      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+    ]
+
+-- | Evaluate cabal conditions under one build context.
+conditionEvaluatorIn :: BuildContext -> GenericPackageDescription -> Condition ConfVar -> Bool
+conditionEvaluatorIn context gpd = eval
   where
-    -- The flags take their defaults, except where the target overrides one.
-    defaultFlags :: Map.Map FlagName Bool
-    defaultFlags =
-      Map.union
-        (Map.fromList (targetFlagOverrides arch (packageName (packageDescription gpd))))
-        (Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd])
+    flags = packageFlagAssignment context gpd
 
     -- aihc presents itself as the GHC release in "Aihc.Hackage.Release", the
     -- same one the CPP macros describe; the host compiler is irrelevant.
@@ -665,9 +730,9 @@ conditionEvaluatorFor gpd os arch = eval
 
     eval (Var confVar) =
       case confVar of
-        OS wanted -> wanted == os
-        Arch wanted -> wanted == arch
-        PackageFlag flag -> Map.findWithDefault False flag defaultFlags
+        OS wanted -> wanted == contextOs context
+        Arch wanted -> wanted == contextArch context
+        PackageFlag flag -> Map.findWithDefault False flag flags
         Impl flavor range -> flavor == GHC && withinRange compilerVer range
     eval (Lit b) = b
     eval (CNot c) = not (eval c)

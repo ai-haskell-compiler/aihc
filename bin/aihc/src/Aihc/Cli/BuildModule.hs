@@ -11,7 +11,7 @@ module Aihc.Cli.BuildModule
     implicitConstraint,
     installedPackage,
     linkBundleManifestPath,
-    planConstraint,
+    plannedPackage,
     requirePackageArchive,
     runBuildModule,
     runLinkExe,
@@ -21,7 +21,7 @@ where
 
 import Aihc.Cli.Backend (compileEntryObject)
 import Aihc.Cli.CapiStub (noCapiStubOptions)
-import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
+import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget, ensureCompilerHeaders)
 import Aihc.Cli.Install
   ( InstallLocations (..),
     InstallResult (..),
@@ -32,7 +32,7 @@ import Aihc.Cli.Install
     buildEnvironmentIdentity,
     compileModules,
     installPlanPackages,
-    networkDependencyResolver,
+    planRequestFor,
   )
 import Aihc.Cli.Install qualified as Install
 import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
@@ -42,9 +42,8 @@ import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.IndexCache (defaultIndexOptions, newHackageIndex)
-import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, nativeTargetStoreDirectory, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
-import Aihc.PackagePlan (CoreProvider (..), DependencyResolver (..), PackagePlan, buildPackagePlanWithResolver, lookupCoreProvider, workspaceDependencyResolver)
+import Aihc.PackagePlan (PackagePlan, PlanRequest (..), PlannedPackages (..), canonicalPackageName, planPackages)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -71,10 +70,10 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Distribution.Package (unPackageName)
+import Distribution.Package (PackageName, mkPackageName, unPackageName)
 import Distribution.Parsec (simpleParsec)
 import Distribution.Types.Dependency (Dependency (..))
-import Distribution.Version (VersionRange, withinRange)
+import Distribution.Version (VersionRange)
 import System.Directory
   ( copyFile,
     createDirectory,
@@ -169,10 +168,14 @@ runBuildModule options = do
   constraints <- mapM parsePackageConstraint (buildPackageConstraints options)
   -- The packages of an executable are installed like any other: the plan
   -- names them, their fingerprints name the store directories, and a
-  -- directory that is absent is built. Nothing lists the store.
+  -- directory that is absent is built. Nothing lists the store. A main
+  -- module has no cabal file, so its lock lives in the working directory.
   hackageIndex <- newHackageIndex defaultIndexOptions
-  let hackageResolver = networkDependencyResolver hackageIndex
-      resolver = maybe hackageResolver (workspaceDependencyResolver hackageResolver) (buildWorkspace options)
+  request <- planRequestFor hackageIndex (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) currentDirectory (when (buildVerbose options) . putStrLn)
+  let goals =
+        [ (canonicalPackageName (mkPackageName (T.unpack (constraintName constraint))), constraintRange constraint)
+        | constraint <- constraints <> map implicitConstraint ["aihc-base", "aihc-prim"]
+        ]
       locations =
         InstallLocations
           { locationStoreRoot = storeRoot </> targetDirectory,
@@ -180,7 +183,8 @@ runBuildModule options = do
             locationImmutable = True,
             locationReinstall = False
           }
-  plans <- mapM (planConstraint resolver) (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
+  planned <- planPackages request {requestGoals = goals}
+  plans <- mapM (plannedPackage planned . fst) goals
   installed <- installPlanPackages dependencyConfig locations plans
   let selected = map installedPackage installed
   validateSelectedPackageNames selected
@@ -282,27 +286,13 @@ finishExecutable compileConfig inputs = do
     then writeLinkBundle target output cxxStdLib objects archives
     else linkExecutable target output cxxStdLib objects archives
 
--- | The plan of one package constraint. A core library has the version it
--- ships with, under the name of the boot library it replaces as well as its
--- own; any other package takes the version the resolver selects, which the
--- constraint must accept.
-planConstraint :: DependencyResolver -> PackageConstraint -> IO PackagePlan
-planConstraint resolver constraint = do
-  let requested = T.unpack (constraintName constraint)
-      provider = lookupCoreProvider requested
-      name = maybe requested coreProviderName provider
-  versionText <-
-    case provider of
-      Just core -> pure (coreProviderVersion core)
-      Nothing -> resolverResolveVersion resolver name
-  version <-
-    maybe
-      (ioError (userError ("Invalid version " <> versionText <> " for package " <> name)))
-      pure
-      (simpleParsec versionText)
-  unless (version `withinRange` constraintRange constraint) $
-    ioError (userError ("The selected version " <> versionText <> " of " <> name <> " does not fulfill the constraint on " <> requested))
-  buildPackagePlanWithResolver resolver (PackageSpec name versionText)
+-- | The plan of one package, which the solver must have chosen.
+plannedPackage :: PlannedPackages -> PackageName -> IO PackagePlan
+plannedPackage planned name =
+  maybe
+    (ioError (userError ("The dependency plan has no package " <> unPackageName name)))
+    pure
+    (Map.lookup (canonicalPackageName name) (plannedPlans planned))
 
 installedPackage :: Install.InstalledPackage -> InstalledPackage
 installedPackage package =
