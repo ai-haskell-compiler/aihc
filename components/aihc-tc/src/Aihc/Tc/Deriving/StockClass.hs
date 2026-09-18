@@ -70,6 +70,7 @@ data StockMethods
   | StockShowMethods
   | StockReadMethods
   | StockBoundedMethods
+  | StockEnumMethods
   | StockLiftMethods
   | StockFunctorMethods
   | StockFoldableMethods
@@ -140,7 +141,10 @@ stockClasses =
           ]
       },
     (report "Bounded" NewtypeAlways) {stockClassMethods = Just StockBoundedMethods},
-    report "Enum" NewtypeWithGnd,
+    (report "Enum" NewtypeWithGnd)
+      { stockClassMethods = Just StockEnumMethods,
+        stockClassReferences = [derivingIntCon, derivingTrue, derivingFalse, derivingGreaterOrEqual]
+      },
     report "Ix" NewtypeAlways,
     (extension "Functor" DeriveFunctor NewtypeWithGnd)
       { stockClassObligations = FunctorialObligations,

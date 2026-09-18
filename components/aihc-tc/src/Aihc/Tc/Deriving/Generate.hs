@@ -26,6 +26,7 @@ import Aihc.Parser.Syntax
     Expr (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    Literal (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -231,6 +232,7 @@ generateItems gen =
                 Just StockShowMethods -> Just <$> showItems gen constructors
                 Just StockReadMethods -> Just <$> readItems gen constructors
                 Just StockBoundedMethods -> boundedItems gen constructors
+                Just StockEnumMethods -> enumItems gen constructors
                 Just StockLiftMethods -> Just <$> liftItems gen constructors
                 Just StockFunctorMethods -> functorialItems gen functorItems constructors
                 Just StockFoldableMethods -> functorialItems gen foldableItems constructors
@@ -574,6 +576,107 @@ boundedItems gen constructors
       pure Nothing
   where
     bound name body = methodBind gen name [simpleMatch gen [] body]
+
+-- * Enum
+
+-- | The @Enum@ methods of an enumeration, in the shape GHC derives them.
+--
+-- Only a datatype whose constructors all have no fields can be enumerated,
+-- so a constructor with a field is reported rather than given a body it
+-- could not write. The constructors are numbered from zero in declaration
+-- order, which is the numbering 'Bounded' and 'Ord' already agree with.
+--
+-- The tag is an unboxed literal on both sides, so neither direction needs a
+-- numeric class: @fromEnum@ answers one boxed literal per constructor, and
+-- @toEnum@ switches on the unboxed tag. Both are one equation group per
+-- constructor rather than a chain of comparisons, so a @200@-constructor
+-- enumeration costs a single switch.
+--
+-- An argument outside the enumeration matches no equation, which is the
+-- runtime failure the compiler already reports for a case without a
+-- matching alternative: @toEnum@ leaves the tags beside the enumeration
+-- unmatched, and @succ@ and @pred@ the two ends. A datatype with a single
+-- constructor has no step between neighbours at all, so it takes the class
+-- defaults for @succ@ and @pred@, which fail through @toEnum@ instead.
+--
+-- @enumFrom@ and @enumFromThen@ are the two methods whose class defaults
+-- run to the bounds of 'Int' rather than to the last constructor, so both
+-- are written here against the constructors of the datatype.
+enumItems :: Gen -> [DataConInfo] -> TcM (Maybe [InstanceDeclItem])
+enumItems gen constructors
+  | first : _ <- constructors,
+    all (null . dciFields) constructors = do
+      let lastConstructor = last constructors
+      toEnumTag <- freshLocal gen "t"
+      fromValue <- freshLocal gen "x"
+      thenFirst <- freshLocal gen "x"
+      thenSecond <- freshLocal gen "y"
+      pure
+        ( Just
+            ( [ methodBind
+                  gen
+                  "fromEnum"
+                  [ simpleMatch gen [constructorPattern gen constructor []] (intLiteral gen index)
+                  | (index, constructor) <- indexed
+                  ],
+                methodBind
+                  gen
+                  "toEnum"
+                  [ simpleMatch
+                      gen
+                      [atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar toEnumTag)])]
+                      ( caseOf
+                          gen
+                          (localExpr gen toEnumTag)
+                          [(intHashPattern gen index, constructorExpr gen constructor) | (index, constructor) <- indexed]
+                      )
+                  ]
+              ]
+                <> step "succ" (zip constructors (drop 1 constructors))
+                <> step "pred" (zip (drop 1 constructors) constructors)
+                <> [ methodBind
+                       gen
+                       "enumFrom"
+                       [ simpleMatch
+                           gen
+                           [atPattern gen (PVar fromValue)]
+                           (methodApp gen "enumFromTo" [localExpr gen fromValue, constructorExpr gen lastConstructor])
+                       ],
+                     methodBind
+                       gen
+                       "enumFromThen"
+                       [ simpleMatch
+                           gen
+                           [atPattern gen (PVar thenFirst), atPattern gen (PVar thenSecond)]
+                           ( caseOf
+                               gen
+                               ( applyN
+                                   gen
+                                   (referenceExpr gen derivingGreaterOrEqual)
+                                   [methodApp gen "fromEnum" [localExpr gen thenSecond], methodApp gen "fromEnum" [localExpr gen thenFirst]]
+                               )
+                               [ (referencePattern gen derivingTrue, enumFromThenToward thenFirst thenSecond lastConstructor),
+                                 (referencePattern gen derivingFalse, enumFromThenToward thenFirst thenSecond first)
+                               ]
+                           )
+                       ]
+                   ]
+            )
+        )
+  | otherwise = do
+      emitError (genSpan gen) (OtherError "stock Enum deriving requires an enumeration: a datatype with at least one constructor, none of which has a field")
+      pure Nothing
+  where
+    indexed = zip [0 :: Integer ..] constructors
+    -- One equation per neighbouring pair. A datatype with a single
+    -- constructor has no pair, and then the method is left to the class
+    -- default rather than written as an equation group without equations.
+    step name pairs =
+      [ methodBind gen name [simpleMatch gen [constructorPattern gen from []] (constructorExpr gen to) | (from, to) <- pairs]
+      | not (null pairs)
+      ]
+    enumFromThenToward from second limit =
+      methodApp gen "enumFromThenTo" [localExpr gen from, localExpr gen second, constructorExpr gen limit]
 
 -- * Lift
 
@@ -1188,11 +1291,22 @@ intLiteral gen value =
   at gen $
     EApp
       (referenceExpr gen derivingIntCon)
-      ( at gen $
-          EAnn
-            (mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (ResolvedTopLevel primTypePackage primTypeModule (Name Nothing NameConId primTypeName []))))
-            (EInt value TIntHash (T.pack (show value) <> "#"))
-      )
+      (at gen (EAnn (primitiveIntTypeAnnotation gen) (EInt value TIntHash (T.pack (show value) <> "#"))))
+
+-- | An unboxed @Int#@ literal pattern, which matches a tag without the
+-- @Eq@ and @Num@ instances an overloaded literal pattern would ask for.
+intHashPattern :: Gen -> Integer -> Pattern
+intHashPattern gen value =
+  atPattern gen $
+    PAnn (primitiveIntTypeAnnotation gen) $
+      PLit (LitInt value TIntHash (T.pack (show value) <> "#"))
+
+-- | The resolution of @Int#@ that a primitive literal carries, which is
+-- what the resolver leaves on one it read from source.
+primitiveIntTypeAnnotation :: Gen -> Annotation
+primitiveIntTypeAnnotation gen =
+  mkAnnotation
+    (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (ResolvedTopLevel primTypePackage primTypeModule (Name Nothing NameConId primTypeName [])))
   where
     (primTypePackage, primTypeModule, primTypeName) =
       referenceIdentityOf gen (derivingIntPrimType (genReferences gen))

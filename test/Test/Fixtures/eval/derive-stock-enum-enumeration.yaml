@@ -1,0 +1,23 @@
+modules:
+  - |
+    module Test where
+
+    data Colour = Red | Green | Blue | Violet
+      deriving (Bounded, Enum, Eq)
+
+    result :: Bool
+    result =
+      map fromEnum [Red, Green, Blue, Violet] == [0, 1, 2, 3]
+        && map toEnum [0, 1, 2, 3] == [Red, Green, Blue, Violet]
+        && succ Red == Green
+        && pred Violet == Blue
+        && [minBound .. maxBound] == [Red, Green, Blue, Violet]
+        && [Green ..] == [Green, Blue, Violet]
+        && [Violet, Blue ..] == [Violet, Blue, Green, Red]
+        && [Red, Blue ..] == [Red, Blue]
+        && [Green .. Blue] == [Green, Blue]
+expression: result
+output: |
+  True
+status: pass
+reason: stock Enum deriving numbers the constructors of an enumeration from zero and stops its unbounded ranges at the first and the last one
