@@ -50,7 +50,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields, recordFieldLabel, recordHeadNameSyntax, recordUpdateHeads, synthesizedRecordLocal)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkRuntimeType, checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind)
+import Aihc.Tc.Kind (checkRuntimeType, checkSurfaceType, explicitForallNames, scopedSigTyVars, tcTypeKind, unboxedSumType)
 import Aihc.Tc.Monad
 import Aihc.Tc.QuickLook (quickLookUnify)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -178,6 +178,12 @@ inferExprAt ambient expr = case expr of
     pure (EAnn ann inner', ty, cts)
   ETuple flavor elems ->
     inferTuple (exprSpan expr <|> ambient) flavor elems
+  EUnboxedSum alternative arity inner -> do
+    (inner', innerType, constraints) <- inferExprAt ambient inner
+    types <- mapM (\index -> if index == alternative then pure innerType else freshMetaTv) [0 .. arity - 1]
+    sumType <- unboxedSumType types
+    let pending = pendingAnnotation sumType types [] []
+    pure (annotatePendingExprAt ambient pending (EUnboxedSum alternative arity inner'), sumType, constraints)
   EList elems ->
     inferList (exprSpan expr <|> ambient) elems
   EListComp body quals ->

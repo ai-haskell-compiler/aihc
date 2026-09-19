@@ -5,6 +5,7 @@ module Aihc.Tc.Kind
     ParamInfo (..),
     checkSurfaceType,
     checkRuntimeType,
+    unboxedSumType,
     convertSurfaceTypeWithKinds,
     defaultKindMetas,
     deferKindMetas,
@@ -357,6 +358,16 @@ convertDataConstructorList tvEnv arguments = do
   let nil = TcTyCon nilTyCon []
       cons field rest = TcTyCon consTyCon [field, rest]
   pure (foldr cons nil argumentTypes, resultKind)
+
+-- | Use the wired sum identity and preserve every alternative representation.
+unboxedSumType :: [TcType] -> TcM TcType
+unboxedSumType types = do
+  kinds <- getKinds
+  argumentKinds <- mapM tcTypeKind types
+  let resultKind = mkTYPEKind kinds (sumRep kinds (map (runtimeRepOrLifted kinds) argumentKinds))
+      fallbackKind = foldr KFun resultKind argumentKinds
+  constructor <- wiredTyCon (\wiring -> tcWiringUnboxedSumTyCon wiring (length types)) fallbackKind
+  pure (TcTyCon constructor types)
 
 convertTupleType :: TvKindEnv -> TupleFlavor -> [Type] -> TcM (TcType, TcType)
 convertTupleType tvEnv flavor arguments = do

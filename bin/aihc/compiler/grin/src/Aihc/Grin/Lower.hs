@@ -746,13 +746,18 @@ collectApplications expression = go expression []
     go function arguments = (function, arguments)
 
 -- | Whether a constructor name is that of an unboxed tuple or an unboxed sum.
--- Neither builds a heap node: an unboxed tuple lowers to its components, and
--- an unboxed sum has no lowering yet. An unboxed tuple carries the name of its
--- type constructor, @Tuple2#@ and so on, while an unboxed sum keeps its source
--- spelling, @(#|#)@. Only @GHC.Types@ declares such a constructor, so the
--- shape of the name identifies it.
+-- Neither constructor allocates a heap node.
+-- Primitive sum names contain the arity and the alternative index.
 isUnboxedConstructor :: Text -> Bool
-isUnboxedConstructor name = "(#" `T.isPrefixOf` name || isUnboxedTupleName name
+isUnboxedConstructor name = "(#" `T.isPrefixOf` name || isUnboxedTupleName name || isUnboxedSumName name
+
+isUnboxedSumName :: Text -> Bool
+isUnboxedSumName name =
+  case T.stripPrefix "Sum" name >>= T.stripSuffix "#" of
+    Just body -> case T.splitOn "_" body of
+      [arity, alternative] -> all (\part -> not (T.null part) && T.all isDigit part) [arity, alternative]
+      _ -> False
+    Nothing -> False
 
 isUnboxedTupleName :: Text -> Bool
 isUnboxedTupleName name =

@@ -45,7 +45,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, runtimeRepOrLifted, tcTypeKind)
+import Aihc.Tc.Kind (checkSurfaceType, runtimeRepOrLifted, tcTypeKind, unboxedSumType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Types
@@ -380,12 +380,19 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PBuiltinCon (BuiltinTuple flavor arity) _typeArgs items
       | length items == arity ->
           checkTuplePattern gadtHandling sp flavor items scrutTy
-    -- An unboxed sum has no runtime layout in the backends, so it is not
-    -- checked. Say so here: falling through would leave the binders of the
-    -- alternative out of the type environment, and the type checker would
-    -- abort on the first use of one with an internal error instead.
-    PUnboxedSum {} ->
-      abortTc ("unboxed sum patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
+    PUnboxedSum alternative arity inner -> do
+      types <- mapM (const freshMetaTv) [1 .. arity]
+      sumType <- unboxedSumType types
+      equality <- wantedEq sp scrutTy sumType
+      case drop alternative types of
+        innerType : _ -> do
+          checked <- checkPatternWith gadtHandling sp inner innerType
+          pure
+            checked
+              { pcWantedCts = equality : pcWantedCts checked,
+                pcPatterns = [PUnboxedSum alternative arity (checkedPattern checked)]
+              }
+        [] -> abortTc "invalid unboxed sum alternative"
     _ -> pure (checkedOnly pat)
 
 -- | A pattern signature, @(ptr :: Ptr Word32)@. The signature is elaborated

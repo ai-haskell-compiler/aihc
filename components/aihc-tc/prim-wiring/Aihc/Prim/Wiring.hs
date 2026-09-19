@@ -137,17 +137,14 @@ boxedTupleDataConName arity =
 unboxedTupleTyConName :: Int -> Text
 unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
 
--- | The name of the unboxed sum of one arity, such as @(#|#)@ for two
--- alternatives.
+-- | The primitive declaration names the unboxed sum type.
 unboxedSumTyConName :: Int -> Text
-unboxedSumTyConName arity =
-  "(#" <> T.replicate (max 0 (arity - 1)) "|" <> "#)"
+unboxedSumTyConName arity = "Sum" <> T.pack (show arity) <> "#"
 
--- | The name of one unboxed sum data constructor, such as @(#|_#)@ for the
--- second of two alternatives.
+-- | Each alternative has a distinct name that System FC can print.
 unboxedSumDataConName :: Int -> Int -> Text
 unboxedSumDataConName alternative arity =
-  "(#" <> T.replicate (max 0 (alternative - 1)) "|" <> "_" <> T.replicate (max 0 (arity - alternative)) "|" <> "#)"
+  "Sum" <> T.pack (show arity) <> "_" <> T.pack (show alternative) <> "#"
 
 -- | The deriving-reference table of the aihc core libraries, given the
 -- identity of the @aihc-prim@ package.
