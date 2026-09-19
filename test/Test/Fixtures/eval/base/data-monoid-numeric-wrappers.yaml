@@ -1,0 +1,46 @@
+extensions: [TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE TypeApplications #-}
+    module Test where
+
+    import qualified Data.Monoid as M
+    import qualified Data.Semigroup as S
+    import Prelude
+
+    appearsOnce :: Int -> [Int] -> Bool
+    appearsOnce key values =
+      foldMap (\value -> if value == key then M.Sum @Int 1 else M.Sum 0) values == 1
+
+    sumNumbers :: [Int]
+    sumNumbers = map M.getSum
+      [ 7 + 3, 7 - 3, 7 * 3, negate 7, abs (-7)
+      , signum (-7), signum 0, signum 7, fromInteger 42
+      , M.Sum 7 <> S.Sum 3, mempty
+      ]
+
+    productNumbers :: [Int]
+    productNumbers = map S.getProduct
+      [ 7 + 3, 7 - 3, 7 * 3, negate 7, abs (-7)
+      , signum (-7), signum 0, signum 7, fromInteger 42
+      , S.Product 7 <> M.Product 3, mempty
+      ]
+
+    main :: IO ()
+    main = do
+      print [appearsOnce 2 [], appearsOnce 2 [1, 2, 3], appearsOnce 2 [2, 2]]
+      print [M.Sum True == S.Sum True, M.Sum True /= S.Sum True, M.Sum True == S.Sum False, M.Sum True /= S.Sum False]
+      print [M.Product True == S.Product True, M.Product True /= S.Product True, M.Product True == S.Product False, M.Product True /= S.Product False]
+      print sumNumbers
+      print productNumbers
+expression: main
+stdout: |
+  [False,True,False]
+  [True,False,False,True]
+  [True,False,False,True]
+  [10,4,21,-7,7,-1,0,1,42,10,0]
+  [10,4,21,-7,7,-1,0,1,42,21,1]
+output: |
+  ()
+status: pass
+reason: Sum and Product supply Eq and Num instances through both public modules.
