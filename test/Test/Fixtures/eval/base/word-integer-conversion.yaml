@@ -1,0 +1,49 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Bits ((.&.), shiftR, xor)
+    import Data.Int (Int64)
+    import Data.Word (Word, Word8, Word16, Word64)
+
+    values :: [Integer]
+    values =
+      [ 0, 1, 127, 128, 255, 256, 65535, 65536
+      , 4294967295, 4294967296
+      , 9223372036854775807, 9223372036854775808
+      , 9223372036854775809, 18446744073709551615
+      ]
+
+    checkWord :: Integer -> Bool
+    checkWord value =
+      let word = fromInteger value :: Word
+       in toInteger word == value
+            && toInteger (fromIntegral word :: Word8) == value `mod` 256
+            && toInteger (fromIntegral word :: Word16) == value `mod` 65536
+            && toInteger (fromIntegral word :: Word64) == value
+
+    checkWord64 :: Integer -> Bool
+    checkWord64 value =
+      let word = fromInteger value :: Word64
+          signed = if value < 9223372036854775808
+                     then value
+                     else value - 18446744073709551616
+       in toInteger word == value
+            && toInteger (fromIntegral word :: Word8) == value `mod` 256
+            && toInteger (fromIntegral word :: Word16) == value `mod` 65536
+            && toInteger (fromIntegral word :: Int64) == signed
+
+    toByte :: Word8 -> Word64 -> Word8
+    toByte salt seed = fromIntegral ((seed `shiftR` 33) .&. 255) `xor` salt
+
+    checkByte :: Word64 -> Bool
+    checkByte value =
+      toByte 165 (value * 8589934592) == (fromIntegral value `xor` 165)
+
+    result :: Bool
+    result = all checkWord values && all checkWord64 values && all checkByte [0 .. 255]
+expression: result
+output: "True"
+status: pass
+reason: Word and Word64 conversions preserve small values, large values, and low bits at each integer boundary.
