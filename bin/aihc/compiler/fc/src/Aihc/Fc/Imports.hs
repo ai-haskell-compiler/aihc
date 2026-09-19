@@ -28,7 +28,7 @@ import Data.Set qualified as Set
 type References = Set Name
 
 emptyImports :: Imports
-emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
+emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Convert each used name when the import closure first needs it.
 importsForProgramLookup :: PackageId -> (Name -> Either String (Maybe TypeEnv)) -> Program -> Either String Imports
@@ -105,7 +105,8 @@ importsForNames available names =
     { importHeaders = Map.restrictKeys (teHeaders available) names,
       importSynonyms = Map.restrictKeys (teSynonyms available) names,
       importAxioms = Map.restrictKeys (teAxioms available) names,
-      importBinders = Map.restrictKeys (teBinders available) names
+      importBinders = Map.restrictKeys (teBinders available) names,
+      importConRepresentations = Map.restrictKeys (teConRepresentations available) names
     }
 
 mergeImports :: Imports -> Imports -> Imports
@@ -114,7 +115,8 @@ mergeImports preferred fallback =
     { importHeaders = Map.union (importHeaders preferred) (importHeaders fallback),
       importSynonyms = Map.union (importSynonyms preferred) (importSynonyms fallback),
       importAxioms = Map.union (importAxioms preferred) (importAxioms fallback),
-      importBinders = Map.union (importBinders preferred) (importBinders fallback)
+      importBinders = Map.union (importBinders preferred) (importBinders fallback),
+      importConRepresentations = Map.union (importConRepresentations preferred) (importConRepresentations fallback)
     }
 
 -- | Return one entry for each import declaration that has no use.
@@ -303,5 +305,6 @@ pruneImports program = program {programImports = imports'}
         { importHeaders = Map.filterWithKey (\name _ -> Set.member name used) (importHeaders imports),
           importSynonyms = Map.filterWithKey (\name _ -> Set.member name used) (importSynonyms imports),
           importAxioms = Map.filterWithKey (keepAxiom used) (importAxioms imports),
-          importBinders = Map.filterWithKey (\name _ -> Set.member name used) (importBinders imports)
+          importBinders = Map.filterWithKey (\name _ -> Set.member name used) (importBinders imports),
+          importConRepresentations = Map.restrictKeys (importConRepresentations imports) used
         }

@@ -886,14 +886,26 @@ getTyConFlavor :: Get.Get TyConFlavor
 getTyConFlavor = getTagged "type constructor flavor" [(0, ClassTyCon), (1, DataTyCon), (2, DataFamilyTyCon), (3, NewtypeTyCon), (4, SynonymTyCon), (5, TypeFamilyTyCon)]
 
 putDataConSourceForm :: DataConSourceForm -> Builder.Builder
-putDataConSourceForm sourceForm = cborWord $ case sourceForm of
-  PrefixDataCon -> 0
-  InfixDataCon -> 1
-  RecordDataCon -> 2
-  SyntaxDataCon -> 3
+putDataConSourceForm sourceForm = case sourceForm of
+  PrefixDataCon -> cborArray 1 <> cborWord 0
+  InfixDataCon -> cborArray 1 <> cborWord 1
+  RecordDataCon -> cborArray 1 <> cborWord 2
+  SyntaxDataCon -> cborArray 1 <> cborWord 3
+  UnboxedTupleDataCon -> cborArray 1 <> cborWord 4
+  UnboxedSumDataCon alternative arity -> cborArray 3 <> cborWord 5 <> cborInt alternative <> cborInt arity
 
 getDataConSourceForm :: Get.Get DataConSourceForm
-getDataConSourceForm = getTagged "constructor source form" [(0, PrefixDataCon), (1, InfixDataCon), (2, RecordDataCon), (3, SyntaxDataCon)]
+getDataConSourceForm = do
+  size <- getArrayLength
+  tag <- getWord
+  case (size, tag) of
+    (1, 0) -> pure PrefixDataCon
+    (1, 1) -> pure InfixDataCon
+    (1, 2) -> pure RecordDataCon
+    (1, 3) -> pure SyntaxDataCon
+    (1, 4) -> pure UnboxedTupleDataCon
+    (3, 5) -> UnboxedSumDataCon <$> getInt <*> getInt
+    _ -> fail "unsupported constructor source form"
 
 putDataConFieldUnpack :: DataConFieldUnpack -> Builder.Builder
 putDataConFieldUnpack unpack = cborWord $ case unpack of
