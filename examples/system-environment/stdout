@@ -17,3 +17,6 @@ first
 two words
 
 last
+variables:
+absent variable: Nothing
+every name is nonempty: True

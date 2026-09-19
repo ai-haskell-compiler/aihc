@@ -2,10 +2,12 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | Access to the runtime-owned complete program argument vector. The ABI uses
--- one UTF-8 byte string per argument, terminated by a zero byte.
+-- | Access to the runtime-owned complete program argument vector and to the
+-- process environment the host handed the runtime. Both ABIs use one UTF-8
+-- byte string per entry, terminated by a zero byte.
 module GHC.Internal.Environment
   ( getFullArgs,
+    getFullEnvironment,
     setFullArgs,
   )
 where
@@ -32,17 +34,34 @@ foreign import ccall unsafe "aihc_program_arguments_copy"
 foreign import ccall unsafe "aihc_program_arguments_replace"
   replaceArguments :: Addr# -> Int -> IO Int
 
+foreign import ccall unsafe "aihc_program_environment_size"
+  environmentSize :: IO Int
+
+foreign import ccall unsafe "aihc_program_environment_copy"
+  copyEnvironment :: Addr# -> Int -> IO Int
+
 getFullArgs :: IO [String]
 getFullArgs = do
   required <- argumentSize
-  readSnapshot required
+  readSnapshot copyArguments required
 
-readSnapshot :: Int -> IO [String]
-readSnapshot requested = do
+-- | Every environment entry of the process, as the @NAME=VALUE@ strings the
+-- host handed the runtime. The runtime keeps one snapshot taken before the
+-- machine starts, so the list does not change while the program runs.
+getFullEnvironment :: IO [String]
+getFullEnvironment = do
+  required <- environmentSize
+  readSnapshot copyEnvironment required
+
+-- | Read the runtime's string buffer. The store may grow between the size
+-- query and the copy, so a short copy reports the size it needed and the read
+-- starts over with it.
+readSnapshot :: (Addr# -> Int -> IO Int) -> Int -> IO [String]
+readSnapshot copy requested = do
   buffer <- newArgumentBuffer (atLeastOne requested)
-  actual <- copyArgumentBuffer buffer requested
+  actual <- copyBuffer copy buffer requested
   case actual > requested of
-    True -> readSnapshot actual
+    True -> readSnapshot copy actual
     False -> do
       bytes <- readBytes buffer 0 actual
       return (decodeArguments bytes)
@@ -75,8 +94,8 @@ atLeastOne size =
     True -> 1
     False -> size
 
-copyArgumentBuffer :: ArgumentBuffer -> Int -> IO Int
-copyArgumentBuffer (ArgumentBuffer buffer) = copyArguments (mutableByteArrayContents# buffer)
+copyBuffer :: (Addr# -> Int -> IO Int) -> ArgumentBuffer -> Int -> IO Int
+copyBuffer copy (ArgumentBuffer buffer) = copy (mutableByteArrayContents# buffer)
 
 replaceArgumentBuffer :: ArgumentBuffer -> Int -> IO Int
 replaceArgumentBuffer (ArgumentBuffer buffer) = replaceArguments (mutableByteArrayContents# buffer)
