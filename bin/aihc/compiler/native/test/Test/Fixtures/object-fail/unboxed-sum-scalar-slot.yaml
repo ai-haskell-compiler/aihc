@@ -1,0 +1,5 @@
+language: grin
+error: LowerUnsupportedRuntimeRep
+source: |
+  $entry (value%1 :: SumRep [IntRep, IntRep]) -> TupleRep [] =
+    constant

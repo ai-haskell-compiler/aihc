@@ -1,0 +1,14 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Box = Sum2_1# Int#
+  value = Sum2_1# 42#
+return: "@0"
+heap: |
+  @0 = CSum2_1# 42
+allocated-bytes:
+  macos-arm64: 24
+  linux-amd64: 24
+status: pass
+reason: A source constructor cannot acquire primitive sum semantics from its name.

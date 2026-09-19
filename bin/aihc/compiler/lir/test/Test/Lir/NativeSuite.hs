@@ -17,13 +17,14 @@ import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native (NativeTarget (..), executableEntryName)
+import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, evaluate)
 import Control.Monad (forM, forM_, when, (<=<))
-import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
@@ -35,6 +36,7 @@ import Data.Text.IO qualified as TIO
 import Data.Word (Word64)
 import Data.Yaml qualified as Y
 import GHC.Float (castWord32ToFloat, castWord64ToDouble)
+import GrinGolden qualified
 import System.Directory (createDirectory, getTemporaryDirectory, listDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -68,6 +70,7 @@ tests backend = do
   let directory = root </> "bin" </> "aihc" </> "compiler" </> "lir" </> "test" </> "Test" </> "Fixtures" </> "lir" </> "eval"
       snapshotDirectory = root </> "bin" </> "aihc" </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
   names <- sort . filter ((== ".lir") . takeExtension) <$> listDirectory directory
+  sourceSnapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory (root </> "bin/aihc/compiler/native/test/Test/Fixtures/source-snapshot")
   snapshots <- sort . filter ((== ".yaml") . takeExtension) <$> listDirectory snapshotDirectory
   pure
     ( testGroup
@@ -78,7 +81,11 @@ tests backend = do
           -- where those sources may be absent, such as a check that only
           -- compiles the tests.
           withResource (runtimeExports (backendTarget backend)) (const (pure ())) $ \getExports ->
-            testGroup "GRIN heap snapshots through Lir" (map (snapshotTest backend getExports snapshotDirectory) snapshots),
+            testGroup
+              "heap snapshots through Lir"
+              [ testGroup "GRIN" (map (snapshotTest backend getExports snapshotDirectory) snapshots),
+                testGroup "source" (map (snapshotTest backend getExports (root </> "bin/aihc/compiler/native/test/Test/Fixtures/source-snapshot")) sourceSnapshots)
+              ],
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest backend "PCAB" schedulerProgram),
@@ -240,11 +247,13 @@ runFixture backend output =
 
 data SnapshotFixture = SnapshotFixture
   { snapshotFixtureEntry :: !Text,
-    snapshotFixtureProgram :: !Text,
+    snapshotFixtureProgram :: !(Maybe Text),
+    snapshotFixtureSource :: !(Maybe Text),
     snapshotFixtureReturn :: !(Maybe Text),
     snapshotFixtureHeap :: !(Maybe Text),
     snapshotFixtureError :: !(Maybe Text),
     snapshotFixtureAllocatedBytes :: !(Maybe (Map.Map Text Word64)),
+    snapshotFixtureRequireGc :: !Bool,
     snapshotFixtureStatus :: !Text
   }
 
@@ -253,11 +262,13 @@ instance FromJSON SnapshotFixture where
     withObject "GRIN snapshot fixture" $ \object ->
       SnapshotFixture
         <$> object .: "entry"
-        <*> object .: "program"
+        <*> object .:? "program"
+        <*> object .:? "source"
         <*> object .:? "return"
         <*> object .:? "heap"
         <*> object .:? "error"
         <*> object .:? "allocated-bytes"
+        <*> object .:? "gc" .!= False
         <*> object .: "status"
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
@@ -274,7 +285,7 @@ snapshotTest backend getExports directory name = testCase name $ do
   exports <- getExports
   fixture <- either (assertFailure . Y.prettyPrintParseException) pure =<< Y.decodeFileEither (directory </> name)
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
-  program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
+  program <- either assertFailure pure (snapshotProgram fixture)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
   (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
@@ -290,7 +301,7 @@ snapshotTest backend getExports directory name = testCase name $ do
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule
   when (backendRuns backend) $ do
-    native <- runObservedUnit backend output metadata
+    native <- runObservedUnit backend (snapshotFixtureRequireGc fixture) output metadata
     case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
       (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
         allocatedBytes <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocated byte count")) pure (snapshotFixtureAllocatedBytes fixture >>= Map.lookup (backendAllocationKey backend))
@@ -303,15 +314,34 @@ snapshotTest backend getExports directory name = testCase name $ do
       (_, _, _, Left message) -> assertFailure ("native snapshot failed: " <> T.unpack message)
       (_, _, _, Right snapshot) -> assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
 
-runObservedUnit :: NativeBackend -> BackendOutput -> Text -> IO (Either Text Text)
-runObservedUnit backend output metadata =
+-- | Source fixtures declare one boxed value named @value@ in module @Test@.
+snapshotProgram :: SnapshotFixture -> Either String GrinProgram
+snapshotProgram fixture =
+  case (snapshotFixtureProgram fixture, snapshotFixtureSource fixture) of
+    (Just program, Nothing) -> either (Left . Grin.renderParseError) Right (parseProgram program)
+    (Nothing, Just source) -> do
+      programs <- GrinGolden.buildFcPrograms [MagicHash, UnboxedSums, UnboxedTuples, ExtendedLiterals] [source]
+      case programs of
+        [fc] -> do
+          program <- Grin.lowerProgram fc
+          let name = grinScopedName "" "Test" "value"
+              entry = GrinFunction (FunctionName (snapshotFixtureEntry fixture)) [] liftedResultRep (GrinEval liftedGrinRep (GrinGlobalValue name))
+              result = program {grinFunctions = entry : grinFunctions program}
+          if any ((== name) . grinGlobalName) (grinGlobals program) && null (lintProgram result)
+            then Right result
+            else Left "source snapshot requires a valid boxed value named Test.value"
+        _ -> Left "source snapshot requires one module"
+    _ -> Left "snapshot requires either a GRIN program or a source module"
+
+runObservedUnit :: NativeBackend -> Bool -> BackendOutput -> Text -> IO (Either Text Text)
+runObservedUnit backend requireGc output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
     runtimeBuild <- nativeRuntimeBuild backend
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
-    TIO.writeFile metadataPath metadata
+    TIO.writeFile metadataPath ((if requireGc then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
     (clangExit, _, clangErr) <-
       readProcessWithExitCode
         "clang"

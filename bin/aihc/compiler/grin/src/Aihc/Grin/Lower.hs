@@ -169,7 +169,7 @@ lowerTypeDecl env declaration = do
       let name = Fc.conName constructor
           (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
           constructorEnv = foldl extendTypeBinder env typeBinders
-      if isUnboxedConstructor (Fc.nameText name)
+      if isUnboxedConstructor name
         then pure []
         else do
           fieldTypes <- liftEither (constructorArgumentTypes monotype)
@@ -713,10 +713,10 @@ lowerApplication env function argument = do
       | Just alternative <- unboxedSumAlternative (Fc.nameText name) ->
           lowerSumApplication env representations alternative payload
     (ResultRep TupleRep {}, (Fc.ExVar name, arguments))
-      | isUnboxedConstructor (Fc.nameText name) -> lowerTupleArguments env arguments
+      | isUnboxedConstructor name -> lowerTupleArguments env arguments
     (_, (Fc.ExVar name, arguments))
       | resultRep == liftedResultRep,
-        not (isUnboxedConstructor (Fc.nameText name)),
+        not (isUnboxedConstructor name),
         Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity ->
           lowerConstructorApplication env name (arity - length arguments) arguments
@@ -751,8 +751,13 @@ collectApplications expression = go expression []
 -- | Whether a constructor name is that of an unboxed tuple or an unboxed sum.
 -- Neither constructor allocates a heap node.
 -- Primitive sum names contain the arity and the alternative index.
-isUnboxedConstructor :: Text -> Bool
-isUnboxedConstructor name = "(#" `T.isPrefixOf` name || isUnboxedTupleName name || isUnboxedSumName name
+isUnboxedConstructor :: Fc.Name -> Bool
+isUnboxedConstructor name =
+  case Fc.nameOrigin name of
+    Fc.OriginTop _ "GHC.Types" ->
+      let text = Fc.nameText name
+       in "(#" `T.isPrefixOf` text || isUnboxedTupleName text || isUnboxedSumName text
+    _ -> False
 
 isUnboxedSumName :: Text -> Bool
 isUnboxedSumName name =
@@ -1123,7 +1128,7 @@ lazyNodeShape env expression =
   case collectApplications expression of
     (Fc.ExVar name, arguments)
       | Map.member (Fc.nameText name) specialPrimitiveArities -> pure Nothing
-      | isUnboxedConstructor (Fc.nameText name) -> pure Nothing
+      | isUnboxedConstructor name -> pure Nothing
       | Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity -> do
           representation <- expressionRuntimeRep env expression
