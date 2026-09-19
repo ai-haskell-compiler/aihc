@@ -113,7 +113,8 @@ import GHC.Prim
     (>#),
     (>##),
   )
-import GHC.Real (Fractional (..), Integral (..), Rational, Real (..), RealFrac (..), denominator, even, fromIntegral, numerator, (%), (^), (^^))
+import GHC.Prim.Enum (Enum (..))
+import GHC.Real (Fractional (..), Integral (..), Rational, Real (..), RealFrac (..), denominator, even, fromIntegral, numerator, numericEnumFrom, numericEnumFromThen, numericEnumFromThenTo, numericEnumFromTo, (%), (^), (^^))
 import GHC.Show (Show (..), ShowS, intToDigit, showChar, showList__, showParen, showString, shows)
 import GHC.Types (Double (..), Float (..), Ordering (..))
 import GHC.Word (Word32 (..), Word64 (..))
@@ -425,6 +426,26 @@ rationalFromDecoded :: (Integer, Int) -> Rational
 rationalFromDecoded (mantissa, exponent')
   | exponent' >= 0 = (mantissa * (2 ^ exponent')) % 1
   | otherwise = mantissa % (2 ^ negate exponent')
+
+instance Enum Float where
+  succ value = value + 1
+  pred value = value - 1
+  toEnum = int2Float
+  fromEnum value = fromInteger (truncate value)
+  enumFrom = numericEnumFrom
+  enumFromTo = numericEnumFromTo
+  enumFromThen = numericEnumFromThen
+  enumFromThenTo = numericEnumFromThenTo
+
+instance Enum Double where
+  succ value = value + 1
+  pred value = value - 1
+  toEnum = int2Double
+  fromEnum value = fromInteger (truncate value)
+  enumFrom = numericEnumFrom
+  enumFromTo = numericEnumFromTo
+  enumFromThen = numericEnumFromThen
+  enumFromThenTo = numericEnumFromThenTo
 
 instance Real Float where
   toRational value = rationalFromDecoded (decodeFloatValue value)

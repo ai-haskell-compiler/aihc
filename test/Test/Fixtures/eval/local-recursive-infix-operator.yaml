@@ -1,0 +1,16 @@
+modules:
+  - |
+    module Test where
+
+    interleave :: [a] -> [a] -> [a]
+    interleave xs ys = xs `ilv` ys
+      where
+        [] `ilv` bs = bs
+        as `ilv` [] = as
+        (a : as) `ilv` (b : bs) = a : b : (as `ilv` bs)
+output: |
+  : (I# 1) (: (I# 4) (: (I# 2) (: (I# 5) (: (I# 3) []))))
+expression: |
+  interleave [1, 2, 3 :: Int] [4, 5]
+status: pass
+reason: a closed local operator that calls itself infix keeps its operator node and its instantiation

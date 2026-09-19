@@ -6,6 +6,7 @@ module Data.Semigroup.Internal
     stimesIdempotent,
     stimesIdempotentMonoid,
     Dual (..),
+    Endo (..),
     All (..),
     Any (..),
     Sum (..),
@@ -14,7 +15,7 @@ module Data.Semigroup.Internal
 where
 
 import Data.Bool (Bool (..), (&&), (||))
-import GHC.Base (Functor (..), List (..), Maybe (..))
+import GHC.Base (Functor (..), List (..), Maybe (..), id, (.))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -133,6 +134,10 @@ instance (Monoid b) => Monoid (a -> b) where
 -- "Data.Monoid" and "Data.Semigroup" can re-export them.
 newtype Dual a = Dual {getDual :: a}
 
+-- | A function from a type to itself. The values combine by function
+-- composition, and the identity function is the empty value.
+newtype Endo a = Endo {appEndo :: a -> a}
+
 newtype All = All {getAll :: Bool}
 
 newtype Any = Any {getAny :: Bool}
@@ -146,6 +151,12 @@ instance (Semigroup a) => Semigroup (Dual a) where
 
 instance (Monoid a) => Monoid (Dual a) where
   mempty = Dual mempty
+
+instance Semigroup (Endo a) where
+  Endo outer <> Endo inner = Endo (outer . inner)
+
+instance Monoid (Endo a) where
+  mempty = Endo id
 
 instance Semigroup All where
   All left <> All right = All (left && right)

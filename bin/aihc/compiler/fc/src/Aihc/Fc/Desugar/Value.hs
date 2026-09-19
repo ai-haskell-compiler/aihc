@@ -125,6 +125,10 @@ data ValueState = ValueState
     vsBindingTypes :: !(Map TcTermKey TcType),
     vsLocals :: !(Map TcTermKey (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
+    -- | The equalities that the dictionary scope gives, with the binder of
+    -- the proof. A lookup by key needs the two types, thus the shape of a
+    -- given equality is only visible here.
+    vsGivenEqualities :: ![(TcType, TcType, Binder)],
     -- | The evidence that the current binding shares, when it has a place to
     -- put the bindings. 'Nothing' turns sharing off.
     vsEvidenceScope :: !(Maybe EvidenceScope),
@@ -323,6 +327,7 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsBindingTypes = Map.union localTypes (preparedTypes interface),
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
+            vsGivenEqualities = [],
             vsEvidenceScope = Nothing,
             vsTypeEnv = typeEnv,
             vsConstructorInfos = preparedConstructorInfos interface,
@@ -2039,8 +2044,51 @@ overloadedLiteralValue overloadedString literal =
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
 desugarDataPatterns resultType fallback argument arguments argumentTypes works = do
-  caseBinder <- freshBinderFromType "_scrut" (binderType argument)
-  desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+  (scrutineeType, _) <- requiredArgumentTypes argumentTypes
+  refinement <- scrutineeRefinement scrutineeType
+  case refinement of
+    Nothing -> do
+      caseBinder <- freshBinderFromType "_scrut" (binderType argument)
+      desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+    Just (refinedType, coercion) -> do
+      caseBinder <- freshBinder "_scrut" refinedType
+      desugarScrutineePatterns resultType fallback (ExCast (ExVar (binderName argument)) coercion) caseBinder argument arguments argumentTypes works
+
+-- | The type that a given equality refines the scrutinee to, with the proof.
+--
+-- An earlier pattern of the same equation can match a GADT constructor. Such
+-- a match gives an equality between a type variable and the type that the
+-- constructor fixes it to. The type of a later argument can be that
+-- variable, and then its own patterns match the fixed type. The case must
+-- match the fixed type, thus the scrutinee carries the proof as a cast.
+-- Without such an equality the result is 'Nothing' and the scrutinee keeps
+-- its own type.
+scrutineeRefinement :: TcType -> ValueM (Maybe (TcType, Coercion))
+scrutineeRefinement scrutineeType =
+  case scrutineeType of
+    TcTyVar _ -> do
+      equalities <- gets vsGivenEqualities
+      pure
+        ( listToMaybe
+            ( [ (right, CoVar (binderName binder))
+              | (left, right, binder) <- equalities,
+                left == scrutineeType,
+                not (isTypeVariable right)
+              ]
+                <> [ (left, CoSym (CoVar (binderName binder)))
+                   | (left, right, binder) <- equalities,
+                     right == scrutineeType,
+                     not (isTypeVariable left)
+                   ]
+            )
+        )
+    _ -> pure Nothing
+
+isTypeVariable :: TcType -> Bool
+isTypeVariable ty =
+  case ty of
+    TcTyVar _ -> True
+    _ -> False
 
 -- | Match a scrutinee expression against constructor patterns. The root
 -- binder gets the variable bindings of the first pattern. It has the checked
@@ -4856,10 +4904,16 @@ shareSuperClass evidence resultType build = do
 withDictionaries :: [Dictionary] -> ValueM a -> ValueM a
 withDictionaries additions action = do
   previous <- gets vsDictionaries
+  previousEqualities <- gets vsGivenEqualities
   let updated = foldr insertDictionary previous additions
-  modify' (\state -> state {vsDictionaries = updated})
+      equalities =
+        [ (left, right, dictionaryBinder dictionary)
+        | dictionary <- additions,
+          EqPred left right <- [dictionaryPredicate dictionary]
+        ]
+  modify' (\state -> state {vsDictionaries = updated, vsGivenEqualities = equalities <> previousEqualities})
   result <- action
-  modify' (\state -> state {vsDictionaries = previous})
+  modify' (\state -> state {vsDictionaries = previous, vsGivenEqualities = previousEqualities})
   pure result
   where
     insertDictionary dictionary =
