@@ -17,6 +17,7 @@ where
 import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinError, CpsGrinProgram (..), toCpsGrin)
 import Aihc.Grin.Heap (normalizeHeapReservations)
+import Aihc.Grin.Primitive (primitiveHeapWords)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -49,7 +50,7 @@ entryGcProgram =
           grinFunctions = []
         }
 
--- | Insert and normalize reservations. Then, give each reservation its live
+-- | Insert and normalize reservations. Give each safepoint explicit live
 -- roots and fresh SSA names for roots that collection can relocate.
 lowerGc :: CpsGrinProgram -> GcGrinProgram
 lowerGc cps =
@@ -84,6 +85,12 @@ insertExprReservations expression =
         []
         (GrinEnsureHeap (staticHeapWords (nodeWords node)) [])
         (GrinBind resultVars (GrinStoreUnchecked node) (insertExprReservations body))
+    GrinBind resultVars call@(GrinPrimitiveCall _ name _) body
+      | Just requiredWords <- primitiveHeapWords name ->
+          GrinBind
+            []
+            (GrinEnsureHeap (staticHeapWords requiredWords) [])
+            (GrinBind resultVars call (insertExprReservations body))
     GrinBind resultVars valueExpression body ->
       GrinBind resultVars (insertExprReservations valueExpression) (insertExprReservations body)
     GrinStore node ->

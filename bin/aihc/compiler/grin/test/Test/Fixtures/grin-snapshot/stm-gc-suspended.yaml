@@ -1,0 +1,39 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  constructor Done/0 []
+  primitive newDelayTVar#%1 :: BoxedRep Unlifted/3
+  primitive stmBegin#%2 :: TupleRep []/0
+  primitive stmCommit#%3 :: TupleRep []/0
+  primitive stmAbort#%4 :: TupleRep []/0
+  primitive writeTVar#%5 :: TupleRep []/2
+  primitive readTVar#%6 :: BoxedRep Lifted/1
+  primitive fork#%7 :: BoxedRep Unlifted/1
+  primitive yield#%8 :: TupleRep []/0
+  global child = (P$child/[[]])
+
+  $child -> BoxedRep Lifted =
+    () <- primitive-call @(TupleRep []) stmBegin#
+    () <- primitive-call @(TupleRep []) stmCommit#
+    store (CDone)
+
+  $entry -> BoxedRep Lifted =
+    (initial%10 :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    (replacement%11 :: BoxedRep Lifted) <- store (CNumber (99 :: IntRep))
+    (var%12 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newDelayTVar# (0 :: IntRep) (initial%10 :: BoxedRep Lifted) (initial%10 :: BoxedRep Lifted)
+    () <- primitive-call @(TupleRep []) stmBegin#
+    () <- primitive-call @(TupleRep []) writeTVar# (var%12 :: BoxedRep Unlifted) (replacement%11 :: BoxedRep Lifted)
+    (thread%13 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) fork# global-ref child
+    () <- primitive-call @(TupleRep []) yield#
+    () <- primitive-call @(TupleRep []) stmAbort#
+    (result%14 :: BoxedRep Lifted) <- primitive-call @(BoxedRep Lifted) readTVar# (var%12 :: BoxedRep Unlifted)
+    constant (result%14 :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 192
+  linux-amd64: 192
+status: pass
+reason: A collection in another thread preserves the write log and previous value of a suspended transaction.

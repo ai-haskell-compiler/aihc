@@ -280,6 +280,7 @@ data SnapshotFixture = SnapshotFixture
   { snapshotFixtureEntry :: !Text,
     snapshotFixtureProgram :: !Text,
     snapshotFixtureStatus :: !Text,
+    snapshotFixtureGcStress :: !Bool,
     snapshotFixtureWasmIntegerFields :: ![(Text, [Text])]
   }
 
@@ -290,6 +291,7 @@ instance FromJSON SnapshotFixture where
         <$> object .: "entry"
         <*> object .: "program"
         <*> object .: "status"
+        <*> object .:? "gc-stress" .!= False
         <*> object .:? "wasm-integer-fields" .!= []
 
 -- | Lower the fixture program for wasm32, check the Lir, and compile it.
@@ -301,7 +303,7 @@ snapshotTest directory name = testCase name $ do
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either (assertFailure . Grin.renderParseError) pure (parseProgram (snapshotFixtureProgram fixture))
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
-  (lirModule, _) <- either (assertFailure . show) pure (lowerObservedProgram wasip3Target (FunctionName (snapshotFixtureEntry fixture)) gc)
+  (lirModule, _) <- either (assertFailure . show) pure (lowerObservedProgram wasip3Target (snapshotFixtureGcStress fixture) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
   reparsed <- either (assertFailure . renderParseError) pure (parseModule (renderModule lirModule))
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed

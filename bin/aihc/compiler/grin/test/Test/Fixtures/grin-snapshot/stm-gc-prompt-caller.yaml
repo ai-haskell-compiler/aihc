@@ -1,0 +1,18 @@
+entry: $entry
+gc-stress: true
+program: |
+  constructor Number/1 [IntRep]
+  primitive newPromptTag#%1 :: BoxedRep Unlifted/0
+
+  $entry -> BoxedRep Lifted =
+    (value%10 :: BoxedRep Lifted) <- store (CNumber (42 :: IntRep))
+    (tag%11 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newPromptTag#
+    constant (value%10 :: BoxedRep Lifted)
+return: "@0"
+heap: |
+  @0 = CNumber 42
+allocated-bytes:
+  macos-arm64: 24
+  linux-amd64: 24
+status: pass
+reason: An existing runtime call that can collect preserves its caller value and continuation.

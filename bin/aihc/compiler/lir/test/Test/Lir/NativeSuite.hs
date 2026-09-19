@@ -254,6 +254,8 @@ data SnapshotFixture = SnapshotFixture
     snapshotFixtureHeap :: !(Maybe Text),
     snapshotFixtureError :: !(Maybe Text),
     snapshotFixtureAllocatedBytes :: !(Maybe (Map.Map Text Word64)),
+    snapshotFixtureGcStress :: !Bool,
+    snapshotFixtureRtsArguments :: ![String],
     snapshotFixtureRequireGc :: !Bool,
     snapshotFixtureStatus :: !Text
   }
@@ -269,6 +271,8 @@ instance FromJSON SnapshotFixture where
         <*> object .:? "heap"
         <*> object .:? "error"
         <*> object .:? "allocated-bytes"
+        <*> object .:? "gc-stress" .!= False
+        <*> object .:? "rts-arguments" .!= []
         <*> object .:? "gc" .!= False
         <*> object .: "status"
 
@@ -288,7 +292,7 @@ snapshotTest backend getExports directory name = testCase name $ do
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either assertFailure pure (snapshotProgram fixture)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
-  (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
+  (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (snapshotFixtureGcStress fixture) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
   -- Every fixture must use the runtime exports without local copies.
   let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) exports]
@@ -302,7 +306,7 @@ snapshotTest backend getExports directory name = testCase name $ do
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule
   when (backendRuns backend) $ do
-    native <- runObservedUnit backend (snapshotFixtureRequireGc fixture) output metadata
+    native <- runObservedUnit backend fixture output metadata
     case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
       (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
         allocatedBytes <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocated byte count")) pure (snapshotFixtureAllocatedBytes fixture >>= Map.lookup (backendAllocationKey backend))
@@ -334,15 +338,18 @@ snapshotProgram fixture =
         _ -> Left "source snapshot requires one module"
     _ -> Left "snapshot requires either a GRIN program or a source module"
 
-runObservedUnit :: NativeBackend -> Bool -> BackendOutput -> Text -> IO (Either Text Text)
-runObservedUnit backend requireGc output metadata =
+runObservedUnit :: NativeBackend -> SnapshotFixture -> BackendOutput -> Text -> IO (Either Text Text)
+runObservedUnit backend fixture output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeBuild <- nativeRuntimeBuild backend
+    runtimeBuild <-
+      cachedRuntimeArchive
+        (backendTarget backend)
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> ["-DAIHC_SEMISPACE_BYTES=128" | snapshotFixtureGcStress fixture])
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
-    TIO.writeFile metadataPath ((if requireGc then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
+    TIO.writeFile metadataPath ((if snapshotFixtureRequireGc fixture || snapshotFixtureGcStress fixture then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
     (clangExit, _, clangErr) <-
       readProcessWithExitCode
         "clang"
@@ -353,7 +360,7 @@ runObservedUnit backend requireGc output metadata =
         )
         ""
     assertEqual ("clang failed to link the observed program:\n" <> clangErr) ExitSuccess clangExit
-    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath (snapshotFixtureRtsArguments fixture) ""
     case programExit of
       ExitSuccess -> do
         assertEqual "native stderr" "" programErr

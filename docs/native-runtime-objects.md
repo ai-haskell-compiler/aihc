@@ -144,8 +144,42 @@ and pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
 dispatches with a tail call. All retained closure values and pending-request
-continuations are precise collector roots; live values of generated code reach
-the collector only through the root vector of an explicit safepoint.
+continuations are precise collector roots.
+Generated code exposes live values to the collector through explicit root slots.
+
+STM transactions, write logs, and timers use the managed heap.
+Each record has a header and a distinct runtime object kind.
+The collector obtains each size from its C structure.
+It traces pointer fields through that structure on both 32-bit and 64-bit targets.
+The current transaction of each live thread retains its parent transactions and write logs.
+The machine timer list retains timer variables and final values until expiry.
+Commit, abort, and expiry remove references without direct memory release.
+These records count toward managed allocation statistics and the `-M` limit.
+
+The GRIN primitive description gives fixed allocation bounds for ordinary calls.
+The GC stage inserts `ensure-heap` before these calls.
+The reservation protects call arguments and values needed after the call.
+The existing GC transformation gives relocated roots fresh names.
+Lir translates the explicit reservation and the ordinary call.
+
+`stmBegin#` reserves three heap slots, and `writeTVar#` reserves four.
+`newDelayTVar#` reserves eight slots for its TVar and optional timer.
+`newPromptTag#` reserves one slot.
+Each slot has eight bytes on every target.
+C size assertions check that runtime records fit these bounds.
+Reservations can exceed actual allocation, which statistics measure separately.
+
+These primitives consume reserved heap and must not collect.
+Their callees must preserve this contract.
+`aihc_gc_allocate` checks the available space and cannot collect.
+The delay-variable helper initializes its TVar and timer before any further collection.
+
+GRIN snapshot fixtures request GC stress checks with `gc-stress: true`.
+The test harness changes generated Lir to select the collector path at each reservation.
+It identifies collector blocks by their calls to `aihc_heap_collect`.
+This transformation exists only in test code.
+Successful stress fixtures must report at least one collection.
+They can specify heap limits through `rts-arguments`.
 
 Each thread record carries the number that identifies the thread. The machine
 holds a counter, and `aihc_thread_new` gives the next number to each new
