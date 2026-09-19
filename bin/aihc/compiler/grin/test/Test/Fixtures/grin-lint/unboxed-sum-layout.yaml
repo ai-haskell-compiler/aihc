@@ -1,0 +1,6 @@
+program: |
+  $entry -> SumRep [TupleRep [], TupleRep [IntRep, IntRep], IntRep] =
+    constant (2 :: IntRep) (11 :: IntRep) (12 :: IntRep)
+error: none
+status: pass
+reason: Sum alternatives share slots with the same representation.

@@ -36,6 +36,9 @@ module Aihc.Grin.Syntax
     GrinForeignEffect (..),
     GrinForeignType (..),
     runtimeRepComponents,
+    SumLayout (..),
+    sumLayout,
+    sumSlotRep,
     grinForeignOperandReps,
     grinForeignCallResultReps,
     foreignTypeRuntimeRep,
@@ -61,6 +64,8 @@ where
 
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
+import Data.List (mapAccumL)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -609,7 +614,45 @@ runtimeRepComponents :: GrinRep -> [GrinRep]
 runtimeRepComponents runtimeRep =
   case runtimeRep of
     TupleRep fieldReps -> concatMap runtimeRepComponents fieldReps
+    SumRep alternatives -> IntRep : sumSlots (sumLayout alternatives)
     _ -> [runtimeRep]
+
+-- | The tag precedes these slots. Alternative indices exclude the tag.
+-- Each slot has one representation for all alternatives.
+data SumLayout = SumLayout
+  { sumSlots :: ![GrinRep],
+    sumAlternativeSlots :: ![[Int]]
+  }
+  deriving (Eq, Show, Read)
+
+-- | Share compatible slots across alternatives. Keep pointer levities separate.
+sumLayout :: [GrinRep] -> SumLayout
+sumLayout alternatives = SumLayout slots (map positions components)
+  where
+    components = map (map sumSlotRep . runtimeRepComponents) alternatives
+    counts = Map.unionsWith max (map (Map.fromListWith (+) . map (,1 :: Int)) components)
+    slots = concat [replicate count representation | (representation, count) <- Map.toAscList counts]
+    offsets = Map.fromListWith (flip (<>)) [(representation, [index]) | (index, representation) <- zip [0 ..] slots]
+    positions = snd . mapAccumL select offsets
+    select available representation =
+      case Map.findWithDefault [] representation available of
+        index : rest -> (Map.insert representation rest available, index)
+        [] -> error "sum layout has no slot for an alternative component"
+
+-- | Integer values share a machine slot. Other classes remain separate.
+sumSlotRep :: GrinRep -> GrinRep
+sumSlotRep representation =
+  case representation of
+    Int8Rep -> IntRep
+    Int16Rep -> IntRep
+    Int32Rep -> IntRep
+    Int64Rep -> IntRep
+    WordRep -> IntRep
+    Word8Rep -> IntRep
+    Word16Rep -> IntRep
+    Word32Rep -> IntRep
+    Word64Rep -> IntRep
+    _ -> representation
 
 -- | Runtime reps carried in one pointer-sized slot.
 isPointerRuntimeRep :: GrinRep -> Bool
