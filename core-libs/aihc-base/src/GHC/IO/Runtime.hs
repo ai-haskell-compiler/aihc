@@ -13,6 +13,7 @@ module GHC.IO.Runtime
     submitOpen,
     openResultError,
     descriptorMode,
+    ioHandleDescriptor,
     adoptIOHandle,
     closeIOHandle,
     readMemoryByte,
@@ -73,6 +74,10 @@ foreign import ccall unsafe "aihc_io_descriptor_mode"
 
 foreign import ccall unsafe "aihc_io_adopt"
   adoptIOHandle :: Int -> Int -> IO (Ptr IOHandle)
+
+-- | The POSIX descriptor, or -1 when the host has no numeric descriptors.
+foreign import ccall unsafe "aihc_io_handle_descriptor"
+  ioHandleDescriptor :: Ptr IOHandle -> IO Int
 
 foreign import ccall unsafe "aihc_io_close"
   closeIOHandle :: Ptr IOHandle -> IO Int

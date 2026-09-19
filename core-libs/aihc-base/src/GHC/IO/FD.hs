@@ -5,7 +5,7 @@
 -- | Raw IO over runtime-owned IO resources. 'FD' wraps one runtime
 -- resource and gives it the device classes that the handle layer uses.
 module GHC.IO.FD
-  ( FD (..),
+  ( FD (FD, fdFD, fdIsNonBlocking),
     mkFD,
     stdin,
     stdout,
@@ -34,6 +34,7 @@ import GHC.IO.Runtime
     awaitIO,
     closeIOHandle,
     decodeError,
+    ioHandleDescriptor,
     openResultError,
     stderrHandle,
     stdinHandle,
@@ -58,8 +59,9 @@ import System.Posix.Types (CDev, CIno)
 -- | A runtime IO resource. The runtime has no non-blocking mode, so the
 -- flag is always zero.
 data FD = FD
-  { fdFD :: !(Ptr IOHandle),
-    fdIsNonBlocking :: !Int
+  { fdFD :: !CInt,
+    fdIsNonBlocking :: !Int,
+    fdHandle :: !(Ptr IOHandle)
   }
 
 instance Show FD where
@@ -70,13 +72,13 @@ dEFAULT_BUFFER_SIZE :: Int
 dEFAULT_BUFFER_SIZE = 8192
 
 stdin :: FD
-stdin = FD (unsafePerformIO stdinHandle) 0
+stdin = FD 0 0 (unsafePerformIO stdinHandle)
 
 stdout :: FD
-stdout = FD (unsafePerformIO stdoutHandle) 0
+stdout = FD 1 0 (unsafePerformIO stdoutHandle)
 
 stderr :: FD
-stderr = FD (unsafePerformIO stderrHandle) 0
+stderr = FD 2 0 (unsafePerformIO stderrHandle)
 
 -- | The mode number of the runtime open request.
 ioModeNumber :: IOMode -> Int
@@ -93,7 +95,9 @@ openFile path mode _nonBlocking = do
   result <- openUtf8FilePath path (ioModeNumber mode)
   case result of
     Left errno -> ioError (errnoToIOError "openFile" (Errno (fromIntegral errno)) Nothing (Just path))
-    Right rawHandle -> return (FD rawHandle 0, Stream)
+    Right rawHandle -> do
+      descriptor <- ioHandleDescriptor rawHandle
+      return (FD (fromIntegral descriptor) 0 rawHandle, Stream)
 
 -- | A raw file descriptor the program already has, as an 'FD'.
 --
@@ -107,14 +111,12 @@ mkFD descriptor mode _stat _isSocket _isNonBlocking = do
   rawHandle <- adoptIOHandle (fromIntegral descriptor) (ioModeNumber mode)
   errno <- openResultError rawHandle
   case errno == 0 of
-    True -> return (FD rawHandle 0, Stream)
+    True -> return (FD descriptor 0 rawHandle, Stream)
     False -> ioError (errnoToIOError "GHC.IO.FD.mkFD" (Errno (fromIntegral errno)) Nothing Nothing)
 
--- | Release the resource without a close error.
+-- | Release descriptor ownership without a close. The runtime has no file locks.
 release :: FD -> IO ()
-release fd = do
-  _ <- closeIOHandle (fdFD fd)
-  return ()
+release _ = return ()
 
 instance RawIO FD where
   read fd buffer _ = readRawBufferPtr "GHC.IO.FD.read" fd buffer 0
@@ -134,7 +136,7 @@ instance BufferedIO FD where
 instance IODevice FD where
   ready _ _ _ = return True
   close fd = do
-    result <- closeIOHandle (fdFD fd)
+    result <- closeIOHandle (fdHandle fd)
     case result < 0 of
       True -> ioError (errnoToIOError "GHC.IO.FD.close" (Errno (fromIntegral (decodeError result))) Nothing Nothing)
       False -> return ()
@@ -143,7 +145,7 @@ instance IODevice FD where
 -- | Read up to @count@ bytes. The result is zero at the end of the input.
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> Int -> IO Int
 readRawBufferPtr location fd buffer offset count = do
-  result <- readIntoPtr (fdFD fd) buffer offset count
+  result <- readIntoPtr (fdHandle fd) buffer offset count
   case result < 0 of
     True -> ioError (errnoToIOError location (Errno (fromIntegral (decodeError result))) Nothing Nothing)
     False -> return result
@@ -151,7 +153,7 @@ readRawBufferPtr location fd buffer offset count = do
 -- | Write up to @count@ bytes and give the number of bytes written.
 writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> Int -> IO Int
 writeRawBufferPtr location fd buffer offset count = do
-  result <- writeFromPtr (fdFD fd) buffer offset count
+  result <- writeFromPtr (fdHandle fd) buffer offset count
   case result < 0 of
     True -> ioError (errnoToIOError location (Errno (fromIntegral (decodeError result))) Nothing Nothing)
     False -> return result

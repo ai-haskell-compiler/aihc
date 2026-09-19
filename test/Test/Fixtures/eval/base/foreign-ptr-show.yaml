@@ -1,0 +1,29 @@
+modules:
+  - |
+    module Pointer where
+
+    import Foreign.Ptr (Ptr)
+
+    data DL = Null | Handle (Ptr ()) deriving Show
+  - |
+    module Test where
+
+    import Foreign.Ptr
+    import Pointer
+
+    data Hidden
+
+    checks :: Bool
+    checks =
+      show (nullPtr :: Ptr Hidden) == "0x0000000000000000"
+        && show (nullFunPtr :: FunPtr Hidden) == "0x0000000000000000"
+        && show (intPtrToPtr 0xabcdef :: Ptr ()) == "0x0000000000abcdef"
+        && show (intPtrToPtr (-1) :: Ptr ()) == "0xffffffffffffffff"
+        && showsPrec 11 (castPtrToFunPtr (intPtrToPtr 42) :: FunPtr ()) "!" == "0x000000000000002a!"
+        && show (Handle nullPtr) == "Handle 0x0000000000000000"
+        && show [nullPtr :: Ptr ()] == "[0x0000000000000000]"
+expression: checks
+output: |
+  True
+status: pass
+reason: Pointer Show instances must use unsigned hexadecimal addresses and require no instance for the element type.

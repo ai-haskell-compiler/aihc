@@ -1,0 +1,24 @@
+modules:
+  - |
+    module Test where
+
+    import GHC.IO.FD qualified as FD
+    import GHC.IO.Device (close)
+    import GHC.IO.IOMode (IOMode (..))
+    import GHC.IO.Runtime (descriptorMode)
+
+    main :: IO Bool
+    main = do
+      (opened, _) <- FD.openFile "/dev/null" ReadMode False
+      let descriptor = FD.fdFD opened
+      FD.release opened
+      mode <- descriptorMode (fromIntegral descriptor)
+      close opened
+      return (mode == 0)
+expression: main
+output: |
+  True
+status: pass
+reason: FD.release must keep the descriptor open so unix can transfer it to the caller.
+extensions:
+  - ImportQualifiedPost

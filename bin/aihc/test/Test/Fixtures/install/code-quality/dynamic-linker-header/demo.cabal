@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: dynamic-linker-header
+version: 0.1.0.0
+
+library
+  exposed-modules: Demo
+  hs-source-dirs: src
+  build-depends: aihc-prim
+  build-tool-depends: hsc2hs:hsc2hs
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude
