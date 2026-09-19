@@ -5114,10 +5114,12 @@ dataConSourceLayout declaration =
       (InfixDataCon, map (Nothing,) [left, right], identities)
     RecordCon _ _ _ fields ->
       (RecordDataCon, recordSourceFields fields, identities)
-    TupleCon _ _ _ fields ->
+    TupleCon _ _ Boxed fields ->
       (SyntaxDataCon, map (Nothing,) fields, identities)
-    UnboxedSumCon _ _ _ _ field ->
-      (SyntaxDataCon, [(Nothing, field)], identities)
+    TupleCon _ _ Unboxed fields ->
+      (UnboxedTupleDataCon, map (Nothing,) fields, identities)
+    UnboxedSumCon _ _ alternative arity field ->
+      (UnboxedSumDataCon alternative arity, [(Nothing, field)], identities)
     ListCon {} ->
       (SyntaxDataCon, [], identities)
     GadtCon _ _ _ body ->

@@ -1,0 +1,6 @@
+program: |
+  $entry -> SumRep [TupleRep [], TupleRep []] =
+    constant (1 :: IntRep)
+error: none
+status: pass
+reason: Zero-width alternatives require only a tag.

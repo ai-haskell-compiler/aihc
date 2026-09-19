@@ -14,6 +14,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Parser.Syntax qualified as Syn
+import Aihc.Prim.Wiring (unboxedSumDataConName)
 import Aihc.Resolve
   ( Identifier (..),
     PackageId (..),
@@ -1397,6 +1398,7 @@ patternBinderSpecs pattern' =
     Syn.PCon _ _ children -> concat <$> mapM patternBinderSpecs children
     Syn.PInfix left _ right -> (<>) <$> patternBinderSpecs left <*> patternBinderSpecs right
     Syn.PList children -> concat <$> mapM patternBinderSpecs children
+    Syn.PUnboxedSum _ _ inner -> patternBinderSpecs inner
     Syn.PTuple _ children -> concat <$> mapM patternBinderSpecs children
     _ -> pure []
 
@@ -1590,6 +1592,7 @@ patternBinderAnnotations pattern' =
     Syn.PCon _ _ children -> concatMap patternBinderAnnotations children
     Syn.PInfix left _ right -> patternBinderAnnotations left <> patternBinderAnnotations right
     Syn.PList children -> concatMap patternBinderAnnotations children
+    Syn.PUnboxedSum _ _ inner -> patternBinderAnnotations inner
     Syn.PTuple _ children -> concatMap patternBinderAnnotations children
     _ -> []
   where
@@ -2317,6 +2320,7 @@ patternKey pattern' =
     Syn.PInfix _ name _ -> Syn.nameText name
     Syn.PList [] -> "[]"
     Syn.PList (_ : _) -> ":"
+    Syn.PUnboxedSum alternative arity _ -> unboxedSumDataConName (alternative + 1) arity
     Syn.PTuple _ fields -> "(" <> T.replicate (max 0 (length fields - 1)) "," <> ")"
     Syn.PLit literal
       | isBoxedCharacterLiteral literal -> "C#"
@@ -2389,6 +2393,7 @@ patternChildren pattern' =
               Just ty -> Syn.PAnn (Syn.mkAnnotation (TcAnnotation ty [] [] [] [] [])) tailPattern
               Nothing -> tailPattern
        in [item, checkedTail]
+    Syn.PUnboxedSum _ _ inner -> [inner]
     Syn.PTuple _ children -> children
     Syn.PLit literal
       | Syn.LitChar value source <- Syn.peelLiteralAnn literal -> [Syn.PLit (Syn.LitCharHash value source)]
@@ -2401,6 +2406,8 @@ patternConstructor pattern' =
     Syn.PInfix _ name _ -> AltData <$> resolvedTermName name
     Syn.PList [] -> AltData <$> primitiveName "GHC.Types" "[]" SortDataConstructor
     Syn.PList (_ : _) -> AltData <$> primitiveName "GHC.Types" ":" SortDataConstructor
+    Syn.PUnboxedSum alternative arity _ ->
+      AltData <$> primitiveName "GHC.Types" (unboxedSumDataConName (alternative + 1) arity) SortDataConstructor
     Syn.PTuple flavor fields ->
       let arity = length fields
           constructor = tupleConstructorText flavor arity
@@ -2745,6 +2752,7 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EListComp expression statements -> desugarListComp annotation expression statements
         Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
         Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
+        Syn.EUnboxedSum alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
         Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
@@ -3575,6 +3583,17 @@ desugarString annotation value = do
           cons = ExTyApp (ExVar consName) convertedType
           boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
       pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
+
+desugarUnboxedSum :: TcAnnotation -> Int -> Int -> Syn.Expr -> ValueM Expr
+desugarUnboxedSum annotation alternative arity payload = do
+  let types = tcAnnTypeArgs annotation
+  unless (length types == arity) $
+    failValue "unboxed sum annotation has an invalid alternative count"
+  representations <- mapM checkedRuntimeRep types
+  converted <- mapM convertCheckedType types
+  constructor <- primitiveName "GHC.Types" (unboxedSumDataConName (alternative + 1) arity) SortDataConstructor
+  argument <- desugarExpr payload
+  pure (ExApp (foldl ExTyApp (ExVar constructor) (representations <> converted)) argument)
 
 desugarTuple :: TcAnnotation -> Syn.TupleFlavor -> [Maybe Syn.Expr] -> ValueM Expr
 desugarTuple annotation flavor elements = do

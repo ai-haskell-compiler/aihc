@@ -1,0 +1,6 @@
+program: |
+  $entry -> SumRep [Int8Rep, Word64Rep, Int32Rep] =
+    constant (1 :: IntRep) (-128 :: IntRep)
+error: none
+status: pass
+reason: Integer alternatives share one machine slot.

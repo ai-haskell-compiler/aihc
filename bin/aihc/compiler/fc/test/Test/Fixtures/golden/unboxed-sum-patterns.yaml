@@ -1,0 +1,20 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import GHC.Prim
+  data Box = Box (# Int# | (# Int#, Int# #) #)
+  first :: Box -> Int#
+  first (Box (# x | #)) = x
+  first (Box (# | (# x, _ #) #)) = x
+  again :: (# Int# | Int# #) -> Int#
+  again whole@(# _ | #) = case whole of
+    (# x | #) -> x
+    _ -> 0#
+  again (# | x #) = x
+  nested :: (# (# Int# | Int# #) | (# #) #) -> Int#
+  nested (# (# x | #) | #) = x
+  nested (# (# | x #) | #) = x
+  nested _ = 0#
+status: pass
+reason: FC preserves nested sum patterns, whole-sum binders, and default alternatives.

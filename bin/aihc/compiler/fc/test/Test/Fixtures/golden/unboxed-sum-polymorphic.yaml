@@ -1,0 +1,16 @@
+extensions: [UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  first :: a -> (# a | b | c #)
+  first x = (# x | | #)
+  second :: b -> (# a | b | c #)
+  second x = (# | x | #)
+  third :: c -> (# a | b | c #)
+  third x = (# | | x #)
+  select :: a -> (# (# #) | a #) -> a
+  select fallback value = case value of
+    (# (# #) | #) -> fallback
+    (# | x #) -> x
+status: pass
+reason: Three-way sums preserve type variables for every alternative.

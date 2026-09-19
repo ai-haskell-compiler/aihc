@@ -1,0 +1,6 @@
+program: |
+  $entry -> SumRep [TupleRep [], IntRep] =
+    constant (1 :: IntRep)
+error: result-layout
+status: pass
+reason: Every alternative must supply the complete slot layout.

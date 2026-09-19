@@ -1,0 +1,34 @@
+entry: $entry
+source: |
+  module Test where
+  import GHC.Prim
+  data Box = Box Int#
+  data Result = Result Int# Int#
+  readSum :: (# ByteArray# | Box #) -> Int#
+  readSum (# array | #) = sizeofByteArray# array
+  readSum (# | Box n #) = n
+  keep :: (# ByteArray# | Box #) -> (# ByteArray# | Box #) -> Int# -> Result
+  keep first second = \_ -> Result (readSum first) (readSum second)
+  makeBox :: Int# -> Box
+  makeBox n = Box n
+  burn :: Int# -> Box -> Box
+  burn n previous = case n of
+    0# -> previous
+    _ -> case makeBox n of next -> burn (n -# 1#) next
+  runSaved :: (Int# -> Result) -> Result
+  runSaved saved = case burn 100000# (Box 0#) of
+    Box _ -> saved 0#
+  value = runRW# (\s0 ->
+    case newByteArray# 4# s0 of
+      (# s1, buffer #) -> case unsafeFreezeByteArray# buffer s1 of
+        (# _, array #) -> case keep (# array | #) (# | Box 42# #) of
+          saved -> runSaved saved)
+return: "@0"
+heap: |
+  @0 = CResult 4 42
+allocated-bytes:
+  macos-arm64: 1600432
+  linux-amd64: 1600432
+gc: true
+status: pass
+reason: GC preserves partial applications with lifted pointers, unlifted pointers, and unused pointer slots.

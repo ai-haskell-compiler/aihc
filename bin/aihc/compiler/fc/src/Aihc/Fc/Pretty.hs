@@ -63,7 +63,7 @@ prettyImports scopes imports =
     <> prettyImportGroup "value-binders" valueBinderEntries
   where
     headerEntries =
-      map (\(name, ty) -> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
+      map (\(name, ty) -> prettyConRepresentation (Map.findWithDefault HeapConstructor name (importConRepresentations imports)) <> prettyTopName scopes name <+> "::" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importHeaders imports))
     synonymEntries =
       map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith scopes PrecForAll ty) (importEntries (importSynonyms imports))
     axiomEntries =
@@ -133,9 +133,16 @@ prettyConstructors scopes constructors =
 prettyConDecl :: ScopeIndex -> ConDecl -> Doc ann
 prettyConDecl scopes declaration =
   prettyVis (conVis declaration)
+    <> prettyConRepresentation (conRepresentation declaration)
     <> prettyTopName scopes (conName declaration)
     <> " :: "
     <> prettyTypeWith scopes PrecForAll (conType declaration)
+
+prettyConRepresentation :: ConRepresentation -> Doc ann
+prettyConRepresentation representation = case representation of
+  HeapConstructor -> mempty
+  UnboxedTupleConstructor -> "unboxed-tuple "
+  UnboxedSumConstructor alternative arity -> "unboxed-sum" <+> pretty alternative <+> pretty arity <> space
 
 prettySynonymDecl :: ScopeIndex -> SynonymDecl -> Doc ann
 prettySynonymDecl scopes declaration =

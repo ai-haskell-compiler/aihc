@@ -192,7 +192,6 @@ repType :: GrinRep -> Type
 repType runtimeRep =
   case runtimeRep of
     BoxedRep _ -> Ptr
-    SumRep _ -> Ptr
     AddrRep -> Ptr
     _ -> I64
 
@@ -741,13 +740,21 @@ lowerUnitItems (LowerUnit env program) = sequence_ (lowerUnitActions env program
 -- | Each action produces one function or data item, or an info table and stub.
 lowerUnitActions :: LowerEnv -> GrinProgram -> [LowerM ()]
 lowerUnitActions env program@(GrinProgram constructors _ _ globals functions) =
-  [mapM_ validateRuntimeRep (programRuntimeReps program)]
+  [mapM_ validateRuntimeRep (programRuntimeReps program), mapM_ validateSlotRep (programSlotReps program)]
     -- The update continuation is shared: see 'sharedUpdateInfo'.
     <> [lowerFunction env function | function <- functions, grinFunctionName function /= envUpdateFunction env]
     <> map (lowerStaticObject env) (programStaticObjects (GrinProgram constructors [] [] globals []))
     <> map lowerInfo (envInfos env)
     <> [lowerStaticReferenceTables env]
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
+
+-- | Aggregate representations describe results, never individual slots.
+validateSlotRep :: GrinRep -> LowerM ()
+validateSlotRep representation =
+  case representation of
+    SumRep {} -> failWith (LowerUnsupportedRuntimeRep representation)
+    TupleRep {} -> failWith (LowerUnsupportedRuntimeRep representation)
+    _ -> validateRuntimeRep representation
 
 validateRuntimeRep :: GrinRep -> LowerM ()
 validateRuntimeRep runtimeRep =
@@ -2683,11 +2690,17 @@ exprNodes expression =
 
 programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =
-  concatMap (concat . grinConstructorLayouts) (grinConstructors program)
+  [rep | function <- grinFunctions program, ResultRep rep <- [grinFunctionResultRep function]] <> programSlotReps program
+
+programSlotReps :: GrinProgram -> [GrinRep]
+programSlotReps program =
+  map (grinValueRuntimeRep . GrinLitValue) (grinProgramLiterals program)
+    <> [rep | node <- programNodes program, GrinClosure _ layouts <- [grinNodeTag node], layout <- layouts, rep <- layout]
+    <> concatMap (concat . grinConstructorLayouts) (grinConstructors program)
     <> concatMap (map grinValueRuntimeRep . grinNodeFields) (programNodes program)
     <> concatMap functionReps (grinFunctions program)
   where
-    functionReps function = [rep | ResultRep rep <- [grinFunctionResultRep function]] <> map grinVarRuntimeRep (grinFunctionParameters function) <> exprReps (grinFunctionBody function)
+    functionReps function = map grinVarRuntimeRep (grinFunctionParameters function) <> exprReps (grinFunctionBody function)
     exprReps expression =
       case expression of
         GrinBind vars value body -> map grinVarRuntimeRep vars <> exprReps value <> exprReps body

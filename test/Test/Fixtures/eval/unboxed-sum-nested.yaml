@@ -1,0 +1,19 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import GHC.Prim
+  import GHC.Types
+  nested :: (# (# Int# | Int# #) | (# #) | Int# #) -> Int
+  nested (# (# x | #) | | #) = I# x
+  nested (# (# | x #) | | #) = I# x
+  nested (# | (# #) | #) = I# 0#
+  nested (# | | x #) = I# x
+  empty :: (# (# #) | (# #) #) -> Bool
+  empty (# (# #) | #) = False
+  empty (# | (# #) #) = True
+  result = (nested (# (# 11# | #) | | #), nested (# (# | 22# #) | | #), nested (# | (# #) | #), nested (# | | 33# #), empty (# (# #) | #), empty (# | (# #) #))
+expression: result
+output: "((I# 11),(I# 22),(I# 0),(I# 33),False,True)"
+status: pass
+reason: Nested sums preserve inner tags and zero-width alternatives preserve their outer tags.

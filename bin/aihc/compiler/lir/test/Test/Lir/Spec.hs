@@ -6,6 +6,7 @@ import Aihc.Grin hiding (renderParseError)
 import Aihc.Grin qualified as Grin
 import Aihc.Lir
 import Aihc.Lir.Lower (lowerModule, posixTarget64)
+import Aihc.Testing.RuntimeArchive (withFixtureRuntimeUnits)
 import Control.Monad (unless)
 import Data.List (sort)
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -137,7 +138,8 @@ parseFixture fixture =
       case parseModule (renderModule lirModule) of
         Left err -> assertFailure ("pretty-printer output does not parse:\n" <> renderParseError err)
         Right reparsed -> assertEqual "pretty-printer round-trip" lirModule reparsed
-      either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (fixturePath fixture) lirModule
+      expanded <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (fixturePath fixture) lirModule
+      withFixtureRuntimeUnits (fixtureSource fixture) expanded
 
 -- | A module that declares an extern function, which the backends link and
 -- this interpreter cannot call (see @docs/lir.md@). Such a fixture is still

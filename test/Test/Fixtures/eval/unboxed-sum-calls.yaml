@@ -1,0 +1,20 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import GHC.Prim
+  import GHC.Types
+  readSum :: (# (# #) | Int# #) -> Int
+  readSum (# (# #) | #) = I# 0#
+  readSum (# | n #) = I# n
+  copy :: (# (# #) | Int# #) -> (# (# #) | Int# #)
+  copy value = case value of whole -> whole
+  hold :: (# (# #) | Int# #) -> Bool -> Int
+  hold value = \_ -> readSum (copy value)
+  apply :: ((# (# #) | Int# #) -> Int) -> (# (# #) | Int# #) -> Int
+  apply function value = function value
+  result = (hold (# | 31# #) True, hold (# (# #) | #) False, apply readSum (# | 42# #))
+expression: result
+output: "((I# 31),(I# 0),(I# 42))"
+status: pass
+reason: Calls, closure captures, partial applications, and default cases preserve complete sum values.

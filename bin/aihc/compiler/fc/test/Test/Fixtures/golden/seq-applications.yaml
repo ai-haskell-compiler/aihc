@@ -38,7 +38,7 @@ expected: |-
     2.t[] :: ∀(a : 2.sType). 2.sType;
     2.cBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
     2.cLifted :: 2.tLevity;
-    2.cTuple0# :: 2.tTuple0#;
+    unboxed-tuple 2.cTuple0# :: 2.tTuple0#;
     2.cTupleRep :: 2.t[] 2.tRuntimeRep 2.→ 2.tRuntimeRep;
     2.c[] :: ∀(a : 2.sType). 2.t[] a
 

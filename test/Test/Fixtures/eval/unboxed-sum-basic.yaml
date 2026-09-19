@@ -1,0 +1,21 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import Prelude
+  absent :: a -> (# (# #) | a #)
+  absent _ = (# (# #) | #)
+  present :: a -> (# (# #) | a #)
+  present x = (# | x #)
+  choose :: a -> (# (# #) | a #) -> a
+  choose fallback (# (# #) | #) = fallback
+  choose _ (# | x #) = x
+  lazy :: Bool -> Bool
+  lazy x = case ((# x | #) :: (# Bool | (# #) #)) of
+    (# _ | #) -> True
+    _ -> False
+  result = (choose False (absent True), choose False (present True), lazy undefined)
+expression: result
+output: "(False,True,True)"
+status: pass
+reason: Sum cases select the correct payload and preserve lifted payload laziness.

@@ -1,0 +1,6 @@
+program: |
+  $entry -> SumRep [TupleRep [], SumRep [TupleRep [], IntRep]] =
+    constant (2 :: IntRep) (2 :: IntRep) (11 :: IntRep)
+error: none
+status: pass
+reason: A nested sum contributes its tag and payload slots.

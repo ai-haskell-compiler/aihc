@@ -13,7 +13,7 @@ import Aihc.Lir
 import Aihc.Lir.Lower (lowerEntry, lowerModule, wasip3Target)
 import Aihc.Native (NativeTarget (Wasm32Wasip3), WasmSysroot (..), backendCompiler, executableEntryName, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
-import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), buildRuntimeArchive, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Aihc.Wasm (wasip3WorldPath)
 import Aihc.Wasm.Lir (compileLirModule)
@@ -136,7 +136,8 @@ fixtureTest :: Maybe WasmTools -> FilePath -> FilePath -> TestTree
 fixtureTest tools directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
   parsed <- either (assertFailure . renderParseError) pure (parseModule source)
-  lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
+  expanded <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
+  lirModule <- withFixtureRuntimeUnits source expanded
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   assembly <- compileText wrapped

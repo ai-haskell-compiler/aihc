@@ -1,0 +1,20 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import GHC.Prim
+  data Flag = Off | On
+  absent :: Flag -> (# (# #) | Flag #)
+  absent _ = (# (# #) | #)
+  present :: Flag -> (# (# #) | Flag #)
+  present x = (# | x #)
+  choose :: (# (# #) | Flag #) -> Flag
+  choose (# (# #) | #) = Off
+  choose (# | x #) = x
+  nested :: Flag -> Int# -> (# (# #) | (# Flag, Int# #) #)
+  nested x i = (# | (# x, i #) #)
+  number :: (# (# #) | (# Flag, Int# #) #) -> Int#
+  number (# (# #) | #) = 0#
+  number (# | (# _, i #) #) = i
+status: pass
+reason: Sum construction and patterns preserve lifted and unlifted payload types.

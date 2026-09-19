@@ -5,6 +5,7 @@ module GrinGolden
   ( GrinCase (..),
     Outcome (..),
     evaluateGrinCase,
+    buildFcPrograms,
     loadGrinCases,
   )
 where

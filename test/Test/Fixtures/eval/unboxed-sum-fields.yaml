@@ -1,0 +1,15 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import GHC.Prim
+  import GHC.Types
+  data Packet = Packet (# (# Int#, Char #) | (# Char, Int# #) #)
+  readPacket :: Packet -> (Int, Char)
+  readPacket (Packet (# (# n, c #) | #)) = (I# n, c)
+  readPacket (Packet (# | (# c, n #) #)) = (I# n, c)
+  result = (readPacket (Packet (# (# 11#, 'a' #) | #)), readPacket (Packet (# | (# 'b', 22# #) #)))
+expression: result
+output: "(((I# 11),'a'),((I# 22),'b'))"
+status: pass
+reason: Constructor fields preserve sum slots when alternatives use different payload orders.
