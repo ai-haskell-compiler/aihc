@@ -261,7 +261,6 @@ transformTail updateName parent bound resultRep continuation expression =
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
       | otherwise ->
           continueDirect runtimeRep continuation (GrinPrimitiveCall runtimeRep name arguments)
-    GrinGcPrimitiveCall {} -> alreadyTransformed
     GrinCpsPrimitiveCall {} -> alreadyTransformed
     GrinApply runtimeRep function arguments ->
       pure (GrinCpsApply runtimeRep function arguments continuation)
@@ -511,7 +510,6 @@ isDirectExpression expression =
     GrinUpdate {} -> True
     GrinUpdateBlackhole {} -> True
     GrinPrimitiveCall _ name _ -> not (isControlPrimitive name)
-    GrinGcPrimitiveCall {} -> False
     GrinCpsPrimitiveCall {} -> False
     GrinForeignCallExpr {} -> True
     _ -> False

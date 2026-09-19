@@ -26,7 +26,7 @@
 module Aihc.Grin.Primitive
   ( primitiveAllocates,
     allocatingPrimitives,
-    primitiveMayCollect,
+    primitiveHeapWords,
   )
 where
 
@@ -39,11 +39,13 @@ import Data.Text (Text)
 primitiveAllocates :: Text -> Bool
 primitiveAllocates name = name `Set.member` allocatingPrimitives
 
--- | Ordinary calls that can collect before control returns to the caller.
--- CPS calls transfer control through a continuation and use its roots.
-primitiveMayCollect :: Text -> Bool
-primitiveMayCollect name =
-  name `elem` ["writeTVar#", "stmBegin#", "newDelayTVar#", "newPromptTag#"]
+-- | Maximum heap slots consumed by each fixed-size ordinary primitive.
+-- Heap slots have eight bytes on every target. C size assertions check
+-- the record bounds in aihc_runtime_internal.h.
+-- The caller reserves these slots. The primitive must not collect.
+primitiveHeapWords :: Text -> Maybe Int
+primitiveHeapWords name =
+  lookup name [("stmBegin#", 3), ("writeTVar#", 4), ("newDelayTVar#", 8), ("newPromptTag#", 1)]
 
 -- | The primitives whose lowering allocates.
 allocatingPrimitives :: Set Text

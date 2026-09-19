@@ -203,9 +203,6 @@ lintExpr env bound expr =
     GrinPrimitiveCall _ name arguments ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue bound) arguments
-    GrinGcPrimitiveCall runtimeRep name arguments roots ->
-      lintExpr env bound (GrinPrimitiveCall runtimeRep name arguments)
-        <> concatMap (lintValue bound) roots
     GrinCpsPrimitiveCall _ name arguments continuation ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue bound) arguments
@@ -381,7 +378,6 @@ exprResults expr =
         Just [] -> []
         Just components -> [Placed components]
     GrinPrimitiveCall runtimeRep _ _ -> [Placed (runtimeRepComponents runtimeRep)]
-    GrinGcPrimitiveCall runtimeRep _ _ roots -> [Placed (runtimeRepComponents runtimeRep <> map grinValueRuntimeRep roots)]
     GrinCpsPrimitiveCall {} -> []
     GrinApply resultRep _ _ -> maybe [Forwarded] (pure . Placed) (resultRepComponents resultRep)
     GrinCpsApply {} -> []

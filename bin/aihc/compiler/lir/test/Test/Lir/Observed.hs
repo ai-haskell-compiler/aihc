@@ -20,8 +20,8 @@ import Test.Native.Observed (renderObservedMetadata)
 
 -- | The Lir module of the observed program and the C metadata of the
 -- snapshot runtime.
-lowerObservedProgram :: LowerTarget -> FunctionName -> GcGrinProgram -> Either LowerError (Module, Text)
-lowerObservedProgram target entryName gcProgram = do
+lowerObservedProgram :: LowerTarget -> Bool -> FunctionName -> GcGrinProgram -> Either LowerError (Module, Text)
+lowerObservedProgram target gcStress entryName gcProgram = do
   entryFunction <- maybe (Left (LowerMissingFunction entryName)) Right (find ((== entryName) . grinFunctionName) (grinFunctions program))
   case Map.lookup entryName (gcFunctionContinuations gcProgram) of
     Just continuation | grinFunctionParameters entryFunction == [continuation] -> pure ()
@@ -50,7 +50,7 @@ lowerObservedProgram target entryName gcProgram = do
   pure (Module items, metadata)
   where
     program = gcGrinProgram gcProgram
-    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
+    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False, lowerGcStress = gcStress}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
     -- The update continuation is not lowered into the module any more, so the
     -- snapshot descriptor names the shared runtime function that every

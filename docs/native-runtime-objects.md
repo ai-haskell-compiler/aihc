@@ -156,24 +156,28 @@ The machine timer list retains timer variables and final values until expiry.
 Commit, abort, and expiry remove references without direct memory release.
 These records count toward managed allocation statistics and the `-M` limit.
 
-The GRIN primitive description identifies ordinary runtime calls that can collect.
-The GRIN GC stage gives each such call explicit live roots and fresh result names.
-The `gc-primitive-call` operation returns primitive results, then relocated roots.
-Lir translates this operation and does not select roots or change GRIN variable names.
-Generated code stores live caller pointers in a root frame before such a call.
-The machine links these frames, so nested runtime calls can retain separate roots.
-After the call, generated code removes the frame and reloads the relocated pointers.
-Runtime helpers also protect their own arguments across collection.
-The reservation API visits these local roots and all linked root frames.
-Only pointer values belong in these root slots.
-Raw addresses and scalar values do not belong in them.
+The GRIN primitive description gives fixed allocation bounds for ordinary calls.
+The GC stage inserts `ensure-heap` before these calls.
+The reservation protects call arguments and values needed after the call.
+The existing GC transformation gives relocated roots fresh names.
+Lir translates the explicit reservation and the ordinary call.
 
-`aihc_gc_allocate` consumes a previous reservation and cannot collect.
-The delay-variable helper reserves its variable and timer together.
-It initializes both records before another collection can occur.
-The `AIHC_GC_STRESS` test option forces collection at each explicit runtime reservation.
-It does not permit collection inside an allocation that consumes reserved memory.
-GRIN snapshot fixtures select this option with `gc-stress: true`.
+`stmBegin#` reserves three heap slots, and `writeTVar#` reserves four.
+`newDelayTVar#` reserves eight slots for its TVar and optional timer.
+`newPromptTag#` reserves one slot.
+Each slot has eight bytes on every target.
+C size assertions check that runtime records fit these bounds.
+Reservations can exceed actual allocation, which statistics measure separately.
+
+These primitives consume reserved heap and must not collect.
+Their callees must preserve this contract.
+`aihc_gc_allocate` checks the available space and cannot collect.
+The delay-variable helper initializes its TVar and timer before any further collection.
+
+GRIN snapshot fixtures request GC stress checks with `gc-stress: true`.
+The test compiler forces the collection path at every generated reservation.
+The `AIHC_GC_STRESS` runtime option also forces collection at each C reservation.
+Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
 
 Each thread record carries the number that identifies the thread. The machine

@@ -131,14 +131,6 @@ prettyExprWith scopes expr =
         <> prettyRuntimeRepArgument runtimeRep
         <+> prettyName scopes name
         <> prettyValues scopes arguments
-    GrinGcPrimitiveCall runtimeRep name arguments roots ->
-      "gc-primitive-call"
-        <+> "@"
-        <> prettyRuntimeRepArgument runtimeRep
-        <+> prettyName scopes name
-        <> prettyValues scopes arguments
-        <+> "roots"
-        <> prettyValues scopes roots
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       "cps-primitive-call"
         <+> "@"

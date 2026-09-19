@@ -17,11 +17,15 @@ expected: |
 
   roots (live :: BoxedRep Lifted) (dead :: BoxedRep Lifted) (number :: IntRep) (address :: AddrRep) ($cps_return :: BoxedRep Lifted) -> TupleRep [BoxedRep Lifted,BoxedRep Unlifted,IntRep,AddrRep] =
     $cps_return$gc :: BoxedRep Lifted, live$gc :: BoxedRep Lifted <-
-      gc-primitive-call @(TupleRep []) stmBegin# roots ($cps_return :: BoxedRep Lifted) (live :: BoxedRep Lifted)
+      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (live :: BoxedRep Lifted)
+    () <-
+      primitive-call @(TupleRep []) stmBegin#
     active :: IntRep <-
       primitive-call @IntRep stmActive#
-    tag :: BoxedRep Unlifted, $cps_return$gc$gc :: BoxedRep Lifted, live$gc$gc :: BoxedRep Lifted <-
-      gc-primitive-call @(BoxedRep Unlifted) newPromptTag# roots ($cps_return$gc :: BoxedRep Lifted) (live$gc :: BoxedRep Lifted)
+    $cps_return$gc$gc :: BoxedRep Lifted, live$gc$gc :: BoxedRep Lifted <-
+      ensure-heap (1 :: WordRep) ($cps_return$gc :: BoxedRep Lifted) (live$gc :: BoxedRep Lifted)
+    tag :: BoxedRep Unlifted <-
+      primitive-call @(BoxedRep Unlifted) newPromptTag#
     continue ($cps_return$gc$gc :: BoxedRep Lifted) ((live$gc$gc :: BoxedRep Lifted) (tag :: BoxedRep Unlifted) (number :: IntRep) (address :: AddrRep))
 status: pass
-reason: The GC stage must give live pointer roots fresh results across each call that can collect.
+reason: The GC stage must give live pointer roots fresh results before each primitive allocation.

@@ -9,7 +9,9 @@ expected: |
 
   stop ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
     () <-
-      gc-primitive-call @(TupleRep []) stmBegin# roots
+      ensure-heap (3 :: WordRep)
+    () <-
+      primitive-call @(TupleRep []) stmBegin#
     exit (0 :: IntRep)
 status: pass
-reason: A call that can collect remains explicit when no caller value survives the call.
+reason: A reservation remains explicit when no pointer value survives it.

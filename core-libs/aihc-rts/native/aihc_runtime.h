@@ -31,7 +31,6 @@ typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
 typedef struct AihcTransaction AihcTransaction;
 typedef struct AihcTransactionTimer AihcTransactionTimer;
-typedef struct AihcRootFrame AihcRootFrame;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
@@ -188,22 +187,7 @@ struct AihcMachine {
   uint64_t gc_count;
   uint64_t gc_time_ns;
   AihcTransactionTimer *transaction_timers;
-  AihcRootFrame *root_frames;
 };
-
-/* A frame retains pointer slots across calls that can collect. The caller
-   reloads the slots after the call and removes the frame before return. */
-struct AihcRootFrame {
-  AihcRootFrame *previous;
-  uint64_t count;
-  AihcSlot *slots;
-};
-
-/* Lir reserves three eight-byte slots for this C record on every target. */
-_Static_assert(sizeof(AihcRootFrame) <= 24, "root frame size ABI");
-void aihc_roots_push(AihcMachine *machine, AihcRootFrame *frame, uint64_t count,
-                     AihcSlot *slots);
-void aihc_roots_pop(AihcMachine *machine, AihcRootFrame *frame);
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
@@ -323,6 +307,9 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
    core-libs/aihc-rts/native. See the "Runtime units" section of docs/lir.md. */
 AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
                           AihcSlot initial);
+/* The caller reserves heap for delay creation, transaction creation, and
+   transaction writes. These operations and their callees must not collect.
+   Aihc.Grin.Primitive defines the maximum slot counts. */
 AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
                            AihcSlot initial, AihcSlot final);
 AihcSlot aihc_tvar_read(AihcMachine *machine, AihcValue *variable);
@@ -361,6 +348,7 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
    resumes by applying the function to that node in the prompt's context.
    Applying the captured continuation copies the recorded frames onto the
    caller's continuation, so a capture can be resumed any number of times. */
+/* The caller reserves one heap slot. This operation must not collect. */
 AihcValue *aihc_prompt_tag_new(AihcMachine *machine);
 const AihcResume *aihc_control0(AihcMachine *machine, AihcValue *tag,
                                 AihcValue *function, AihcValue *continuation);

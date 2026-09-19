@@ -77,6 +77,15 @@ struct AihcTransaction {
   AihcTransaction *parent;
 };
 
+/* Match the fixed allocation bounds in Aihc.Grin.Primitive.
+   Heap slots have eight bytes on both 32-bit and 64-bit targets. */
+_Static_assert(sizeof(AihcTransaction) <= 3 * sizeof(AihcSlot),
+               "transaction exceeds the GRIN reservation");
+_Static_assert(sizeof(AihcTransactionWrite) <= 4 * sizeof(AihcSlot),
+               "write log exceeds the GRIN reservation");
+_Static_assert(sizeof(AihcTransactionTimer) <= 5 * sizeof(AihcSlot),
+               "timer exceeds the GRIN reservation");
+
 struct AihcBlackholeWaiter {
   AihcThread *thread;
   AihcValue *continuation;

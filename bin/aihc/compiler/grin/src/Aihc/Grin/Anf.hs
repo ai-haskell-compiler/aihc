@@ -184,7 +184,6 @@ mapExprValues f expression =
     GrinCpsEval runtimeRep value continuation updateContinuation ->
       GrinCpsEval runtimeRep (f value) (f continuation) (f updateContinuation)
     GrinCall runtimeRep functionName arguments -> GrinCall runtimeRep functionName (map f arguments)
-    GrinGcPrimitiveCall runtimeRep name arguments roots -> GrinGcPrimitiveCall runtimeRep name (map f arguments) (map f roots)
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map f arguments)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       GrinCpsPrimitiveCall runtimeRep name (map f arguments) (f continuation)

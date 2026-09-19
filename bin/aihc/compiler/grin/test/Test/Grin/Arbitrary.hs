@@ -78,7 +78,6 @@ genExpr =
       GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue <*> genValue,
       GrinCall <$> genResultRep <*> genFunctionName <*> smallList genValue,
       GrinPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue,
-      GrinGcPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> smallList genValue,
       GrinCpsPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> genValue,
       GrinApply <$> genResultRep <*> genValue <*> smallList genValue,
       GrinCpsApply <$> genResultRep <*> genValue <*> smallList genValue <*> genValue,

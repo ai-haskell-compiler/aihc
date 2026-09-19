@@ -407,21 +407,6 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
 }
 
-void aihc_roots_push(AihcMachine *machine, AihcRootFrame *frame, uint64_t count,
-                     AihcSlot *slots) {
-  frame->previous = machine->root_frames;
-  frame->count = count;
-  frame->slots = slots;
-  machine->root_frames = frame;
-}
-
-void aihc_roots_pop(AihcMachine *machine, AihcRootFrame *frame) {
-  if (machine->root_frames != frame) {
-    aihc_fail("root frames are out of order");
-  }
-  machine->root_frames = frame->previous;
-}
-
 static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
                               void *context) {
   if (thread == NULL) {
@@ -448,12 +433,6 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   }
   for (uint64_t index = 0; index < root_count; ++index) {
     roots[index] = visitor(roots[index], context);
-  }
-  for (AihcRootFrame *frame = machine->root_frames; frame != NULL;
-       frame = frame->previous) {
-    for (uint64_t index = 0; index < frame->count; ++index) {
-      frame->slots[index] = visitor(frame->slots[index], context);
-    }
   }
   machine->transaction_timers =
       aihc_visit_pointer(machine->transaction_timers, visitor, context);
@@ -1400,7 +1379,6 @@ static const AihcInfo aihc_continuation_info = {
 };
 
 AihcValue *aihc_prompt_tag_new(AihcMachine *machine) {
-  aihc_ensure_heap(machine, 1, 0, NULL);
   return aihc_place_node(machine, &aihc_prompt_tag_info, 1);
 }
 
@@ -1580,7 +1558,6 @@ uint64_t aihc_stm_begin(AihcMachine *machine) {
     aihc_stm_expire_timers(machine);
   }
   uint64_t words = aihc_record_words(sizeof(AihcTransaction));
-  aihc_ensure_heap(machine, words, 0, NULL);
   AihcTransaction *transaction =
       (AihcTransaction *)aihc_gc_allocate(machine, words);
   transaction->header = (AihcSlot)(uintptr_t)&aihc_transaction_info;
@@ -1599,12 +1576,7 @@ uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
   if (transaction == NULL) {
     aihc_fail("TVar write outside a transaction");
   }
-  AihcSlot roots[] = {(AihcSlot)(uintptr_t)variable, value};
   uint64_t words = aihc_record_words(sizeof(AihcTransactionWrite));
-  aihc_ensure_heap(machine, words, 2, roots);
-  variable = (AihcValue *)(uintptr_t)roots[0];
-  value = roots[1];
-  transaction = machine->current_thread->transaction;
   AihcTransactionWrite *write =
       (AihcTransactionWrite *)aihc_gc_allocate(machine, words);
   write->header = (AihcSlot)(uintptr_t)&aihc_transaction_write_info;
@@ -1651,12 +1623,8 @@ uint64_t aihc_stm_commit(AihcMachine *machine) {
 
 AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
                            AihcSlot initial, AihcSlot final) {
-  AihcSlot roots[] = {initial, final};
   uint64_t timer_words = aihc_record_words(sizeof(AihcTransactionTimer));
-  /* Reserve the variable and timer before either object exists. */
-  aihc_ensure_heap(machine, 3 + (delay > 0 ? timer_words : 0), 2, roots);
-  initial = roots[0];
-  final = roots[1];
+  /* The caller reserves the variable and timer together. */
   AihcValue *variable = aihc_mutvar_new(machine, delay <= 0 ? final : initial);
   if (delay > 0) {
     AihcTransactionTimer *timer =

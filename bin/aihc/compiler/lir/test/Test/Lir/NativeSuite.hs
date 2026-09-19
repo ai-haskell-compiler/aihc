@@ -292,7 +292,7 @@ snapshotTest backend getExports directory name = testCase name $ do
   assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
   program <- either assertFailure pure (snapshotProgram fixture)
   gc <- either (assertFailure . show) (pure . lowerGc) (toCpsGrin program)
-  (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (FunctionName (snapshotFixtureEntry fixture)) gc)
+  (lirModule, metadata) <- either (assertFailure . show) pure (lowerObservedProgram (backendLowerTarget backend) (snapshotFixtureGcStress fixture) (FunctionName (snapshotFixtureEntry fixture)) gc)
   assertEqual "Lir lint" [] (map renderLintError (lintModule lirModule))
   -- Every fixture must use the runtime exports without local copies.
   let localRuntimeFunctions = [functionName function | ItemFunction function <- moduleItems lirModule, Map.member (functionName function) exports]
@@ -349,7 +349,7 @@ runObservedUnit backend fixture output metadata =
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
         executablePath = directory </> "snapshot"
-    TIO.writeFile metadataPath ((if snapshotFixtureRequireGc fixture then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
+    TIO.writeFile metadataPath ((if snapshotFixtureRequireGc fixture || snapshotFixtureGcStress fixture then "#define AIHC_SNAPSHOT_REQUIRE_GC\n" else "") <> metadata)
     (clangExit, _, clangErr) <-
       readProcessWithExitCode
         "clang"

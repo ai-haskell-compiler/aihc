@@ -137,7 +137,9 @@ data LowerOptions = LowerOptions
     -- | Check the index of every array primitive against the length, as
     -- GHC does under @-fcheck-prim-bounds@. Off, an access is an unchecked
     -- load or store, as in GHC by default.
-    lowerCheckPrimBounds :: !Bool
+    lowerCheckPrimBounds :: !Bool,
+    -- | Test generated reservations with collection on every visit.
+    lowerGcStress :: !Bool
   }
   deriving (Eq, Show)
 
@@ -145,13 +147,13 @@ data LowerOptions = LowerOptions
 -- 'lowerCheckPrimBounds'.
 lowerModule :: LowerTarget -> Bool -> GcGrinProgram -> Either LowerError Module
 lowerModule target checkPrimBounds =
-  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds}
+  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds, lowerGcStress = False}
 
 -- | Lower the fixed executable entry unit.
 lowerEntry :: LowerTarget -> Either LowerError Module
 lowerEntry target = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerGcStress = False} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -162,7 +164,7 @@ lowerModuleTo :: (Monad m) => LowerTarget -> Bool -> (Map Symbol Signature -> It
 lowerModuleTo target checkPrimBounds output gcProgram =
   consume (initialLowerState options gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
   where
-    options = LowerOptions LibraryUnit False target checkPrimBounds
+    options = LowerOptions LibraryUnit False target checkPrimBounds False
     env = lowerEnvironment options gcProgram
     consume state done actions = case actions of
       action : rest -> case runStateT action state of
@@ -1029,8 +1031,7 @@ data FunctionCtx = FunctionCtx
   { ctxEnv :: !LowerEnv,
     ctxMachine :: !Operand,
     ctxFunctionName :: !FunctionName,
-    ctxRoots :: !(Maybe Operand),
-    ctxRootFrame :: !(Maybe Operand)
+    ctxRoots :: !(Maybe Operand)
   }
 
 type ValueEnv = Map GrinVar Typed
@@ -1054,11 +1055,7 @@ lowerFunction env function = do
     case maximumRoots (grinFunctionBody function) of
       0 -> pure Nothing
       count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
-  frame <-
-    if maximumCallRoots (grinFunctionBody function) == 0
-      then pure Nothing
-      else Just . typedOperand <$> emitValue "root_frame" Ptr (StackAlloc 24 (byteAlignment 8))
-  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxRoots = roots, ctxRootFrame = frame}
+  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxRoots = roots}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
   finishFunction
@@ -1081,34 +1078,7 @@ maximumRoots expression =
     GrinStoreRecUnchecked _ body -> maximumRoots body
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
     GrinEnsureHeap _ roots -> length roots
-    GrinGcPrimitiveCall _ _ _ roots -> length roots
     _ -> 0
-
-maximumCallRoots :: GrinExpr -> Int
-maximumCallRoots expression =
-  case expression of
-    GrinBind _ value body -> max (maximumCallRoots value) (maximumCallRoots body)
-    GrinGcPrimitiveCall _ _ _ roots -> length roots
-    GrinStoreRecUnchecked _ body -> maximumCallRoots body
-    GrinCase _ _ alternatives -> maximum (0 : map (maximumCallRoots . grinAltRhs) alternatives)
-    _ -> 0
-
--- | The frame is on the native stack. The collector updates its pointer slots.
-compileRootedBinding :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinExpr -> [GrinVar] -> [GrinValue] -> LowerM ValueEnv
-compileRootedBinding ctx env vars value relocatedVars roots =
-  case (ctxRoots ctx, ctxRootFrame ctx) of
-    (Just slots, Just frame) -> do
-      forM_ (zip [0 :: Int ..] roots) $ \(index, root) -> do
-        operand <- pointerValue ctx env root
-        storeSlot Ptr operand slots (toInteger (8 * index))
-      _ <- callRuntime "aihc_roots_push" [Ptr, Ptr, I64, Ptr] [] [ctxMachine ctx, frame, OperandLiteral (LitInt (toInteger (length roots))), slots]
-      resultEnv <- compileBinding ctx env vars value
-      _ <- callRuntime "aihc_roots_pop" [Ptr, Ptr] [] [ctxMachine ctx, frame]
-      relocated <- forM (zip [0 :: Int ..] relocatedVars) $ \(index, root) -> do
-        pointer <- loadSlot (varBase root) Ptr slots (toInteger (8 * index))
-        pure (root, pointer)
-      pure (Map.fromList relocated `Map.union` resultEnv)
-    _ -> failWith (LowerUnsupportedExpression "runtime call has no root frame")
 
 compileExpr :: FunctionCtx -> ValueEnv -> GrinExpr -> LowerM ()
 compileExpr ctx env expression =
@@ -1179,7 +1149,6 @@ compileExpr ctx env expression =
     GrinUpdateBlackhole {} -> unsupported "unbound blackhole update"
     GrinEval {} -> unsupported "direct-style eval after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
-    GrinGcPrimitiveCall {} -> unsupported "unbound GC primitive call"
     GrinApply {} -> unsupported "direct-style apply after CPS"
     GrinThrow {} -> unsupported "throw"
     GrinCatch {} -> unsupported "catch"
@@ -1280,15 +1249,6 @@ compileBinding ctx env vars expression =
       | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
-    GrinGcPrimitiveCall runtimeRep name arguments roots -> do
-      let (resultVars, relocatedVars) = splitAt (length (runtimeRepComponents runtimeRep)) vars
-          value = GrinPrimitiveCall runtimeRep name arguments
-      if length vars /= length (runtimeRepComponents runtimeRep) + length roots
-        then failWith (LowerUnsupportedExpression "GC primitive call result arity")
-        else
-          if null roots
-            then compileBinding ctx env resultVars value
-            else compileRootedBinding ctx env resultVars value relocatedVars roots
     GrinPrimitiveCall runtimeRep name arguments -> compilePrimitive ctx env vars runtimeRep name arguments
     GrinForeignCallExpr foreignCall arguments ->
       compileForeignCall ctx env foreignCall arguments >>= bindResults
@@ -1343,7 +1303,8 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   parameters <- forM vars $ \var -> do
     parameter <- fresh (varBase var)
     pure (var, parameter)
-  terminate (Branch (typedOperand fits) (Target reserved rootOperands) (Target collect []))
+  let condition = if lowerGcStress (envOptions (ctxEnv ctx)) then OperandLiteral (LitInt 0) else typedOperand fits
+  terminate (Branch condition (Target reserved rootOperands) (Target collect []))
   beginBlock collect []
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
     storeSlot Ptr root array (toInteger (8 * index))
