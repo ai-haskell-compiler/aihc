@@ -33,6 +33,7 @@ main =
   defaultMain . testGroup "aihc-package-plan" $
     [ testCase "flips an automatic flag when its default branch cannot be satisfied" test_flipsFlagUnderConflict,
       testCase "backtracks to an older version when the newest conflicts" test_backtracksOnVersionConflict,
+      testCase "backjumps past choices a failure does not blame" test_backjumpsPastIrrelevantChoices,
       testCase "tries deprecated versions last" test_deprecatedLast,
       testCase "keeps the preferred version of a lock" test_prefersLockedVersion,
       testCase "maps boot library names to their standins" test_aliasesBootLibraries,
@@ -172,6 +173,58 @@ test_flipsFlagUnderConflict = do
   assertEqual "unix flips os-string" [("os-string", True)] (flagsOf solution "unix")
   assertEqual "filepath has no decided flags" [] (flagsOf solution "filepath")
   assertEqual "the root is local" (CandidateLocal "/work/root") (assignmentSource (solution Map.! mkPackageName "root"))
+
+-- The process case: the root's automatic os-string flag defaults to off,
+-- its default branch pins filepath below 1.5, and directory needs 1.5 or
+-- newer, so the whole default branch is doomed. directory has the most
+-- candidates, so it is decided last, below two packages that have nothing
+-- to do with the conflict. Chronological backtracking re-derives the same
+-- directory failure once per pair of those irrelevant versions and runs
+-- out of backtracks; blaming filepath and the root instead skips straight
+-- back to the flag. The 100-backtrack budget of "configFor" is the test.
+test_backjumpsPastIrrelevantChoices :: Assertion
+test_backjumpsPastIrrelevantChoices = do
+  let noise name index =
+        (name, show index <> ".0", False, hackage, cabalFile name (show index <> ".0") [] ["build-depends: base"])
+      directoryEntry index =
+        ("directory", "1.3." <> show index, False, hackage, cabalFile "directory" ("1.3." <> show index) [] ["build-depends: base, filepath >=1.5"])
+      packages =
+        universe
+          ( [ baseEntry,
+              ( "root",
+                "0.1",
+                False,
+                local,
+                cabalFile
+                  "root"
+                  "0.1"
+                  ["flag os-string", "  default: False", "  manual: False"]
+                  [ "build-depends: base, directory, noise-a, noise-b",
+                    "if flag(os-string)",
+                    "  build-depends: filepath >=1.5.0.0",
+                    "else",
+                    "  build-depends: filepath >=1.4.100.0 && <1.5.0.0"
+                  ]
+              ),
+              ("filepath", "1.5.5.0", False, hackage, cabalFile "filepath" "1.5.5.0" [] ["build-depends: base"]),
+              ("filepath", "1.4.300.0", False, hackage, cabalFile "filepath" "1.4.300.0" [] ["build-depends: base"])
+            ]
+              <> map (noise "noise-a") [1 .. 10 :: Int]
+              <> map (noise "noise-b") [1 .. 10 :: Int]
+              <> map directoryEntry [1 .. 12 :: Int]
+          )
+  solution <- expectSolution (solveWith packages (configFor ["root"]))
+  assertEqual
+    "chosen versions"
+    [ ("aihc-base", "4.21.2.0"),
+      ("directory", "1.3.12"),
+      ("filepath", "1.5.5.0"),
+      ("noise-a", "10.0"),
+      ("noise-b", "10.0"),
+      ("root", "0.1")
+    ]
+    (chosen solution)
+  assertEqual "the root flips os-string" [("os-string", True)] (flagsOf solution "root")
 
 -- The newest a needs c at 1, but b needs c at 2, so a goes back a version.
 test_backtracksOnVersionConflict :: Assertion

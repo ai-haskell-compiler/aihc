@@ -9,16 +9,28 @@
 -- 'SolverInputs', which a test instantiates with pure maps and the compiler
 -- with the Hackage index.
 --
--- The search is plain chronological backtracking over goals. A goal is a
+-- The search is conflict-directed backjumping over goals. A goal is a
 -- package name with the range its dependents demand; the goal with the
 -- fewest candidates is decided first, its candidates are tried newest
 -- first with deprecated versions last, and within a version the flag
 -- assignments are tried default first and then in increasing number of
 -- flips. A candidate whose dependency list contradicts a package already
 -- assigned is rejected, and a goal with no candidates left returns to the
--- previous choice. There are no conflict sets: at the scale aihc plans this
--- is fast, and the search is deterministic, so the same inputs give the
--- same plan.
+-- previous choice.
+--
+-- Every failure carries the conflict set that caused it: the packages
+-- whose assignment the failure depends on. A rejected dependency blames
+-- the package it wanted and the candidate's own package; an exhausted
+-- goal blames everything its candidates blamed together with the
+-- dependents that fixed its range, and drops itself. When the search
+-- under a candidate of @p@ fails without blaming @p@, no other version or
+-- flag assignment of @p@ can help, so the remaining ones are skipped and
+-- the failure travels on to the package that is to blame. Without this a
+-- single doomed goal deep in the order is re-derived once per combination
+-- of the irrelevant choices above it, which is how @process@ and its
+-- @os-string@ flag used to exhaust the backtrack limit.
+--
+-- The search is deterministic, so the same inputs give the same plan.
 --
 -- Only automatic flags that guard a @build-depends@ clause are searched.
 -- Every other flag takes its default or its constraint, since no assignment
@@ -296,6 +308,24 @@ data Search = Search
     searchGoals :: !(Map PackageName Goal)
   }
 
+-- | The packages a failure blames: those whose assignment the search must
+-- change for the failure to go away. A package outside the set can be
+-- reassigned freely without affecting it, so its remaining candidates are
+-- skipped.
+type ConflictSet = Set.Set PackageName
+
+-- | A failure and the packages it blames. Only the failure leaves the
+-- solver; the conflict set steers the search.
+data Failure = Failure
+  { failureConflict :: !ConflictSet,
+    failureReason :: !SolveFailure
+  }
+
+-- | The assigned packages that demanded something of a goal. They fixed
+-- its range, so they are to blame when nothing satisfies it.
+dependentNames :: Goal -> ConflictSet
+dependentNames goal = Set.fromList [name | (DependentPackage name _ _, _) <- goalDependents goal]
+
 -- | What the search remembers across backtracking: the candidates and
 -- cabal files it already fetched, and how often it backtracked.
 data Memo = Memo
@@ -309,7 +339,7 @@ type Solve m = StateT Memo m
 -- | Solve the roots and goals of the configuration.
 solve :: (Monad m) => SolverInputs m -> SolverConfig -> m (Either SolveFailure Solution)
 solve inputs config =
-  evalStateT (search inputs config initial) (Memo Map.empty Map.empty 0)
+  either (Left . failureReason) Right <$> evalStateT (search inputs config initial) (Memo Map.empty Map.empty 0)
   where
     initial =
       Search
@@ -385,7 +415,7 @@ orderedCandidates config name =
         Just preference | preferredVersion preference == candidateVersion candidate -> False
         _ -> True
 
-search :: (Monad m) => SolverInputs m -> SolverConfig -> Search -> Solve m (Either SolveFailure Solution)
+search :: (Monad m) => SolverInputs m -> SolverConfig -> Search -> Solve m (Either Failure Solution)
 search inputs config state = do
   goals <- mapM (\(name, goal) -> (,) (name, goal) <$> goalCandidates name goal) (Map.toAscList (searchGoals state))
   case sortOn (length . snd) goals of
@@ -393,48 +423,68 @@ search inputs config state = do
     ((name, goal), candidates) : _ -> do
       allCandidates <- candidatesOf inputs config name
       if null allCandidates
-        then failWith (UnknownPackage name (goalDependents goal))
+        then failWith (dependentNames goal) (UnknownPackage name (goalDependents goal))
         else do
           let outside = sortOn Down [candidateVersion candidate | candidate <- allCandidates, not (withinRange (candidateVersion candidate) (goalRange goal))]
-          tryCandidates name goal outside candidates []
+          tryCandidates name goal outside candidates [] Set.empty
   where
     goalCandidates name goal = do
       candidates <- candidatesOf inputs config name
       pure (orderedCandidates config name [candidate | candidate <- candidates, withinRange (candidateVersion candidate) (goalRange goal)])
 
-    failWith failure = do
+    failWith conflict failure = do
       memo <- get
       let backtracks = memoBacktracks memo + 1
       put memo {memoBacktracks = backtracks}
       pure
         ( Left
-            ( if backtracks > configMaxBacktracks config
-                then BacktrackLimit (configMaxBacktracks config) failure
-                else failure
+            ( Failure
+                conflict
+                ( if backtracks > configMaxBacktracks config
+                    then BacktrackLimit (configMaxBacktracks config) failure
+                    else failure
+                )
             )
         )
 
-    tryCandidates name goal outside [] failures =
-      failWith (NoCandidates name (goalRange goal) (goalDependents goal) outside (reverse failures))
-    tryCandidates name goal outside (candidate : rest) failures = do
+    -- The goal is exhausted: it blames whatever its candidates blamed and
+    -- the dependents that fixed its range, but not itself, since the
+    -- search above cannot reassign a package it has just given up on.
+    tryCandidates name goal outside [] failures conflicts =
+      failWith
+        (Set.delete name (Set.union conflicts (dependentNames goal)))
+        (NoCandidates name (goalRange goal) (goalDependents goal) outside (reverse failures))
+    tryCandidates name goal outside (candidate : rest) failures conflicts = do
       gpd <- descriptionOf inputs candidate
       let root = Map.lookup name (configRoots config)
           flagChoices = flagAssignments config name gpd root
-      tryFlags name goal outside candidate gpd root flagChoices rest failures
+      tryFlags name goal outside candidate gpd root flagChoices rest failures conflicts
 
-    tryFlags name goal outside _ _ _ [] rest failures =
-      tryCandidates name goal outside rest failures
-    tryFlags name goal outside candidate gpd root (flags : moreFlags) rest failures = do
+    tryFlags name goal outside _ _ _ [] rest failures conflicts =
+      tryCandidates name goal outside rest failures conflicts
+    tryFlags name goal outside candidate gpd root (flags : moreFlags) rest failures conflicts = do
       let dependencies = candidateDependencies (configPlatform config) (configAliases config) flags root gpd
-          conflict =
-            [ RejectedDependency dependency range (assignmentVersion assigned)
+          conflicting =
+            [ (dependency, RejectedDependency dependency range (assignmentVersion assigned))
             | (dependency, range) <- Map.toAscList dependencies,
               Just assigned <- [Map.lookup dependency (searchAssigned state)],
               not (withinRange (assignmentVersion assigned) range)
             ]
-      case conflict of
-        rejection : _ ->
-          tryFlags name goal outside candidate gpd root moreFlags rest (CandidateFailure candidate flags rejection : failures)
+      case conflicting of
+        (dependency, rejection) : _ ->
+          -- The rejection stands or falls with this candidate and with the
+          -- version already assigned to the package it wanted.
+          tryFlags
+            name
+            goal
+            outside
+            candidate
+            gpd
+            root
+            moreFlags
+            rest
+            (CandidateFailure candidate flags rejection : failures)
+            (Set.insert name (Set.insert dependency conflicts))
         [] -> do
           let assignment =
                 Assignment
@@ -454,9 +504,24 @@ search inputs config state = do
           result <- search inputs config state'
           case result of
             Right solution -> pure (Right solution)
-            Left failure@(BacktrackLimit _ _) -> pure (Left failure)
+            Left failure | BacktrackLimit _ _ <- failureReason failure -> pure (Left failure)
+            -- The subtree failed without blaming this package, so no other
+            -- version or flag assignment of it can help: skip them and hand
+            -- the failure to the choice that is to blame.
+            Left failure
+              | not (Set.member name (failureConflict failure)) -> pure (Left failure)
             Left failure ->
-              tryFlags name goal outside candidate gpd root moreFlags rest (CandidateFailure candidate flags (RejectedSubtree failure) : failures)
+              tryFlags
+                name
+                goal
+                outside
+                candidate
+                gpd
+                root
+                moreFlags
+                rest
+                (CandidateFailure candidate flags (RejectedSubtree (failureReason failure)) : failures)
+                (Set.union conflicts (failureConflict failure))
 
 -- | The flag assignments of a candidate in the order they are tried: the
 -- preferred one first when the lock has one for this version, then the
