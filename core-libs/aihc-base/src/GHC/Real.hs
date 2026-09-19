@@ -13,6 +13,10 @@ module GHC.Real
     gcd,
     lcm,
     numerator,
+    numericEnumFrom,
+    numericEnumFromThen,
+    numericEnumFromThenTo,
+    numericEnumFromTo,
     odd,
     realToFrac,
     (%),
@@ -525,21 +529,34 @@ base ^^ exponent =
 negativeExponentError :: a
 negativeExponentError = negativeExponentError
 
+-- | The list of every value from the given value, in steps of one.
+numericEnumFrom :: (Fractional a) => a -> [a]
+numericEnumFrom first = first : numericEnumFrom (first + 1)
+
+-- | The list of every value from the first value to the last value, in steps
+-- of one. The last value has a tolerance of one half step, as GHC does.
+numericEnumFromTo :: (Ord a, Fractional a) => a -> a -> [a]
+numericEnumFromTo first = numericEnumFromThenTo first (first + 1)
+
 numericEnumFromThen :: (Fractional a) => a -> a -> [a]
 numericEnumFromThen first second = first : numericEnumFromThen second (second + (second - first))
 
+-- | The list of every value from the first value to the last value, in steps
+-- of the difference of the first two values. The last value has a tolerance of
+-- one half step, as GHC does.
 numericEnumFromThenTo :: (Ord a, Fractional a) => a -> a -> a -> [a]
 numericEnumFromThenTo first second last = go first
   where
     step = second - first
+    limit = last + step / 2
 
     go value =
       case step >= 0 of
         True ->
-          case value <= last of
+          case value <= limit of
             True -> value : go (value + step)
             False -> []
         False ->
-          case value >= last of
+          case value >= limit of
             True -> value : go (value + step)
             False -> []

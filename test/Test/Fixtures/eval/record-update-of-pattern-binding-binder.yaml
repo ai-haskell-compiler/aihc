@@ -1,0 +1,20 @@
+modules:
+  - |
+    module Test where
+
+    data Box = Box {size :: Int, label :: [Char]}
+
+    base :: Box
+    base = Box {size = 0, label = ""}
+
+    small, large :: Box
+    (small, large) = (base {size = 1}, base {size = 2})
+
+    renamed :: Box
+    renamed = small {label = "x"}
+output: |
+  I# 1
+expression: |
+  size renamed
+status: pass
+reason: a binder of a tuple pattern binding keeps its own type, thus a record update on it finds its data type

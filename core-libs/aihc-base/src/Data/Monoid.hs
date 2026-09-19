@@ -6,6 +6,7 @@ module Data.Monoid
   ( Monoid (..),
     (<>),
     Dual (..),
+    Endo (..),
     All (..),
     Any (..),
     Sum (..),
@@ -24,12 +25,16 @@ import Data.Semigroup
     WrappedMonoid (..),
   )
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Functor (..), Maybe (..))
+import GHC.Base (Functor (..), Maybe (..), id, (.))
 import GHC.Enum (Bounded (..))
 import GHC.Internal.Classes (Ord (..))
 import GHC.Num (Num (..))
 
 newtype Dual a = Dual {getDual :: a}
+
+-- | A function from a type to itself. The values combine by function
+-- composition, and the identity function is the empty value.
+newtype Endo a = Endo {appEndo :: a -> a}
 
 newtype All = All {getAll :: Bool}
 
@@ -50,6 +55,12 @@ instance (Semigroup a) => Semigroup (Dual a) where
 
 instance (Monoid a) => Monoid (Dual a) where
   mempty = Dual mempty
+
+instance Semigroup (Endo a) where
+  Endo outer <> Endo inner = Endo (outer . inner)
+
+instance Monoid (Endo a) where
+  mempty = Endo id
 
 instance Semigroup All where
   All left <> All right = All (left && right)

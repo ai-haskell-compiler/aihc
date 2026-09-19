@@ -1,11 +1,20 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeOperators #-}
 
--- | The formatting vocabulary of C's @printf@. The module gives the
--- 'PrintfArg' class and the field formatters that a library uses to give
--- its own string or number type a @printf@ conversion. The variadic
--- 'Text.Printf.printf' itself is not implemented yet.
+-- | C's @printf@ for Haskell.
+--
+-- 'printf' takes a format string and as many arguments as the format string
+-- needs. Its result is a 'String' or an action that writes to the standard
+-- output. 'hPrintf' writes to a given handle. The 'PrintfArg' class and the
+-- field formatters let a library give its own string or number type a
+-- @printf@ conversion.
 module Text.Printf
-  ( FieldFormat (..),
+  ( printf,
+    hPrintf,
+    PrintfType,
+    HPrintfType,
+    FieldFormat (..),
     FieldFormatter,
     FormatAdjustment (..),
     FormatParse (..),
@@ -27,11 +36,12 @@ module Text.Printf
   )
 where
 
-import Data.Char (chr, intToDigit, ord, toUpper)
+import Data.Char (chr, intToDigit, isDigit, ord, toUpper)
 import GHC.Float qualified as Float (FFFormat (..), formatRealFloat)
 import GHC.Int (Int16, Int32, Int64, Int8)
 import GHC.Word (Word16, Word32, Word64, Word8)
 import Numeric (showIntAtBase)
+import System.IO (Handle, hPutStr, putStr)
 import Prelude
   ( Bool (..),
     Bounded (..),
@@ -39,6 +49,7 @@ import Prelude
     Double,
     Eq (..),
     Float,
+    IO,
     Int,
     Integer,
     Integral (..),
@@ -56,7 +67,10 @@ import Prelude
     negate,
     otherwise,
     replicate,
+    reverse,
+    showChar,
     showString,
+    span,
     toInteger,
     (++),
     (.),
@@ -344,3 +358,176 @@ errorMissingArgument = perror "argument list ended prematurely"
 
 errorBadArgument :: a
 errorBadArgument = perror "bad argument"
+
+-- | One argument of 'printf', with the two operations that the format
+-- interpreter needs from it.
+data UPrintf = UPrintf ModifierParser FieldFormatter
+
+toUPrintf :: (PrintfArg a) => a -> UPrintf
+toUPrintf value = UPrintf (parseFormat value) (formatArg value)
+
+argumentParser :: UPrintf -> ModifierParser
+argumentParser (UPrintf parser _) = parser
+
+argumentFormatter :: UPrintf -> FieldFormatter
+argumentFormatter (UPrintf _ formatter) = formatter
+
+-- | A result type of 'printf'.
+--
+-- The instances give 'printf' its variable number of arguments. The result is
+-- a string, or an action that writes to the standard output.
+class PrintfType t where
+  spr :: String -> [UPrintf] -> t
+
+-- | A result type of 'hPrintf'.
+class HPrintfType t where
+  hspr :: Handle -> String -> [UPrintf] -> t
+
+instance (IsChar c) => PrintfType [c] where
+  spr format arguments = map fromChar (uprintf format (reverse arguments))
+
+instance (a ~ ()) => PrintfType (IO a) where
+  spr format arguments = putStr (uprintf format (reverse arguments))
+
+instance (a ~ ()) => HPrintfType (IO a) where
+  hspr handle format arguments = hPutStr handle (uprintf format (reverse arguments))
+
+instance (PrintfArg a, PrintfType r) => PrintfType (a -> r) where
+  spr format arguments value = spr format (toUPrintf value : arguments)
+
+instance (PrintfArg a, HPrintfType r) => HPrintfType (a -> r) where
+  hspr handle format arguments value = hspr handle format (toUPrintf value : arguments)
+
+-- | Format the arguments and give a string, or write them to the standard
+-- output.
+--
+-- The format string holds text and conversions. A conversion starts with
+-- @%@ and ends with a conversion character. Between them it can have flags,
+-- a field width, and a precision. @%%@ gives one @%@ character.
+printf :: (PrintfType r) => String -> r
+printf format = spr format []
+
+-- | Format the arguments and write them to a handle.
+hPrintf :: (HPrintfType r) => Handle -> String -> r
+hPrintf handle format = hspr handle format []
+
+-- | Apply a format string to the arguments that it names.
+uprintf :: String -> [UPrintf] -> String
+uprintf format arguments = renderFormat format arguments ""
+
+renderFormat :: String -> [UPrintf] -> ShowS
+renderFormat [] [] = id
+renderFormat [] (_ : _) = errorShortFormat
+renderFormat ('%' : '%' : rest) arguments = showChar '%' . renderFormat rest arguments
+renderFormat ('%' : rest) arguments = renderConversion rest arguments
+renderFormat (character : rest) arguments = showChar character . renderFormat rest arguments
+
+-- | The flags that come directly after the @%@ character.
+data Flags = Flags
+  { flagLeft :: Bool,
+    flagZero :: Bool,
+    flagPlus :: Bool,
+    flagSpace :: Bool,
+    flagAlternate :: Bool
+  }
+
+noFlags :: Flags
+noFlags = Flags False False False False False
+
+-- | Left adjustment has priority over zero padding, as it has in C.
+flagsAdjustment :: Flags -> Maybe FormatAdjustment
+flagsAdjustment flags
+  | flagLeft flags = Just LeftAdjust
+  | flagZero flags = Just ZeroPad
+  | otherwise = Nothing
+
+-- | A plus sign has priority over a space, as it has in C.
+flagsSign :: Flags -> Maybe FormatSign
+flagsSign flags
+  | flagPlus flags = Just SignPlus
+  | flagSpace flags = Just SignSpace
+  | otherwise = Nothing
+
+readFlags :: Flags -> String -> (Flags, String)
+readFlags flags ('-' : rest) = readFlags flags {flagLeft = True} rest
+readFlags flags ('0' : rest) = readFlags flags {flagZero = True} rest
+readFlags flags ('+' : rest) = readFlags flags {flagPlus = True} rest
+readFlags flags (' ' : rest) = readFlags flags {flagSpace = True} rest
+readFlags flags ('#' : rest) = readFlags flags {flagAlternate = True} rest
+readFlags flags rest = (flags, rest)
+
+-- | Read the field width. A @*@ takes the width from the next argument.
+readWidth :: String -> [UPrintf] -> (Maybe Int, String, [UPrintf])
+readWidth ('*' : rest) arguments =
+  case arguments of
+    [] -> errorMissingArgument
+    argument : remaining -> (Just (argumentInt argument), rest, remaining)
+readWidth text arguments =
+  case span isDigit text of
+    ([], _) -> (Nothing, text, arguments)
+    (digits, rest) -> (Just (decimalValue digits), rest, arguments)
+
+-- | Read the precision. A @*@ takes the precision from the next argument.
+readPrecision :: String -> [UPrintf] -> (Maybe Int, String, [UPrintf])
+readPrecision ('.' : '*' : rest) arguments =
+  case arguments of
+    [] -> errorMissingArgument
+    argument : remaining -> (Just (argumentInt argument), rest, remaining)
+readPrecision ('.' : text) arguments =
+  case span isDigit text of
+    (digits, rest) -> (Just (decimalValue digits), rest, arguments)
+readPrecision text arguments = (Nothing, text, arguments)
+
+-- | Render one conversion and then the rest of the format string.
+renderConversion :: String -> [UPrintf] -> ShowS
+renderConversion text arguments =
+  case readFlags noFlags text of
+    (flags, afterFlags) ->
+      case readWidth afterFlags arguments of
+        (width, afterWidth, widthArguments) ->
+          case readPrecision afterWidth widthArguments of
+            (precision, afterPrecision, precisionArguments) ->
+              case precisionArguments of
+                [] -> errorMissingArgument
+                argument : remaining ->
+                  case argumentParser argument afterPrecision of
+                    FormatParse modifiers conversion rest ->
+                      argumentFormatter
+                        argument
+                        FieldFormat
+                          { fmtWidth = width,
+                            fmtPrecision = precision,
+                            fmtAdjust = flagsAdjustment flags,
+                            fmtSign = flagsSign flags,
+                            fmtAlternate = flagAlternate flags,
+                            fmtModifiers = modifiers,
+                            fmtChar = conversion
+                          }
+                        . renderFormat rest remaining
+
+-- | The value of an argument that gives a width or a precision.
+argumentInt :: UPrintf -> Int
+argumentInt argument = signedDecimalValue (argumentFormatter argument plainIntegerFormat "")
+
+-- | The format that renders an argument as a plain decimal number.
+plainIntegerFormat :: FieldFormat
+plainIntegerFormat =
+  FieldFormat
+    { fmtWidth = Nothing,
+      fmtPrecision = Nothing,
+      fmtAdjust = Nothing,
+      fmtSign = Nothing,
+      fmtAlternate = False,
+      fmtModifiers = "",
+      fmtChar = 'd'
+    }
+
+signedDecimalValue :: String -> Int
+signedDecimalValue ('-' : digits) = negate (decimalValue digits)
+signedDecimalValue digits = decimalValue digits
+
+decimalValue :: String -> Int
+decimalValue = go 0
+  where
+    go total [] = total
+    go total (character : rest) = go (total * 10 + (ord character - ord '0')) rest

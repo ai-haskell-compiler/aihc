@@ -5,12 +5,12 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct command_string_t {
-  uint8_t*ptr;
+  uint8_t *ptr;
   size_t len;
 } command_string_t;
 
@@ -18,8 +18,9 @@ typedef struct command_string_t {
 
 typedef uint32_t command_subtask_status_t;
 typedef uint32_t command_subtask_t;
-#define COMMAND_SUBTASK_STATE(status) ((command_subtask_state_t) ((status) & 0xf))
-#define COMMAND_SUBTASK_HANDLE(status) ((command_subtask_t) ((status) >> 4))
+#define COMMAND_SUBTASK_STATE(status)                                          \
+  ((command_subtask_state_t)((status) & 0xf))
+#define COMMAND_SUBTASK_HANDLE(status) ((command_subtask_t)((status) >> 4))
 
 typedef enum command_subtask_state {
   COMMAND_SUBTASK_STARTING,
@@ -57,15 +58,18 @@ typedef uint32_t command_waitable_set_t;
 command_waitable_set_t command_waitable_set_new(void);
 void command_waitable_join(uint32_t waitable, command_waitable_set_t set);
 void command_waitable_set_drop(command_waitable_set_t set);
-void command_waitable_set_wait(command_waitable_set_t set, command_event_t *event);
-void command_waitable_set_poll(command_waitable_set_t set, command_event_t *event);
+void command_waitable_set_wait(command_waitable_set_t set,
+                               command_event_t *event);
+void command_waitable_set_poll(command_waitable_set_t set,
+                               command_event_t *event);
 
 void command_task_cancel(void);
 
 typedef uint32_t command_waitable_status_t;
-#define COMMAND_WAITABLE_STATE(status) ((command_waitable_state_t) ((status) & 0xf))
-#define COMMAND_WAITABLE_COUNT(status) ((uint32_t) ((status) >> 4))
-#define COMMAND_WAITABLE_STATUS_BLOCKED ((command_waitable_status_t) -1)
+#define COMMAND_WAITABLE_STATE(status)                                         \
+  ((command_waitable_state_t)((status) & 0xf))
+#define COMMAND_WAITABLE_COUNT(status) ((uint32_t)((status) >> 4))
+#define COMMAND_WAITABLE_STATUS_BLOCKED ((command_waitable_status_t) - 1)
 
 typedef enum command_waitable_state {
   COMMAND_WAITABLE_COMPLETED,
@@ -75,11 +79,9 @@ typedef enum command_waitable_state {
 
 void command_backpressure_inc(void);
 void command_backpressure_dec(void);
-void* command_context_get_0(void);
-void command_context_set_0(void* value);
+void *command_context_get_0(void);
+void command_context_set_0(void *value);
 void command_thread_yield(void);
-
-
 
 typedef uint64_t wasi_clocks_types_duration_t;
 
@@ -178,7 +180,7 @@ typedef uint8_t wasi_filesystem_types_open_flags_t;
 typedef struct wasi_filesystem_types_error_code_t {
   uint8_t tag;
   union {
-    command_option_string_t     other;
+    command_option_string_t other;
   } val;
 } wasi_filesystem_types_error_code_t;
 
@@ -259,7 +261,8 @@ typedef struct wasi_filesystem_types_method_descriptor_open_at_args {
   wasi_filesystem_types_descriptor_flags_t flags;
 } wasi_filesystem_types_method_descriptor_open_at_args_t;
 
-typedef wasi_filesystem_types_own_descriptor_t wasi_filesystem_preopens_own_descriptor_t;
+typedef wasi_filesystem_types_own_descriptor_t
+    wasi_filesystem_preopens_own_descriptor_t;
 
 typedef struct {
   wasi_filesystem_preopens_own_descriptor_t f0;
@@ -277,149 +280,248 @@ typedef struct {
 
 // Imported Functions from `wasi:clocks/monotonic-clock@0.3.0`
 extern wasi_clocks_monotonic_clock_mark_t wasi_clocks_monotonic_clock_now(void);
-extern wasi_clocks_monotonic_clock_duration_t wasi_clocks_monotonic_clock_get_resolution(void);
-extern command_subtask_status_t wasi_clocks_monotonic_clock_wait_until(wasi_clocks_monotonic_clock_mark_t when);
-extern command_subtask_status_t wasi_clocks_monotonic_clock_wait_for(wasi_clocks_monotonic_clock_duration_t how_long);
+extern wasi_clocks_monotonic_clock_duration_t
+wasi_clocks_monotonic_clock_get_resolution(void);
+extern command_subtask_status_t
+wasi_clocks_monotonic_clock_wait_until(wasi_clocks_monotonic_clock_mark_t when);
+extern command_subtask_status_t wasi_clocks_monotonic_clock_wait_for(
+    wasi_clocks_monotonic_clock_duration_t how_long);
 
 // Imported Functions from `wasi:cli/environment@0.3.0`
-extern void wasi_cli_environment_get_environment(command_list_tuple2_string_string_t *ret);
+extern void
+wasi_cli_environment_get_environment(command_list_tuple2_string_string_t *ret);
 extern void wasi_cli_environment_get_arguments(command_list_string_t *ret);
 extern bool wasi_cli_environment_get_initial_cwd(command_string_t *ret);
 
 // Imported Functions from `wasi:cli/stdin@0.3.0`
-extern void wasi_cli_stdin_read_via_stream(wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t *ret);
+extern void wasi_cli_stdin_read_via_stream(
+    wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t *ret);
 
 // Imported Functions from `wasi:cli/stdout@0.3.0`
-extern wasi_cli_stdout_future_result_void_error_code_t wasi_cli_stdout_write_via_stream(wasi_cli_stdin_stream_u8_t data);
+extern wasi_cli_stdout_future_result_void_error_code_t
+wasi_cli_stdout_write_via_stream(wasi_cli_stdin_stream_u8_t data);
 
 // Imported Functions from `wasi:cli/stderr@0.3.0`
-extern wasi_cli_stderr_future_result_void_error_code_t wasi_cli_stderr_write_via_stream(wasi_cli_stdin_stream_u8_t data);
+extern wasi_cli_stderr_future_result_void_error_code_t
+wasi_cli_stderr_write_via_stream(wasi_cli_stdin_stream_u8_t data);
 
 // Imported Functions from `wasi:filesystem/types@0.3.0`
-extern void wasi_filesystem_types_method_descriptor_read_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_filesize_t offset, wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t *ret);
-extern wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_write_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data, wasi_filesystem_types_filesize_t offset);
-extern wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_append_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data);
-extern command_subtask_status_t wasi_filesystem_types_method_descriptor_open_at(wasi_filesystem_types_method_descriptor_open_at_args_t *args, wasi_filesystem_types_result_own_descriptor_error_code_t *result);
+extern void wasi_filesystem_types_method_descriptor_read_via_stream(
+    wasi_filesystem_types_borrow_descriptor_t self,
+    wasi_filesystem_types_filesize_t offset,
+    wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t
+        *ret);
+extern wasi_filesystem_types_future_result_void_error_code_t
+wasi_filesystem_types_method_descriptor_write_via_stream(
+    wasi_filesystem_types_borrow_descriptor_t self,
+    wasi_filesystem_types_stream_u8_t data,
+    wasi_filesystem_types_filesize_t offset);
+extern wasi_filesystem_types_future_result_void_error_code_t
+wasi_filesystem_types_method_descriptor_append_via_stream(
+    wasi_filesystem_types_borrow_descriptor_t self,
+    wasi_filesystem_types_stream_u8_t data);
+extern command_subtask_status_t wasi_filesystem_types_method_descriptor_open_at(
+    wasi_filesystem_types_method_descriptor_open_at_args_t *args,
+    wasi_filesystem_types_result_own_descriptor_error_code_t *result);
 
 // Imported Functions from `wasi:filesystem/preopens@0.3.0`
-extern void wasi_filesystem_preopens_get_directories(wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ret);
+extern void wasi_filesystem_preopens_get_directories(
+    wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ret);
 
 // Exported Functions from `wasi:cli/run@0.3.0`
 command_callback_code_t exports_wasi_cli_run_run();
-command_callback_code_t exports_wasi_cli_run_run_callback(command_event_t *event);
+command_callback_code_t
+exports_wasi_cli_run_run_callback(command_event_t *event);
 
 // Helper Functions
 
 void command_tuple2_string_string_free(command_tuple2_string_string_t *ptr);
 
-void command_list_tuple2_string_string_free(command_list_tuple2_string_string_t *ptr);
+void command_list_tuple2_string_string_free(
+    command_list_tuple2_string_string_t *ptr);
 
 void command_list_string_free(command_list_string_t *ptr);
 
 void command_option_string_free(command_option_string_t *ptr);
 
-void wasi_cli_stdin_result_void_error_code_free(wasi_cli_stdin_result_void_error_code_t *ptr);
+void wasi_cli_stdin_result_void_error_code_free(
+    wasi_cli_stdin_result_void_error_code_t *ptr);
 
 typedef uint32_t wasi_cli_stdin_stream_u8_writer_t;
 
-wasi_cli_stdin_stream_u8_t wasi_cli_stdin_stream_u8_new(wasi_cli_stdin_stream_u8_writer_t *writer);
-command_waitable_status_t wasi_cli_stdin_stream_u8_read(wasi_cli_stdin_stream_u8_t reader, uint8_t *buf, size_t amt);
-command_waitable_status_t wasi_cli_stdin_stream_u8_write(wasi_cli_stdin_stream_u8_writer_t writer, const uint8_t *buf, size_t amt);
-command_waitable_status_t wasi_cli_stdin_stream_u8_cancel_read(wasi_cli_stdin_stream_u8_t reader);
-command_waitable_status_t wasi_cli_stdin_stream_u8_cancel_write(wasi_cli_stdin_stream_u8_writer_t writer);
+wasi_cli_stdin_stream_u8_t
+wasi_cli_stdin_stream_u8_new(wasi_cli_stdin_stream_u8_writer_t *writer);
+command_waitable_status_t
+wasi_cli_stdin_stream_u8_read(wasi_cli_stdin_stream_u8_t reader, uint8_t *buf,
+                              size_t amt);
+command_waitable_status_t
+wasi_cli_stdin_stream_u8_write(wasi_cli_stdin_stream_u8_writer_t writer,
+                               const uint8_t *buf, size_t amt);
+command_waitable_status_t
+wasi_cli_stdin_stream_u8_cancel_read(wasi_cli_stdin_stream_u8_t reader);
+command_waitable_status_t
+wasi_cli_stdin_stream_u8_cancel_write(wasi_cli_stdin_stream_u8_writer_t writer);
 void wasi_cli_stdin_stream_u8_drop_readable(wasi_cli_stdin_stream_u8_t reader);
-void wasi_cli_stdin_stream_u8_drop_writable(wasi_cli_stdin_stream_u8_writer_t writer);
-
+void wasi_cli_stdin_stream_u8_drop_writable(
+    wasi_cli_stdin_stream_u8_writer_t writer);
 
 typedef uint32_t wasi_cli_stdin_future_result_void_error_code_writer_t;
 
-wasi_cli_stdin_future_result_void_error_code_t wasi_cli_stdin_future_result_void_error_code_new(wasi_cli_stdin_future_result_void_error_code_writer_t *writer);
-command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_read(wasi_cli_stdin_future_result_void_error_code_t reader, wasi_cli_stdin_result_void_error_code_t *buf);
-command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_write(wasi_cli_stdin_future_result_void_error_code_writer_t writer, const wasi_cli_stdin_result_void_error_code_t *buf);
-command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_cancel_read(wasi_cli_stdin_future_result_void_error_code_t reader);
-command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_cancel_write(wasi_cli_stdin_future_result_void_error_code_writer_t writer);
-void wasi_cli_stdin_future_result_void_error_code_drop_readable(wasi_cli_stdin_future_result_void_error_code_t reader);
-void wasi_cli_stdin_future_result_void_error_code_drop_writable(wasi_cli_stdin_future_result_void_error_code_writer_t writer);
+wasi_cli_stdin_future_result_void_error_code_t
+wasi_cli_stdin_future_result_void_error_code_new(
+    wasi_cli_stdin_future_result_void_error_code_writer_t *writer);
+command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_read(
+    wasi_cli_stdin_future_result_void_error_code_t reader,
+    wasi_cli_stdin_result_void_error_code_t *buf);
+command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_write(
+    wasi_cli_stdin_future_result_void_error_code_writer_t writer,
+    const wasi_cli_stdin_result_void_error_code_t *buf);
+command_waitable_status_t
+wasi_cli_stdin_future_result_void_error_code_cancel_read(
+    wasi_cli_stdin_future_result_void_error_code_t reader);
+command_waitable_status_t
+wasi_cli_stdin_future_result_void_error_code_cancel_write(
+    wasi_cli_stdin_future_result_void_error_code_writer_t writer);
+void wasi_cli_stdin_future_result_void_error_code_drop_readable(
+    wasi_cli_stdin_future_result_void_error_code_t reader);
+void wasi_cli_stdin_future_result_void_error_code_drop_writable(
+    wasi_cli_stdin_future_result_void_error_code_writer_t writer);
 
-
-void wasi_cli_stdout_result_void_error_code_free(wasi_cli_stdout_result_void_error_code_t *ptr);
+void wasi_cli_stdout_result_void_error_code_free(
+    wasi_cli_stdout_result_void_error_code_t *ptr);
 
 typedef uint32_t wasi_cli_stdout_future_result_void_error_code_writer_t;
 
-wasi_cli_stdout_future_result_void_error_code_t wasi_cli_stdout_future_result_void_error_code_new(wasi_cli_stdout_future_result_void_error_code_writer_t *writer);
-command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_read(wasi_cli_stdout_future_result_void_error_code_t reader, wasi_cli_stdout_result_void_error_code_t *buf);
-command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_write(wasi_cli_stdout_future_result_void_error_code_writer_t writer, const wasi_cli_stdout_result_void_error_code_t *buf);
-command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_cancel_read(wasi_cli_stdout_future_result_void_error_code_t reader);
-command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_cancel_write(wasi_cli_stdout_future_result_void_error_code_writer_t writer);
-void wasi_cli_stdout_future_result_void_error_code_drop_readable(wasi_cli_stdout_future_result_void_error_code_t reader);
-void wasi_cli_stdout_future_result_void_error_code_drop_writable(wasi_cli_stdout_future_result_void_error_code_writer_t writer);
+wasi_cli_stdout_future_result_void_error_code_t
+wasi_cli_stdout_future_result_void_error_code_new(
+    wasi_cli_stdout_future_result_void_error_code_writer_t *writer);
+command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_read(
+    wasi_cli_stdout_future_result_void_error_code_t reader,
+    wasi_cli_stdout_result_void_error_code_t *buf);
+command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_write(
+    wasi_cli_stdout_future_result_void_error_code_writer_t writer,
+    const wasi_cli_stdout_result_void_error_code_t *buf);
+command_waitable_status_t
+wasi_cli_stdout_future_result_void_error_code_cancel_read(
+    wasi_cli_stdout_future_result_void_error_code_t reader);
+command_waitable_status_t
+wasi_cli_stdout_future_result_void_error_code_cancel_write(
+    wasi_cli_stdout_future_result_void_error_code_writer_t writer);
+void wasi_cli_stdout_future_result_void_error_code_drop_readable(
+    wasi_cli_stdout_future_result_void_error_code_t reader);
+void wasi_cli_stdout_future_result_void_error_code_drop_writable(
+    wasi_cli_stdout_future_result_void_error_code_writer_t writer);
 
-
-void wasi_cli_stderr_result_void_error_code_free(wasi_cli_stderr_result_void_error_code_t *ptr);
+void wasi_cli_stderr_result_void_error_code_free(
+    wasi_cli_stderr_result_void_error_code_t *ptr);
 
 typedef uint32_t wasi_cli_stderr_future_result_void_error_code_writer_t;
 
-wasi_cli_stderr_future_result_void_error_code_t wasi_cli_stderr_future_result_void_error_code_new(wasi_cli_stderr_future_result_void_error_code_writer_t *writer);
-command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_read(wasi_cli_stderr_future_result_void_error_code_t reader, wasi_cli_stderr_result_void_error_code_t *buf);
-command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_write(wasi_cli_stderr_future_result_void_error_code_writer_t writer, const wasi_cli_stderr_result_void_error_code_t *buf);
-command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_cancel_read(wasi_cli_stderr_future_result_void_error_code_t reader);
-command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_cancel_write(wasi_cli_stderr_future_result_void_error_code_writer_t writer);
-void wasi_cli_stderr_future_result_void_error_code_drop_readable(wasi_cli_stderr_future_result_void_error_code_t reader);
-void wasi_cli_stderr_future_result_void_error_code_drop_writable(wasi_cli_stderr_future_result_void_error_code_writer_t writer);
+wasi_cli_stderr_future_result_void_error_code_t
+wasi_cli_stderr_future_result_void_error_code_new(
+    wasi_cli_stderr_future_result_void_error_code_writer_t *writer);
+command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_read(
+    wasi_cli_stderr_future_result_void_error_code_t reader,
+    wasi_cli_stderr_result_void_error_code_t *buf);
+command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_write(
+    wasi_cli_stderr_future_result_void_error_code_writer_t writer,
+    const wasi_cli_stderr_result_void_error_code_t *buf);
+command_waitable_status_t
+wasi_cli_stderr_future_result_void_error_code_cancel_read(
+    wasi_cli_stderr_future_result_void_error_code_t reader);
+command_waitable_status_t
+wasi_cli_stderr_future_result_void_error_code_cancel_write(
+    wasi_cli_stderr_future_result_void_error_code_writer_t writer);
+void wasi_cli_stderr_future_result_void_error_code_drop_readable(
+    wasi_cli_stderr_future_result_void_error_code_t reader);
+void wasi_cli_stderr_future_result_void_error_code_drop_writable(
+    wasi_cli_stderr_future_result_void_error_code_writer_t writer);
 
+void wasi_filesystem_types_error_code_free(
+    wasi_filesystem_types_error_code_t *ptr);
 
-void wasi_filesystem_types_error_code_free(wasi_filesystem_types_error_code_t *ptr);
+extern void wasi_filesystem_types_descriptor_drop_own(
+    wasi_filesystem_types_own_descriptor_t handle);
 
-extern void wasi_filesystem_types_descriptor_drop_own(wasi_filesystem_types_own_descriptor_t handle);
+extern void wasi_filesystem_types_descriptor_drop_borrow(
+    wasi_filesystem_types_borrow_descriptor_t handle);
 
-extern void wasi_filesystem_types_descriptor_drop_borrow(wasi_filesystem_types_borrow_descriptor_t handle);
+extern wasi_filesystem_types_borrow_descriptor_t
+wasi_filesystem_types_borrow_descriptor(
+    wasi_filesystem_types_own_descriptor_t handle);
 
-extern wasi_filesystem_types_borrow_descriptor_t wasi_filesystem_types_borrow_descriptor(wasi_filesystem_types_own_descriptor_t handle);
+void wasi_filesystem_types_result_void_error_code_free(
+    wasi_filesystem_types_result_void_error_code_t *ptr);
 
-void wasi_filesystem_types_result_void_error_code_free(wasi_filesystem_types_result_void_error_code_t *ptr);
-
-void wasi_filesystem_types_result_own_descriptor_error_code_free(wasi_filesystem_types_result_own_descriptor_error_code_t *ptr);
+void wasi_filesystem_types_result_own_descriptor_error_code_free(
+    wasi_filesystem_types_result_own_descriptor_error_code_t *ptr);
 
 typedef uint32_t wasi_filesystem_types_stream_u8_writer_t;
 
-wasi_filesystem_types_stream_u8_t wasi_filesystem_types_stream_u8_new(wasi_filesystem_types_stream_u8_writer_t *writer);
-command_waitable_status_t wasi_filesystem_types_stream_u8_read(wasi_filesystem_types_stream_u8_t reader, uint8_t *buf, size_t amt);
-command_waitable_status_t wasi_filesystem_types_stream_u8_write(wasi_filesystem_types_stream_u8_writer_t writer, const uint8_t *buf, size_t amt);
-command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_read(wasi_filesystem_types_stream_u8_t reader);
-command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_write(wasi_filesystem_types_stream_u8_writer_t writer);
-void wasi_filesystem_types_stream_u8_drop_readable(wasi_filesystem_types_stream_u8_t reader);
-void wasi_filesystem_types_stream_u8_drop_writable(wasi_filesystem_types_stream_u8_writer_t writer);
-
+wasi_filesystem_types_stream_u8_t wasi_filesystem_types_stream_u8_new(
+    wasi_filesystem_types_stream_u8_writer_t *writer);
+command_waitable_status_t
+wasi_filesystem_types_stream_u8_read(wasi_filesystem_types_stream_u8_t reader,
+                                     uint8_t *buf, size_t amt);
+command_waitable_status_t wasi_filesystem_types_stream_u8_write(
+    wasi_filesystem_types_stream_u8_writer_t writer, const uint8_t *buf,
+    size_t amt);
+command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_read(
+    wasi_filesystem_types_stream_u8_t reader);
+command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_write(
+    wasi_filesystem_types_stream_u8_writer_t writer);
+void wasi_filesystem_types_stream_u8_drop_readable(
+    wasi_filesystem_types_stream_u8_t reader);
+void wasi_filesystem_types_stream_u8_drop_writable(
+    wasi_filesystem_types_stream_u8_writer_t writer);
 
 typedef uint32_t wasi_filesystem_types_future_result_void_error_code_writer_t;
 
-wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_future_result_void_error_code_new(wasi_filesystem_types_future_result_void_error_code_writer_t *writer);
-command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_read(wasi_filesystem_types_future_result_void_error_code_t reader, wasi_filesystem_types_result_void_error_code_t *buf);
-command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_write(wasi_filesystem_types_future_result_void_error_code_writer_t writer, const wasi_filesystem_types_result_void_error_code_t *buf);
-command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_cancel_read(wasi_filesystem_types_future_result_void_error_code_t reader);
-command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_cancel_write(wasi_filesystem_types_future_result_void_error_code_writer_t writer);
-void wasi_filesystem_types_future_result_void_error_code_drop_readable(wasi_filesystem_types_future_result_void_error_code_t reader);
-void wasi_filesystem_types_future_result_void_error_code_drop_writable(wasi_filesystem_types_future_result_void_error_code_writer_t writer);
+wasi_filesystem_types_future_result_void_error_code_t
+wasi_filesystem_types_future_result_void_error_code_new(
+    wasi_filesystem_types_future_result_void_error_code_writer_t *writer);
+command_waitable_status_t
+wasi_filesystem_types_future_result_void_error_code_read(
+    wasi_filesystem_types_future_result_void_error_code_t reader,
+    wasi_filesystem_types_result_void_error_code_t *buf);
+command_waitable_status_t
+wasi_filesystem_types_future_result_void_error_code_write(
+    wasi_filesystem_types_future_result_void_error_code_writer_t writer,
+    const wasi_filesystem_types_result_void_error_code_t *buf);
+command_waitable_status_t
+wasi_filesystem_types_future_result_void_error_code_cancel_read(
+    wasi_filesystem_types_future_result_void_error_code_t reader);
+command_waitable_status_t
+wasi_filesystem_types_future_result_void_error_code_cancel_write(
+    wasi_filesystem_types_future_result_void_error_code_writer_t writer);
+void wasi_filesystem_types_future_result_void_error_code_drop_readable(
+    wasi_filesystem_types_future_result_void_error_code_t reader);
+void wasi_filesystem_types_future_result_void_error_code_drop_writable(
+    wasi_filesystem_types_future_result_void_error_code_writer_t writer);
 
+void wasi_filesystem_preopens_tuple2_own_descriptor_string_free(
+    wasi_filesystem_preopens_tuple2_own_descriptor_string_t *ptr);
 
-void wasi_filesystem_preopens_tuple2_own_descriptor_string_free(wasi_filesystem_preopens_tuple2_own_descriptor_string_t *ptr);
+void wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
+    wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ptr);
 
-void wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ptr);
-
-void exports_wasi_cli_run_result_void_void_free(exports_wasi_cli_run_result_void_void_t *ptr);
-void exports_wasi_cli_run_run_return(exports_wasi_cli_run_result_void_void_t ret);
+void exports_wasi_cli_run_result_void_void_free(
+    exports_wasi_cli_run_result_void_void_t *ptr);
+void exports_wasi_cli_run_run_return(
+    exports_wasi_cli_run_result_void_void_t ret);
 
 // Sets the string `ret` to reference the input string `s` without copying it
-void command_string_set(command_string_t *ret, const char*s);
+void command_string_set(command_string_t *ret, const char *s);
 
 // Creates a copy of the input nul-terminated string `s` and
 // stores it into the component model string `ret`.
-void command_string_dup(command_string_t *ret, const char*s);
+void command_string_dup(command_string_t *ret, const char *s);
 
 // Creates a copy of the input string `s` with length `len` and
 // stores it into the component model string `ret`.
-// The length is specified in code units (bytes for UTF-8, 16-bit values for UTF-16).
-void command_string_dup_n(command_string_t *ret, const char*s, size_t len);
+// The length is specified in code units (bytes for UTF-8, 16-bit values for
+// UTF-16).
+void command_string_dup_n(command_string_t *ret, const char *s, size_t len);
 
 // Deallocates the string pointed to by `ret`, deallocating
 // the memory behind the string.

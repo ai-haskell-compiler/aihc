@@ -62,6 +62,7 @@ module Aihc.Tc.Monad
     resolvedTermKey,
     resolvedTargetTermKey,
     resolvedTermTarget,
+    resolvedTermOrigin,
     resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
     extendTermEnv,
@@ -748,6 +749,18 @@ resolvedLocalTermKey name =
           abortTc ("expected local resolver annotation for binder " <> show (unqualifiedNameText name) <> ", got " <> show target)
     Nothing ->
       abortTc ("missing resolver annotation for binder " <> show (unqualifiedNameText name))
+
+-- | The package and the module that declare the top-level term which the
+-- resolver chose for an occurrence. An occurrence without a resolver
+-- annotation, or one that names a local binder, gives Nothing.
+resolvedTermOrigin :: Name -> Maybe (PackageId, Text)
+resolvedTermOrigin name =
+  case termResolution (nameAnns name) of
+    Just resolution ->
+      case resolutionTarget resolution of
+        ResolvedTopLevel packageId moduleName _ -> Just (packageId, moduleName)
+        _ -> Nothing
+    Nothing -> Nothing
 
 termResolution :: [Annotation] -> Maybe ResolutionAnnotation
 termResolution =

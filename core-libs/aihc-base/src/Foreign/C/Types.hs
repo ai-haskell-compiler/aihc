@@ -47,11 +47,11 @@ import Foreign.C.Types.Repr
   )
 import Foreign.Storable (Storable)
 import GHC.Enum (Bounded (..), Enum (..))
-import GHC.Float ()
+import GHC.Float (Floating, RealFloat)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Num (Num (..))
 import GHC.Read (Read)
-import GHC.Real (Integral (..), Real (..))
+import GHC.Real (Fractional, Integral (..), Real (..), RealFrac)
 import GHC.Show (Show)
 import GHC.Types (Double, Float)
 
@@ -65,12 +65,12 @@ newtype CClock = CClock Word64
   deriving newtype (Eq, Ord, Show, Read, Enum, Bounded, Num, Real, Integral, Bits, FiniteBits, Storable)
 
 newtype CDouble = CDouble Double
-  deriving newtype (Eq, Ord, Show, Read, Num, Storable)
+  deriving newtype (Eq, Ord, Show, Read, Enum, Num, Real, Fractional, Floating, RealFrac, RealFloat, Storable)
 
 data CFile = CFile
 
 newtype CFloat = CFloat Float
-  deriving newtype (Eq, Ord, Show, Read, Num, Storable)
+  deriving newtype (Eq, Ord, Show, Read, Enum, Num, Real, Fractional, Floating, RealFrac, RealFloat, Storable)
 
 data CFpos = CFpos
 
