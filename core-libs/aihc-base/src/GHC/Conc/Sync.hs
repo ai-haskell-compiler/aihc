@@ -8,6 +8,7 @@ module GHC.Conc.Sync
     fromThreadId,
     myThreadId,
     showThreadId,
+    throwTo,
     yield,
     STM (..),
     TVar (..),
@@ -26,9 +27,10 @@ module GHC.Conc.Sync
 where
 
 import Control.Applicative (Alternative (..))
-import Control.Exception (BlockedIndefinitelyOnSTM (..), Exception, SomeException, catch, fromException, throwIO)
 import Control.Monad (MonadPlus (..), ap, liftM2)
-import GHC.IO (IO (..))
+import GHC.Exception (ErrorCall (..), Exception (..), SomeException)
+import GHC.IO (IO (..), catch, throwIO)
+import GHC.IO.Exception (BlockedIndefinitelyOnSTM (..))
 import GHC.Prim
 import GHC.Word (Word64 (..))
 import Prelude
@@ -88,6 +90,10 @@ forkIO (IO action) =
               (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
           )
     )
+
+-- | Asynchronous exceptions are not supported. The stub does not use either argument.
+throwTo :: (Exception e) => ThreadId -> e -> IO ()
+throwTo _ _ = throwIO (ErrorCallWithLocation "throwTo: asynchronous exceptions are not supported" "")
 
 -- | Cooperatively yield to the next runnable green thread.
 yield :: IO ()

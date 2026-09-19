@@ -35,6 +35,7 @@ module GHC.Prim
     Double#,
     Float#,
     fork#,
+    forkOn#,
     getSizeofMutableByteArray#,
     indexArray#,
     indexWord8OffAddr#,
@@ -1349,6 +1350,14 @@ foreign import prim uncheckedIShiftRL# :: Int# -> Int# -> Int#
 
 foreign import prim
   fork# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, ThreadId# #)
+
+-- | CPU affinity is not supported. The runtime rejects this primitive.
+foreign import prim
+  forkOn# ::
+    Int# ->
     (State# RealWorld -> (# State# RealWorld, a #)) ->
     State# RealWorld ->
     (# State# RealWorld, ThreadId# #)

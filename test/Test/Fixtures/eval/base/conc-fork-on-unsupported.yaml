@@ -1,0 +1,22 @@
+evaluators:
+  - grin
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO (..))
+    import GHC.Prim (forkOn#)
+    import GHC.Conc.Sync (ThreadId (..))
+
+    spawn :: IO ThreadId
+    spawn = IO $ \state ->
+      case forkOn# 0# (\next -> (# next, True #)) state of
+        (# next, thread #) -> (# next, ThreadId thread #)
+expression: spawn
+output: ""
+error: 'InterpretPrimitiveArity "forkOn#" 2'
+status: fail
+reason: The forkOn# declaration accepts a polymorphic action and rejects execution through the primitive stub.
