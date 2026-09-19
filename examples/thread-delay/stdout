@@ -1,5 +1,2 @@
-main: forked
-worker: first
-main: between
-worker: second
-main: joined
+main: delaying
+main: the worker ran while main waited: True
