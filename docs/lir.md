@@ -234,6 +234,10 @@ entry:
 
 ### Info tables
 
+`aihc_info.lir` defines the six runtime info accessors. They use the Lir
+calling convention. Byte accessors use unsigned loads and zero extension.
+Pointer and code accessors use word offsets for 32-bit and 64-bit targets.
+
 An info table describes one kind of heap object. The header of a heap object
 is the address of its info table. GC-GRIN emits one info table per object kind
 as a read-only data object, so every backend receives the same layout and emits
