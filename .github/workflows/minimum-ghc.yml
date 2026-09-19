@@ -15,11 +15,86 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
+  prepare:
+    name: Select GHC compatibility image
+    runs-on: ubuntu-24.04
+    outputs:
+      rebuild: ${{ steps.detect.outputs.rebuild }}
+      extra_tag: ${{ steps.detect.outputs.extra_tag }}
+      suffix: ${{ steps.detect.outputs.suffix }}
+    steps:
+      - name: Detect image rebuild
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pattern='^(cabal\.project\.ghc-compat|components/aihc-resolve/aihc-resolve\.cabal|components/aihc-tc/aihc-tc\.cabal|\.github/docker/ghc-compat/.+|\.github/workflows/ghc-compat-images\.yml|\.dockerignore)$'
+          same_repo=true
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            same_repo=false
+          fi
+
+          files=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files="$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+              --jq '.[].filename')"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            files="$(gh api \
+              "repos/${{ github.repository }}/compare/${{ github.event.merge_group.base_sha }}...${{ github.event.merge_group.head_sha }}" \
+              --jq '.files[].filename')"
+          fi
+
+          rebuild=false
+          if printf '%s\n' "$files" | grep -E "$pattern" >/dev/null; then
+            rebuild=true
+          fi
+
+          extra_tag=""
+          suffix=""
+          if [ "$rebuild" = "true" ] && [ "$same_repo" = "true" ]; then
+            extra_tag="${GITHUB_SHA:0:12}"
+            suffix="-${extra_tag}"
+          else
+            rebuild=false
+          fi
+
+          {
+            echo "rebuild=${rebuild}"
+            echo "extra_tag=${extra_tag}"
+            echo "suffix=${suffix}"
+          } >>"$GITHUB_OUTPUT"
+
+  images:
+    name: Rebuild GHC compatibility images
+    needs: prepare
+    if: needs.prepare.outputs.rebuild == 'true'
+    uses: ./.github/workflows/ghc-compat-images.yml
+    with:
+      extra_tag: ${{ needs.prepare.outputs.extra_tag }}
+      push_stable: false
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
   build-components:
     name: Build components with GHC ${{ matrix.ghc }}
+    needs:
+      - prepare
+      - images
+    if: >-
+      always()
+      && !cancelled()
+      && needs.prepare.result == 'success'
+      && (needs.images.result == 'success' || needs.images.result == 'skipped')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -28,26 +103,14 @@ jobs:
           - 9.10.3
           - 9.12.4
           - 9.14.1
+    container:
+      image: ghcr.io/${{ github.repository }}/ghc-compat:${{ matrix.ghc }}${{ needs.prepare.outputs.suffix }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Setup Haskell
-        id: setup-haskell
-        uses: haskell-actions/setup@v2.12.0
-        with:
-          ghc-version: ${{ matrix.ghc }}
-          cabal-version: 3.16.0.0
-
-      - name: Cache Cabal store
-        uses: actions/cache@v6
-        with:
-          path: |
-            ${{ steps.setup-haskell.outputs.cabal-store }}
-            dist-newstyle
-          key: ghc-compat-${{ runner.os }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-${{ hashFiles('cabal.project.ghc-compat', 'components/**/*.cabal') }}
-          restore-keys: |
-            ghc-compat-${{ runner.os }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-
 
       - name: Build components
         run: cabal build -v1 all --project-file=cabal.project.ghc-compat --disable-tests --disable-benchmarks --disable-optimization
