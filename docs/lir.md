@@ -615,6 +615,9 @@ directory, which every link takes object by object.
 Calls between Lir and C use the `c` convention.
 Calls to shared Lir helpers use the `aihc` convention.
 
+LLVM compiles standalone Lir units and executable entry code with `-O2`.
+This level does not depend on the optimization level of the program.
+
 Runtime units take shared constants from `aihc_constants.lir` with
 `include "aihc_constants.lir"`. These constants identify object kinds,
 frame kinds, and scheduler resumption kinds. This file contains only

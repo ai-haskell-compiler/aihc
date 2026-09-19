@@ -1,0 +1,8 @@
+cabal-version: 3.8
+name: demo
+version: 0.1.0.0
+build-type: Simple
+
+library
+  default-language: Haskell2010
+  x-aihc-lir-sources: helpers.lir

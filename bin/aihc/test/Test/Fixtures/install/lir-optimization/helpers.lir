@@ -1,0 +1,19 @@
+; LLVM must remove the impossible call before the linker reads this object.
+extern func @unoptimized_lir() -> i64 cc c
+
+func @known_answer() -> i64 cc c {
+entry:
+  return 42
+}
+
+export func @lir_answer() -> i64 cc c {
+entry:
+  %answer = call @known_answer()
+  %correct = eq i64 %answer, 42
+  br %correct, success, failure
+success:
+  return %answer
+failure:
+  %unexpected = call @unoptimized_lir()
+  return %unexpected
+}

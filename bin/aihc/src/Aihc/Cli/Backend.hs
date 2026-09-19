@@ -24,7 +24,7 @@ import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Pretty (renderModule)
 import Aihc.Lir.Syntax (Item (..), Module (..))
 import Aihc.Llvm.Lir qualified as Llvm
-import Aihc.Native (NativeTarget (..), backendCompiler)
+import Aihc.Native (NativeTarget (..), backendCompiler, optimizationArgument, runtimeOptimizationLevel)
 import Aihc.Wasm.Lir qualified as Wasm
 import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
@@ -71,6 +71,8 @@ compileLirTo lint target lirModule path = case target of
 -- directly. A text target writes the backend source as @name@ with the
 -- source extension of the target under @directory@ and lets the compiler
 -- driver of the target assemble it.
+-- LLVM uses the runtime optimization level for these standalone units,
+-- which include the RTS helpers and executable entry code.
 compileLirObject :: NativeTarget -> String -> Module -> FilePath -> FilePath -> IO ()
 compileLirObject target name lirModule directory object = do
   output <- compileLirTo True target lirModule object
@@ -80,7 +82,8 @@ compileLirObject target name lirModule directory object = do
       let sourcePath = directory </> name <> nativeSourceExtension target
       TIO.writeFile sourcePath source
       (compiler, arguments) <- backendCompiler target
-      (exitCode, _stdout, stderr) <- readProcessWithExitCode compiler (arguments <> ["-c", sourcePath, "-o", object]) ""
+      let optimizationArguments = [optimizationArgument runtimeOptimizationLevel | target == Llvm]
+      (exitCode, _stdout, stderr) <- readProcessWithExitCode compiler (arguments <> optimizationArguments <> ["-c", sourcePath, "-o", object]) ""
       case exitCode of
         ExitSuccess -> pure ()
         ExitFailure _ -> ioError (userError (compiler <> " failed (" <> show exitCode <> "): " <> stderr))
