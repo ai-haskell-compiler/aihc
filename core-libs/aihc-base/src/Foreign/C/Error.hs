@@ -1,4 +1,3 @@
-{-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -11,10 +10,16 @@
 --
 -- Each constant is the value the C library of the target gives the error.
 -- The numbers differ between the platforms -- @EAGAIN@ is 11 on Linux, 35 on
--- macOS and 6 under WASI -- so none of them is written out here: each is read
--- out of the target's own @errno.h@ through @aihc_errno.h@, which names every
--- error the module exports and gives @-1@ to an error the platform does not
--- have. 'isValidErrno' rejects that, as it does in GHC.
+-- macOS and 6 under WASI -- so none of them is written out here: they come
+-- from "Foreign.C.Error.Repr", which has one copy per platform and which the
+-- cabal file picks between, as it does for the POSIX type widths. An error
+-- the platform does not have is @-1@ there, which 'isValidErrno' rejects, as
+-- it does in GHC.
+--
+-- Each constant is therefore an integer literal, so a comparison against one
+-- is a comparison against a number rather than a call into C. GHC arrives at
+-- the same place by a different road: its configure script writes the
+-- numbers into a header its @Foreign.C.Error@ reads through CPP.
 --
 -- @errno@ itself is a macro over a thread-local location, so 'getErrno'
 -- and 'resetErrno' reach it through a runtime shim rather than naming it
@@ -147,6 +152,7 @@ where
 
 import Data.Bool (Bool (..), not)
 import Data.Maybe (Maybe (..))
+import Foreign.C.Error.Repr
 import Foreign.C.Types (CInt)
 import GHC.Base (Applicative (..), Monad (..), String, (++))
 import GHC.IO (FilePath, IO)
@@ -166,596 +172,299 @@ newtype Errno = Errno CInt
 eOK :: Errno
 eOK = Errno 0
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPERM"
-  cErrnoPERM :: CInt
-
 ePERM :: Errno
 ePERM = Errno cErrnoPERM
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOENT"
-  cErrnoNOENT :: CInt
 
 eNOENT :: Errno
 eNOENT = Errno cErrnoNOENT
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ESRCH"
-  cErrnoSRCH :: CInt
-
 eSRCH :: Errno
 eSRCH = Errno cErrnoSRCH
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EINTR"
-  cErrnoINTR :: CInt
 
 eINTR :: Errno
 eINTR = Errno cErrnoINTR
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EIO"
-  cErrnoIO :: CInt
-
 eIO :: Errno
 eIO = Errno cErrnoIO
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENXIO"
-  cErrnoNXIO :: CInt
 
 eNXIO :: Errno
 eNXIO = Errno cErrnoNXIO
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_E2BIG"
-  cErrno2BIG :: CInt
-
 e2BIG :: Errno
 e2BIG = Errno cErrno2BIG
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOEXEC"
-  cErrnoNOEXEC :: CInt
 
 eNOEXEC :: Errno
 eNOEXEC = Errno cErrnoNOEXEC
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EBADF"
-  cErrnoBADF :: CInt
-
 eBADF :: Errno
 eBADF = Errno cErrnoBADF
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ECHILD"
-  cErrnoCHILD :: CInt
 
 eCHILD :: Errno
 eCHILD = Errno cErrnoCHILD
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EDEADLK"
-  cErrnoDEADLK :: CInt
-
 eDEADLK :: Errno
 eDEADLK = Errno cErrnoDEADLK
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOMEM"
-  cErrnoNOMEM :: CInt
 
 eNOMEM :: Errno
 eNOMEM = Errno cErrnoNOMEM
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EACCES"
-  cErrnoACCES :: CInt
-
 eACCES :: Errno
 eACCES = Errno cErrnoACCES
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EFAULT"
-  cErrnoFAULT :: CInt
 
 eFAULT :: Errno
 eFAULT = Errno cErrnoFAULT
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTBLK"
-  cErrnoNOTBLK :: CInt
-
 eNOTBLK :: Errno
 eNOTBLK = Errno cErrnoNOTBLK
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EBUSY"
-  cErrnoBUSY :: CInt
 
 eBUSY :: Errno
 eBUSY = Errno cErrnoBUSY
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EEXIST"
-  cErrnoEXIST :: CInt
-
 eEXIST :: Errno
 eEXIST = Errno cErrnoEXIST
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EXDEV"
-  cErrnoXDEV :: CInt
 
 eXDEV :: Errno
 eXDEV = Errno cErrnoXDEV
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENODEV"
-  cErrnoNODEV :: CInt
-
 eNODEV :: Errno
 eNODEV = Errno cErrnoNODEV
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTDIR"
-  cErrnoNOTDIR :: CInt
 
 eNOTDIR :: Errno
 eNOTDIR = Errno cErrnoNOTDIR
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EISDIR"
-  cErrnoISDIR :: CInt
-
 eISDIR :: Errno
 eISDIR = Errno cErrnoISDIR
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EINVAL"
-  cErrnoINVAL :: CInt
 
 eINVAL :: Errno
 eINVAL = Errno cErrnoINVAL
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENFILE"
-  cErrnoNFILE :: CInt
-
 eNFILE :: Errno
 eNFILE = Errno cErrnoNFILE
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EMFILE"
-  cErrnoMFILE :: CInt
 
 eMFILE :: Errno
 eMFILE = Errno cErrnoMFILE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTTY"
-  cErrnoNOTTY :: CInt
-
 eNOTTY :: Errno
 eNOTTY = Errno cErrnoNOTTY
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ETXTBSY"
-  cErrnoTXTBSY :: CInt
 
 eTXTBSY :: Errno
 eTXTBSY = Errno cErrnoTXTBSY
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EFBIG"
-  cErrnoFBIG :: CInt
-
 eFBIG :: Errno
 eFBIG = Errno cErrnoFBIG
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOSPC"
-  cErrnoNOSPC :: CInt
 
 eNOSPC :: Errno
 eNOSPC = Errno cErrnoNOSPC
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ESPIPE"
-  cErrnoSPIPE :: CInt
-
 eSPIPE :: Errno
 eSPIPE = Errno cErrnoSPIPE
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EROFS"
-  cErrnoROFS :: CInt
 
 eROFS :: Errno
 eROFS = Errno cErrnoROFS
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EMLINK"
-  cErrnoMLINK :: CInt
-
 eMLINK :: Errno
 eMLINK = Errno cErrnoMLINK
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPIPE"
-  cErrnoPIPE :: CInt
 
 ePIPE :: Errno
 ePIPE = Errno cErrnoPIPE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EDOM"
-  cErrnoDOM :: CInt
-
 eDOM :: Errno
 eDOM = Errno cErrnoDOM
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ERANGE"
-  cErrnoRANGE :: CInt
 
 eRANGE :: Errno
 eRANGE = Errno cErrnoRANGE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EAGAIN"
-  cErrnoAGAIN :: CInt
-
 eAGAIN :: Errno
 eAGAIN = Errno cErrnoAGAIN
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EINPROGRESS"
-  cErrnoINPROGRESS :: CInt
 
 eINPROGRESS :: Errno
 eINPROGRESS = Errno cErrnoINPROGRESS
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EALREADY"
-  cErrnoALREADY :: CInt
-
 eALREADY :: Errno
 eALREADY = Errno cErrnoALREADY
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTSOCK"
-  cErrnoNOTSOCK :: CInt
 
 eNOTSOCK :: Errno
 eNOTSOCK = Errno cErrnoNOTSOCK
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EDESTADDRREQ"
-  cErrnoDESTADDRREQ :: CInt
-
 eDESTADDRREQ :: Errno
 eDESTADDRREQ = Errno cErrnoDESTADDRREQ
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EMSGSIZE"
-  cErrnoMSGSIZE :: CInt
 
 eMSGSIZE :: Errno
 eMSGSIZE = Errno cErrnoMSGSIZE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROTOTYPE"
-  cErrnoPROTOTYPE :: CInt
-
 ePROTOTYPE :: Errno
 ePROTOTYPE = Errno cErrnoPROTOTYPE
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOPROTOOPT"
-  cErrnoNOPROTOOPT :: CInt
 
 eNOPROTOOPT :: Errno
 eNOPROTOOPT = Errno cErrnoNOPROTOOPT
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROTONOSUPPORT"
-  cErrnoPROTONOSUPPORT :: CInt
-
 ePROTONOSUPPORT :: Errno
 ePROTONOSUPPORT = Errno cErrnoPROTONOSUPPORT
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ESOCKTNOSUPPORT"
-  cErrnoSOCKTNOSUPPORT :: CInt
 
 eSOCKTNOSUPPORT :: Errno
 eSOCKTNOSUPPORT = Errno cErrnoSOCKTNOSUPPORT
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTSUP"
-  cErrnoNOTSUP :: CInt
-
 eNOTSUP :: Errno
 eNOTSUP = Errno cErrnoNOTSUP
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPFNOSUPPORT"
-  cErrnoPFNOSUPPORT :: CInt
 
 ePFNOSUPPORT :: Errno
 ePFNOSUPPORT = Errno cErrnoPFNOSUPPORT
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EAFNOSUPPORT"
-  cErrnoAFNOSUPPORT :: CInt
-
 eAFNOSUPPORT :: Errno
 eAFNOSUPPORT = Errno cErrnoAFNOSUPPORT
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EADDRINUSE"
-  cErrnoADDRINUSE :: CInt
 
 eADDRINUSE :: Errno
 eADDRINUSE = Errno cErrnoADDRINUSE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EADDRNOTAVAIL"
-  cErrnoADDRNOTAVAIL :: CInt
-
 eADDRNOTAVAIL :: Errno
 eADDRNOTAVAIL = Errno cErrnoADDRNOTAVAIL
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENETDOWN"
-  cErrnoNETDOWN :: CInt
 
 eNETDOWN :: Errno
 eNETDOWN = Errno cErrnoNETDOWN
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENETUNREACH"
-  cErrnoNETUNREACH :: CInt
-
 eNETUNREACH :: Errno
 eNETUNREACH = Errno cErrnoNETUNREACH
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENETRESET"
-  cErrnoNETRESET :: CInt
 
 eNETRESET :: Errno
 eNETRESET = Errno cErrnoNETRESET
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ECONNABORTED"
-  cErrnoCONNABORTED :: CInt
-
 eCONNABORTED :: Errno
 eCONNABORTED = Errno cErrnoCONNABORTED
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ECONNRESET"
-  cErrnoCONNRESET :: CInt
 
 eCONNRESET :: Errno
 eCONNRESET = Errno cErrnoCONNRESET
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOBUFS"
-  cErrnoNOBUFS :: CInt
-
 eNOBUFS :: Errno
 eNOBUFS = Errno cErrnoNOBUFS
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EISCONN"
-  cErrnoISCONN :: CInt
 
 eISCONN :: Errno
 eISCONN = Errno cErrnoISCONN
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTCONN"
-  cErrnoNOTCONN :: CInt
-
 eNOTCONN :: Errno
 eNOTCONN = Errno cErrnoNOTCONN
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ESHUTDOWN"
-  cErrnoSHUTDOWN :: CInt
 
 eSHUTDOWN :: Errno
 eSHUTDOWN = Errno cErrnoSHUTDOWN
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ETOOMANYREFS"
-  cErrnoTOOMANYREFS :: CInt
-
 eTOOMANYREFS :: Errno
 eTOOMANYREFS = Errno cErrnoTOOMANYREFS
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ETIMEDOUT"
-  cErrnoTIMEDOUT :: CInt
 
 eTIMEDOUT :: Errno
 eTIMEDOUT = Errno cErrnoTIMEDOUT
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ECONNREFUSED"
-  cErrnoCONNREFUSED :: CInt
-
 eCONNREFUSED :: Errno
 eCONNREFUSED = Errno cErrnoCONNREFUSED
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ELOOP"
-  cErrnoLOOP :: CInt
 
 eLOOP :: Errno
 eLOOP = Errno cErrnoLOOP
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENAMETOOLONG"
-  cErrnoNAMETOOLONG :: CInt
-
 eNAMETOOLONG :: Errno
 eNAMETOOLONG = Errno cErrnoNAMETOOLONG
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EHOSTDOWN"
-  cErrnoHOSTDOWN :: CInt
 
 eHOSTDOWN :: Errno
 eHOSTDOWN = Errno cErrnoHOSTDOWN
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EHOSTUNREACH"
-  cErrnoHOSTUNREACH :: CInt
-
 eHOSTUNREACH :: Errno
 eHOSTUNREACH = Errno cErrnoHOSTUNREACH
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOTEMPTY"
-  cErrnoNOTEMPTY :: CInt
 
 eNOTEMPTY :: Errno
 eNOTEMPTY = Errno cErrnoNOTEMPTY
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROCLIM"
-  cErrnoPROCLIM :: CInt
-
 ePROCLIM :: Errno
 ePROCLIM = Errno cErrnoPROCLIM
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EUSERS"
-  cErrnoUSERS :: CInt
 
 eUSERS :: Errno
 eUSERS = Errno cErrnoUSERS
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EDQUOT"
-  cErrnoDQUOT :: CInt
-
 eDQUOT :: Errno
 eDQUOT = Errno cErrnoDQUOT
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ESTALE"
-  cErrnoSTALE :: CInt
 
 eSTALE :: Errno
 eSTALE = Errno cErrnoSTALE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EREMOTE"
-  cErrnoREMOTE :: CInt
-
 eREMOTE :: Errno
 eREMOTE = Errno cErrnoREMOTE
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EBADRPC"
-  cErrnoBADRPC :: CInt
 
 eBADRPC :: Errno
 eBADRPC = Errno cErrnoBADRPC
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ERPCMISMATCH"
-  cErrnoRPCMISMATCH :: CInt
-
 eRPCMISMATCH :: Errno
 eRPCMISMATCH = Errno cErrnoRPCMISMATCH
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROGUNAVAIL"
-  cErrnoPROGUNAVAIL :: CInt
 
 ePROGUNAVAIL :: Errno
 ePROGUNAVAIL = Errno cErrnoPROGUNAVAIL
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROGMISMATCH"
-  cErrnoPROGMISMATCH :: CInt
-
 ePROGMISMATCH :: Errno
 ePROGMISMATCH = Errno cErrnoPROGMISMATCH
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROCUNAVAIL"
-  cErrnoPROCUNAVAIL :: CInt
 
 ePROCUNAVAIL :: Errno
 ePROCUNAVAIL = Errno cErrnoPROCUNAVAIL
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOLCK"
-  cErrnoNOLCK :: CInt
-
 eNOLCK :: Errno
 eNOLCK = Errno cErrnoNOLCK
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOSYS"
-  cErrnoNOSYS :: CInt
 
 eNOSYS :: Errno
 eNOSYS = Errno cErrnoNOSYS
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EFTYPE"
-  cErrnoFTYPE :: CInt
-
 eFTYPE :: Errno
 eFTYPE = Errno cErrnoFTYPE
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EIDRM"
-  cErrnoIDRM :: CInt
 
 eIDRM :: Errno
 eIDRM = Errno cErrnoIDRM
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOMSG"
-  cErrnoNOMSG :: CInt
-
 eNOMSG :: Errno
 eNOMSG = Errno cErrnoNOMSG
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EOPNOTSUPP"
-  cErrnoOPNOTSUPP :: CInt
 
 eOPNOTSUPP :: Errno
 eOPNOTSUPP = Errno cErrnoOPNOTSUPP
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EILSEQ"
-  cErrnoILSEQ :: CInt
-
 eILSEQ :: Errno
 eILSEQ = Errno cErrnoILSEQ
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EBADMSG"
-  cErrnoBADMSG :: CInt
 
 eBADMSG :: Errno
 eBADMSG = Errno cErrnoBADMSG
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EMULTIHOP"
-  cErrnoMULTIHOP :: CInt
-
 eMULTIHOP :: Errno
 eMULTIHOP = Errno cErrnoMULTIHOP
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENODATA"
-  cErrnoNODATA :: CInt
 
 eNODATA :: Errno
 eNODATA = Errno cErrnoNODATA
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOLINK"
-  cErrnoNOLINK :: CInt
-
 eNOLINK :: Errno
 eNOLINK = Errno cErrnoNOLINK
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOSR"
-  cErrnoNOSR :: CInt
 
 eNOSR :: Errno
 eNOSR = Errno cErrnoNOSR
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENOSTR"
-  cErrnoNOSTR :: CInt
-
 eNOSTR :: Errno
 eNOSTR = Errno cErrnoNOSTR
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EPROTO"
-  cErrnoPROTO :: CInt
 
 ePROTO :: Errno
 ePROTO = Errno cErrnoPROTO
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ETIME"
-  cErrnoTIME :: CInt
-
 eTIME :: Errno
 eTIME = Errno cErrnoTIME
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EADV"
-  cErrnoADV :: CInt
 
 eADV :: Errno
 eADV = Errno cErrnoADV
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ECOMM"
-  cErrnoCOMM :: CInt
-
 eCOMM :: Errno
 eCOMM = Errno cErrnoCOMM
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EDIRTY"
-  cErrnoDIRTY :: CInt
 
 eDIRTY :: Errno
 eDIRTY = Errno cErrnoDIRTY
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ENONET"
-  cErrnoNONET :: CInt
-
 eNONET :: Errno
 eNONET = Errno cErrnoNONET
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EREMCHG"
-  cErrnoREMCHG :: CInt
 
 eREMCHG :: Errno
 eREMCHG = Errno cErrnoREMCHG
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ERREMOTE"
-  cErrnoRREMOTE :: CInt
-
 eRREMOTE :: Errno
 eRREMOTE = Errno cErrnoRREMOTE
 
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_ESRMNT"
-  cErrnoSRMNT :: CInt
-
 eSRMNT :: Errno
 eSRMNT = Errno cErrnoSRMNT
-
-foreign import capi unsafe "aihc_errno.h value AIHC_ERRNO_EWOULDBLOCK"
-  cErrnoWOULDBLOCK :: CInt
 
 eWOULDBLOCK :: Errno
 eWOULDBLOCK = Errno cErrnoWOULDBLOCK

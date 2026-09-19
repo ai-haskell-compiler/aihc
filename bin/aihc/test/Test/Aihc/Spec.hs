@@ -123,6 +123,7 @@ tests =
           "sources"
           [ testCase "the POSIX type widths match the platform headers" test_posixTypeWidths,
             testCase "the sigset_t size matches the platform headers" test_sigsetSize,
+            testCase "the errno numbers match the platform headers" test_errnoNumbers,
             testCase "an included header is part of the module digest" test_moduleDepsIncludedHeader,
             testCase "reads the headers out of a compiler dependency file" test_parseDependencyFile
           ]
@@ -184,6 +185,64 @@ test_posixTypeWidths = do
     (status, out, err) <-
       readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
     assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | The @errno@ numbers @aihc-base@ states for this platform are the numbers
+-- the platform's own @errno.h@ gives.
+--
+-- @Foreign.C.Error.Repr@ states them per platform for the same reason the
+-- widths above are stated per platform, and a wrong number is silent in the
+-- worst way: an operation that failed with one error is reported as another.
+--
+-- The check is the same one: each number becomes a static assertion,
+-- compiled against the headers of the platform the test runs on. A number of
+-- @-1@ is the claim that the platform does not have the error at all, so it
+-- asserts the name is undefined rather than comparing against it.
+test_errnoNumbers :: Assertion
+test_errnoNumbers = do
+  target <- case hostNativeTarget of
+    Just hostTarget -> pure hostTarget
+    Nothing -> assertFailure "the errno numbers are stated for a host aihc has a target for"
+  baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
+  let platformDirectory = posixWidthModuleDirectory
+  numbers <- readErrnoNumbers (baseRoot </> platformDirectory </> "Foreign" </> "C" </> "Error" </> "Repr.hs")
+  assertBool "the platform module states errno numbers" (not (null numbers))
+  (compiler, targetArguments) <- backendCompiler target
+  withTempDir "aihc-errno-numbers" $ \directory -> do
+    let source = directory </> "errno.c"
+    writeFile source (renderErrnoAssertions numbers)
+    (status, out, err) <-
+      readProcessWithExitCode compiler (targetArguments <> ["-std=c11", "-fsyntax-only", source]) ""
+    assertEqual ("the platform headers agree with " <> platformDirectory <> "\n" <> out <> err) ExitSuccess status
+
+-- | Read the @cErrnoPERM = 1@ lines of a platform's errno module, each as the
+-- name the C headers spell and the number stated for it.
+readErrnoNumbers :: FilePath -> IO [(String, Int)]
+readErrnoNumbers path = do
+  contents <- readFile path
+  pure
+    [ ('E' : rest, read number)
+    | [name, "=", number] <- map words (lines contents),
+      Just rest <- [stripPrefix "cErrno" name]
+    ]
+
+-- | A static assertion per errno number.
+renderErrnoAssertions :: [(String, Int)] -> String
+renderErrnoAssertions numbers =
+  unlines (["#include <errno.h>"] <> concatMap assertion numbers)
+  where
+    assertion (name, number)
+      | number == negate 1 =
+          [ "#ifdef " <> name,
+            "_Static_assert(0, \"" <> name <> " is defined here, but aihc-base gives it -1\");",
+            "#endif"
+          ]
+      | otherwise =
+          [ "#ifndef " <> name,
+            "_Static_assert(0, \"" <> name <> " is not defined here, but aihc-base gives it " <> show number <> "\");",
+            "#else",
+            "_Static_assert(" <> name <> " == " <> show number <> ", \"" <> name <> "\");",
+            "#endif"
+          ]
 
 -- | The @sigset_t@ size @aihc-base@ assumes is the size the platform's own
 -- headers give.

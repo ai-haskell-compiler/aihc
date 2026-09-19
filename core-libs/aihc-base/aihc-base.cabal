@@ -250,6 +250,7 @@ library
     Unsafe.Coerce
 
   other-modules:
+    Foreign.C.Error.Repr
     Foreign.C.Types.Repr
     GHC.IO.Console
     GHC.IO.Runtime
@@ -278,7 +279,7 @@ library
 
   -- The POSIX types have a different width on every platform, so the module
   -- that states those widths has one copy per platform and shadows nothing
-  -- else, as does the size of a sigset_t. The wasm32
+  -- else, as do the size of a sigset_t and the errno numbers. The wasm32
   -- directory also carries the ILP32 C widths, and its own copy of the POSIX
   -- calls: WASI has no signals and no file mode, so five of them cannot be
   -- called there at all. src-posix holds the copy the two real POSIX
@@ -298,9 +299,6 @@ library
       src-posix
       src
 
-  -- Foreign.C.Error reads the error numbers of the target out of this header,
-  -- because their values differ between the platforms.
-  include-dirs: include
   build-depends: aihc-prim ==0.13.0
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall
