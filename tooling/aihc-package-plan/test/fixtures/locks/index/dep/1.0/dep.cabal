@@ -1,0 +1,7 @@
+cabal-version: 3.8
+name: dep
+version: 1.0
+build-type: Simple
+
+library
+  default-language: Haskell2010

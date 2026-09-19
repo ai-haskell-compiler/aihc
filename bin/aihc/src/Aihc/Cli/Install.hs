@@ -225,7 +225,7 @@ import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, isRelative, makeRelative, takeDirectory, takeFileName, (<.>), (</>))
@@ -566,15 +566,15 @@ defaultBuildRoot root = root </> ".aihc-target"
 --
 -- An existing directory is used as-is, and its lock lives beside its cabal
 -- file. Anything else is parsed as a Hackage package name with an optional
--- version (@NAME@ or @NAME-VERSION@), and its lock lives in the working
--- directory; without a version the solver picks one.
-installTargetRoot :: String -> IO (PlanRoot, PlanOrigin, FilePath)
+-- version (@NAME@ or @NAME-VERSION@). Hackage targets do not use a lock file.
+-- Without a version, the solver selects one.
+installTargetRoot :: String -> IO (PlanRoot, PlanOrigin, Maybe FilePath)
 installTargetRoot target = do
   isDirectory <- doesDirectoryExist target
   if isDirectory
     then do
       (cabalFile, _) <- parseSourcePackageDescriptionAt target
-      pure (RootLocal target, PlanLocal, takeDirectory cabalFile)
+      pure (RootLocal target, PlanLocal, Just (takeDirectory cabalFile))
     else case parsePackageTarget target of
       Nothing ->
         ioError
@@ -584,8 +584,7 @@ installTargetRoot target = do
       Just (name, requestedVersion) -> do
         version <- forM requestedVersion $ \text ->
           maybe (ioError (userError ("Invalid version " <> text))) pure (simpleParsec text)
-        directory <- getCurrentDirectory
-        pure (RootHackage name version, PlanHackage, directory)
+        pure (RootHackage name version, PlanHackage, Nothing)
 
 -- | Split a Hackage target into its package name and optional version.
 parsePackageTarget :: String -> Maybe (String, Maybe String)
@@ -598,8 +597,8 @@ parsePackageTarget target = do
     )
 
 -- | The plan request the command-line plan options describe, without its
--- roots and goals. The lock file is @aihc.lock@ in the given directory.
-planRequestFor :: HackageIndex -> PlanOptions -> (OS, Arch) -> [FilePath] -> FilePath -> (String -> IO ()) -> IO PlanRequest
+-- roots and goals. A local target uses @aihc.lock@ in the given directory.
+planRequestFor :: HackageIndex -> PlanOptions -> (OS, Arch) -> [FilePath] -> Maybe FilePath -> (String -> IO ()) -> IO PlanRequest
 planRequestFor index options platform workspaces lockDirectory verbose = do
   constraints <- forM (planConstraints options) $ \text ->
     either (ioError . userError) pure (parseConstraint text)
@@ -617,7 +616,7 @@ planRequestFor index options platform workspaces lockDirectory verbose = do
         requestWorkspaces = workspaces,
         requestPlatform = platform,
         requestConstraints = concat constraints,
-        requestLockFile = lockDirectory </> lockFileName,
+        requestLockFile = (</> lockFileName) <$> lockDirectory,
         requestLockMode = lockMode,
         requestIndex = index,
         requestVerbose = verbose

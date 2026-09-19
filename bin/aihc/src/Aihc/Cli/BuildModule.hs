@@ -171,7 +171,7 @@ runBuildModule options = do
   -- directory that is absent is built. Nothing lists the store. A main
   -- module has no cabal file, so its lock lives in the working directory.
   hackageIndex <- newHackageIndex defaultIndexOptions
-  request <- planRequestFor hackageIndex (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) currentDirectory (when (buildVerbose options) . putStrLn)
+  request <- planRequestFor hackageIndex (buildPlanOptions options) (cabalPlatformForTarget target) (maybe [] pure (buildWorkspace options)) (Just currentDirectory) (when (buildVerbose options) . putStrLn)
   let goals =
         [ (canonicalPackageName (mkPackageName (T.unpack (constraintName constraint))), constraintRange constraint)
         | constraint <- constraints <> map implicitConstraint ["aihc-base", "aihc-prim"]
