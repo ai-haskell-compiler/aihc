@@ -12,9 +12,11 @@ module Aihc.Dev.ExtractHi
   )
 where
 
-import Aihc.Cli.CoreLibrarySource (coreLibraryHeaderDirectory, preprocessCoreLibraryModule)
+import Aihc.Cli.CompilerHeaders (headerTargetFor)
 import Aihc.Dev.ExtractHi.GhcSession (withReadIface)
 import Aihc.Dev.ExtractHi.Types
+import Aihc.Hackage.Headers (HeaderTarget)
+import Aihc.Native (hostNativeTarget)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Pretty (prettyType)
 import Aihc.Parser.Syntax
@@ -48,6 +50,7 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Testing.CoreLibrarySource (preprocessCoreLibraryModule)
 import Control.Exception (IOException, catch)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString qualified as BS
@@ -112,8 +115,10 @@ extractPackage pkgName = do
 extractSourcePackage :: FilePath -> String -> IO PackageInterface
 extractSourcePackage root pkgName = do
   exposedMods <- exposedSourceModules root
-  headerDirectory <- coreLibraryHeaderDirectory
-  modules <- mapM (extractSourceModule headerDirectory (root </> "src")) exposedMods
+  headerTarget <- case hostNativeTarget of
+    Just target -> pure (headerTargetFor target)
+    Nothing -> ioError (userError "reading the core library sources needs a native target for this host")
+  modules <- mapM (extractSourceModule headerTarget (root </> "src")) exposedMods
   pure
     PackageInterface
       { piPackage = T.pack pkgName,
@@ -590,8 +595,8 @@ genericPackageExposedModules gpd =
     modName <- exposedModules (condTreeData libTree)
   ]
 
-extractSourceModule :: FilePath -> FilePath -> String -> IO ModuleInterface
-extractSourceModule headerDirectory srcRoot modPath = do
+extractSourceModule :: HeaderTarget -> FilePath -> String -> IO ModuleInterface
+extractSourceModule headerTarget srcRoot modPath = do
   let sourcePath = srcRoot </> modPath <.> "hs"
       modName = T.pack (map pathSepToDot modPath)
   exists <- doesFileExist sourcePath
@@ -599,7 +604,7 @@ extractSourceModule headerDirectory srcRoot modPath = do
     then ioError (userError ("source module " <> T.unpack modName <> " not found at " <> sourcePath))
     else do
       raw <- TE.decodeUtf8 <$> BS.readFile sourcePath
-      source <- preprocessCoreLibraryModule headerDirectory sourcePath raw
+      source <- either (ioError . userError) pure (preprocessCoreLibraryModule headerTarget sourcePath raw)
       let (errs, parsed) =
             parseModule
               (defaultConfig {parserSourceName = sourcePath})

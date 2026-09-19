@@ -15,11 +15,14 @@ library
   hs-source-dirs: src
   exposed-modules:
     Aihc.Testing.AnnotatedModule
+    Aihc.Testing.CoreLibrarySource
     Aihc.Testing.Extensions
     Aihc.Testing.FixtureIndex
 
   build-depends:
     aeson,
+    aihc-cpp,
+    aihc-hackage,
     aihc-parser,
     base >=4.16 && <5,
     containers,
