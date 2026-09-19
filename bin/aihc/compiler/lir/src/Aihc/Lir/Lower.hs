@@ -137,9 +137,7 @@ data LowerOptions = LowerOptions
     -- | Check the index of every array primitive against the length, as
     -- GHC does under @-fcheck-prim-bounds@. Off, an access is an unchecked
     -- load or store, as in GHC by default.
-    lowerCheckPrimBounds :: !Bool,
-    -- | Test generated reservations with collection on every visit.
-    lowerGcStress :: !Bool
+    lowerCheckPrimBounds :: !Bool
   }
   deriving (Eq, Show)
 
@@ -147,13 +145,13 @@ data LowerOptions = LowerOptions
 -- 'lowerCheckPrimBounds'.
 lowerModule :: LowerTarget -> Bool -> GcGrinProgram -> Either LowerError Module
 lowerModule target checkPrimBounds =
-  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds, lowerGcStress = False}
+  lowerProgramWith LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = checkPrimBounds}
 
 -- | Lower the fixed executable entry unit.
 lowerEntry :: LowerTarget -> Either LowerError Module
 lowerEntry target = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerGcStress = False} gcProgram
+  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False} gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options gcProgram =
@@ -164,7 +162,7 @@ lowerModuleTo :: (Monad m) => LowerTarget -> Bool -> (Map Symbol Signature -> It
 lowerModuleTo target checkPrimBounds output gcProgram =
   consume (initialLowerState options gcProgram) Set.empty (lowerUnitActions env (gcGrinProgram gcProgram))
   where
-    options = LowerOptions LibraryUnit False target checkPrimBounds False
+    options = LowerOptions LibraryUnit False target checkPrimBounds
     env = lowerEnvironment options gcProgram
     consume state done actions = case actions of
       action : rest -> case runStateT action state of
@@ -1068,7 +1066,7 @@ lowerFunction env function = do
 varBase :: GrinVar -> Text
 varBase var = T.filter (\character -> character /= '"' && character /= '\\') (grinVarName var)
 
--- | The largest explicit root list in the expression.
+-- | The largest root list of a reservation in the expression.
 maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
@@ -1303,8 +1301,7 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
   parameters <- forM vars $ \var -> do
     parameter <- fresh (varBase var)
     pure (var, parameter)
-  let condition = if lowerGcStress (envOptions (ctxEnv ctx)) then OperandLiteral (LitInt 0) else typedOperand fits
-  terminate (Branch condition (Target reserved rootOperands) (Target collect []))
+  terminate (Branch (typedOperand fits) (Target reserved rootOperands) (Target collect []))
   beginBlock collect []
   forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
     storeSlot Ptr root array (toInteger (8 * index))

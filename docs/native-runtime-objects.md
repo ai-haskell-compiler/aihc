@@ -175,8 +175,9 @@ Their callees must preserve this contract.
 The delay-variable helper initializes its TVar and timer before any further collection.
 
 GRIN snapshot fixtures request GC stress checks with `gc-stress: true`.
-The test compiler forces the collection path at every generated reservation.
-The `AIHC_GC_STRESS` runtime option also forces collection at each C reservation.
+The test harness changes generated Lir to select the collector path at each reservation.
+It identifies collector blocks by their calls to `aihc_heap_collect`.
+This transformation exists only in test code.
 Successful stress fixtures must report at least one collection.
 They can specify heap limits through `rts-arguments`.
 

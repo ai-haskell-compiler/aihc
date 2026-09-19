@@ -463,15 +463,9 @@ void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots) {
   size_t bytes = aihc_reservation_bytes(machine, words);
-#ifdef AIHC_GC_STRESS
-  /* Test every explicit reservation with relocation. Allocation itself
-     still cannot collect. */
-  aihc_collect(machine, bytes, root_count, roots);
-#else
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, bytes, root_count, roots);
   }
-#endif
 }
 
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {

@@ -344,7 +344,7 @@ runObservedUnit backend fixture output metadata =
     runtimeBuild <-
       cachedRuntimeArchive
         (backendTarget backend)
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> if snapshotFixtureGcStress fixture then ["-DAIHC_GC_STRESS", "-DAIHC_SEMISPACE_BYTES=128"] else [])
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> ["-DAIHC_SEMISPACE_BYTES=128" | snapshotFixtureGcStress fixture])
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"

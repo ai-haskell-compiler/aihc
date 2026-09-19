@@ -12,7 +12,7 @@ import Aihc.Grin.Gc
 import Aihc.Grin.Syntax
 import Aihc.Lir.Lower
 import Aihc.Lir.Syntax
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, when)
 import Data.List (find)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -47,10 +47,14 @@ lowerObservedProgram target gcStress entryName gcProgram = do
     continuationInfoItems (ContinuationSpec snapshotInfo (Symbol "aihc_lir_snapshot_applied_info") snapshotTarget [] resultTypes ContinuationFrameStop)
     snapshotContinuation resultTypes
     observedMain
-  pure (Module items, metadata)
+  let original = Module items
+      observed = if gcStress then forceCollection original else original
+  when (gcStress && observed == original) $
+    Left (LowerUnsupportedExpression "GC stress fixture has no generated reservation")
+  pure (observed, metadata)
   where
     program = gcGrinProgram gcProgram
-    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False, lowerGcStress = gcStress}
+    options = LowerOptions {lowerUnitKind = LibraryUnit, lowerExposeFunctions = True, lowerTarget = target, lowerCheckPrimBounds = False}
     threadDoneInfo = Symbol "aihc_lir_thread_done_info"
     -- The update continuation is not lowered into the module any more, so the
     -- snapshot descriptor names the shared runtime function that every
@@ -97,3 +101,24 @@ lowerObservedProgram target gcStress entryName gcProgram = do
       emit [] (Call (functionSymbol entryName) [OperandVar machine, snapshot])
       terminate (Return [OperandLiteral (LitInt 0)])
       finishFunction (Symbol "main") Export [(argc, I32), (argv, Ptr)] [I32] CConvention
+
+-- | Change only test output. Select the collector path of each generated
+-- reservation. Identify collector blocks by their call, not their label.
+forceCollection :: Module -> Module
+forceCollection (Module items) = Module (map forceItem items)
+  where
+    forceItem (ItemFunction function) =
+      ItemFunction function {functionBlocks = map forceBlock (functionBlocks function)}
+      where
+        collectors =
+          [ blockLabel block
+          | block <- functionBlocks function,
+            Instruction _ (Call (Symbol "aihc_heap_collect") _) <- blockInstructions block
+          ]
+        forceBlock block =
+          case blockTerminator block of
+            Branch _ whenTrue whenFalse
+              | targetLabel whenFalse `elem` collectors -> block {blockTerminator = Jump whenFalse}
+              | targetLabel whenTrue `elem` collectors -> block {blockTerminator = Jump whenTrue}
+            _ -> block
+    forceItem item = item
