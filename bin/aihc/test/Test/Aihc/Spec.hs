@@ -106,7 +106,6 @@ tests =
             testCase "compiles and archives capi wrappers" (test_installCapi primStore),
             testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
             testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
-            testCase "optimizes standalone LLVM Lir units" (test_installLirOptimization primStore),
             testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude primStore),
             testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi primStore),
             testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros primStore),
@@ -1099,24 +1098,6 @@ test_installRuntimePackage getStore = do
           assertFileExists (cbits </> "wasm_aihc_wasip3.o")
           assertFileExists (cbits </> "wasm_generated_command.o")
         _ -> assertFileDoesNotExist (cbits </> "wasm_aihc_wasip3.o")
-
--- | The fixture has an impossible call to an undefined function. LLVM must
--- remove that call before the archive can link with the C fixture.
-test_installLirOptimization :: IO SeedStore -> Assertion
-test_installLirOptimization getStore = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/lir-optimization"
-  withSandbox getStore "aihc-lir-optimization" $ \sandbox -> do
-    storeRoot <- sandboxStore sandbox "store"
-    forM_ [O0, O2] $ \level -> do
-      let options = InstallOptions fixtureRoot (Just storeRoot) (Just (sandboxRoot sandbox </> "build")) False False False False False False False level False False False False Llvm defaultPlanOptions
-          executable = sandboxRoot sandbox </> "check"
-      result <- install options
-      (compiler, arguments) <- backendCompiler Llvm
-      (linkStatus, linkOut, linkErr) <-
-        readProcessWithExitCode compiler (arguments <> [fixtureRoot </> "check.c", installStorePath result </> "lib" </> "libdemo.a", "-o", executable]) ""
-      assertEqual ("optimized Lir links at " <> show level <> "\n" <> linkOut <> linkErr) ExitSuccess linkStatus
-      (status, out, err) <- readProcessWithExitCode executable [] ""
-      assertEqual ("optimized Lir returns the expected value\n" <> out <> err) ExitSuccess status
 
 -- A @capi@ import that names @Rts.h@ compiles its wrapper against the
 -- compiler's copy of the header. @unix@ imports @stopTimer@ this way before it

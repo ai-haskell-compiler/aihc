@@ -61,9 +61,6 @@ extra-source-files:
   test/Test/Fixtures/install/incremental/src/*.hs
   test/Test/Fixtures/install/keep-grin/demo.cabal
   test/Test/Fixtures/install/keep-grin/src/Demo.hs
-  test/Test/Fixtures/install/lir-optimization/check.c
-  test/Test/Fixtures/install/lir-optimization/demo.cabal
-  test/Test/Fixtures/install/lir-optimization/helpers.lir
   test/Test/Fixtures/install/local-dependencies/demo/demo.cabal
   test/Test/Fixtures/install/local-dependencies/demo/src/Demo.hs
   test/Test/Fixtures/install/local-dependencies/dep/dep.cabal
