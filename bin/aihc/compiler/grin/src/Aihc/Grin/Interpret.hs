@@ -32,6 +32,7 @@ import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Typeable (cast)
 import Data.Word (Word16, Word32, Word64, Word8)
 import Foreign.C.Error (Errno (..), getErrno, resetErrno)
 import Foreign.LibFFI (Arg, RetType, argCDouble, argCFloat, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retCDouble, retCFloat, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
@@ -42,7 +43,10 @@ import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Clock qualified as Host
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
+import GHC.IO.FD qualified as HostFD
 import GHC.IO.Handle.FD qualified as HandleFD
+import GHC.IO.Handle.Internals qualified as HostHandle
+import GHC.IO.Handle.Types qualified as HostHandle
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
@@ -2262,6 +2266,16 @@ callForeign foreignCall arguments
         RuntimeIOError errorNumber -> pure [RuntimeLit (GrinLitInt IntRep errorNumber)]
         RuntimeIOHandle {} -> pure [RuntimeLit (GrinLitInt IntRep 0)]
         _ -> throwInterpret (InterpretForeignTypeError symbol openResult)
+  | symbol == "aihc_io_handle_descriptor",
+    [handleValue] <- arguments = do
+      GrinIOHandle identity handle <- expectIOHandle symbol handleValue
+      descriptor <-
+        if identity < 3
+          then pure (toInteger identity)
+          else liftEvalIO $
+            HostHandle.withHandle_ "aihc_io_handle_descriptor" handle $ \HostHandle.Handle__ {HostHandle.haDevice = device} ->
+              pure (maybe (-1) (toInteger . HostFD.fdFD) (cast device))
+      pure [RuntimeLit (GrinLitInt IntRep descriptor)]
   | symbol == "aihc_io_close",
     [handleValue] <- arguments = do
       GrinIOHandle _ handle <- expectIOHandle symbol handleValue

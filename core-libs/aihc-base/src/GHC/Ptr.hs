@@ -18,7 +18,8 @@ where
 import Data.Kind (Type)
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
-import GHC.Prim (Addr#, addr2Int#, eqAddr#, int2Word#, ltAddr#, minusAddr#, nullAddr#, plusAddr#, remWord#, word2Int#, (-#))
+import GHC.Prim (Addr#, Int#, Word#, addr2Int#, eqAddr#, int2Word#, ltAddr#, minusAddr#, nullAddr#, plusAddr#, quotWord#, remWord#, word2Int#, (-#))
+import GHC.Show (Show (..), ShowS, intToDigit)
 import GHC.Types (Bool (..), Ordering (..))
 
 -- | The element type is an ordinary lifted type, as in @base@. The kind
@@ -73,6 +74,25 @@ instance Eq (FunPtr a) where
 
 instance Ord (FunPtr a) where
   compare (FunPtr left) (FunPtr right) = compareAddress left right
+
+instance Show (Ptr a) where
+  showsPrec _ (Ptr address) = showsAddress address
+
+instance Show (FunPtr a) where
+  showsPrec _ (FunPtr address) = showsAddress address
+
+-- | The aihc machine word has 64 bits. Use all 16 hexadecimal digits.
+showsAddress :: Addr# -> ShowS
+showsAddress address suffix =
+  '0' : 'x' : showsAddressDigits 16# (int2Word# (addr2Int# address)) suffix
+
+showsAddressDigits :: Int# -> Word# -> ShowS
+showsAddressDigits 0# _ suffix = suffix
+showsAddressDigits count value suffix =
+  showsAddressDigits
+    (count -# 1#)
+    (quotWord# value 16##)
+    (intToDigit (I# (word2Int# (remWord# value 16##))) : suffix)
 
 addressEquals :: Addr# -> Addr# -> Bool
 addressEquals left right =

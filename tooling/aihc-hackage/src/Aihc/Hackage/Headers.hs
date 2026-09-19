@@ -77,7 +77,7 @@ haskellWordCppMacros =
 -- | Every header of the target, keyed by the name that includes it.
 compilerHeaderTexts :: HeaderTarget -> [(FilePath, Text)]
 compilerHeaderTexts target =
-  [ ("ghcautoconf.h", header "GHCAUTOCONF_H" ["#include \"ghcplatform.h\""] []),
+  [ ("ghcautoconf.h", ghcautoconfHeader target),
     -- Modern GHC's base package reduces this legacy header to a redirect.
     ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] []),
     ("ghcplatform.h", ghcplatformHeader target),
@@ -120,13 +120,15 @@ writeCompilerHeaders target root = do
       exists <- doesFileExist path
       if exists then Just <$> TIO.readFile path else pure Nothing
 
--- | The platform of the target: the host macros that Cabal also defines, the
--- C sizes and the byte order.
---
--- @ghcautoconf.h@ holds the results of GHC's configure script and includes
--- this header.  aihc runs no configure script, so feature macros stay
--- undefined, which is what GHC's header does for a feature that the host does
--- not have.
+-- | Supply the header features that the selected target supports.
+ghcautoconfHeader :: HeaderTarget -> Text
+ghcautoconfHeader target =
+  header
+    "GHCAUTOCONF_H"
+    ["#include \"ghcplatform.h\""]
+    [("HAVE_DLFCN_H", "1") | headerOs target `elem` ["darwin", "linux"]]
+
+-- | The platform macros, C sizes, and byte order of the target.
 ghcplatformHeader :: HeaderTarget -> Text
 ghcplatformHeader target =
   header
@@ -166,6 +168,7 @@ hsFfiHeader =
     [ "#ifndef HSFFI_H",
       "#define HSFFI_H",
       "",
+      "#include \"ghcautoconf.h\"",
       "#include <stdint.h>",
       "",
       "#include \"MachDeps.h\"",

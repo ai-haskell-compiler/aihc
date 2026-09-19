@@ -375,6 +375,7 @@ int64_t aihc_io_descriptor_mode(int64_t descriptor);
 /* An IO handle over a descriptor the program already has, or an open error.
    The host that has no descriptors to adopt reports one. */
 void *aihc_io_adopt(int64_t descriptor, int64_t mode);
+int64_t aihc_io_handle_descriptor(void *handle);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_errno_get(void);
