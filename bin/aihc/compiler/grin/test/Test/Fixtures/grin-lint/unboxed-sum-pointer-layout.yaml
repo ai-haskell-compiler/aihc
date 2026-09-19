@@ -1,0 +1,6 @@
+program: |
+  $entry (lifted%1 :: BoxedRep Lifted) (unlifted%2 :: BoxedRep Unlifted) -> SumRep [BoxedRep Lifted, BoxedRep Unlifted] =
+    constant (1 :: IntRep) (lifted%1 :: BoxedRep Lifted) (unlifted%2 :: BoxedRep Unlifted)
+error: none
+status: pass
+reason: Lifted and unlifted pointer slots remain separate.
