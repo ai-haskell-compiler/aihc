@@ -1,0 +1,37 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Exts (Int (..), reallyUnsafePtrEquality#, tagToEnum#, unsafeCoerce#)
+    import Prelude
+
+    data Colour = Red | Green | Blue
+      deriving (Show)
+
+    -- The tag selects the constructor, and an out-of-range tag is left to
+    -- the last alternative the way GHC leaves it undefined.
+    colour :: Int -> Colour
+    colour (I# tag) = tagToEnum# tag
+
+    -- How unordered-containers spells pointer equality.
+    sameThing :: a -> b -> Bool
+    sameThing left right = tagToEnum# (unsafeCoerce# reallyUnsafePtrEquality# left right)
+
+    main :: IO ()
+    main = do
+      print (map colour [0, 1, 2])
+      let values = [1 :: Int, 2, 3]
+      print (sameThing values values)
+      print (sameThing values [4 :: Int])
+expression: main
+stdout: |
+  [Red,Green,Blue]
+  True
+  False
+output: |
+  ()
+status: pass
+reason: tagToEnum# builds the constructor an enumeration tag names, so a use at Bool and at a three-constructor type both pick the right one

@@ -17,63 +17,29 @@ module Data.Monoid
 where
 
 import Control.Applicative (Alternative (..))
-import Data.Bool (Bool (..), (&&), (||))
 import Data.Semigroup
   ( Max (..),
     Min (..),
     WrappedMonoid (..),
   )
-import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
+import Data.Semigroup.Internal
+  ( All (..),
+    Any (..),
+    Dual (..),
+    Monoid (..),
+    Product (..),
+    Semigroup (..),
+    Sum (..),
+  )
 import GHC.Base (Functor (..), Maybe (..))
 import GHC.Enum (Bounded (..))
 import GHC.Internal.Classes (Ord (..))
-import GHC.Num (Num (..))
-
-newtype Dual a = Dual {getDual :: a}
-
-newtype All = All {getAll :: Bool}
-
-newtype Any = Any {getAny :: Bool}
-
-newtype Sum a = Sum {getSum :: a}
-
-newtype Product a = Product {getProduct :: a}
 
 newtype First a = First {getFirst :: Maybe a}
 
 newtype Last a = Last {getLast :: Maybe a}
 
 newtype Alt f a = Alt {getAlt :: f a}
-
-instance (Semigroup a) => Semigroup (Dual a) where
-  Dual left <> Dual right = Dual (right <> left)
-
-instance (Monoid a) => Monoid (Dual a) where
-  mempty = Dual mempty
-
-instance Semigroup All where
-  All left <> All right = All (left && right)
-
-instance Monoid All where
-  mempty = All True
-
-instance Semigroup Any where
-  Any left <> Any right = Any (left || right)
-
-instance Monoid Any where
-  mempty = Any False
-
-instance (Num a) => Semigroup (Sum a) where
-  Sum left <> Sum right = Sum (left + right)
-
-instance (Num a) => Monoid (Sum a) where
-  mempty = Sum 0
-
-instance (Num a) => Semigroup (Product a) where
-  Product left <> Product right = Product (left * right)
-
-instance (Num a) => Monoid (Product a) where
-  mempty = Product 1
 
 instance Semigroup (First a) where
   First Nothing <> right = right
@@ -102,15 +68,6 @@ instance (Alternative f) => Semigroup (Alt f a) where
 
 instance (Alternative f) => Monoid (Alt f a) where
   mempty = Alt empty
-
-instance Functor Dual where
-  fmap f (Dual value) = Dual (f value)
-
-instance Functor Sum where
-  fmap f (Sum value) = Sum (f value)
-
-instance Functor Product where
-  fmap f (Product value) = Product (f value)
 
 instance Functor First where
   fmap f (First value) = First (fmap f value)

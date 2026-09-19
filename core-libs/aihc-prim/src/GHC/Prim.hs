@@ -197,6 +197,7 @@ module GHC.Prim
     sizeofByteArray#,
     subIntC#,
     subWordC#,
+    tagToEnum#,
     State#,
     StableName#,
     StablePtr#,
@@ -553,6 +554,11 @@ foreign import prim
 foreign import prim unsafeCoerce# :: forall (q :: RuntimeRep) (r :: RuntimeRep) (a :: TYPE q) (b :: TYPE r). a -> b
 
 foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
+
+-- | Build the constructor of an enumeration type from its tag. The result
+-- type must be an enumeration type constructor, and the tag must be in
+-- range; the compiler turns a use into a case over the tag.
+foreign import prim tagToEnum# :: forall a. Int# -> a
 
 infixr 0 `seq`
 
