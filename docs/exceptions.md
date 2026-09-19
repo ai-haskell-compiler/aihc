@@ -41,6 +41,13 @@ Primitive and typed synchronous catch, nested rethrow, and update-frame
 unwinding work. Masking, asynchronous delivery, and the masking-dependent
 cleanup combinators remain.
 
+Without asynchronous delivery there is no `throwTo`, so nothing can stop an
+action that has already begun. `System.Timeout.timeout` therefore raises an
+unsupported-operation `IOError` for a positive deadline rather than run an
+action no deadline bounds; the negative and zero cases need no watchdog and
+behave as they do in GHC. Delivering a `Timeout` to a waiting thread is the
+first thing asynchronous exceptions buy.
+
 ## Continuation-chain invariant
 
 Every unapplied continuation closure must have its parent continuation in field

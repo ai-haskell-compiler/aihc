@@ -28,6 +28,12 @@ tests =
         "Lir runtime units parse the RTS options"
         ["+RTS", "-M2k", "-RTS", "kept", "--RTS", "+RTS", "-M1X"]
         runtimeOptionsSource,
+      runtimeProgramTestWith
+        "Lir runtime units keep the process environment"
+        []
+        (const [("AIHC_RUNTIME_TEST", "one")])
+        runtimeEnvironmentSource
+        (const (pure ())),
       runtimeProgramTest "semispace grows when live data exceeds the initial space" [] growthSource,
       runtimeProgramTest "semispace stops at the heap limit" ["+RTS", "-M256", "-RTS"] heapLimitSource,
       runtimeProgramTest
@@ -177,6 +183,50 @@ runtimeOptionsSource =
       "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced) - 1) != -1) return 16;",
       "  if (aihc_runtime_arguments_initialize(replaced, sizeof(replaced)) != 0) return 17;",
       "  if (aihc_program_arguments_size() != (int64_t)sizeof(replaced)) return 18;",
+      "  return 0;",
+      "}"
+    ]
+
+-- | The environment store lives beside the RTS option parser in
+-- aihc_runtime_options.lir. The host hands over the flattened process
+-- environment, which lookupEnv and getEnvironment read back through these
+-- two accessors.
+runtimeEnvironmentSource :: String
+runtimeEnvironmentSource =
+  unlines
+    [ "#include \"aihc_runtime.h\"",
+      "#include \"aihc_runtime_internal.h\"",
+      "#include <string.h>",
+      "/* The implicit terminator of the literal ends its last entry. */",
+      "static const char entries[] = \"AIHC_RUNTIME_TEST=two\\0AIHC_RTS_STATS=\";",
+      "static const char unterminated[] = \"BROKEN=1\";",
+      "/* One entry of the buffer at a time, as the Haskell side reads it. */",
+      "static int names(const char *buffer, int64_t length, const char *entry) {",
+      "  for (int64_t offset = 0; offset < length;) {",
+      "    if (strcmp(buffer + offset, entry) == 0) return 1;",
+      "    offset += (int64_t)strlen(buffer + offset) + 1;",
+      "  }",
+      "  return 0;",
+      "}",
+      "int main(void) {",
+      "  aihc_program_environment_initialize();",
+      "  int64_t inherited = aihc_program_environment_size();",
+      "  char buffer[65536];",
+      "  if (inherited <= 0 || (size_t)inherited > sizeof(buffer)) return 1;",
+      "  if (aihc_program_environment_copy(NULL, 1) != -1) return 2;",
+      "  if (aihc_program_environment_copy(buffer, -1) != -1) return 3;",
+      "  if (aihc_program_environment_copy(buffer, 1) != inherited) return 4;",
+      "  if (aihc_program_environment_copy(buffer, sizeof(buffer)) != inherited) return 5;",
+      "  if (!names(buffer, inherited, \"AIHC_RUNTIME_TEST=one\")) return 6;",
+      "  if (aihc_runtime_environment_initialize(unterminated, sizeof(unterminated) - 1) != -1) return 7;",
+      "  if (aihc_program_environment_size() != inherited) return 8;",
+      "  if (aihc_runtime_environment_initialize(entries, sizeof(entries)) != 0) return 9;",
+      "  if (aihc_program_environment_size() != (int64_t)sizeof(entries)) return 10;",
+      "  if (aihc_program_environment_copy(buffer, sizeof(buffer)) != (int64_t)sizeof(entries)) return 11;",
+      "  if (memcmp(buffer, entries, sizeof(entries)) != 0) return 12;",
+      "  if (!names(buffer, (int64_t)sizeof(entries), \"AIHC_RUNTIME_TEST=two\")) return 13;",
+      "  if (aihc_runtime_environment_initialize(NULL, 0) != 0) return 14;",
+      "  if (aihc_program_environment_size() != 0) return 15;",
       "  return 0;",
       "}"
     ]
