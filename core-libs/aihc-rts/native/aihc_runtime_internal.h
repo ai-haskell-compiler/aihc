@@ -81,12 +81,14 @@ struct AihcBlackholeWaiter {
 };
 
 struct AihcBlackhole {
+  /* The object header points to this first member. */
   AihcInfo info;
   const AihcInfo *original_info;
   AihcValue *object;
   AihcThread *owner;
   AihcBlackholeWaiter *waiters_head;
   AihcBlackholeWaiter *waiters_tail;
+  AihcBlackhole *previous;
   AihcBlackhole *next;
 };
 
