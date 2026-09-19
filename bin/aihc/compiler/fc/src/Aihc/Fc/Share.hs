@@ -81,6 +81,7 @@ shareImports imports =
     <*> shareTypeMap (importSynonyms imports)
     <*> (Map.fromList <$> mapM (\(name, axiom) -> (,) <$> shareName name <*> shareAxiomDecl axiom) (Map.toList (importAxioms imports)))
     <*> shareTypeMap (importBinders imports)
+    <*> (Map.fromList <$> mapM (\(name, representation) -> (,representation) <$> shareName name) (Map.toList (importConRepresentations imports)))
   where
     shareTypeMap table =
       Map.fromList <$> mapM (\(name, ty) -> (,) <$> shareName name <*> shareType ty) (Map.toList table)
@@ -115,7 +116,7 @@ shareDecl decl =
             )
 
 shareConDecl :: ConDecl -> Share ConDecl
-shareConDecl con = ConDecl (conVis con) <$> shareName (conName con) <*> shareType (conType con)
+shareConDecl con = ConDecl (conVis con) <$> shareName (conName con) <*> shareType (conType con) <*> pure (conRepresentation con)
 
 shareAxiomDecl :: AxiomDecl -> Share AxiomDecl
 shareAxiomDecl axiom =

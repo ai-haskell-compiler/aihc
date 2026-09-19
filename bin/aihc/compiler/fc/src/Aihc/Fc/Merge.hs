@@ -33,7 +33,8 @@ mergePrograms programs =
     notDeclared = Map.filterWithKey (\name _ -> name `Set.notMember` declared)
     imports =
       Imports
-        { importHeaders = notDeclared (Map.unions (map (importHeaders . programImports) programs)),
+        { importConRepresentations = notDeclared (Map.unions (map (importConRepresentations . programImports) programs)),
+          importHeaders = notDeclared (Map.unions (map (importHeaders . programImports) programs)),
           importSynonyms = notDeclared (Map.unions (map (importSynonyms . programImports) programs)),
           importAxioms = notDeclared (Map.unions (map (importAxioms . programImports) programs)),
           importBinders = Map.unions (map (importBinders . programImports) programs)

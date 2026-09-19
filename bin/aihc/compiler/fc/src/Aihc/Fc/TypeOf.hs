@@ -56,7 +56,8 @@ data TypeEnv = TypeEnv
     -- | The nominal axioms of each type family, by family name, in
     -- declaration order. They reduce a family application.
     teFamilyAxioms :: Map Name [AxiomDecl],
-    teBinders :: Map Name Type
+    teBinders :: Map Name Type,
+    teConRepresentations :: Map Name ConRepresentation
   }
   deriving (Eq, Show)
 
@@ -68,7 +69,8 @@ emptyTypeEnv primPackage =
       teSynonyms = Map.empty,
       teAxioms = Map.empty,
       teFamilyAxioms = Map.empty,
-      teBinders = Map.empty
+      teBinders = Map.empty,
+      teConRepresentations = Map.empty
     }
 
 unionTypeEnv :: TypeEnv -> TypeEnv -> TypeEnv
@@ -79,7 +81,8 @@ unionTypeEnv left right =
       teSynonyms = teSynonyms left `Map.union` teSynonyms right,
       teAxioms = teAxioms left `Map.union` teAxioms right,
       teFamilyAxioms = Map.unionWith (<>) (teFamilyAxioms left) (teFamilyAxioms right),
-      teBinders = teBinders left `Map.union` teBinders right
+      teBinders = teBinders left `Map.union` teBinders right,
+      teConRepresentations = teConRepresentations left `Map.union` teConRepresentations right
     }
 
 typeEnvFromProgram :: PackageId -> Program -> TypeEnv
@@ -103,14 +106,18 @@ addImports env imports =
       teSynonyms = importSynonyms imports `Map.union` teSynonyms env,
       teAxioms = importAxioms imports `Map.union` teAxioms env,
       teFamilyAxioms = List.foldl' addFamilyAxiom (teFamilyAxioms env) (Map.elems (importAxioms imports)),
-      teBinders = importBinders imports `Map.union` teBinders env
+      teBinders = importBinders imports `Map.union` teBinders env,
+      teConRepresentations = importConRepresentations imports `Map.union` teConRepresentations env
     }
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
 addDecl env decl =
   case decl of
     DeclType declaration ->
-      env {teHeaders = List.foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration)}
+      env
+        { teHeaders = List.foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration),
+          teConRepresentations = Map.fromList [(conName con, conRepresentation con) | con <- typeCons declaration, conRepresentation con /= HeapConstructor] `Map.union` teConRepresentations env
+        }
       where
         addConstructor headers constructor = Map.insert (conName constructor) (conType constructor) headers
     DeclSynonym declaration ->
