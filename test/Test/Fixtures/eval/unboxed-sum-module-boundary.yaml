@@ -1,0 +1,23 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Producer (produce) where
+  import GHC.Prim
+  produce :: Int# -> (# (# #) | (# Int#, Int# #) #)
+  produce value = case value of
+    0# -> (# (# #) | #)
+    _ -> (# | (# value, value +# 1# #) #)
+- |
+  module Test where
+  import Producer
+  import GHC.Prim
+  import GHC.Types
+  consume :: Int# -> Int
+  consume value = case produce value of
+    (# (# #) | #) -> I# 0#
+    (# | (# first, second #) #) -> I# (first +# second)
+  result = (consume 0#, consume 20#)
+expression: result
+output: "((I# 0),(I# 41))"
+status: pass
+reason: Module interfaces preserve the complete sum result layout.
