@@ -5,11 +5,17 @@ module Data.Semigroup.Internal
     stimesMonoid,
     stimesIdempotent,
     stimesIdempotentMonoid,
+    Dual (..),
+    Endo (..),
+    All (..),
+    Any (..),
+    Sum (..),
+    Product (..),
   )
 where
 
-import Data.Bool (Bool (..))
-import GHC.Base (List (..), Maybe (..))
+import Data.Bool (Bool (..), (&&), (||))
+import GHC.Base (Functor (..), List (..), Maybe (..), id, (.))
 import GHC.Err (errorWithoutStackTrace)
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -123,3 +129,64 @@ instance (Semigroup b) => Semigroup (a -> b) where
 
 instance (Monoid b) => Monoid (a -> b) where
   mempty _ = mempty
+
+-- | The wrappers that only change how values combine live here so that both
+-- "Data.Monoid" and "Data.Semigroup" can re-export them.
+newtype Dual a = Dual {getDual :: a}
+
+-- | A function from a type to itself. The values combine by function
+-- composition, and the identity function is the empty value.
+newtype Endo a = Endo {appEndo :: a -> a}
+
+newtype All = All {getAll :: Bool}
+
+newtype Any = Any {getAny :: Bool}
+
+newtype Sum a = Sum {getSum :: a}
+
+newtype Product a = Product {getProduct :: a}
+
+instance (Semigroup a) => Semigroup (Dual a) where
+  Dual left <> Dual right = Dual (right <> left)
+
+instance (Monoid a) => Monoid (Dual a) where
+  mempty = Dual mempty
+
+instance Semigroup (Endo a) where
+  Endo outer <> Endo inner = Endo (outer . inner)
+
+instance Monoid (Endo a) where
+  mempty = Endo id
+
+instance Semigroup All where
+  All left <> All right = All (left && right)
+
+instance Monoid All where
+  mempty = All True
+
+instance Semigroup Any where
+  Any left <> Any right = Any (left || right)
+
+instance Monoid Any where
+  mempty = Any False
+
+instance (Num a) => Semigroup (Sum a) where
+  Sum left <> Sum right = Sum (left + right)
+
+instance (Num a) => Monoid (Sum a) where
+  mempty = Sum 0
+
+instance (Num a) => Semigroup (Product a) where
+  Product left <> Product right = Product (left * right)
+
+instance (Num a) => Monoid (Product a) where
+  mempty = Product 1
+
+instance Functor Dual where
+  fmap f (Dual value) = Dual (f value)
+
+instance Functor Sum where
+  fmap f (Sum value) = Sum (f value)
+
+instance Functor Product where
+  fmap f (Product value) = Product (f value)

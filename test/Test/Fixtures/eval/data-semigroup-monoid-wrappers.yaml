@@ -1,0 +1,25 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Semigroup (All (..), Any (..), Dual (..), Product (..), Sum (..))
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (getSum (foldMap Sum [1 :: Int, 2, 3]))
+      print (getProduct (foldMap Product [2 :: Int, 3, 4]))
+      print (getAll (foldMap (All . even) [2 :: Int, 4]))
+      print (getAny (foldMap (Any . odd) [2 :: Int, 4]))
+      print (getDual (foldMap (Dual . (: [])) [1 :: Int, 2, 3]))
+expression: main
+stdout: |
+  6
+  24
+  True
+  False
+  [3,2,1]
+output: |
+  ()
+status: pass
+reason: Data.Semigroup re-exports the monoid wrappers that Data.Monoid exports, as base does
