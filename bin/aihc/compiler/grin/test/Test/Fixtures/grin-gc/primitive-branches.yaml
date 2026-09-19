@@ -1,0 +1,35 @@
+program: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+  primitive stmBegin# :: TupleRep []/0
+  primitive writeTVar# :: TupleRep []/2
+
+  choose (pair :: BoxedRep Lifted) (var :: BoxedRep Unlifted) -> BoxedRep Lifted =
+    case (pair :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data Pair (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) ->
+        () <- primitive-call @(TupleRep []) stmBegin#
+        () <- primitive-call @(TupleRep []) writeTVar# (var :: BoxedRep Unlifted) (right :: BoxedRep Lifted)
+        constant (left :: BoxedRep Lifted)
+      _ ->
+        () <- primitive-call @(TupleRep []) stmBegin#
+        constant (selected :: BoxedRep Lifted)
+expected: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  primitive stmBegin# :: TupleRep []/0
+
+  primitive writeTVar# :: TupleRep []/2
+
+  choose (pair :: BoxedRep Lifted) (var :: BoxedRep Unlifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (pair :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data Pair (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) ->
+        $cps_return$gc :: BoxedRep Lifted, left$gc :: BoxedRep Lifted, right$gc :: BoxedRep Lifted, var$gc :: BoxedRep Unlifted <-
+          gc-primitive-call @(TupleRep []) stmBegin# roots ($cps_return :: BoxedRep Lifted) (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) (var :: BoxedRep Unlifted)
+        $cps_return$gc$gc :: BoxedRep Lifted, left$gc$gc :: BoxedRep Lifted <-
+          gc-primitive-call @(TupleRep []) writeTVar# (var$gc :: BoxedRep Unlifted) (right$gc :: BoxedRep Lifted) roots ($cps_return$gc :: BoxedRep Lifted) (left$gc :: BoxedRep Lifted)
+        continue ($cps_return$gc$gc :: BoxedRep Lifted) (left$gc$gc :: BoxedRep Lifted)
+      _ ->
+        $cps_return$gc%1 :: BoxedRep Lifted, selected$gc :: BoxedRep Lifted <-
+          gc-primitive-call @(TupleRep []) stmBegin# roots ($cps_return :: BoxedRep Lifted) (selected :: BoxedRep Lifted)
+        continue ($cps_return$gc%1 :: BoxedRep Lifted) (selected$gc :: BoxedRep Lifted)
+status: pass
+reason: Each branch has separate roots. Later call arguments use relocated names. Dead call arguments do not become caller roots.

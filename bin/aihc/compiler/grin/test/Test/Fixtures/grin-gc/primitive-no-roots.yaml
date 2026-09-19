@@ -1,0 +1,15 @@
+program: |
+  primitive stmBegin# :: TupleRep []/0
+
+  stop -> TupleRep [] =
+    () <- primitive-call @(TupleRep []) stmBegin#
+    exit (0 :: IntRep)
+expected: |
+  primitive stmBegin# :: TupleRep []/0
+
+  stop ($cps_return :: BoxedRep Lifted) -> TupleRep [] =
+    () <-
+      gc-primitive-call @(TupleRep []) stmBegin# roots
+    exit (0 :: IntRep)
+status: pass
+reason: A call that can collect remains explicit when no caller value survives the call.

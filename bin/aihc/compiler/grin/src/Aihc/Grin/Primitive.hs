@@ -26,6 +26,7 @@
 module Aihc.Grin.Primitive
   ( primitiveAllocates,
     allocatingPrimitives,
+    primitiveMayCollect,
   )
 where
 
@@ -37,6 +38,12 @@ import Data.Text (Text)
 -- heap reservation that reaches it.
 primitiveAllocates :: Text -> Bool
 primitiveAllocates name = name `Set.member` allocatingPrimitives
+
+-- | Ordinary calls that can collect before control returns to the caller.
+-- CPS calls transfer control through a continuation and use its roots.
+primitiveMayCollect :: Text -> Bool
+primitiveMayCollect name =
+  name `elem` ["writeTVar#", "stmBegin#", "newDelayTVar#", "newPromptTag#"]
 
 -- | The primitives whose lowering allocates.
 allocatingPrimitives :: Set Text

@@ -216,6 +216,7 @@ bodyReferences expression =
     GrinEval {} -> Set.empty
     GrinCpsEval {} -> Set.empty
     GrinPrimitiveCall {} -> Set.empty
+    GrinGcPrimitiveCall {} -> Set.empty
     GrinCpsPrimitiveCall {} -> Set.empty
     GrinApply {} -> Set.empty
     GrinCpsApply {} -> Set.empty

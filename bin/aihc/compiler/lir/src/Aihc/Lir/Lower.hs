@@ -1064,48 +1064,40 @@ lowerFunction env function = do
 varBase :: GrinVar -> Text
 varBase var = T.filter (\character -> character /= '"' && character /= '\\') (grinVarName var)
 
--- | The largest root list of a reservation in the expression.
+-- | The largest explicit root list in the expression.
 maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
-    GrinBind vars value body -> maximum [length (callRoots vars value body), maximumRoots value, maximumRoots body]
+    GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
     GrinStoreRec _ body -> maximumRoots body
     GrinStoreRecUnchecked _ body -> maximumRoots body
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
     GrinEnsureHeap _ roots -> length roots
+    GrinGcPrimitiveCall _ _ _ roots -> length roots
     _ -> 0
-
--- | Calls publish only pointer values that remain live after the call.
-callRoots :: [GrinVar] -> GrinExpr -> GrinExpr -> [GrinVar]
-callRoots vars value body =
-  case value of
-    GrinPrimitiveCall _ name _
-      | Just description <- nativeRuntimePrimitiveCall name,
-        nativeRuntimeCallMayCollect description ->
-          Set.toAscList (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars body Set.\\ Set.fromList vars))
-    _ -> []
 
 maximumCallRoots :: GrinExpr -> Int
 maximumCallRoots expression =
   case expression of
-    GrinBind vars value body -> maximum [length (callRoots vars value body), maximumCallRoots value, maximumCallRoots body]
+    GrinBind _ value body -> max (maximumCallRoots value) (maximumCallRoots body)
+    GrinGcPrimitiveCall _ _ _ roots -> length roots
     GrinStoreRecUnchecked _ body -> maximumCallRoots body
     GrinCase _ _ alternatives -> maximum (0 : map (maximumCallRoots . grinAltRhs) alternatives)
     _ -> 0
 
 -- | The frame is on the native stack. The collector updates its pointer slots.
-compileRootedBinding :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinExpr -> [GrinVar] -> LowerM ValueEnv
-compileRootedBinding ctx env vars value roots =
+compileRootedBinding :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinExpr -> [GrinVar] -> [GrinValue] -> LowerM ValueEnv
+compileRootedBinding ctx env vars value relocatedVars roots =
   case (ctxRoots ctx, ctxRootFrame ctx) of
     (Just slots, Just frame) -> do
       forM_ (zip [0 :: Int ..] roots) $ \(index, root) -> do
-        operand <- pointerValue ctx env (GrinVarValue root)
+        operand <- pointerValue ctx env root
         storeSlot Ptr operand slots (toInteger (8 * index))
       _ <- callRuntime "aihc_roots_push" [Ptr, Ptr, I64, Ptr] [] [ctxMachine ctx, frame, OperandLiteral (LitInt (toInteger (length roots))), slots]
       resultEnv <- compileBinding ctx env vars value
       _ <- callRuntime "aihc_roots_pop" [Ptr, Ptr] [] [ctxMachine ctx, frame]
-      relocated <- forM (zip [0 :: Int ..] roots) $ \(index, root) -> do
+      relocated <- forM (zip [0 :: Int ..] relocatedVars) $ \(index, root) -> do
         pointer <- loadSlot (varBase root) Ptr slots (toInteger (8 * index))
         pure (root, pointer)
       pure (Map.fromList relocated `Map.union` resultEnv)
@@ -1115,8 +1107,7 @@ compileExpr :: FunctionCtx -> ValueEnv -> GrinExpr -> LowerM ()
 compileExpr ctx env expression =
   case expression of
     GrinBind vars value body -> do
-      let roots = filter (`Map.member` env) (callRoots vars value body)
-      env' <- if null roots then compileBinding ctx env vars value else compileRootedBinding ctx env vars value roots
+      env' <- compileBinding ctx env vars value
       compileExpr ctx env' body
     GrinStoreRec {} -> unsupported "store-rec without a heap reservation"
     GrinStoreRecUnchecked bindings body -> do
@@ -1181,6 +1172,7 @@ compileExpr ctx env expression =
     GrinUpdateBlackhole {} -> unsupported "unbound blackhole update"
     GrinEval {} -> unsupported "direct-style eval after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
+    GrinGcPrimitiveCall {} -> unsupported "unbound GC primitive call"
     GrinApply {} -> unsupported "direct-style apply after CPS"
     GrinThrow {} -> unsupported "throw"
     GrinCatch {} -> unsupported "catch"
@@ -1281,6 +1273,15 @@ compileBinding ctx env vars expression =
       | otherwise -> failWith (LowerUnsupportedExpression "heap reservation result arity")
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
+    GrinGcPrimitiveCall runtimeRep name arguments roots -> do
+      let (resultVars, relocatedVars) = splitAt (length (runtimeRepComponents runtimeRep)) vars
+          value = GrinPrimitiveCall runtimeRep name arguments
+      if length vars /= length (runtimeRepComponents runtimeRep) + length roots
+        then failWith (LowerUnsupportedExpression "GC primitive call result arity")
+        else
+          if null roots
+            then compileBinding ctx env resultVars value
+            else compileRootedBinding ctx env resultVars value relocatedVars roots
     GrinPrimitiveCall runtimeRep name arguments -> compilePrimitive ctx env vars runtimeRep name arguments
     GrinForeignCallExpr foreignCall arguments ->
       compileForeignCall ctx env foreignCall arguments >>= bindResults

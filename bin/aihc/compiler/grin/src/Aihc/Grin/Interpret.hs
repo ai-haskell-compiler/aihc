@@ -445,6 +445,7 @@ evalScheduledExpr env expr continue =
     GrinPrimitiveCall _ name arguments -> do
       argumentValues <- mapM (materializeValue env) arguments
       evalScheduledPrimitive name argumentValues continue
+    GrinGcPrimitiveCall {} -> rejectCpsExpression
     GrinCpsPrimitiveCall {} -> rejectCpsExpression
     GrinApply _ function arguments -> do
       functionValue <- materializeValue env function

@@ -156,7 +156,10 @@ The machine timer list retains timer variables and final values until expiry.
 Commit, abort, and expiry remove references without direct memory release.
 These records count toward managed allocation statistics and the `-M` limit.
 
-An ordinary runtime call can collect only when its native call description permits collection.
+The GRIN primitive description identifies ordinary runtime calls that can collect.
+The GRIN GC stage gives each such call explicit live roots and fresh result names.
+The `gc-primitive-call` operation returns primitive results, then relocated roots.
+Lir translates this operation and does not select roots or change GRIN variable names.
 Generated code stores live caller pointers in a root frame before such a call.
 The machine links these frames, so nested runtime calls can retain separate roots.
 After the call, generated code removes the frame and reloads the relocated pointers.

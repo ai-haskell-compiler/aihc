@@ -26,6 +26,7 @@ freeExprVars expression =
     GrinCpsEval _ value continuation updateContinuation ->
       freeValueVars value <> freeValueVars continuation <> freeValueVars updateContinuation
     GrinCall _ _ arguments -> foldMap freeValueVars arguments
+    GrinGcPrimitiveCall _ _ arguments roots -> foldMap freeValueVars (arguments <> roots)
     GrinPrimitiveCall _ _ arguments -> foldMap freeValueVars arguments
     GrinCpsPrimitiveCall _ _ arguments continuation ->
       foldMap freeValueVars arguments <> freeValueVars continuation
@@ -95,6 +96,7 @@ maximumProgramVarUnique program =
         GrinEval _ value -> valueUnique value
         GrinCpsEval _ value continuation updateContinuation -> concatMap valueUnique [value, continuation, updateContinuation]
         GrinCall _ _ arguments -> concatMap valueUnique arguments
+        GrinGcPrimitiveCall _ _ arguments roots -> concatMap valueUnique (arguments <> roots)
         GrinPrimitiveCall _ _ arguments -> concatMap valueUnique arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> concatMap valueUnique (continuation : arguments)
         GrinApply _ function arguments -> concatMap valueUnique (function : arguments)

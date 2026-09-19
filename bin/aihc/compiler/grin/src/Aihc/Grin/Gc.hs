@@ -17,6 +17,7 @@ where
 import Aihc.Grin.Analysis (freeExprVars, maximumProgramVarUnique)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinError, CpsGrinProgram (..), toCpsGrin)
 import Aihc.Grin.Heap (normalizeHeapReservations)
+import Aihc.Grin.Primitive (primitiveMayCollect)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -49,7 +50,7 @@ entryGcProgram =
           grinFunctions = []
         }
 
--- | Insert and normalize reservations. Then, give each reservation its live
+-- | Insert and normalize reservations. Give each safepoint explicit live
 -- roots and fresh SSA names for roots that collection can relocate.
 lowerGc :: CpsGrinProgram -> GcGrinProgram
 lowerGc cps =
@@ -116,6 +117,13 @@ relocateExpr bound expression =
   case expression of
     GrinBind [] (GrinEnsureHeap requiredWords []) body ->
       relocateReservation bound requiredWords body
+    GrinBind resultVars (GrinPrimitiveCall runtimeRep name arguments) body
+      | primitiveMayCollect name -> do
+          let roots = livePointerRoots bound (freeExprVars body Set.\\ Set.fromList resultVars)
+          relocated <- mapM freshRelocated roots
+          let bodyWithRelocatedRoots = substituteExpr (Map.fromList (zip roots relocated)) body
+          body' <- relocateExpr (bound <> Set.fromList (resultVars <> relocated)) bodyWithRelocatedRoots
+          pure (GrinBind (resultVars <> relocated) (GrinGcPrimitiveCall runtimeRep name arguments (map GrinVarValue roots)) body')
     GrinBind resultVars valueExpression body -> do
       valueExpression' <- relocateExpr bound valueExpression
       body' <- relocateExpr (bound <> Set.fromList resultVars) body
@@ -136,6 +144,7 @@ relocateExpr bound expression =
     GrinEval {} -> pure expression
     GrinCpsEval {} -> pure expression
     GrinCall {} -> pure expression
+    GrinGcPrimitiveCall {} -> pure expression
     GrinPrimitiveCall {} -> pure expression
     GrinCpsPrimitiveCall {} -> pure expression
     GrinApply {} -> pure expression
@@ -218,6 +227,8 @@ substituteExpr substitutions expression =
       GrinCpsEval runtimeRep (substituteValue substitutions value) (substituteValue substitutions continuation) (substituteValue substitutions updateContinuation)
     GrinCall runtimeRep name arguments -> GrinCall runtimeRep name (map (substituteValue substitutions) arguments)
     GrinPrimitiveCall runtimeRep name arguments -> GrinPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments)
+    GrinGcPrimitiveCall runtimeRep name arguments roots ->
+      GrinGcPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments) (map (substituteValue substitutions) roots)
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
       GrinCpsPrimitiveCall runtimeRep name (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinApply runtimeRep function arguments -> GrinApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments)

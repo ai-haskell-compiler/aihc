@@ -319,6 +319,7 @@ atomicExpr =
       cpsEvalExpr,
       namedCallExpr "call" GrinCall,
       primitiveCallExpr,
+      gcPrimitiveCallExpr,
       cpsPrimitiveCallExpr,
       applyExpr,
       cpsApplyExpr,
@@ -418,6 +419,20 @@ primitiveCallExpr = do
   arguments <- grinValues
   lineEnd
   pure (GrinPrimitiveCall representation primitiveName arguments)
+
+gcPrimitiveCallExpr :: Parser GrinExpr
+gcPrimitiveCallExpr = do
+  keyword "gc-primitive-call"
+  horizontal1
+  representation <- runtimeRepArgument
+  horizontal1
+  primitiveName <- name
+  arguments <- grinValues
+  horizontal1
+  keyword "roots"
+  roots <- grinValues
+  lineEnd
+  pure (GrinGcPrimitiveCall representation primitiveName arguments roots)
 
 cpsPrimitiveCallExpr :: Parser GrinExpr
 cpsPrimitiveCallExpr = do

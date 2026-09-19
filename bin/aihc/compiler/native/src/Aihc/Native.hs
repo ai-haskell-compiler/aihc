@@ -534,9 +534,6 @@ data NativeCpsCall = NativeCpsCall
 data NativeRuntimeCall = NativeRuntimeCall
   { nativeRuntimeCallForeignCall :: !GrinForeignCall,
     nativeRuntimeCallPassMachine :: !Bool,
-    -- | Collection can relocate caller values. Allocation from reserved
-    -- heap does not set this field.
-    nativeRuntimeCallMayCollect :: !Bool,
     nativeRuntimeCallResultCount :: !Int
   }
   deriving (Eq, Show)
@@ -573,17 +570,17 @@ nativeRuntimePrimitiveCalls =
     machineCall "newTVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "readTVar#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
     machineCall "readTVarIO#" "aihc_tvar_read" [GrinForeignAddr] GrinForeignWord64,
-    collectingCall 0 "writeTVar#" "aihc_tvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    collectingCall 0 "stmBegin#" "aihc_stm_begin" [] GrinForeignWord64,
+    runtimeCall True 0 "writeTVar#" "aihc_tvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    runtimeCall True 0 "stmBegin#" "aihc_stm_begin" [] GrinForeignWord64,
     runtimeCall True 0 "stmCommit#" "aihc_stm_commit" [] GrinForeignWord64,
     runtimeCall True 0 "stmAbort#" "aihc_stm_abort" [] GrinForeignWord64,
     machineCall "stmWaitRequest#" "aihc_stm_wait_request" [] GrinForeignAddr,
     machineCall "stmWaitResult#" "aihc_stm_wait_result" [GrinForeignAddr] GrinForeignInt64,
-    collectingCall 1 "newDelayTVar#" "aihc_tvar_delay" [GrinForeignInt64, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "newDelayTVar#" "aihc_tvar_delay" [GrinForeignInt64, GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     machineCall "stmActive#" "aihc_stm_active" [] GrinForeignWord64,
     machineCall "newMutVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
     machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
-    collectingCall 1 "newPromptTag#" "aihc_prompt_tag_new" [] GrinForeignAddr,
+    machineCall "newPromptTag#" "aihc_prompt_tag_new" [] GrinForeignAddr,
     -- The thread that runs now is a field of the machine, so this call takes
     -- the machine. It only reads that field, and it allocates nothing.
     machineCall "myThreadId#" "aihc_my_thread_id" [] GrinForeignAddr,
@@ -665,9 +662,6 @@ nativeRuntimePrimitiveCalls =
     call = runtimeCall False 1
     procedure = runtimeCall False 0
     machineCall = runtimeCall True 1
-    collectingCall count primitive symbol arguments result =
-      let (name, description) = runtimeCall True count primitive symbol arguments result
-       in (name, description {nativeRuntimeCallMayCollect = True})
 
 -- | Describe one runtime call in the shared native ABI.
 runtimeCall :: Bool -> Int -> Text -> Text -> [GrinForeignType] -> GrinForeignType -> (Text, NativeRuntimeCall)
@@ -687,7 +681,6 @@ runtimeCall passMachine resultCount primitive symbol arguments result =
                   }
             },
         nativeRuntimeCallPassMachine = passMachine,
-        nativeRuntimeCallMayCollect = False,
         nativeRuntimeCallResultCount = resultCount
       }
   )

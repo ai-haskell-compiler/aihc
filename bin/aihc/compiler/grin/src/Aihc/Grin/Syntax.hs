@@ -311,6 +311,9 @@ data GrinExpr
     GrinCall !GrinResultRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
     GrinPrimitiveCall !GrinRep !Text ![GrinValue]
+  | -- | A GC-stage call with explicit roots. Results contain the primitive
+    -- results first, then each relocated root in the same order.
+    GrinGcPrimitiveCall !GrinRep !Text ![GrinValue] ![GrinValue]
   | -- | A CPS-only primitive that may transfer execution to another thread.
     -- The continuation receives the primitive's logical result.
     GrinCpsPrimitiveCall !GrinRep !Text ![GrinValue] !GrinValue
@@ -461,6 +464,7 @@ grinProgramLiterals program =
         GrinCpsEval _ value continuation updateContinuation ->
           valueLiterals value <> valueLiterals continuation <> valueLiterals updateContinuation
         GrinCall _ _ arguments -> concatMap valueLiterals arguments
+        GrinGcPrimitiveCall _ _ arguments roots -> concatMap valueLiterals (arguments <> roots)
         GrinPrimitiveCall _ _ arguments -> concatMap valueLiterals arguments
         GrinCpsPrimitiveCall _ _ arguments continuation ->
           concatMap valueLiterals arguments <> valueLiterals continuation
@@ -512,6 +516,7 @@ grinExprGlobalReferences = exprReferences
         GrinEval _ value -> valueReferences value
         GrinCpsEval _ value continuation updateContinuation -> valuesReferences [value, continuation, updateContinuation]
         GrinCall _ _ arguments -> valuesReferences arguments
+        GrinGcPrimitiveCall _ _ arguments roots -> valuesReferences (arguments <> roots)
         GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
         GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
         GrinApply _ function arguments -> valueReferences function <> valuesReferences arguments
