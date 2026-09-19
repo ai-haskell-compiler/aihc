@@ -1,0 +1,83 @@
+---
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data Flag = Off | On
+  data Shape a where
+    Single :: Flag -> Shape ()
+    Both :: Shape a -> Shape b -> Shape (a, b)
+  both :: Flag -> Flag -> Flag
+  both Off _ = Off
+  both On other = other
+  pick :: Shape a -> a -> Flag
+  pick (Single f) _ = f
+  pick (Both left right) (x, y) = both (pick left x) (pick right y)
+  result :: Flag
+  result = pick (Both (Single On) (Single Off)) ((), ())
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    3.tLevity :: 3.sType;
+    3.sLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.sType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.sType;
+    2.tTuple2 :: ∀(a1 : 3.sType) (a2 : 3.sType). 3.sType;
+    3.sType :: 3.sType;
+    2.tUnit :: 3.sType;
+    3.t[] :: ∀(a : 3.sType). 3.sType;
+    2.c() :: 2.tUnit;
+    2.c(,) :: ∀(a1 : 3.sType) (a2 : 3.sType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2;
+    3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.cLifted :: 3.tLevity;
+    3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.c[] :: ∀(a : 3.sType). 3.t[] a
+
+  import synonyms
+    3.sLiftedRep = 3.cBoxedRep 3.cLifted;
+    3.sType = 3.tTYPE 3.sLiftedRep
+
+  pub type 1.tFlag :: 3.sType {
+      pub 1.cOff :: 1.tFlag;
+      pub 1.cOn :: 1.tFlag
+  }
+
+  pub type 1.tShape (a : 3.sType) :: 3.sType {
+      pub 1.cSingle :: ∀(a : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (a ~ 2.tUnit) (1.tFlag 3.→ 1.tShape a);
+      pub 1.cBoth :: ∀(a : 3.sType) (a{1} : 3.sType) (b : 3.sType). FUN @(3.cTupleRep (3.c[] 3.tRuntimeRep)) @3.sLiftedRep (a ~ 2.tTuple2 a{1} b) (1.tShape a{1} 3.→ 1.tShape b 3.→ 1.tShape a)
+  }
+
+  pub val 1.vboth :: 1.tFlag 3.→ 1.tFlag 3.→ 1.tFlag
+   = λ(x : 1.tFlag).
+    λ(y : 1.tFlag).
+      case x as (_scrut : 1.tFlag) return (1.tFlag) of {
+          1.cOff →
+              1.cOff;
+          1.cOn →
+              y
+      }
+
+  pub val 1.vpick :: ∀(a : 3.sType). 1.tShape a 3.→ a 3.→ 1.tFlag
+   = Λ(a : 3.sType).
+    λ(x : 1.tShape a).
+      λ(y : a).
+        case x as (_scrut : 1.tShape a) return (1.tFlag) of {
+            1.cSingle ($pattern_d0 : a ~ 2.tUnit) (f : 1.tFlag) →
+                f;
+            1.cBoth @(a{1} : 3.sType) @(b : 3.sType) ($pattern_d0 : a ~ 2.tTuple2 a{1} b) (left : 1.tShape a{1}) (right : 1.tShape b) →
+                case y ▷ $pattern_d0 as (_scrut{1} : 2.tTuple2 a{1} b) return (1.tFlag) of {
+                    2.c(,) (x{1} : a{1}) (y{1} : b) →
+                        1.vboth (1.vpick @a{1} left x{1}) (1.vpick @b right y{1})
+                }
+        }
+
+  pub val 1.vresult :: 1.tFlag
+   = 1.vpick @(2.tTuple2 2.tUnit 2.tUnit) (1.cBoth @(2.tTuple2 2.tUnit 2.tUnit) @2.tUnit @2.tUnit (coercion (refl (2.tTuple2 2.tUnit 2.tUnit))) (1.cSingle @2.tUnit (coercion (refl 2.tUnit)) 1.cOn) (1.cSingle @2.tUnit (coercion (refl 2.tUnit)) 1.cOff)) (2.c(,) @2.tUnit @2.tUnit 2.c() 2.c())
+status: pass
+reason: a GADT match refines the type of a later argument, thus the case on that
+  argument casts its scrutinee with the equality the match gives.

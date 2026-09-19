@@ -100,8 +100,7 @@ unsnoc values = Just (init values, last values)
 foldl' :: (b -> a -> b) -> b -> [a] -> b
 foldl' _ initial [] = initial
 foldl' combine initial (value : values) =
-  let next = combine initial value
-   in next `seq` foldl' combine next values
+  initial `seq` foldl' combine (combine initial value) values
 
 foldl1' :: (a -> a -> a) -> [a] -> a
 foldl1' _ [] = errorWithoutStackTrace "Prelude.foldl1': empty list"

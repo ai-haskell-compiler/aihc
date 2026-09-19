@@ -11,7 +11,7 @@ import Data.Bool (Bool (..), (&&), (||))
 import Data.Either (Either (..))
 import Data.Kind (Type)
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
-import GHC.Base (Maybe (..), id, (++), (.))
+import GHC.Base (Maybe (..), id, seq, (++), (.))
 import GHC.Int (Int)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
@@ -51,8 +51,7 @@ class Foldable (t :: Type -> Type) where
   foldl' f initial structure = foldr strictLeftStep id structure initial
     where
       strictLeftStep value continuation rest =
-        case f rest value of
-          result -> continuation result
+        rest `seq` continuation (f rest value)
   foldr1 f structure = fromMaybeFoldable emptyStructure (foldr rightStep Nothing structure)
     where
       rightStep value Nothing = Just value
@@ -108,8 +107,7 @@ instance Foldable [] where
 
   foldl' _ initial [] = initial
   foldl' f initial (value : values) =
-    case f initial value of
-      result -> foldl' f result values
+    initial `seq` foldl' f (f initial value) values
 
   null [] = True
   null (_ : _) = False

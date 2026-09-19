@@ -38,6 +38,7 @@ extra-source-files:
   test/Test/Fixtures/build/executables/src/Words.hs
   test/Test/Fixtures/build/generated-entry-collision/Aihc/Entry.hs
   test/Test/Fixtures/build/generated-entry-collision/Main.hs
+  test/Test/Fixtures/build/source-directories/BlackholeChecks.hs
   test/Test/Fixtures/build/source-directories/Cycle.hs
   test/Test/Fixtures/build/source-directories/Main.hs
   test/Test/Fixtures/build/source-directories/Message.hs
