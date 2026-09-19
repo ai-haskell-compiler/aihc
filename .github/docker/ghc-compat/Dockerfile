@@ -110,9 +110,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
       gcc \
+      g++ \
       git \
       libc6-dev \
-      libstdc++6 \
       libffi-dev \
       libgmp-dev \
       libncurses-dev \
