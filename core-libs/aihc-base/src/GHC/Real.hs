@@ -29,7 +29,8 @@ import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerFromWord#, integerQuotRem, integerToInt#)
 import GHC.Num (Num (..))
 import GHC.Prim
-  ( int16ToInt#,
+  ( Word#,
+    int16ToInt#,
     int32ToInt#,
     int64ToInt#,
     int8ToInt#,
@@ -52,6 +53,7 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
+    (<#),
     (==#),
   )
 import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
@@ -148,7 +150,7 @@ instance Integral Word64 where
   mod = rem
   quotRem left right = (quot left right, rem left right)
   divMod left right = (quot left right, rem left right)
-  toInteger (W64# value) = integerFromWord# 1# (word64ToWord# value)
+  toInteger (W64# value) = wordToInteger (word64ToWord# value)
 
 instance Real Word where
   toRational value = Ratio (toInteger value) 1
@@ -160,7 +162,17 @@ instance Integral Word where
   mod = rem
   quotRem left right = (quot left right, rem left right)
   divMod left right = (quot left right, rem left right)
-  toInteger (W# value) = integerFromWord# 1# value
+  toInteger (W# value) = wordToInteger value
+
+-- Keep the small-value path separate from the large Integer allocation.
+-- This lets fromIntegral eliminate the intermediate IS constructor.
+wordToInteger :: Word# -> Integer
+wordToInteger value =
+  case word2Int# value of
+    intValue ->
+      case (<#) intValue 0# of
+        0# -> IS intValue
+        _ -> integerFromWord# 1# value
 
 instance Real Int8 where
   toRational value = Ratio (toInteger value) 1
