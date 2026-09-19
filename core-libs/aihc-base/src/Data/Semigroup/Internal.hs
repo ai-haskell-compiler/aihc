@@ -146,6 +146,32 @@ newtype Sum a = Sum {getSum :: a}
 
 newtype Product a = Product {getProduct :: a}
 
+instance (Eq a) => Eq (Sum a) where
+  Sum left == Sum right = left == right
+  Sum left /= Sum right = left /= right
+
+instance (Num a) => Num (Sum a) where
+  Sum left + Sum right = Sum (left + right)
+  Sum left - Sum right = Sum (left - right)
+  Sum left * Sum right = Sum (left * right)
+  negate (Sum value) = Sum (negate value)
+  abs (Sum value) = Sum (abs value)
+  signum (Sum value) = Sum (signum value)
+  fromInteger value = Sum (fromInteger value)
+
+instance (Eq a) => Eq (Product a) where
+  Product left == Product right = left == right
+  Product left /= Product right = left /= right
+
+instance (Num a) => Num (Product a) where
+  Product left + Product right = Product (left + right)
+  Product left - Product right = Product (left - right)
+  Product left * Product right = Product (left * right)
+  negate (Product value) = Product (negate value)
+  abs (Product value) = Product (abs value)
+  signum (Product value) = Product (signum value)
+  fromInteger value = Product (fromInteger value)
+
 instance (Semigroup a) => Semigroup (Dual a) where
   Dual left <> Dual right = Dual (right <> left)
 
