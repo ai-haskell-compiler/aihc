@@ -16,6 +16,9 @@ module GHC.Prim
     addIntC#,
     addWordC#,
     and#,
+    andWord8#,
+    andWord16#,
+    andWord32#,
     Addr#,
     Array#,
     awaitIO#,
@@ -168,6 +171,9 @@ module GHC.Prim
     not#,
     ord#,
     or#,
+    orWord8#,
+    orWord16#,
+    orWord32#,
     plusWord#,
     popCnt#,
     quotRemWord#,
@@ -234,6 +240,9 @@ module GHC.Prim
     Word32#,
     Word64#,
     xor#,
+    xorWord8#,
+    xorWord16#,
+    xorWord32#,
     nullAddr#,
     plusAddr#,
     minusAddr#,
@@ -672,9 +681,27 @@ foreign import prim quotRemWord2# :: Word# -> Word# -> Word# -> (# Word#, Word# 
 
 foreign import prim and# :: Word# -> Word# -> Word#
 
+foreign import prim andWord8# :: Word8# -> Word8# -> Word8#
+
+foreign import prim andWord16# :: Word16# -> Word16# -> Word16#
+
+foreign import prim andWord32# :: Word32# -> Word32# -> Word32#
+
 foreign import prim or# :: Word# -> Word# -> Word#
 
+foreign import prim orWord8# :: Word8# -> Word8# -> Word8#
+
+foreign import prim orWord16# :: Word16# -> Word16# -> Word16#
+
+foreign import prim orWord32# :: Word32# -> Word32# -> Word32#
+
 foreign import prim xor# :: Word# -> Word# -> Word#
+
+foreign import prim xorWord8# :: Word8# -> Word8# -> Word8#
+
+foreign import prim xorWord16# :: Word16# -> Word16# -> Word16#
+
+foreign import prim xorWord32# :: Word32# -> Word32# -> Word32#
 
 foreign import prim not# :: Word# -> Word#
 
