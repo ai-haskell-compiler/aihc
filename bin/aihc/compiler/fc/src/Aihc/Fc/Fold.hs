@@ -111,6 +111,10 @@ table =
         [ (name, ([Just word16Rep, Just intRep], shift word16Rep 16 operation))
         | (name, operation) <- [("uncheckedShiftLWord16#", shiftL), ("uncheckedShiftRLWord16#", shiftR)]
         ],
+        [ (prefix <> "Word" <> width <> "#", ([Just rep, Just rep], sizedBinary rep operation))
+        | (width, rep) <- [("8", word8Rep), ("16", word16Rep), ("32", word32Rep)],
+          (prefix, operation) <- [("and", (.&.)), ("or", (.|.)), ("xor", xor)]
+        ],
         [ (name, ([Just wordRep, Just wordRep], comparison operation))
         | (name, operation) <- [("eqWord#", (==)), ("neWord#", (/=)), ("ltWord#", (<)), ("leWord#", (<=)), ("gtWord#", (>)), ("geWord#", (>=))]
         ],
@@ -158,6 +162,8 @@ table =
     intDivision _ _ = Nothing
     wordBinary operation [PrimInt _ left, PrimInt _ right] = Just (PrimInt wordRep (normalize wordRep (operation left right)))
     wordBinary _ _ = Nothing
+    sizedBinary rep operation [PrimInt _ left, PrimInt _ right] = Just (PrimInt rep (normalize rep (operation left right)))
+    sizedBinary _ _ _ = Nothing
     wordDivision operation [PrimInt _ left, PrimInt _ right]
       | right /= 0 = Just (PrimInt wordRep (normalize wordRep (operation left right)))
     wordDivision _ _ = Nothing

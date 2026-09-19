@@ -9,6 +9,12 @@ module Data.Semigroup
     First (..),
     Last (..),
     WrappedMonoid (..),
+    Dual (..),
+    Endo (..),
+    All (..),
+    Any (..),
+    Sum (..),
+    Product (..),
     Arg (..),
     ArgMin,
     ArgMax,
@@ -16,7 +22,13 @@ module Data.Semigroup
 where
 
 import Data.Semigroup.Internal
-  ( Semigroup (..),
+  ( All (..),
+    Any (..),
+    Dual (..),
+    Endo (..),
+    Product (..),
+    Semigroup (..),
+    Sum (..),
     stimesIdempotent,
     stimesIdempotentMonoid,
     stimesMonoid,

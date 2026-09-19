@@ -837,7 +837,7 @@ resolveExpr expr =
       wildcardFields <- resolveRecordConWildcardFields sp name fields wildcard
       pure (ERecordCon name' (fields' <> wildcardFields) False)
     ERecordUpd record fields ->
-      ERecordUpd <$> resolveExpr record <*> resolveRecordFields fields
+      ERecordUpd <$> resolveExpr record <*> resolveRecordUpdateFields fields
     EGetField record name ->
       EGetField <$> resolveExpr record <*> pure name
     EGetFieldProjection {} -> pure expr
@@ -1157,6 +1157,19 @@ resolveRecordFields =
     ( \field -> do
         value' <- resolveExpr (recordFieldValue field)
         pure field {recordFieldValue = value'}
+    )
+
+-- | A record update names the field selectors that it writes, and the
+-- selector must be in scope. The resolution of each label tells the type
+-- checker which data type the update rebuilds. Two data types can declare a
+-- field with the same name, and then only the resolution separates them.
+resolveRecordUpdateFields :: [RecordField Expr] -> ResolveM [RecordField Expr]
+resolveRecordUpdateFields =
+  mapM
+    ( \field -> do
+        name' <- resolveTermUseAtName (recordFieldName field)
+        value' <- resolveExpr (recordFieldValue field)
+        pure field {recordFieldName = name', recordFieldValue = value'}
     )
 
 -- | A record wildcard in a construction fills each remaining field with the

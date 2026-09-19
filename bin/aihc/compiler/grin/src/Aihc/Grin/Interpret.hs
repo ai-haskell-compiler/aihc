@@ -1004,6 +1004,15 @@ evalPrimitive "quotRemWord2#" [high, low, divisor] = do
 evalPrimitive "and#" [left, right] = evalWordPrimitive "and#" (.&.) left right
 evalPrimitive "or#" [left, right] = evalWordPrimitive "or#" (.|.) left right
 evalPrimitive "xor#" [left, right] = evalWordPrimitive "xor#" xor left right
+evalPrimitive "andWord8#" [left, right] = evalSizedWordPrimitive "andWord8#" Word8Rep (.&.) left right
+evalPrimitive "orWord8#" [left, right] = evalSizedWordPrimitive "orWord8#" Word8Rep (.|.) left right
+evalPrimitive "xorWord8#" [left, right] = evalSizedWordPrimitive "xorWord8#" Word8Rep xor left right
+evalPrimitive "andWord16#" [left, right] = evalSizedWordPrimitive "andWord16#" Word16Rep (.&.) left right
+evalPrimitive "orWord16#" [left, right] = evalSizedWordPrimitive "orWord16#" Word16Rep (.|.) left right
+evalPrimitive "xorWord16#" [left, right] = evalSizedWordPrimitive "xorWord16#" Word16Rep xor left right
+evalPrimitive "andWord32#" [left, right] = evalSizedWordPrimitive "andWord32#" Word32Rep (.&.) left right
+evalPrimitive "orWord32#" [left, right] = evalSizedWordPrimitive "orWord32#" Word32Rep (.|.) left right
+evalPrimitive "xorWord32#" [left, right] = evalSizedWordPrimitive "xorWord32#" Word32Rep xor left right
 evalPrimitive "not#" [value] = do
   word <- expectWordPrimitiveArgument "not#" value
   pure [wordRuntimeValue (complement word)]
@@ -1977,6 +1986,15 @@ evalCharComparison name comparison left right = do
   leftChar <- expectCharPrimitiveArgument name left
   rightChar <- expectCharPrimitiveArgument name right
   pure [intRuntimeValue (if comparison leftChar rightChar then 1 else 0)]
+
+-- | A bitwise operation on a pair of sized words. Both operands already
+-- hold only the bits of their width, so the result does too.
+evalSizedWordPrimitive ::
+  Text -> GrinRep -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalSizedWordPrimitive name rep operation left right = do
+  leftWord <- expectRuntimeRepPrimitiveArgument name rep left
+  rightWord <- expectRuntimeRepPrimitiveArgument name rep right
+  pure [RuntimeLit (GrinLitInt rep (operation leftWord rightWord))]
 
 -- | A shift of a sized word. The result keeps only the bits of its width,
 -- which is how a left shift of a 'Word16#' or 'Word32#' wraps.

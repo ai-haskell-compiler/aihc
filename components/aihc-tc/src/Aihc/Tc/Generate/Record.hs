@@ -101,10 +101,10 @@ duplicateLabels labels = nub [label | (index, label) <- zip [0 :: Int ..] labels
 -- pattern synonym is the head when no data constructor owns the labels:
 -- its fields do not belong to the scrutinee's own data type, so the
 -- scrutinee type cannot select it.
-recordUpdateHeads :: Maybe SourceSpan -> Maybe TcType -> [Text] -> TcM [RecordHead]
-recordUpdateHeads sp scrutineeType labels = do
+recordUpdateHeads :: Maybe SourceSpan -> Maybe TcType -> [RecordField a] -> TcM [RecordHead]
+recordUpdateHeads sp scrutineeType fields = do
   dataTypes <- getDataTypes
-  let byLabel = filter (any hasAllLabels . dtiConstructors) dataTypes
+  let byLabel = filter (\dataType -> any hasAllLabels (dtiConstructors dataType) && ownsSelectors dataType) dataTypes
   candidates <-
     case scrutineeType of
       Just (TcTyCon tyCon _) -> do
@@ -122,6 +122,15 @@ recordUpdateHeads sp scrutineeType labels = do
         _ -> abortTc ("record update with the fields " <> show labels <> " is ambiguous between the pattern synonyms " <> show (map rhName patSyns) <> " at " <> show sp)
     _ -> abortTc ("record update with the fields " <> show labels <> " is ambiguous between " <> show (map dtiName candidates) <> " at " <> show sp)
   where
+    labels = map recordFieldLabel fields
+    -- The resolver resolves each label of a record update to its field
+    -- selector. The data type that declares the selector is the only
+    -- candidate, which separates two data types that share a field name. A
+    -- label without a resolution, for example one that names a local binder
+    -- of the same name, gives no origin and then the label alone selects.
+    origins = mapMaybe (resolvedTermOrigin . recordFieldName) fields
+    ownsSelectors dataType =
+      all (\origin -> any ((origin ==) . dciOrigin) (dtiConstructors dataType)) origins
     hasAllLabels con =
       all (`elem` mapMaybe dcfiLabel (dciFields con)) labels
     hasAllFields head' =

@@ -1,15 +1,12 @@
--- | Attaching a deadline to an 'IO' action.
+-- | A limit on the time that an action can take.
 --
--- GHC implements 'timeout' by forking a watchdog thread that delivers a
--- 'Timeout' exception to the waiting thread once the deadline passes. aihc
--- does not have asynchronous exceptions yet: there is no @throwTo@ and no
--- interruptible wait, so an action that has already begun cannot be stopped.
--- See @docs/exceptions.md@ for the design that will make it possible.
---
--- Rather than run an action that no deadline can bound, a positive timeout
--- raises an unsupported-operation 'IOError'. The two cases that need no
--- watchdog behave as they do in GHC: a negative timeout runs the action to
--- completion, and a zero timeout runs nothing.
+-- GHC stops a slow action with an asynchronous exception. aihc has no
+-- asynchronous exceptions yet, thus it cannot stop an action that runs.
+-- Therefore 'timeout' obeys only the two limit conditions that need no
+-- interruption. A negative limit means no limit. A zero limit lets no action
+-- start. For a positive limit, 'timeout' runs the action to its end and gives
+-- its result. Code that uses 'timeout' only as a safety limit is correct. Code
+-- that depends on the interruption of a slow action is not correct.
 module System.Timeout
   ( Timeout,
     timeout,
@@ -17,30 +14,25 @@ module System.Timeout
 where
 
 import Control.Exception (Exception)
-import GHC.Internal.IO.Types (ioe_unsupportedOperation)
-import Prelude
+import GHC.IO (IO)
+import Prelude (Eq (..), Int, Maybe (..), Ord (..), Show (..), fmap, otherwise, pure, showString)
 
--- | The exception GHC delivers to an action that has run out of time. aihc
--- never throws it, because it cannot interrupt the action it would belong to.
+-- | The exception that GHC throws into an action that is too slow.
+--
+-- aihc keeps the type, because other packages name it. aihc never throws it.
 data Timeout = Timeout
-
-instance Eq Timeout where
-  Timeout == Timeout = True
-
-instance Ord Timeout where
-  compare Timeout Timeout = EQ
-
-instance Show Timeout where
-  show Timeout = "<<timeout>>"
 
 instance Exception Timeout
 
--- | Run an action, giving up after the given number of microseconds.
+instance Show Timeout where
+  showsPrec _ Timeout = showString "<<timeout>>"
+
+-- | Run an action under a time limit that is given in microseconds.
 --
--- The result is 'Nothing' when the action did not finish in time, and
--- @'Just' value@ when it did.
+-- A negative limit means no limit. A zero limit gives 'Nothing' and does not
+-- run the action. For a positive limit, see the limits of this module.
 timeout :: Int -> IO a -> IO (Maybe a)
 timeout microseconds action
-  | microseconds < 0 = Just <$> action
-  | microseconds == 0 = return Nothing
-  | otherwise = ioe_unsupportedOperation
+  | microseconds < 0 = fmap Just action
+  | microseconds == 0 = pure Nothing
+  | otherwise = fmap Just action

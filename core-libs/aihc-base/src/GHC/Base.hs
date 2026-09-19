@@ -6,6 +6,7 @@ module GHC.Base
   ( module GHC.Prim.Base,
     module GHC.Prim,
     module GHC.Classes,
+    Bool (..),
     Int (..),
     Char (..),
     ord,

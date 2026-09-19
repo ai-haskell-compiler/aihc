@@ -42,11 +42,12 @@ unwinding work. Masking, asynchronous delivery, and the masking-dependent
 cleanup combinators remain.
 
 Without asynchronous delivery there is no `throwTo`, so nothing can stop an
-action that has already begun. `System.Timeout.timeout` therefore raises an
-unsupported-operation `IOError` for a positive deadline rather than run an
-action no deadline bounds; the negative and zero cases need no watchdog and
-behave as they do in GHC. Delivering a `Timeout` to a waiting thread is the
-first thing asynchronous exceptions buy.
+action that has already begun. `System.Timeout.timeout` therefore honours only
+the two limits that need no watchdog: a negative limit is no limit, and a zero
+limit runs nothing. A positive limit runs the action to its end, so a caller
+that relies on a slow action being interrupted does not get what it asked for.
+Delivering a `Timeout` to a waiting thread is the first thing asynchronous
+exceptions buy.
 
 ## Continuation-chain invariant
 

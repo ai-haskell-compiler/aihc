@@ -1,0 +1,10 @@
+# Keep the GHC compatibility image context small.
+*
+!cabal.project.ghc-compat
+!components/
+!components/aihc-resolve/
+!components/aihc-resolve/aihc-resolve.cabal
+!components/aihc-resolve/LICENSE
+!components/aihc-tc/
+!components/aihc-tc/aihc-tc.cabal
+!components/aihc-tc/LICENSE

@@ -380,6 +380,12 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PBuiltinCon (BuiltinTuple flavor arity) _typeArgs items
       | length items == arity ->
           checkTuplePattern gadtHandling sp flavor items scrutTy
+    -- An unboxed sum has no runtime layout in the backends, so it is not
+    -- checked. Say so here: falling through would leave the binders of the
+    -- alternative out of the type environment, and the type checker would
+    -- abort on the first use of one with an internal error instead.
+    PUnboxedSum {} ->
+      abortTc ("unboxed sum patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
     _ -> pure (checkedOnly pat)
 
 -- | A pattern signature, @(ptr :: Ptr Word32)@. The signature is elaborated

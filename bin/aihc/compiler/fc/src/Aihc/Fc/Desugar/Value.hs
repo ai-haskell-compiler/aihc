@@ -125,6 +125,10 @@ data ValueState = ValueState
     vsBindingTypes :: !(Map TcTermKey TcType),
     vsLocals :: !(Map TcTermKey (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
+    -- | The equalities that the dictionary scope gives, with the binder of
+    -- the proof. A lookup by key needs the two types, thus the shape of a
+    -- given equality is only visible here.
+    vsGivenEqualities :: ![(TcType, TcType, Binder)],
     -- | The evidence that the current binding shares, when it has a place to
     -- put the bindings. 'Nothing' turns sharing off.
     vsEvidenceScope :: !(Maybe EvidenceScope),
@@ -135,7 +139,10 @@ data ValueState = ValueState
     vsStrictConstructors :: !(Map TcTermKey [Bool]),
     vsPatSyns :: !(Map TcTermKey PatSynInfo),
     -- | The checked calling convention of each foreign import in scope.
-    vsForeignImports :: !(Map TcTermKey TcForeignImportInfo)
+    vsForeignImports :: !(Map TcTermKey TcForeignImportInfo),
+    -- | The enumeration data types in scope, by the package, module and
+    -- name of their type constructor. @tagToEnum#@ reads this.
+    vsEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
 
 data PreparedValueInterface = PreparedValueInterface
@@ -147,7 +154,9 @@ data PreparedValueInterface = PreparedValueInterface
     -- field or more. The list gives one flag for each source field.
     preparedStrictConstructors :: !(Map TcTermKey [Bool]),
     preparedPatSyns :: !(Map TcTermKey PatSynInfo),
-    preparedForeignImports :: !(Map TcTermKey TcForeignImportInfo)
+    preparedForeignImports :: !(Map TcTermKey TcForeignImportInfo),
+    -- | Enumeration data types by type-constructor identity.
+    preparedEnumerations :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
 
 type ValueM = StateT ValueState (Either String)
@@ -232,7 +241,8 @@ prepareValueInterface interface =
       preparedFamilyConstructors = familyConstructors,
       preparedStrictConstructors = strictConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
-      preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface)
+      preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface),
+      preparedEnumerations = enumerations
     }
   where
     termTypes =
@@ -277,6 +287,18 @@ prepareValueInterface interface =
           let tyCon = dfiiRepresentationTyCon info,
           constructorName <- dfiiConstructorNames info
         ]
+    -- An enumeration type has constructors and none of them takes a field,
+    -- which is what @tagToEnum#@ requires of its result type.
+    enumerations =
+      Map.fromList
+        [ ((tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon), dataType)
+        | dataType <- tcInterfaceDataTypes interface,
+          dtiFlavor dataType == DataTyCon,
+          let constructors = dtiConstructors dataType,
+          not (null constructors),
+          all (null . dciFields) constructors,
+          let tyCon = dtiTyCon dataType
+        ]
     strictConstructors =
       Map.fromList
         [ (TcTermGlobal package moduleName' (dciName constructor), flags)
@@ -305,6 +327,7 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsBindingTypes = Map.union localTypes (preparedTypes interface),
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
+            vsGivenEqualities = [],
             vsEvidenceScope = Nothing,
             vsTypeEnv = typeEnv,
             vsConstructorInfos = preparedConstructorInfos interface,
@@ -312,7 +335,8 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsFamilyConstructors = preparedFamilyConstructors interface,
             vsStrictConstructors = preparedStrictConstructors interface,
             vsPatSyns = preparedPatSyns interface,
-            vsForeignImports = preparedForeignImports interface
+            vsForeignImports = preparedForeignImports interface,
+            vsEnumerations = preparedEnumerations interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 
@@ -2020,8 +2044,51 @@ overloadedLiteralValue overloadedString literal =
 
 desugarDataPatterns :: TcType -> Maybe Expr -> Binder -> [Binder] -> [TcType] -> [MatchWork] -> ValueM Expr
 desugarDataPatterns resultType fallback argument arguments argumentTypes works = do
-  caseBinder <- freshBinderFromType "_scrut" (binderType argument)
-  desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+  (scrutineeType, _) <- requiredArgumentTypes argumentTypes
+  refinement <- scrutineeRefinement scrutineeType
+  case refinement of
+    Nothing -> do
+      caseBinder <- freshBinderFromType "_scrut" (binderType argument)
+      desugarScrutineePatterns resultType fallback (ExVar (binderName argument)) caseBinder caseBinder arguments argumentTypes works
+    Just (refinedType, coercion) -> do
+      caseBinder <- freshBinder "_scrut" refinedType
+      desugarScrutineePatterns resultType fallback (ExCast (ExVar (binderName argument)) coercion) caseBinder argument arguments argumentTypes works
+
+-- | The type that a given equality refines the scrutinee to, with the proof.
+--
+-- An earlier pattern of the same equation can match a GADT constructor. Such
+-- a match gives an equality between a type variable and the type that the
+-- constructor fixes it to. The type of a later argument can be that
+-- variable, and then its own patterns match the fixed type. The case must
+-- match the fixed type, thus the scrutinee carries the proof as a cast.
+-- Without such an equality the result is 'Nothing' and the scrutinee keeps
+-- its own type.
+scrutineeRefinement :: TcType -> ValueM (Maybe (TcType, Coercion))
+scrutineeRefinement scrutineeType =
+  case scrutineeType of
+    TcTyVar _ -> do
+      equalities <- gets vsGivenEqualities
+      pure
+        ( listToMaybe
+            ( [ (right, CoVar (binderName binder))
+              | (left, right, binder) <- equalities,
+                left == scrutineeType,
+                not (isTypeVariable right)
+              ]
+                <> [ (left, CoSym (CoVar (binderName binder)))
+                   | (left, right, binder) <- equalities,
+                     right == scrutineeType,
+                     not (isTypeVariable left)
+                   ]
+            )
+        )
+    _ -> pure Nothing
+
+isTypeVariable :: TcType -> Bool
+isTypeVariable ty =
+  case ty of
+    TcTyVar _ -> True
+    _ -> False
 
 -- | Match a scrutinee expression against constructor patterns. The root
 -- binder gets the variable bindings of the first pattern. It has the checked
@@ -2881,7 +2948,86 @@ patSynBuilderName variable =
     _ -> pure variable
 
 desugarTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
-desugarTermReference variable types evidence termArgumentTypes
+desugarTermReference variable types evidence termArgumentTypes = do
+  magic <- isPrimitiveTerm variable "tagToEnum#"
+  if magic
+    then desugarTagToEnum types
+    else desugarOrdinaryTermReference variable types evidence termArgumentTypes
+
+-- | Whether the occurrence is of the named term of the wired-in @GHC.Prim@.
+isPrimitiveTerm :: Name -> Text -> ValueM Bool
+isPrimitiveTerm variable text
+  | nameText variable == text,
+    OriginTop package moduleName' <- nameOrigin variable = do
+      primitivePackage <- gets (cePrimPackage . vsConvertEnv)
+      pure ((package, moduleName') == (primitivePackage, "GHC.Prim"))
+  | otherwise = pure False
+
+-- | @tagToEnum#@ builds the constructor of an enumeration type from its
+-- tag. The tag is only known at run time, so the use becomes a case over
+-- the tag with one alternative per constructor. The last constructor is
+-- the default alternative: GHC leaves an out-of-range tag undefined, and
+-- this keeps the case exhaustive without a failure branch.
+desugarTagToEnum :: [Type] -> ValueM Expr
+desugarTagToEnum types =
+  case types of
+    [resultType] -> do
+      constructors <- enumerationConstructors resultType
+      package <- gets (cePrimPackage . vsConvertEnv)
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (intRep kinds)
+      tag <- freshBinder "_tagToEnum_tag" (TcTyCon (mkTyConWithOrigin package "GHC.Prim" "Int#" 0) [])
+      scrutinee <- freshBinderFromType "_tagToEnum_scrut" (binderType tag)
+      let arguments = typeApplicationArguments resultType
+          build constructor =
+            foldl
+              ExTyApp
+              (ExVar (Name (dciName constructor) SortDataConstructor (uncurry OriginTop (dciOrigin constructor))))
+              arguments
+          alternatives =
+            [ Alt (AltLit (LitInt representation (toInteger index))) [] [] (build constructor)
+            | (index, constructor) <- zip [0 :: Int ..] (init constructors)
+            ]
+              <> [Alt AltDefault [] [] (build (last constructors))]
+      pure
+        ( ExLam
+            tag
+            (ExCase (ExVar (binderName tag)) scrutinee resultType alternatives)
+        )
+    _ -> failValue ("GHC.Prim.tagToEnum# has " <> show (length types) <> " type arguments")
+
+-- | The constructors of the enumeration type that @tagToEnum#@ builds.
+enumerationConstructors :: Type -> ValueM [DataConInfo]
+enumerationConstructors resultType =
+  case typeApplicationHead resultType of
+    TyCon name
+      | OriginTop package moduleName' <- nameOrigin name -> do
+          enumerations <- gets vsEnumerations
+          case Map.lookup (package, moduleName', nameText name) enumerations of
+            Just dataType -> pure (dtiConstructors dataType)
+            Nothing -> unsupported
+    _ -> unsupported
+  where
+    unsupported = failValue "GHC.Prim.tagToEnum# needs an enumeration result type"
+
+-- | The head of a type application.
+typeApplicationHead :: Type -> Type
+typeApplicationHead ty =
+  case ty of
+    TyApp function _ -> typeApplicationHead function
+    _ -> ty
+
+-- | The arguments of a type application, in source order.
+typeApplicationArguments :: Type -> [Type]
+typeApplicationArguments = go []
+  where
+    go accumulated ty =
+      case ty of
+        TyApp function argument -> go (argument : accumulated) function
+        _ -> accumulated
+
+desugarOrdinaryTermReference :: Name -> [Type] -> [Expr] -> [TcType] -> ValueM Expr
+desugarOrdinaryTermReference variable types evidence termArgumentTypes
   | nameText variable /= "seq" = do
       foreignImports <- gets vsForeignImports
       case nameOrigin variable of
@@ -4758,10 +4904,16 @@ shareSuperClass evidence resultType build = do
 withDictionaries :: [Dictionary] -> ValueM a -> ValueM a
 withDictionaries additions action = do
   previous <- gets vsDictionaries
+  previousEqualities <- gets vsGivenEqualities
   let updated = foldr insertDictionary previous additions
-  modify' (\state -> state {vsDictionaries = updated})
+      equalities =
+        [ (left, right, dictionaryBinder dictionary)
+        | dictionary <- additions,
+          EqPred left right <- [dictionaryPredicate dictionary]
+        ]
+  modify' (\state -> state {vsDictionaries = updated, vsGivenEqualities = equalities <> previousEqualities})
   result <- action
-  modify' (\state -> state {vsDictionaries = previous})
+  modify' (\state -> state {vsDictionaries = previous, vsGivenEqualities = previousEqualities})
   pure result
   where
     insertDictionary dictionary =
