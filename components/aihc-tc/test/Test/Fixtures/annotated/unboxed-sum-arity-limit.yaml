@@ -1,0 +1,8 @@
+extensions: [UnboxedSums]
+modules:
+- |
+  module Test where
+  lastAlternative :: a -> (# a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a | a #)
+  lastAlternative x = (#  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | x #)
+status: pass
+reason: The last alternative of a 63-way sum preserves its payload type.

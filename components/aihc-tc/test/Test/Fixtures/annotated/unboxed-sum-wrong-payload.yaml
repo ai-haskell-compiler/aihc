@@ -1,0 +1,19 @@
+extensions: [UnboxedSums]
+modules:
+- |
+  module Test where
+  data Flag = Off | On
+  value :: Flag -> (# Flag | () #)
+  value _ = (# () | #)
+annotated:
+- |-
+  module Test where
+  data Flag = Off | On
+       │      │     └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  value :: Flag -> (# Flag | () #)
+  value _ = (# () | #)
+            └─ error: expression has type Sum2# () (), but expected Sum2# Flag () from the type signature for value
+status: pass
+reason: The selected sum alternative must have the declared payload type.
