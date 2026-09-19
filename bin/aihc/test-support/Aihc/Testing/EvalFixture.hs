@@ -22,6 +22,7 @@ where
 import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments, noCapiStubOptions)
 import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
+import Aihc.Cli.CoreLibrarySource (coreLibraryHeaderDirectory, preprocessCoreLibraryModule)
 import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget (AppleArm64), OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser
@@ -534,8 +535,9 @@ loadEvalEnvironment :: IO EvalEnvironment
 loadEvalEnvironment = do
   primRoot <- packageSourceRoot "AIHC_PRIM_SRC" "aihc-prim"
   baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
-  primModules <- loadPackageModules primPackage primRoot
-  baseModules <- loadPackageModules unnamedPackage baseRoot
+  headerDirectory <- coreLibraryHeaderDirectory
+  primModules <- loadPackageModules headerDirectory primPackage primRoot
+  baseModules <- loadPackageModules headerDirectory unnamedPackage baseRoot
   let packageModules = orderPackageModules (primModules <> baseModules)
   let exports = collectModuleExportsWithDeps mempty packageModules
       builtinScope = evalBuiltinScope exports
@@ -591,12 +593,12 @@ packageSourceRoot variable packageName = do
 -- | Parse every Haskell source file of a core library, taking the shared
 -- @src@ directory and the one that belongs to the platform the fixture runs
 -- on.
-loadPackageModules :: Package -> FilePath -> IO [ModuleUnit]
-loadPackageModules package root = do
+loadPackageModules :: FilePath -> Package -> FilePath -> IO [ModuleUnit]
+loadPackageModules headerDirectory package root = do
   directories <- packageSourceDirectories root
   paths <- concat <$> mapM listSourceFiles directories
   forM (sort paths) $ \path -> do
-    source <- TIO.readFile path
+    source <- preprocessCoreLibraryModule headerDirectory path =<< TIO.readFile path
     case parseOneModule path [] source of
       Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
       Right modu -> pure (ModuleUnit package (fixtureExtensions fixtureLanguageEdition modu) modu)

@@ -12,6 +12,7 @@ module Aihc.Dev.ExtractHi
   )
 where
 
+import Aihc.Cli.CoreLibrarySource (coreLibraryHeaderDirectory, preprocessCoreLibraryModule)
 import Aihc.Dev.ExtractHi.GhcSession (withReadIface)
 import Aihc.Dev.ExtractHi.Types
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -111,7 +112,8 @@ extractPackage pkgName = do
 extractSourcePackage :: FilePath -> String -> IO PackageInterface
 extractSourcePackage root pkgName = do
   exposedMods <- exposedSourceModules root
-  modules <- mapM (extractSourceModule (root </> "src")) exposedMods
+  headerDirectory <- coreLibraryHeaderDirectory
+  modules <- mapM (extractSourceModule headerDirectory (root </> "src")) exposedMods
   pure
     PackageInterface
       { piPackage = T.pack pkgName,
@@ -588,15 +590,16 @@ genericPackageExposedModules gpd =
     modName <- exposedModules (condTreeData libTree)
   ]
 
-extractSourceModule :: FilePath -> String -> IO ModuleInterface
-extractSourceModule srcRoot modPath = do
+extractSourceModule :: FilePath -> FilePath -> String -> IO ModuleInterface
+extractSourceModule headerDirectory srcRoot modPath = do
   let sourcePath = srcRoot </> modPath <.> "hs"
       modName = T.pack (map pathSepToDot modPath)
   exists <- doesFileExist sourcePath
   if not exists
     then ioError (userError ("source module " <> T.unpack modName <> " not found at " <> sourcePath))
     else do
-      source <- TE.decodeUtf8 <$> BS.readFile sourcePath
+      raw <- TE.decodeUtf8 <$> BS.readFile sourcePath
+      source <- preprocessCoreLibraryModule headerDirectory sourcePath raw
       let (errs, parsed) =
             parseModule
               (defaultConfig {parserSourceName = sourcePath})

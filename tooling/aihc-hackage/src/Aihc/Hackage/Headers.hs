@@ -20,6 +20,7 @@ module Aihc.Hackage.Headers
     compilerHeaderTexts,
     writeCompilerHeaders,
     haskellWordCppMacros,
+    errnoConstantMacros,
   )
 where
 
@@ -77,7 +78,7 @@ haskellWordCppMacros =
 -- | Every header of the target, keyed by the name that includes it.
 compilerHeaderTexts :: HeaderTarget -> [(FilePath, Text)]
 compilerHeaderTexts target =
-  [ ("ghcautoconf.h", header "GHCAUTOCONF_H" ["#include \"ghcplatform.h\""] []),
+  [ ("ghcautoconf.h", header "GHCAUTOCONF_H" ["#include \"ghcplatform.h\""] (errnoConstantMacros target)),
     -- Modern GHC's base package reduces this legacy header to a redirect.
     ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] []),
     ("ghcplatform.h", ghcplatformHeader target),
@@ -274,6 +275,147 @@ rtsHeader =
       "void unblockUserSignals(void);",
       "HsBool rtsSupportsBoundThreads(void);"
     ]
+
+-- | The @CONST_E@/xxx/@ macros that @Foreign.C.Error@ reads for the target.
+--
+-- GHC writes the same macros, into the same header, from its configure
+-- script: the module that reads them is CPP over a plain @.hs@ file, so each
+-- constant ends up an integer literal rather than a call into C.  aihc runs
+-- no configure script and cross-compiles to every target from one build, so
+-- the numbers are a table here instead of an answer from the C compiler of
+-- the machine that happens to be compiling.
+--
+-- That is sound because an @errno@ value is part of the ABI of its platform.
+-- It is fixed for the operating system -- not for the architecture, the
+-- libc, or their versions -- so the table needs one column per OS.  The
+-- three differ completely: @EAGAIN@ is 11 on Linux, 35 on macOS and 6 under
+-- WASI, and wasi-libc even moves @EPERM@, which every Unix inherited as 1
+-- from V7, to 63, because it numbers its errors alphabetically.
+--
+-- @Test.Hackage.Errno@ checks the column of the host against the host's own
+-- @errno.h@, so a wrong number fails a test rather than mislabelling an
+-- error at runtime.
+errnoConstantMacros :: HeaderTarget -> [(Text, Text)]
+errnoConstantMacros target =
+  [ ("CONST_" <> name, tshow (select darwin linux wasi))
+  | (name, darwin, linux, wasi) <- errnoConstants
+  ]
+  where
+    select darwin linux wasi =
+      case headerOs target of
+        "darwin" -> darwin
+        "wasi" -> wasi
+        _ -> linux
+
+-- | Every error @Foreign.C.Error@ names, with its value on macOS, on Linux
+-- and under WASI.
+--
+-- A name the platform's C library does not define is @-1@, which no
+-- operation reports and which @isValidErrno@ rejects.  GHC's configure
+-- writes @-1@ for the same reason.
+errnoConstants :: [(Text, Int, Int, Int)]
+errnoConstants =
+  -- name, darwin, linux, wasi
+  [ ("E2BIG", 7, 7, 1),
+    ("EACCES", 13, 13, 2),
+    ("EADDRINUSE", 48, 98, 3),
+    ("EADDRNOTAVAIL", 49, 99, 4),
+    ("EADV", -1, 68, -1),
+    ("EAFNOSUPPORT", 47, 97, 5),
+    ("EAGAIN", 35, 11, 6),
+    ("EALREADY", 37, 114, 7),
+    ("EBADF", 9, 9, 8),
+    ("EBADMSG", 94, 74, 9),
+    ("EBADRPC", 72, -1, -1),
+    ("EBUSY", 16, 16, 10),
+    ("ECHILD", 10, 10, 12),
+    ("ECOMM", -1, 70, -1),
+    ("ECONNABORTED", 53, 103, 13),
+    ("ECONNREFUSED", 61, 111, 14),
+    ("ECONNRESET", 54, 104, 15),
+    ("EDEADLK", 11, 35, 16),
+    ("EDESTADDRREQ", 39, 89, 17),
+    ("EDIRTY", -1, -1, -1),
+    ("EDOM", 33, 33, 18),
+    ("EDQUOT", 69, 122, 19),
+    ("EEXIST", 17, 17, 20),
+    ("EFAULT", 14, 14, 21),
+    ("EFBIG", 27, 27, 22),
+    ("EFTYPE", 79, -1, -1),
+    ("EHOSTDOWN", 64, 112, -1),
+    ("EHOSTUNREACH", 65, 113, 23),
+    ("EIDRM", 90, 43, 24),
+    ("EILSEQ", 92, 84, 25),
+    ("EINPROGRESS", 36, 115, 26),
+    ("EINTR", 4, 4, 27),
+    ("EINVAL", 22, 22, 28),
+    ("EIO", 5, 5, 29),
+    ("EISCONN", 56, 106, 30),
+    ("EISDIR", 21, 21, 31),
+    ("ELOOP", 62, 40, 32),
+    ("EMFILE", 24, 24, 33),
+    ("EMLINK", 31, 31, 34),
+    ("EMSGSIZE", 40, 90, 35),
+    ("EMULTIHOP", 95, 72, 36),
+    ("ENAMETOOLONG", 63, 36, 37),
+    ("ENETDOWN", 50, 100, 38),
+    ("ENETRESET", 52, 102, 39),
+    ("ENETUNREACH", 51, 101, 40),
+    ("ENFILE", 23, 23, 41),
+    ("ENOBUFS", 55, 105, 42),
+    ("ENODATA", 96, 61, -1),
+    ("ENODEV", 19, 19, 43),
+    ("ENOENT", 2, 2, 44),
+    ("ENOEXEC", 8, 8, 45),
+    ("ENOLCK", 77, 37, 46),
+    ("ENOLINK", 97, 67, 47),
+    ("ENOMEM", 12, 12, 48),
+    ("ENOMSG", 91, 42, 49),
+    ("ENONET", -1, 64, -1),
+    ("ENOPROTOOPT", 42, 92, 50),
+    ("ENOSPC", 28, 28, 51),
+    ("ENOSR", 98, 63, -1),
+    ("ENOSTR", 99, 60, -1),
+    ("ENOSYS", 78, 38, 52),
+    ("ENOTBLK", 15, 15, -1),
+    ("ENOTCONN", 57, 107, 53),
+    ("ENOTDIR", 20, 20, 54),
+    ("ENOTEMPTY", 66, 39, 55),
+    ("ENOTSOCK", 38, 88, 57),
+    ("ENOTSUP", 45, 95, 58),
+    ("ENOTTY", 25, 25, 59),
+    ("ENXIO", 6, 6, 60),
+    ("EOPNOTSUPP", 102, 95, 58),
+    ("EPERM", 1, 1, 63),
+    ("EPFNOSUPPORT", 46, 96, -1),
+    ("EPIPE", 32, 32, 64),
+    ("EPROCLIM", 67, -1, -1),
+    ("EPROCUNAVAIL", 76, -1, -1),
+    ("EPROGMISMATCH", 75, -1, -1),
+    ("EPROGUNAVAIL", 74, -1, -1),
+    ("EPROTO", 100, 71, 65),
+    ("EPROTONOSUPPORT", 43, 93, 66),
+    ("EPROTOTYPE", 41, 91, 67),
+    ("ERANGE", 34, 34, 68),
+    ("EREMCHG", -1, 78, -1),
+    ("EREMOTE", 71, 66, -1),
+    ("EROFS", 30, 30, 69),
+    ("ERPCMISMATCH", 73, -1, -1),
+    ("ERREMOTE", -1, -1, -1),
+    ("ESHUTDOWN", 58, 108, -1),
+    ("ESOCKTNOSUPPORT", 44, 94, -1),
+    ("ESPIPE", 29, 29, 70),
+    ("ESRCH", 3, 3, 71),
+    ("ESRMNT", -1, 69, -1),
+    ("ESTALE", 70, 116, 72),
+    ("ETIME", 101, 62, -1),
+    ("ETIMEDOUT", 60, 110, 73),
+    ("ETOOMANYREFS", 59, 109, -1),
+    ("ETXTBSY", 26, 26, 74),
+    ("EUSERS", 68, 87, -1),
+    ("EWOULDBLOCK", 35, 11, 6),
+    ("EXDEV", 18, 18, 75)
+  ]
 
 sizeAndAlignment :: (Text, Int) -> [(Text, Text)]
 sizeAndAlignment (name, bytes) =

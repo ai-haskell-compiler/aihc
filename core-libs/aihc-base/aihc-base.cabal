@@ -298,9 +298,6 @@ library
       src-posix
       src
 
-  -- Foreign.C.Error reads the error numbers of the target out of this header,
-  -- because their values differ between the platforms.
-  include-dirs: include
   build-depends: aihc-prim ==0.13.0
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall
