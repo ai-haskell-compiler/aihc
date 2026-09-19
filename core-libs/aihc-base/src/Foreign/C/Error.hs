@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -7,26 +6,20 @@
 -- Prelude, which imports this module.
 {-# HLINT ignore "Use void" #-}
 
--- Every constant is written @Errno (CONST_Exxx)@, and the brackets are not
--- redundant: a name the platform does not have expands to @-1@, and
--- @Errno -1@ is a parse error. GHC's own Foreign.C.Error brackets them for
--- the same reason. hlint reads the source before CPP, where each macro is
--- still one identifier.
-{-# HLINT ignore "Redundant bracket" #-}
-
 -- | C error numbers and their IO error forms.
 --
 -- Each constant is the value the C library of the target gives the error.
 -- The numbers differ between the platforms -- @EAGAIN@ is 11 on Linux, 35 on
--- macOS and 6 under WASI -- so none of them is written out here: each comes
--- from a @CONST_E@/xxx/@ macro of @HsBaseConfig.h@, which the compiler writes
--- for the target it is compiling for. An error the platform does not have is
--- @-1@, which 'isValidErrno' rejects, as it does in GHC.
+-- macOS and 6 under WASI -- so none of them is written out here: they come
+-- from "Foreign.C.Error.Repr", which has one copy per platform and which the
+-- cabal file picks between, as it does for the POSIX type widths. An error
+-- the platform does not have is @-1@ there, which 'isValidErrno' rejects, as
+-- it does in GHC.
 --
--- This is how GHC states them too, which is why the constants are macros
--- rather than @capi@ imports of the C names: after the CPP pass each one is
--- an integer literal, so a comparison against it is a comparison against a
--- number and not a call into C.
+-- Each constant is therefore an integer literal, so a comparison against one
+-- is a comparison against a number rather than a call into C. GHC arrives at
+-- the same place by a different road: its configure script writes the
+-- numbers into a header its @Foreign.C.Error@ reads through CPP.
 --
 -- @errno@ itself is a macro over a thread-local location, so 'getErrno'
 -- and 'resetErrno' reach it through a runtime shim rather than naming it
@@ -157,12 +150,9 @@ module Foreign.C.Error
   )
 where
 
--- This is where the CONST_Exxx definitions come from; the compiler writes
--- them for the target, as GHC's configure script writes them for its host.
-#include "HsBaseConfig.h"
-
 import Data.Bool (Bool (..), not)
 import Data.Maybe (Maybe (..))
+import Foreign.C.Error.Repr
 import Foreign.C.Types (CInt)
 import GHC.Base (Applicative (..), Monad (..), String, (++))
 import GHC.IO (FilePath, IO)
@@ -183,301 +173,301 @@ eOK :: Errno
 eOK = Errno 0
 
 ePERM :: Errno
-ePERM = Errno (CONST_EPERM)
+ePERM = Errno cErrnoPERM
 
 eNOENT :: Errno
-eNOENT = Errno (CONST_ENOENT)
+eNOENT = Errno cErrnoNOENT
 
 eSRCH :: Errno
-eSRCH = Errno (CONST_ESRCH)
+eSRCH = Errno cErrnoSRCH
 
 eINTR :: Errno
-eINTR = Errno (CONST_EINTR)
+eINTR = Errno cErrnoINTR
 
 eIO :: Errno
-eIO = Errno (CONST_EIO)
+eIO = Errno cErrnoIO
 
 eNXIO :: Errno
-eNXIO = Errno (CONST_ENXIO)
+eNXIO = Errno cErrnoNXIO
 
 e2BIG :: Errno
-e2BIG = Errno (CONST_E2BIG)
+e2BIG = Errno cErrno2BIG
 
 eNOEXEC :: Errno
-eNOEXEC = Errno (CONST_ENOEXEC)
+eNOEXEC = Errno cErrnoNOEXEC
 
 eBADF :: Errno
-eBADF = Errno (CONST_EBADF)
+eBADF = Errno cErrnoBADF
 
 eCHILD :: Errno
-eCHILD = Errno (CONST_ECHILD)
+eCHILD = Errno cErrnoCHILD
 
 eDEADLK :: Errno
-eDEADLK = Errno (CONST_EDEADLK)
+eDEADLK = Errno cErrnoDEADLK
 
 eNOMEM :: Errno
-eNOMEM = Errno (CONST_ENOMEM)
+eNOMEM = Errno cErrnoNOMEM
 
 eACCES :: Errno
-eACCES = Errno (CONST_EACCES)
+eACCES = Errno cErrnoACCES
 
 eFAULT :: Errno
-eFAULT = Errno (CONST_EFAULT)
+eFAULT = Errno cErrnoFAULT
 
 eNOTBLK :: Errno
-eNOTBLK = Errno (CONST_ENOTBLK)
+eNOTBLK = Errno cErrnoNOTBLK
 
 eBUSY :: Errno
-eBUSY = Errno (CONST_EBUSY)
+eBUSY = Errno cErrnoBUSY
 
 eEXIST :: Errno
-eEXIST = Errno (CONST_EEXIST)
+eEXIST = Errno cErrnoEXIST
 
 eXDEV :: Errno
-eXDEV = Errno (CONST_EXDEV)
+eXDEV = Errno cErrnoXDEV
 
 eNODEV :: Errno
-eNODEV = Errno (CONST_ENODEV)
+eNODEV = Errno cErrnoNODEV
 
 eNOTDIR :: Errno
-eNOTDIR = Errno (CONST_ENOTDIR)
+eNOTDIR = Errno cErrnoNOTDIR
 
 eISDIR :: Errno
-eISDIR = Errno (CONST_EISDIR)
+eISDIR = Errno cErrnoISDIR
 
 eINVAL :: Errno
-eINVAL = Errno (CONST_EINVAL)
+eINVAL = Errno cErrnoINVAL
 
 eNFILE :: Errno
-eNFILE = Errno (CONST_ENFILE)
+eNFILE = Errno cErrnoNFILE
 
 eMFILE :: Errno
-eMFILE = Errno (CONST_EMFILE)
+eMFILE = Errno cErrnoMFILE
 
 eNOTTY :: Errno
-eNOTTY = Errno (CONST_ENOTTY)
+eNOTTY = Errno cErrnoNOTTY
 
 eTXTBSY :: Errno
-eTXTBSY = Errno (CONST_ETXTBSY)
+eTXTBSY = Errno cErrnoTXTBSY
 
 eFBIG :: Errno
-eFBIG = Errno (CONST_EFBIG)
+eFBIG = Errno cErrnoFBIG
 
 eNOSPC :: Errno
-eNOSPC = Errno (CONST_ENOSPC)
+eNOSPC = Errno cErrnoNOSPC
 
 eSPIPE :: Errno
-eSPIPE = Errno (CONST_ESPIPE)
+eSPIPE = Errno cErrnoSPIPE
 
 eROFS :: Errno
-eROFS = Errno (CONST_EROFS)
+eROFS = Errno cErrnoROFS
 
 eMLINK :: Errno
-eMLINK = Errno (CONST_EMLINK)
+eMLINK = Errno cErrnoMLINK
 
 ePIPE :: Errno
-ePIPE = Errno (CONST_EPIPE)
+ePIPE = Errno cErrnoPIPE
 
 eDOM :: Errno
-eDOM = Errno (CONST_EDOM)
+eDOM = Errno cErrnoDOM
 
 eRANGE :: Errno
-eRANGE = Errno (CONST_ERANGE)
+eRANGE = Errno cErrnoRANGE
 
 eAGAIN :: Errno
-eAGAIN = Errno (CONST_EAGAIN)
+eAGAIN = Errno cErrnoAGAIN
 
 eINPROGRESS :: Errno
-eINPROGRESS = Errno (CONST_EINPROGRESS)
+eINPROGRESS = Errno cErrnoINPROGRESS
 
 eALREADY :: Errno
-eALREADY = Errno (CONST_EALREADY)
+eALREADY = Errno cErrnoALREADY
 
 eNOTSOCK :: Errno
-eNOTSOCK = Errno (CONST_ENOTSOCK)
+eNOTSOCK = Errno cErrnoNOTSOCK
 
 eDESTADDRREQ :: Errno
-eDESTADDRREQ = Errno (CONST_EDESTADDRREQ)
+eDESTADDRREQ = Errno cErrnoDESTADDRREQ
 
 eMSGSIZE :: Errno
-eMSGSIZE = Errno (CONST_EMSGSIZE)
+eMSGSIZE = Errno cErrnoMSGSIZE
 
 ePROTOTYPE :: Errno
-ePROTOTYPE = Errno (CONST_EPROTOTYPE)
+ePROTOTYPE = Errno cErrnoPROTOTYPE
 
 eNOPROTOOPT :: Errno
-eNOPROTOOPT = Errno (CONST_ENOPROTOOPT)
+eNOPROTOOPT = Errno cErrnoNOPROTOOPT
 
 ePROTONOSUPPORT :: Errno
-ePROTONOSUPPORT = Errno (CONST_EPROTONOSUPPORT)
+ePROTONOSUPPORT = Errno cErrnoPROTONOSUPPORT
 
 eSOCKTNOSUPPORT :: Errno
-eSOCKTNOSUPPORT = Errno (CONST_ESOCKTNOSUPPORT)
+eSOCKTNOSUPPORT = Errno cErrnoSOCKTNOSUPPORT
 
 eNOTSUP :: Errno
-eNOTSUP = Errno (CONST_ENOTSUP)
+eNOTSUP = Errno cErrnoNOTSUP
 
 ePFNOSUPPORT :: Errno
-ePFNOSUPPORT = Errno (CONST_EPFNOSUPPORT)
+ePFNOSUPPORT = Errno cErrnoPFNOSUPPORT
 
 eAFNOSUPPORT :: Errno
-eAFNOSUPPORT = Errno (CONST_EAFNOSUPPORT)
+eAFNOSUPPORT = Errno cErrnoAFNOSUPPORT
 
 eADDRINUSE :: Errno
-eADDRINUSE = Errno (CONST_EADDRINUSE)
+eADDRINUSE = Errno cErrnoADDRINUSE
 
 eADDRNOTAVAIL :: Errno
-eADDRNOTAVAIL = Errno (CONST_EADDRNOTAVAIL)
+eADDRNOTAVAIL = Errno cErrnoADDRNOTAVAIL
 
 eNETDOWN :: Errno
-eNETDOWN = Errno (CONST_ENETDOWN)
+eNETDOWN = Errno cErrnoNETDOWN
 
 eNETUNREACH :: Errno
-eNETUNREACH = Errno (CONST_ENETUNREACH)
+eNETUNREACH = Errno cErrnoNETUNREACH
 
 eNETRESET :: Errno
-eNETRESET = Errno (CONST_ENETRESET)
+eNETRESET = Errno cErrnoNETRESET
 
 eCONNABORTED :: Errno
-eCONNABORTED = Errno (CONST_ECONNABORTED)
+eCONNABORTED = Errno cErrnoCONNABORTED
 
 eCONNRESET :: Errno
-eCONNRESET = Errno (CONST_ECONNRESET)
+eCONNRESET = Errno cErrnoCONNRESET
 
 eNOBUFS :: Errno
-eNOBUFS = Errno (CONST_ENOBUFS)
+eNOBUFS = Errno cErrnoNOBUFS
 
 eISCONN :: Errno
-eISCONN = Errno (CONST_EISCONN)
+eISCONN = Errno cErrnoISCONN
 
 eNOTCONN :: Errno
-eNOTCONN = Errno (CONST_ENOTCONN)
+eNOTCONN = Errno cErrnoNOTCONN
 
 eSHUTDOWN :: Errno
-eSHUTDOWN = Errno (CONST_ESHUTDOWN)
+eSHUTDOWN = Errno cErrnoSHUTDOWN
 
 eTOOMANYREFS :: Errno
-eTOOMANYREFS = Errno (CONST_ETOOMANYREFS)
+eTOOMANYREFS = Errno cErrnoTOOMANYREFS
 
 eTIMEDOUT :: Errno
-eTIMEDOUT = Errno (CONST_ETIMEDOUT)
+eTIMEDOUT = Errno cErrnoTIMEDOUT
 
 eCONNREFUSED :: Errno
-eCONNREFUSED = Errno (CONST_ECONNREFUSED)
+eCONNREFUSED = Errno cErrnoCONNREFUSED
 
 eLOOP :: Errno
-eLOOP = Errno (CONST_ELOOP)
+eLOOP = Errno cErrnoLOOP
 
 eNAMETOOLONG :: Errno
-eNAMETOOLONG = Errno (CONST_ENAMETOOLONG)
+eNAMETOOLONG = Errno cErrnoNAMETOOLONG
 
 eHOSTDOWN :: Errno
-eHOSTDOWN = Errno (CONST_EHOSTDOWN)
+eHOSTDOWN = Errno cErrnoHOSTDOWN
 
 eHOSTUNREACH :: Errno
-eHOSTUNREACH = Errno (CONST_EHOSTUNREACH)
+eHOSTUNREACH = Errno cErrnoHOSTUNREACH
 
 eNOTEMPTY :: Errno
-eNOTEMPTY = Errno (CONST_ENOTEMPTY)
+eNOTEMPTY = Errno cErrnoNOTEMPTY
 
 ePROCLIM :: Errno
-ePROCLIM = Errno (CONST_EPROCLIM)
+ePROCLIM = Errno cErrnoPROCLIM
 
 eUSERS :: Errno
-eUSERS = Errno (CONST_EUSERS)
+eUSERS = Errno cErrnoUSERS
 
 eDQUOT :: Errno
-eDQUOT = Errno (CONST_EDQUOT)
+eDQUOT = Errno cErrnoDQUOT
 
 eSTALE :: Errno
-eSTALE = Errno (CONST_ESTALE)
+eSTALE = Errno cErrnoSTALE
 
 eREMOTE :: Errno
-eREMOTE = Errno (CONST_EREMOTE)
+eREMOTE = Errno cErrnoREMOTE
 
 eBADRPC :: Errno
-eBADRPC = Errno (CONST_EBADRPC)
+eBADRPC = Errno cErrnoBADRPC
 
 eRPCMISMATCH :: Errno
-eRPCMISMATCH = Errno (CONST_ERPCMISMATCH)
+eRPCMISMATCH = Errno cErrnoRPCMISMATCH
 
 ePROGUNAVAIL :: Errno
-ePROGUNAVAIL = Errno (CONST_EPROGUNAVAIL)
+ePROGUNAVAIL = Errno cErrnoPROGUNAVAIL
 
 ePROGMISMATCH :: Errno
-ePROGMISMATCH = Errno (CONST_EPROGMISMATCH)
+ePROGMISMATCH = Errno cErrnoPROGMISMATCH
 
 ePROCUNAVAIL :: Errno
-ePROCUNAVAIL = Errno (CONST_EPROCUNAVAIL)
+ePROCUNAVAIL = Errno cErrnoPROCUNAVAIL
 
 eNOLCK :: Errno
-eNOLCK = Errno (CONST_ENOLCK)
+eNOLCK = Errno cErrnoNOLCK
 
 eNOSYS :: Errno
-eNOSYS = Errno (CONST_ENOSYS)
+eNOSYS = Errno cErrnoNOSYS
 
 eFTYPE :: Errno
-eFTYPE = Errno (CONST_EFTYPE)
+eFTYPE = Errno cErrnoFTYPE
 
 eIDRM :: Errno
-eIDRM = Errno (CONST_EIDRM)
+eIDRM = Errno cErrnoIDRM
 
 eNOMSG :: Errno
-eNOMSG = Errno (CONST_ENOMSG)
+eNOMSG = Errno cErrnoNOMSG
 
 eOPNOTSUPP :: Errno
-eOPNOTSUPP = Errno (CONST_EOPNOTSUPP)
+eOPNOTSUPP = Errno cErrnoOPNOTSUPP
 
 eILSEQ :: Errno
-eILSEQ = Errno (CONST_EILSEQ)
+eILSEQ = Errno cErrnoILSEQ
 
 eBADMSG :: Errno
-eBADMSG = Errno (CONST_EBADMSG)
+eBADMSG = Errno cErrnoBADMSG
 
 eMULTIHOP :: Errno
-eMULTIHOP = Errno (CONST_EMULTIHOP)
+eMULTIHOP = Errno cErrnoMULTIHOP
 
 eNODATA :: Errno
-eNODATA = Errno (CONST_ENODATA)
+eNODATA = Errno cErrnoNODATA
 
 eNOLINK :: Errno
-eNOLINK = Errno (CONST_ENOLINK)
+eNOLINK = Errno cErrnoNOLINK
 
 eNOSR :: Errno
-eNOSR = Errno (CONST_ENOSR)
+eNOSR = Errno cErrnoNOSR
 
 eNOSTR :: Errno
-eNOSTR = Errno (CONST_ENOSTR)
+eNOSTR = Errno cErrnoNOSTR
 
 ePROTO :: Errno
-ePROTO = Errno (CONST_EPROTO)
+ePROTO = Errno cErrnoPROTO
 
 eTIME :: Errno
-eTIME = Errno (CONST_ETIME)
+eTIME = Errno cErrnoTIME
 
 eADV :: Errno
-eADV = Errno (CONST_EADV)
+eADV = Errno cErrnoADV
 
 eCOMM :: Errno
-eCOMM = Errno (CONST_ECOMM)
+eCOMM = Errno cErrnoCOMM
 
 eDIRTY :: Errno
-eDIRTY = Errno (CONST_EDIRTY)
+eDIRTY = Errno cErrnoDIRTY
 
 eNONET :: Errno
-eNONET = Errno (CONST_ENONET)
+eNONET = Errno cErrnoNONET
 
 eREMCHG :: Errno
-eREMCHG = Errno (CONST_EREMCHG)
+eREMCHG = Errno cErrnoREMCHG
 
 eRREMOTE :: Errno
-eRREMOTE = Errno (CONST_ERREMOTE)
+eRREMOTE = Errno cErrnoRREMOTE
 
 eSRMNT :: Errno
-eSRMNT = Errno (CONST_ESRMNT)
+eSRMNT = Errno cErrnoSRMNT
 
 eWOULDBLOCK :: Errno
-eWOULDBLOCK = Errno (CONST_EWOULDBLOCK)
+eWOULDBLOCK = Errno cErrnoWOULDBLOCK
 
 isValidErrno :: Errno -> Bool
 isValidErrno (Errno value) = value /= negate 1

@@ -21,9 +21,8 @@ where
 
 import Aihc.Capi (CapiWrapper, interfaceCapiWrappers, renderCapiStub)
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments, noCapiStubOptions)
-import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders, headerTargetFor)
+import Aihc.Cli.CompilerHeaders (ensureCompilerHeaders)
 import Aihc.Fc qualified as Fc
-import Aihc.Hackage.Headers (HeaderTarget)
 import Aihc.Native (NativeTarget (AppleArm64), OptimizationLevel (O2), backendCompiler, hostNativeTarget)
 import Aihc.Parser
   ( ParseResult (..),
@@ -64,7 +63,6 @@ import Aihc.Resolve
     unnamedPackage,
   )
 import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
-import Aihc.Testing.CoreLibrarySource (preprocessCoreLibraryModule)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
 import Control.Monad (filterM, forM, unless)
@@ -536,11 +534,8 @@ loadEvalEnvironment :: IO EvalEnvironment
 loadEvalEnvironment = do
   primRoot <- packageSourceRoot "AIHC_PRIM_SRC" "aihc-prim"
   baseRoot <- packageSourceRoot "AIHC_BASE_SRC" "aihc-base"
-  headerTarget <- case hostNativeTarget of
-    Just target -> pure (headerTargetFor target)
-    Nothing -> fail "reading the core library sources needs a native target for this host"
-  primModules <- loadPackageModules headerTarget primPackage primRoot
-  baseModules <- loadPackageModules headerTarget unnamedPackage baseRoot
+  primModules <- loadPackageModules primPackage primRoot
+  baseModules <- loadPackageModules unnamedPackage baseRoot
   let packageModules = orderPackageModules (primModules <> baseModules)
   let exports = collectModuleExportsWithDeps mempty packageModules
       builtinScope = evalBuiltinScope exports
@@ -596,13 +591,12 @@ packageSourceRoot variable packageName = do
 -- | Parse every Haskell source file of a core library, taking the shared
 -- @src@ directory and the one that belongs to the platform the fixture runs
 -- on.
-loadPackageModules :: HeaderTarget -> Package -> FilePath -> IO [ModuleUnit]
-loadPackageModules headerTarget package root = do
+loadPackageModules :: Package -> FilePath -> IO [ModuleUnit]
+loadPackageModules package root = do
   directories <- packageSourceDirectories root
   paths <- concat <$> mapM listSourceFiles directories
   forM (sort paths) $ \path -> do
-    raw <- TIO.readFile path
-    source <- either fail pure (preprocessCoreLibraryModule headerTarget path raw)
+    source <- TIO.readFile path
     case parseOneModule path [] source of
       Left errMsg -> fail ("core library module " <> path <> ": " <> errMsg)
       Right modu -> pure (ModuleUnit package (fixtureExtensions fixtureLanguageEdition modu) modu)
