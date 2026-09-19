@@ -627,8 +627,16 @@ static void report_collection(uint64_t required_bytes) {
     print_pointer(thread->resume_value);
     printf("\n");
   }
+  const AihcBlackhole *previous_blackhole = NULL;
   for (const AihcBlackhole *blackhole = machine->blackholes; blackhole != NULL;
        blackhole = blackhole->next) {
+    if (blackhole->previous != previous_blackhole) {
+      violation("blackhole previous link is incorrect");
+    }
+    if (aihc_value_info_table(blackhole->object) != &blackhole->info) {
+      violation("blackhole header does not name its scheduler record");
+    }
+    previous_blackhole = blackhole;
     printf("blackhole");
     print_pointer((AihcSlot)(uintptr_t)blackhole->object);
     printf("\n");
