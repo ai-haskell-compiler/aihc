@@ -57,12 +57,14 @@ struct AihcThread {
 typedef struct AihcTransactionWrite AihcTransactionWrite;
 
 struct AihcTransactionWrite {
+  AihcSlot header;
   AihcValue *variable;
   AihcSlot previous;
   AihcTransactionWrite *next;
 };
 
 struct AihcTransactionTimer {
+  AihcSlot header;
   AihcValue *variable;
   AihcSlot final;
   uint64_t deadline;
@@ -70,6 +72,7 @@ struct AihcTransactionTimer {
 };
 
 struct AihcTransaction {
+  AihcSlot header;
   AihcTransactionWrite *writes;
   AihcTransaction *parent;
 };
@@ -154,6 +157,9 @@ struct AihcIoBackend {
 
 typedef AihcSlot (*AihcRootVisitor)(AihcSlot root, void *context);
 
+int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
+                              void *context);
+
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcMachine *machine);
 void *aihc_allocate_zeroed(uint64_t bytes);
@@ -199,6 +205,8 @@ void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
                      AihcSlot *roots);
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots);
+/* Consume reserved memory without collection. Initialize the object before
+   any subsequent call that can collect. */
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words);
 /* Raise heap_peak_bytes to what the current space holds now. */
 void aihc_gc_record_peak(AihcMachine *machine);

@@ -249,6 +249,9 @@ static void aihc_scan_object(AihcForwardingContext *context,
   const AihcInfo *info = aihc_value_info_table(object);
   AihcObjectKind kind = info->object_kind;
   uint64_t count = info->field_count;
+  if (aihc_visit_runtime_object(object, aihc_forward_root, context)) {
+    return;
+  }
   if (kind == AIHC_OBJECT_RUNTIME || kind == AIHC_OBJECT_THREAD) {
     /* Runtime objects hold no heap pointers of their own. The scheduler
        visits the resume record of a thread as a root. */
@@ -460,9 +463,15 @@ void aihc_gc_collect(AihcMachine *machine, uint64_t words, uint64_t root_count,
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots) {
   size_t bytes = aihc_reservation_bytes(machine, words);
+#ifdef AIHC_GC_STRESS
+  /* Test every explicit reservation with relocation. Allocation itself
+     still cannot collect. */
+  aihc_collect(machine, bytes, root_count, roots);
+#else
   if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, bytes, root_count, roots);
   }
+#endif
 }
 
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {

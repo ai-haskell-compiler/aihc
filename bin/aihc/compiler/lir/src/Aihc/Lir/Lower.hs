@@ -1022,7 +1022,8 @@ data FunctionCtx = FunctionCtx
   { ctxEnv :: !LowerEnv,
     ctxMachine :: !Operand,
     ctxFunctionName :: !FunctionName,
-    ctxRoots :: !(Maybe Operand)
+    ctxRoots :: !(Maybe Operand),
+    ctxRootFrame :: !(Maybe Operand)
   }
 
 type ValueEnv = Map GrinVar Typed
@@ -1046,7 +1047,11 @@ lowerFunction env function = do
     case maximumRoots (grinFunctionBody function) of
       0 -> pure Nothing
       count -> Just . typedOperand <$> emitValue "roots" Ptr (StackAlloc (toInteger (8 * count)) (byteAlignment 8))
-  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxRoots = roots}
+  frame <-
+    if maximumCallRoots (grinFunctionBody function) == 0
+      then pure Nothing
+      else Just . typedOperand <$> emitValue "root_frame" Ptr (StackAlloc 24 (byteAlignment 8))
+  let ctx = FunctionCtx {ctxEnv = env, ctxMachine = OperandVar machine, ctxFunctionName = grinFunctionName function, ctxRoots = roots, ctxRootFrame = frame}
       valueEnv = Map.fromList [(var, Typed (OperandVar lirVar) ty) | (var, lirVar, ty) <- parameters]
   compileExpr ctx valueEnv (grinFunctionBody function)
   finishFunction
@@ -1064,18 +1069,54 @@ maximumRoots :: GrinExpr -> Int
 maximumRoots expression =
   case expression of
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
-    GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
+    GrinBind vars value body -> maximum [length (callRoots vars value body), maximumRoots value, maximumRoots body]
     GrinStoreRec _ body -> maximumRoots body
     GrinStoreRecUnchecked _ body -> maximumRoots body
     GrinCase _ _ alternatives -> maximum (0 : map (maximumRoots . grinAltRhs) alternatives)
     GrinEnsureHeap _ roots -> length roots
     _ -> 0
 
+-- | Calls publish only pointer values that remain live after the call.
+callRoots :: [GrinVar] -> GrinExpr -> GrinExpr -> [GrinVar]
+callRoots vars value body =
+  case value of
+    GrinPrimitiveCall _ name _
+      | Just description <- nativeRuntimePrimitiveCall name,
+        nativeRuntimeCallMayCollect description ->
+          Set.toAscList (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars body Set.\\ Set.fromList vars))
+    _ -> []
+
+maximumCallRoots :: GrinExpr -> Int
+maximumCallRoots expression =
+  case expression of
+    GrinBind vars value body -> maximum [length (callRoots vars value body), maximumCallRoots value, maximumCallRoots body]
+    GrinStoreRecUnchecked _ body -> maximumCallRoots body
+    GrinCase _ _ alternatives -> maximum (0 : map (maximumCallRoots . grinAltRhs) alternatives)
+    _ -> 0
+
+-- | The frame is on the native stack. The collector updates its pointer slots.
+compileRootedBinding :: FunctionCtx -> ValueEnv -> [GrinVar] -> GrinExpr -> [GrinVar] -> LowerM ValueEnv
+compileRootedBinding ctx env vars value roots =
+  case (ctxRoots ctx, ctxRootFrame ctx) of
+    (Just slots, Just frame) -> do
+      forM_ (zip [0 :: Int ..] roots) $ \(index, root) -> do
+        operand <- pointerValue ctx env (GrinVarValue root)
+        storeSlot Ptr operand slots (toInteger (8 * index))
+      _ <- callRuntime "aihc_roots_push" [Ptr, Ptr, I64, Ptr] [] [ctxMachine ctx, frame, OperandLiteral (LitInt (toInteger (length roots))), slots]
+      resultEnv <- compileBinding ctx env vars value
+      _ <- callRuntime "aihc_roots_pop" [Ptr, Ptr] [] [ctxMachine ctx, frame]
+      relocated <- forM (zip [0 :: Int ..] roots) $ \(index, root) -> do
+        pointer <- loadSlot (varBase root) Ptr slots (toInteger (8 * index))
+        pure (root, pointer)
+      pure (Map.fromList relocated `Map.union` resultEnv)
+    _ -> failWith (LowerUnsupportedExpression "runtime call has no root frame")
+
 compileExpr :: FunctionCtx -> ValueEnv -> GrinExpr -> LowerM ()
 compileExpr ctx env expression =
   case expression of
     GrinBind vars value body -> do
-      env' <- compileBinding ctx env vars value
+      let roots = filter (`Map.member` env) (callRoots vars value body)
+      env' <- if null roots then compileBinding ctx env vars value else compileRootedBinding ctx env vars value roots
       compileExpr ctx env' body
     GrinStoreRec {} -> unsupported "store-rec without a heap reservation"
     GrinStoreRecUnchecked bindings body -> do

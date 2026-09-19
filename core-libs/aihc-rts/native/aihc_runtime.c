@@ -134,6 +134,20 @@ const AihcInfo aihc_runtime_object_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_RUNTIME,
 };
+static const AihcInfo aihc_transaction_info = {
+    .object_kind = AIHC_OBJECT_TRANSACTION,
+};
+static const AihcInfo aihc_transaction_write_info = {
+    .object_kind = AIHC_OBJECT_TRANSACTION_WRITE,
+};
+static const AihcInfo aihc_transaction_timer_info = {
+    .object_kind = AIHC_OBJECT_TRANSACTION_TIMER,
+};
+
+/* Native records contain C pointers, whose width depends on the target. */
+static uint64_t aihc_record_words(size_t bytes) {
+  return (bytes + sizeof(AihcSlot) - 1) / sizeof(AihcSlot);
+}
 
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
@@ -192,6 +206,16 @@ uint64_t aihc_object_words(const AihcInfo *info) {
 }
 
 uint64_t aihc_value_words(const AihcValue *value) {
+  switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_TRANSACTION:
+    return aihc_record_words(sizeof(AihcTransaction));
+  case AIHC_OBJECT_TRANSACTION_WRITE:
+    return aihc_record_words(sizeof(AihcTransactionWrite));
+  case AIHC_OBJECT_TRANSACTION_TIMER:
+    return aihc_record_words(sizeof(AihcTransactionTimer));
+  default:
+    break;
+  }
   if (aihc_value_kind(value) == AIHC_OBJECT_ARRAY) {
     return 2 + aihc_array_length(value);
   }
@@ -366,19 +390,64 @@ static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
       (AihcValue *)(uintptr_t)visitor((AihcSlot)(uintptr_t)*value, context);
 }
 
+static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
+                                void *context) {
+  return (void *)(uintptr_t)visitor((AihcSlot)(uintptr_t)pointer, context);
+}
+
+/* Trace native records through their C layouts on both target word sizes. */
+int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
+                              void *context) {
+  switch (aihc_value_kind(object)) {
+  case AIHC_OBJECT_TRANSACTION: {
+    AihcTransaction *transaction = (AihcTransaction *)object;
+    transaction->writes =
+        aihc_visit_pointer(transaction->writes, visitor, context);
+    transaction->parent =
+        aihc_visit_pointer(transaction->parent, visitor, context);
+    return 1;
+  }
+  case AIHC_OBJECT_TRANSACTION_WRITE: {
+    AihcTransactionWrite *write = (AihcTransactionWrite *)object;
+    aihc_visit_value(&write->variable, visitor, context);
+    write->previous = visitor(write->previous, context);
+    write->next = aihc_visit_pointer(write->next, visitor, context);
+    return 1;
+  }
+  case AIHC_OBJECT_TRANSACTION_TIMER: {
+    AihcTransactionTimer *timer = (AihcTransactionTimer *)object;
+    aihc_visit_value(&timer->variable, visitor, context);
+    timer->final = visitor(timer->final, context);
+    timer->next = aihc_visit_pointer(timer->next, visitor, context);
+    return 1;
+  }
+  default:
+    return 0;
+  }
+}
+
+void aihc_roots_push(AihcMachine *machine, AihcRootFrame *frame, uint64_t count,
+                     AihcSlot *slots) {
+  frame->previous = machine->root_frames;
+  frame->count = count;
+  frame->slots = slots;
+  machine->root_frames = frame;
+}
+
+void aihc_roots_pop(AihcMachine *machine, AihcRootFrame *frame) {
+  if (machine->root_frames != frame) {
+    aihc_fail("root frames are out of order");
+  }
+  machine->root_frames = frame->previous;
+}
+
 static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
                               void *context) {
   if (thread == NULL) {
     return;
   }
-  for (AihcTransaction *transaction = thread->transaction; transaction != NULL;
-       transaction = transaction->parent) {
-    for (AihcTransactionWrite *write = transaction->writes; write != NULL;
-         write = write->next) {
-      aihc_visit_value(&write->variable, visitor, context);
-      write->previous = visitor(write->previous, context);
-    }
-  }
+  thread->transaction =
+      aihc_visit_pointer(thread->transaction, visitor, context);
   aihc_visit_value(&thread->resume_function, visitor, context);
   aihc_visit_value(&thread->resume_continuation, visitor, context);
   if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
@@ -399,11 +468,14 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   for (uint64_t index = 0; index < root_count; ++index) {
     roots[index] = visitor(roots[index], context);
   }
-  for (AihcTransactionTimer *timer = machine->transaction_timers; timer != NULL;
-       timer = timer->next) {
-    aihc_visit_value(&timer->variable, visitor, context);
-    timer->final = visitor(timer->final, context);
+  for (AihcRootFrame *frame = machine->root_frames; frame != NULL;
+       frame = frame->previous) {
+    for (uint64_t index = 0; index < frame->count; ++index) {
+      frame->slots[index] = visitor(frame->slots[index], context);
+    }
   }
+  machine->transaction_timers =
+      aihc_visit_pointer(machine->transaction_timers, visitor, context);
   aihc_visit_value(&machine->thread_done_continuation, visitor, context);
   aihc_visit_value(&machine->selected_resume.function, visitor, context);
   aihc_visit_value(&machine->selected_resume.continuation, visitor, context);
@@ -1526,7 +1598,11 @@ uint64_t aihc_stm_begin(AihcMachine *machine) {
   if (machine->current_thread->transaction == NULL) {
     aihc_stm_expire_timers(machine);
   }
-  AihcTransaction *transaction = aihc_allocate_zeroed(sizeof(*transaction));
+  uint64_t words = aihc_record_words(sizeof(AihcTransaction));
+  aihc_ensure_heap(machine, words, 0, NULL);
+  AihcTransaction *transaction =
+      (AihcTransaction *)aihc_gc_allocate(machine, words);
+  transaction->header = (AihcSlot)(uintptr_t)&aihc_transaction_info;
   transaction->parent = machine->current_thread->transaction;
   machine->current_thread->transaction = transaction;
   return 0;
@@ -1542,7 +1618,15 @@ uint64_t aihc_tvar_write(AihcMachine *machine, AihcValue *variable,
   if (transaction == NULL) {
     aihc_fail("TVar write outside a transaction");
   }
-  AihcTransactionWrite *write = aihc_allocate_zeroed(sizeof(*write));
+  AihcSlot roots[] = {(AihcSlot)(uintptr_t)variable, value};
+  uint64_t words = aihc_record_words(sizeof(AihcTransactionWrite));
+  aihc_ensure_heap(machine, words, 2, roots);
+  variable = (AihcValue *)(uintptr_t)roots[0];
+  value = roots[1];
+  transaction = machine->current_thread->transaction;
+  AihcTransactionWrite *write =
+      (AihcTransactionWrite *)aihc_gc_allocate(machine, words);
+  write->header = (AihcSlot)(uintptr_t)&aihc_transaction_write_info;
   write->variable = variable;
   write->previous = variable->fields[1];
   write->next = transaction->writes;
@@ -1560,11 +1644,9 @@ uint64_t aihc_stm_abort(AihcMachine *machine) {
   while (write != NULL) {
     AihcTransactionWrite *next = write->next;
     write->variable->fields[1] = write->previous;
-    free(write);
     write = next;
   }
   machine->current_thread->transaction = transaction->parent;
-  free(transaction);
   return 0;
 }
 
@@ -1581,23 +1663,24 @@ uint64_t aihc_stm_commit(AihcMachine *machine) {
     }
     last->next = transaction->parent->writes;
     transaction->parent->writes = write;
-  } else {
-    while (write != NULL) {
-      AihcTransactionWrite *next = write->next;
-      free(write);
-      write = next;
-    }
   }
   machine->current_thread->transaction = transaction->parent;
-  free(transaction);
   return 0;
 }
 
 AihcValue *aihc_tvar_delay(AihcMachine *machine, int64_t delay,
                            AihcSlot initial, AihcSlot final) {
+  AihcSlot roots[] = {initial, final};
+  uint64_t timer_words = aihc_record_words(sizeof(AihcTransactionTimer));
+  /* Reserve the variable and timer before either object exists. */
+  aihc_ensure_heap(machine, 3 + (delay > 0 ? timer_words : 0), 2, roots);
+  initial = roots[0];
+  final = roots[1];
   AihcValue *variable = aihc_mutvar_new(machine, delay <= 0 ? final : initial);
   if (delay > 0) {
-    AihcTransactionTimer *timer = aihc_allocate_zeroed(sizeof(*timer));
+    AihcTransactionTimer *timer =
+        (AihcTransactionTimer *)aihc_gc_allocate(machine, timer_words);
+    timer->header = (AihcSlot)(uintptr_t)&aihc_transaction_timer_info;
     timer->variable = variable;
     timer->final = final;
     uint64_t now = aihc_host_monotonic_ns();
@@ -1619,7 +1702,6 @@ static void aihc_stm_expire_timers(AihcMachine *machine) {
     if (timer->deadline <= now) {
       timer->variable->fields[1] = timer->final;
       *link = timer->next;
-      free(timer);
     } else {
       link = &timer->next;
     }

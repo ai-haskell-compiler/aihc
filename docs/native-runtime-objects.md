@@ -144,8 +144,34 @@ and pending IO requests in auxiliary C allocations. Suspended threads retain
 ordinary action or continuation closures. The scheduler hands a selected thread
 back to generated code as a resume record, which the Lir resume helper
 dispatches with a tail call. All retained closure values and pending-request
-continuations are precise collector roots; live values of generated code reach
-the collector only through the root vector of an explicit safepoint.
+continuations are precise collector roots.
+Generated code exposes live values to the collector through explicit root slots.
+
+STM transactions, write logs, and timers use the managed heap.
+Each record has a header and a distinct runtime object kind.
+The collector obtains each size from its C structure.
+It traces pointer fields through that structure on both 32-bit and 64-bit targets.
+The current transaction of each live thread retains its parent transactions and write logs.
+The machine timer list retains timer variables and final values until expiry.
+Commit, abort, and expiry remove references without direct memory release.
+These records count toward managed allocation statistics and the `-M` limit.
+
+An ordinary runtime call can collect only when its native call description permits collection.
+Generated code stores live caller pointers in a root frame before such a call.
+The machine links these frames, so nested runtime calls can retain separate roots.
+After the call, generated code removes the frame and reloads the relocated pointers.
+Runtime helpers also protect their own arguments across collection.
+The reservation API visits these local roots and all linked root frames.
+Only pointer values belong in these root slots.
+Raw addresses and scalar values do not belong in them.
+
+`aihc_gc_allocate` consumes a previous reservation and cannot collect.
+The delay-variable helper reserves its variable and timer together.
+It initializes both records before another collection can occur.
+The `AIHC_GC_STRESS` test option forces collection at each explicit runtime reservation.
+It does not permit collection inside an allocation that consumes reserved memory.
+GRIN snapshot fixtures select this option with `gc-stress: true`.
+They can specify heap limits through `rts-arguments`.
 
 Each thread record carries the number that identifies the thread. The machine
 holds a counter, and `aihc_thread_new` gives the next number to each new

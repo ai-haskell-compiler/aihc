@@ -21,6 +21,9 @@ enum {
      fields, so it carries a header like every other object, but it never
      moves and holds no heap pointers the collector has to update. */
   AIHC_OBJECT_RUNTIME,
+  AIHC_OBJECT_TRANSACTION,
+  AIHC_OBJECT_TRANSACTION_WRITE,
+  AIHC_OBJECT_TRANSACTION_TIMER,
 };
 typedef uint8_t AihcObjectKind;
 
@@ -28,6 +31,7 @@ typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
 typedef struct AihcTransaction AihcTransaction;
 typedef struct AihcTransactionTimer AihcTransactionTimer;
+typedef struct AihcRootFrame AihcRootFrame;
 typedef struct AihcInfo AihcInfo;
 typedef struct AihcSrt AihcSrt;
 typedef struct AihcThread AihcThread;
@@ -184,7 +188,22 @@ struct AihcMachine {
   uint64_t gc_count;
   uint64_t gc_time_ns;
   AihcTransactionTimer *transaction_timers;
+  AihcRootFrame *root_frames;
 };
+
+/* A frame retains pointer slots across calls that can collect. The caller
+   reloads the slots after the call and removes the frame before return. */
+struct AihcRootFrame {
+  AihcRootFrame *previous;
+  uint64_t count;
+  AihcSlot *slots;
+};
+
+/* Lir reserves three eight-byte slots for this C record on every target. */
+_Static_assert(sizeof(AihcRootFrame) <= 24, "root frame size ABI");
+void aihc_roots_push(AihcMachine *machine, AihcRootFrame *frame, uint64_t count,
+                     AihcSlot *slots);
+void aihc_roots_pop(AihcMachine *machine, AihcRootFrame *frame);
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");

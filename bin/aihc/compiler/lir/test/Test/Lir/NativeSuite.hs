@@ -23,7 +23,7 @@ import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgra
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, evaluate)
 import Control.Monad (forM, forM_, when, (<=<))
-import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.List (sort)
@@ -245,6 +245,8 @@ data SnapshotFixture = SnapshotFixture
     snapshotFixtureHeap :: !(Maybe Text),
     snapshotFixtureError :: !(Maybe Text),
     snapshotFixtureAllocatedBytes :: !(Maybe (Map.Map Text Word64)),
+    snapshotFixtureGcStress :: !Bool,
+    snapshotFixtureRtsArguments :: ![String],
     snapshotFixtureStatus :: !Text
   }
 
@@ -258,6 +260,8 @@ instance FromJSON SnapshotFixture where
         <*> object .:? "heap"
         <*> object .:? "error"
         <*> object .:? "allocated-bytes"
+        <*> object .:? "gc-stress" .!= False
+        <*> object .:? "rts-arguments" .!= []
         <*> object .: "status"
 
 -- | Lower the fixture program through Lir, check the Lir with the linter,
@@ -290,7 +294,7 @@ snapshotTest backend getExports directory name = testCase name $ do
   assertEqual "Lir pretty-printer round-trip" lirModule reparsed
   output <- compileUnit backend lirModule
   when (backendRuns backend) $ do
-    native <- runObservedUnit backend output metadata
+    native <- runObservedUnit backend fixture output metadata
     case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture, native) of
       (Just returnValue, Just heapValue, Nothing, Right snapshot) -> do
         allocatedBytes <- maybe (assertFailure ("fixture has no " <> T.unpack (backendAllocationKey backend) <> " allocated byte count")) pure (snapshotFixtureAllocatedBytes fixture >>= Map.lookup (backendAllocationKey backend))
@@ -303,10 +307,13 @@ snapshotTest backend getExports directory name = testCase name $ do
       (_, _, _, Left message) -> assertFailure ("native snapshot failed: " <> T.unpack message)
       (_, _, _, Right snapshot) -> assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
 
-runObservedUnit :: NativeBackend -> BackendOutput -> Text -> IO (Either Text Text)
-runObservedUnit backend output metadata =
+runObservedUnit :: NativeBackend -> SnapshotFixture -> BackendOutput -> Text -> IO (Either Text Text)
+runObservedUnit backend fixture output metadata =
   withTempDirectory "aihc-lir-snapshot" $ \directory -> do
-    runtimeBuild <- nativeRuntimeBuild backend
+    runtimeBuild <-
+      cachedRuntimeArchive
+        (backendTarget backend)
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> if snapshotFixtureGcStress fixture then ["-DAIHC_GC_STRESS", "-DAIHC_SEMISPACE_BYTES=128"] else [])
     snapshotRuntime <- snapshotSourcePath
     unit <- writeUnit backend directory "snapshot" output
     let metadataPath = directory </> "snapshot_metadata.c"
@@ -322,7 +329,7 @@ runObservedUnit backend output metadata =
         )
         ""
     assertEqual ("clang failed to link the observed program:\n" <> clangErr) ExitSuccess clangExit
-    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath (snapshotFixtureRtsArguments fixture) ""
     case programExit of
       ExitSuccess -> do
         assertEqual "native stderr" "" programErr
