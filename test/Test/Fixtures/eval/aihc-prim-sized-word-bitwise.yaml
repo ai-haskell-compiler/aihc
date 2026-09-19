@@ -1,0 +1,29 @@
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(..))
+    import GHC.Prim
+
+    data Results = Results Int Int Int Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (I# (word2Int# (word8ToWord# (andWord8# (wordToWord8# 0xf0##) (wordToWord8# 0x3c##)))))
+        (I# (word2Int# (word8ToWord# (orWord8# (wordToWord8# 0xf0##) (wordToWord8# 0x0f##)))))
+        (I# (word2Int# (word8ToWord# (xorWord8# (wordToWord8# 0xff##) (wordToWord8# 0x0f##)))))
+        (I# (word2Int# (word16ToWord# (andWord16# (wordToWord16# 0xff00##) (wordToWord16# 0x3c3c##)))))
+        (I# (word2Int# (word16ToWord# (orWord16# (wordToWord16# 0xff00##) (wordToWord16# 0x00ff##)))))
+        (I# (word2Int# (word16ToWord# (xorWord16# (wordToWord16# 0xffff##) (wordToWord16# 0x00ff##)))))
+        (I# (word2Int# (word32ToWord# (andWord32# (wordToWord32# 0xffff0000##) (wordToWord32# 0x3c3c3c3c##)))))
+        (I# (word2Int# (word32ToWord# (orWord32# (wordToWord32# 0xffff0000##) (wordToWord32# 0x0000ffff##)))))
+        (I# (word2Int# (word32ToWord# (xorWord32# (wordToWord32# 0xffffffff##) (wordToWord32# 0x0000ffff##)))))
+output: |
+  Results (I# 48) (I# 255) (I# 240) (I# 15360) (I# 65535) (I# 65280) (I# 1010565120) (I# 4294967295) (I# 4294901760)
+expression: |
+  results
+status: pass
+reason: a bitwise operation on sized words runs at their width and keeps the result unsigned
