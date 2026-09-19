@@ -184,20 +184,47 @@ annotateRecursiveOccurrences binders decls = do
     annotateOccurrence :: (Data b) => Map TcTermKey TypeScheme -> b -> TcM b
     annotateOccurrence schemes value =
       case cast value of
-        Just (EVar name)
-          | Just resolution <- listToMaybe (mapMaybe fromAnnotation (nameAnns name)),
-            resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm -> do
+        Just expr -> do
+          expr' <- annotateExpr schemes expr
+          pure (fromMaybe value (cast expr'))
+        Nothing -> pure value
+
+    -- An infix application and an operator section name the binder in an
+    -- operator field and not in an 'EVar' node. The annotation of such an
+    -- occurrence goes on the name, which is where the desugarer reads the
+    -- instantiation of an operator.
+    annotateExpr schemes expr =
+      case expr of
+        EVar name -> do
+          pending <- occurrencePending schemes name
+          case pending of
+            Nothing -> pure expr
+            Just annotation ->
+              pure $ case mapMaybe fromAnnotation (nameAnns name) of
+                (sp :: SourceSpan) : _ -> EAnn (mkAnnotation sp) (EAnn (mkAnnotation annotation) (EVar name))
+                [] -> EAnn (mkAnnotation annotation) (EVar name)
+        EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
+        ESectionL left operator -> ESectionL left <$> annotateOperator schemes operator
+        ESectionR operator right -> (`ESectionR` right) <$> annotateOperator schemes operator
+        _ -> pure expr
+
+    annotateOperator schemes name = do
+      pending <- occurrencePending schemes name
+      pure $ case pending of
+        Nothing -> name
+        Just annotation -> name {nameAnns = nameAnns name <> [mkAnnotation annotation]}
+
+    occurrencePending schemes name =
+      case listToMaybe (mapMaybe fromAnnotation (nameAnns name)) of
+        Just resolution
+          | resolutionNamespace (resolution :: ResolutionAnnotation) == ResolutionNamespaceTerm -> do
               key <- resolvedTermKey name
               case Map.lookup key schemes of
                 Just (ForAll tyVars predicates body) -> do
                   evidenceVars <- mapM givenEvidence predicates
-                  let pending = pendingAnnotation body (map TcTyVar tyVars) evidenceVars []
-                      annotated = case mapMaybe fromAnnotation (nameAnns name) of
-                        (sp :: SourceSpan) : _ -> EAnn (mkAnnotation sp) (EAnn (mkAnnotation pending) (EVar name))
-                        [] -> EAnn (mkAnnotation pending) (EVar name)
-                  pure (fromMaybe value (cast annotated))
-                Nothing -> pure value
-        _ -> pure value
+                  pure (Just (pendingAnnotation body (map TcTyVar tyVars) evidenceVars []))
+                Nothing -> pure Nothing
+        _ -> pure Nothing
 
     givenEvidence predicate = do
       evidence <- freshEvVar

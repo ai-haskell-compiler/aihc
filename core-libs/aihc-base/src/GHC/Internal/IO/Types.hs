@@ -53,6 +53,8 @@ import Data.Maybe (Maybe (..))
 import Data.Typeable (Typeable)
 import Foreign.C.Types (CInt)
 import GHC.Base (Monad (..), String, id, (.))
+import GHC.Enum (Bounded (..), Enum (..))
+import GHC.Err (errorWithoutStackTrace)
 import GHC.Exception.Type (Exception (..))
 import GHC.IO (FilePath, IO, throwIO)
 import GHC.IO.Buffer (Buffer (..), BufferState (..), CharBufElem, RawBuffer)
@@ -138,6 +140,17 @@ instance Eq SeekMode where
 
 instance Ord SeekMode where
   compare left right = compare (seekModeTag left) (seekModeTag right)
+
+instance Enum SeekMode where
+  fromEnum = seekModeTag
+  toEnum 0 = AbsoluteSeek
+  toEnum 1 = RelativeSeek
+  toEnum 2 = SeekFromEnd
+  toEnum _ = errorWithoutStackTrace "Prelude.Enum.SeekMode.toEnum: bad argument"
+
+instance Bounded SeekMode where
+  minBound = AbsoluteSeek
+  maxBound = SeekFromEnd
 
 instance Show SeekMode where
   showsPrec _ AbsoluteSeek = showString "AbsoluteSeek"

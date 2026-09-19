@@ -2,19 +2,20 @@
 ; Common argument shapes are [], [ptr], and [i64].
 ; The compiler emits other shapes in the module that needs them.
 ; Heap slots have eight bytes on every target.
-; C accessors isolate the pointer-sized info tables and scheduler records.
+; Lir accessors read info tables with pointer-sized offsets.
+; C code transfers scheduler records.
 
 include "aihc_constants.lir"
 
 const @WORD_BITS = 64
 const @WORD_HIGH_BIT = 63
 
-extern func @aihc_lir_info_kind(ptr) -> i64 cc c
-extern func @aihc_lir_info_arity(ptr) -> i64 cc c
-extern func @aihc_lir_info_count(ptr) -> i64 cc c
-extern func @aihc_lir_info_entry(ptr) -> code cc c
-extern func @aihc_lir_info_next(ptr) -> ptr cc c
-extern func @aihc_lir_info_bitmap(ptr) -> ptr cc c
+extern func @aihc_lir_info_kind(ptr) -> i64
+extern func @aihc_lir_info_arity(ptr) -> i64
+extern func @aihc_lir_info_count(ptr) -> i64
+extern func @aihc_lir_info_entry(ptr) -> code
+extern func @aihc_lir_info_next(ptr) -> ptr
+extern func @aihc_lir_info_bitmap(ptr) -> ptr
 extern func @aihc_lir_take_resume(ptr, ptr) cc c
 
 extern func @aihc_apply_slow(ptr, ptr, i64, ptr, ptr) -> ptr cc c

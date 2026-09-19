@@ -32,6 +32,7 @@ library
     native/aihc_constants.lir
     native/aihc_enter.lir
     native/aihc_helpers.lir
+    native/aihc_info.lir
     native/aihc_mutvar.lir
     native/aihc_runtime_options.lir
     native/aihc_stable_name.lir

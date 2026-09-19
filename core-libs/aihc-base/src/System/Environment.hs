@@ -1,20 +1,53 @@
--- | Process argument access. The scoped mutation operations update the same
--- process-global vector observed by every Haskell thread.
+-- | Process argument and environment access. The scoped mutation operations
+-- update the same process-global vector observed by every Haskell thread.
 module System.Environment
   ( getArgs,
     getEnv,
+    getEnvironment,
     getProgName,
+    lookupEnv,
     withArgs,
     withProgName,
   )
 where
 
 import Control.Exception.Base (SomeException, catch, throwIO)
-import GHC.Internal.Environment (getFullArgs, setFullArgs)
+import GHC.IO.Exception (IOErrorType (..), ioError)
+import GHC.Internal.Environment (getFullArgs, getFullEnvironment, setFullArgs)
+import System.IO.Error (mkIOError)
 import Prelude
 
+-- | The value of an environment variable, or 'Nothing' when the process
+-- environment does not name it.
+lookupEnv :: String -> IO (Maybe String)
+lookupEnv name = lookupName <$> getEnvironment
+  where
+    lookupName [] = Nothing
+    lookupName ((entryName, value) : rest)
+      | entryName == name = Just value
+      | otherwise = lookupName rest
+
+-- | The value of an environment variable. The action fails when the process
+-- environment does not name it.
 getEnv :: String -> IO String
-getEnv name = return (error ("System.Environment.getEnv is not available: " ++ name))
+getEnv name = do
+  value <- lookupEnv name
+  case value of
+    Just found -> return found
+    Nothing -> ioError (mkIOError NoSuchThing "getEnv" Nothing (Just name))
+
+-- | Every environment variable of the process, paired with its value.
+getEnvironment :: IO [(String, String)]
+getEnvironment = map splitEntry <$> getFullEnvironment
+
+-- | Split a @NAME=VALUE@ entry. An entry without an equals sign is a name
+-- with an empty value, which is how @System.Posix.Env@ reads one too.
+splitEntry :: String -> (String, String)
+splitEntry = go []
+  where
+    go name [] = (reverseString name, [])
+    go name ('=' : value) = (reverseString name, value)
+    go name (character : rest) = go (character : name) rest
 
 -- | Return every initial or replacement argument after the program name.
 getArgs :: IO [String]

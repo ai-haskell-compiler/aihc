@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+_Static_assert(offsetof(AihcBlackhole, info) == 0,
+               "blackhole info-table prefix");
+
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 24, "machine heap-next ABI");
@@ -80,25 +83,6 @@ _Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 _Static_assert(offsetof(AihcStableName, next) == 24, "stable-name next ABI");
 _Static_assert(sizeof(AihcStableName) == 32, "stable-name size ABI");
 #endif
-
-/* Lir uses these accessors for records whose layout depends on pointer size. */
-uint64_t aihc_lir_info_kind(const AihcInfo *info) { return info->object_kind; }
-
-uint64_t aihc_lir_info_arity(const AihcInfo *info) {
-  return info->remaining_arity;
-}
-
-uint64_t aihc_lir_info_count(const AihcInfo *info) { return info->field_count; }
-
-AihcBackendEntry aihc_lir_info_entry(const AihcInfo *info) {
-  return info->backend_entry;
-}
-
-const AihcInfo *aihc_lir_info_next(const AihcInfo *info) { return info->next; }
-
-const uint8_t *aihc_lir_info_bitmap(const AihcInfo *info) {
-  return info->field_is_pointer;
-}
 
 /* Copy the record to fixed-width slots, then release its object references. */
 void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots) {
@@ -633,26 +617,34 @@ static AihcThread *aihc_dequeue_thread(AihcMachine *machine) {
   return thread;
 }
 
-static AihcBlackhole *aihc_find_blackhole(AihcMachine *machine,
-                                          AihcValue *object) {
-  for (AihcBlackhole *blackhole = machine->blackholes; blackhole != NULL;
-       blackhole = blackhole->next) {
-    if (blackhole->object == object) {
-      return blackhole;
-    }
-  }
+static AihcBlackhole *aihc_new_blackhole(AihcMachine *machine,
+                                         AihcValue *object) {
   AihcBlackhole *blackhole =
       aihc_allocate_auxiliary(machine, sizeof(*blackhole));
   blackhole->object = object;
   blackhole->owner = machine->current_thread;
   blackhole->next = machine->blackholes;
+  if (blackhole->next != NULL) {
+    blackhole->next->previous = blackhole;
+  }
   machine->blackholes = blackhole;
+  return blackhole;
+}
+
+/* The caller has checked the BLACKHOLE kind. The header points to the first
+   member of its scheduler record. The record does not move during collection.
+ */
+static AihcBlackhole *aihc_blackhole_record(AihcValue *object) {
+  AihcBlackhole *blackhole = (AihcBlackhole *)aihc_value_info_table(object);
+  if (blackhole->object != object) {
+    aihc_fail("blackhole scheduler record names a different object");
+  }
   return blackhole;
 }
 
 static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
                                       AihcValue *continuation) {
-  AihcBlackhole *blackhole = aihc_find_blackhole(machine, object);
+  AihcBlackhole *blackhole = aihc_blackhole_record(object);
   if (blackhole->owner == machine->current_thread) {
     aihc_fail("blackholed thunk re-entered");
   }
@@ -670,15 +662,18 @@ static void aihc_add_blackhole_waiter(AihcMachine *machine, AihcValue *object,
 
 static AihcBlackhole *aihc_remove_blackhole(AihcMachine *machine,
                                             AihcValue *object) {
-  AihcBlackhole **link = &machine->blackholes;
-  while (*link != NULL && (*link)->object != object) {
-    link = &(*link)->next;
+  AihcBlackhole *blackhole = aihc_blackhole_record(object);
+  if (blackhole->previous != NULL) {
+    blackhole->previous->next = blackhole->next;
+  } else {
+    if (machine->blackholes != blackhole) {
+      aihc_fail("blackhole scheduler record is not the list head");
+    }
+    machine->blackholes = blackhole->next;
   }
-  if (*link == NULL) {
-    return NULL;
+  if (blackhole->next != NULL) {
+    blackhole->next->previous = blackhole->previous;
   }
-  AihcBlackhole *blackhole = *link;
-  *link = blackhole->next;
   return blackhole;
 }
 
@@ -1168,7 +1163,7 @@ void aihc_begin_blackhole(AihcMachine *machine, AihcValue *value) {
     aihc_fail("attempted to blackhole a non-thunk value");
   }
   const AihcInfo *original_info = aihc_value_info_table(value);
-  AihcBlackhole *blackhole = aihc_find_blackhole(machine, value);
+  AihcBlackhole *blackhole = aihc_new_blackhole(machine, value);
   blackhole->original_info = original_info;
   blackhole->info = *original_info;
   blackhole->info.object_kind = AIHC_OBJECT_BLACKHOLE;
@@ -1226,9 +1221,6 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
     aihc_fail("attempted to update a cell that is not blackholed");
   }
   AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
-  if (blackhole == NULL) {
-    aihc_fail("blackholed object has no scheduler record");
-  }
   aihc_update(object, value);
   AihcBlackholeWaiter *waiter = blackhole->waiters_head;
   while (waiter != NULL) {
@@ -1248,9 +1240,6 @@ static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
     aihc_fail("exception update frame does not contain a blackhole");
   }
   AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
-  if (blackhole == NULL) {
-    aihc_fail("blackholed object has no scheduler record");
-  }
   object->header = (AihcSlot)(uintptr_t)blackhole->original_info;
   AihcBlackholeWaiter *waiter = blackhole->waiters_head;
   while (waiter != NULL) {

@@ -626,7 +626,7 @@ inferRecordUpdate :: Maybe SourceSpan -> Expr -> [RecordField Expr] -> TcM (Expr
 inferRecordUpdate sp record fields = do
   (record', recordTy, recordCts) <- inferExprAt sp record
   zonked <- zonkType recordTy
-  heads <- recordUpdateHeads sp (Just zonked) (map recordFieldLabel fields)
+  heads <- recordUpdateHeads sp (Just zonked) fields
   alts <- mapM updateAlternative heads
   resTy <- freshMetaTv
   (alts', altCts) <- inferCaseAlts sp recordTy resTy alts
@@ -919,17 +919,26 @@ planSpine = go
       continue (StepArg plan) instantiationVariables' [] resultTy frames
 
 -- | The second pass: check each argument and rebuild the nodes.
+--
+-- An infix node has the operator as its head and the two operands as its
+-- first two steps. The rebuild of the node needs the operator and the
+-- checked left operand. The walk therefore keeps them from the step of the
+-- left operand: the function of that step is the head of the spine, thus it
+-- is the operator itself and no annotation hides it. An annotation that the
+-- left operand gets is dropped with its application node, because the infix
+-- node replaces that node. An infix operator has its own type, which a
+-- given never refines, thus the annotation holds no necessary evidence.
 checkSpineSteps :: Expr -> [SpineStep] -> TcM (Expr, [Ct])
-checkSpineSteps = go
+checkSpineSteps = go Nothing
   where
-    go fun [] = pure (fun, [])
-    go fun (step : steps) =
+    go _ fun [] = pure (fun, [])
+    go operand fun (step : steps) =
       case step of
-        StepAnn ann -> go (EAnn ann fun) steps
-        StepParen -> go (EParen fun) steps
-        StepPragma pragma -> go (EPragma pragma fun) steps
+        StepAnn ann -> go operand (EAnn ann fun) steps
+        StepParen -> go operand (EParen fun) steps
+        StepPragma pragma -> go operand (EPragma pragma fun) steps
         StepTypeArg tyArg cts -> do
-          (expr', moreCts) <- go (ETypeApp fun tyArg) steps
+          (expr', moreCts) <- go operand (ETypeApp fun tyArg) steps
           pure (expr', cts <> moreCts)
         StepArg plan -> do
           let sp = argPlanSpan plan
@@ -960,11 +969,14 @@ checkSpineSteps = go
                 pure (annotateExprCast expectedArgTy ev arg', cts <> [eqCt])
           node <-
             if argPlanIsInfixRhs plan
-              then case fun' of
-                EApp (EVar op') lhs' -> pure (EInfix lhs' op' arg')
-                _ -> abortTc "infix operator application lost its operator node"
+              then case operand of
+                Just (op', lhs') -> pure (EInfix lhs' op' arg')
+                Nothing -> abortTc ("infix operator application lost its operator node at " <> show sp)
               else pure (EApp fun' arg')
-          (expr', moreCts) <- go node steps
+          let operand' = case fun of
+                EVar op' -> Just (op', arg')
+                _ -> Nothing
+          (expr', moreCts) <- go operand' node steps
           pure (expr', instantiationCts <> argPlanArrowCts plan <> argCts <> moreCts)
 
 -- | Check an argument against a polytype. The argument is inferred and

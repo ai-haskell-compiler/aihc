@@ -1,0 +1,28 @@
+modules:
+  - |
+    module First (First (..)) where
+
+    data First = First {tag :: Int}
+  - |
+    module Second (Second (Second), other) where
+
+    data Second = Second {tag :: Int, other :: Int}
+  - |
+    module Test where
+
+    import First (First (..))
+    import Second (Second (Second), other)
+
+    start :: First
+    start = First {tag = 1}
+
+    changed :: First
+    changed = bump start
+      where
+        bump record = record {tag = 7}
+output: |
+  I# 7
+expression: |
+  tag changed
+status: pass
+reason: two data types declare the field tag, and only the selector that is in scope selects the data type of the update

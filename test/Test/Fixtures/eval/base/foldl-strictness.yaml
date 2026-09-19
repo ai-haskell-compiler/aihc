@@ -1,0 +1,81 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ErrorCall, evaluate, try)
+    import qualified Data.Foldable as Foldable
+    import qualified Data.List as List
+    import GHC.Exts (RealWorld, State#, realWorld#)
+    import GHC.IO (IO (..))
+    import qualified GHC.List as GHCList
+    import qualified Prelude as P
+    import Prelude
+
+    newtype Values a = Values [a]
+
+    instance Foldable Values where
+      foldr f initial (Values values) = P.foldr f initial values
+
+    type Fold = (Int -> Bool -> Int) -> Int -> [Bool] -> Int
+
+    folds :: [Fold]
+    folds =
+      [ P.foldl',
+        List.foldl',
+        Foldable.foldl',
+        GHCList.foldl',
+        \f initial values -> Foldable.foldl' f initial (Values values)
+      ]
+
+    step :: Int -> Bool -> Int
+    step _ False = error "accumulator"
+    step _ True = 7
+
+    raises :: Int -> IO Bool
+    raises value = do
+      result <- try (evaluate value)
+      pure (isFailure result)
+
+    isFailure :: Either ErrorCall Int -> Bool
+    isFailure (Left _) = True
+    isFailure (Right _) = False
+
+    check :: Fold -> IO Bool
+    check fold = do
+      initial <- raises (fold step (error "initial") [True])
+      intermediate <- raises (fold step 0 [False, True])
+      pure
+        ( initial
+            && intermediate
+            && fold (error "step") 7 [] == 7
+            && fold (\count _ -> count + 1) 0 [error "element", error "element"] == 2
+        )
+
+    hasConstructor :: Maybe Int -> Bool
+    hasConstructor Nothing = False
+    hasConstructor (Just _) = True
+
+    shallow :: [Bool]
+    shallow =
+      [ hasConstructor (Foldable.foldl' (\_ _ -> Just (error "field")) Nothing [False, True]),
+        hasConstructor (GHCList.foldl' (\_ _ -> Just (error "field")) Nothing [False, True]),
+        hasConstructor (Foldable.foldl' (\_ _ -> Just (error "field")) Nothing (Values [False, True]))
+      ]
+
+    checks :: IO Bool
+    checks = do
+      results <- mapM check folds
+      pure (and results && and shallow)
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+output: |
+  True
+expression: |
+  case runIO checks realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: Strict left folds force initial and intermediate accumulators to weak head normal form. Empty folds and unused elements remain lazy.

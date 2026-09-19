@@ -1906,13 +1906,24 @@ binaryPrimitives =
 
 -- | Binary operations whose result is a sized word. The operation runs at
 -- the width of a word and the result keeps only its low bits, which is how
--- a @Word16#@ or @Word32#@ shift wraps.
+-- a @Word16#@ or @Word32#@ shift wraps. The bitwise operations cannot
+-- overflow their width, so for them the truncation only restates the width
+-- their operands already have.
 narrowBinaryPrimitives :: [(Text, (BinaryOp, Type))]
 narrowBinaryPrimitives =
   [ ("uncheckedShiftLWord16#", (Shl, I16)),
     ("uncheckedShiftRLWord16#", (ShrU, I16)),
     ("uncheckedShiftLWord32#", (Shl, I32)),
-    ("uncheckedShiftRLWord32#", (ShrU, I32))
+    ("uncheckedShiftRLWord32#", (ShrU, I32)),
+    ("andWord8#", (And, I8)),
+    ("orWord8#", (Or, I8)),
+    ("xorWord8#", (Xor, I8)),
+    ("andWord16#", (And, I16)),
+    ("orWord16#", (Or, I16)),
+    ("xorWord16#", (Xor, I16)),
+    ("andWord32#", (And, I32)),
+    ("orWord32#", (Or, I32)),
+    ("xorWord32#", (Xor, I32))
   ]
 
 comparisonPrimitives :: [(Text, CompareOp)]

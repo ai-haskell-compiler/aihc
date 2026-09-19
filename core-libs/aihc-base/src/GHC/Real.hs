@@ -13,6 +13,10 @@ module GHC.Real
     gcd,
     lcm,
     numerator,
+    numericEnumFrom,
+    numericEnumFromThen,
+    numericEnumFromThenTo,
+    numericEnumFromTo,
     odd,
     realToFrac,
     (%),
@@ -29,7 +33,8 @@ import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerFromWord#, integerQuotRem, integerToInt#)
 import GHC.Num (Num (..))
 import GHC.Prim
-  ( int16ToInt#,
+  ( Word#,
+    int16ToInt#,
     int32ToInt#,
     int64ToInt#,
     int8ToInt#,
@@ -52,6 +57,7 @@ import GHC.Prim
     wordToWord32#,
     wordToWord64#,
     wordToWord8#,
+    (<#),
     (==#),
   )
 import GHC.Prim.Real (Fractional (..), Ratio (..), Rational)
@@ -148,7 +154,7 @@ instance Integral Word64 where
   mod = rem
   quotRem left right = (quot left right, rem left right)
   divMod left right = (quot left right, rem left right)
-  toInteger (W64# value) = integerFromWord# 1# (word64ToWord# value)
+  toInteger (W64# value) = wordToInteger (word64ToWord# value)
 
 instance Real Word where
   toRational value = Ratio (toInteger value) 1
@@ -160,7 +166,17 @@ instance Integral Word where
   mod = rem
   quotRem left right = (quot left right, rem left right)
   divMod left right = (quot left right, rem left right)
-  toInteger (W# value) = integerFromWord# 1# value
+  toInteger (W# value) = wordToInteger value
+
+-- Keep the small-value path separate from the large Integer allocation.
+-- This lets fromIntegral eliminate the intermediate IS constructor.
+wordToInteger :: Word# -> Integer
+wordToInteger value =
+  case word2Int# value of
+    intValue ->
+      case (<#) intValue 0# of
+        0# -> IS intValue
+        _ -> integerFromWord# 1# value
 
 instance Real Int8 where
   toRational value = Ratio (toInteger value) 1
@@ -525,21 +541,34 @@ base ^^ exponent =
 negativeExponentError :: a
 negativeExponentError = negativeExponentError
 
+-- | The list of every value from the given value, in steps of one.
+numericEnumFrom :: (Fractional a) => a -> [a]
+numericEnumFrom first = first : numericEnumFrom (first + 1)
+
+-- | The list of every value from the first value to the last value, in steps
+-- of one. The last value has a tolerance of one half step, as GHC does.
+numericEnumFromTo :: (Ord a, Fractional a) => a -> a -> [a]
+numericEnumFromTo first = numericEnumFromThenTo first (first + 1)
+
 numericEnumFromThen :: (Fractional a) => a -> a -> [a]
 numericEnumFromThen first second = first : numericEnumFromThen second (second + (second - first))
 
+-- | The list of every value from the first value to the last value, in steps
+-- of the difference of the first two values. The last value has a tolerance of
+-- one half step, as GHC does.
 numericEnumFromThenTo :: (Ord a, Fractional a) => a -> a -> a -> [a]
 numericEnumFromThenTo first second last = go first
   where
     step = second - first
+    limit = last + step / 2
 
     go value =
       case step >= 0 of
         True ->
-          case value <= last of
+          case value <= limit of
             True -> value : go (value + step)
             False -> []
         False ->
-          case value >= last of
+          case value >= limit of
             True -> value : go (value + step)
             False -> []

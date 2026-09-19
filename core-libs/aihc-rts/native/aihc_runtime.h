@@ -189,13 +189,7 @@ struct AihcMachine {
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
 
-/* Portable Lir access to pointer-sized runtime records. */
-uint64_t aihc_lir_info_kind(const AihcInfo *info);
-uint64_t aihc_lir_info_arity(const AihcInfo *info);
-uint64_t aihc_lir_info_count(const AihcInfo *info);
-AihcBackendEntry aihc_lir_info_entry(const AihcInfo *info);
-const AihcInfo *aihc_lir_info_next(const AihcInfo *info);
-const uint8_t *aihc_lir_info_bitmap(const AihcInfo *info);
+/* Transfer a scheduler record to fixed-width Lir slots. */
 void aihc_lir_take_resume(AihcResume *resume, uint64_t *slots);
 
 static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
@@ -287,7 +281,8 @@ void aihc_program_arguments_initialize(int argc, char *const argv[]);
 int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
 /* The runtime settings that come from the environment. The host reads the
    process environment and flattens it like argv; the parser in
-   aihc_runtime_options.lir keeps the AIHC_RTS_STATS value. The WASI P3 host
+   aihc_runtime_options.lir keeps the AIHC_RTS_STATS value, and keeps the
+   flattened buffer itself for lookupEnv and getEnvironment. The WASI P3 host
    reads no environment: see aihc_host_wasip3.c. */
 void aihc_program_environment_initialize(void);
 int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
@@ -295,6 +290,8 @@ int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
    environment names one. The generated main calls this when the machine
    halts, and aihc_exit_process calls it before the process exits. */
 void aihc_runtime_statistics_report(void);
+int64_t aihc_program_environment_size(void);
+int64_t aihc_program_environment_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_size(void);
 int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_replace(const void *buffer, int64_t length);

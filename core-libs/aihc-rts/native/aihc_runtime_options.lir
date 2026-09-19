@@ -17,6 +17,7 @@
 ; The environment arrives the same way: one buffer of NAME=VALUE strings,
 ; each ended by a zero byte. The one recognized variable is AIHC_RTS_STATS,
 ; whose value names the file that receives the runtime statistics on exit.
+; The buffer is kept whole as well, for lookupEnv and getEnvironment.
 ;
 ; The parsed options and the kept arguments live in the globals below, and
 ; the C runtime reads them through the accessor functions, so no C structure
@@ -32,6 +33,10 @@ extern func @aihc_memory_free(ptr) cc c
 ; The kept arguments, and the number of bytes they occupy.
 global @aihc_program_argument_buffer: ptr
 global @aihc_program_argument_bytes: i64
+; The kept environment, and the number of bytes it occupies. The host hands
+; it over once, before the machine starts, and nothing replaces it later.
+global @aihc_program_environment_buffer: ptr
+global @aihc_program_environment_bytes: i64
 ; The RTS options of the process. Every one of them is zero until the host
 ; initializes the arguments, so a program without options gets the defaults.
 global @aihc_rts_option_heap_max_bytes: i64
@@ -275,6 +280,16 @@ accepted:
   return 1
 }
 
+; Make %environment the program environment and release the previous one.
+func @aihc_rts_environment_install(%environment: ptr, %length: i64) {
+entry:
+  %previous = global.get @aihc_program_environment_buffer
+  call @aihc_memory_free(%previous)
+  global.set @aihc_program_environment_buffer, %environment
+  global.set @aihc_program_environment_bytes, %length
+  return
+}
+
 ; Make %arguments the program arguments and release the previous ones.
 func @aihc_rts_install(%arguments: ptr, %length: i64) {
 entry:
@@ -387,6 +402,20 @@ rejected:
   return -1
 
 reset:
+  %no_environment = eq i64 %length, 0
+  br %no_environment, keep_empty, keep_copy
+
+keep_empty:
+  call @aihc_rts_environment_install(null, 0)
+  jump parse
+
+keep_copy:
+  %copy = call @aihc_allocate_zeroed(%length)
+  call @aihc_memory_copy(%copy, %buffer, %length)
+  call @aihc_rts_environment_install(%copy, %length)
+  jump parse
+
+parse:
   call @aihc_rts_set_stats_path(null)
   jump variable(0)
 
@@ -428,6 +457,44 @@ copy:
 
 done:
   return 0
+}
+
+; The size of the kept environment buffer, in bytes.
+export func @aihc_program_environment_size() -> i64 cc c {
+entry:
+  %size = global.get @aihc_program_environment_bytes
+  return %size
+}
+
+; Copy the environment into %buffer when %capacity holds it. The result is
+; the size of the environment either way, or minus one when the buffer is
+; missing or the capacity is negative.
+export func @aihc_program_environment_copy(%buffer: ptr, %capacity: i64) -> i64 cc c {
+entry:
+  %required = global.get @aihc_program_environment_bytes
+  %negative = lt.s i64 %capacity, 0
+  %nonempty = ne i64 %capacity, 0
+  %missing = eq ptr %buffer, null
+  %missing_contents = and i1 %nonempty, %missing
+  %invalid = or i1 %negative, %missing_contents
+  br %invalid, rejected, measure
+
+rejected:
+  return -1
+
+measure:
+  %fits = ge.s i64 %capacity, %required
+  %present = ne i64 %required, 0
+  %copies = and i1 %fits, %present
+  br %copies, transfer, done
+
+transfer:
+  %environment = global.get @aihc_program_environment_buffer
+  call @aihc_memory_copy(%buffer, %environment, %required)
+  jump done
+
+done:
+  return %required
 }
 
 export func @aihc_program_arguments_size() -> i64 cc c {

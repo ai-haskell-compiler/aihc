@@ -216,10 +216,12 @@ static int aihc_posix_prepare(AihcIoRequest *request) {
 }
 
 static int aihc_posix_try_request(AihcIoRequest *request, int64_t *result) {
+  /* A timer that has not expired stays pending, so that every other green
+     thread keeps running while it waits. aihc_posix_poll bounds its wait by
+     the earliest deadline and comes back here to collect the expired ones. */
   if (request->kind == AIHC_IO_TIMER) {
-    uint64_t now = aihc_host_monotonic_ns();
-    if (now < request->deadline) {
-      aihc_host_sleep_ns(request->deadline - now);
+    if (aihc_host_monotonic_ns() < request->deadline) {
+      return 0;
     }
     *result = 1;
     return 1;
@@ -272,22 +274,64 @@ static void aihc_complete_all_io_with_error(AihcMachine *machine, int error) {
   }
 }
 
+/* How long poll may wait: nothing when the caller may not block, the
+   earliest timer deadline when one is pending, and forever otherwise.
+   poll takes whole milliseconds, so the deadline rounds up; a wait that
+   returns early only costs one more round of the scheduler loop. */
+static int aihc_posix_poll_timeout(int may_block, int has_timer,
+                                   uint64_t earliest) {
+  if (!may_block) {
+    return 0;
+  }
+  if (!has_timer) {
+    return -1;
+  }
+  uint64_t now = aihc_host_monotonic_ns();
+  if (earliest <= now) {
+    return 0;
+  }
+  uint64_t milliseconds = (earliest - now + 999999) / 1000000;
+  if (milliseconds > (uint64_t)INT_MAX) {
+    return INT_MAX;
+  }
+  return (int)milliseconds;
+}
+
 static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
   if (machine->io_request_count == 0) {
     return AIHC_IO_POLL_PROGRESS;
   }
-  size_t count = (size_t)machine->io_request_count;
-  struct pollfd *descriptors =
-      aihc_allocate_auxiliary(machine, sizeof(*descriptors) * count);
+  size_t count = 0;
+  int has_timer = 0;
+  uint64_t earliest = UINT64_MAX;
+  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+       request = request->next) {
+    if (request->kind == AIHC_IO_TIMER) {
+      has_timer = 1;
+      if (request->deadline < earliest) {
+        earliest = request->deadline;
+      }
+    } else {
+      ++count;
+    }
+  }
+  /* One slot per request is never fewer than the descriptors need, and the
+     request count is not zero here, so the array is always allocated. */
+  struct pollfd *descriptors = aihc_allocate_auxiliary(
+      machine, sizeof(*descriptors) * (size_t)machine->io_request_count);
   size_t index = 0;
   for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
        request = request->next) {
+    if (request->kind == AIHC_IO_TIMER) {
+      continue;
+    }
     descriptors[index].fd = aihc_posix_descriptor(request->handle);
     descriptors[index].events =
         request->kind == AIHC_IO_READ ? POLLIN : POLLOUT;
     ++index;
   }
-  int ready = poll(descriptors, count, may_block ? -1 : 0);
+  int ready = poll(descriptors, (nfds_t)count,
+                   aihc_posix_poll_timeout(may_block, has_timer, earliest));
   if (ready == -1) {
     int error = errno;
     free(descriptors);
@@ -296,24 +340,24 @@ static AihcIoPollOutcome aihc_posix_poll(AihcMachine *machine, int may_block) {
     }
     return AIHC_IO_POLL_PROGRESS;
   }
-  if (ready == 0) {
-    free(descriptors);
-    return AIHC_IO_POLL_PROGRESS;
-  }
 
   AihcIoRequest **link = &machine->io_requests_head;
   AihcIoRequest *tail = NULL;
   index = 0;
   while (*link != NULL) {
     AihcIoRequest *request = *link;
-    short events = descriptors[index++].revents;
     int64_t result = 0;
     int complete = 0;
-    if ((events & POLLNVAL) != 0) {
-      result = aihc_io_error(EBADF);
-      complete = 1;
-    } else if (events != 0) {
+    if (request->kind == AIHC_IO_TIMER) {
       complete = aihc_posix_try_request(request, &result);
+    } else {
+      short events = descriptors[index++].revents;
+      if ((events & POLLNVAL) != 0) {
+        result = aihc_io_error(EBADF);
+        complete = 1;
+      } else if (events != 0) {
+        complete = aihc_posix_try_request(request, &result);
+      }
     }
     if (complete) {
       *link = request->next;

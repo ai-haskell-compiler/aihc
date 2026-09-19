@@ -154,8 +154,8 @@ data PlanRequest = PlanRequest
     requestWorkspaces :: ![FilePath],
     requestPlatform :: !(OS, Arch),
     requestConstraints :: ![Constraint],
-    -- | Where the lock file lives.
-    requestLockFile :: !FilePath,
+    -- | The local lock file. Hackage targets have no lock file.
+    requestLockFile :: !(Maybe FilePath),
     requestLockMode :: !LockMode,
     requestIndex :: !HackageIndex,
     requestVerbose :: String -> IO ()
@@ -252,43 +252,45 @@ planPackages request = do
 
 -- | Take the plan from a valid lock, or solve and say so.
 solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> IO (Solution, Bool)
-solveWithLock request inputs config = do
-  lock <- readLockFile (requestLockFile request)
-  entries <-
-    case lock of
-      Nothing -> pure Nothing
-      Just (Left problem) -> ioError (userError ("Invalid lock file " <> requestLockFile request <> ": " <> problem))
-      Just (Right file)
-        | lockCompiler file /= compilerName -> do
-            requestVerbose request ("Ignoring " <> requestLockFile request <> ": it was written for " <> lockCompiler file <> ", this compiler is " <> compilerName)
-            pure Nothing
-        | otherwise -> pure (Map.lookup platform (lockPlatforms file))
-  verified <-
-    case entries of
-      Just locked | requestLockMode request /= LockUpdateAll -> Just <$> verifySolution inputs config (lockRecorded locked)
-      _ -> pure Nothing
-  case (requestLockMode request, entries, verified) of
-    (LockLocked, Nothing, _) ->
-      ioError (userError ("No plan for " <> platform <> " in " <> requestLockFile request <> ", and --locked forbids solving"))
-    (LockLocked, Just _, Just (Left problem)) ->
-      ioError (userError ("The lock file " <> requestLockFile request <> " is stale (" <> problem <> "), and --locked forbids solving"))
-    (mode, Just _, Just (Right solution))
-      | mode == LockNormal || mode == LockLocked -> do
-          requestVerbose request ("Plan taken from " <> requestLockFile request)
-          pure (solution, False)
-    (mode, Just locked, _) -> do
-      case verified of
-        Just (Left problem) -> requestVerbose request ("The lock file " <> requestLockFile request <> " is stale: " <> problem)
-        _ -> pure ()
-      let dropped = case mode of
-            LockUpdate names -> Set.fromList (map canonicalPackageName names)
-            _ -> Set.empty
-          dependents = case verified of
-            Just (Right solution) -> transitiveDependents solution dropped
-            _ -> dropped
-          preferences = Map.withoutKeys (lockPreferences locked) dependents
-      runSolve config {configPreferences = if mode == LockUpdateAll then Map.empty else preferences}
-    (_, Nothing, _) -> runSolve config
+solveWithLock request inputs config
+  | Nothing <- requestLockFile request = runSolve config
+  | Just lockPath <- requestLockFile request = do
+      lock <- readLockFile lockPath
+      entries <-
+        case lock of
+          Nothing -> pure Nothing
+          Just (Left problem) -> ioError (userError ("Invalid lock file " <> lockPath <> ": " <> problem))
+          Just (Right file)
+            | lockCompiler file /= compilerName -> do
+                requestVerbose request ("Ignoring " <> lockPath <> ": it was written for " <> lockCompiler file <> ", this compiler is " <> compilerName)
+                pure Nothing
+            | otherwise -> pure (Map.lookup platform (lockPlatforms file))
+      verified <-
+        case entries of
+          Just locked | requestLockMode request /= LockUpdateAll -> Just <$> verifySolution inputs config (lockRecorded locked)
+          _ -> pure Nothing
+      case (requestLockMode request, entries, verified) of
+        (LockLocked, Nothing, _) ->
+          ioError (userError ("No plan for " <> platform <> " in " <> lockPath <> ", and --locked forbids solving"))
+        (LockLocked, Just _, Just (Left problem)) ->
+          ioError (userError ("The lock file " <> lockPath <> " is stale (" <> problem <> "), and --locked forbids solving"))
+        (mode, Just _, Just (Right solution))
+          | mode == LockNormal || mode == LockLocked -> do
+              requestVerbose request ("Plan taken from " <> lockPath)
+              pure (solution, False)
+        (mode, Just locked, _) -> do
+          case verified of
+            Just (Left problem) -> requestVerbose request ("The lock file " <> lockPath <> " is stale: " <> problem)
+            _ -> pure ()
+          let dropped = case mode of
+                LockUpdate names -> Set.fromList (map canonicalPackageName names)
+                _ -> Set.empty
+              dependents = case verified of
+                Just (Right solution) -> transitiveDependents solution dropped
+                _ -> dropped
+              preferences = Map.withoutKeys (lockPreferences locked) dependents
+          runSolve config {configPreferences = if mode == LockUpdateAll then Map.empty else preferences}
+        (_, Nothing, _) -> runSolve config
   where
     platform = uncurry platformKey (requestPlatform request)
     runSolve solverConfig = do
@@ -315,8 +317,8 @@ compilerName :: String
 compilerName = "ghc-" <> releaseVersionText emulatedGhc
 
 writeLock :: PlanRequest -> Solution -> IO ()
-writeLock request solution = do
-  existing <- readLockFile (requestLockFile request)
+writeLock request solution = forM_ (requestLockFile request) $ \lockPath -> do
+  existing <- readLockFile lockPath
   state <- indexState (requestIndex request)
   let otherPlatforms =
         case existing of
@@ -328,8 +330,8 @@ writeLock request solution = do
             lockIndexState = Just (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" (posixSecondsToUTCTime (fromIntegral state))),
             lockPlatforms = Map.insert (uncurry platformKey (requestPlatform request)) (lockEntriesFromSolution solution) otherPlatforms
           }
-  requestVerbose request ("Writing " <> requestLockFile request)
-  writeLockFile (requestLockFile request) lock
+  requestVerbose request ("Writing " <> lockPath)
+  writeLockFile lockPath lock
 
 -- | Every build tool the plan needs must be one the host can run.
 checkBuildTools :: PlanRequest -> SolverInputs IO -> SolverConfig -> Solution -> IO ()

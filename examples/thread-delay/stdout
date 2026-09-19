@@ -1,0 +1,2 @@
+main: delaying
+main: the worker ran while main waited: True

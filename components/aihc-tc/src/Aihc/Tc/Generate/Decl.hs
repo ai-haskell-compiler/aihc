@@ -301,9 +301,16 @@ tcAnnotationBindings origin ann decl =
     Nothing -> []
     Just tcAnn ->
       case decl of
-        DeclValue valueDecl ->
-          [ TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)
-          | (name, displayName) <- valueDeclBindingNames valueDecl
+        DeclValue (FunctionBind binder _) ->
+          let (name, displayName) = binderBindingName binder
+           in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
+        -- The declaration type of a pattern binding is the type of the
+        -- whole pattern, thus each binder must give its own type. The
+        -- binders of @(a, b) = ...@ do not have the type of the pair.
+        DeclValue (PatternBind _ pat _) ->
+          [ TcBindingResult (originTermKey origin name) displayName (fromMaybe (tcAnnType tcAnn) (binderCheckedType binder))
+          | binder <- patternBinderNames pat,
+            let (name, displayName) = binderBindingName binder
           ]
         DeclData dataDecl ->
           let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
@@ -397,14 +404,10 @@ recordSelectorBindings origin declaration =
             Just label <- [maybeLabel]
           ]
 
-valueDeclBindingNames :: ValueDecl -> [(Text, Text)]
-valueDeclBindingNames valueDecl =
-  case valueDecl of
-    FunctionBind binder _ -> [binderBindingName binder]
-    PatternBind _ pat _ -> patternBindingNames pat
-
-patternBindingNames :: Pattern -> [(Text, Text)]
-patternBindingNames = map binderBindingName . patternBinderNames
+-- | The type that the type checker put on a binder, when it has one.
+binderCheckedType :: UnqualifiedName -> Maybe TcType
+binderCheckedType name =
+  tcAnnType <$> listToMaybe (mapMaybe fromAnnotation (unqualifiedNameAnns name))
 
 -- | One data constructor that a declaration binds: a constructor the
 -- source names, or a built-in form such as @(,)@, @(# | _ #)@ or @[]@,

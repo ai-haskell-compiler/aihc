@@ -1,0 +1,56 @@
+; expect: 252, 254, 255, 42, 1, 1, 129, 7
+; runtime-unit: native/aihc_info.lir
+; Runtime accessors read unsigned bytes and pointer-sized fields without C.
+
+data @bitmap align 1 = { bytes "\x81" }
+data @next align 8 = {
+  ptr null, ptr null, ptr null, code null, ptr null,
+  i8 7, i8 0, i8 0, i8 0
+}
+data @info align 8 = {
+  ptr @next, ptr @bitmap, ptr @next, code @entry, ptr @bitmap,
+  i8 255, i8 254, i8 253, i8 252
+}
+data @empty align 8 = {
+  ptr null, ptr null, ptr null, code null, ptr null,
+  i8 0, i8 0, i8 0, i8 0
+}
+
+func @entry() -> i64 {
+entry:
+  return 42
+}
+
+func @main() -> (i64, i64, i64, i64, i1, i1, i64, i64) {
+entry:
+  %kind = call @aihc_lir_info_kind(@info)
+  %arity = call @aihc_lir_info_arity(@info)
+  %count = call @aihc_lir_info_count(@info)
+  %entry = call @aihc_lir_info_entry(@info)
+  %answer = call.indirect %entry() : () -> i64
+  %next = call @aihc_lir_info_next(@info)
+  %bitmap = call @aihc_lir_info_bitmap(@info)
+  %next_matches = eq ptr %next, @next
+  %bitmap_matches = eq ptr %bitmap, @bitmap
+  %pointers_match = and i1 %next_matches, %bitmap_matches
+  %flag = load i8 [%bitmap] align 1
+  %flag_word = zext i8 %flag to i64
+  %next_count = call @aihc_lir_info_count(%next)
+
+  %zero_kind = call @aihc_lir_info_kind(@empty)
+  %zero_arity = call @aihc_lir_info_arity(@empty)
+  %zero_count = call @aihc_lir_info_count(@empty)
+  %zero_kind_arity = or i64 %zero_kind, %zero_arity
+  %zero_bytes = or i64 %zero_kind_arity, %zero_count
+  %bytes_clear = eq i64 %zero_bytes, 0
+  %null_entry = call @aihc_lir_info_entry(@empty)
+  %null_next = call @aihc_lir_info_next(@empty)
+  %null_bitmap = call @aihc_lir_info_bitmap(@empty)
+  %entry_clear = eq code %null_entry, null
+  %next_clear = eq ptr %null_next, null
+  %bitmap_clear = eq ptr %null_bitmap, null
+  %code_and_bytes_clear = and i1 %bytes_clear, %entry_clear
+  %pointers_clear = and i1 %next_clear, %bitmap_clear
+  %all_clear = and i1 %code_and_bytes_clear, %pointers_clear
+  return %kind, %arity, %count, %answer, %pointers_match, %all_clear, %flag_word, %next_count
+}

@@ -1,10 +1,14 @@
 module Main (main) where
 
-import Aihc.Hackage.IndexCache (IndexOptions (..), defaultIndexOptions, newHackageIndex)
+import Aihc.Hackage.Cache (getHackageCacheDir)
+import Aihc.Hackage.Index (scanIndex)
+import Aihc.Hackage.IndexCache (IndexOptions (..), defaultIndexOptions, getIndexCacheDir, indexTableFromScan, newHackageIndex, renderIndexTable)
 import Aihc.PackagePlan
 import Aihc.PackagePlan.Lock
 import Aihc.PackagePlan.Solver
+import Codec.Archive.Tar qualified as Tar
 import Control.Exception (IOException, bracket, try)
+import Control.Monad (forM_)
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.Functor.Identity (Identity (..))
@@ -22,6 +26,7 @@ import Distribution.Types.Version (Version)
 import Distribution.Types.VersionRange (VersionRange, anyVersion)
 import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
@@ -45,6 +50,7 @@ main =
       testCase "verifies a lock against the roots" test_verifiesLock,
       testCase "parses constraint arguments" test_parsesConstraints,
       testCase "plans local packages and honours a lock" test_plansLocalPackages,
+      testCase "package lock fixtures" test_packageLockFixtures,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -473,7 +479,7 @@ test_plansLocalPackages =
               requestWorkspaces = [],
               requestPlatform = (Linux, X86_64),
               requestConstraints = [],
-              requestLockFile = lockFile,
+              requestLockFile = Just lockFile,
               requestLockMode = mode,
               requestIndex = index,
               requestVerbose = const (pure ())
@@ -510,6 +516,60 @@ test_plansLocalPackages =
     -- the same as before and still writes no lock.
     again <- planPackages (request LockNormal)
     assertEqual "the plan after a stale lock" (Map.keys (plannedSolution planned)) (Map.keys (plannedSolution again))
+
+-- | Use package fixtures in an isolated Hackage cache.
+test_packageLockFixtures :: Assertion
+test_packageLockFixtures =
+  withTempDir "aihc-package-lock" $ \directory ->
+    bracket (lookupEnv "XDG_CACHE_HOME") (maybe (unsetEnv "XDG_CACHE_HOME") (setEnv "XDG_CACHE_HOME")) $ \_ -> do
+      setEnv "XDG_CACHE_HOME" directory
+      let fixtures = "test/fixtures/locks"
+      cache <- getHackageCacheDir
+      indexDirectory <- getIndexCacheDir
+      createDirectoryIfMissing True indexDirectory
+      entries <- Tar.pack (fixtures </> "index") ["dep"]
+      let tarball = Tar.write entries
+      BLC.writeFile (indexDirectory </> "01-index.tar") tarball
+      scanned <- either (assertFailure . show) pure (scanIndex tarball)
+      BSC.writeFile (indexDirectory </> "index.txt") (renderIndexTable (indexTableFromScan scanned))
+      let packageDirectory = cache </> "dep-1.0"
+      createDirectoryIfMissing True packageDirectory
+      readFile (fixtures </> "index/dep/1.0/dep.cabal") >>= writeFile (packageDirectory </> "dep.cabal")
+      writeFile (packageDirectory </> ".complete") ""
+      index <- newHackageIndex defaultIndexOptions {indexAllowNetwork = False, indexVerbose = False}
+      let lockFile = directory </> lockFileName
+          request root mode =
+            PlanRequest
+              { requestRoots = [root],
+                requestGoals = [],
+                requestWorkspaces = [],
+                requestPlatform = (Linux, X86_64),
+                requestConstraints = [],
+                requestLockFile = case root of
+                  RootLocal _ -> Just lockFile
+                  RootHackage _ _ -> Nothing,
+                requestLockMode = mode,
+                requestIndex = index,
+                requestVerbose = const (pure ())
+              }
+      forM_ [Nothing, Just (version "1.0")] $ \requestedVersion -> do
+        let hackageRequest = request (RootHackage "dep" requestedVersion) LockNormal
+        planned <- planPackages hackageRequest
+        assertEqual "Hackage root" [PlanHackage] (map planOrigin (plannedRoots planned))
+        exists <- doesFileExist lockFile
+        assertBool "Hackage targets must not create a lock file" (not exists)
+        writeFile lockFile "invalid local lock"
+        forM_ [LockNormal, LockLocked, LockUpdateAll, LockUpdate [mkPackageName "dep"]] $ \mode -> do
+          _ <- planPackages hackageRequest {requestLockMode = mode}
+          contents <- readFile lockFile
+          assertEqual "Hackage targets must preserve the local lock file" "invalid local lock" contents
+        removeFile lockFile
+      let localRequest = request (RootLocal (fixtures </> "local")) LockNormal
+      _ <- planPackages localRequest
+      exists <- doesFileExist lockFile
+      assertBool "local packages with Hackage dependencies need a lock file" exists
+      _ <- planPackages localRequest {requestLockMode = LockLocked}
+      pure ()
 
 -- | A fresh directory under the system temporary directory, removed
 -- afterwards. The temporary file only reserves a unique name.

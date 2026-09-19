@@ -1,5 +1,6 @@
 module Main where
 
+import BlackholeChecks (blackholeChecks)
 import FrozenChecks (frozenChecks)
 import KindOrderChecks (kindOrderChecks)
 import PrimitiveChecks (primitiveChecks)
@@ -11,8 +12,9 @@ import System.IO ()
 
 main :: IO ()
 main = do
+  blackholes <- blackholeChecks
   transactions <- stmChecks
-  if primitiveChecks && transactions && frozenChecks && kindOrderChecks && sumChecks then run else error "primitive check failed"
+  if blackholes && primitiveChecks && transactions && frozenChecks && kindOrderChecks && sumChecks then run else error "primitive check failed"
 
 run :: IO ()
 run = do
