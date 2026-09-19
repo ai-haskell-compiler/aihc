@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | The runtime as one archive outside the store, for the tests that
 -- instrument it or resize its semispace.
@@ -19,6 +20,7 @@ module Aihc.Testing.RuntimeArchive
     RuntimeSources (..),
     runtimeSources,
     runtimeSourceRoot,
+    withFixtureRuntimeUnits,
     buildRuntimeArchive,
     cachedRuntimeArchive,
     releaseCachedRuntimeArchives,
@@ -29,6 +31,7 @@ import Aihc.Cli.Backend (compileLirObject, lirModuleDefinesCode)
 import Aihc.Cli.CompilerHeaders (cabalPlatformForTarget)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Lir.Resolve (loadModule, renderLoadError)
+import Aihc.Lir.Syntax (Module (..))
 import Aihc.Native
   ( NativeTarget (..),
     WasmSysroot (..),
@@ -45,7 +48,9 @@ import Control.Monad (forM)
 import Data.Foldable (traverse_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
+import Data.Text (Text)
+import Data.Text qualified as T
 import System.Directory (removeDirectoryRecursive)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -77,6 +82,15 @@ data RuntimeSources = RuntimeSources
 -- | The directory of the @aihc-rts@ package.
 runtimeSourceRoot :: IO FilePath
 runtimeSourceRoot = coreProviderSourcePath aihcRtsProvider
+
+-- | Add the runtime units that a Lir fixture names with @runtime-unit@ headers.
+-- The interpreter and each backend execute the same runtime source.
+withFixtureRuntimeUnits :: Text -> Module -> IO Module
+withFixtureRuntimeUnits source (Module items) = do
+  units <- forM (mapMaybe (T.stripPrefix "; runtime-unit: ") (T.lines source)) $ \path -> do
+    root <- runtimeSourceRoot
+    either (ioError . userError . renderLoadError) pure =<< loadModule (root </> T.unpack path)
+  pure (Module (items <> concatMap moduleItems units))
 
 -- | Read the sources of the runtime for a target from the Cabal file of
 -- @aihc-rts@, the same way an install reads them.

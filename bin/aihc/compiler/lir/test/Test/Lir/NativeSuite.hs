@@ -19,7 +19,7 @@ import Aihc.Lir.Lower (LowerTarget, lowerEntry, lowerModule)
 import Aihc.Native (NativeTarget (..), executableEntryName)
 import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, UnboxedSums, UnboxedTuples))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
-import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources)
+import Aihc.Testing.RuntimeArchive (RuntimeBuild (..), RuntimeSources (..), cachedRuntimeArchive, runtimeSources, withFixtureRuntimeUnits)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, evaluate)
@@ -135,7 +135,8 @@ fixtureTest :: NativeBackend -> FilePath -> FilePath -> TestTree
 fixtureTest backend directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
   parsed <- either (assertFailure . renderParseError) pure (parseModule source)
-  lirModule <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
+  expanded <- either (assertFailure . renderLoadError) pure =<< expandIncludes TIO.readFile (directory </> name) parsed
+  lirModule <- withFixtureRuntimeUnits source expanded
   let resultTypes = concat [functionResults function | ItemFunction function <- moduleItems lirModule, functionName function == Symbol "main"]
       wrapped = Module (moduleItems lirModule <> [ItemFunction (testWrapper resultTypes)])
   output <- compileUnit backend wrapped

@@ -19,6 +19,7 @@ import Aihc.Lir.RegAlloc
     functionIntervals,
   )
 import Aihc.Lir.Syntax (ExternFunction (..), Function (..), Signature, Symbol, Var (..), functionSignature)
+import Aihc.Testing.RuntimeArchive (withFixtureRuntimeUnits)
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -191,7 +192,8 @@ conventionTests =
 invariantTest :: FilePath -> FilePath -> TestTree
 invariantTest directory name = testCase name $ do
   source <- TIO.readFile (directory </> name)
-  lirModule <- either (assertFailure . renderParseError) pure (parseModule source)
+  parsed <- either (assertFailure . renderParseError) pure (parseModule source)
+  lirModule <- withFixtureRuntimeUnits source parsed
   let signatures = moduleSignatures lirModule
   sequence_
     [ check description (allocate function) function
