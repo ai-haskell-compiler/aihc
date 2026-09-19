@@ -5,6 +5,7 @@ import FrozenChecks (frozenChecks)
 import KindOrderChecks (kindOrderChecks)
 import PrimitiveChecks (primitiveChecks)
 import STMChecks (stmChecks)
+import SumChecks (sumChecks)
 import Message
 import System.Environment (getArgs)
 import System.IO ()
@@ -13,7 +14,7 @@ main :: IO ()
 main = do
   blackholes <- blackholeChecks
   transactions <- stmChecks
-  if blackholes && primitiveChecks && transactions && frozenChecks && kindOrderChecks then run else error "primitive check failed"
+  if blackholes && primitiveChecks && transactions && frozenChecks && kindOrderChecks && sumChecks then run else error "primitive check failed"
 
 run :: IO ()
 run = do

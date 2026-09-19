@@ -44,6 +44,8 @@ extra-source-files:
   test/Test/Fixtures/build/source-directories/Main.hs
   test/Test/Fixtures/build/source-directories/Message.hs
   test/Test/Fixtures/build/source-directories/PrimitiveChecks.hs
+  test/Test/Fixtures/build/source-directories/SumChecks.hs
+  test/Test/Fixtures/build/source-directories/SumProducer.hs
   test/Test/Fixtures/build/workspace/duplicate/System/IO.hs
   test/Test/Fixtures/build/workspace/duplicate/duplicate.cabal
   test/Test/Fixtures/install/c-sources/cbits/helper.c

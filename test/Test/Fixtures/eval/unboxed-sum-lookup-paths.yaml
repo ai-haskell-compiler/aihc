@@ -1,0 +1,61 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+- |
+  module Test where
+  import Prelude
+  import GHC.Prim
+  import GHC.Types (Int (I#))
+  class Eq k => Hashable k where
+    hash :: k -> Int
+  instance Hashable Int where
+    hash _ = 0
+  type Hash = Int
+  type Shift = Int
+  data HashMap k v = Empty | Entry k v (HashMap k v)
+  lookup# :: Hashable k => k -> HashMap k v -> (# (# #) | v #)
+  lookup# _ Empty = (# (# #) | #)
+  lookup# key (Entry candidate value rest) =
+    if key == candidate then (# | value #) else lookup# key rest
+  lookupRecordCollision# :: Eq k => Hash -> k -> HashMap k v -> (# (# #) | (# v, Int# #) #)
+  lookupRecordCollision# _ key entries = go 0# entries
+    where
+      go _ Empty = (# (# #) | #)
+      go index (Entry candidate value rest) =
+        if key == candidate then (# | (# value, index #) #) else go (index +# 1#) rest
+  lookupKeyInSubtree# :: Eq k => Shift -> Hash -> k -> HashMap k v -> (# (# #) | k #)
+  lookupKeyInSubtree# _ _ _ Empty = (# (# #) | #)
+  lookupKeyInSubtree# shift digest key (Entry candidate _ rest) =
+    if key == candidate then (# | candidate #) else lookupKeyInSubtree# shift digest key rest
+  find key entries = case lookup# key entries of
+    (# (# #) | #) -> Nothing
+    (# | value #) -> Just value
+  collision key entries = case lookupRecordCollision# (hash key) key entries of
+    (# (# #) | #) -> Nothing
+    (# | (# value, index #) #) -> Just (value, I# index)
+  findKey key entries = case lookupKeyInSubtree# 0 (hash key) key entries of
+    (# (# #) | #) -> Nothing
+    (# | candidate #) -> Just candidate
+  update key value entries = case lookup# key entries of
+    (# (# #) | #) -> Entry key value entries
+    (# | _ #) -> replace entries
+    where
+      replace Empty = Empty
+      replace (Entry candidate old rest) =
+        if key == candidate
+          then Entry candidate value rest
+          else Entry candidate old (replace rest)
+  entries :: HashMap Int Bool
+  entries = Entry 2 True (Entry 3 False Empty)
+  result = find 2 entries == Just True
+    && find 4 entries == Nothing
+    && collision 3 entries == Just (False, 1)
+    && collision 4 entries == Nothing
+    && findKey 3 entries == Just 3
+    && findKey 4 entries == Nothing
+    && find 3 (update 3 True entries) == Just True
+    && find 4 (update 4 False entries) == Just False
+    && find 2 (update 3 True entries) == Just True
+expression: result
+output: "True"
+status: pass
+reason: The lookup signatures from issue 2178 preserve empty results, values, keys, collision indices, and updates.
