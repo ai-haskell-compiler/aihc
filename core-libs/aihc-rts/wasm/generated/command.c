@@ -5,99 +5,74 @@
 
 // Imported Functions from `wasi:clocks/monotonic-clock@0.3.0`
 
-__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"),
-               __import_name__("now"))) extern int64_t
-__wasm_import_wasi_clocks_monotonic_clock_now(void);
+__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"), __import_name__("now")))
+extern int64_t __wasm_import_wasi_clocks_monotonic_clock_now(void);
 
-__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"),
-               __import_name__("get-resolution"))) extern int64_t
-__wasm_import_wasi_clocks_monotonic_clock_get_resolution(void);
+__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"), __import_name__("get-resolution")))
+extern int64_t __wasm_import_wasi_clocks_monotonic_clock_get_resolution(void);
 
-__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"),
-               __import_name__("[async-lower]wait-until"))) extern int32_t
-__wasm_import_wasi_clocks_monotonic_clock_wait_until(int64_t);
+__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"), __import_name__("[async-lower]wait-until")))
+extern int32_t __wasm_import_wasi_clocks_monotonic_clock_wait_until(int64_t);
 
-__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"),
-               __import_name__("[async-lower]wait-for"))) extern int32_t
-__wasm_import_wasi_clocks_monotonic_clock_wait_for(int64_t);
+__attribute__((__import_module__("wasi:clocks/monotonic-clock@0.3.0"), __import_name__("[async-lower]wait-for")))
+extern int32_t __wasm_import_wasi_clocks_monotonic_clock_wait_for(int64_t);
 
 // Imported Functions from `wasi:cli/environment@0.3.0`
 
-__attribute__((__import_module__("wasi:cli/environment@0.3.0"),
-               __import_name__("get-environment"))) extern void
-__wasm_import_wasi_cli_environment_get_environment(uint8_t *);
+__attribute__((__import_module__("wasi:cli/environment@0.3.0"), __import_name__("get-environment")))
+extern void __wasm_import_wasi_cli_environment_get_environment(uint8_t *);
 
-__attribute__((__import_module__("wasi:cli/environment@0.3.0"),
-               __import_name__("get-arguments"))) extern void
-__wasm_import_wasi_cli_environment_get_arguments(uint8_t *);
+__attribute__((__import_module__("wasi:cli/environment@0.3.0"), __import_name__("get-arguments")))
+extern void __wasm_import_wasi_cli_environment_get_arguments(uint8_t *);
 
-__attribute__((__import_module__("wasi:cli/environment@0.3.0"),
-               __import_name__("get-initial-cwd"))) extern void
-__wasm_import_wasi_cli_environment_get_initial_cwd(uint8_t *);
+__attribute__((__import_module__("wasi:cli/environment@0.3.0"), __import_name__("get-initial-cwd")))
+extern void __wasm_import_wasi_cli_environment_get_initial_cwd(uint8_t *);
 
 // Imported Functions from `wasi:cli/stdin@0.3.0`
 
-__attribute__((__import_module__("wasi:cli/stdin@0.3.0"),
-               __import_name__("read-via-stream"))) extern void
-__wasm_import_wasi_cli_stdin_read_via_stream(uint8_t *);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("read-via-stream")))
+extern void __wasm_import_wasi_cli_stdin_read_via_stream(uint8_t *);
 
 // Imported Functions from `wasi:cli/stdout@0.3.0`
 
-__attribute__((__import_module__("wasi:cli/stdout@0.3.0"),
-               __import_name__("write-via-stream"))) extern int32_t
-__wasm_import_wasi_cli_stdout_write_via_stream(int32_t);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("write-via-stream")))
+extern int32_t __wasm_import_wasi_cli_stdout_write_via_stream(int32_t);
 
 // Imported Functions from `wasi:cli/stderr@0.3.0`
 
-__attribute__((__import_module__("wasi:cli/stderr@0.3.0"),
-               __import_name__("write-via-stream"))) extern int32_t
-__wasm_import_wasi_cli_stderr_write_via_stream(int32_t);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("write-via-stream")))
+extern int32_t __wasm_import_wasi_cli_stderr_write_via_stream(int32_t);
 
 // Imported Functions from `wasi:filesystem/types@0.3.0`
 
-__attribute__((
-    __import_module__("wasi:filesystem/types@0.3.0"),
-    __import_name__("[method]descriptor.read-via-stream"))) extern void
-__wasm_import_wasi_filesystem_types_method_descriptor_read_via_stream(
-    int32_t, int64_t, uint8_t *);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[method]descriptor.read-via-stream")))
+extern void __wasm_import_wasi_filesystem_types_method_descriptor_read_via_stream(int32_t, int64_t, uint8_t *);
 
-__attribute__((
-    __import_module__("wasi:filesystem/types@0.3.0"),
-    __import_name__("[method]descriptor.write-via-stream"))) extern int32_t
-__wasm_import_wasi_filesystem_types_method_descriptor_write_via_stream(int32_t,
-                                                                       int32_t,
-                                                                       int64_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[method]descriptor.write-via-stream")))
+extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_write_via_stream(int32_t, int32_t, int64_t);
 
-__attribute__((
-    __import_module__("wasi:filesystem/types@0.3.0"),
-    __import_name__("[method]descriptor.append-via-stream"))) extern int32_t
-__wasm_import_wasi_filesystem_types_method_descriptor_append_via_stream(
-    int32_t, int32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[method]descriptor.append-via-stream")))
+extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_append_via_stream(int32_t, int32_t);
 
-__attribute__((
-    __import_module__("wasi:filesystem/types@0.3.0"),
-    __import_name__("[async-lower][method]descriptor.open-at"))) extern int32_t
-__wasm_import_wasi_filesystem_types_method_descriptor_open_at(uint8_t *,
-                                                              uint8_t *);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][method]descriptor.open-at")))
+extern int32_t __wasm_import_wasi_filesystem_types_method_descriptor_open_at(uint8_t *, uint8_t *);
 
 // Imported Functions from `wasi:filesystem/preopens@0.3.0`
 
-__attribute__((__import_module__("wasi:filesystem/preopens@0.3.0"),
-               __import_name__("get-directories"))) extern void
-__wasm_import_wasi_filesystem_preopens_get_directories(uint8_t *);
+__attribute__((__import_module__("wasi:filesystem/preopens@0.3.0"), __import_name__("get-directories")))
+extern void __wasm_import_wasi_filesystem_preopens_get_directories(uint8_t *);
 
 // Exported Functions from `wasi:cli/run@0.3.0`
 
+
 // Canonical ABI intrinsics
 
-__attribute__((__weak__, __export_name__("cabi_realloc"))) void *
-cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
-  (void)old_size;
-  if (new_size == 0)
-    return (void *)align;
+__attribute__((__weak__, __export_name__("cabi_realloc")))
+void *cabi_realloc(void *ptr, size_t old_size, size_t align, size_t new_size) {
+  (void) old_size;
+  if (new_size == 0) return (void*) align;
   void *ret = realloc(ptr, new_size);
-  if (!ret)
-    abort();
+  if (!ret) abort();
   return ret;
 }
 
@@ -108,8 +83,7 @@ void command_tuple2_string_string_free(command_tuple2_string_string_t *ptr) {
   command_string_free(&ptr->f1);
 }
 
-void command_list_tuple2_string_string_free(
-    command_list_tuple2_string_string_t *ptr) {
+void command_list_tuple2_string_string_free(command_list_tuple2_string_string_t *ptr) {
   size_t list_len = ptr->len;
   if (list_len > 0) {
     command_tuple2_string_string_t *list_ptr = ptr->ptr;
@@ -137,526 +111,345 @@ void command_option_string_free(command_option_string_t *ptr) {
   }
 }
 
-void wasi_cli_stdin_result_void_error_code_free(
-    wasi_cli_stdin_result_void_error_code_t *ptr) {
+void wasi_cli_stdin_result_void_error_code_free(wasi_cli_stdin_result_void_error_code_t *ptr) {
   if (!ptr->is_err) {
   } else {
   }
 }
 
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[stream-new-0]read-via-stream"))) extern uint64_t
-wasi_cli_stdin_stream_u8__new(void);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__(
-        "[async-lower][stream-read-0]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_stream_u8__read(uint32_t, uint8_t *, size_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__(
-        "[async-lower][stream-write-0]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_stream_u8__write(uint32_t, const uint8_t *, size_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[stream-cancel-read-0]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_stream_u8__cancel_read(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[stream-cancel-write-0]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_stream_u8__cancel_write(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[stream-drop-readable-0]read-via-stream"))) extern void
-wasi_cli_stdin_stream_u8__drop_readable(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[stream-drop-writable-0]read-via-stream"))) extern void
-wasi_cli_stdin_stream_u8__drop_writable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[stream-new-0]read-via-stream")))
+extern uint64_t wasi_cli_stdin_stream_u8__new(void);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[async-lower][stream-read-0]read-via-stream")))
+extern uint32_t wasi_cli_stdin_stream_u8__read(uint32_t, uint8_t*, size_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[async-lower][stream-write-0]read-via-stream")))
+extern uint32_t wasi_cli_stdin_stream_u8__write(uint32_t, const uint8_t*, size_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[stream-cancel-read-0]read-via-stream")))
+extern uint32_t wasi_cli_stdin_stream_u8__cancel_read(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[stream-cancel-write-0]read-via-stream")))
+extern uint32_t wasi_cli_stdin_stream_u8__cancel_write(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[stream-drop-readable-0]read-via-stream")))
+extern void wasi_cli_stdin_stream_u8__drop_readable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[stream-drop-writable-0]read-via-stream")))
+extern void wasi_cli_stdin_stream_u8__drop_writable(uint32_t);
 
-wasi_cli_stdin_stream_u8_t
-wasi_cli_stdin_stream_u8_new(wasi_cli_stdin_stream_u8_writer_t *writer) {
+wasi_cli_stdin_stream_u8_t wasi_cli_stdin_stream_u8_new(wasi_cli_stdin_stream_u8_writer_t *writer) {
   uint64_t packed = wasi_cli_stdin_stream_u8__new();
-  *writer = (uint32_t)(packed >> 32);
-  return (uint32_t)packed;
+  *writer = (uint32_t) (packed >> 32);
+  return (uint32_t) packed;
 }
 
-command_waitable_status_t
-wasi_cli_stdin_stream_u8_read(wasi_cli_stdin_stream_u8_t reader, uint8_t *buf,
-                              size_t amt) {
-  return wasi_cli_stdin_stream_u8__read(reader, (uint8_t *)buf, amt);
+command_waitable_status_t wasi_cli_stdin_stream_u8_read(wasi_cli_stdin_stream_u8_t reader, uint8_t *buf, size_t amt) {
+  return wasi_cli_stdin_stream_u8__read(reader, (uint8_t*) buf, amt);
 }
 
-command_waitable_status_t
-wasi_cli_stdin_stream_u8_write(wasi_cli_stdin_stream_u8_writer_t writer,
-                               const uint8_t *buf, size_t amt) {
-  return wasi_cli_stdin_stream_u8__write(writer, (const uint8_t *)buf, amt);
+command_waitable_status_t wasi_cli_stdin_stream_u8_write(wasi_cli_stdin_stream_u8_writer_t writer, const uint8_t *buf, size_t amt) {
+  return wasi_cli_stdin_stream_u8__write(writer, (const uint8_t*) buf, amt);
 }
 
-command_waitable_status_t
-wasi_cli_stdin_stream_u8_cancel_read(wasi_cli_stdin_stream_u8_t reader) {
+command_waitable_status_t wasi_cli_stdin_stream_u8_cancel_read(wasi_cli_stdin_stream_u8_t reader){
   return wasi_cli_stdin_stream_u8__cancel_read(reader);
 }
 
-command_waitable_status_t wasi_cli_stdin_stream_u8_cancel_write(
-    wasi_cli_stdin_stream_u8_writer_t writer) {
+command_waitable_status_t wasi_cli_stdin_stream_u8_cancel_write(wasi_cli_stdin_stream_u8_writer_t writer) {
   return wasi_cli_stdin_stream_u8__cancel_write(writer);
 }
 
-void wasi_cli_stdin_stream_u8_drop_readable(wasi_cli_stdin_stream_u8_t reader) {
+void wasi_cli_stdin_stream_u8_drop_readable(wasi_cli_stdin_stream_u8_t reader){
   wasi_cli_stdin_stream_u8__drop_readable(reader);
 }
 
-void wasi_cli_stdin_stream_u8_drop_writable(
-    wasi_cli_stdin_stream_u8_writer_t writer) {
+void wasi_cli_stdin_stream_u8_drop_writable(wasi_cli_stdin_stream_u8_writer_t writer) {
   wasi_cli_stdin_stream_u8__drop_writable(writer);
 }
 
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[future-new-1]read-via-stream"))) extern uint64_t
-wasi_cli_stdin_future_result_void_error_code__new(void);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__(
-        "[async-lower][future-read-1]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_future_result_void_error_code__read(uint32_t, uint8_t *);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__(
-        "[async-lower][future-write-1]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_future_result_void_error_code__write(uint32_t, const uint8_t *);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[future-cancel-read-1]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_future_result_void_error_code__cancel_read(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[future-cancel-write-1]read-via-stream"))) extern uint32_t
-wasi_cli_stdin_future_result_void_error_code__cancel_write(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[future-drop-readable-1]read-via-stream"))) extern void
-wasi_cli_stdin_future_result_void_error_code__drop_readable(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdin@0.3.0"),
-    __import_name__("[future-drop-writable-1]read-via-stream"))) extern void
-wasi_cli_stdin_future_result_void_error_code__drop_writable(uint32_t);
 
-wasi_cli_stdin_future_result_void_error_code_t
-wasi_cli_stdin_future_result_void_error_code_new(
-    wasi_cli_stdin_future_result_void_error_code_writer_t *writer) {
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[future-new-1]read-via-stream")))
+extern uint64_t wasi_cli_stdin_future_result_void_error_code__new(void);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[async-lower][future-read-1]read-via-stream")))
+extern uint32_t wasi_cli_stdin_future_result_void_error_code__read(uint32_t, uint8_t*);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[async-lower][future-write-1]read-via-stream")))
+extern uint32_t wasi_cli_stdin_future_result_void_error_code__write(uint32_t, const uint8_t*);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[future-cancel-read-1]read-via-stream")))
+extern uint32_t wasi_cli_stdin_future_result_void_error_code__cancel_read(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[future-cancel-write-1]read-via-stream")))
+extern uint32_t wasi_cli_stdin_future_result_void_error_code__cancel_write(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[future-drop-readable-1]read-via-stream")))
+extern void wasi_cli_stdin_future_result_void_error_code__drop_readable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdin@0.3.0"), __import_name__("[future-drop-writable-1]read-via-stream")))
+extern void wasi_cli_stdin_future_result_void_error_code__drop_writable(uint32_t);
+
+wasi_cli_stdin_future_result_void_error_code_t wasi_cli_stdin_future_result_void_error_code_new(wasi_cli_stdin_future_result_void_error_code_writer_t *writer) {
   uint64_t packed = wasi_cli_stdin_future_result_void_error_code__new();
-  *writer = (uint32_t)(packed >> 32);
-  return (uint32_t)packed;
+  *writer = (uint32_t) (packed >> 32);
+  return (uint32_t) packed;
 }
 
-command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_read(
-    wasi_cli_stdin_future_result_void_error_code_t reader,
-    wasi_cli_stdin_result_void_error_code_t *buf) {
-  return wasi_cli_stdin_future_result_void_error_code__read(reader,
-                                                            (uint8_t *)buf);
+command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_read(wasi_cli_stdin_future_result_void_error_code_t reader, wasi_cli_stdin_result_void_error_code_t *buf) {
+  return wasi_cli_stdin_future_result_void_error_code__read(reader, (uint8_t*) buf);
 }
 
-command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_write(
-    wasi_cli_stdin_future_result_void_error_code_writer_t writer,
-    const wasi_cli_stdin_result_void_error_code_t *buf) {
-  return wasi_cli_stdin_future_result_void_error_code__write(
-      writer, (const uint8_t *)buf);
+command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_write(wasi_cli_stdin_future_result_void_error_code_writer_t writer, const wasi_cli_stdin_result_void_error_code_t *buf) {
+  return wasi_cli_stdin_future_result_void_error_code__write(writer, (const uint8_t*) buf);
 }
 
-command_waitable_status_t
-wasi_cli_stdin_future_result_void_error_code_cancel_read(
-    wasi_cli_stdin_future_result_void_error_code_t reader) {
+command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_cancel_read(wasi_cli_stdin_future_result_void_error_code_t reader){
   return wasi_cli_stdin_future_result_void_error_code__cancel_read(reader);
 }
 
-command_waitable_status_t
-wasi_cli_stdin_future_result_void_error_code_cancel_write(
-    wasi_cli_stdin_future_result_void_error_code_writer_t writer) {
+command_waitable_status_t wasi_cli_stdin_future_result_void_error_code_cancel_write(wasi_cli_stdin_future_result_void_error_code_writer_t writer) {
   return wasi_cli_stdin_future_result_void_error_code__cancel_write(writer);
 }
 
-void wasi_cli_stdin_future_result_void_error_code_drop_readable(
-    wasi_cli_stdin_future_result_void_error_code_t reader) {
+void wasi_cli_stdin_future_result_void_error_code_drop_readable(wasi_cli_stdin_future_result_void_error_code_t reader){
   wasi_cli_stdin_future_result_void_error_code__drop_readable(reader);
 }
 
-void wasi_cli_stdin_future_result_void_error_code_drop_writable(
-    wasi_cli_stdin_future_result_void_error_code_writer_t writer) {
+void wasi_cli_stdin_future_result_void_error_code_drop_writable(wasi_cli_stdin_future_result_void_error_code_writer_t writer) {
   wasi_cli_stdin_future_result_void_error_code__drop_writable(writer);
 }
 
-void wasi_cli_stdout_result_void_error_code_free(
-    wasi_cli_stdout_result_void_error_code_t *ptr) {
+
+void wasi_cli_stdout_result_void_error_code_free(wasi_cli_stdout_result_void_error_code_t *ptr) {
   if (!ptr->is_err) {
   } else {
   }
 }
 
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__("[future-new-1]write-via-stream"))) extern uint64_t
-wasi_cli_stdout_future_result_void_error_code__new(void);
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__(
-        "[async-lower][future-read-1]write-via-stream"))) extern uint32_t
-wasi_cli_stdout_future_result_void_error_code__read(uint32_t, uint8_t *);
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__(
-        "[async-lower][future-write-1]write-via-stream"))) extern uint32_t
-wasi_cli_stdout_future_result_void_error_code__write(uint32_t, const uint8_t *);
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__("[future-cancel-read-1]write-via-stream"))) extern uint32_t
-wasi_cli_stdout_future_result_void_error_code__cancel_read(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__("[future-cancel-write-1]write-via-stream"))) extern uint32_t
-wasi_cli_stdout_future_result_void_error_code__cancel_write(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__("[future-drop-readable-1]write-via-stream"))) extern void
-wasi_cli_stdout_future_result_void_error_code__drop_readable(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stdout@0.3.0"),
-    __import_name__("[future-drop-writable-1]write-via-stream"))) extern void
-wasi_cli_stdout_future_result_void_error_code__drop_writable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[future-new-1]write-via-stream")))
+extern uint64_t wasi_cli_stdout_future_result_void_error_code__new(void);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[async-lower][future-read-1]write-via-stream")))
+extern uint32_t wasi_cli_stdout_future_result_void_error_code__read(uint32_t, uint8_t*);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[async-lower][future-write-1]write-via-stream")))
+extern uint32_t wasi_cli_stdout_future_result_void_error_code__write(uint32_t, const uint8_t*);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[future-cancel-read-1]write-via-stream")))
+extern uint32_t wasi_cli_stdout_future_result_void_error_code__cancel_read(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[future-cancel-write-1]write-via-stream")))
+extern uint32_t wasi_cli_stdout_future_result_void_error_code__cancel_write(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[future-drop-readable-1]write-via-stream")))
+extern void wasi_cli_stdout_future_result_void_error_code__drop_readable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stdout@0.3.0"), __import_name__("[future-drop-writable-1]write-via-stream")))
+extern void wasi_cli_stdout_future_result_void_error_code__drop_writable(uint32_t);
 
-wasi_cli_stdout_future_result_void_error_code_t
-wasi_cli_stdout_future_result_void_error_code_new(
-    wasi_cli_stdout_future_result_void_error_code_writer_t *writer) {
+wasi_cli_stdout_future_result_void_error_code_t wasi_cli_stdout_future_result_void_error_code_new(wasi_cli_stdout_future_result_void_error_code_writer_t *writer) {
   uint64_t packed = wasi_cli_stdout_future_result_void_error_code__new();
-  *writer = (uint32_t)(packed >> 32);
-  return (uint32_t)packed;
+  *writer = (uint32_t) (packed >> 32);
+  return (uint32_t) packed;
 }
 
-command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_read(
-    wasi_cli_stdout_future_result_void_error_code_t reader,
-    wasi_cli_stdout_result_void_error_code_t *buf) {
-  return wasi_cli_stdout_future_result_void_error_code__read(reader,
-                                                             (uint8_t *)buf);
+command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_read(wasi_cli_stdout_future_result_void_error_code_t reader, wasi_cli_stdout_result_void_error_code_t *buf) {
+  return wasi_cli_stdout_future_result_void_error_code__read(reader, (uint8_t*) buf);
 }
 
-command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_write(
-    wasi_cli_stdout_future_result_void_error_code_writer_t writer,
-    const wasi_cli_stdout_result_void_error_code_t *buf) {
-  return wasi_cli_stdout_future_result_void_error_code__write(
-      writer, (const uint8_t *)buf);
+command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_write(wasi_cli_stdout_future_result_void_error_code_writer_t writer, const wasi_cli_stdout_result_void_error_code_t *buf) {
+  return wasi_cli_stdout_future_result_void_error_code__write(writer, (const uint8_t*) buf);
 }
 
-command_waitable_status_t
-wasi_cli_stdout_future_result_void_error_code_cancel_read(
-    wasi_cli_stdout_future_result_void_error_code_t reader) {
+command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_cancel_read(wasi_cli_stdout_future_result_void_error_code_t reader){
   return wasi_cli_stdout_future_result_void_error_code__cancel_read(reader);
 }
 
-command_waitable_status_t
-wasi_cli_stdout_future_result_void_error_code_cancel_write(
-    wasi_cli_stdout_future_result_void_error_code_writer_t writer) {
+command_waitable_status_t wasi_cli_stdout_future_result_void_error_code_cancel_write(wasi_cli_stdout_future_result_void_error_code_writer_t writer) {
   return wasi_cli_stdout_future_result_void_error_code__cancel_write(writer);
 }
 
-void wasi_cli_stdout_future_result_void_error_code_drop_readable(
-    wasi_cli_stdout_future_result_void_error_code_t reader) {
+void wasi_cli_stdout_future_result_void_error_code_drop_readable(wasi_cli_stdout_future_result_void_error_code_t reader){
   wasi_cli_stdout_future_result_void_error_code__drop_readable(reader);
 }
 
-void wasi_cli_stdout_future_result_void_error_code_drop_writable(
-    wasi_cli_stdout_future_result_void_error_code_writer_t writer) {
+void wasi_cli_stdout_future_result_void_error_code_drop_writable(wasi_cli_stdout_future_result_void_error_code_writer_t writer) {
   wasi_cli_stdout_future_result_void_error_code__drop_writable(writer);
 }
 
-void wasi_cli_stderr_result_void_error_code_free(
-    wasi_cli_stderr_result_void_error_code_t *ptr) {
+
+void wasi_cli_stderr_result_void_error_code_free(wasi_cli_stderr_result_void_error_code_t *ptr) {
   if (!ptr->is_err) {
   } else {
   }
 }
 
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__("[future-new-1]write-via-stream"))) extern uint64_t
-wasi_cli_stderr_future_result_void_error_code__new(void);
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__(
-        "[async-lower][future-read-1]write-via-stream"))) extern uint32_t
-wasi_cli_stderr_future_result_void_error_code__read(uint32_t, uint8_t *);
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__(
-        "[async-lower][future-write-1]write-via-stream"))) extern uint32_t
-wasi_cli_stderr_future_result_void_error_code__write(uint32_t, const uint8_t *);
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__("[future-cancel-read-1]write-via-stream"))) extern uint32_t
-wasi_cli_stderr_future_result_void_error_code__cancel_read(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__("[future-cancel-write-1]write-via-stream"))) extern uint32_t
-wasi_cli_stderr_future_result_void_error_code__cancel_write(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__("[future-drop-readable-1]write-via-stream"))) extern void
-wasi_cli_stderr_future_result_void_error_code__drop_readable(uint32_t);
-__attribute__((
-    __import_module__("wasi:cli/stderr@0.3.0"),
-    __import_name__("[future-drop-writable-1]write-via-stream"))) extern void
-wasi_cli_stderr_future_result_void_error_code__drop_writable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[future-new-1]write-via-stream")))
+extern uint64_t wasi_cli_stderr_future_result_void_error_code__new(void);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[async-lower][future-read-1]write-via-stream")))
+extern uint32_t wasi_cli_stderr_future_result_void_error_code__read(uint32_t, uint8_t*);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[async-lower][future-write-1]write-via-stream")))
+extern uint32_t wasi_cli_stderr_future_result_void_error_code__write(uint32_t, const uint8_t*);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[future-cancel-read-1]write-via-stream")))
+extern uint32_t wasi_cli_stderr_future_result_void_error_code__cancel_read(uint32_t);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[future-cancel-write-1]write-via-stream")))
+extern uint32_t wasi_cli_stderr_future_result_void_error_code__cancel_write(uint32_t);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[future-drop-readable-1]write-via-stream")))
+extern void wasi_cli_stderr_future_result_void_error_code__drop_readable(uint32_t);
+__attribute__((__import_module__("wasi:cli/stderr@0.3.0"), __import_name__("[future-drop-writable-1]write-via-stream")))
+extern void wasi_cli_stderr_future_result_void_error_code__drop_writable(uint32_t);
 
-wasi_cli_stderr_future_result_void_error_code_t
-wasi_cli_stderr_future_result_void_error_code_new(
-    wasi_cli_stderr_future_result_void_error_code_writer_t *writer) {
+wasi_cli_stderr_future_result_void_error_code_t wasi_cli_stderr_future_result_void_error_code_new(wasi_cli_stderr_future_result_void_error_code_writer_t *writer) {
   uint64_t packed = wasi_cli_stderr_future_result_void_error_code__new();
-  *writer = (uint32_t)(packed >> 32);
-  return (uint32_t)packed;
+  *writer = (uint32_t) (packed >> 32);
+  return (uint32_t) packed;
 }
 
-command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_read(
-    wasi_cli_stderr_future_result_void_error_code_t reader,
-    wasi_cli_stderr_result_void_error_code_t *buf) {
-  return wasi_cli_stderr_future_result_void_error_code__read(reader,
-                                                             (uint8_t *)buf);
+command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_read(wasi_cli_stderr_future_result_void_error_code_t reader, wasi_cli_stderr_result_void_error_code_t *buf) {
+  return wasi_cli_stderr_future_result_void_error_code__read(reader, (uint8_t*) buf);
 }
 
-command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_write(
-    wasi_cli_stderr_future_result_void_error_code_writer_t writer,
-    const wasi_cli_stderr_result_void_error_code_t *buf) {
-  return wasi_cli_stderr_future_result_void_error_code__write(
-      writer, (const uint8_t *)buf);
+command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_write(wasi_cli_stderr_future_result_void_error_code_writer_t writer, const wasi_cli_stderr_result_void_error_code_t *buf) {
+  return wasi_cli_stderr_future_result_void_error_code__write(writer, (const uint8_t*) buf);
 }
 
-command_waitable_status_t
-wasi_cli_stderr_future_result_void_error_code_cancel_read(
-    wasi_cli_stderr_future_result_void_error_code_t reader) {
+command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_cancel_read(wasi_cli_stderr_future_result_void_error_code_t reader){
   return wasi_cli_stderr_future_result_void_error_code__cancel_read(reader);
 }
 
-command_waitable_status_t
-wasi_cli_stderr_future_result_void_error_code_cancel_write(
-    wasi_cli_stderr_future_result_void_error_code_writer_t writer) {
+command_waitable_status_t wasi_cli_stderr_future_result_void_error_code_cancel_write(wasi_cli_stderr_future_result_void_error_code_writer_t writer) {
   return wasi_cli_stderr_future_result_void_error_code__cancel_write(writer);
 }
 
-void wasi_cli_stderr_future_result_void_error_code_drop_readable(
-    wasi_cli_stderr_future_result_void_error_code_t reader) {
+void wasi_cli_stderr_future_result_void_error_code_drop_readable(wasi_cli_stderr_future_result_void_error_code_t reader){
   wasi_cli_stderr_future_result_void_error_code__drop_readable(reader);
 }
 
-void wasi_cli_stderr_future_result_void_error_code_drop_writable(
-    wasi_cli_stderr_future_result_void_error_code_writer_t writer) {
+void wasi_cli_stderr_future_result_void_error_code_drop_writable(wasi_cli_stderr_future_result_void_error_code_writer_t writer) {
   wasi_cli_stderr_future_result_void_error_code__drop_writable(writer);
 }
 
-void wasi_filesystem_types_error_code_free(
-    wasi_filesystem_types_error_code_t *ptr) {
-  switch ((int32_t)ptr->tag) {
-  case 36: {
-    break;
-  }
+
+void wasi_filesystem_types_error_code_free(wasi_filesystem_types_error_code_t *ptr) {
+  switch ((int32_t) ptr->tag) {
+    case 36: {
+      break;
+    }
   }
 }
 
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[resource-drop]descriptor"))) extern void
-__wasm_import_wasi_filesystem_types_descriptor_drop(int32_t handle);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[resource-drop]descriptor")))
+extern void __wasm_import_wasi_filesystem_types_descriptor_drop(int32_t handle);
 
-void wasi_filesystem_types_descriptor_drop_own(
-    wasi_filesystem_types_own_descriptor_t handle) {
+void wasi_filesystem_types_descriptor_drop_own(wasi_filesystem_types_own_descriptor_t handle) {
   __wasm_import_wasi_filesystem_types_descriptor_drop(handle.__handle);
 }
 
-void wasi_filesystem_types_descriptor_drop_borrow(
-    wasi_filesystem_types_borrow_descriptor_t handle) {
+void wasi_filesystem_types_descriptor_drop_borrow(wasi_filesystem_types_borrow_descriptor_t handle) {
   __wasm_import_wasi_filesystem_types_descriptor_drop(handle.__handle);
 }
 
-wasi_filesystem_types_borrow_descriptor_t
-wasi_filesystem_types_borrow_descriptor(
-    wasi_filesystem_types_own_descriptor_t arg) {
-  return (wasi_filesystem_types_borrow_descriptor_t){arg.__handle};
+wasi_filesystem_types_borrow_descriptor_t wasi_filesystem_types_borrow_descriptor(wasi_filesystem_types_own_descriptor_t arg) {
+  return (wasi_filesystem_types_borrow_descriptor_t) { arg.__handle };
 }
 
-void wasi_filesystem_types_result_void_error_code_free(
-    wasi_filesystem_types_result_void_error_code_t *ptr) {
+void wasi_filesystem_types_result_void_error_code_free(wasi_filesystem_types_result_void_error_code_t *ptr) {
   if (!ptr->is_err) {
   } else {
     wasi_filesystem_types_error_code_free(&ptr->val.err);
   }
 }
 
-void wasi_filesystem_types_result_own_descriptor_error_code_free(
-    wasi_filesystem_types_result_own_descriptor_error_code_t *ptr) {
+void wasi_filesystem_types_result_own_descriptor_error_code_free(wasi_filesystem_types_result_own_descriptor_error_code_t *ptr) {
   if (!ptr->is_err) {
   } else {
     wasi_filesystem_types_error_code_free(&ptr->val.err);
   }
 }
 
-__attribute__((
-    __import_module__("wasi:filesystem/types@0.3.0"),
-    __import_name__(
-        "[stream-new-0][method]descriptor.read-via-stream"))) extern uint64_t
-wasi_filesystem_types_stream_u8__new(void);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[async-lower][stream-read-0][method]descriptor."
-                               "read-via-stream"))) extern uint32_t
-wasi_filesystem_types_stream_u8__read(uint32_t, uint8_t *, size_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[async-lower][stream-write-0][method]"
-                               "descriptor.read-via-stream"))) extern uint32_t
-wasi_filesystem_types_stream_u8__write(uint32_t, const uint8_t *, size_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[stream-cancel-read-0][method]descriptor.read-"
-                               "via-stream"))) extern uint32_t
-wasi_filesystem_types_stream_u8__cancel_read(uint32_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[stream-cancel-write-0][method]descriptor.read-"
-                               "via-stream"))) extern uint32_t
-wasi_filesystem_types_stream_u8__cancel_write(uint32_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[stream-drop-readable-0][method]descriptor."
-                               "read-via-stream"))) extern void
-wasi_filesystem_types_stream_u8__drop_readable(uint32_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[stream-drop-writable-0][method]descriptor."
-                               "read-via-stream"))) extern void
-wasi_filesystem_types_stream_u8__drop_writable(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[stream-new-0][method]descriptor.read-via-stream")))
+extern uint64_t wasi_filesystem_types_stream_u8__new(void);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][stream-read-0][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_stream_u8__read(uint32_t, uint8_t*, size_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][stream-write-0][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_stream_u8__write(uint32_t, const uint8_t*, size_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[stream-cancel-read-0][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_stream_u8__cancel_read(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[stream-cancel-write-0][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_stream_u8__cancel_write(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[stream-drop-readable-0][method]descriptor.read-via-stream")))
+extern void wasi_filesystem_types_stream_u8__drop_readable(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[stream-drop-writable-0][method]descriptor.read-via-stream")))
+extern void wasi_filesystem_types_stream_u8__drop_writable(uint32_t);
 
-wasi_filesystem_types_stream_u8_t wasi_filesystem_types_stream_u8_new(
-    wasi_filesystem_types_stream_u8_writer_t *writer) {
+wasi_filesystem_types_stream_u8_t wasi_filesystem_types_stream_u8_new(wasi_filesystem_types_stream_u8_writer_t *writer) {
   uint64_t packed = wasi_filesystem_types_stream_u8__new();
-  *writer = (uint32_t)(packed >> 32);
-  return (uint32_t)packed;
+  *writer = (uint32_t) (packed >> 32);
+  return (uint32_t) packed;
 }
 
-command_waitable_status_t
-wasi_filesystem_types_stream_u8_read(wasi_filesystem_types_stream_u8_t reader,
-                                     uint8_t *buf, size_t amt) {
-  return wasi_filesystem_types_stream_u8__read(reader, (uint8_t *)buf, amt);
+command_waitable_status_t wasi_filesystem_types_stream_u8_read(wasi_filesystem_types_stream_u8_t reader, uint8_t *buf, size_t amt) {
+  return wasi_filesystem_types_stream_u8__read(reader, (uint8_t*) buf, amt);
 }
 
-command_waitable_status_t wasi_filesystem_types_stream_u8_write(
-    wasi_filesystem_types_stream_u8_writer_t writer, const uint8_t *buf,
-    size_t amt) {
-  return wasi_filesystem_types_stream_u8__write(writer, (const uint8_t *)buf,
-                                                amt);
+command_waitable_status_t wasi_filesystem_types_stream_u8_write(wasi_filesystem_types_stream_u8_writer_t writer, const uint8_t *buf, size_t amt) {
+  return wasi_filesystem_types_stream_u8__write(writer, (const uint8_t*) buf, amt);
 }
 
-command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_read(
-    wasi_filesystem_types_stream_u8_t reader) {
+command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_read(wasi_filesystem_types_stream_u8_t reader){
   return wasi_filesystem_types_stream_u8__cancel_read(reader);
 }
 
-command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_write(
-    wasi_filesystem_types_stream_u8_writer_t writer) {
+command_waitable_status_t wasi_filesystem_types_stream_u8_cancel_write(wasi_filesystem_types_stream_u8_writer_t writer) {
   return wasi_filesystem_types_stream_u8__cancel_write(writer);
 }
 
-void wasi_filesystem_types_stream_u8_drop_readable(
-    wasi_filesystem_types_stream_u8_t reader) {
+void wasi_filesystem_types_stream_u8_drop_readable(wasi_filesystem_types_stream_u8_t reader){
   wasi_filesystem_types_stream_u8__drop_readable(reader);
 }
 
-void wasi_filesystem_types_stream_u8_drop_writable(
-    wasi_filesystem_types_stream_u8_writer_t writer) {
+void wasi_filesystem_types_stream_u8_drop_writable(wasi_filesystem_types_stream_u8_writer_t writer) {
   wasi_filesystem_types_stream_u8__drop_writable(writer);
 }
 
-__attribute__((
-    __import_module__("wasi:filesystem/types@0.3.0"),
-    __import_name__(
-        "[future-new-1][method]descriptor.read-via-stream"))) extern uint64_t
-wasi_filesystem_types_future_result_void_error_code__new(void);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[async-lower][future-read-1][method]descriptor."
-                               "read-via-stream"))) extern uint32_t
-wasi_filesystem_types_future_result_void_error_code__read(uint32_t, uint8_t *);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[async-lower][future-write-1][method]"
-                               "descriptor.read-via-stream"))) extern uint32_t
-wasi_filesystem_types_future_result_void_error_code__write(uint32_t,
-                                                           const uint8_t *);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[future-cancel-read-1][method]descriptor.read-"
-                               "via-stream"))) extern uint32_t
-wasi_filesystem_types_future_result_void_error_code__cancel_read(uint32_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[future-cancel-write-1][method]descriptor.read-"
-                               "via-stream"))) extern uint32_t
-wasi_filesystem_types_future_result_void_error_code__cancel_write(uint32_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[future-drop-readable-1][method]descriptor."
-                               "read-via-stream"))) extern void
-wasi_filesystem_types_future_result_void_error_code__drop_readable(uint32_t);
-__attribute__((__import_module__("wasi:filesystem/types@0.3.0"),
-               __import_name__("[future-drop-writable-1][method]descriptor."
-                               "read-via-stream"))) extern void
-wasi_filesystem_types_future_result_void_error_code__drop_writable(uint32_t);
 
-wasi_filesystem_types_future_result_void_error_code_t
-wasi_filesystem_types_future_result_void_error_code_new(
-    wasi_filesystem_types_future_result_void_error_code_writer_t *writer) {
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[future-new-1][method]descriptor.read-via-stream")))
+extern uint64_t wasi_filesystem_types_future_result_void_error_code__new(void);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][future-read-1][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_future_result_void_error_code__read(uint32_t, uint8_t*);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[async-lower][future-write-1][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_future_result_void_error_code__write(uint32_t, const uint8_t*);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[future-cancel-read-1][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_future_result_void_error_code__cancel_read(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[future-cancel-write-1][method]descriptor.read-via-stream")))
+extern uint32_t wasi_filesystem_types_future_result_void_error_code__cancel_write(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[future-drop-readable-1][method]descriptor.read-via-stream")))
+extern void wasi_filesystem_types_future_result_void_error_code__drop_readable(uint32_t);
+__attribute__((__import_module__("wasi:filesystem/types@0.3.0"), __import_name__("[future-drop-writable-1][method]descriptor.read-via-stream")))
+extern void wasi_filesystem_types_future_result_void_error_code__drop_writable(uint32_t);
+
+wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_future_result_void_error_code_new(wasi_filesystem_types_future_result_void_error_code_writer_t *writer) {
   uint64_t packed = wasi_filesystem_types_future_result_void_error_code__new();
-  *writer = (uint32_t)(packed >> 32);
-  return (uint32_t)packed;
+  *writer = (uint32_t) (packed >> 32);
+  return (uint32_t) packed;
 }
 
-command_waitable_status_t
-wasi_filesystem_types_future_result_void_error_code_read(
-    wasi_filesystem_types_future_result_void_error_code_t reader,
-    wasi_filesystem_types_result_void_error_code_t *buf) {
-  return wasi_filesystem_types_future_result_void_error_code__read(
-      reader, (uint8_t *)buf);
+command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_read(wasi_filesystem_types_future_result_void_error_code_t reader, wasi_filesystem_types_result_void_error_code_t *buf) {
+  return wasi_filesystem_types_future_result_void_error_code__read(reader, (uint8_t*) buf);
 }
 
-command_waitable_status_t
-wasi_filesystem_types_future_result_void_error_code_write(
-    wasi_filesystem_types_future_result_void_error_code_writer_t writer,
-    const wasi_filesystem_types_result_void_error_code_t *buf) {
-  return wasi_filesystem_types_future_result_void_error_code__write(
-      writer, (const uint8_t *)buf);
+command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_write(wasi_filesystem_types_future_result_void_error_code_writer_t writer, const wasi_filesystem_types_result_void_error_code_t *buf) {
+  return wasi_filesystem_types_future_result_void_error_code__write(writer, (const uint8_t*) buf);
 }
 
-command_waitable_status_t
-wasi_filesystem_types_future_result_void_error_code_cancel_read(
-    wasi_filesystem_types_future_result_void_error_code_t reader) {
-  return wasi_filesystem_types_future_result_void_error_code__cancel_read(
-      reader);
+command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_cancel_read(wasi_filesystem_types_future_result_void_error_code_t reader){
+  return wasi_filesystem_types_future_result_void_error_code__cancel_read(reader);
 }
 
-command_waitable_status_t
-wasi_filesystem_types_future_result_void_error_code_cancel_write(
-    wasi_filesystem_types_future_result_void_error_code_writer_t writer) {
-  return wasi_filesystem_types_future_result_void_error_code__cancel_write(
-      writer);
+command_waitable_status_t wasi_filesystem_types_future_result_void_error_code_cancel_write(wasi_filesystem_types_future_result_void_error_code_writer_t writer) {
+  return wasi_filesystem_types_future_result_void_error_code__cancel_write(writer);
 }
 
-void wasi_filesystem_types_future_result_void_error_code_drop_readable(
-    wasi_filesystem_types_future_result_void_error_code_t reader) {
+void wasi_filesystem_types_future_result_void_error_code_drop_readable(wasi_filesystem_types_future_result_void_error_code_t reader){
   wasi_filesystem_types_future_result_void_error_code__drop_readable(reader);
 }
 
-void wasi_filesystem_types_future_result_void_error_code_drop_writable(
-    wasi_filesystem_types_future_result_void_error_code_writer_t writer) {
+void wasi_filesystem_types_future_result_void_error_code_drop_writable(wasi_filesystem_types_future_result_void_error_code_writer_t writer) {
   wasi_filesystem_types_future_result_void_error_code__drop_writable(writer);
 }
 
-void wasi_filesystem_preopens_tuple2_own_descriptor_string_free(
-    wasi_filesystem_preopens_tuple2_own_descriptor_string_t *ptr) {
+
+void wasi_filesystem_preopens_tuple2_own_descriptor_string_free(wasi_filesystem_preopens_tuple2_own_descriptor_string_t *ptr) {
   command_string_free(&ptr->f1);
 }
 
-void wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
-    wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ptr) {
+void wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ptr) {
   size_t list_len = ptr->len;
   if (list_len > 0) {
-    wasi_filesystem_preopens_tuple2_own_descriptor_string_t *list_ptr =
-        ptr->ptr;
+    wasi_filesystem_preopens_tuple2_own_descriptor_string_t *list_ptr = ptr->ptr;
     for (size_t i = 0; i < list_len; i++) {
       wasi_filesystem_preopens_tuple2_own_descriptor_string_free(&list_ptr[i]);
     }
@@ -664,30 +457,24 @@ void wasi_filesystem_preopens_list_tuple2_own_descriptor_string_free(
   }
 }
 
-void exports_wasi_cli_run_result_void_void_free(
-    exports_wasi_cli_run_result_void_void_t *ptr) {
+void exports_wasi_cli_run_result_void_void_free(exports_wasi_cli_run_result_void_void_t *ptr) {
   if (!ptr->is_err) {
   }
 }
 
 __attribute__((__export_name__("[callback][async-lift]wasi:cli/run@0.3.0#run")))
-uint32_t
-__wasm_export_exports_wasi_cli_run_run_callback(uint32_t event_raw,
-                                                uint32_t waitable,
-                                                uint32_t code) {
+uint32_t __wasm_export_exports_wasi_cli_run_run_callback(uint32_t event_raw, uint32_t waitable, uint32_t code) {
   command_event_t event;
-  event.event = (command_event_code_t)event_raw;
+  event.event = (command_event_code_t) event_raw;
   event.waitable = waitable;
   event.code = code;
   return exports_wasi_cli_run_run_callback(&event);
 }
 
-__attribute__((__import_module__("[export]wasi:cli/run@0.3.0"),
-               __import_name__("[task-return]run"))) void
-__wasm_export_exports_wasi_cli_run_run__task_return(int32_t);
+__attribute__((__import_module__("[export]wasi:cli/run@0.3.0"), __import_name__("[task-return]run")))
+void __wasm_export_exports_wasi_cli_run_run__task_return(int32_t);
 
-void exports_wasi_cli_run_run_return(
-    exports_wasi_cli_run_result_void_void_t ret) {
+void exports_wasi_cli_run_run_return(exports_wasi_cli_run_result_void_void_t ret) {
   int32_t result;
   if ((ret).is_err) {
     result = 1;
@@ -698,20 +485,21 @@ void exports_wasi_cli_run_run_return(
   __wasm_export_exports_wasi_cli_run_run__task_return(result);
 }
 
-void command_string_set(command_string_t *ret, const char *s) {
-  ret->ptr = (uint8_t *)s;
+
+void command_string_set(command_string_t *ret, const char*s) {
+  ret->ptr = (uint8_t*) s;
   ret->len = strlen(s);
 }
 
-void command_string_dup(command_string_t *ret, const char *s) {
+void command_string_dup(command_string_t *ret, const char*s) {
   ret->len = strlen(s);
-  ret->ptr = (uint8_t *)cabi_realloc(NULL, 0, 1, ret->len * 1);
+  ret->ptr = (uint8_t*) cabi_realloc(NULL, 0, 1, ret->len * 1);
   memcpy(ret->ptr, s, ret->len * 1);
 }
 
-void command_string_dup_n(command_string_t *ret, const char *s, size_t len) {
+void command_string_dup_n(command_string_t *ret, const char*s, size_t len) {
   ret->len = len;
-  ret->ptr = (uint8_t *)cabi_realloc(NULL, 0, 1, ret->len * 1);
+  ret->ptr = (uint8_t*) cabi_realloc(NULL, 0, 1, ret->len * 1);
   memcpy(ret->ptr, s, ret->len * 1);
 }
 
@@ -725,252 +513,212 @@ void command_string_free(command_string_t *ret) {
 
 // Async Helper Functions
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[subtask-cancel]"))) extern uint32_t
-__subtask_cancel(uint32_t handle);
+__attribute__((__import_module__("$root"), __import_name__("[subtask-cancel]")))
+extern uint32_t __subtask_cancel(uint32_t handle);
 
 command_subtask_status_t command_subtask_cancel(command_subtask_t subtask) {
   return __subtask_cancel(subtask);
 }
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[subtask-drop]"))) extern void
-__subtask_drop(uint32_t handle);
+__attribute__((__import_module__("$root"), __import_name__("[subtask-drop]")))
+extern void __subtask_drop(uint32_t handle);
 
 void command_subtask_drop(command_subtask_t subtask) {
   __subtask_drop(subtask);
 }
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[waitable-set-new]"))) extern uint32_t
-__waitable_set_new(void);
+__attribute__((__import_module__("$root"), __import_name__("[waitable-set-new]")))
+extern uint32_t __waitable_set_new(void);
 
 command_waitable_set_t command_waitable_set_new(void) {
   return __waitable_set_new();
 }
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[waitable-join]"))) extern void
-__waitable_join(uint32_t, uint32_t);
+__attribute__((__import_module__("$root"), __import_name__("[waitable-join]")))
+extern void __waitable_join(uint32_t, uint32_t);
 
 void command_waitable_join(uint32_t waitable, command_waitable_set_t set) {
   __waitable_join(waitable, set);
 }
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[waitable-set-drop]"))) extern void
-__waitable_set_drop(uint32_t);
+__attribute__((__import_module__("$root"), __import_name__("[waitable-set-drop]")))
+extern void __waitable_set_drop(uint32_t);
 
 void command_waitable_set_drop(command_waitable_set_t set) {
   __waitable_set_drop(set);
 }
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[waitable-set-wait]"))) extern uint32_t
-__waitable_set_wait(uint32_t, uint32_t *);
-__attribute__((__import_module__("$root"),
-               __import_name__("[waitable-set-poll]"))) extern uint32_t
-__waitable_set_poll(uint32_t, uint32_t *);
+__attribute__((__import_module__("$root"), __import_name__("[waitable-set-wait]")))
+extern uint32_t __waitable_set_wait(uint32_t, uint32_t*);
+__attribute__((__import_module__("$root"), __import_name__("[waitable-set-poll]")))
+extern uint32_t __waitable_set_poll(uint32_t, uint32_t*);
 
-void command_waitable_set_wait(command_waitable_set_t set,
-                               command_event_t *event) {
-  event->event =
-      (command_event_code_t)__waitable_set_wait(set, &event->waitable);
+void command_waitable_set_wait(command_waitable_set_t set, command_event_t *event) {
+  event->event = (command_event_code_t) __waitable_set_wait(set, &event->waitable);
 }
 
-void command_waitable_set_poll(command_waitable_set_t set,
-                               command_event_t *event) {
-  event->event =
-      (command_event_code_t)__waitable_set_poll(set, &event->waitable);
+void command_waitable_set_poll(command_waitable_set_t set, command_event_t *event) {
+  event->event = (command_event_code_t) __waitable_set_poll(set, &event->waitable);
 }
 
-__attribute__((__import_module__("[export]$root"),
-               __import_name__("[task-cancel]"))) extern void
-__task_cancel(void);
+__attribute__((__import_module__("[export]$root"), __import_name__("[task-cancel]")))
+extern void __task_cancel(void);
 
-void command_task_cancel() { __task_cancel(); }
+void command_task_cancel() {
+  __task_cancel();
+}
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[backpressure-inc]"))) extern void
-__backpressure_inc(void);
+__attribute__((__import_module__("$root"), __import_name__("[backpressure-inc]")))
+extern void __backpressure_inc(void);
 
-void command_backpressure_inc(void) { __backpressure_inc(); }
+void command_backpressure_inc(void) {
+  __backpressure_inc();
+}
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[backpressure-dec]"))) extern void
-__backpressure_dec(void);
+__attribute__((__import_module__("$root"), __import_name__("[backpressure-dec]")))
+extern void __backpressure_dec(void);
 
-void command_backpressure_dec(void) { __backpressure_dec(); }
+void command_backpressure_dec(void) {
+  __backpressure_dec();
+}
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[context-get-0]"))) extern void *
-__context_get_0(void);
+__attribute__((__import_module__("$root"), __import_name__("[context-get-0]")))
+extern void* __context_get_0(void);
 
-void *command_context_get_0(void) { return __context_get_0(); }
+void* command_context_get_0(void) {
+  return __context_get_0();
+}
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[context-set-0]"))) extern void
-__context_set_0(void *);
+__attribute__((__import_module__("$root"), __import_name__("[context-set-0]")))
+extern void __context_set_0(void*);
 
-void command_context_set_0(void *value) { __context_set_0(value); }
 
-__attribute__((__import_module__("$root"),
-               __import_name__("[thread-yield]"))) extern uint32_t
-__thread_yield(void);
+void command_context_set_0(void *value) {
+  __context_set_0(value);
+}
 
-void command_thread_yield(void) { __thread_yield(); }
+__attribute__((__import_module__("$root"), __import_name__("[thread-yield]")))
+extern uint32_t __thread_yield(void);
+
+void command_thread_yield(void) {
+  __thread_yield();
+}
+
+
 
 // Component Adapters
 
 wasi_clocks_monotonic_clock_mark_t wasi_clocks_monotonic_clock_now(void) {
   int64_t ret = __wasm_import_wasi_clocks_monotonic_clock_now();
-  return (uint64_t)(ret);
+  return (uint64_t) (ret);
 }
 
-wasi_clocks_monotonic_clock_duration_t
-wasi_clocks_monotonic_clock_get_resolution(void) {
+wasi_clocks_monotonic_clock_duration_t wasi_clocks_monotonic_clock_get_resolution(void) {
   int64_t ret = __wasm_import_wasi_clocks_monotonic_clock_get_resolution();
-  return (uint64_t)(ret);
+  return (uint64_t) (ret);
 }
 
-command_subtask_status_t wasi_clocks_monotonic_clock_wait_until(
-    wasi_clocks_monotonic_clock_mark_t when) {
-  return __wasm_import_wasi_clocks_monotonic_clock_wait_until((int64_t)(when));
+command_subtask_status_t wasi_clocks_monotonic_clock_wait_until(wasi_clocks_monotonic_clock_mark_t when) {
+  return __wasm_import_wasi_clocks_monotonic_clock_wait_until((int64_t) (when));
 }
 
-command_subtask_status_t wasi_clocks_monotonic_clock_wait_for(
-    wasi_clocks_monotonic_clock_duration_t how_long) {
-  return __wasm_import_wasi_clocks_monotonic_clock_wait_for(
-      (int64_t)(how_long));
+command_subtask_status_t wasi_clocks_monotonic_clock_wait_for(wasi_clocks_monotonic_clock_duration_t how_long) {
+  return __wasm_import_wasi_clocks_monotonic_clock_wait_for((int64_t) (how_long));
 }
 
-void wasi_cli_environment_get_environment(
-    command_list_tuple2_string_string_t *ret) {
-  __attribute__((
-      __aligned__(sizeof(void *)))) uint8_t ret_area[(2 * sizeof(void *))];
-  uint8_t *ptr = (uint8_t *)&ret_area;
+void wasi_cli_environment_get_environment(command_list_tuple2_string_string_t *ret) {
+  __attribute__((__aligned__(sizeof(void*))))
+  uint8_t ret_area[(2*sizeof(void*))];
+  uint8_t *ptr = (uint8_t *) &ret_area;
   __wasm_import_wasi_cli_environment_get_environment(ptr);
-  *ret = (command_list_tuple2_string_string_t){
-      (command_tuple2_string_string_t *)(*((uint8_t **)(ptr + 0))),
-      (*((size_t *)(ptr + sizeof(void *))))};
+  *ret = (command_list_tuple2_string_string_t) { (command_tuple2_string_string_t*)(*((uint8_t **) (ptr + 0))), (*((size_t*) (ptr + sizeof(void*)))) };
 }
 
 void wasi_cli_environment_get_arguments(command_list_string_t *ret) {
-  __attribute__((
-      __aligned__(sizeof(void *)))) uint8_t ret_area[(2 * sizeof(void *))];
-  uint8_t *ptr = (uint8_t *)&ret_area;
+  __attribute__((__aligned__(sizeof(void*))))
+  uint8_t ret_area[(2*sizeof(void*))];
+  uint8_t *ptr = (uint8_t *) &ret_area;
   __wasm_import_wasi_cli_environment_get_arguments(ptr);
-  *ret = (command_list_string_t){(command_string_t *)(*((uint8_t **)(ptr + 0))),
-                                 (*((size_t *)(ptr + sizeof(void *))))};
+  *ret = (command_list_string_t) { (command_string_t*)(*((uint8_t **) (ptr + 0))), (*((size_t*) (ptr + sizeof(void*)))) };
 }
 
 bool wasi_cli_environment_get_initial_cwd(command_string_t *ret) {
-  __attribute__((
-      __aligned__(sizeof(void *)))) uint8_t ret_area[(3 * sizeof(void *))];
-  uint8_t *ptr = (uint8_t *)&ret_area;
+  __attribute__((__aligned__(sizeof(void*))))
+  uint8_t ret_area[(3*sizeof(void*))];
+  uint8_t *ptr = (uint8_t *) &ret_area;
   __wasm_import_wasi_cli_environment_get_initial_cwd(ptr);
   command_option_string_t option;
-  switch ((int32_t)*((uint8_t *)(ptr + 0))) {
-  case 0: {
-    option.is_some = false;
-    break;
-  }
-  case 1: {
-    option.is_some = true;
-    option.val =
-        (command_string_t){(uint8_t *)(*((uint8_t **)(ptr + sizeof(void *)))),
-                           (*((size_t *)(ptr + (2 * sizeof(void *)))))};
-    break;
-  }
+  switch ((int32_t) *((uint8_t*) (ptr + 0))) {
+    case 0: {
+      option.is_some = false;
+      break;
+    }
+    case 1: {
+      option.is_some = true;
+      option.val = (command_string_t) { (uint8_t*)(*((uint8_t **) (ptr + sizeof(void*)))), (*((size_t*) (ptr + (2*sizeof(void*))))) };
+      break;
+    }
   }
   *ret = option.val;
   return option.is_some;
 }
 
-void wasi_cli_stdin_read_via_stream(
-    wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t *ret) {
-  __attribute__((__aligned__(4))) uint8_t ret_area[8];
-  uint8_t *ptr = (uint8_t *)&ret_area;
+void wasi_cli_stdin_read_via_stream(wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t *ret) {
+  __attribute__((__aligned__(4)))
+  uint8_t ret_area[8];
+  uint8_t *ptr = (uint8_t *) &ret_area;
   __wasm_import_wasi_cli_stdin_read_via_stream(ptr);
-  *ret = (wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t){
-      (wasi_cli_stdin_stream_u8_t)((uint32_t)*((int32_t *)(ptr + 0))),
-      (wasi_cli_stdin_future_result_void_error_code_t)((uint32_t)*(
-          (int32_t *)(ptr + 4))),
+  *ret = (wasi_cli_stdin_tuple2_stream_u8_future_result_void_error_code_t) {
+    (wasi_cli_stdin_stream_u8_t) ((uint32_t) *((int32_t*) (ptr + 0))),
+    (wasi_cli_stdin_future_result_void_error_code_t) ((uint32_t) *((int32_t*) (ptr + 4))),
   };
 }
 
-wasi_cli_stdout_future_result_void_error_code_t
-wasi_cli_stdout_write_via_stream(wasi_cli_stdin_stream_u8_t data) {
-  int32_t ret = __wasm_import_wasi_cli_stdout_write_via_stream(((int32_t)data));
-  return ((uint32_t)ret);
+wasi_cli_stdout_future_result_void_error_code_t wasi_cli_stdout_write_via_stream(wasi_cli_stdin_stream_u8_t data) {
+  int32_t ret = __wasm_import_wasi_cli_stdout_write_via_stream(((int32_t) data));
+  return ((uint32_t) ret);
 }
 
-wasi_cli_stderr_future_result_void_error_code_t
-wasi_cli_stderr_write_via_stream(wasi_cli_stdin_stream_u8_t data) {
-  int32_t ret = __wasm_import_wasi_cli_stderr_write_via_stream(((int32_t)data));
-  return ((uint32_t)ret);
+wasi_cli_stderr_future_result_void_error_code_t wasi_cli_stderr_write_via_stream(wasi_cli_stdin_stream_u8_t data) {
+  int32_t ret = __wasm_import_wasi_cli_stderr_write_via_stream(((int32_t) data));
+  return ((uint32_t) ret);
 }
 
-void wasi_filesystem_types_method_descriptor_read_via_stream(
-    wasi_filesystem_types_borrow_descriptor_t self,
-    wasi_filesystem_types_filesize_t offset,
-    wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t
-        *ret) {
-  __attribute__((__aligned__(4))) uint8_t ret_area[8];
-  uint8_t *ptr = (uint8_t *)&ret_area;
-  __wasm_import_wasi_filesystem_types_method_descriptor_read_via_stream(
-      (self).__handle, (int64_t)(offset), ptr);
-  *ret =
-      (wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t){
-          (wasi_filesystem_types_stream_u8_t)((uint32_t)*(
-              (int32_t *)(ptr + 0))),
-          (wasi_filesystem_types_future_result_void_error_code_t)((uint32_t)*(
-              (int32_t *)(ptr + 4))),
-      };
+void wasi_filesystem_types_method_descriptor_read_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_filesize_t offset, wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t *ret) {
+  __attribute__((__aligned__(4)))
+  uint8_t ret_area[8];
+  uint8_t *ptr = (uint8_t *) &ret_area;
+  __wasm_import_wasi_filesystem_types_method_descriptor_read_via_stream((self).__handle, (int64_t) (offset), ptr);
+  *ret = (wasi_filesystem_types_tuple2_stream_u8_future_result_void_error_code_t) {
+    (wasi_filesystem_types_stream_u8_t) ((uint32_t) *((int32_t*) (ptr + 0))),
+    (wasi_filesystem_types_future_result_void_error_code_t) ((uint32_t) *((int32_t*) (ptr + 4))),
+  };
 }
 
-wasi_filesystem_types_future_result_void_error_code_t
-wasi_filesystem_types_method_descriptor_write_via_stream(
-    wasi_filesystem_types_borrow_descriptor_t self,
-    wasi_filesystem_types_stream_u8_t data,
-    wasi_filesystem_types_filesize_t offset) {
-  int32_t ret =
-      __wasm_import_wasi_filesystem_types_method_descriptor_write_via_stream(
-          (self).__handle, ((int32_t)data), (int64_t)(offset));
-  return ((uint32_t)ret);
+wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_write_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data, wasi_filesystem_types_filesize_t offset) {
+  int32_t ret = __wasm_import_wasi_filesystem_types_method_descriptor_write_via_stream((self).__handle, ((int32_t) data), (int64_t) (offset));
+  return ((uint32_t) ret);
 }
 
-wasi_filesystem_types_future_result_void_error_code_t
-wasi_filesystem_types_method_descriptor_append_via_stream(
-    wasi_filesystem_types_borrow_descriptor_t self,
-    wasi_filesystem_types_stream_u8_t data) {
-  int32_t ret =
-      __wasm_import_wasi_filesystem_types_method_descriptor_append_via_stream(
-          (self).__handle, ((int32_t)data));
-  return ((uint32_t)ret);
+wasi_filesystem_types_future_result_void_error_code_t wasi_filesystem_types_method_descriptor_append_via_stream(wasi_filesystem_types_borrow_descriptor_t self, wasi_filesystem_types_stream_u8_t data) {
+  int32_t ret = __wasm_import_wasi_filesystem_types_method_descriptor_append_via_stream((self).__handle, ((int32_t) data));
+  return ((uint32_t) ret);
 }
 
-command_subtask_status_t wasi_filesystem_types_method_descriptor_open_at(
-    wasi_filesystem_types_method_descriptor_open_at_args_t *args,
-    wasi_filesystem_types_result_own_descriptor_error_code_t *result) {
-  return __wasm_import_wasi_filesystem_types_method_descriptor_open_at(
-      (uint8_t *)args, (uint8_t *)result);
+command_subtask_status_t wasi_filesystem_types_method_descriptor_open_at(wasi_filesystem_types_method_descriptor_open_at_args_t *args, wasi_filesystem_types_result_own_descriptor_error_code_t *result) {
+  return __wasm_import_wasi_filesystem_types_method_descriptor_open_at((uint8_t*) args, (uint8_t*) result);
 }
 
-void wasi_filesystem_preopens_get_directories(
-    wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ret) {
-  __attribute__((
-      __aligned__(sizeof(void *)))) uint8_t ret_area[(2 * sizeof(void *))];
-  uint8_t *ptr = (uint8_t *)&ret_area;
+void wasi_filesystem_preopens_get_directories(wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t *ret) {
+  __attribute__((__aligned__(sizeof(void*))))
+  uint8_t ret_area[(2*sizeof(void*))];
+  uint8_t *ptr = (uint8_t *) &ret_area;
   __wasm_import_wasi_filesystem_preopens_get_directories(ptr);
-  *ret = (wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t){
-      (wasi_filesystem_preopens_tuple2_own_descriptor_string_t *)(*(
-          (uint8_t **)(ptr + 0))),
-      (*((size_t *)(ptr + sizeof(void *))))};
+  *ret = (wasi_filesystem_preopens_list_tuple2_own_descriptor_string_t) { (wasi_filesystem_preopens_tuple2_own_descriptor_string_t*)(*((uint8_t **) (ptr + 0))), (*((size_t*) (ptr + sizeof(void*)))) };
 }
 
-__attribute__((__export_name__("[async-lift]wasi:cli/run@0.3.0#run"))) int32_t
-__wasm_export_exports_wasi_cli_run_run(void) {
+__attribute__((__export_name__("[async-lift]wasi:cli/run@0.3.0#run")))
+int32_t __wasm_export_exports_wasi_cli_run_run(void) {
   command_callback_code_t ret = exports_wasi_cli_run_run();
   return ret;
 }
@@ -978,8 +726,7 @@ __wasm_export_exports_wasi_cli_run_run(void) {
 // Ensure that the *_component_type.o object is linked in
 
 extern void __component_type_object_force_link_command(void);
-__attribute__((used)) void
-__component_type_object_force_link_command_public_use_in_this_compilation_unit(
-    void) {
+__attribute__((used))
+void __component_type_object_force_link_command_public_use_in_this_compilation_unit(void) {
   __component_type_object_force_link_command();
 }
