@@ -122,7 +122,7 @@ identityProgram :: Program
 identityProgram =
   Program
     { programScopes = scopes,
-      programImports = Imports mempty mempty mempty mempty,
+      programImports = Imports mempty mempty mempty mempty mempty,
       programDecls =
         [ DeclType
             TypeDecl
@@ -132,8 +132,8 @@ identityProgram =
                 typeResult = TyCon (typeWired "Type"),
                 typeRoles = [],
                 typeCons =
-                  [ ConDecl Pub (dataNameTop "False") (TyCon (typeNameTop "Bool")),
-                    ConDecl Pub (dataNameTop "True") (TyCon (typeNameTop "Bool"))
+                  [ ConDecl Pub (dataNameTop "False") (TyCon (typeNameTop "Bool")) HeapConstructor,
+                    ConDecl Pub (dataNameTop "True") (TyCon (typeNameTop "Bool")) HeapConstructor
                   ]
               },
           DeclVal
@@ -169,7 +169,7 @@ genImports = do
   synonyms <- genMap (synonymNameTop . ("ImportedS" <>) <$> genSuffix) genType
   axioms <- Map.fromList <$> Gen.list (Range.linear 0 5) genImportedAxiom
   binders <- genMap genLocalName genType
-  pure (Imports headers synonyms axioms binders)
+  pure (Imports headers synonyms axioms binders mempty)
   where
     genMap makeName makeValue = Map.fromList <$> Gen.list (Range.linear 0 5) ((,) <$> makeName <*> makeValue)
     genHeaderName = do
@@ -214,6 +214,7 @@ genConDecl typeName =
     <$> genVis
     <*> (dataNameTop . ("C" <>) <$> genSuffix)
     <*> Gen.choice [pure (TyCon typeName), genType]
+    <*> pure HeapConstructor
 
 genSynonymDecl :: Gen SynonymDecl
 genSynonymDecl =
@@ -375,7 +376,7 @@ genTidyProgram = do
   pure
     Program
       { programScopes = scopes,
-        programImports = Imports mempty mempty mempty mempty,
+        programImports = Imports mempty mempty mempty mempty mempty,
         programDecls =
           [ DeclVal
               ValDecl

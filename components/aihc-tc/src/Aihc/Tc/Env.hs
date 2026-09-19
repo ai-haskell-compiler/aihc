@@ -151,6 +151,9 @@ data DataConSourceForm
   | RecordDataCon
   | -- | Built-in syntax such as @(,)@, @(# | #)@ or @[]@.
     SyntaxDataCon
+  | UnboxedTupleDataCon
+  | -- | The one-based alternative and the sum arity.
+    UnboxedSumDataCon !Int !Int
   deriving (Eq, Show, Read, Generic)
 
 instance NFData DataConSourceForm

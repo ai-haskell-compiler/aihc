@@ -31,7 +31,7 @@ expected: |-
     3.cBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
     3.cIntRep :: 3.tRuntimeRep;
     3.cLifted :: 3.tLevity;
-    3.cTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.sLiftedRep a1 (FUN @r2 @(3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). FUN @r1 @3.sLiftedRep a1 (FUN @r2 @(3.cTupleRep (3.c: 3.tRuntimeRep r1 (3.c: 3.tRuntimeRep r2 (3.c[] 3.tRuntimeRep)))) a2 (3.tTuple2# r1 r2 a1 a2));
     3.cTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
     3.c[] :: ∀(a : 3.sType). 3.t[] a
 

@@ -392,7 +392,8 @@ convertHeader convertEnv bindings source =
       declsEnv convertEnv . (: []) =<< convertClass convertEnv info
     HeaderDataCon info -> do
       constructor <- convertConstructor convertEnv info
-      Right (headerOnly (cePrimPackage convertEnv) (conName constructor) (conType constructor))
+      let headers = headerOnly (cePrimPackage convertEnv) (conName constructor) (conType constructor)
+      Right headers {TypeOf.teConRepresentations = Map.fromList [(conName constructor, conRepresentation constructor) | conRepresentation constructor /= HeapConstructor]}
     HeaderSynonym info ->
       declsEnv convertEnv =<< convertSynonym convertEnv info
     HeaderNewtype info ->
@@ -635,7 +636,7 @@ convertClass env info = do
             typeBinders = binders,
             typeResult = result,
             typeRoles = replicate (length binders) Representational,
-            typeCons = [ConDecl vis (classDictConName (ciTyCon info)) constructorType]
+            typeCons = [ConDecl vis (classDictConName (ciTyCon info)) constructorType HeapConstructor]
           }
     )
 
@@ -824,7 +825,8 @@ convertFamilyConstructor bindersEnv bindings package moduleName' representationT
     ConDecl
       { conVis = Private,
         conName = Name constructorName SortDataConstructor (OriginTop package moduleName'),
-        conType = replaced
+        conType = replaced,
+        conRepresentation = HeapConstructor
       }
 
 lookupBindingType :: Map.Map TcTermKey TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
@@ -913,12 +915,18 @@ convertConstructor env info = do
       constructorVis =
         case dciSourceForm info of
           SyntaxDataCon -> Pub
+          UnboxedTupleDataCon -> Pub
+          UnboxedSumDataCon {} -> Pub
           _ -> exportedVis env ResolutionNamespaceTerm (dciName info)
   pure
     ConDecl
       { conVis = constructorVis,
         conName = Name (dciName info) SortDataConstructor (OriginTop package moduleName'),
-        conType = constructorType
+        conType = constructorType,
+        conRepresentation = case dciSourceForm info of
+          UnboxedTupleDataCon -> UnboxedTupleConstructor
+          UnboxedSumDataCon alternative arity -> UnboxedSumConstructor alternative arity
+          _ -> HeapConstructor
       }
 
 constructorFun :: ConvertEnv -> [Maybe TcType] -> [Type] -> TcType -> Type -> Either String Type

@@ -65,7 +65,7 @@ program = do
   imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
   Program scopes imports <$> MP.many declaration
   where
-    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
+    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty Map.empty
 
 importGroup :: Parser [Imports -> Imports]
 importGroup = do
@@ -83,9 +83,16 @@ importEntries entry = entry `MP.sepBy1` symbol ";"
 
 importedHeader :: Parser (Imports -> Imports)
 importedHeader = do
+  representation <- constructorRepresentation
   name <- importedHeaderName
   ty <- symbol "::" *> fcType
-  pure (\imports -> imports {importHeaders = Map.insert name ty (importHeaders imports)})
+  pure
+    ( \imports ->
+        imports
+          { importHeaders = Map.insert name ty (importHeaders imports),
+            importConRepresentations = if representation == HeapConstructor then importConRepresentations imports else Map.insert name representation (importConRepresentations imports)
+          }
+    )
 
 importedSynonym :: Parser (Imports -> Imports)
 importedSynonym = do
@@ -145,7 +152,20 @@ constructorBlock :: Parser [ConDecl]
 constructorBlock = braces (MP.many (constructorDecl <* MP.optional (symbol ";")))
 
 constructorDecl :: Parser ConDecl
-constructorDecl = ConDecl <$> optionalPub <*> topName SortDataConstructor <*> (symbol "::" *> fcType)
+constructorDecl = do
+  vis <- optionalPub
+  representation <- constructorRepresentation
+  name <- topName SortDataConstructor
+  ty <- symbol "::" *> fcType
+  pure (ConDecl vis name ty representation)
+
+constructorRepresentation :: Parser ConRepresentation
+constructorRepresentation =
+  MP.choice
+    [ UnboxedTupleConstructor <$ keyword "unboxed-tuple",
+      keyword "unboxed-sum" *> (UnboxedSumConstructor <$> int <*> int),
+      pure HeapConstructor
+    ]
 
 axiomDeclaration :: Parser Decl
 axiomDeclaration = do

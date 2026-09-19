@@ -21,7 +21,6 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
-import Data.Char (isDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing, listToMaybe, mapMaybe)
@@ -169,7 +168,7 @@ lowerTypeDecl env declaration = do
       let name = Fc.conName constructor
           (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
           constructorEnv = foldl extendTypeBinder env typeBinders
-      if isUnboxedConstructor name
+      if isUnboxedConstructor env name
         then pure []
         else do
           fieldTypes <- liftEither (constructorArgumentTypes monotype)
@@ -710,13 +709,14 @@ lowerApplication env function argument = do
         length arguments == arity ->
           lowerSpecialApplication env resultRep (Fc.nameText name) arguments
     (ResultRep (SumRep representations), (Fc.ExVar name, [payload]))
-      | Just alternative <- unboxedSumAlternative (Fc.nameText name) ->
-          lowerSumApplication env representations alternative payload
+      | Fc.UnboxedSumConstructor alternative arity <- constructorRepresentation env name,
+        arity == length representations ->
+          lowerSumApplication env representations (alternative - 1) payload
     (ResultRep TupleRep {}, (Fc.ExVar name, arguments))
-      | isUnboxedConstructor name -> lowerTupleArguments env arguments
+      | isUnboxedConstructor env name -> lowerTupleArguments env arguments
     (_, (Fc.ExVar name, arguments))
       | resultRep == liftedResultRep,
-        not (isUnboxedConstructor name),
+        not (isUnboxedConstructor env name),
         Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity ->
           lowerConstructorApplication env name (arity - length arguments) arguments
@@ -748,39 +748,16 @@ collectApplications expression = go expression []
     go (Fc.ExCast function _) arguments = go function arguments
     go function arguments = (function, arguments)
 
--- | Whether a constructor name is that of an unboxed tuple or an unboxed sum.
--- Neither constructor allocates a heap node.
--- Primitive sum names contain the arity and the alternative index.
-isUnboxedConstructor :: Fc.Name -> Bool
-isUnboxedConstructor name =
-  case Fc.nameOrigin name of
-    Fc.OriginTop _ "GHC.Types" ->
-      let text = Fc.nameText name
-       in "(#" `T.isPrefixOf` text || isUnboxedTupleName text || isUnboxedSumName text
-    _ -> False
+-- | Constructor semantics come from System FC declarations and imports.
+constructorRepresentation :: LowerEnv -> Fc.Name -> Fc.ConRepresentation
+constructorRepresentation env name =
+  Map.findWithDefault Fc.HeapConstructor name (TypeOf.teConRepresentations (lowerTypes env))
 
-isUnboxedSumName :: Text -> Bool
-isUnboxedSumName name =
-  case T.stripPrefix "Sum" name >>= T.stripSuffix "#" of
-    Just body -> case T.splitOn "_" body of
-      [arity, alternative] -> all (\part -> not (T.null part) && T.all isDigit part) [arity, alternative]
-      _ -> False
-    Nothing -> False
-
-isUnboxedTupleName :: Text -> Bool
-isUnboxedTupleName name =
-  case T.stripPrefix "Tuple" name >>= T.stripSuffix "#" of
-    Just arity -> not (T.null arity) && T.all isDigit arity
-    Nothing -> False
-
-unboxedSumAlternative :: Text -> Maybe Int
-unboxedSumAlternative name
-  | isUnboxedSumName name = do
-      body <- T.stripSuffix "#" name
-      case T.splitOn "_" body of
-        [_, alternative] -> subtract 1 <$> readMaybe (T.unpack alternative)
-        _ -> Nothing
-  | otherwise = Nothing
+isUnboxedConstructor :: LowerEnv -> Fc.Name -> Bool
+isUnboxedConstructor env name = case constructorRepresentation env name of
+  Fc.HeapConstructor -> False
+  Fc.UnboxedTupleConstructor -> True
+  Fc.UnboxedSumConstructor {} -> True
 
 lowerSumApplication :: LowerEnv -> [GrinRep] -> Int -> Fc.Expr -> LowerM GrinExpr
 lowerSumApplication env representations alternative payload = do
@@ -1128,7 +1105,7 @@ lazyNodeShape env expression =
   case collectApplications expression of
     (Fc.ExVar name, arguments)
       | Map.member (Fc.nameText name) specialPrimitiveArities -> pure Nothing
-      | isUnboxedConstructor name -> pure Nothing
+      | isUnboxedConstructor env name -> pure Nothing
       | Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity -> do
           representation <- expressionRuntimeRep env expression
@@ -1271,16 +1248,19 @@ lowerSumAlt env layout slots alternative = do
   let typeEnv = foldl extendTypeBinder env (Fc.altTypeBinders alternative)
   case Fc.altCon alternative of
     Fc.AltDefault -> GrinAlt GrinDefaultAlt [] <$> lowerExpr typeEnv (Fc.altRhs alternative)
-    Fc.AltData name | Just index <- unboxedSumAlternative (Fc.nameText name) -> do
-      positions <- sumAlternative layout index
-      groups <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
-      let variables = concat groups
-          bodyEnv = foldl (\current (field, fields) -> bindLocal current field fields) typeEnv (zip (Fc.altBinders alternative) groups)
-          values = map (GrinVarValue . (slots !!)) positions
-      body <- lowerExpr bodyEnv (Fc.altRhs alternative)
-      converted <- convertSumValues (map grinVarRuntimeRep variables) values $ \fields ->
-        pure (GrinBind variables (GrinConstant fields) body)
-      pure (GrinAlt (GrinLitAlt (GrinLitInt IntRep (toInteger index + 1))) [] converted)
+    Fc.AltData name
+      | Fc.UnboxedSumConstructor ordinal arity <- constructorRepresentation env name,
+        arity == length (sumAlternativeSlots layout) -> do
+          let index = ordinal - 1
+          positions <- sumAlternative layout index
+          groups <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
+          let variables = concat groups
+              bodyEnv = foldl (\current (field, fields) -> bindLocal current field fields) typeEnv (zip (Fc.altBinders alternative) groups)
+              values = map (GrinVarValue . (slots !!)) positions
+          body <- lowerExpr bodyEnv (Fc.altRhs alternative)
+          converted <- convertSumValues (map grinVarRuntimeRep variables) values $ \fields ->
+            pure (GrinBind variables (GrinConstant fields) body)
+          pure (GrinAlt (GrinLitAlt (GrinLitInt IntRep (toInteger index + 1))) [] converted)
     _ -> throwLower "invalid unboxed sum case alternative"
 
 lowerTupleCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [Fc.Alt] -> LowerM GrinExpr

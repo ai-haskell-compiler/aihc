@@ -18,6 +18,7 @@ module Aihc.Fc.Syntax
     Decl (..),
     TypeDecl (..),
     ConDecl (..),
+    ConRepresentation (..),
     SynonymDecl (..),
     AxiomDecl (..),
     ValDecl (..),
@@ -169,7 +170,8 @@ data Imports = Imports
   { importHeaders :: Map Name Type,
     importSynonyms :: Map Name Type,
     importAxioms :: Map Name AxiomDecl,
-    importBinders :: Map Name Type
+    importBinders :: Map Name Type,
+    importConRepresentations :: Map Name ConRepresentation
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
@@ -193,10 +195,20 @@ data TypeDecl = TypeDecl
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 
+-- | Constructor semantics remain independent of the constructor name.
+data ConRepresentation
+  = HeapConstructor
+  | UnboxedTupleConstructor
+  | -- | The one-based alternative and the sum arity.
+    UnboxedSumConstructor Int Int
+  deriving stock (Eq, Ord, Show, Read, Generic)
+  deriving anyclass (NFData)
+
 data ConDecl = ConDecl
   { conVis :: Vis,
     conName :: Name,
-    conType :: Type
+    conType :: Type,
+    conRepresentation :: ConRepresentation
   }
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)

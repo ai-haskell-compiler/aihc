@@ -1,0 +1,13 @@
+scope 1 = "" Test
+scope 2 = "dependency" Dependency
+
+import headers
+  2.tExternal :: 2.tExternal;
+  unboxed-sum 1 2 2.cFirst :: 2.tExternal;
+  unboxed-tuple 2.cPair :: 2.tExternal
+
+type 1.tValue :: 2.tExternal {
+    unboxed-sum 2 2 1.cSecond :: 1.tValue;
+    unboxed-tuple 1.cProduct :: 1.tValue;
+    1.cSum2_1# :: 1.tValue
+}
