@@ -29,6 +29,7 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
   pure . T.unlines $
     [ "#include \"aihc_snapshot.h\"",
       "#include <stddef.h>",
+      "#include <stdlib.h>",
       ""
     ]
       <> map renderFunctionDeclaration functions
@@ -39,6 +40,9 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
       <> renderConstructorTable constructors
       <> renderFunctionTable functions
       <> [ "void aihc_snapshot_dump_result(uint64_t count, const AihcSlot *values, AihcMachine *machine) {",
+           "#ifdef AIHC_SNAPSHOT_REQUIRE_GC",
+           "  if (machine->gc_count == 0) abort();",
+           "#endif",
            "  aihc_snapshot_dump(count, values, " <> pointerOrNull renderedResultReps "result_reps" <> ",",
            "                     aihc_heap_allocated_bytes(machine),",
            "                     " <> tshow (length constructors) <> ", " <> pointerOrNull constructors "constructors" <> ",",
@@ -83,7 +87,7 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
                <> "(uintptr_t)&"
                <> cSymbol (constructorLabel name)
                <> ", "
-               <> cString name
+               <> cString (maybe name snd (grinNameScope name))
                <> ", "
                <> tshow (length reps)
                <> ", "
@@ -112,7 +116,6 @@ renderObservedMetadata unsupportedRep functionLabel constructorLabel cSymbol pro
     snapshotRepName runtimeRep =
       case runtimeRep of
         BoxedRep {} -> pure "AIHC_SNAPSHOT_POINTER"
-        SumRep {} -> pure "AIHC_SNAPSHOT_POINTER"
         IntRep -> pure "AIHC_SNAPSHOT_INT"
         Int8Rep -> pure "AIHC_SNAPSHOT_INT8"
         Int16Rep -> pure "AIHC_SNAPSHOT_INT16"

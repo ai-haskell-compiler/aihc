@@ -659,7 +659,6 @@ isPointerRuntimeRep :: GrinRep -> Bool
 isPointerRuntimeRep runtimeRep =
   case runtimeRep of
     BoxedRep {} -> True
-    SumRep {} -> True
     _ -> False
 
 data GrinForeignCall = GrinForeignCall
